@@ -49,8 +49,12 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
 	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
+	if err := store.SeedDefaults(context.Background(), orgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 

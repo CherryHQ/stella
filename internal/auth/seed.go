@@ -123,8 +123,9 @@ var builtinPolicies = []Policy{
 
 // SeedPolicies ensures the built-in policies exist in the store.
 // It uses an idempotent pattern: existing entries are skipped.
-func SeedPolicies(ctx context.Context, store AuthStore) error {
+func SeedPolicies(ctx context.Context, store AuthStore, orgID string) error {
 	for _, policy := range builtinPolicies {
+		policy.OrgID = orgID
 		if _, err := store.CreatePolicy(ctx, policy); err != nil {
 			if isAlreadyExists(err) {
 				slog.Debug("auth seed: policy already exists", "policy_id", policy.ID)

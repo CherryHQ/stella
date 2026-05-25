@@ -53,6 +53,8 @@ type Service struct {
 	userJobsEnabled bool
 	listActiveUsers ListActiveUsersFunc
 
+	defaultOrgID string
+
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
 	heartbeatChat     ChatFunc
@@ -76,6 +78,9 @@ func New(db *sql.DB) (*Service, error) {
 		userJobsEnabled: true,
 	}, nil
 }
+
+// SetDefaultOrgID sets the fallback org ID used when creating jobs without an explicit OrgID.
+func (s *Service) SetDefaultOrgID(orgID string) { s.defaultOrgID = orgID }
 
 // NewFromPath creates a scheduler service that opens its own SQLite database
 // at the given path. The database is closed when Stop is called.
@@ -287,6 +292,7 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 		Enabled:     true,
 		AgentID:     agentID,
 		UserID:      userID,
+		OrgID:       s.defaultOrgID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}

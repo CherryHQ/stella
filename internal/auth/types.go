@@ -93,6 +93,7 @@ type Policy struct {
 	Priority   int       `json:"priority"`
 	IsSystem   bool      `json:"is_system"`
 	Enabled    bool      `json:"enabled"`
+	OrgID      string    `json:"org_id"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 

@@ -60,6 +60,7 @@ func (s *Service) unreviewedCandidate(ctx context.Context, sess memory.SessionIn
 			AgentID: sess.AgentID,
 			UserID:  sess.UserID,
 			Channel: sess.Channel,
+			OrgID:   sess.OrgID,
 		},
 		lastActive: sess.LastActive,
 		lastReview: wm,

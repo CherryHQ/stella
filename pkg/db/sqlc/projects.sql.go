@@ -27,8 +27,8 @@ func (q *Queries) ArchiveProject(ctx context.Context, arg ArchiveProjectParams) 
 }
 
 const createProject = `-- name: CreateProject :one
-INSERT INTO projects (id, agent_id, user_id, name, base_dir, description)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO projects (id, agent_id, user_id, name, base_dir, description, org_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING id, agent_id, user_id, name, base_dir, description, archived, org_id, created_at, updated_at
 `
 
@@ -39,6 +39,7 @@ type CreateProjectParams struct {
 	Name        string         `json:"name"`
 	BaseDir     string         `json:"base_dir"`
 	Description sql.NullString `json:"description"`
+	OrgID       string         `json:"org_id"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error) {
@@ -49,6 +50,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		arg.Name,
 		arg.BaseDir,
 		arg.Description,
+		arg.OrgID,
 	)
 	var i Project
 	err := row.Scan(

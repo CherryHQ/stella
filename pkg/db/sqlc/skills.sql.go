@@ -11,8 +11,8 @@ import (
 )
 
 const createSkill = `-- name: CreateSkill :one
-INSERT INTO skills (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO skills (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at
 `
 
@@ -26,6 +26,7 @@ type CreateSkillParams struct {
 	Status                 string         `json:"status"`
 	DisableModelInvocation int64          `json:"disable_model_invocation"`
 	Metadata               string         `json:"metadata"`
+	OrgID                  string         `json:"org_id"`
 }
 
 func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill, error) {
@@ -39,6 +40,7 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 		arg.Status,
 		arg.DisableModelInvocation,
 		arg.Metadata,
+		arg.OrgID,
 	)
 	var i Skill
 	err := row.Scan(

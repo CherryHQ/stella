@@ -66,7 +66,7 @@ func TestLoadFSSkillsPreservesPerScopeDuplicates(t *testing.T) {
 // It also verifies idempotency: a second run reports Skipped, not Imported.
 func TestMigrateFilesystemRoundTrip(t *testing.T) {
 	store, db := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
+	userID, agentID, _ := seedFixtures(t, db)
 	ctx := context.Background()
 
 	root := t.TempDir()

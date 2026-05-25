@@ -120,5 +120,5 @@ type Store interface {
 	Snapshot(ctx context.Context, agentID string) (*Snapshot, error)
 
 	// Bootstrap
-	SeedDefaults(ctx context.Context) error
+	SeedDefaults(ctx context.Context, orgID string) error
 }

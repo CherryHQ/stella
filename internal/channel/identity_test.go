@@ -32,13 +32,17 @@ func setupStores(t *testing.T) testStores {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
 	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
+	if err := store.SeedDefaults(context.Background(), orgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(context.Background(), as); err != nil {
+	if err := auth.SeedPolicies(context.Background(), as, orgID); err != nil {
 		t.Fatalf("SeedPolicies: %v", err)
 	}
 

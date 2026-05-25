@@ -203,13 +203,14 @@ func (q *Queries) SetChannelOrg(ctx context.Context, arg SetChannelOrgParams) er
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO settings_channels (id, type, agent_id, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO settings_channels (id, type, agent_id, enabled, config, org_id, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(id) DO UPDATE SET
     type = excluded.type,
     agent_id = excluded.agent_id,
     enabled = excluded.enabled,
     config = excluded.config,
+    org_id = excluded.org_id,
     updated_at = datetime('now')
 `
 
@@ -219,6 +220,7 @@ type UpsertChannelParams struct {
 	AgentID sql.NullString `json:"agent_id"`
 	Enabled int64          `json:"enabled"`
 	Config  string         `json:"config"`
+	OrgID   string         `json:"org_id"`
 }
 
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
@@ -228,6 +230,7 @@ func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) er
 		arg.AgentID,
 		arg.Enabled,
 		arg.Config,
+		arg.OrgID,
 	)
 	return err
 }

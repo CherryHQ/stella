@@ -118,6 +118,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: agentID, Valid: agentID != ""},
 		UserID:        sql.NullString{String: userID, Valid: userID != ""},
+		OrgID:         info.OrgID,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		LastRunAt:     sql.NullString{},

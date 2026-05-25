@@ -28,8 +28,9 @@ type skillStores struct {
 	diskSync *skills.DiskSyncStore
 }
 
-func setupSkillStores(ctx context.Context, db *sql.DB) (skillStores, error) {
+func setupSkillStores(ctx context.Context, db *sql.DB, orgID string) (skillStores, error) {
 	raw := skills.New(db)
+	raw.SetDefaultOrgID(orgID)
 	diskSync := skills.NewDiskSyncStore(raw, func(scope, agentID string, userID string) string {
 		base := config.StellaHome()
 		switch scope {
@@ -54,7 +55,7 @@ func setupSkillStores(ctx context.Context, db *sql.DB) (skillStores, error) {
 	if !ok {
 		return skillStores{}, fmt.Errorf("builtin skills FS unavailable")
 	}
-	if err := skills.SyncBuiltin(ctx, diskSync, builtinSkillsFS); err != nil {
+	if err := skills.SyncBuiltin(ctx, diskSync, builtinSkillsFS, orgID); err != nil {
 		return skillStores{}, fmt.Errorf("sync builtin skills: %w", err)
 	}
 	if err := diskSync.SyncAllToDisk(ctx); err != nil {

@@ -94,6 +94,7 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 		Name:        body.Name,
 		BaseDir:     body.BaseDir,
 		Description: sql.NullString{String: derefStr(body.Description), Valid: body.Description != nil},
+		OrgID:       auth.OrgID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

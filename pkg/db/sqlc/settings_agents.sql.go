@@ -10,8 +10,8 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at
 `
 
@@ -29,6 +29,7 @@ type CreateAgentParams struct {
 	Scope                string `json:"scope"`
 	CreatorID            string `json:"creator_id"`
 	Enabled              int64  `json:"enabled"`
+	OrgID                string `json:"org_id"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (SettingsAgent, error) {
@@ -46,6 +47,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		arg.Scope,
 		arg.CreatorID,
 		arg.Enabled,
+		arg.OrgID,
 	)
 	var i SettingsAgent
 	err := row.Scan(

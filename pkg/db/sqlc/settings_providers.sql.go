@@ -10,8 +10,8 @@ import (
 )
 
 const createProvider = `-- name: CreateProvider :one
-INSERT INTO settings_providers (id, type, name, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO settings_providers (id, type, name, enabled, config, org_id, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
 RETURNING id, type, name, enabled, config, org_id, created_at, updated_at
 `
 
@@ -21,6 +21,7 @@ type CreateProviderParams struct {
 	Name    string `json:"name"`
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
+	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) (SettingsProvider, error) {
@@ -30,6 +31,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
+		arg.OrgID,
 	)
 	var i SettingsProvider
 	err := row.Scan(
@@ -219,8 +221,8 @@ func (q *Queries) ListProvidersByOrg(ctx context.Context, orgID string) ([]Setti
 }
 
 const seedProvider = `-- name: SeedProvider :exec
-INSERT OR IGNORE INTO settings_providers (id, type, name, enabled, config)
-VALUES (?, ?, ?, ?, ?)
+INSERT OR IGNORE INTO settings_providers (id, type, name, enabled, config, org_id)
+VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type SeedProviderParams struct {
@@ -229,6 +231,7 @@ type SeedProviderParams struct {
 	Name    string `json:"name"`
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
+	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) error {
@@ -238,6 +241,7 @@ func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) erro
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
+		arg.OrgID,
 	)
 	return err
 }

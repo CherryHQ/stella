@@ -10,8 +10,8 @@ import (
 )
 
 const createAuthPolicy = `-- name: CreateAuthPolicy :one
-INSERT INTO auth_policies (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO auth_policies (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id, created_at
 `
 
@@ -26,6 +26,7 @@ type CreateAuthPolicyParams struct {
 	Priority   int64  `json:"priority"`
 	IsSystem   int64  `json:"is_system"`
 	Enabled    int64  `json:"enabled"`
+	OrgID      string `json:"org_id"`
 }
 
 func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyParams) (AuthPolicy, error) {
@@ -40,6 +41,7 @@ func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyPara
 		arg.Priority,
 		arg.IsSystem,
 		arg.Enabled,
+		arg.OrgID,
 	)
 	var i AuthPolicy
 	err := row.Scan(

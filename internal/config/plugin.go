@@ -19,6 +19,7 @@ type Plugin struct {
 	Name    string         `json:"name"`
 	Enabled bool           `json:"enabled"`
 	Config  map[string]any `json:"config"`
+	OrgID   string         `json:"org_id,omitempty"`
 }
 
 // PluginID constructs a plugin ID from kind and name.

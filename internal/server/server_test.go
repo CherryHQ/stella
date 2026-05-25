@@ -64,12 +64,16 @@ func ensureTemplateDB() string {
 			panic(fmt.Sprintf("ensureTemplateDB: OpenDB: %v", err))
 		}
 		ctx := context.Background()
+		orgID, err := appdb.EnsureDefaultOrg(ctx, db)
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: EnsureDefaultOrg: %v", err))
+		}
 		store := config.NewDBStore(db)
-		if err := store.SeedDefaults(ctx); err != nil {
+		if err := store.SeedDefaults(ctx, orgID); err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: SeedDefaults: %v", err))
 		}
 		as := appdb.NewAuthStore(db)
-		if err := auth.SeedPolicies(ctx, as); err != nil {
+		if err := auth.SeedPolicies(ctx, as, orgID); err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: SeedPolicies: %v", err))
 		}
 		if err := db.Close(); err != nil {
@@ -110,6 +114,7 @@ type testEnv struct {
 	mem         memory.Provider
 	adminUser   auth.User
 	bearerToken string
+	orgID       string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
@@ -125,6 +130,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Cleanup(func() { _ = db.Close() })
 
 	store := config.NewDBStore(db)
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+	_ = store.SeedDefaults(context.Background(), orgID) // sets defaultOrgID on the store
 	as := appdb.NewAuthStore(db)
 
 	engine, err := auth.NewEngine(context.Background(), as)
@@ -198,7 +208,9 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	phost.SetSkillStore(skills.New(db))
+	skillStore := skills.New(db)
+	skillStore.SetDefaultOrgID(orgID)
+	phost.SetSkillStore(skillStore)
 	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
@@ -242,6 +254,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		mem:         mem,
 		adminUser:   adminUser,
 		bearerToken: bearerToken,
+		orgID:       orgID,
 	}
 }
 

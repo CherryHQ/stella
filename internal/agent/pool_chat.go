@@ -60,6 +60,7 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 		AgentID: agentID,
 		UserID:  sess.Info.UserID,
 		Channel: sess.Info.Channel,
+		OrgID:   sess.Info.OrgID,
 	}
 
 	msgText := MessageText(message)

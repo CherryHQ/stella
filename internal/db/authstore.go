@@ -51,6 +51,7 @@ func (s *AuthStore) CreatePolicy(ctx context.Context, p auth.Policy) (auth.Polic
 		Priority:   int64(p.Priority),
 		IsSystem:   isSystem,
 		Enabled:    enabled,
+		OrgID:      p.OrgID,
 	})
 	if err != nil {
 		return auth.Policy{}, fmt.Errorf("create policy %q: %w", p.ID, err)
@@ -252,6 +253,7 @@ func policyFromDB(r sqlc.AuthPolicy) auth.Policy {
 		Priority:   int(r.Priority),
 		IsSystem:   r.IsSystem == 1,
 		Enabled:    r.Enabled == 1,
+		OrgID:      r.OrgID,
 		CreatedAt:  parseAuthTime(r.CreatedAt),
 	}
 }

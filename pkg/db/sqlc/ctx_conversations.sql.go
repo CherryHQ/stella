@@ -11,8 +11,8 @@ import (
 )
 
 const createConversation = `-- name: CreateConversation :one
-INSERT INTO ctx_conversations (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO ctx_conversations (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, org_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at
 `
 
@@ -27,6 +27,7 @@ type CreateConversationParams struct {
 	LastActive string         `json:"last_active"`
 	AgentID    sql.NullString `json:"agent_id"`
 	UserID     sql.NullString `json:"user_id"`
+	OrgID      string         `json:"org_id"`
 }
 
 func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (CtxConversation, error) {
@@ -41,6 +42,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		arg.LastActive,
 		arg.AgentID,
 		arg.UserID,
+		arg.OrgID,
 	)
 	var i CtxConversation
 	err := row.Scan(

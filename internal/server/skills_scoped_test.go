@@ -143,6 +143,7 @@ func TestSessionSystemPromptIncludesSkills(t *testing.T) {
 		UserID:     env.adminUser.ID,
 		Channel:    "admin",
 		Kind:       "chat",
+		OrgID:      env.orgID,
 		CreatedAt:  now,
 		LastActive: now,
 	}); err != nil {

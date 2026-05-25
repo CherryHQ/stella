@@ -8,6 +8,8 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
+const testOrgID = "test-org-id"
+
 func setupDBStore(t *testing.T) *DBStore {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -16,14 +18,20 @@ func setupDBStore(t *testing.T) *DBStore {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewDBStore(db)
+	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
+	if err != nil {
+		t.Fatalf("create test org: %v", err)
+	}
+	store := NewDBStore(db)
+	store.defaultOrgID = testOrgID
+	return store
 }
 
 func TestSeedDefaults(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
@@ -64,7 +72,7 @@ func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
@@ -81,10 +89,10 @@ func TestSeedDefaultsIdempotent(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("first SeedDefaults: %v", err)
 	}
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("second SeedDefaults: %v", err)
 	}
 
@@ -405,7 +413,7 @@ func TestSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed first (matches real startup order), then configure.
-	_ = store.SeedDefaults(ctx)
+	_ = store.SeedDefaults(ctx, testOrgID)
 	_ = store.UpdateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "sk-test"})
 	_ = store.UpdateAgent(ctx, Agent{
 		ID:           "stella",
@@ -513,7 +521,7 @@ func TestSnapshotDefaults(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.SeedDefaults(ctx)
+	_ = store.SeedDefaults(ctx, testOrgID)
 	_ = store.CreateAgent(ctx, Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
 
 	snap, err := store.Snapshot(ctx, "a")
@@ -663,7 +671,7 @@ func TestPluginSeedDefaults(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
@@ -691,7 +699,7 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("first SeedDefaults: %v", err)
 	}
 
@@ -704,7 +712,7 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 	}
 
 	// Second seed should NOT overwrite user changes.
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("second SeedDefaults: %v", err)
 	}
 
@@ -749,7 +757,7 @@ func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
 		t.Fatalf("UpsertChannel: %v", err)
 	}
 
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
@@ -781,7 +789,7 @@ func TestPluginSeedNormalizesLegacyChannelPluginConfig(t *testing.T) {
 		t.Fatalf("UpsertPlugin: %v", err)
 	}
 
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
@@ -832,7 +840,7 @@ func TestSeedDefaultsMigratesLegacyLarkAuthAndPurgesLegacyGitHubAuth(t *testing.
 		t.Fatalf("UpsertPlugin auth/lark: %v", err)
 	}
 
-	if err := store.SeedDefaults(ctx); err != nil {
+	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 

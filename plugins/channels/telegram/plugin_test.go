@@ -167,7 +167,7 @@ func (s *stubStore) DeleteChatAgent(context.Context, string, string, string) err
 func (s *stubStore) GetSetting(context.Context, string) (string, error)                 { return "", nil }
 func (s *stubStore) SetSetting(context.Context, string, string) error                   { return nil }
 func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)         { return nil, nil }
-func (s *stubStore) SeedDefaults(context.Context) error                                 { return nil }
+func (s *stubStore) SeedDefaults(context.Context, string) error                         { return nil }
 
 type testChannel struct{ stop chan struct{} }
 

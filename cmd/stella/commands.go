@@ -120,17 +120,22 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, err
 	}
 
-	ss, err := setupSkillStores(parent, db)
+	orgID, err := appdb.EnsureDefaultOrg(parent, db)
+	if err != nil {
+		return nil, fmt.Errorf("ensure default org: %w", err)
+	}
+
+	ss, err := setupSkillStores(parent, db, orgID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := store.SeedDefaults(parent); err != nil {
+	if err := store.SeedDefaults(parent, orgID); err != nil {
 		return nil, fmt.Errorf("seed defaults: %w", err)
 	}
 
 	authStore := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(parent, authStore); err != nil {
+	if err := auth.SeedPolicies(parent, authStore, orgID); err != nil {
 		return nil, fmt.Errorf("seed auth: %w", err)
 	}
 
@@ -156,7 +161,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 	phost := ps.host
 
-	schedulerSvc, err := setupScheduler(db, snap, phost)
+	schedulerSvc, err := setupScheduler(db, snap, phost, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -292,11 +297,12 @@ func ensureEmbeddedAssets() error {
 	return nil
 }
 
-func setupScheduler(db *sql.DB, snap *config.Snapshot, phost *pluginhost.Host) (*scheduler.Service, error) {
+func setupScheduler(db *sql.DB, snap *config.Snapshot, phost *pluginhost.Host, orgID string) (*scheduler.Service, error) {
 	svc, err := scheduler.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
+	svc.SetDefaultOrgID(orgID)
 	dataDir := snap.Scheduler.DataDir
 	if dataDir == "" {
 		dataDir = filepath.Join(snap.Workspace, "scheduler")

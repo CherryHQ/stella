@@ -1,6 +1,6 @@
 -- name: CreateSkill :one
-INSERT INTO skills (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO skills (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetSkill :one

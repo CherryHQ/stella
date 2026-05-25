@@ -53,6 +53,7 @@ type Job struct {
 	Enabled     bool           `json:"enabled"`
 	AgentID     string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
 	UserID      string         `json:"user_id,omitempty"`  // user context (empty = none)
+	OrgID       string         `json:"org_id,omitempty"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	LastRunAt   *time.Time     `json:"last_run_at,omitempty"`

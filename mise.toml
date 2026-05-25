@@ -88,7 +88,7 @@ run = 'vp dev'
 [tasks."dev:api"]
 description = "Start stella API server"
 depends = ["build"]
-run = 'STELLA_HOME="$HOME/.stella-dev" $BINARY server'
+run = 'STELLA_HOME="`pwd`/dist/.stella-dev" $BINARY server'
 
 # ============================================================================
 # Code Quality

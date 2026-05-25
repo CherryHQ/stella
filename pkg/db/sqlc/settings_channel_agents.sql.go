@@ -106,8 +106,8 @@ func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, e
 }
 
 const upsertChatAgent = `-- name: UpsertChatAgent :exec
-INSERT INTO settings_channel_agents (channel_id, platform, chat_id, agent_id, updated_at)
-VALUES (?, ?, ?, ?, datetime('now'))
+INSERT INTO settings_channel_agents (channel_id, platform, chat_id, agent_id, org_id, updated_at)
+VALUES (?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(channel_id, platform, chat_id) DO UPDATE SET
     agent_id = excluded.agent_id,
     updated_at = datetime('now')
@@ -118,6 +118,7 @@ type UpsertChatAgentParams struct {
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
 	AgentID   string `json:"agent_id"`
+	OrgID     string `json:"org_id"`
 }
 
 func (q *Queries) UpsertChatAgent(ctx context.Context, arg UpsertChatAgentParams) error {
@@ -126,6 +127,7 @@ func (q *Queries) UpsertChatAgent(ctx context.Context, arg UpsertChatAgentParams
 		arg.Platform,
 		arg.ChatID,
 		arg.AgentID,
+		arg.OrgID,
 	)
 	return err
 }

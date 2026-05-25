@@ -91,6 +91,9 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 
 	qtx := s.q.WithTx(tx)
 	for _, job := range jobs {
+		if job.OrgID == "" {
+			job.OrgID = s.defaultOrgID
+		}
 		if _, err := qtx.CreateSchedulerJob(ctx, createSchedulerJobParams(job)); err != nil {
 			return fmt.Errorf("migrate job %s: %w", job.ID, err)
 		}
@@ -167,6 +170,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
 		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
+		OrgID:         job.OrgID,
 		CreatedAt:     createdAt.UTC().Format(dbTimeLayout),
 		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
 		LastRunAt:     nullableTime(job.LastRunAt),
@@ -232,6 +236,7 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		UpdatedAt:   updatedAt,
 		LastError:   r.LastError,
 	}
+	j.OrgID = r.OrgID
 	if r.AgentID.Valid {
 		j.AgentID = r.AgentID.String
 	}

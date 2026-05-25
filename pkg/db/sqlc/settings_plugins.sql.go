@@ -147,8 +147,8 @@ func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]Setting
 }
 
 const seedPlugin = `-- name: SeedPlugin :exec
-INSERT OR IGNORE INTO settings_plugins (id, kind, name, enabled, config)
-VALUES (?, ?, ?, ?, ?)
+INSERT OR IGNORE INTO settings_plugins (id, kind, name, enabled, config, org_id)
+VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type SeedPluginParams struct {
@@ -157,6 +157,7 @@ type SeedPluginParams struct {
 	Name    string `json:"name"`
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
+	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) SeedPlugin(ctx context.Context, arg SeedPluginParams) error {
@@ -166,6 +167,7 @@ func (q *Queries) SeedPlugin(ctx context.Context, arg SeedPluginParams) error {
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
+		arg.OrgID,
 	)
 	return err
 }
@@ -201,13 +203,14 @@ func (q *Queries) UpdatePluginEnabled(ctx context.Context, arg UpdatePluginEnabl
 }
 
 const upsertPlugin = `-- name: UpsertPlugin :exec
-INSERT INTO settings_plugins (id, kind, name, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO settings_plugins (id, kind, name, enabled, config, org_id, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(id) DO UPDATE SET
     kind = excluded.kind,
     name = excluded.name,
     enabled = excluded.enabled,
     config = excluded.config,
+    org_id = excluded.org_id,
     updated_at = datetime('now')
 `
 
@@ -217,6 +220,7 @@ type UpsertPluginParams struct {
 	Name    string `json:"name"`
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
+	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) error {
@@ -226,6 +230,7 @@ func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) erro
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
+		arg.OrgID,
 	)
 	return err
 }

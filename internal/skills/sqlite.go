@@ -16,14 +16,18 @@ import (
 
 // SQLiteStore implements Store against a SQLite database via sqlc.
 type SQLiteStore struct {
-	db *sql.DB
-	q  *sqlc.Queries
+	db           *sql.DB
+	q            *sqlc.Queries
+	defaultOrgID string
 }
 
 // New returns a new SQLiteStore. Callers may store it as a Store interface.
 func New(db *sql.DB) *SQLiteStore {
 	return &SQLiteStore{db: db, q: sqlc.New(db)}
 }
+
+// SetDefaultOrgID sets the fallback org ID used when creating skills without an explicit OrgID.
+func (s *SQLiteStore) SetDefaultOrgID(orgID string) { s.defaultOrgID = orgID }
 
 func viewSQLParams(vc ViewContext) (sql.NullString, sql.NullString) {
 	return sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""}, sql.NullString{String: vc.UserID, Valid: vc.UserID != ""}
@@ -185,6 +189,11 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 		disabledInt = 1
 	}
 
+	orgID := sk.OrgID
+	if orgID == "" {
+		orgID = s.defaultOrgID
+	}
+
 	params := sqlc.CreateSkillParams{
 		ID:                     sk.ID,
 		Scope:                  sk.Scope,
@@ -193,6 +202,7 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 		Status:                 sk.Status,
 		DisableModelInvocation: disabledInt,
 		Metadata:               meta,
+		OrgID:                  orgID,
 	}
 
 	// Set nullable owner fields based on scope.
@@ -448,6 +458,7 @@ func mapRow(r sqlc.Skill) Skill {
 		Status:                 r.Status,
 		DisableModelInvocation: r.DisableModelInvocation != 0,
 		Metadata:               meta,
+		OrgID:                  r.OrgID,
 		CreatedAt:              createdAt,
 		UpdatedAt:              updatedAt,
 	}

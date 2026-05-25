@@ -8,8 +8,8 @@ SELECT * FROM settings_providers ORDER BY name, id;
 SELECT * FROM settings_providers WHERE enabled = 1 ORDER BY name, id;
 
 -- name: CreateProvider :one
-INSERT INTO settings_providers (id, type, name, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO settings_providers (id, type, name, enabled, config, org_id, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
 RETURNING *;
 
 -- name: UpdateProvider :exec
@@ -25,8 +25,8 @@ WHERE id = ?;
 DELETE FROM settings_providers WHERE id = ?;
 
 -- name: SeedProvider :exec
-INSERT OR IGNORE INTO settings_providers (id, type, name, enabled, config)
-VALUES (?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO settings_providers (id, type, name, enabled, config, org_id)
+VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: ListProvidersByOrg :many
 SELECT * FROM settings_providers WHERE org_id = ? ORDER BY name, id;

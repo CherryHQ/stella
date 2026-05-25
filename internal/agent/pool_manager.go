@@ -313,6 +313,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 
 	poolOpts := []PoolOption{
 		WithAgentID(ag.ID),
+		WithOrgID(ag.OrgID),
 		WithIdleTimeout(pm.idleTimeout),
 		WithCompaction(pm.compaction.WithDefaults()),
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),

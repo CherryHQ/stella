@@ -1,6 +1,6 @@
 -- name: CreateAuthPolicy :one
-INSERT INTO auth_policies (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO auth_policies (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAuthPolicy :one

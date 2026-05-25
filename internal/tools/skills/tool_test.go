@@ -24,8 +24,9 @@ import (
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
 // It avoids the import cycle internal/skills → internal/tools/skills → internal/skills.
 type testSkillStore struct {
-	db *sql.DB
-	q  *sqlc.Queries
+	db    *sql.DB
+	q     *sqlc.Queries
+	orgID string
 }
 
 func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
@@ -37,6 +38,10 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := context.Background()
+	orgID, err := appdb.EnsureDefaultOrg(ctx, db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
 	oidcStore := appdb.NewOIDCStore(db)
 	u, err := oidcStore.CreateUser(ctx, auth.User{
 		ID:    uuid.NewString(),
@@ -48,13 +53,14 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	}
 	agentID := "agent1"
 	cs := config.NewDBStore(db)
+	_ = cs.SeedDefaults(ctx, orgID)
 	if err := cs.CreateAgent(ctx, config.Agent{
-		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true,
+		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
 	}); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 
-	return &testSkillStore{db: db, q: sqlc.New(db)}, u.ID, agentID
+	return &testSkillStore{db: db, q: sqlc.New(db), orgID: orgID}, u.ID, agentID
 }
 
 func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
@@ -119,6 +125,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 		Status:                 sk.Status,
 		DisableModelInvocation: disabled,
 		Metadata:               meta,
+		OrgID:                  s.orgID,
 	}
 	switch sk.Scope {
 	case "user":

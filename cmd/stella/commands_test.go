@@ -128,7 +128,7 @@ func (commandTestStore) DeleteChatAgent(context.Context, string, string, string)
 func (commandTestStore) GetSetting(context.Context, string) (string, error)            { return "", nil }
 func (commandTestStore) SetSetting(context.Context, string, string) error              { return nil }
 func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)    { return nil, nil }
-func (commandTestStore) SeedDefaults(context.Context) error                            { return nil }
+func (commandTestStore) SeedDefaults(context.Context, string) error                    { return nil }
 
 type commandTestMemory struct{}
 
@@ -211,8 +211,12 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer func() { _ = db.Close() }()
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("ensure default org: %v", err)
+	}
 	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
+	if err := store.SeedDefaults(context.Background(), orgID); err != nil {
 		t.Fatalf("seed defaults: %v", err)
 	}
 	agents, err := store.ListEnabledAgents(context.Background())

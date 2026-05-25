@@ -82,6 +82,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 		AgentID:    nullAgent(session.AgentID),
 		UserID:     sql.NullString{String: session.UserID, Valid: true},
 		LastActive: now,
+		OrgID:      session.OrgID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create conversation: %w", err)

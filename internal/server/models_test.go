@@ -22,7 +22,13 @@ func setupAdminStore(t *testing.T) config.Store {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	return config.NewDBStore(db)
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+	store := config.NewDBStore(db)
+	store.SetDefaultOrgID(orgID)
+	return store
 }
 
 func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) {

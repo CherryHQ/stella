@@ -236,6 +236,11 @@ func (s *Server) CreateSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	info := UserFromContext(r.Context())
+	orgID := ""
+	if info != nil {
+		orgID = info.OrgID
+	}
 	sk := skills.Skill{
 		Scope:                  req.Scope,
 		UserID:                 req.UserID,
@@ -244,6 +249,7 @@ func (s *Server) CreateSkill(w http.ResponseWriter, r *http.Request) {
 		Description:            req.Description,
 		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
+		OrgID:                  orgID,
 	}
 	id, err := store.Create(r.Context(), sk, req.Files)
 	if err != nil {

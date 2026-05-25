@@ -14,7 +14,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
-// newTestStore opens a fresh in-tmpdir SQLite DB and returns a Store.
+// newTestStore opens a fresh in-tmpdir SQLite DB, ensures a default org, and returns a Store.
 func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB) {
 	t.Helper()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
@@ -22,14 +22,25 @@ func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB) {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return New(db), db
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+	s := New(db)
+	s.SetDefaultOrgID(orgID)
+	return s, db
 }
 
-// seedFixtures inserts the auth_users and settings_agents rows needed by FK constraints.
-// Returns (userID, agentID).
-func seedFixtures(t *testing.T, db *sql.DB) (string, string) {
+// seedFixtures inserts the auth_organization, auth_users and settings_agents rows needed by FK constraints.
+// Returns (userID, agentID, orgID).
+func seedFixtures(t *testing.T, db *sql.DB) (string, string, string) {
 	t.Helper()
 	ctx := context.Background()
+
+	orgID, err := appdb.EnsureDefaultOrg(ctx, db)
+	if err != nil {
+		t.Fatalf("ensure default org: %v", err)
+	}
 
 	oidcStore := appdb.NewOIDCStore(db)
 	u, err := oidcStore.CreateUser(ctx, auth.User{
@@ -44,18 +55,18 @@ func seedFixtures(t *testing.T, db *sql.DB) (string, string) {
 	agentID := "agent1"
 	cs := config.NewDBStore(db)
 	if err := cs.CreateAgent(ctx, config.Agent{
-		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true,
+		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
 	}); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 
-	return u.ID, agentID
+	return u.ID, agentID, orgID
 }
 
 func TestCreateAndLoadFile(t *testing.T) {
 	store, db := newTestStore(t)
 	_, _ = db, db // suppress unused
-	userID, agentID := seedFixtures(t, db)
+	userID, agentID, _ := seedFixtures(t, db)
 	ctx := context.Background()
 
 	sk := Skill{
@@ -112,7 +123,7 @@ func TestCreateAndLoadFile(t *testing.T) {
 
 func TestCreateMissingSkillMD(t *testing.T) {
 	store, db := newTestStore(t)
-	userID, _ := seedFixtures(t, db)
+	userID, _, _ := seedFixtures(t, db)
 	ctx := context.Background()
 
 	_, err := store.Create(ctx, Skill{
@@ -135,7 +146,7 @@ func TestCreateMissingSkillMD(t *testing.T) {
 
 func TestResolvePrecedence(t *testing.T) {
 	store, db := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
+	userID, agentID, _ := seedFixtures(t, db)
 	ctx := context.Background()
 
 	mainFile := map[string]string{MainFile: "body"}
@@ -195,7 +206,7 @@ func TestResolvePrecedence(t *testing.T) {
 
 func TestVisibilityFiltering(t *testing.T) {
 	store, db := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
+	userID, agentID, orgID := seedFixtures(t, db)
 	ctx := context.Background()
 
 	// Seed a second user and agent.
@@ -210,7 +221,7 @@ func TestVisibilityFiltering(t *testing.T) {
 	}
 	cs := config.NewDBStore(db)
 	if err := cs.CreateAgent(ctx, config.Agent{
-		ID: "agent2", Name: "agent2", Model: "p/m", Workspace: "/tmp/agent2", Enabled: true,
+		ID: "agent2", Name: "agent2", Model: "p/m", Workspace: "/tmp/agent2", Enabled: true, OrgID: orgID,
 	}); err != nil {
 		t.Fatalf("create agent2: %v", err)
 	}
@@ -262,7 +273,7 @@ func TestVisibilityFiltering(t *testing.T) {
 
 func TestDeprecatedAndDisabled(t *testing.T) {
 	store, db := newTestStore(t)
-	userID, _ := seedFixtures(t, db)
+	userID, _, _ := seedFixtures(t, db)
 	ctx := context.Background()
 
 	mainFile := map[string]string{MainFile: "body"}
@@ -340,7 +351,7 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 
 func TestUpsertFileAndDeleteFile(t *testing.T) {
 	store, db := newTestStore(t)
-	userID, _ := seedFixtures(t, db)
+	userID, _, _ := seedFixtures(t, db)
 	ctx := context.Background()
 
 	id, err := store.Create(ctx, Skill{
@@ -384,7 +395,7 @@ func TestUpsertFileAndDeleteFile(t *testing.T) {
 
 func TestDeleteCascadesSkillFiles(t *testing.T) {
 	store, db := newTestStore(t)
-	userID, _ := seedFixtures(t, db)
+	userID, _, _ := seedFixtures(t, db)
 	ctx := context.Background()
 
 	id, err := store.Create(ctx, Skill{

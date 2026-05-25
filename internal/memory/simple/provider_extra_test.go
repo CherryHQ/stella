@@ -12,6 +12,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
+const testOrgID = "test-org-id"
+
 func newTestDB(t *testing.T) (*simple.Provider, func()) {
 	t.Helper()
 	dir := t.TempDir()
@@ -22,8 +24,13 @@ func newTestDB(t *testing.T) (*simple.Provider, func()) {
 		t.Fatalf("open db: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
-		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1)`)
+	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
+	if err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+
+	_, err = db.Exec(`INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, org_id)
+		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1, ?)`, testOrgID)
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
@@ -41,6 +48,7 @@ func newTestSession() memory.Session {
 		AgentID: "test",
 		UserID:  "1",
 		Channel: "cli",
+		OrgID:   testOrgID,
 	}
 }
 
@@ -59,7 +67,7 @@ func TestSimpleProviderUsesContextSessionScope(t *testing.T) {
 	defer cleanup()
 
 	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "test")
-	sess := memory.Session{ID: "test:cli:context-scope", Channel: "cli"}
+	sess := memory.Session{ID: "test:cli:context-scope", Channel: "cli", OrgID: testOrgID}
 	if err := p.Bootstrap(ctx, sess); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}

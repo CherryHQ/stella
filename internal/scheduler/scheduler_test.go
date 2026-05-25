@@ -21,16 +21,35 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	ensureTestOrg(t, db)
 	return db
+}
+
+func ensureTestOrg(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+	return orgID
+}
+
+// newServiceWithOrg wraps New and sets the defaultOrgID.
+func newServiceWithOrg(t *testing.T, db *sql.DB) *Service {
+	t.Helper()
+	orgID := ensureTestOrg(t, db)
+	svc, err := New(db)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	svc.SetDefaultOrgID(orgID)
+	return svc
 }
 
 func testService(t *testing.T) *Service {
 	t.Helper()
 	db := testDB(t)
-	svc, err := New(db)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc := newServiceWithOrg(t, db)
 	if err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -131,10 +150,7 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, err := New(db1)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc1 := newServiceWithOrg(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -150,10 +166,7 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, err := New(db2)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc2 := newServiceWithOrg(t, db2)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -181,10 +194,7 @@ func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, err := New(db1)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc1 := newServiceWithOrg(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -199,10 +209,7 @@ func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, err := New(db2)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc2 := newServiceWithOrg(t, db2)
 	if err := svc2.StartEphemeral(context.Background()); err != nil {
 		t.Fatalf("StartEphemeral: %v", err)
 	}
@@ -355,10 +362,7 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, err := New(db1)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc1 := newServiceWithOrg(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -382,10 +386,7 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, err := New(db2)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc2 := newServiceWithOrg(t, db2)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -502,10 +503,7 @@ func TestMigrateJobsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc, err := New(db)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc := newServiceWithOrg(t, db)
 	svc.SetLegacyDataPath(legacyDir)
 	if err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -590,10 +588,7 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, err := New(db1)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc1 := newServiceWithOrg(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -608,10 +603,7 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, err := New(db2)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc2 := newServiceWithOrg(t, db2)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}

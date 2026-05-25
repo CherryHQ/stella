@@ -67,19 +67,21 @@ func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
 }
 
 const upsertSetting = `-- name: UpsertSetting :exec
-INSERT INTO settings (key, value, updated_at)
-VALUES (?, ?, datetime('now'))
+INSERT INTO settings (key, value, org_id, updated_at)
+VALUES (?, ?, ?, datetime('now'))
 ON CONFLICT(key) DO UPDATE SET
     value = excluded.value,
+    org_id = excluded.org_id,
     updated_at = datetime('now')
 `
 
 type UpsertSettingParams struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+	OrgID string `json:"org_id"`
 }
 
 func (q *Queries) UpsertSetting(ctx context.Context, arg UpsertSettingParams) error {
-	_, err := q.db.ExecContext(ctx, upsertSetting, arg.Key, arg.Value)
+	_, err := q.db.ExecContext(ctx, upsertSetting, arg.Key, arg.Value, arg.OrgID)
 	return err
 }

@@ -2,7 +2,6 @@ package db_test
 
 import (
 	"context"
-	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -25,7 +24,10 @@ func TestBackfillOrgScopedSettingsNoOp(t *testing.T) {
 	}
 }
 
-func TestBackfillOrgScopedSettingsAssignsToLegacyOrg(t *testing.T) {
+func TestBackfillOrgScopedSettingsNoOpWithNotNullOrgID(t *testing.T) {
+	// Since org_id is now NOT NULL, BackfillOrgScopedSettings (which updates
+	// WHERE org_id IS NULL) should always be a no-op. Verify it runs without
+	// error even when a backfill org exists.
 	dbPath := filepath.Join(t.TempDir(), "org_backfill2_test.db")
 	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
@@ -46,33 +48,8 @@ func TestBackfillOrgScopedSettingsAssignsToLegacyOrg(t *testing.T) {
 		t.Fatalf("insert org: %v", err)
 	}
 
-	// Insert an agent without org_id.
-	agentID := uuid.NewString()
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO settings_agents (id, name, workspace, model, soul) VALUES (?, 'TestAgent', '/tmp', '', '')`,
-		agentID,
-	)
-	if err != nil {
-		t.Fatalf("insert agent: %v", err)
-	}
-
-	// Run backfill.
+	// Run backfill — should be a no-op since org_id is NOT NULL.
 	if err := appdb.BackfillOrgScopedSettings(ctx, db); err != nil {
 		t.Fatalf("BackfillOrgScopedSettings: %v", err)
-	}
-
-	// Verify agent got org_id.
-	var gotOrgID sql.NullString
-	err = db.QueryRowContext(ctx, `SELECT org_id FROM settings_agents WHERE id=?`, agentID).Scan(&gotOrgID)
-	if err != nil {
-		t.Fatalf("query agent org_id: %v", err)
-	}
-	if !gotOrgID.Valid || gotOrgID.String != orgID {
-		t.Errorf("agent org_id = %v, want %q", gotOrgID, orgID)
-	}
-
-	// Running again should be idempotent (already assigned).
-	if err := appdb.BackfillOrgScopedSettings(ctx, db); err != nil {
-		t.Fatalf("BackfillOrgScopedSettings (second run): %v", err)
 	}
 }

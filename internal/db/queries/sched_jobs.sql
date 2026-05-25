@@ -3,9 +3,9 @@ INSERT INTO sched_jobs (
     id, owner_kind, exec_scope, plugin_id, job_key, runtime_name,
     name, description, schedule_cron, schedule_every, schedule_at,
     message, payload, session_mode, enabled, agent_id, user_id,
-    created_at, updated_at, last_run_at, last_error
+    org_id, created_at, updated_at, last_run_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListSchedulerJobs :many

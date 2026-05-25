@@ -13,7 +13,7 @@ import (
 // RunConformance runs the standard conformance suite against any Provider.
 // It tests: Bootstrap idempotency, Append ordering, Assemble budget/freshTail,
 // Stats accuracy, and any optional capabilities detected via type assertion.
-func RunConformance(t *testing.T, provider memory.Provider) {
+func RunConformance(t *testing.T, provider memory.Provider, orgID ...string) {
 	t.Helper()
 
 	session := memory.Session{
@@ -21,6 +21,9 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 		AgentID: "test",
 		UserID:  "user-1",
 		Channel: "cli",
+	}
+	if len(orgID) > 0 {
+		session.OrgID = orgID[0]
 	}
 	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), session.UserID), session.AgentID)
 

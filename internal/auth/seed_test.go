@@ -9,6 +9,8 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
+const testOrgID = "test-org-id"
+
 func setupSeedStore(t *testing.T) auth.AuthStore {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -17,6 +19,10 @@ func setupSeedStore(t *testing.T) auth.AuthStore {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
+	if err != nil {
+		t.Fatalf("create test org: %v", err)
+	}
 	return appdb.NewAuthStore(db)
 }
 
@@ -24,7 +30,7 @@ func TestSeedPolicies(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 
-	if err := auth.SeedPolicies(ctx, store); err != nil {
+	if err := auth.SeedPolicies(ctx, store, testOrgID); err != nil {
 		t.Fatalf("SeedPolicies: %v", err)
 	}
 
@@ -62,10 +68,10 @@ func TestSeedPolicies_Idempotent(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 
-	if err := auth.SeedPolicies(ctx, store); err != nil {
+	if err := auth.SeedPolicies(ctx, store, testOrgID); err != nil {
 		t.Fatalf("first seed: %v", err)
 	}
-	if err := auth.SeedPolicies(ctx, store); err != nil {
+	if err := auth.SeedPolicies(ctx, store, testOrgID); err != nil {
 		t.Fatalf("second seed should be idempotent: %v", err)
 	}
 
@@ -79,7 +85,7 @@ func TestNewEngine_WithSeededPolicies(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 
-	if err := auth.SeedPolicies(ctx, store); err != nil {
+	if err := auth.SeedPolicies(ctx, store, testOrgID); err != nil {
 		t.Fatalf("SeedPolicies: %v", err)
 	}
 
