@@ -33,7 +33,7 @@ export function SettingsDetailLayout({
 
       {/* Right detail panel — full width on mobile when mobileView=detail, hidden otherwise */}
       <div
-        className={`${mobileView === "detail" ? "flex" : "hidden"} flex-1 flex-col overflow-hidden bg-background md:flex`}
+        className={`${mobileView === "detail" ? "flex" : "hidden"} min-w-0 flex-1 flex-col overflow-hidden bg-background md:flex`}
       >
         {/* Mobile back button */}
         <button
