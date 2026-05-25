@@ -7,11 +7,16 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-type authService struct {
-	store auth.AuthStore
+type pluginAuthStore interface {
+	auth.UserStore
+	auth.ChannelIdentityStore
 }
 
-func NewAuthService(store auth.AuthStore) pkgplugins.Auth {
+type authService struct {
+	store pluginAuthStore
+}
+
+func NewAuthService(store pluginAuthStore) pkgplugins.Auth {
 	if store == nil {
 		return nil
 	}
@@ -25,9 +30,7 @@ func (s authService) GetUser(ctx context.Context, userID string) (pkgplugins.Use
 	}
 	return pkgplugins.UserInfo{
 		ID:               user.ID,
-		Username:         user.Username,
-		Role:             user.Role,
-		IsActive:         user.IsActive,
+		Username:         user.Email,
 		DefaultAgentID:   user.DefaultAgentID,
 		NotifyIdentityID: user.NotifyIdentityID,
 		CreatedAt:        user.CreatedAt,
@@ -36,7 +39,7 @@ func (s authService) GetUser(ctx context.Context, userID string) (pkgplugins.Use
 }
 
 func (s authService) ListUserIdentities(ctx context.Context, userID string) ([]pkgplugins.LinkedIdentity, error) {
-	identities, err := s.store.ListIdentitiesByUser(ctx, userID)
+	identities, err := s.store.ListChannelIdentitiesByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -48,14 +51,13 @@ func (s authService) ListUserIdentities(ctx context.Context, userID string) ([]p
 			Platform:   identity.Platform,
 			ExternalID: identity.ExternalID,
 			Name:       identity.Name,
-			LinkedAt:   identity.LinkedAt,
 		})
 	}
 	return out, nil
 }
 
 func (s authService) GetIdentityByPlatform(ctx context.Context, platform, externalID string) (pkgplugins.LinkedIdentity, error) {
-	identity, err := s.store.GetIdentityByPlatform(ctx, platform, externalID)
+	identity, err := s.store.GetChannelIdentityByPlatform(ctx, platform, externalID)
 	if err != nil {
 		return pkgplugins.LinkedIdentity{}, err
 	}
@@ -65,6 +67,5 @@ func (s authService) GetIdentityByPlatform(ctx context.Context, platform, extern
 		Platform:   identity.Platform,
 		ExternalID: identity.ExternalID,
 		Name:       identity.Name,
-		LinkedAt:   identity.LinkedAt,
 	}, nil
 }

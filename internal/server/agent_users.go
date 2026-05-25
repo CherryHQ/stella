@@ -25,11 +25,11 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 	}
 	users := make([]agentUser, 0, len(userIDs))
 	for _, uid := range userIDs {
-		u, err := s.authStore.GetUser(ctx, uid)
+		u, err := s.users.GetUser(ctx, uid)
 		if err != nil {
 			continue
 		}
-		users = append(users, agentUser{ID: u.ID, Username: u.Username})
+		users = append(users, agentUser{ID: u.ID, Username: u.Email})
 	}
 
 	writeData(w, http.StatusOK, users)
@@ -58,7 +58,7 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	if _, err := s.authStore.GetUser(ctx, body.UserID); err != nil {
+	if _, err := s.users.GetUser(ctx, body.UserID); err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}

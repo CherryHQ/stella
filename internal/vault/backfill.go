@@ -12,15 +12,15 @@ import (
 
 // BackfillDB is the minimal database interface required by BackfillUserKeys.
 type BackfillDB interface {
-	ListAuthUsers(ctx context.Context) ([]sqlc.AuthUser, error)
-	UpdateUserAgeKeys(ctx context.Context, arg sqlc.UpdateUserAgeKeysParams) error
+	ListVaultUsers(ctx context.Context) ([]sqlc.VaultUserRecord, error)
+	UpdateVaultUserAgeKeys(ctx context.Context, id, publicKey, privateKey string) error
 }
 
 // BackfillUserKeys generates age keypairs for any users that don't have them yet.
 // Called at startup when STELLA_VAULT_KEY is configured.
 // Returns the number of users updated.
 func BackfillUserKeys(ctx context.Context, db BackfillDB, masterRecipient *age.X25519Recipient) (int, error) {
-	users, err := db.ListAuthUsers(ctx)
+	users, err := db.ListVaultUsers(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("vault: backfill: list users: %w", err)
 	}
@@ -33,18 +33,14 @@ func BackfillUserKeys(ctx context.Context, db BackfillDB, masterRecipient *age.X
 
 		pubKey, encPrivKey, err := GenerateUserKeys(masterRecipient)
 		if err != nil {
-			return updated, fmt.Errorf("vault: backfill: generate keys for user %s (%s): %w", u.ID, u.Username, err)
+			return updated, fmt.Errorf("vault: backfill: generate keys for user %s: %w", u.ID, err)
 		}
 
-		if err := db.UpdateUserAgeKeys(ctx, sqlc.UpdateUserAgeKeysParams{
-			AgePublicKey:  pubKey,
-			AgePrivateKey: encPrivKey,
-			ID:            u.ID,
-		}); err != nil {
-			return updated, fmt.Errorf("vault: backfill: update keys for user %s (%s): %w", u.ID, u.Username, err)
+		if err := db.UpdateVaultUserAgeKeys(ctx, u.ID, pubKey, encPrivKey); err != nil {
+			return updated, fmt.Errorf("vault: backfill: update keys for user %s: %w", u.ID, err)
 		}
 
-		slog.Info("vault: backfill: provisioned age keys", "user_id", u.ID, "username", u.Username)
+		slog.Info("vault: backfill: provisioned age keys", "user_id", u.ID)
 		updated++
 	}
 

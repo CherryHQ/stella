@@ -14,22 +14,27 @@ import (
 
 // authUserResponse is the response shape for auth user endpoints.
 type authUserResponse struct {
-	ID         string          `json:"id"`
-	Username   string          `json:"username"`
-	Role       string          `json:"role"`
-	IsActive   bool            `json:"is_active"`
-	Identities []auth.Identity `json:"identities"`
-	CreatedAt  string          `json:"created_at"`
-	UpdatedAt  string          `json:"updated_at"`
+	ID         string                 `json:"id"`
+	Email      string                 `json:"email"`
+	Name       string                 `json:"name"`
+	Role       string                 `json:"role"`
+	IsActive   bool                   `json:"is_active"`
+	Identities []auth.ChannelIdentity `json:"identities"`
+	CreatedAt  string                 `json:"created_at"`
+	UpdatedAt  string                 `json:"updated_at"`
 }
 
-func (s *Server) buildAuthUserResponse(r *http.Request, u auth.AuthUser) (authUserResponse, error) {
-	identities, err := s.authStore.ListIdentitiesByUser(r.Context(), u.ID)
-	if err != nil {
-		return authUserResponse{}, fmt.Errorf("list identities: %w", err)
+func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserResponse, error) {
+	var identities []auth.ChannelIdentity
+	if s.channelIdents != nil {
+		var err error
+		identities, err = s.channelIdents.ListChannelIdentitiesByUser(r.Context(), u.ID)
+		if err != nil {
+			return authUserResponse{}, fmt.Errorf("list identities: %w", err)
+		}
 	}
 
-	role := u.Role
+	role := auth.RoleUser
 	isActive := u.IsActive
 	if s.memberships != nil {
 		if m, err := s.memberships.GetUserMembership(r.Context(), u.ID); err == nil {
@@ -40,7 +45,8 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.AuthUser) (authUs
 
 	return authUserResponse{
 		ID:         u.ID,
-		Username:   u.Username,
+		Email:      u.Email,
+		Name:       u.Name,
 		Role:       role,
 		IsActive:   isActive,
 		Identities: identities,
@@ -54,7 +60,7 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
-	users, err := s.authStore.ListUsers(r.Context())
+	users, err := s.users.ListUsers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users: "+err.Error())
 		return
@@ -78,7 +84,7 @@ func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) 
 	if !requireAdmin(w, r) {
 		return
 	}
-	u, err := s.authStore.GetUser(r.Context(), id)
+	u, err := s.users.GetUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
@@ -118,16 +124,20 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	if err := s.authStore.UpdateUserRole(r.Context(), id, body.Role); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update role: "+err.Error())
+	if s.memberships == nil {
+		writeError(w, http.StatusServiceUnavailable, "membership store not configured")
 		return
 	}
 
-	// Mirror the role change to auth_membership when available.
-	if s.memberships != nil {
-		if m, err := s.memberships.GetUserMembership(r.Context(), id); err == nil {
-			_ = s.memberships.UpdateMembershipRole(r.Context(), m.ID, body.Role)
-		}
+	m, err := s.memberships.GetUserMembership(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "membership not found for user")
+		return
+	}
+
+	if err := s.memberships.UpdateMembershipRole(r.Context(), m.ID, body.Role); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update role: "+err.Error())
+		return
 	}
 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -161,7 +171,7 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 	}
 
 	// Verify user exists.
-	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
+	if _, err := s.users.GetUser(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
@@ -210,22 +220,25 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 	if !requireAdmin(w, r) {
 		return
 	}
+	if s.channelIdents == nil {
+		writeError(w, http.StatusServiceUnavailable, "channel identity store not configured")
+		return
+	}
 	ctx := r.Context()
 
-	// Verify the identity exists.
-	identity, err := s.authStore.GetIdentity(ctx, identityId)
+	// Verify the identity exists and belongs to the specified user.
+	identity, err := s.channelIdents.GetChannelIdentity(ctx, identityId)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "identity not found")
 		return
 	}
 
-	// Verify it belongs to the specified user.
 	if identity.UserID != id {
 		writeError(w, http.StatusBadRequest, "identity does not belong to this user")
 		return
 	}
 
-	if err := s.authStore.DeleteIdentity(ctx, identityId); err != nil {
+	if err := s.channelIdents.DeleteChannelIdentity(ctx, identityId); err != nil {
 		s.log.Error("admin delete identity", "id", identityId, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete identity")
 		return
@@ -254,19 +267,11 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	u, err := s.authStore.GetUser(r.Context(), id)
-	if err != nil {
+	if _, err := s.users.GetUser(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
-	u.IsActive = body.IsActive
-	if err := s.authStore.UpdateUser(r.Context(), u); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update user: "+err.Error())
-		return
-	}
-
-	// Mirror the active change to auth_membership when available.
 	if s.memberships != nil {
 		if m, err := s.memberships.GetUserMembership(r.Context(), id); err == nil {
 			_ = s.memberships.UpdateMembershipActive(r.Context(), m.ID, body.IsActive)
@@ -274,8 +279,8 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 	}
 
 	// If deactivating, delete all their sessions to force logout.
-	if !body.IsActive {
-		_ = s.authStore.DeleteUserSessions(r.Context(), id)
+	if !body.IsActive && s.sessions != nil {
+		_ = s.sessions.DeleteUserSessions(r.Context(), id)
 	}
 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -290,7 +295,7 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 		writeData(w, http.StatusOK, []auth.LoginIdentity{})
 		return
 	}
-	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
+	if _, err := s.users.GetUser(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
@@ -327,7 +332,7 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
+	if _, err := s.users.GetUser(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
@@ -370,11 +375,15 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 	if !requireAdmin(w, r) {
 		return
 	}
-	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
+	if _, err := s.users.GetUser(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	identities, err := s.authStore.ListIdentitiesByUser(r.Context(), id)
+	if s.channelIdents == nil {
+		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
+		return
+	}
+	identities, err := s.channelIdents.ListChannelIdentitiesByUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list channel identities: "+err.Error())
 		return

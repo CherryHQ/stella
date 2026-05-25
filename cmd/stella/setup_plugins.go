@@ -32,13 +32,13 @@ type pluginSetup struct {
 }
 
 func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
-	authStore := appdb.NewAuthStore(db)
+	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
 	stateStore := pluginstate.New(db)
 
 	phost := pluginhost.New(store,
-		pluginhost.WithAuthService(pluginhost.NewAuthService(authStore)),
+		pluginhost.WithAuthService(pluginhost.NewAuthService(oidcStore)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithSkillStore(skillStore),

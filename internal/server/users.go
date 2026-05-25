@@ -18,7 +18,7 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.authStore.UpdateUserDefaultAgent(r.Context(), id, body.DefaultAgentID); err != nil {
+	if err := s.users.UpdateUserDefaultAgent(r.Context(), id, body.DefaultAgentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -36,7 +36,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.authStore.UpdateUserNotifyIdentity(r.Context(), id, body.NotifyIdentityID); err != nil {
+	if err := s.users.UpdateUserNotifyIdentity(r.Context(), id, body.NotifyIdentityID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

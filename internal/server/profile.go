@@ -19,7 +19,11 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	identities, err := s.authStore.ListIdentitiesByUser(r.Context(), info.UserID)
+	if s.channelIdents == nil {
+		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
+		return
+	}
+	identities, err := s.channelIdents.ListChannelIdentitiesByUser(r.Context(), info.UserID)
 	if err != nil {
 		s.log.Error("list identities", "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -61,15 +65,20 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	if s.credentials == nil {
+		writeError(w, http.StatusServiceUnavailable, "credential store not configured")
+		return
+	}
+
 	// Verify current password.
-	user, err := s.authStore.GetUser(ctx, info.UserID)
+	cred, err := s.credentials.GetCredentialByUserID(ctx, info.UserID)
 	if err != nil {
-		s.log.Error("get user for password change", "user_id", info.UserID, "error", err)
+		s.log.Error("get credential for password change", "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	if err := auth.CheckPassword(user.PasswordHash, body.CurrentPassword); err != nil {
+	if err := auth.CheckPassword(cred.PasswordHash, body.CurrentPassword); err != nil {
 		writeError(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
@@ -82,8 +91,7 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.PasswordHash = hash
-	if err := s.authStore.UpdateUser(ctx, user); err != nil {
+	if err := s.credentials.UpdateCredentialHash(ctx, info.UserID, hash); err != nil {
 		s.log.Error("update password", "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -134,8 +142,13 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 
 	ctx := r.Context()
 
+	if s.channelIdents == nil {
+		writeError(w, http.StatusServiceUnavailable, "channel identity store not configured")
+		return
+	}
+
 	// Verify the identity belongs to the current user.
-	identity, err := s.authStore.GetIdentity(ctx, id)
+	identity, err := s.channelIdents.GetChannelIdentity(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "identity not found")
 		return
@@ -146,7 +159,7 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
-	if err := s.authStore.DeleteIdentity(ctx, id); err != nil {
+	if err := s.channelIdents.DeleteChannelIdentity(ctx, id); err != nil {
 		s.log.Error("delete identity", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return

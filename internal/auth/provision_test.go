@@ -7,13 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
-func setupProvisionStore(t *testing.T) auth.AuthStore {
+func setupProvisionStore(t *testing.T) *appdb.OIDCStore {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "provision.db")
 	db, err := appdb.OpenDB(dbPath)
@@ -21,7 +20,7 @@ func setupProvisionStore(t *testing.T) auth.AuthStore {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return appdb.NewAuthStore(db)
+	return appdb.NewOIDCStore(db)
 }
 
 func TestProvisionIdentityUserNew(t *testing.T) {
@@ -35,21 +34,15 @@ func TestProvisionIdentityUserNew(t *testing.T) {
 		EmailHint:  "alice@example.com",
 	}
 
-	user, err := auth.ProvisionIdentityUser(ctx, store, req)
+	user, err := auth.ProvisionIdentityUser(ctx, store, store, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if user.ID == "" {
 		t.Fatal("expected non-zero user ID")
 	}
-	if user.Username != "alice" {
-		t.Errorf("username = %q, want %q", user.Username, "alice")
-	}
-	if user.PasswordHash != "" {
-		t.Errorf("password hash should be empty for provisioned users")
-	}
-	if user.Role != auth.RoleUser {
-		t.Errorf("role = %q, want %q", user.Role, auth.RoleUser)
+	if user.Email != "alice@example.com" {
+		t.Errorf("email = %q, want %q", user.Email, "alice@example.com")
 	}
 }
 
@@ -64,11 +57,11 @@ func TestProvisionIdentityUserIdempotent(t *testing.T) {
 		EmailHint:  "bob@example.com",
 	}
 
-	u1, err := auth.ProvisionIdentityUser(ctx, store, req)
+	u1, err := auth.ProvisionIdentityUser(ctx, store, store, req)
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	u2, err := auth.ProvisionIdentityUser(ctx, store, req)
+	u2, err := auth.ProvisionIdentityUser(ctx, store, store, req)
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
@@ -79,20 +72,20 @@ func TestProvisionIdentityUserIdempotent(t *testing.T) {
 	users, _ := store.ListUsers(ctx)
 	count := 0
 	for _, u := range users {
-		if strings.HasPrefix(u.Username, "bob") {
+		if strings.HasPrefix(u.Email, "bob@") {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("expected 1 user with username prefix 'bob', got %d", count)
+		t.Errorf("expected 1 user with email prefix 'bob@', got %d", count)
 	}
 }
 
-func TestProvisionIdentityUserUsernameCollision(t *testing.T) {
+func TestProvisionIdentityUserEmailCollision(t *testing.T) {
 	store := setupProvisionStore(t)
 	ctx := context.Background()
 
-	// Two different external IDs that share the same email local-part.
+	// Two different external IDs that share the same email hint.
 	req1 := auth.ProvisionRequest{
 		Platform:   "feishu",
 		ExternalID: "on_carol_1",
@@ -106,20 +99,20 @@ func TestProvisionIdentityUserUsernameCollision(t *testing.T) {
 		EmailHint:  "carol@example.com",
 	}
 
-	u1, err := auth.ProvisionIdentityUser(ctx, store, req1)
+	u1, err := auth.ProvisionIdentityUser(ctx, store, store, req1)
 	if err != nil {
 		t.Fatalf("first: %v", err)
 	}
-	u2, err := auth.ProvisionIdentityUser(ctx, store, req2)
+	u2, err := auth.ProvisionIdentityUser(ctx, store, store, req2)
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}
 
-	if u1.Username != "carol" {
-		t.Errorf("u1.Username = %q, want %q", u1.Username, "carol")
+	if u1.Email != "carol@example.com" {
+		t.Errorf("u1.Email = %q, want %q", u1.Email, "carol@example.com")
 	}
-	if u2.Username != "carol-2" {
-		t.Errorf("u2.Username = %q, want %q", u2.Username, "carol-2")
+	if u2.Email != "carol-2@example.com" {
+		t.Errorf("u2.Email = %q, want %q", u2.Email, "carol-2@example.com")
 	}
 	if u1.ID == u2.ID {
 		t.Error("collision: same user ID for different external IDs")
@@ -137,13 +130,13 @@ func TestProvisionIdentityUserEmptyEmail(t *testing.T) {
 		EmailHint:  "",
 	}
 
-	user, err := auth.ProvisionIdentityUser(ctx, store, req)
+	user, err := auth.ProvisionIdentityUser(ctx, store, store, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should fall back to feishu-<first 8 chars of externalID>.
-	if user.Username != "feishu-on_xyz12" {
-		t.Errorf("username = %q, want %q", user.Username, "feishu-on_xyz12")
+	// Should fall back to feishu-<first 8 chars of externalID>@feishu.channel.
+	if user.Email != "feishu-on_xyz123@feishu.channel" {
+		t.Errorf("email = %q, want %q", user.Email, "feishu-on_xyz123@feishu.channel")
 	}
 }
 
@@ -158,12 +151,12 @@ func TestProvisionIdentityUserShortExternalID(t *testing.T) {
 		EmailHint:  "",
 	}
 
-	user, err := auth.ProvisionIdentityUser(ctx, store, req)
+	user, err := auth.ProvisionIdentityUser(ctx, store, store, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if user.Username != "feishu-short" {
-		t.Errorf("username = %q, want %q", user.Username, "feishu-short")
+	if user.Email != "feishu-short@feishu.channel" {
+		t.Errorf("email = %q, want %q", user.Email, "feishu-short@feishu.channel")
 	}
 }
 
@@ -183,7 +176,7 @@ func TestProvisionIdentityUserCallsOnUserCreated(t *testing.T) {
 		},
 	}
 
-	user, err := auth.ProvisionIdentityUser(ctx, store, req)
+	user, err := auth.ProvisionIdentityUser(ctx, store, store, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,7 +199,7 @@ func TestProvisionIdentityUserOnUserCreatedFailureRollsBackUser(t *testing.T) {
 		},
 	}
 
-	_, err := auth.ProvisionIdentityUser(ctx, store, req)
+	_, err := auth.ProvisionIdentityUser(ctx, store, store, req)
 	if err == nil {
 		t.Fatal("expected error from OnUserCreated")
 	}
@@ -214,145 +207,86 @@ func TestProvisionIdentityUserOnUserCreatedFailureRollsBackUser(t *testing.T) {
 		t.Fatalf("error = %v, want on user created failure", err)
 	}
 
-	if _, err := store.GetIdentityByPlatform(ctx, req.Platform, req.ExternalID); err == nil {
+	if _, err := store.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID); err == nil {
 		t.Fatal("expected no identity after rollback")
 	}
-	if _, err := store.GetUserByUsername(ctx, "grace"); err == nil {
+	if _, err := store.GetUserByEmail(ctx, "grace@example.com"); err == nil {
 		t.Fatal("expected created user to be rolled back")
 	}
 }
 
-type provisionStubStore struct {
-	getIdentityByPlatform func(context.Context, string, string) (auth.Identity, error)
-	getUser               func(context.Context, string) (auth.AuthUser, error)
-	getUserByUsername     func(context.Context, string) (auth.AuthUser, error)
-	createUser            func(context.Context, string, string) (auth.AuthUser, error)
-	deleteUser            func(context.Context, string) error
-	createIdentity        func(context.Context, auth.Identity) (auth.Identity, error)
+// provisionStubUsers implements auth.UserStore for unit testing.
+type provisionStubUsers struct {
+	createUser   func(context.Context, auth.User) (auth.User, error)
+	getUser      func(context.Context, string) (auth.User, error)
+	getUserEmail func(context.Context, string) (auth.User, error)
+	deleteUser   func(context.Context, string) error
 }
 
-func (s provisionStubStore) CreateUser(ctx context.Context, username, passwordHash string) (auth.AuthUser, error) {
-	return s.createUser(ctx, username, passwordHash)
+func (s provisionStubUsers) CreateUser(ctx context.Context, u auth.User) (auth.User, error) {
+	return s.createUser(ctx, u)
 }
 
-func (s provisionStubStore) GetUser(ctx context.Context, id string) (auth.AuthUser, error) {
+func (s provisionStubUsers) GetUser(ctx context.Context, id string) (auth.User, error) {
 	return s.getUser(ctx, id)
 }
 
-func (s provisionStubStore) GetUserByUsername(ctx context.Context, username string) (auth.AuthUser, error) {
-	return s.getUserByUsername(ctx, username)
+func (s provisionStubUsers) GetUserByEmail(ctx context.Context, email string) (auth.User, error) {
+	return s.getUserEmail(ctx, email)
 }
-func (s provisionStubStore) ListUsers(context.Context) ([]auth.AuthUser, error) { panic("unused") }
-func (s provisionStubStore) UpdateUser(context.Context, auth.AuthUser) error    { panic("unused") }
-func (s provisionStubStore) UpdateUserRole(context.Context, string, string) error {
-	panic("unused")
-}
-
-func (s provisionStubStore) UpdateUserDefaultAgent(context.Context, string, string) error {
-	panic("unused")
-}
-
-func (s provisionStubStore) UpdateUserNotifyIdentity(context.Context, string, *string) error {
-	panic("unused")
-}
-
-func (s provisionStubStore) UpdateUserAgeKeys(context.Context, string, string, string) error {
-	panic("unused")
-}
-
-func (s provisionStubStore) DeleteUser(ctx context.Context, id string) error {
+func (s provisionStubUsers) ListUsers(context.Context) ([]auth.User, error) { panic("unused") }
+func (s provisionStubUsers) UpdateUser(context.Context, auth.User) error    { panic("unused") }
+func (s provisionStubUsers) DeleteUser(ctx context.Context, id string) error {
 	return s.deleteUser(ctx, id)
 }
-func (s provisionStubStore) CountUsers(context.Context) (int64, error) { panic("unused") }
-func (s provisionStubStore) CreateIdentity(ctx context.Context, i auth.Identity) (auth.Identity, error) {
-	return s.createIdentity(ctx, i)
-}
-
-func (s provisionStubStore) GetIdentity(context.Context, string) (auth.Identity, error) {
+func (s provisionStubUsers) CountUsers(context.Context) (int64, error) { panic("unused") }
+func (s provisionStubUsers) UpdateUserAgeKeys(context.Context, string, string, string) error {
 	panic("unused")
 }
 
-func (s provisionStubStore) GetIdentityByPlatform(ctx context.Context, platform, externalID string) (auth.Identity, error) {
-	return s.getIdentityByPlatform(ctx, platform, externalID)
-}
-
-func (s provisionStubStore) UpdateIdentityExternalID(context.Context, string, string) error {
+func (s provisionStubUsers) UpdateUserDefaultAgent(context.Context, string, string) error {
 	panic("unused")
 }
 
-func (s provisionStubStore) ListIdentitiesByUser(context.Context, string) ([]auth.Identity, error) {
-	panic("unused")
-}
-func (s provisionStubStore) DeleteIdentity(context.Context, string) error { panic("unused") }
-func (s provisionStubStore) CreatePolicy(context.Context, auth.Policy) (auth.Policy, error) {
-	panic("unused")
-}
-func (s provisionStubStore) GetPolicy(context.Context, string) (auth.Policy, error) { panic("unused") }
-func (s provisionStubStore) ListPolicies(context.Context) ([]auth.Policy, error)    { panic("unused") }
-func (s provisionStubStore) ListEnabledPolicies(context.Context) ([]auth.Policy, error) {
-	panic("unused")
-}
-func (s provisionStubStore) UpdatePolicy(context.Context, auth.Policy) error   { panic("unused") }
-func (s provisionStubStore) DeletePolicy(context.Context, string) error        { panic("unused") }
-func (s provisionStubStore) AssignAgent(context.Context, string, string) error { panic("unused") }
-func (s provisionStubStore) RemoveAgent(context.Context, string, string) error { panic("unused") }
-func (s provisionStubStore) ListUserAgentIDs(context.Context, string) ([]string, error) {
+func (s provisionStubUsers) UpdateUserNotifyIdentity(context.Context, string, *string) error {
 	panic("unused")
 }
 
-func (s provisionStubStore) ListAgentUserIDs(context.Context, string) ([]string, error) {
+// provisionStubIdents implements auth.ChannelIdentityStore for unit testing.
+type provisionStubIdents struct {
+	getByPlatform func(context.Context, string, string) (auth.ChannelIdentity, error)
+	create        func(context.Context, auth.ChannelIdentity) (auth.ChannelIdentity, error)
+}
+
+func (s provisionStubIdents) CreateChannelIdentity(ctx context.Context, i auth.ChannelIdentity) (auth.ChannelIdentity, error) {
+	return s.create(ctx, i)
+}
+
+func (s provisionStubIdents) GetChannelIdentity(context.Context, string) (auth.ChannelIdentity, error) {
 	panic("unused")
 }
 
-func (s provisionStubStore) CreateSession(context.Context, auth.Session) (auth.Session, error) {
+func (s provisionStubIdents) GetChannelIdentityByPlatform(ctx context.Context, platform, externalID string) (auth.ChannelIdentity, error) {
+	return s.getByPlatform(ctx, platform, externalID)
+}
+
+func (s provisionStubIdents) ListChannelIdentitiesByUser(context.Context, string) ([]auth.ChannelIdentity, error) {
 	panic("unused")
 }
 
-func (s provisionStubStore) GetSession(context.Context, string) (auth.Session, error) {
+func (s provisionStubIdents) UpdateChannelIdentityExternalID(context.Context, string, string) error {
 	panic("unused")
 }
-func (s provisionStubStore) DeleteSession(context.Context, string) error      { panic("unused") }
-func (s provisionStubStore) DeleteExpiredSessions(context.Context) error      { panic("unused") }
-func (s provisionStubStore) DeleteUserSessions(context.Context, string) error { panic("unused") }
-func (s provisionStubStore) UpdateSessionExpiry(context.Context, string, time.Time) error {
-	panic("unused")
-}
-
-func (s provisionStubStore) CreateUserToken(context.Context, auth.UserToken) (auth.UserToken, error) {
-	panic("unused")
-}
-
-func (s provisionStubStore) GetUserTokenByHash(context.Context, string) (auth.UserToken, error) {
-	panic("unused")
-}
-
-func (s provisionStubStore) GetActiveUserTokenByHash(context.Context, string) (auth.UserToken, error) {
-	panic("unused")
-}
-
-func (s provisionStubStore) GetActiveAutoUserToken(context.Context, string) (auth.UserToken, error) {
-	panic("unused")
-}
-
-func (s provisionStubStore) RotateUserToken(context.Context, string) (int64, error) {
-	panic("unused")
-}
-
-func (s provisionStubStore) RevokeUserToken(context.Context, string) (int64, error) {
-	panic("unused")
-}
-
-func (s provisionStubStore) UpdateUserTokenLastUsed(context.Context, string) (int64, error) {
-	panic("unused")
-}
+func (s provisionStubIdents) DeleteChannelIdentity(context.Context, string) error { panic("unused") }
 
 func TestProvisionIdentityUserPropagatesIdentityLookupError(t *testing.T) {
-	store := provisionStubStore{
-		getIdentityByPlatform: func(context.Context, string, string) (auth.Identity, error) {
-			return auth.Identity{}, errors.New("db exploded")
+	users := provisionStubUsers{}
+	idents := provisionStubIdents{
+		getByPlatform: func(context.Context, string, string) (auth.ChannelIdentity, error) {
+			return auth.ChannelIdentity{}, errors.New("db exploded")
 		},
 	}
-	_, err := auth.ProvisionIdentityUser(context.Background(), store, auth.ProvisionRequest{
+	_, err := auth.ProvisionIdentityUser(context.Background(), users, idents, auth.ProvisionRequest{
 		Platform:   "feishu",
 		ExternalID: "broken",
 	})
@@ -362,45 +296,49 @@ func TestProvisionIdentityUserPropagatesIdentityLookupError(t *testing.T) {
 }
 
 func TestProvisionIdentityUserReturnsExistingUserFromIdentity(t *testing.T) {
-	store := provisionStubStore{
-		getIdentityByPlatform: func(context.Context, string, string) (auth.Identity, error) {
-			return auth.Identity{UserID: "42"}, nil
-		},
-		getUser: func(context.Context, string) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: "42", Username: "existing"}, nil
+	users := provisionStubUsers{
+		getUser: func(context.Context, string) (auth.User, error) {
+			return auth.User{ID: "42", Email: "existing@example.com"}, nil
 		},
 	}
-	user, err := auth.ProvisionIdentityUser(context.Background(), store, auth.ProvisionRequest{
+	idents := provisionStubIdents{
+		getByPlatform: func(context.Context, string, string) (auth.ChannelIdentity, error) {
+			return auth.ChannelIdentity{UserID: "42"}, nil
+		},
+	}
+	user, err := auth.ProvisionIdentityUser(context.Background(), users, idents, auth.ProvisionRequest{
 		Platform:   "feishu",
 		ExternalID: "existing",
 	})
 	if err != nil {
 		t.Fatalf("ProvisionIdentityUser: %v", err)
 	}
-	if user.ID != "42" || user.Username != "existing" {
+	if user.ID != "42" || user.Email != "existing@example.com" {
 		t.Fatalf("user = %+v, want existing user", user)
 	}
 }
 
 func TestProvisionIdentityUserOnUserCreatedCleanupFailureIncludesBothErrors(t *testing.T) {
-	store := provisionStubStore{
-		getIdentityByPlatform: func(context.Context, string, string) (auth.Identity, error) {
-			return auth.Identity{}, sql.ErrNoRows
+	users := provisionStubUsers{
+		getUserEmail: func(context.Context, string) (auth.User, error) {
+			return auth.User{}, sql.ErrNoRows
 		},
-		getUserByUsername: func(context.Context, string) (auth.AuthUser, error) {
-			return auth.AuthUser{}, sql.ErrNoRows
-		},
-		createUser: func(context.Context, string, string) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: "7", Username: "cleanup"}, nil
+		createUser: func(context.Context, auth.User) (auth.User, error) {
+			return auth.User{ID: "7", Email: "cleanup@example.com"}, nil
 		},
 		deleteUser: func(context.Context, string) error {
 			return errors.New("cleanup failed")
 		},
-		createIdentity: func(context.Context, auth.Identity) (auth.Identity, error) {
+	}
+	idents := provisionStubIdents{
+		getByPlatform: func(context.Context, string, string) (auth.ChannelIdentity, error) {
+			return auth.ChannelIdentity{}, sql.ErrNoRows
+		},
+		create: func(context.Context, auth.ChannelIdentity) (auth.ChannelIdentity, error) {
 			panic("should not reach createIdentity")
 		},
 	}
-	_, err := auth.ProvisionIdentityUser(context.Background(), store, auth.ProvisionRequest{
+	_, err := auth.ProvisionIdentityUser(context.Background(), users, idents, auth.ProvisionRequest{
 		Platform:   "feishu",
 		ExternalID: "cleanup",
 		EmailHint:  "cleanup@example.com",
@@ -417,18 +355,20 @@ func TestProvisionIdentityUserOnUserCreatedCleanupFailureIncludesBothErrors(t *t
 }
 
 func TestProvisionIdentityUserCreateUserError(t *testing.T) {
-	store := provisionStubStore{
-		getIdentityByPlatform: func(context.Context, string, string) (auth.Identity, error) {
-			return auth.Identity{}, sql.ErrNoRows
+	users := provisionStubUsers{
+		getUserEmail: func(context.Context, string) (auth.User, error) {
+			return auth.User{}, sql.ErrNoRows
 		},
-		getUserByUsername: func(context.Context, string) (auth.AuthUser, error) {
-			return auth.AuthUser{}, sql.ErrNoRows
-		},
-		createUser: func(context.Context, string, string) (auth.AuthUser, error) {
-			return auth.AuthUser{}, errors.New("create failed")
+		createUser: func(context.Context, auth.User) (auth.User, error) {
+			return auth.User{}, errors.New("create failed")
 		},
 	}
-	_, err := auth.ProvisionIdentityUser(context.Background(), store, auth.ProvisionRequest{
+	idents := provisionStubIdents{
+		getByPlatform: func(context.Context, string, string) (auth.ChannelIdentity, error) {
+			return auth.ChannelIdentity{}, sql.ErrNoRows
+		},
+	}
+	_, err := auth.ProvisionIdentityUser(context.Background(), users, idents, auth.ProvisionRequest{
 		Platform:   "feishu",
 		ExternalID: "create-fail",
 		EmailHint:  "create@example.com",
@@ -440,31 +380,33 @@ func TestProvisionIdentityUserCreateUserError(t *testing.T) {
 
 func TestProvisionIdentityUserIdentityRaceReturnsWinner(t *testing.T) {
 	lookupCalls := 0
-	store := provisionStubStore{
-		getIdentityByPlatform: func(context.Context, string, string) (auth.Identity, error) {
-			lookupCalls++
-			if lookupCalls == 1 {
-				return auth.Identity{}, sql.ErrNoRows
-			}
-			return auth.Identity{UserID: "99"}, nil
+	users := provisionStubUsers{
+		getUserEmail: func(context.Context, string) (auth.User, error) {
+			return auth.User{}, sql.ErrNoRows
 		},
-		getUserByUsername: func(context.Context, string) (auth.AuthUser, error) {
-			return auth.AuthUser{}, sql.ErrNoRows
-		},
-		createUser: func(context.Context, string, string) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: "7", Username: "racy"}, nil
+		createUser: func(context.Context, auth.User) (auth.User, error) {
+			return auth.User{ID: "7", Email: "racy@example.com"}, nil
 		},
 		deleteUser: func(context.Context, string) error {
 			return nil
 		},
-		createIdentity: func(context.Context, auth.Identity) (auth.Identity, error) {
-			return auth.Identity{}, errors.New("unique constraint")
-		},
-		getUser: func(context.Context, string) (auth.AuthUser, error) {
-			return auth.AuthUser{ID: "99", Username: "winner"}, nil
+		getUser: func(context.Context, string) (auth.User, error) {
+			return auth.User{ID: "99", Email: "winner@example.com"}, nil
 		},
 	}
-	user, err := auth.ProvisionIdentityUser(context.Background(), store, auth.ProvisionRequest{
+	idents := provisionStubIdents{
+		getByPlatform: func(ctx context.Context, platform, externalID string) (auth.ChannelIdentity, error) {
+			lookupCalls++
+			if lookupCalls == 1 {
+				return auth.ChannelIdentity{}, sql.ErrNoRows
+			}
+			return auth.ChannelIdentity{UserID: "99"}, nil
+		},
+		create: func(context.Context, auth.ChannelIdentity) (auth.ChannelIdentity, error) {
+			return auth.ChannelIdentity{}, errors.New("unique constraint")
+		},
+	}
+	user, err := auth.ProvisionIdentityUser(context.Background(), users, idents, auth.ProvisionRequest{
 		Platform:   "feishu",
 		ExternalID: "racy",
 		EmailHint:  "racy@example.com",
@@ -472,7 +414,7 @@ func TestProvisionIdentityUserIdentityRaceReturnsWinner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProvisionIdentityUser: %v", err)
 	}
-	if user.ID != "99" || user.Username != "winner" {
+	if user.ID != "99" || user.Email != "winner@example.com" {
 		t.Fatalf("user = %+v, want winner", user)
 	}
 }

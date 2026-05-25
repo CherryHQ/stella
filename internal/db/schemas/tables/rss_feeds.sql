@@ -1,6 +1,6 @@
 CREATE TABLE rss_feeds (
     id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id        TEXT REFERENCES settings_agents(id) ON DELETE SET NULL,
     url             TEXT NOT NULL,
     title           TEXT NOT NULL DEFAULT '',

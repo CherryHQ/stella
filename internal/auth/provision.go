@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
-const maxUsernameAttempts = 20
+const maxEmailAttempts = 20
 
 // ProvisionRequest carries the information needed to provision a new user.
 type ProvisionRequest struct {
@@ -30,89 +32,105 @@ type ProvisionRequest struct {
 // On a concurrent race where two callers both miss the initial identity lookup
 // and one loses the unique-constraint insert, the loser re-reads the winning
 // identity/user and returns it rather than propagating an error.
-func ProvisionIdentityUser(ctx context.Context, store AuthStore, req ProvisionRequest) (AuthUser, error) {
+func ProvisionIdentityUser(ctx context.Context, users UserStore, channelIdents ChannelIdentityStore, req ProvisionRequest) (User, error) {
 	// Fast path: identity already exists.
-	existing, err := store.GetIdentityByPlatform(ctx, req.Platform, req.ExternalID)
+	existing, err := channelIdents.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID)
 	if err == nil {
-		user, err := store.GetUser(ctx, existing.UserID)
+		user, err := users.GetUser(ctx, existing.UserID)
 		if err != nil {
-			return AuthUser{}, fmt.Errorf("provision: get existing user: %w", err)
+			return User{}, fmt.Errorf("provision: get existing user: %w", err)
 		}
 		return user, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return AuthUser{}, fmt.Errorf("provision: check identity: %w", err)
+	if !isNotFoundErr(err) {
+		return User{}, fmt.Errorf("provision: check identity: %w", err)
 	}
 
-	username, err := deriveUsername(ctx, store, req.EmailHint, req.ExternalID, req.Platform)
+	email, err := deriveEmail(ctx, users, req.EmailHint, req.ExternalID, req.Platform)
 	if err != nil {
-		return AuthUser{}, err
+		return User{}, err
 	}
 
-	user, err := store.CreateUser(ctx, username, "") // empty hash = no web login
+	user, err := users.CreateUser(ctx, User{
+		ID:    uuid.NewString(),
+		Email: email,
+		Name:  req.Name,
+	})
 	if err != nil {
-		return AuthUser{}, fmt.Errorf("provision: create user: %w", err)
+		return User{}, fmt.Errorf("provision: create user: %w", err)
 	}
 
 	if req.OnUserCreated != nil {
 		if err := req.OnUserCreated(ctx, user.ID); err != nil {
-			if derr := store.DeleteUser(ctx, user.ID); derr != nil {
-				return AuthUser{}, fmt.Errorf("provision: on user created: %w (cleanup user: %w)", err, derr)
+			if derr := users.DeleteUser(ctx, user.ID); derr != nil {
+				return User{}, fmt.Errorf("provision: on user created: %w (cleanup user: %w)", err, derr)
 			}
-			return AuthUser{}, fmt.Errorf("provision: on user created: %w", err)
+			return User{}, fmt.Errorf("provision: on user created: %w", err)
 		}
 	}
 
-	_, identErr := store.CreateIdentity(ctx, Identity{
+	_, identErr := channelIdents.CreateChannelIdentity(ctx, ChannelIdentity{
+		ID:         uuid.NewString(),
 		UserID:     user.ID,
 		Platform:   req.Platform,
 		ExternalID: req.ExternalID,
 		Name:       req.Name,
 	})
 	if identErr != nil {
-		_ = store.DeleteUser(ctx, user.ID)
+		_ = users.DeleteUser(ctx, user.ID)
 
 		// A concurrent provision may have won the race on the unique constraint.
-		if winner, rerr := store.GetIdentityByPlatform(ctx, req.Platform, req.ExternalID); rerr == nil {
-			if winUser, rerr := store.GetUser(ctx, winner.UserID); rerr == nil {
+		if winner, rerr := channelIdents.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID); rerr == nil {
+			if winUser, rerr := users.GetUser(ctx, winner.UserID); rerr == nil {
 				return winUser, nil
 			}
 		}
 
-		return AuthUser{}, fmt.Errorf("provision: create identity: %w", identErr)
+		return User{}, fmt.Errorf("provision: create identity: %w", identErr)
 	}
 
 	return user, nil
 }
 
-// deriveUsername produces a unique username from an email hint or external ID.
-// It tries the base name, then base-2, base-3, … up to maxUsernameAttempts.
+// deriveEmail produces a unique email from an email hint or external ID.
+// It tries the base email, then base-2@..., base-3@..., … up to maxEmailAttempts.
 // Returns an error if all candidates are taken.
-func deriveUsername(ctx context.Context, store AuthStore, emailHint, externalID, platform string) (string, error) {
-	base := localPart(emailHint)
-	if base == "" {
+func deriveEmail(ctx context.Context, users UserStore, emailHint, externalID, platform string) (string, error) {
+	var base, domain string
+	if lp := localPart(emailHint); lp != "" {
+		base = lp
+		domain = emailHint[len(lp)+1:]
+	} else {
 		id := externalID
-		if len(id) > 8 {
-			id = id[:8]
+		if len(id) > 9 {
+			id = id[:9]
 		}
 		base = platform + "-" + id
+		domain = platform + ".channel"
 	}
 
-	for i := range maxUsernameAttempts {
-		candidate := base
-		if i > 0 {
-			candidate = fmt.Sprintf("%s-%d", base, i+1)
+	for i := range maxEmailAttempts {
+		var candidate string
+		if i == 0 {
+			candidate = base + "@" + domain
+		} else {
+			candidate = fmt.Sprintf("%s-%d@%s", base, i+1, domain)
 		}
-		_, err := store.GetUserByUsername(ctx, candidate)
-		if errors.Is(err, sql.ErrNoRows) {
+		_, err := users.GetUserByEmail(ctx, candidate)
+		if isNotFoundErr(err) {
 			return candidate, nil
 		}
 		if err != nil {
-			return "", fmt.Errorf("provision: probe username %q: %w", candidate, err)
+			return "", fmt.Errorf("provision: probe email %q: %w", candidate, err)
 		}
 	}
 
-	return "", fmt.Errorf("provision: no unique username after %d attempts for base %q", maxUsernameAttempts, base)
+	return "", fmt.Errorf("provision: no unique email after %d attempts for base %q", maxEmailAttempts, base)
+}
+
+// isNotFoundErr reports whether err signals a "not found" condition.
+func isNotFoundErr(err error) bool {
+	return errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows)
 }
 
 // localPart returns the portion of an email address before the @ sign.

@@ -10,7 +10,7 @@ import (
 )
 
 type fakeTokenStore struct {
-	users  map[string]AuthUser
+	users  map[string]User
 	tokens map[string]UserToken
 	nextID int64
 	now    func() time.Time
@@ -18,7 +18,7 @@ type fakeTokenStore struct {
 
 func newFakeTokenStore(now func() time.Time) *fakeTokenStore {
 	return &fakeTokenStore{
-		users:  map[string]AuthUser{"1": {ID: "1", Username: "alice", IsActive: true}},
+		users:  map[string]User{"1": {ID: "1", Email: "alice@example.com"}},
 		tokens: make(map[string]UserToken),
 		nextID: 1,
 		now:    now,
@@ -87,10 +87,10 @@ func (s *fakeTokenStore) UpdateUserTokenLastUsed(_ context.Context, id string) (
 	return 1, nil
 }
 
-func (s *fakeTokenStore) GetUser(_ context.Context, id string) (AuthUser, error) {
+func (s *fakeTokenStore) GetUser(_ context.Context, id string) (User, error) {
 	user, ok := s.users[id]
 	if !ok {
-		return AuthUser{}, sql.ErrNoRows
+		return User{}, sql.ErrNoRows
 	}
 	return user, nil
 }
@@ -246,9 +246,5 @@ func TestTokenServiceAuthenticate(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, "stella_wrong"); err == nil {
 		t.Fatal("Authenticate accepted wrong token")
-	}
-	store.users["1"] = AuthUser{ID: "1", Username: "alice", IsActive: false}
-	if _, err := svc.Authenticate(ctx, vault.env["1"][StellaTokenName]); err == nil {
-		t.Fatal("Authenticate accepted inactive user")
 	}
 }

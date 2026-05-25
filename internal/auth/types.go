@@ -2,35 +2,20 @@ package auth
 
 import "time"
 
-// AuthUser represents a system user with login credentials and preferences.
-// Kept for the additive migration period; new OIDC auth code uses User.
-type AuthUser struct {
-	ID               string    `json:"id"`
-	Username         string    `json:"username"`
-	PasswordHash     string    `json:"-"`
-	Role             string    `json:"role"`
-	IsActive         bool      `json:"is_active"`
-	DefaultAgentID   string    `json:"default_agent_id,omitempty"`
-	NotifyIdentityID *string   `json:"notify_identity_id,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-}
-
-// IsAdmin returns true if the user has the admin role.
-func (u AuthUser) IsAdmin() bool { return u.Role == RoleAdmin }
-
-// User is the new OIDC-based user record stored in auth_user.
+// User is the OIDC-based user record stored in auth_user.
 type User struct {
-	ID               string    `json:"id"`
-	Email            string    `json:"email"`
-	Name             string    `json:"name"`
-	AvatarURL        string    `json:"avatar_url"`
-	DefaultAgentID   string    `json:"default_agent_id,omitempty"`
-	NotifyIdentityID *string   `json:"notify_identity_id,omitempty"`
-	AgePublicKey     string    `json:"-"`
-	AgePrivateKey    string    `json:"-"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID               string  `json:"id"`
+	Email            string  `json:"email"`
+	Name             string  `json:"name"`
+	AvatarURL        string  `json:"avatar_url"`
+	DefaultAgentID   string  `json:"default_agent_id,omitempty"`
+	NotifyIdentityID *string `json:"notify_identity_id,omitempty"`
+	// IsActive is always true for OIDC users; retained for gateway.go compatibility.
+	IsActive      bool      `json:"is_active"`
+	AgePublicKey  string    `json:"-"`
+	AgePrivateKey string    `json:"-"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // LoginIdentity is an OIDC login identity stored in auth_identity.
@@ -171,16 +156,6 @@ const (
 	ResourceScheduler ResourceType = "scheduler"
 	ResourceSetting   ResourceType = "setting"
 )
-
-// Identity represents a linked channel identity.
-type Identity struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"`
-	Platform   string    `json:"platform"`
-	ExternalID string    `json:"external_id"`
-	Name       string    `json:"name"`
-	LinkedAt   time.Time `json:"linked_at"`
-}
 
 // Session represents an HTTP session.
 // TokenHash is the SHA-256 hash of the raw token stored in the session cookie.

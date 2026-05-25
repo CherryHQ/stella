@@ -1,7 +1,7 @@
 CREATE TABLE share (
     id TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,
-    user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     media_type TEXT NOT NULL,
     content BLOB NOT NULL,

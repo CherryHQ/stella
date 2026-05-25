@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
@@ -19,7 +21,7 @@ func TestListProfileIdentitiesEmpty(t *testing.T) {
 	}
 
 	resp := parseResponse(t, rr)
-	var identities []auth.Identity
+	var identities []auth.ChannelIdentity
 	if err := json.Unmarshal(resp.Data, &identities); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -32,15 +34,16 @@ func TestListProfileIdentitiesWithLink(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// Create an identity for the admin user.
-	_, err := env.authStore.CreateIdentity(ctx, auth.Identity{
+	// Create a channel identity for the admin user.
+	_, err := env.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
 		UserID:     env.adminUser.ID,
 		Platform:   "telegram",
 		ExternalID: "12345",
 		Name:       "TestAdmin",
 	})
 	if err != nil {
-		t.Fatalf("CreateIdentity: %v", err)
+		t.Fatalf("CreateChannelIdentity: %v", err)
 	}
 
 	rr := doRequest(t, env, "GET", "/api/auth/profile/identities", nil)
@@ -49,7 +52,7 @@ func TestListProfileIdentitiesWithLink(t *testing.T) {
 	}
 
 	resp := parseResponse(t, rr)
-	var identities []auth.Identity
+	var identities []auth.ChannelIdentity
 	if err := json.Unmarshal(resp.Data, &identities); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -74,11 +77,11 @@ func TestChangePasswordSuccess(t *testing.T) {
 	}
 
 	// Verify the new password works.
-	user, err := env.authStore.GetUser(context.Background(), env.adminUser.ID)
+	cred, err := env.oidcStore.GetCredentialByUserID(context.Background(), env.adminUser.ID)
 	if err != nil {
-		t.Fatalf("GetUser: %v", err)
+		t.Fatalf("GetCredentialByUserID: %v", err)
 	}
-	if err := auth.CheckPassword(user.PasswordHash, "newpassword123"); err != nil {
+	if err := auth.CheckPassword(cred.PasswordHash, "newpassword123"); err != nil {
 		t.Error("new password should work after change")
 	}
 }
@@ -152,15 +155,16 @@ func TestUnlinkIdentity(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// Create an identity.
-	identity, err := env.authStore.CreateIdentity(ctx, auth.Identity{
+	// Create a channel identity.
+	identity, err := env.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
 		UserID:     env.adminUser.ID,
 		Platform:   "telegram",
 		ExternalID: "54321",
 		Name:       "TestAdmin",
 	})
 	if err != nil {
-		t.Fatalf("CreateIdentity: %v", err)
+		t.Fatalf("CreateChannelIdentity: %v", err)
 	}
 
 	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+identity.ID, nil)
@@ -169,9 +173,9 @@ func TestUnlinkIdentity(t *testing.T) {
 	}
 
 	// Verify it's gone.
-	identities, err := env.authStore.ListIdentitiesByUser(ctx, env.adminUser.ID)
+	identities, err := env.oidcStore.ListChannelIdentitiesByUser(ctx, env.adminUser.ID)
 	if err != nil {
-		t.Fatalf("ListIdentitiesByUser: %v", err)
+		t.Fatalf("ListChannelIdentitiesByUser: %v", err)
 	}
 	if len(identities) != 0 {
 		t.Errorf("expected 0 identities after unlink, got %d", len(identities))
@@ -183,21 +187,18 @@ func TestUnlinkIdentityOtherUser(t *testing.T) {
 	ctx := context.Background()
 
 	// Create another user.
-	hash, _ := auth.HashPassword("otherpassword")
-	otherUser, err := env.authStore.CreateUser(ctx, "otheruser", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
+	otherUser, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "otheruser", auth.RoleUser)
 
-	// Create an identity for the other user.
-	identity, err := env.authStore.CreateIdentity(ctx, auth.Identity{
+	// Create a channel identity for the other user.
+	identity, err := env.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
 		UserID:     otherUser.ID,
 		Platform:   "qq",
 		ExternalID: "99999",
 		Name:       "Other",
 	})
 	if err != nil {
-		t.Fatalf("CreateIdentity: %v", err)
+		t.Fatalf("CreateChannelIdentity: %v", err)
 	}
 
 	// Try to unlink it as the admin — should fail (not your identity).

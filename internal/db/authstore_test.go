@@ -7,12 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
-func setupAuthStore(t *testing.T) (*appdb.AuthStore, *sql.DB) {
+func setupAuthStore(t *testing.T) (*appdb.AuthStore, *appdb.OIDCStore, *sql.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := appdb.OpenDB(dbPath)
@@ -20,7 +22,21 @@ func setupAuthStore(t *testing.T) (*appdb.AuthStore, *sql.DB) {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return appdb.NewAuthStore(db), db
+	return appdb.NewAuthStore(db), appdb.NewOIDCStore(db), db
+}
+
+// createUser creates an auth_user row via OIDCStore for use as FK target in tests.
+func createUser(t *testing.T, oidc *appdb.OIDCStore, email string) auth.User {
+	t.Helper()
+	u, err := oidc.CreateUser(context.Background(), auth.User{
+		ID:    uuid.NewString(),
+		Email: email,
+		Name:  email,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser(%q): %v", email, err)
+	}
+	return u
 }
 
 // seedAgent creates a test agent (needed for FK constraints on auth_user_agents).
@@ -34,224 +50,9 @@ func seedAgent(t *testing.T, db *sql.DB, id string) {
 	}
 }
 
-func TestUserCRUD(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	// Create.
-	user, err := store.CreateUser(ctx, "alice", "hash123")
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	if user.Username != "alice" || !user.IsActive {
-		t.Errorf("CreateUser = %+v", user)
-	}
-	if user.ID == "" {
-		t.Error("expected non-empty ID")
-	}
-
-	// Get by ID.
-	got, err := store.GetUser(ctx, user.ID)
-	if err != nil {
-		t.Fatalf("GetUser: %v", err)
-	}
-	if got.Username != "alice" {
-		t.Errorf("GetUser username = %q", got.Username)
-	}
-
-	// Get by username.
-	got, err = store.GetUserByUsername(ctx, "alice")
-	if err != nil {
-		t.Fatalf("GetUserByUsername: %v", err)
-	}
-	if got.ID != user.ID {
-		t.Errorf("GetUserByUsername ID = %q, want %q", got.ID, user.ID)
-	}
-
-	// List.
-	users, err := store.ListUsers(ctx)
-	if err != nil {
-		t.Fatalf("ListUsers: %v", err)
-	}
-	if len(users) != 1 {
-		t.Errorf("ListUsers = %d users, want 1", len(users))
-	}
-
-	// Count.
-	count, err := store.CountUsers(ctx)
-	if err != nil {
-		t.Fatalf("CountUsers: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("CountUsers = %d, want 1", count)
-	}
-
-	// Update.
-	got.Username = "alice2"
-	got.IsActive = false
-	got.PasswordHash = "newhash"
-	if err := store.UpdateUser(ctx, got); err != nil {
-		t.Fatalf("UpdateUser: %v", err)
-	}
-	updated, _ := store.GetUser(ctx, user.ID)
-	if updated.Username != "alice2" || updated.IsActive || updated.PasswordHash != "newhash" {
-		t.Errorf("after update = %+v", updated)
-	}
-
-	// Delete.
-	if err := store.DeleteUser(ctx, user.ID); err != nil {
-		t.Fatalf("DeleteUser: %v", err)
-	}
-	_, err = store.GetUser(ctx, user.ID)
-	if err == nil {
-		t.Error("expected error after delete")
-	}
-}
-
-func TestUserDuplicateUsername(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	_, err := store.CreateUser(ctx, "bob", "hash")
-	if err != nil {
-		t.Fatalf("first create: %v", err)
-	}
-	_, err = store.CreateUser(ctx, "bob", "hash2")
-	if err == nil {
-		t.Error("expected error on duplicate username")
-	}
-}
-
-func TestUserRole(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "carol", "hash")
-
-	// Default role is "user".
-	if user.Role != auth.RoleUser {
-		t.Errorf("default role = %q, want %q", user.Role, auth.RoleUser)
-	}
-
-	// Promote to admin.
-	if err := store.UpdateUserRole(ctx, user.ID, auth.RoleAdmin); err != nil {
-		t.Fatalf("UpdateUserRole: %v", err)
-	}
-	got, _ := store.GetUser(ctx, user.ID)
-	if got.Role != auth.RoleAdmin {
-		t.Errorf("after promote role = %q, want %q", got.Role, auth.RoleAdmin)
-	}
-
-	// Demote back to user.
-	if err := store.UpdateUserRole(ctx, user.ID, auth.RoleUser); err != nil {
-		t.Fatalf("UpdateUserRole: %v", err)
-	}
-	got, _ = store.GetUser(ctx, user.ID)
-	if got.Role != auth.RoleUser {
-		t.Errorf("after demote role = %q, want %q", got.Role, auth.RoleUser)
-	}
-}
-
-func TestIdentityCRUD(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "dave", "hash")
-
-	identity, err := store.CreateIdentity(ctx, auth.Identity{
-		UserID: user.ID, Platform: "telegram", ExternalID: "tg-123", Name: "Dave TG",
-	})
-	if err != nil {
-		t.Fatalf("CreateIdentity: %v", err)
-	}
-	if identity.ID == "" || identity.Platform != "telegram" {
-		t.Errorf("CreateIdentity = %+v", identity)
-	}
-
-	got, err := store.GetIdentity(ctx, identity.ID)
-	if err != nil {
-		t.Fatalf("GetIdentity: %v", err)
-	}
-	if got.ExternalID != "tg-123" {
-		t.Errorf("GetIdentity external_id = %q", got.ExternalID)
-	}
-
-	got, err = store.GetIdentityByPlatform(ctx, "telegram", "tg-123")
-	if err != nil {
-		t.Fatalf("GetIdentityByPlatform: %v", err)
-	}
-	if got.UserID != user.ID {
-		t.Errorf("GetIdentityByPlatform user_id = %q", got.UserID)
-	}
-
-	identities, err := store.ListIdentitiesByUser(ctx, user.ID)
-	if err != nil {
-		t.Fatalf("ListIdentitiesByUser: %v", err)
-	}
-	if len(identities) != 1 {
-		t.Errorf("ListIdentitiesByUser = %d", len(identities))
-	}
-
-	if err := store.DeleteIdentity(ctx, identity.ID); err != nil {
-		t.Fatalf("DeleteIdentity: %v", err)
-	}
-	_, err = store.GetIdentity(ctx, identity.ID)
-	if err == nil {
-		t.Error("expected error after delete")
-	}
-}
-
-func TestIdentityUniqueConstraint(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "eve", "hash")
-	_, _ = store.CreateIdentity(ctx, auth.Identity{
-		UserID: user.ID, Platform: "telegram", ExternalID: "tg-456",
-	})
-
-	_, err := store.CreateIdentity(ctx, auth.Identity{
-		UserID: user.ID, Platform: "telegram", ExternalID: "tg-456",
-	})
-	if err == nil {
-		t.Error("expected error on duplicate platform+external_id")
-	}
-}
-
-func TestUpdateIdentityExternalID(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "frank", "hash")
-	identity, err := store.CreateIdentity(ctx, auth.Identity{
-		UserID: user.ID, Platform: "feishu", ExternalID: "ou_legacy",
-	})
-	if err != nil {
-		t.Fatalf("CreateIdentity: %v", err)
-	}
-
-	if err := store.UpdateIdentityExternalID(ctx, identity.ID, "on_stable"); err != nil {
-		t.Fatalf("UpdateIdentityExternalID: %v", err)
-	}
-
-	got, err := store.GetIdentityByPlatform(ctx, "feishu", "on_stable")
-	if err != nil {
-		t.Fatalf("GetIdentityByPlatform: %v", err)
-	}
-	if got.ID != identity.ID {
-		t.Fatalf("updated identity id = %s, want %s", got.ID, identity.ID)
-	}
-}
-
 func TestPolicyCRUD(t *testing.T) {
 	t.Parallel()
-	store, _ := setupAuthStore(t)
+	store, _, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	policy, err := store.CreatePolicy(ctx, auth.Policy{
@@ -318,10 +119,10 @@ func TestPolicyCRUD(t *testing.T) {
 
 func TestUserAgentAssignment(t *testing.T) {
 	t.Parallel()
-	store, db := setupAuthStore(t)
+	store, oidc, db := setupAuthStore(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUser(ctx, "frank", "hash")
+	user := createUser(t, oidc, "frank@example.com")
 	seedAgent(t, db, "agent1")
 	seedAgent(t, db, "agent2")
 
@@ -364,151 +165,16 @@ func TestUserAgentAssignment(t *testing.T) {
 	}
 }
 
-func TestSessionCRUD(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "grace", "hash")
-
-	expires := time.Now().UTC().Add(7 * 24 * time.Hour)
-	sess, err := store.CreateSession(ctx, auth.Session{
-		ID: "sess-abc", UserID: user.ID, ExpiresAt: expires,
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	if sess.ID != "sess-abc" || sess.UserID != user.ID {
-		t.Errorf("CreateSession = %+v", sess)
-	}
-
-	got, err := store.GetSession(ctx, "sess-abc")
-	if err != nil {
-		t.Fatalf("GetSession: %v", err)
-	}
-	if got.UserID != user.ID {
-		t.Errorf("GetSession user_id = %q", got.UserID)
-	}
-
-	// Update expiry.
-	newExpiry := time.Now().UTC().Add(14 * 24 * time.Hour)
-	if err := store.UpdateSessionExpiry(ctx, "sess-abc", newExpiry); err != nil {
-		t.Fatalf("UpdateSessionExpiry: %v", err)
-	}
-
-	// Delete.
-	if err := store.DeleteSession(ctx, "sess-abc"); err != nil {
-		t.Fatalf("DeleteSession: %v", err)
-	}
-	_, err = store.GetSession(ctx, "sess-abc")
-	if err == nil {
-		t.Error("expected error after delete")
-	}
-}
-
-func TestDeleteExpiredSessions(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "hank", "hash")
-
-	// Create an expired session.
-	past := time.Now().UTC().Add(-1 * time.Hour)
-	_, _ = store.CreateSession(ctx, auth.Session{
-		ID: "expired", UserID: user.ID, ExpiresAt: past,
-	})
-	// Create a valid session.
-	future := time.Now().UTC().Add(1 * time.Hour)
-	_, _ = store.CreateSession(ctx, auth.Session{
-		ID: "valid", UserID: user.ID, ExpiresAt: future,
-	})
-
-	if err := store.DeleteExpiredSessions(ctx); err != nil {
-		t.Fatalf("DeleteExpiredSessions: %v", err)
-	}
-
-	_, err := store.GetSession(ctx, "expired")
-	if err == nil {
-		t.Error("expired session should be deleted")
-	}
-
-	_, err = store.GetSession(ctx, "valid")
-	if err != nil {
-		t.Error("valid session should still exist")
-	}
-}
-
-func TestDeleteUserSessions(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "iris", "hash")
-	future := time.Now().UTC().Add(1 * time.Hour)
-	_, _ = store.CreateSession(ctx, auth.Session{
-		ID: "s1", UserID: user.ID, ExpiresAt: future,
-	})
-	_, _ = store.CreateSession(ctx, auth.Session{
-		ID: "s2", UserID: user.ID, ExpiresAt: future,
-	})
-
-	if err := store.DeleteUserSessions(ctx, user.ID); err != nil {
-		t.Fatalf("DeleteUserSessions: %v", err)
-	}
-
-	_, err := store.GetSession(ctx, "s1")
-	if err == nil {
-		t.Error("s1 should be deleted")
-	}
-	_, err = store.GetSession(ctx, "s2")
-	if err == nil {
-		t.Error("s2 should be deleted")
-	}
-}
-
-func TestCascadeDeleteUser(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	user, _ := store.CreateUser(ctx, "jack", "hash")
-	_, _ = store.CreateIdentity(ctx, auth.Identity{
-		UserID: user.ID, Platform: "qq", ExternalID: "qq-1",
-	})
-	future := time.Now().UTC().Add(1 * time.Hour)
-	_, _ = store.CreateSession(ctx, auth.Session{
-		ID: "csess", UserID: user.ID, ExpiresAt: future,
-	})
-
-	// Delete user should cascade.
-	if err := store.DeleteUser(ctx, user.ID); err != nil {
-		t.Fatalf("DeleteUser: %v", err)
-	}
-
-	identities, _ := store.ListIdentitiesByUser(ctx, user.ID)
-	if len(identities) != 0 {
-		t.Error("identities should be cascade deleted")
-	}
-
-	_, err := store.GetSession(ctx, "csess")
-	if err == nil {
-		t.Error("session should be cascade deleted")
-	}
-}
-
 // Verify that db.AuthStore satisfies auth.AuthStore interface at compile time.
 var _ auth.AuthStore = (*appdb.AuthStore)(nil)
 
 func TestUserTokenStore(t *testing.T) {
 	t.Parallel()
-	store, db := setupAuthStore(t)
+	store, oidc, db := setupAuthStore(t)
 	ctx := context.Background()
 
-	user, err := store.CreateUser(ctx, "token-user", "hash")
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
+	user := createUser(t, oidc, "token-user@example.com")
+
 	expiresAt := time.Now().Add(time.Hour).UTC()
 	token, err := store.CreateUserToken(ctx, auth.UserToken{
 		UserID:        user.ID,
@@ -589,13 +255,11 @@ func TestUserTokenStore(t *testing.T) {
 
 func TestRotateUserTokenGuard(t *testing.T) {
 	t.Parallel()
-	store, _ := setupAuthStore(t)
+	store, oidc, _ := setupAuthStore(t)
 	ctx := context.Background()
 
-	user, err := store.CreateUser(ctx, "rotate-token-user", "hash")
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
+	user := createUser(t, oidc, "rotate-token-user@example.com")
+
 	token, err := store.CreateUserToken(ctx, auth.UserToken{
 		UserID:        user.ID,
 		Name:          "sandbox",

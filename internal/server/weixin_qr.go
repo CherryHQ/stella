@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -57,15 +59,16 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 			return
 		}
 
-		// Link auth identity if not already linked.
+		// Link channel identity if not already linked.
 		externalID := status.ILinkUserID
 		if externalID == "" {
 			externalID = status.ILinkBotID
 		}
-		if externalID != "" && s.authStore != nil {
-			if _, err := s.authStore.GetIdentityByPlatform(r.Context(), pkgchannel.PlatformWeixin, externalID); err != nil {
+		if externalID != "" && s.channelIdents != nil {
+			if _, err := s.channelIdents.GetChannelIdentityByPlatform(r.Context(), pkgchannel.PlatformWeixin, externalID); err != nil {
 				// Identity doesn't exist yet — create it.
-				if _, err := s.authStore.CreateIdentity(r.Context(), auth.Identity{
+				if _, err := s.channelIdents.CreateChannelIdentity(r.Context(), auth.ChannelIdentity{
+					ID:         uuid.NewString(),
 					UserID:     info.UserID,
 					Platform:   pkgchannel.PlatformWeixin,
 					ExternalID: externalID,

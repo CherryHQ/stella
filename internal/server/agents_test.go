@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -226,7 +225,6 @@ func TestAgentInvalidSandboxOnUpdate(t *testing.T) {
 
 func TestAgentUserAssignment(t *testing.T) {
 	env := setupAdmin(t)
-	ctx := context.Background()
 
 	agentID := createTestAgent(t, env, config.Agent{
 		Name:    "Secure",
@@ -236,11 +234,7 @@ func TestAgentUserAssignment(t *testing.T) {
 	})
 
 	// Create a user to assign.
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(ctx, "testuser1", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "testuser1", auth.RoleUser)
 
 	// List users — initially empty.
 	rr := doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
@@ -273,8 +267,8 @@ func TestAgentUserAssignment(t *testing.T) {
 	if users[0].ID != user.ID {
 		t.Errorf("user ID = %q, want %q", users[0].ID, user.ID)
 	}
-	if users[0].Username != "testuser1" {
-		t.Errorf("username = %q, want %q", users[0].Username, "testuser1")
+	if users[0].Username != user.Email {
+		t.Errorf("username = %q, want %q", users[0].Username, user.Email)
 	}
 
 	// Remove user.
@@ -294,21 +288,12 @@ func TestAgentUserAssignment(t *testing.T) {
 
 func TestAgentUserAssignmentNonAdminDenied(t *testing.T) {
 	env := setupAdmin(t)
-	ctx := context.Background()
 
-	// Create non-admin user session.
-	hash, _ := auth.HashPassword("userpassword")
-	user, _ := env.authStore.CreateUser(ctx, "nonadmin", hash)
-
-	sessionID := auth.NewSessionID()
-	_, _ = env.authStore.CreateSession(ctx, auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
+	// Create non-admin user with bearer token.
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "nonadmin", auth.RoleUser)
 
 	// Non-admin cannot access agent user APIs.
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/stella/users", nil)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/stella/users", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
@@ -326,19 +311,11 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 		Enabled: true,
 	})
 
-	// Create non-admin user.
-	hash, _ := auth.HashPassword("userpassword")
-	user, _ := env.authStore.CreateUser(ctx, "regular", hash)
-
-	sessionID := auth.NewSessionID()
-	_, _ = env.authStore.CreateSession(ctx, auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
+	// Create non-admin user with bearer token.
+	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser)
 
 	// Non-admin listing agents should see "stella" (system scope) but not the restricted agent.
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents", nil)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list agents: status = %d", rr.Code)
 	}
@@ -367,7 +344,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	_ = env.authStore.AssignAgent(ctx, user.ID, agentID)
 
 	// Now listing should include the assigned agent.
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents", nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents", nil)
 	resp = parseResponse(t, rr)
 	_ = json.Unmarshal(resp.Data, &agents)
 
@@ -394,32 +371,24 @@ func TestNonAdminGetAgentAccessCheck(t *testing.T) {
 		Enabled: true,
 	})
 
-	// Create non-admin user.
-	hash, _ := auth.HashPassword("userpassword")
-	user, _ := env.authStore.CreateUser(ctx, "regular2", hash)
-
-	sessionID := auth.NewSessionID()
-	_, _ = env.authStore.CreateSession(ctx, auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
+	// Create non-admin user with bearer token.
+	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular2", auth.RoleUser)
 
 	// Non-admin can get system agent.
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/stella", nil)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/stella", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get stella: status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Non-admin cannot get restricted agent they're not assigned to.
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/"+agentID, nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/"+agentID, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("get secret: status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
 
 	// Assign user, then they can access.
 	_ = env.authStore.AssignAgent(ctx, user.ID, agentID)
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/"+agentID, nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/"+agentID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get secret after assign: status = %d, want %d", rr.Code, http.StatusOK)
 	}

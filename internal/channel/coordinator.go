@@ -16,6 +16,14 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
+// channelAuthStore is the subset of auth store interfaces needed by the channel coordinator.
+type channelAuthStore interface {
+	auth.UserStore
+	auth.ChannelIdentityStore
+	auth.MembershipStore
+	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
 // management, command handling, account linking, and model/agent switching.
@@ -24,7 +32,7 @@ import (
 type Coordinator struct {
 	poolManager      *agent.PoolManager
 	store            config.Store
-	authStore        auth.AuthStore
+	auth             channelAuthStore
 	engine           *auth.PolicyEngine
 	linkCodes        *auth.LinkCodeStore
 	vaultRecipient   *age.X25519Recipient
@@ -39,9 +47,9 @@ type Coordinator struct {
 type CoordinatorOption func(*Coordinator)
 
 // WithCoordinatorAuth configures the coordinator with auth support.
-func WithCoordinatorAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) CoordinatorOption {
+func WithCoordinatorAuth(store channelAuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) CoordinatorOption {
 	return func(c *Coordinator) {
-		c.authStore = authStore
+		c.auth = store
 		c.engine = engine
 		c.linkCodes = linkCodes
 	}
@@ -95,7 +103,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 	if channelID == "" {
 		channelID = msg.Platform
 	}
-	return ResolveWithChannel(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.poolManager, c.store, c.auth, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -103,12 +111,12 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	// Try link code first (before auth resolution, since it creates identity).
-	if c.authStore != nil && c.linkCodes != nil {
+	if c.auth != nil && c.linkCodes != nil {
 		fullText := command
 		if args != "" {
 			fullText = command + " " + args
 		}
-		if resp, ok := TryLinkCodeWithCandidates(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
+		if resp, ok := TryLinkCodeWithCandidates(ctx, c.auth, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
 			return resp, true, nil, nil
 		}
 	}
@@ -258,7 +266,7 @@ func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMes
 		return nil, "", err
 	}
 
-	ac := NewAgentCommander(c.store, c.authStore)
+	ac := NewAgentCommander(c.store, c.auth)
 	agents, err := ac.ListForChat(ctx, rc.ChatCtx)
 	if err != nil {
 		return nil, "", err
@@ -278,7 +286,7 @@ func (c *Coordinator) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMe
 		return err
 	}
 
-	ac := NewAgentCommander(c.store, c.authStore)
+	ac := NewAgentCommander(c.store, c.auth)
 	return ac.Switch(ctx, rc.User, rc.ChatCtx, agentSlug)
 }
 
@@ -325,29 +333,29 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 // count is zero (no admin exists yet — provisioning is refused until the
 // first admin registers to avoid stranding a deployment with zero admins).
 func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
-	if c.authStore == nil {
+	if c.auth == nil {
 		return errors.New("provision: auth not configured")
 	}
-	count, err := c.authStore.CountUsers(ctx)
+	count, err := c.auth.CountUsers(ctx)
 	if err != nil {
 		return fmt.Errorf("provision: count users: %w", err)
 	}
 	if count == 0 {
 		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
 	}
-	_, err = auth.ProvisionIdentityUser(ctx, c.authStore, auth.ProvisionRequest{
+	_, err = auth.ProvisionIdentityUser(ctx, c.auth, c.auth, auth.ProvisionRequest{
 		Platform:   req.Platform,
 		ExternalID: req.ExternalID,
 		Name:       req.Name,
 		EmailHint:  req.EmailHint,
 		OnUserCreated: func(ctx context.Context, userID string) error {
-			return provisionUserVaultKeys(ctx, c.authStore, c.vaultRecipient, userID)
+			return provisionUserVaultKeys(ctx, c.auth, c.vaultRecipient, userID)
 		},
 	})
 	return err
 }
 
-func provisionUserVaultKeys(ctx context.Context, store auth.AuthStore, recipient *age.X25519Recipient, userID string) error {
+func provisionUserVaultKeys(ctx context.Context, store auth.UserStore, recipient *age.X25519Recipient, userID string) error {
 	if recipient == nil {
 		return nil
 	}

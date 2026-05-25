@@ -58,10 +58,6 @@ paths:
   /api/status:
     $ref: "./domain/status/paths.yaml#/paths/~1api~1status"
   # ── Auth ───────────────────────────────────────────────────────────────────
-  /api/auth/register:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1register"
-  /api/auth/login:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1login"
   /api/auth/logout:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1logout"
   /api/auth/me:

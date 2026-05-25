@@ -3,16 +3,17 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -37,14 +38,15 @@ import (
 )
 
 type testEnv struct {
-	srv        *server.Server
-	db         *sql.DB
-	store      config.Store
-	pluginHost *pluginhost.Host
-	authStore  auth.AuthStore
-	mem        memory.Provider
-	adminUser  auth.AuthUser
-	sessionID  string
+	srv         *server.Server
+	db          *sql.DB
+	store       config.Store
+	pluginHost  *pluginhost.Host
+	authStore   *appdb.AuthStore
+	oidcStore   *appdb.OIDCStore
+	mem         memory.Provider
+	adminUser   auth.User
+	bearerToken string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
@@ -144,40 +146,100 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
-	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
 	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
 	srv := server.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
-	// Create an admin user for authenticated requests.
-	hash, _ := auth.HashPassword("testpassword")
-	user, err := as.CreateUser(context.Background(), "testadmin", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	_ = as.UpdateUserRole(context.Background(), user.ID, auth.RoleAdmin)
+	oidcStore := appdb.NewOIDCStore(db)
+	tokenSvc := auth.NewTokenService(as, nil)
+	srv.SetTokenService(tokenSvc)
+	srv.SetUserStore(oidcStore)
+	srv.SetMembershipStore(oidcStore)
+	srv.SetLoginIdentityStore(oidcStore)
+	srv.SetChannelIdentityStore(oidcStore)
+	srv.SetSessionStore(oidcStore)
+	srv.SetCredentialStore(oidcStore)
 
-	sessionID := auth.NewSessionID()
-	_, err = as.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
+	// Create an admin user for authenticated requests.
+	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin)
+
+	// Seed a password credential for the admin user so change-password tests work.
+	hash, err := auth.HashPassword("testpassword")
 	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
+		t.Fatalf("HashPassword: %v", err)
+	}
+	if _, err := oidcStore.CreateCredential(context.Background(), auth.Credential{
+		ID:           uuid.NewString(),
+		UserID:       adminUser.ID,
+		PasswordHash: hash,
+	}); err != nil {
+		t.Fatalf("CreateCredential: %v", err)
 	}
 
 	return &testEnv{
-		srv:        srv,
-		db:         db,
-		store:      store,
-		pluginHost: phost,
-		authStore:  as,
-		mem:        mem,
-		adminUser:  user,
-		sessionID:  sessionID,
+		srv:         srv,
+		db:          db,
+		store:       store,
+		pluginHost:  phost,
+		authStore:   as,
+		oidcStore:   oidcStore,
+		mem:         mem,
+		adminUser:   adminUser,
+		bearerToken: bearerToken,
 	}
+}
+
+// createTestUserWithToken creates a user, organization, membership, and bearer token for testing.
+func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string) (auth.User, string) {
+	t.Helper()
+	ctx := context.Background()
+	user, err := oidcStore.CreateUser(ctx, auth.User{
+		ID:       uuid.NewString(),
+		Email:    name + "@test.local",
+		Name:     name,
+		IsActive: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser %q: %v", name, err)
+	}
+	org, err := oidcStore.CreateOrganization(ctx, auth.Organization{
+		ID:         uuid.NewString(),
+		Name:       name + "-org",
+		Source:     "test",
+		ExternalID: uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("CreateOrganization %q: %v", name, err)
+	}
+	_, err = oidcStore.CreateMembership(ctx, auth.Membership{
+		ID:             uuid.NewString(),
+		UserID:         user.ID,
+		OrganizationID: org.ID,
+		Role:           role,
+		IsActive:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateMembership %q: %v", name, err)
+	}
+	rawToken := "stella_test_" + uuid.NewString()
+	sum := sha256.Sum256([]byte(rawToken))
+	tokenHash := hex.EncodeToString(sum[:])
+	prefix := rawToken
+	if len(prefix) > 15 {
+		prefix = prefix[:15]
+	}
+	_, err = as.CreateUserToken(ctx, auth.UserToken{
+		ID:          uuid.NewString(),
+		UserID:      user.ID,
+		Name:        "test",
+		TokenHash:   tokenHash,
+		TokenPrefix: prefix,
+	})
+	if err != nil {
+		t.Fatalf("CreateUserToken %q: %v", name, err)
+	}
+	return user, rawToken
 }
 
 func TestNewPanicsWithoutPluginHost(t *testing.T) {
@@ -192,10 +254,10 @@ func TestNewPanicsWithoutPluginHost(t *testing.T) {
 
 func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
-	return doRequestWithSession(t, env.srv, env.sessionID, method, path, body)
+	return doRequestWithSession(t, env.srv, env.bearerToken, method, path, body)
 }
 
-func doRequestWithSession(t *testing.T, srv *server.Server, sessionID, method, path string, body any) *httptest.ResponseRecorder {
+func doRequestWithSession(t *testing.T, srv *server.Server, bearerToken, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -207,8 +269,8 @@ func doRequestWithSession(t *testing.T, srv *server.Server, sessionID, method, p
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if sessionID != "" {
-		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionID})
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, req)
@@ -980,32 +1042,19 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
 	env := setupAdmin(t)
 
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(context.Background(), "regularuser", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	sessionID := auth.NewSessionID()
-	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser)
 
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/channels", nil)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/channels", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("channels page status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels/public", nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/channels/public", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("public channels status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels", nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/channels", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("channel config status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
 	}
@@ -1162,31 +1211,17 @@ func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
 	env := setupAdmin(t)
 
 	// Create a non-admin user.
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(context.Background(), "regularuser", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	sessionID := auth.NewSessionID()
-	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser)
 
 	// Admin-only API should return 403.
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/providers", nil)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/providers", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
 	}
 
 	// All page routes serve the SPA shell regardless of admin status;
 	// access control is enforced client-side and via the API.
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/providers", nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/providers", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -1208,20 +1243,8 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 	}
 
 	// Authenticated non-admin with missing q → 400, proving search is no longer admin-only.
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(context.Background(), "regularuser-search", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	sessionID := auth.NewSessionID()
-	if _, err = env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	}); err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/skills/search", nil)
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/skills/search", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("user missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}

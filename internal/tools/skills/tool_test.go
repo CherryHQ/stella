@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -36,8 +37,12 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := context.Background()
-	authStore := appdb.NewAuthStore(db)
-	u, err := authStore.CreateUser(ctx, "testuser", "hash")
+	oidcStore := appdb.NewOIDCStore(db)
+	u, err := oidcStore.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "testuser@test.local",
+		Name:  "testuser",
+	})
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}

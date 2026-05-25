@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/vault"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestBackfillUserKeys(t *testing.T) {
@@ -23,7 +23,7 @@ func TestBackfillUserKeys(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	q := sqlc.New(db)
+	oidc := appdb.NewOIDCStore(db)
 	ctx := context.Background()
 
 	masterID, err := age.GenerateX25519Identity()
@@ -31,19 +31,17 @@ func TestBackfillUserKeys(t *testing.T) {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
 
-	// Create two users without age keys.
 	for _, name := range []string{"alice", "bob"} {
-		if _, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
-			ID:           uuid.NewString(),
-			Username:     name,
-			PasswordHash: "hash",
+		if _, err := oidc.CreateUser(ctx, auth.User{
+			ID:    uuid.NewString(),
+			Email: name + "@backfill.test",
+			Name:  name,
 		}); err != nil {
-			t.Fatalf("CreateAuthUser(%s): %v", name, err)
+			t.Fatalf("CreateUser(%s): %v", name, err)
 		}
 	}
 
-	// Backfill should update both.
-	n, err := vault.BackfillUserKeys(ctx, q, masterID.Recipient())
+	n, err := vault.BackfillUserKeys(ctx, oidc, masterID.Recipient())
 	if err != nil {
 		t.Fatalf("BackfillUserKeys: %v", err)
 	}
@@ -51,8 +49,7 @@ func TestBackfillUserKeys(t *testing.T) {
 		t.Fatalf("BackfillUserKeys = %d, want 2", n)
 	}
 
-	// Running again should update none.
-	n, err = vault.BackfillUserKeys(ctx, q, masterID.Recipient())
+	n, err = vault.BackfillUserKeys(ctx, oidc, masterID.Recipient())
 	if err != nil {
 		t.Fatalf("BackfillUserKeys (second): %v", err)
 	}
@@ -60,17 +57,16 @@ func TestBackfillUserKeys(t *testing.T) {
 		t.Fatalf("BackfillUserKeys (second) = %d, want 0", n)
 	}
 
-	// Verify keys are set.
-	users, err := q.ListAuthUsers(ctx)
+	users, err := oidc.ListUsers(ctx)
 	if err != nil {
-		t.Fatalf("ListAuthUsers: %v", err)
+		t.Fatalf("ListUsers: %v", err)
 	}
 	for _, u := range users {
 		if u.AgePublicKey == "" {
-			t.Errorf("user %s: AgePublicKey is empty after backfill", u.Username)
+			t.Errorf("user %s: AgePublicKey is empty after backfill", u.Email)
 		}
 		if u.AgePrivateKey == "" {
-			t.Errorf("user %s: AgePrivateKey is empty after backfill", u.Username)
+			t.Errorf("user %s: AgePrivateKey is empty after backfill", u.Email)
 		}
 	}
 }

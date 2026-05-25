@@ -6,14 +6,16 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
-func TryLinkCode(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID, senderName string) (string, bool) {
-	return TryLinkCodeWithCandidates(ctx, authStore, linkCodes, text, platform, senderID, nil, senderName)
+func TryLinkCode(ctx context.Context, store channelAuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID, senderName string) (string, bool) {
+	return TryLinkCodeWithCandidates(ctx, store, linkCodes, text, platform, senderID, nil, senderName)
 }
 
-func TryLinkCodeWithCandidates(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID string, senderIDs []string, senderName string) (string, bool) {
+func TryLinkCodeWithCandidates(ctx context.Context, store channelAuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID string, senderIDs []string, senderName string) (string, bool) {
 	code := parseLinkCommand(text)
 	if code == "" {
 		return "", false
@@ -30,7 +32,7 @@ func TryLinkCodeWithCandidates(ctx context.Context, authStore auth.AuthStore, li
 
 	candidates := orderedIDs(append([]string{senderID}, senderIDs...)...)
 	for _, candidate := range candidates {
-		existing, err := authStore.GetIdentityByPlatform(ctx, platform, candidate)
+		existing, err := store.GetChannelIdentityByPlatform(ctx, platform, candidate)
 		if err != nil {
 			if isNotFound(err) {
 				continue
@@ -41,14 +43,15 @@ func TryLinkCodeWithCandidates(ctx context.Context, authStore auth.AuthStore, li
 		if existing.UserID != userID {
 			return fmt.Sprintf("This %s account is already linked to user #%s. Ask an admin to unlink it first from the user management page.", platform, existing.UserID), true
 		}
-		if err := maybeCanonicalizeIdentity(ctx, authStore, platform, senderID, identityMatch{Identity: existing, Matched: candidate}); err != nil {
+		if err := maybeCanonicalizeIdentity(ctx, store, platform, senderID, identityMatch{Identity: existing, Matched: candidate}); err != nil {
 			slog.Error("link code: canonicalize identity failed", "platform", platform, "sender", candidate, "preferred_sender", senderID, "user_id", userID, "error", err)
 			return "Failed to link account. Please try again.", true
 		}
 		return "Account linked successfully! Your channel account is now connected to your system user.", true
 	}
 
-	_, err := authStore.CreateIdentity(ctx, auth.Identity{
+	_, err := store.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
 		UserID:     userID,
 		Platform:   platform,
 		ExternalID: senderID,

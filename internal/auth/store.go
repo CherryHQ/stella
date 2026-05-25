@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// --- New store interfaces (OIDC-based auth) ---
-
 // UserStore provides CRUD for auth_user.
 type UserStore interface {
 	CreateUser(ctx context.Context, u User) (User, error)
@@ -22,7 +20,6 @@ type UserStore interface {
 }
 
 // LoginIdentityStore provides CRUD for auth_identity (OIDC login identities).
-// DeleteLoginIdentity is intentionally absent — login identities are permanent.
 type LoginIdentityStore interface {
 	CreateLoginIdentity(ctx context.Context, i LoginIdentity) (LoginIdentity, error)
 	GetLoginIdentityByProvider(ctx context.Context, provider, providerSubject string) (LoginIdentity, error)
@@ -63,7 +60,7 @@ type OrganizationStore interface {
 type MembershipStore interface {
 	CreateMembership(ctx context.Context, m Membership) (Membership, error)
 	GetMembership(ctx context.Context, userID, orgID string) (Membership, error)
-	GetUserMembership(ctx context.Context, userID string) (Membership, error) // first version: one user, one org
+	GetUserMembership(ctx context.Context, userID string) (Membership, error)
 	UpdateMembershipRole(ctx context.Context, id, role string) error
 	UpdateMembershipActive(ctx context.Context, id string, active bool) error
 	DeleteMembership(ctx context.Context, id string) error
@@ -73,6 +70,8 @@ type MembershipStore interface {
 // OIDCCodeStore provides operations for local OIDC authorization codes.
 type OIDCCodeStore interface {
 	CreateOIDCCode(ctx context.Context, c OIDCCode) (OIDCCode, error)
+	// ConsumeOIDCCode atomically looks up a code by hash and marks it consumed.
+	// Returns ErrNotFound if the code does not exist, ErrAlreadyConsumed if already used.
 	// ConsumeOIDCCode atomically looks up a code by hash and marks it consumed.
 	// Returns ErrNotFound if the code does not exist, ErrAlreadyConsumed if already used.
 	ConsumeOIDCCode(ctx context.Context, codeHash string) (OIDCCode, error)
@@ -109,33 +108,8 @@ type Transactioner interface {
 	BeginAuthTx(ctx context.Context) (stores AuthStores, commit func() error, rollback func(), err error)
 }
 
-// --- Legacy store interface (kept during additive migration) ---
-
-// AuthStore provides typed access to auth-related data in the database.
-// This is separate from config.Store — auth methods are NOT mixed in.
-// Kept for the additive migration period; new OIDC auth code uses the split interfaces above.
+// AuthStore provides access to policies, user-agent assignments, and API tokens.
 type AuthStore interface {
-	// Users
-	CreateUser(ctx context.Context, username, passwordHash string) (AuthUser, error)
-	GetUser(ctx context.Context, id string) (AuthUser, error)
-	GetUserByUsername(ctx context.Context, username string) (AuthUser, error)
-	ListUsers(ctx context.Context) ([]AuthUser, error)
-	UpdateUser(ctx context.Context, u AuthUser) error
-	UpdateUserRole(ctx context.Context, userID string, role string) error
-	UpdateUserDefaultAgent(ctx context.Context, userID string, agentID string) error
-	UpdateUserNotifyIdentity(ctx context.Context, userID string, identityID *string) error
-	UpdateUserAgeKeys(ctx context.Context, userID string, publicKey, privateKey string) error
-	DeleteUser(ctx context.Context, id string) error
-	CountUsers(ctx context.Context) (int64, error)
-
-	// Identities (linked channel accounts)
-	CreateIdentity(ctx context.Context, i Identity) (Identity, error)
-	GetIdentity(ctx context.Context, id string) (Identity, error)
-	GetIdentityByPlatform(ctx context.Context, platform, externalID string) (Identity, error)
-	UpdateIdentityExternalID(ctx context.Context, id string, externalID string) error
-	ListIdentitiesByUser(ctx context.Context, userID string) ([]Identity, error)
-	DeleteIdentity(ctx context.Context, id string) error
-
 	// Policies
 	CreatePolicy(ctx context.Context, p Policy) (Policy, error)
 	GetPolicy(ctx context.Context, id string) (Policy, error)
@@ -150,15 +124,7 @@ type AuthStore interface {
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 	ListAgentUserIDs(ctx context.Context, agentID string) ([]string, error)
 
-	// Sessions
-	CreateSession(ctx context.Context, s Session) (Session, error)
-	GetSession(ctx context.Context, id string) (Session, error)
-	DeleteSession(ctx context.Context, id string) error
-	DeleteExpiredSessions(ctx context.Context) error
-	DeleteUserSessions(ctx context.Context, userID string) error
-	UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error
-
-	// User tokens
+	// API tokens (auth_user_tokens)
 	CreateUserToken(ctx context.Context, token UserToken) (UserToken, error)
 	GetUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
 	GetActiveUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)

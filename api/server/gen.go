@@ -614,9 +614,6 @@ type UpdateAgentScopedSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
-// LoginJSONRequestBody defines body for Login for application/json ContentType.
-type LoginJSONRequestBody = externalRef0.LoginRequest
-
 // GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
 type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
 
@@ -631,9 +628,6 @@ type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
 
 // SetVaultEntryJSONRequestBody defines body for SetVaultEntry for application/json ContentType.
 type SetVaultEntryJSONRequestBody = externalRef0.SetVaultEntryRequest
-
-// RegisterJSONRequestBody defines body for Register for application/json ContentType.
-type RegisterJSONRequestBody = externalRef0.RegisterRequest
 
 // UpdateAuthUserActiveJSONRequestBody defines body for UpdateAuthUserActive for application/json ContentType.
 type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
@@ -859,9 +853,6 @@ type ServerInterface interface {
 	// Remove a user from an agent (admin only)
 	// (DELETE /api/agents/{id}/users/{userId})
 	RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string)
-	// Authenticate and start a session
-	// (POST /api/auth/login)
-	Login(w http.ResponseWriter, r *http.Request)
 	// End the current session
 	// (POST /api/auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
@@ -925,9 +916,6 @@ type ServerInterface interface {
 	// List available authentication providers
 	// (GET /api/auth/providers)
 	ListAuthProviders(w http.ResponseWriter, r *http.Request)
-	// Register a new user account
-	// (POST /api/auth/register)
-	Register(w http.ResponseWriter, r *http.Request)
 	// List all auth users (admin only)
 	// (GET /api/auth/users)
 	ListAuthUsers(w http.ResponseWriter, r *http.Request)
@@ -3457,20 +3445,6 @@ func (siw *ServerInterfaceWrapper) RemoveAgentUser(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// Login operation middleware
-func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Login(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // Logout operation middleware
 func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
 
@@ -4052,20 +4026,6 @@ func (siw *ServerInterfaceWrapper) ListAuthProviders(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAuthProviders(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// Register operation middleware
-func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Register(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6404,7 +6364,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.ListAgentUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.AssignAgentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/users/{userId}", wrapper.RemoveAgentUser)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/login", wrapper.Login)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/identities", wrapper.ListProfileIdentities)
@@ -6426,7 +6385,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.GetVaultEntry)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.SetVaultEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/providers", wrapper.ListAuthProviders)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/register", wrapper.Register)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}", wrapper.GetAuthUser)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)

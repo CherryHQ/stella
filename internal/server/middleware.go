@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
 )
@@ -54,8 +53,6 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			strings.HasPrefix(path, "/static/") ||
 			strings.HasPrefix(path, "/s/") ||
 			(r.Method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/")) ||
-			path == "/api/auth/login" ||
-			path == "/api/auth/register" ||
 			path == "/api/auth/logout" ||
 			path == "/api/auth/providers" ||
 			strings.HasPrefix(path, "/auth/login/") ||
@@ -72,94 +69,17 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Try OIDC session (new auth_session table, token-hash lookup).
 		if info := s.authInfoFromOIDCSession(ctx, r); info != nil {
 			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 			return
 		}
 
-		// Try to load session.
-		sessionID, err := auth.GetSessionCookie(r)
-		if err != nil {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			s.denyAccess(w, r)
+		if path == "/api/status" {
+			next.ServeHTTP(w, r)
 			return
 		}
-
-		// Clean up expired sessions lazily.
-		_ = s.authStore.DeleteExpiredSessions(ctx)
-
-		session, err := s.authStore.GetSession(ctx, sessionID)
-		if err != nil {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			auth.ClearSessionCookie(w)
-			s.denyAccess(w, r)
-			return
-		}
-
-		// Check expiry.
-		if time.Now().After(session.ExpiresAt) {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			_ = s.authStore.DeleteSession(ctx, sessionID)
-			auth.ClearSessionCookie(w)
-			s.denyAccess(w, r)
-			return
-		}
-
-		// Extend session expiry on each authenticated request.
-		_ = s.authStore.UpdateSessionExpiry(ctx, sessionID, time.Now().Add(auth.SessionDuration))
-
-		// Load user.
-		user, err := s.authStore.GetUser(ctx, session.UserID)
-		if err != nil {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			_ = s.authStore.DeleteSession(ctx, sessionID)
-			auth.ClearSessionCookie(w)
-			s.denyAccess(w, r)
-			return
-		}
-
-		// When membership store is available, it is authoritative for role and active.
-		role := user.Role
-		isActive := user.IsActive
-		if s.memberships != nil {
-			if m, err := s.memberships.GetUserMembership(ctx, user.ID); err == nil {
-				role = m.Role
-				isActive = m.IsActive
-			}
-		}
-
-		if !isActive {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			_ = s.authStore.DeleteSession(ctx, sessionID)
-			auth.ClearSessionCookie(w)
-			s.denyAccess(w, r)
-			return
-		}
-
-		info := &AuthInfo{
-			UserID:   user.ID,
-			Username: user.Username,
-			Role:     role,
-			IsAdmin:  role == auth.RoleAdmin,
-		}
-
-		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
+		auth.ClearSessionCookie(w)
+		s.denyAccess(w, r)
 	})
 }
 
@@ -202,26 +122,33 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 		}
 		return nil
 	}
-	// When OIDC is configured, bearer tokens must honor OIDC membership state
-	// and role; legacy auth_users.role may be stale after membership changes.
+	// Get role and active status from membership (authoritative source).
+	role := auth.RoleUser
+	isActive := user.IsActive
+	orgID := ""
 	if s.authSvc != nil {
 		membership, err := s.authSvc.GetUserMembership(ctx, user.ID)
 		if err != nil || !membership.IsActive {
 			return nil
 		}
-		return &AuthInfo{
-			UserID:   user.ID,
-			Username: user.Username,
-			Role:     membership.Role,
-			IsAdmin:  membership.Role == auth.RoleAdmin,
-			OrgID:    membership.OrganizationID,
+		role = membership.Role
+		isActive = membership.IsActive
+		orgID = membership.OrganizationID
+	} else if s.memberships != nil {
+		if m, err := s.memberships.GetUserMembership(ctx, user.ID); err == nil {
+			role = m.Role
+			isActive = m.IsActive
 		}
+	}
+	if !isActive {
+		return nil
 	}
 	return &AuthInfo{
 		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
-		IsAdmin:  user.IsAdmin(),
+		Username: user.Email,
+		Role:     role,
+		IsAdmin:  role == auth.RoleAdmin,
+		OrgID:    orgID,
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 const oidcTimeLayout = "2006-01-02 15:04:05"
@@ -71,7 +72,7 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 // Ensure OIDCStore satisfies auth.Transactioner at compile time.
 var _ auth.Transactioner = (*OIDCStore)(nil)
 
-// Ensure OIDCStore satisfies all five new store interfaces at compile time.
+// Ensure OIDCStore satisfies all store interfaces at compile time.
 var (
 	_ auth.UserStore            = (*OIDCStore)(nil)
 	_ auth.LoginIdentityStore   = (*OIDCStore)(nil)
@@ -83,6 +84,64 @@ var (
 	_ auth.OIDCCodeStore        = (*OIDCStore)(nil)
 	_ auth.OIDCAccessTokenStore = (*OIDCStore)(nil)
 )
+
+// ---- Agent assignments ----
+
+func (s *OIDCStore) AssignAgent(ctx context.Context, userID, agentID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO auth_user_agents (user_id, agent_id) VALUES (?, ?)`,
+		userID, agentID)
+	if err != nil {
+		return fmt.Errorf("assign agent %q to user %s: %w", agentID, userID, err)
+	}
+	return nil
+}
+
+func (s *OIDCStore) RemoveAgent(ctx context.Context, userID, agentID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM auth_user_agents WHERE user_id=? AND agent_id=?`,
+		userID, agentID)
+	if err != nil {
+		return fmt.Errorf("remove agent %q from user %s: %w", agentID, userID, err)
+	}
+	return nil
+}
+
+func (s *OIDCStore) ListUserAgentIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT agent_id FROM auth_user_agents WHERE user_id=? ORDER BY agent_id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user agents for user %s: %w", userID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+func (s *OIDCStore) ListAgentUserIDs(ctx context.Context, agentID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT user_id FROM auth_user_agents WHERE agent_id=? ORDER BY user_id`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("list agent users for agent %q: %w", agentID, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
 
 func parseOIDCTime(s string) time.Time {
 	t, _ := time.ParseInLocation(oidcTimeLayout, s, time.UTC)
@@ -97,29 +156,7 @@ func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, err
 	           default_agent_id, notify_identity_id, age_public_key, age_private_key,
 	           created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, u.ID, u.Email, u.Name, u.AvatarURL, u.AgePublicKey)
-	created, err := scanUser(row)
-	if err != nil {
-		return auth.User{}, err
-	}
-	// Mirror into legacy auth_users so existing FK references (vault_entries,
-	// shares, auth_user_agents, etc.) remain valid during the additive migration.
-	res, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO auth_users (id, username, password_hash, role, is_active)
-		VALUES (?, ?, '', 'user', 1)`, created.ID, created.Email)
-	if err != nil {
-		return auth.User{}, fmt.Errorf("oidcstore: mirror user to auth_users: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		// Row was skipped by OR IGNORE — verify it's the same user (idempotent
-		// re-run) rather than a username conflict for a different user.
-		var existingID string
-		if err := s.db.QueryRowContext(ctx,
-			`SELECT id FROM auth_users WHERE id = ?`, created.ID,
-		).Scan(&existingID); err != nil {
-			return auth.User{}, fmt.Errorf("oidcstore: username conflict in auth_users prevents mirror for user %s", created.ID)
-		}
-	}
-	return created, nil
+	return scanUser(row)
 }
 
 func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {
@@ -177,20 +214,35 @@ func (s *OIDCStore) CountUsers(ctx context.Context) (int64, error) {
 
 func (s *OIDCStore) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error {
 	const q = `UPDATE auth_user SET age_public_key=?, age_private_key=?, updated_at=datetime('now') WHERE id=?`
-	if _, err := s.db.ExecContext(ctx, q, publicKey, privateKey, userID); err != nil {
-		return err
-	}
-	// Mirror to legacy table — required so vault reads work during additive migration.
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE auth_users SET age_public_key=?, age_private_key=? WHERE id=?`,
-		publicKey, privateKey, userID)
+	_, err := s.db.ExecContext(ctx, q, publicKey, privateKey, userID)
+	return err
+}
+
+// GetVaultUser returns the age key fields for a user. Satisfies vault.DB.
+func (s *OIDCStore) GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser, error) {
+	u, err := s.GetUser(ctx, id)
 	if err != nil {
-		return fmt.Errorf("oidcstore: mirror age keys to auth_users: %w", err)
+		return sqlc.VaultUser{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("oidcstore: auth_users mirror row not found for user %s", userID)
+	return sqlc.VaultUser{AgePublicKey: u.AgePublicKey, AgePrivateKey: u.AgePrivateKey}, nil
+}
+
+// ListVaultUsers returns the ID and age public key for all users. Satisfies vault.BackfillDB.
+func (s *OIDCStore) ListVaultUsers(ctx context.Context) ([]sqlc.VaultUserRecord, error) {
+	users, err := s.ListUsers(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	out := make([]sqlc.VaultUserRecord, len(users))
+	for i, u := range users {
+		out[i] = sqlc.VaultUserRecord{ID: u.ID, AgePublicKey: u.AgePublicKey}
+	}
+	return out, nil
+}
+
+// UpdateVaultUserAgeKeys updates age keys for a user. Satisfies vault.BackfillDB.
+func (s *OIDCStore) UpdateVaultUserAgeKeys(ctx context.Context, id, publicKey, privateKey string) error {
+	return s.UpdateUserAgeKeys(ctx, id, publicKey, privateKey)
 }
 
 func (s *OIDCStore) UpdateUserDefaultAgent(ctx context.Context, userID, agentID string) error {
@@ -223,6 +275,7 @@ func scanUser(r rowScanner) (auth.User, error) {
 	if err != nil {
 		return auth.User{}, fmt.Errorf("auth_user scan: %w", err)
 	}
+	u.IsActive = true
 	u.DefaultAgentID = defaultAgentID.String
 	if notifyIdentityID.Valid {
 		id := notifyIdentityID.String

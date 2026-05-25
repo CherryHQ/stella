@@ -12,110 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
-func TestRegisterAndLogin(t *testing.T) {
-	env := setupAdmin(t)
-
-	// Register a new user.
-	body := map[string]string{
-		"username": "newuser",
-		"password": "securepass123",
-	}
-	rr := doUnauthRequest(t, env.srv, "POST", "/api/auth/register", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("register status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
-	}
-
-	// Should have a session cookie.
-	var sessionCookie *http.Cookie
-	for _, c := range rr.Result().Cookies() {
-		if c.Name == auth.SessionCookieName {
-			sessionCookie = c
-			break
-		}
-	}
-	if sessionCookie == nil {
-		t.Fatal("register should set session cookie")
-	}
-
-	// Login with the same credentials.
-	body = map[string]string{
-		"username": "newuser",
-		"password": "securepass123",
-	}
-	rr = doUnauthRequest(t, env.srv, "POST", "/api/auth/login", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("login status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	sessionCookie = nil
-	for _, c := range rr.Result().Cookies() {
-		if c.Name == auth.SessionCookieName {
-			sessionCookie = c
-			break
-		}
-	}
-	if sessionCookie == nil {
-		t.Fatal("login should set session cookie")
-	}
-}
-
-func TestRegisterShortPassword(t *testing.T) {
-	env := setupAdmin(t)
-
-	body := map[string]string{
-		"username": "shortpw",
-		"password": "short",
-	}
-	rr := doUnauthRequest(t, env.srv, "POST", "/api/auth/register", body)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
-func TestRegisterDuplicateUsername(t *testing.T) {
-	env := setupAdmin(t)
-
-	body := map[string]string{
-		"username": "dupuser",
-		"password": "password123",
-	}
-	rr := doUnauthRequest(t, env.srv, "POST", "/api/auth/register", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("first register status = %d, want %d", rr.Code, http.StatusCreated)
-	}
-
-	rr = doUnauthRequest(t, env.srv, "POST", "/api/auth/register", body)
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("duplicate register status = %d, want %d", rr.Code, http.StatusConflict)
-	}
-}
-
-func TestLoginWrongPassword(t *testing.T) {
-	env := setupAdmin(t)
-
-	body := map[string]string{
-		"username": "testadmin",
-		"password": "wrongpassword",
-	}
-	rr := doUnauthRequest(t, env.srv, "POST", "/api/auth/login", body)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestLoginNonexistentUser(t *testing.T) {
-	env := setupAdmin(t)
-
-	body := map[string]string{
-		"username": "noexist",
-		"password": "anypassword",
-	}
-	rr := doUnauthRequest(t, env.srv, "POST", "/api/auth/login", body)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
-	}
-}
-
 func TestLogout(t *testing.T) {
 	env := setupAdmin(t)
 
@@ -146,16 +42,15 @@ func TestMeEndpoint(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var me struct {
-		ID       string `json:"id"`
-		Username string `json:"username"`
-		Role     string `json:"role"`
-		IsAdmin  bool   `json:"is_admin"`
+		ID      string `json:"id"`
+		Role    string `json:"role"`
+		IsAdmin bool   `json:"is_admin"`
 	}
 	if err := json.Unmarshal(resp.Data, &me); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if me.Username != "testadmin" {
-		t.Errorf("username = %q, want %q", me.Username, "testadmin")
+	if me.ID != env.adminUser.ID {
+		t.Errorf("id = %q, want %q", me.ID, env.adminUser.ID)
 	}
 	if !me.IsAdmin {
 		t.Error("expected is_admin = true")
@@ -176,45 +71,34 @@ func TestMeUnauthenticated(t *testing.T) {
 func TestFirstUserGetsAdminRole(t *testing.T) {
 	env := setupAdmin(t)
 
-	// The "testadmin" user already exists from setupAdmin. Create a fresh env
-	// to test first-user logic: register a new user as the "second" user.
-	body := map[string]string{
-		"username": "seconduser",
-		"password": "password123",
-	}
-	rr := doUnauthRequest(t, env.srv, "POST", "/api/auth/register", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("register status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
-	}
+	// Second user should get user role (admin role only for first user).
+	_, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "seconduser", auth.RoleUser)
 
-	// Check the second user's role: should be "user", not "admin".
-	user, err := env.authStore.GetUserByUsername(context.Background(), "seconduser")
-	if err != nil {
-		t.Fatalf("GetUserByUsername: %v", err)
-	}
-	if user.Role == auth.RoleAdmin {
-		t.Error("second user should not have admin role")
-	}
-	if user.Role != auth.RoleUser {
-		t.Errorf("second user role = %q, want %q", user.Role, auth.RoleUser)
+	// Verify the second user cannot access admin endpoints.
+	rr := doRequestWithSession(t, env.srv, token, "GET", "/api/auth/users", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("second user should not have admin role, got status %d", rr.Code)
 	}
 }
 
-func TestExpiredSessionDenied(t *testing.T) {
+func TestExpiredTokenDenied(t *testing.T) {
 	env := setupAdmin(t)
 
-	// Create a session that is already expired.
-	expiredID := auth.NewSessionID()
-	_, err := env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        expiredID,
-		UserID:    env.adminUser.ID,
-		ExpiresAt: time.Now().Add(-time.Hour),
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
+	// Create a token that is already expired.
+	expired := time.Now().Add(-time.Hour)
+	rawToken := "stella_expired_session"
+	if _, err := env.authStore.CreateUserToken(context.Background(), auth.UserToken{
+		ID:          "expired-tok-id",
+		UserID:      env.adminUser.ID,
+		Name:        "test-expired",
+		TokenHash:   testTokenHash(rawToken),
+		TokenPrefix: rawToken[:15],
+		ExpiresAt:   &expired,
+	}); err != nil {
+		t.Fatalf("CreateUserToken: %v", err)
 	}
 
-	rr := doRequestWithSession(t, env.srv, expiredID, "GET", "/api/agents", nil)
+	rr := doBearerRequest(t, env.srv, rawToken, "GET", "/api/agents", nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
@@ -308,11 +192,14 @@ func TestBearerAuthRejectsInactiveUser(t *testing.T) {
 	if err := tokenSvc.EnsureAutoToken(context.Background(), env.adminUser.ID); err != nil {
 		t.Fatalf("EnsureAutoToken: %v", err)
 	}
-	user := env.adminUser
-	user.PasswordHash = "hash"
-	user.IsActive = false
-	if err := env.authStore.UpdateUser(context.Background(), user); err != nil {
-		t.Fatalf("UpdateUser: %v", err)
+
+	// Deactivate the admin's membership so bearer auth is rejected.
+	m, err := env.oidcStore.GetUserMembership(context.Background(), env.adminUser.ID)
+	if err != nil {
+		t.Fatalf("GetUserMembership: %v", err)
+	}
+	if err := env.oidcStore.UpdateMembershipActive(context.Background(), m.ID, false); err != nil {
+		t.Fatalf("UpdateMembershipActive: %v", err)
 	}
 
 	rr := doBearerRequest(t, env.srv, vault.env[env.adminUser.ID][auth.StellaTokenName], "GET", "/api/agents", nil)
@@ -321,12 +208,13 @@ func TestBearerAuthRejectsInactiveUser(t *testing.T) {
 	}
 }
 
-func TestBearerAuthFallsBackToCookie(t *testing.T) {
+func TestBearerAuthWrongTokenDenied(t *testing.T) {
 	env := setupAdmin(t)
 	env.srv.SetTokenService(auth.NewTokenService(env.authStore, newAdminTokenVault()))
-	rr := doBearerRequestWithSession(t, env.srv, env.sessionID, "stella_wrong", "GET", "/api/auth/me", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	// A wrong bearer token with no valid fallback should be rejected.
+	rr := doBearerRequest(t, env.srv, "stella_wrong_token", "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
 	}
 }
 

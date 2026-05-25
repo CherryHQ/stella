@@ -18,13 +18,10 @@
 -- atlas:import tables/ctx_items.sql
 -- atlas:import tables/sched_jobs.sql
 -- atlas:import tables/sched_job_runs.sql
--- atlas:import tables/auth_users.sql
--- atlas:import tables/auth_identities.sql
 -- atlas:import tables/auth_policies.sql
 -- atlas:import tables/auth_user_agents.sql
--- atlas:import tables/auth_sessions.sql
 -- atlas:import tables/auth_user_tokens.sql
--- Remaining OIDC auth tables
+-- OIDC auth tables
 -- atlas:import tables/oidc/auth_user.sql
 -- atlas:import tables/oidc/channel_identity.sql
 -- atlas:import tables/oidc/auth_identity.sql

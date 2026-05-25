@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
@@ -28,8 +31,12 @@ func seedFixtures(t *testing.T, db *sql.DB) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	authStore := appdb.NewAuthStore(db)
-	u, err := authStore.CreateUser(ctx, "testuser", "hash")
+	oidcStore := appdb.NewOIDCStore(db)
+	u, err := oidcStore.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "testuser@test.local",
+		Name:  "testuser",
+	})
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
@@ -192,8 +199,12 @@ func TestVisibilityFiltering(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed a second user and agent.
-	authStore := appdb.NewAuthStore(db)
-	u2, err := authStore.CreateUser(ctx, "user2", "hash2")
+	oidcStore2 := appdb.NewOIDCStore(db)
+	u2, err := oidcStore2.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "user2@test.local",
+		Name:  "user2",
+	})
 	if err != nil {
 		t.Fatalf("create user2: %v", err)
 	}

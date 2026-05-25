@@ -517,10 +517,10 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	}
 
 	// Resolve user name from auth system.
-	if info.UserID != "" {
-		authUser, err := s.authStore.GetUser(r.Context(), info.UserID)
+	if info.UserID != "" && s.users != nil {
+		authUser, err := s.users.GetUser(r.Context(), info.UserID)
 		if err == nil {
-			resp.UserName = authUser.Username
+			resp.UserName = authUser.Email
 		}
 	}
 

@@ -21,20 +21,20 @@ type ChatContext struct {
 }
 
 type ResolvedIdentity struct {
-	User auth.AuthUser
+	User auth.User
 }
 
 type identityMatch struct {
-	Identity auth.Identity
+	Identity auth.ChannelIdentity
 	Matched  string
 }
 
-func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, externalID string) (ResolvedIdentity, error) {
-	resolved, _, err := ResolveUserCandidates(ctx, authStore, platform, []string{externalID})
+func ResolveUser(ctx context.Context, store channelAuthStore, platform, externalID string) (ResolvedIdentity, error) {
+	resolved, _, err := ResolveUserCandidates(ctx, store, platform, []string{externalID})
 	return resolved, err
 }
 
-func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platform string, externalIDs []string) (ResolvedIdentity, identityMatch, error) {
+func ResolveUserCandidates(ctx context.Context, store channelAuthStore, platform string, externalIDs []string) (ResolvedIdentity, identityMatch, error) {
 	candidates := orderedIDs(externalIDs...)
 	log := slog.With("component", "identity", "platform", platform, "external_ids", candidates)
 	if len(candidates) == 0 {
@@ -44,7 +44,7 @@ func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platfo
 
 	var lastNotFound error
 	for _, externalID := range candidates {
-		identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
+		identity, err := store.GetChannelIdentityByPlatform(ctx, platform, externalID)
 		if err != nil {
 			if isNotFound(err) {
 				lastNotFound = err
@@ -53,16 +53,13 @@ func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platfo
 			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup identity: %w", err)
 		}
 
-		user, err := authStore.GetUser(ctx, identity.UserID)
+		user, err := store.GetUser(ctx, identity.UserID)
 		if err != nil {
 			if isNotFound(err) {
 				log.Error("auth user not found for linked identity", "user_id", identity.UserID, "external_id", externalID, "error", err)
 				return ResolvedIdentity{}, identityMatch{}, nil
 			}
 			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup auth user: %w", err)
-		}
-		if !user.IsActive {
-			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("account is deactivated")
 		}
 
 		return ResolvedIdentity{User: user}, identityMatch{Identity: identity, Matched: externalID}, nil
@@ -90,7 +87,7 @@ func orderedIDs(ids ...string) []string {
 	return out
 }
 
-func maybeCanonicalizeIdentity(ctx context.Context, authStore auth.AuthStore, platform, preferredID string, match identityMatch) error {
+func maybeCanonicalizeIdentity(ctx context.Context, store channelAuthStore, platform, preferredID string, match identityMatch) error {
 	if preferredID == "" || match.Identity.ID == "" || match.Identity.ExternalID == preferredID {
 		return nil
 	}
@@ -104,14 +101,14 @@ func maybeCanonicalizeIdentity(ctx context.Context, authStore auth.AuthStore, pl
 		"user_id", match.Identity.UserID,
 	)
 
-	preferred, err := authStore.GetIdentityByPlatform(ctx, platform, preferredID)
+	preferred, err := store.GetChannelIdentityByPlatform(ctx, platform, preferredID)
 	if err == nil {
 		if preferred.UserID != match.Identity.UserID {
 			log.Warn("cannot canonicalize identity: preferred external_id is linked to another user", "conflict_user_id", preferred.UserID)
 			return nil
 		}
 		if preferred.ID != match.Identity.ID {
-			if err := authStore.DeleteIdentity(ctx, match.Identity.ID); err != nil {
+			if err := store.DeleteChannelIdentity(ctx, match.Identity.ID); err != nil {
 				return fmt.Errorf("delete duplicate identity after canonicalization: %w", err)
 			}
 			log.Info("deleted duplicate legacy identity after canonicalization", "kept_identity_id", preferred.ID)
@@ -122,14 +119,14 @@ func maybeCanonicalizeIdentity(ctx context.Context, authStore auth.AuthStore, pl
 		return fmt.Errorf("lookup canonical identity: %w", err)
 	}
 
-	if err := authStore.UpdateIdentityExternalID(ctx, match.Identity.ID, preferredID); err != nil {
+	if err := store.UpdateChannelIdentityExternalID(ctx, match.Identity.ID, preferredID); err != nil {
 		return fmt.Errorf("canonicalize identity: %w", err)
 	}
 	log.Info("canonicalized identity to preferred external_id")
 	return nil
 }
 
-func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {
+func ResolveAgent(ctx context.Context, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {
 	log := slog.With("component", "identity", "user_id", identity.User.ID)
 
 	if identity.User.ID == "" {
@@ -138,9 +135,13 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 	}
 
 	assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
+	role := auth.RoleUser
+	if m, err := authStore.GetUserMembership(ctx, identity.User.ID); err == nil {
+		role = m.Role
+	}
 	subject := auth.Subject{
 		UserID:   identity.User.ID,
-		Roles:    []string{identity.User.Role},
+		Roles:    []string{role},
 		AgentIDs: assignedIDs,
 	}
 
@@ -209,5 +210,5 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 }
 
 func isNotFound(err error) bool {
-	return errors.Is(err, sql.ErrNoRows)
+	return errors.Is(err, auth.ErrNotFound) || errors.Is(err, sql.ErrNoRows)
 }

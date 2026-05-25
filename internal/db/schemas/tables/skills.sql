@@ -1,7 +1,7 @@
 CREATE TABLE skills (
     id          TEXT PRIMARY KEY,
     scope       TEXT NOT NULL CHECK (scope IN ('system','agent','user')),
-    user_id     TEXT    REFERENCES auth_users(id) ON DELETE CASCADE,
+    user_id     TEXT    REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id    TEXT    REFERENCES settings_agents(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
     description TEXT NOT NULL,

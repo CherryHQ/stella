@@ -16,191 +16,17 @@ import (
 const authTimeLayout = "2006-01-02 15:04:05"
 
 // AuthStore implements auth.AuthStore using sqlc queries backed by SQLite.
+// It embeds OIDCStore to satisfy all new auth store interfaces so that
+// gateway.go can pass a single *AuthStore to all wiring points without
+// knowing about the split between sqlc-backed and raw-SQL-backed stores.
 type AuthStore struct {
+	*OIDCStore
 	q *sqlc.Queries
 }
 
 // NewAuthStore creates a new AuthStore wrapping the given database connection.
 func NewAuthStore(db *sql.DB) *AuthStore {
-	return &AuthStore{q: sqlc.New(db)}
-}
-
-// --- Users ---
-
-func (s *AuthStore) CreateUser(ctx context.Context, username, passwordHash string) (auth.AuthUser, error) {
-	r, err := s.q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
-		ID:           uuid.NewString(),
-		Username:     username,
-		PasswordHash: passwordHash,
-	})
-	if err != nil {
-		return auth.AuthUser{}, fmt.Errorf("create auth user %q: %w", username, err)
-	}
-	return userFromDB(r), nil
-}
-
-func (s *AuthStore) GetUser(ctx context.Context, id string) (auth.AuthUser, error) {
-	r, err := s.q.GetAuthUser(ctx, id)
-	if err != nil {
-		return auth.AuthUser{}, fmt.Errorf("get auth user %s: %w", id, err)
-	}
-	return userFromDB(r), nil
-}
-
-func (s *AuthStore) GetUserByUsername(ctx context.Context, username string) (auth.AuthUser, error) {
-	r, err := s.q.GetAuthUserByUsername(ctx, username)
-	if err != nil {
-		return auth.AuthUser{}, fmt.Errorf("get auth user by username %q: %w", username, err)
-	}
-	return userFromDB(r), nil
-}
-
-func (s *AuthStore) ListUsers(ctx context.Context) ([]auth.AuthUser, error) {
-	rows, err := s.q.ListAuthUsers(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list auth users: %w", err)
-	}
-	out := make([]auth.AuthUser, len(rows))
-	for i, r := range rows {
-		out[i] = userFromDB(r)
-	}
-	return out, nil
-}
-
-func (s *AuthStore) UpdateUser(ctx context.Context, u auth.AuthUser) error {
-	isActive := int64(0)
-	if u.IsActive {
-		isActive = 1
-	}
-	if err := s.q.UpdateAuthUser(ctx, sqlc.UpdateAuthUserParams{
-		ID:           u.ID,
-		Username:     u.Username,
-		PasswordHash: u.PasswordHash,
-		IsActive:     isActive,
-	}); err != nil {
-		return fmt.Errorf("update auth user %s: %w", u.ID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) UpdateUserDefaultAgent(ctx context.Context, userID string, agentID string) error {
-	if err := s.q.UpdateAuthUserDefaultAgent(ctx, sqlc.UpdateAuthUserDefaultAgentParams{
-		DefaultAgentID: sql.NullString{String: agentID, Valid: agentID != ""},
-		ID:             userID,
-	}); err != nil {
-		return fmt.Errorf("update default agent for user %s: %w", userID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) UpdateUserNotifyIdentity(ctx context.Context, userID string, identityID *string) error {
-	var v sql.NullString
-	if identityID != nil {
-		v = sql.NullString{String: *identityID, Valid: true}
-	}
-	if err := s.q.UpdateAuthUserNotifyIdentity(ctx, sqlc.UpdateAuthUserNotifyIdentityParams{
-		NotifyIdentityID: v,
-		ID:               userID,
-	}); err != nil {
-		return fmt.Errorf("update notify identity for user %s: %w", userID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) DeleteUser(ctx context.Context, id string) error {
-	if err := s.q.DeleteAuthUser(ctx, id); err != nil {
-		return fmt.Errorf("delete auth user %s: %w", id, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) CountUsers(ctx context.Context) (int64, error) {
-	return s.q.CountAuthUsers(ctx)
-}
-
-func (s *AuthStore) UpdateUserAgeKeys(ctx context.Context, userID string, publicKey, privateKey string) error {
-	if err := s.q.UpdateUserAgeKeys(ctx, sqlc.UpdateUserAgeKeysParams{
-		AgePublicKey:  publicKey,
-		AgePrivateKey: privateKey,
-		ID:            userID,
-	}); err != nil {
-		return fmt.Errorf("update age keys for user %s: %w", userID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) UpdateUserRole(ctx context.Context, userID string, role string) error {
-	if err := s.q.UpdateAuthUserRole(ctx, sqlc.UpdateAuthUserRoleParams{
-		Role: role,
-		ID:   userID,
-	}); err != nil {
-		return fmt.Errorf("update role for user %s: %w", userID, err)
-	}
-	return nil
-}
-
-// --- Identities ---
-
-func (s *AuthStore) CreateIdentity(ctx context.Context, i auth.Identity) (auth.Identity, error) {
-	r, err := s.q.CreateAuthIdentity(ctx, sqlc.CreateAuthIdentityParams{
-		ID:         uuid.NewString(),
-		UserID:     i.UserID,
-		Platform:   i.Platform,
-		ExternalID: i.ExternalID,
-		Name:       i.Name,
-	})
-	if err != nil {
-		return auth.Identity{}, fmt.Errorf("create identity: %w", err)
-	}
-	return identityFromDB(r), nil
-}
-
-func (s *AuthStore) GetIdentity(ctx context.Context, id string) (auth.Identity, error) {
-	r, err := s.q.GetAuthIdentity(ctx, id)
-	if err != nil {
-		return auth.Identity{}, fmt.Errorf("get identity %s: %w", id, err)
-	}
-	return identityFromDB(r), nil
-}
-
-func (s *AuthStore) GetIdentityByPlatform(ctx context.Context, platform, externalID string) (auth.Identity, error) {
-	r, err := s.q.GetAuthIdentityByPlatform(ctx, sqlc.GetAuthIdentityByPlatformParams{
-		Platform:   platform,
-		ExternalID: externalID,
-	})
-	if err != nil {
-		return auth.Identity{}, fmt.Errorf("get identity by platform %s/%s: %w", platform, externalID, err)
-	}
-	return identityFromDB(r), nil
-}
-
-func (s *AuthStore) UpdateIdentityExternalID(ctx context.Context, id string, externalID string) error {
-	if err := s.q.UpdateAuthIdentityExternalID(ctx, sqlc.UpdateAuthIdentityExternalIDParams{
-		ExternalID: externalID,
-		ID:         id,
-	}); err != nil {
-		return fmt.Errorf("update identity %s external_id: %w", id, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) ListIdentitiesByUser(ctx context.Context, userID string) ([]auth.Identity, error) {
-	rows, err := s.q.ListAuthIdentitiesByUser(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list identities for user %s: %w", userID, err)
-	}
-	out := make([]auth.Identity, len(rows))
-	for i, r := range rows {
-		out[i] = identityFromDB(r)
-	}
-	return out, nil
-}
-
-func (s *AuthStore) DeleteIdentity(ctx context.Context, id string) error {
-	if err := s.q.DeleteAuthIdentity(ctx, id); err != nil {
-		return fmt.Errorf("delete identity %s: %w", id, err)
-	}
-	return nil
+	return &AuthStore{OIDCStore: NewOIDCStore(db), q: sqlc.New(db)}
 }
 
 // --- Policies ---
@@ -334,59 +160,6 @@ func (s *AuthStore) ListAgentUserIDs(ctx context.Context, agentID string) ([]str
 	return out, nil
 }
 
-// --- Sessions ---
-
-func (s *AuthStore) CreateSession(ctx context.Context, sess auth.Session) (auth.Session, error) {
-	r, err := s.q.CreateAuthSession(ctx, sqlc.CreateAuthSessionParams{
-		ID:        sess.ID,
-		UserID:    sess.UserID,
-		ExpiresAt: sess.ExpiresAt.UTC().Format(authTimeLayout),
-	})
-	if err != nil {
-		return auth.Session{}, fmt.Errorf("create session: %w", err)
-	}
-	return sessionFromDB(r), nil
-}
-
-func (s *AuthStore) GetSession(ctx context.Context, id string) (auth.Session, error) {
-	r, err := s.q.GetAuthSession(ctx, id)
-	if err != nil {
-		return auth.Session{}, fmt.Errorf("get session %q: %w", id, err)
-	}
-	return sessionFromDB(r), nil
-}
-
-func (s *AuthStore) DeleteSession(ctx context.Context, id string) error {
-	if err := s.q.DeleteAuthSession(ctx, id); err != nil {
-		return fmt.Errorf("delete session %q: %w", id, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) DeleteExpiredSessions(ctx context.Context) error {
-	if err := s.q.DeleteExpiredAuthSessions(ctx); err != nil {
-		return fmt.Errorf("delete expired sessions: %w", err)
-	}
-	return nil
-}
-
-func (s *AuthStore) DeleteUserSessions(ctx context.Context, userID string) error {
-	if err := s.q.DeleteUserAuthSessions(ctx, userID); err != nil {
-		return fmt.Errorf("delete sessions for user %s: %w", userID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error {
-	if err := s.q.UpdateAuthSessionExpiry(ctx, sqlc.UpdateAuthSessionExpiryParams{
-		ID:        id,
-		ExpiresAt: expiresAt.UTC().Format(authTimeLayout),
-	}); err != nil {
-		return fmt.Errorf("update session expiry %q: %w", id, err)
-	}
-	return nil
-}
-
 // --- User tokens ---
 
 func (s *AuthStore) CreateUserToken(ctx context.Context, token auth.UserToken) (auth.UserToken, error) {
@@ -467,37 +240,6 @@ func parseAuthTime(s string) time.Time {
 	return t
 }
 
-func userFromDB(r sqlc.AuthUser) auth.AuthUser {
-	u := auth.AuthUser{
-		ID:           r.ID,
-		Username:     r.Username,
-		PasswordHash: r.PasswordHash,
-		Role:         r.Role,
-		IsActive:     r.IsActive == 1,
-		CreatedAt:    parseAuthTime(r.CreatedAt),
-		UpdatedAt:    parseAuthTime(r.UpdatedAt),
-	}
-	if r.DefaultAgentID.Valid {
-		u.DefaultAgentID = r.DefaultAgentID.String
-	}
-	if r.NotifyIdentityID.Valid {
-		id := r.NotifyIdentityID.String
-		u.NotifyIdentityID = &id
-	}
-	return u
-}
-
-func identityFromDB(r sqlc.AuthIdentity) auth.Identity {
-	return auth.Identity{
-		ID:         r.ID,
-		UserID:     r.UserID,
-		Platform:   r.Platform,
-		ExternalID: r.ExternalID,
-		Name:       r.Name,
-		LinkedAt:   parseAuthTime(r.LinkedAt),
-	}
-}
-
 func policyFromDB(r sqlc.AuthPolicy) auth.Policy {
 	return auth.Policy{
 		ID:         r.ID,
@@ -511,15 +253,6 @@ func policyFromDB(r sqlc.AuthPolicy) auth.Policy {
 		IsSystem:   r.IsSystem == 1,
 		Enabled:    r.Enabled == 1,
 		CreatedAt:  parseAuthTime(r.CreatedAt),
-	}
-}
-
-func sessionFromDB(r sqlc.AuthSession) auth.Session {
-	return auth.Session{
-		ID:        r.ID,
-		UserID:    r.UserID,
-		ExpiresAt: parseAuthTime(r.ExpiresAt),
-		CreatedAt: parseAuthTime(r.CreatedAt),
 	}
 }
 

@@ -60,6 +60,14 @@ type Server struct {
 	logins auth.LoginIdentityStore
 	// memberships provides access to auth_membership (optional).
 	memberships auth.MembershipStore
+	// users provides access to auth_user (optional).
+	users auth.UserStore
+	// channelIdents provides access to channel_identity (optional).
+	channelIdents auth.ChannelIdentityStore
+	// sessions provides access to auth_session (optional).
+	sessions auth.SessionStore
+	// credentials provides access to auth_credential (optional).
+	credentials auth.CredentialStore
 }
 
 // New creates an admin server with all API routes mounted.
@@ -150,10 +158,29 @@ func (s *Server) SetLoginIdentityStore(store auth.LoginIdentityStore) {
 }
 
 // SetMembershipStore wires the membership store so role and active writes
-// propagate to auth_membership in addition to the legacy auth_users table.
-// Call before serving requests.
+// propagate to auth_membership. Call before serving requests.
 func (s *Server) SetMembershipStore(store auth.MembershipStore) {
 	s.memberships = store
+}
+
+// SetUserStore wires the user store into the admin server.
+func (s *Server) SetUserStore(store auth.UserStore) {
+	s.users = store
+}
+
+// SetChannelIdentityStore wires the channel identity store into the admin server.
+func (s *Server) SetChannelIdentityStore(store auth.ChannelIdentityStore) {
+	s.channelIdents = store
+}
+
+// SetSessionStore wires the session store into the admin server.
+func (s *Server) SetSessionStore(store auth.SessionStore) {
+	s.sessions = store
+}
+
+// SetCredentialStore wires the credential store into the admin server.
+func (s *Server) SetCredentialStore(store auth.CredentialStore) {
+	s.credentials = store
 }
 
 // SetOIDCAuth wires all OIDC authentication components into the server.

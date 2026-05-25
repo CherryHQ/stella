@@ -616,9 +616,6 @@ type UpdateAgentScopedSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
-// LoginJSONRequestBody defines body for Login for application/json ContentType.
-type LoginJSONRequestBody = externalRef0.LoginRequest
-
 // GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
 type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
 
@@ -633,9 +630,6 @@ type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
 
 // SetVaultEntryJSONRequestBody defines body for SetVaultEntry for application/json ContentType.
 type SetVaultEntryJSONRequestBody = externalRef0.SetVaultEntryRequest
-
-// RegisterJSONRequestBody defines body for Register for application/json ContentType.
-type RegisterJSONRequestBody = externalRef0.RegisterRequest
 
 // UpdateAuthUserActiveJSONRequestBody defines body for UpdateAuthUserActive for application/json ContentType.
 type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
@@ -972,11 +966,6 @@ type ClientInterface interface {
 	// RemoveAgentUser request
 	RemoveAgentUser(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// LoginWithBody request with any body
-	LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	Login(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// Logout request
 	Logout(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1049,11 +1038,6 @@ type ClientInterface interface {
 
 	// ListAuthProviders request
 	ListAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// RegisterWithBody request with any body
-	RegisterWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	Register(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListAuthUsers request
 	ListAuthUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2165,30 +2149,6 @@ func (c *Client) RemoveAgentUser(ctx context.Context, id string, userId string, 
 	return c.Client.Do(req)
 }
 
-func (c *Client) LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewLoginRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) Login(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewLoginRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) Logout(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewLogoutRequest(c.Server)
 	if err != nil {
@@ -2491,30 +2451,6 @@ func (c *Client) SetVaultEntry(ctx context.Context, name string, body SetVaultEn
 
 func (c *Client) ListAuthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAuthProvidersRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) RegisterWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRegisterRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) Register(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRegisterRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6321,46 +6257,6 @@ func NewRemoveAgentUserRequest(server string, id string, userId string) (*http.R
 	return req, nil
 }
 
-// NewLoginRequest calls the generic Login builder with application/json body
-func NewLoginRequest(server string, body LoginJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewLoginRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewLoginRequestWithBody generates requests for Login with any type of body
-func NewLoginRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/login")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewLogoutRequest generates requests for Logout
 func NewLogoutRequest(server string) (*http.Request, error) {
 	var err error
@@ -7111,46 +7007,6 @@ func NewListAuthProvidersRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return req, nil
-}
-
-// NewRegisterRequest calls the generic Register builder with application/json body
-func NewRegisterRequest(server string, body RegisterJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewRegisterRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewRegisterRequestWithBody generates requests for Register with any type of body
-func NewRegisterRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/auth/register")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -10150,11 +10006,6 @@ type ClientWithResponsesInterface interface {
 	// RemoveAgentUserWithResponse request
 	RemoveAgentUserWithResponse(ctx context.Context, id string, userId string, reqEditors ...RequestEditorFn) (*RemoveAgentUserResponse, error)
 
-	// LoginWithBodyWithResponse request with any body
-	LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error)
-
-	LoginWithResponse(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginResponse, error)
-
 	// LogoutWithResponse request
 	LogoutWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutResponse, error)
 
@@ -10227,11 +10078,6 @@ type ClientWithResponsesInterface interface {
 
 	// ListAuthProvidersWithResponse request
 	ListAuthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthProvidersResponse, error)
-
-	// RegisterWithBodyWithResponse request with any body
-	RegisterWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterResponse, error)
-
-	RegisterWithResponse(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterResponse, error)
 
 	// ListAuthUsersWithResponse request
 	ListAuthUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAuthUsersResponse, error)
@@ -12182,38 +12028,6 @@ func (r RemoveAgentUserResponse) ContentType() string {
 	return ""
 }
 
-type LoginResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.AuthResponse
-	JSON400      *externalRef0.BadRequest
-	JSON401      *externalRef0.Unauthorized
-}
-
-// Status returns HTTPResponse.Status
-func (r LoginResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r LoginResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r LoginResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type LogoutResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -12868,38 +12682,6 @@ func (r ListAuthProvidersResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAuthProvidersResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type RegisterResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *externalRef0.AuthResponse
-	JSON400      *externalRef0.BadRequest
-	JSON409      *externalRef0.Error
-}
-
-// Status returns HTTPResponse.Status
-func (r RegisterResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r RegisterResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r RegisterResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -15702,23 +15484,6 @@ func (c *ClientWithResponses) RemoveAgentUserWithResponse(ctx context.Context, i
 	return ParseRemoveAgentUserResponse(rsp)
 }
 
-// LoginWithBodyWithResponse request with arbitrary body returning *LoginResponse
-func (c *ClientWithResponses) LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginResponse, error) {
-	rsp, err := c.LoginWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseLoginResponse(rsp)
-}
-
-func (c *ClientWithResponses) LoginWithResponse(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginResponse, error) {
-	rsp, err := c.Login(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseLoginResponse(rsp)
-}
-
 // LogoutWithResponse request returning *LogoutResponse
 func (c *ClientWithResponses) LogoutWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutResponse, error) {
 	rsp, err := c.Logout(ctx, reqEditors...)
@@ -15946,23 +15711,6 @@ func (c *ClientWithResponses) ListAuthProvidersWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseListAuthProvidersResponse(rsp)
-}
-
-// RegisterWithBodyWithResponse request with arbitrary body returning *RegisterResponse
-func (c *ClientWithResponses) RegisterWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterResponse, error) {
-	rsp, err := c.RegisterWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRegisterResponse(rsp)
-}
-
-func (c *ClientWithResponses) RegisterWithResponse(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterResponse, error) {
-	rsp, err := c.Register(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRegisterResponse(rsp)
 }
 
 // ListAuthUsersWithResponse request returning *ListAuthUsersResponse
@@ -19100,46 +18848,6 @@ func ParseRemoveAgentUserResponse(rsp *http.Response) (*RemoveAgentUserResponse,
 	return response, nil
 }
 
-// ParseLoginResponse parses an HTTP response from a LoginWithResponse call
-func ParseLoginResponse(rsp *http.Response) (*LoginResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &LoginResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.AuthResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseLogoutResponse parses an HTTP response from a LogoutWithResponse call
 func ParseLogoutResponse(rsp *http.Response) (*LogoutResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -19875,46 +19583,6 @@ func ParseListAuthProvidersResponse(rsp *http.Response) (*ListAuthProvidersRespo
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseRegisterResponse parses an HTTP response from a RegisterWithResponse call
-func ParseRegisterResponse(rsp *http.Response) (*RegisterResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &RegisterResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest externalRef0.AuthResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest externalRef0.Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
 
 	}
 

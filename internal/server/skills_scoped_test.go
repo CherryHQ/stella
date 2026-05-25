@@ -19,24 +19,11 @@ import (
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
-// newNonAdmin creates a non-admin user with an active session and returns
-// (user, session id).
-func newNonAdmin(t *testing.T, env *testEnv, username string) (auth.AuthUser, string) {
+// newNonAdmin creates a non-admin user with a bearer token and returns
+// (user, bearer token).
+func newNonAdmin(t *testing.T, env *testEnv, username string) (auth.User, string) {
 	t.Helper()
-	hash, _ := auth.HashPassword("password")
-	u, err := env.authStore.CreateUser(context.Background(), username, hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	sid := auth.NewSessionID()
-	if _, err := env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sid,
-		UserID:    u.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	}); err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	return u, sid
+	return createTestUserWithToken(t, env.authStore, env.oidcStore, username, auth.RoleUser)
 }
 
 // createAgentAsUser creates an agent via the API using the given session
@@ -99,7 +86,7 @@ func createSkillZip(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-func doMultipartRequestWithSession(t *testing.T, srv http.Handler, sessionID, method, path, fieldName, fileName string, fileData []byte) *httptest.ResponseRecorder {
+func doMultipartRequestWithSession(t *testing.T, srv http.Handler, bearerToken, method, path, fieldName, fileName string, fileData []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -115,8 +102,8 @@ func doMultipartRequestWithSession(t *testing.T, srv http.Handler, sessionID, me
 	}
 	req := httptest.NewRequest(method, path, &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	if sessionID != "" {
-		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionID})
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -144,7 +131,7 @@ func findSkill(list []map[string]any, name string) map[string]any {
 
 func TestSessionSystemPromptIncludesSkills(t *testing.T) {
 	env := setupAdmin(t)
-	agentID := createAgentAsUser(t, env, env.sessionID, "prompt-skills-agent")
+	agentID := createAgentAsUser(t, env, env.bearerToken, "prompt-skills-agent")
 	createTestSkill(t, env, "system", "", "", "inspect-skill")
 
 	sessionID := "prompt-skills-session"
