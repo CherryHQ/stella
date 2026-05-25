@@ -64,10 +64,10 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 		if externalID == "" {
 			externalID = status.ILinkBotID
 		}
-		if externalID != "" && s.channelIdents != nil {
-			if _, err := s.channelIdents.GetChannelIdentityByPlatform(r.Context(), pkgchannel.PlatformWeixin, externalID); err != nil {
+		if externalID != "" && s.users != nil {
+			if _, err := s.users.GetChannelIdentityByPlatform(r.Context(), pkgchannel.PlatformWeixin, externalID); err != nil {
 				// Identity doesn't exist yet — create it.
-				if _, err := s.channelIdents.CreateChannelIdentity(r.Context(), auth.ChannelIdentity{
+				if _, err := s.users.CreateChannelIdentity(r.Context(), auth.ChannelIdentity{
 					ID:         uuid.NewString(),
 					UserID:     info.UserID,
 					Platform:   pkgchannel.PlatformWeixin,

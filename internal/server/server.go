@@ -60,10 +60,11 @@ type Server struct {
 	logins auth.LoginIdentityStore
 	// memberships provides access to auth_membership (optional).
 	memberships auth.MembershipStore
-	// users provides access to auth_user (optional).
-	users auth.UserStore
-	// channelIdents provides access to channel_identity (optional).
-	channelIdents auth.ChannelIdentityStore
+	// users provides access to auth_user and channel_identity via the OIDC store (optional).
+	users interface {
+		auth.UserStore
+		auth.ChannelIdentityStore
+	}
 	// sessions provides access to auth_session (optional).
 	sessions auth.SessionStore
 	// credentials provides access to auth_credential (optional).
@@ -163,14 +164,13 @@ func (s *Server) SetMembershipStore(store auth.MembershipStore) {
 	s.memberships = store
 }
 
-// SetUserStore wires the user store into the admin server.
-func (s *Server) SetUserStore(store auth.UserStore) {
+// SetUserStore wires the OIDC user+identity store into the admin server.
+func (s *Server) SetUserStore(store interface {
+	auth.UserStore
+	auth.ChannelIdentityStore
+},
+) {
 	s.users = store
-}
-
-// SetChannelIdentityStore wires the channel identity store into the admin server.
-func (s *Server) SetChannelIdentityStore(store auth.ChannelIdentityStore) {
-	s.channelIdents = store
 }
 
 // SetSessionStore wires the session store into the admin server.

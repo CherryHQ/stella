@@ -19,11 +19,11 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.channelIdents == nil {
+	if s.users == nil {
 		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
 		return
 	}
-	identities, err := s.channelIdents.ListChannelIdentitiesByUser(r.Context(), info.UserID)
+	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), info.UserID)
 	if err != nil {
 		s.log.Error("list identities", "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -142,13 +142,13 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 
 	ctx := r.Context()
 
-	if s.channelIdents == nil {
+	if s.users == nil {
 		writeError(w, http.StatusServiceUnavailable, "channel identity store not configured")
 		return
 	}
 
 	// Verify the identity belongs to the current user.
-	identity, err := s.channelIdents.GetChannelIdentity(ctx, id)
+	identity, err := s.users.GetChannelIdentity(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "identity not found")
 		return
@@ -159,7 +159,7 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
-	if err := s.channelIdents.DeleteChannelIdentity(ctx, id); err != nil {
+	if err := s.users.DeleteChannelIdentity(ctx, id); err != nil {
 		s.log.Error("delete identity", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return

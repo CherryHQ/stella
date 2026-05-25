@@ -26,9 +26,9 @@ type authUserResponse struct {
 
 func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserResponse, error) {
 	var identities []auth.ChannelIdentity
-	if s.channelIdents != nil {
+	if s.users != nil {
 		var err error
-		identities, err = s.channelIdents.ListChannelIdentitiesByUser(r.Context(), u.ID)
+		identities, err = s.users.ListChannelIdentitiesByUser(r.Context(), u.ID)
 		if err != nil {
 			return authUserResponse{}, fmt.Errorf("list identities: %w", err)
 		}
@@ -220,14 +220,14 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 	if !requireAdmin(w, r) {
 		return
 	}
-	if s.channelIdents == nil {
+	if s.users == nil {
 		writeError(w, http.StatusServiceUnavailable, "channel identity store not configured")
 		return
 	}
 	ctx := r.Context()
 
 	// Verify the identity exists and belongs to the specified user.
-	identity, err := s.channelIdents.GetChannelIdentity(ctx, identityId)
+	identity, err := s.users.GetChannelIdentity(ctx, identityId)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "identity not found")
 		return
@@ -238,7 +238,7 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	if err := s.channelIdents.DeleteChannelIdentity(ctx, identityId); err != nil {
+	if err := s.users.DeleteChannelIdentity(ctx, identityId); err != nil {
 		s.log.Error("admin delete identity", "id", identityId, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete identity")
 		return
@@ -379,11 +379,11 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	if s.channelIdents == nil {
+	if s.users == nil {
 		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
 		return
 	}
-	identities, err := s.channelIdents.ListChannelIdentitiesByUser(r.Context(), id)
+	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list channel identities: "+err.Error())
 		return

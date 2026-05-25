@@ -157,7 +157,6 @@ func setupAdmin(t *testing.T) *testEnv {
 	srv.SetUserStore(oidcStore)
 	srv.SetMembershipStore(oidcStore)
 	srv.SetLoginIdentityStore(oidcStore)
-	srv.SetChannelIdentityStore(oidcStore)
 	srv.SetSessionStore(oidcStore)
 	srv.SetCredentialStore(oidcStore)
 
