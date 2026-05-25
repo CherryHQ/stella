@@ -58,15 +58,6 @@ type Article struct {
 	UpdatedAt    string         `json:"updated_at"`
 }
 
-type AuthIdentity struct {
-	ID         string `json:"id"`
-	UserID     string `json:"user_id"`
-	Platform   string `json:"platform"`
-	ExternalID string `json:"external_id"`
-	Name       string `json:"name"`
-	LinkedAt   string `json:"linked_at"`
-}
-
 type AuthOauthProvider struct {
 	ID              string `json:"id"`
 	ProviderID      string `json:"provider_id"`
@@ -90,27 +81,6 @@ type AuthPolicy struct {
 	Enabled    int64          `json:"enabled"`
 	OrgID      sql.NullString `json:"org_id"`
 	CreatedAt  string         `json:"created_at"`
-}
-
-type AuthSession struct {
-	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
-	ExpiresAt string `json:"expires_at"`
-	CreatedAt string `json:"created_at"`
-}
-
-type AuthUser struct {
-	ID               string         `json:"id"`
-	Username         string         `json:"username"`
-	PasswordHash     string         `json:"password_hash"`
-	Role             string         `json:"role"`
-	IsActive         int64          `json:"is_active"`
-	DefaultAgentID   sql.NullString `json:"default_agent_id"`
-	NotifyIdentityID sql.NullString `json:"notify_identity_id"`
-	AgePublicKey     string         `json:"age_public_key"`
-	AgePrivateKey    string         `json:"age_private_key"`
-	CreatedAt        string         `json:"created_at"`
-	UpdatedAt        string         `json:"updated_at"`
 }
 
 type AuthUserAgent struct {

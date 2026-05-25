@@ -7,10 +7,14 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -37,6 +41,65 @@ import (
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
+// templateDBOnce builds a fully-migrated and seeded SQLite template DB once.
+// Each test copies the file instead of re-running 48 migrations from scratch.
+var (
+	templateDBOnce sync.Once
+	templateDBPath string
+)
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
+
+func ensureTemplateDB() string {
+	templateDBOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "stella_srv_tmpl_*")
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: MkdirTemp: %v", err))
+		}
+		path := filepath.Join(dir, "template.db")
+		db, err := appdb.OpenDB(path)
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: OpenDB: %v", err))
+		}
+		ctx := context.Background()
+		store := config.NewDBStore(db)
+		if err := store.SeedDefaults(ctx); err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: SeedDefaults: %v", err))
+		}
+		as := appdb.NewAuthStore(db)
+		if err := auth.SeedPolicies(ctx, as); err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: SeedPolicies: %v", err))
+		}
+		if err := db.Close(); err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: Close: %v", err))
+		}
+		templateDBPath = path
+	})
+	return templateDBPath
+}
+
+func copyTemplateDB(t *testing.T) string {
+	t.Helper()
+	src := ensureTemplateDB()
+	dst := filepath.Join(t.TempDir(), "test.db")
+	in, err := os.Open(src)
+	if err != nil {
+		t.Fatalf("copyTemplateDB: open src: %v", err)
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.Create(dst)
+	if err != nil {
+		t.Fatalf("copyTemplateDB: create dst: %v", err)
+	}
+	defer func() { _ = out.Close() }()
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatalf("copyTemplateDB: copy: %v", err)
+	}
+	return dst
+}
+
 type testEnv struct {
 	srv         *server.Server
 	db          *sql.DB
@@ -54,7 +117,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Setenv("STELLA_HOME", filepath.Join(t.TempDir(), "stella-home"))
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+	dbPath := copyTemplateDB(t)
 	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
@@ -62,14 +125,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Cleanup(func() { _ = db.Close() })
 
 	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
-	}
-
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(context.Background(), as); err != nil {
-		t.Fatalf("SeedPolicies: %v", err)
-	}
 
 	engine, err := auth.NewEngine(context.Background(), as)
 	if err != nil {

@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -15,22 +17,70 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// testMemoryProvider creates an LCM memory provider backed by an in-memory SQLite DB.
+// templateMemOnce builds a fully-migrated SQLite DB once; each test copies it.
+var (
+	templateMemOnce sync.Once
+	templateMemPath string
+)
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
+
+func ensureTemplateMemDB() string {
+	templateMemOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "stella_pool_tmpl_*")
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateMemDB: MkdirTemp: %v", err))
+		}
+		path := filepath.Join(dir, "template.db")
+		db, err := appdb.OpenDB(path)
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateMemDB: OpenDB: %v", err))
+		}
+		if err := db.Close(); err != nil {
+			panic(fmt.Sprintf("ensureTemplateMemDB: Close: %v", err))
+		}
+		templateMemPath = path
+	})
+	return templateMemPath
+}
+
+// testMemoryProvider creates an LCM memory provider by copying a pre-migrated
+// template DB, so migrations run once per test binary instead of per test.
 func testMemoryProvider(t *testing.T) memory.Provider {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
+	src := ensureTemplateMemDB()
+	dst := filepath.Join(t.TempDir(), "mem.db")
+	if err := copyFile(src, dst); err != nil {
+		t.Fatalf("testMemoryProvider: copy template: %v", err)
+	}
+	db, err := appdb.OpenDB(dst)
 	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
+		t.Fatalf("testMemoryProvider: OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-
 	p, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
-		t.Fatalf("Build lcm provider: %v", err)
+		t.Fatalf("testMemoryProvider: New: %v", err)
 	}
 	t.Cleanup(func() { _ = p.Close() })
 	return p
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // mockRunner implements Runner for pool tests.
