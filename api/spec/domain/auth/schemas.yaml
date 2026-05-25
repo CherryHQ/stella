@@ -49,6 +49,9 @@ components:
         login_url:
           type: string
           description: URL to redirect the browser to for login
+        register_url:
+          type: string
+          description: URL to redirect the browser to for registration (local provider only)
 
     OIDCProviderList:
       type: object

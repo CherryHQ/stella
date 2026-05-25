@@ -236,7 +236,7 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 		_ = s.logins.UpdateLoginIdentity(ctx, identity)
 		return user, false, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, ErrNotFound) {
 		return User{}, false, err
 	}
 

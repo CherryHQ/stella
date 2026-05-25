@@ -60,8 +60,11 @@ const en = {
   "header.accountSettings": "Account settings",
 
   // Login page
-  "login.adminPanel": "Admin Panel",
-  "login.signIn": "Sign in with",
+  "login.subtitle": "Sign in to continue",
+  "login.signIn": "Sign in",
+  "login.signUp": "Sign up",
+  "login.noAccount": "Don't have an account?",
+  "login.signUpLink": "Sign up",
   "login.noProviders": "No login providers configured. Contact your administrator.",
 
   // Account page
@@ -600,8 +603,11 @@ const zh: Record<MessageKey, string> = {
   "header.accountSettings": "账户设置",
 
   // Login page
-  "login.adminPanel": "管理后台",
-  "login.signIn": "使用以下方式登录",
+  "login.subtitle": "登录以继续",
+  "login.signIn": "登录",
+  "login.signUp": "注册",
+  "login.noAccount": "还没有账号？",
+  "login.signUpLink": "注册",
   "login.noProviders": "未配置登录提供商，请联系管理员。",
 
   // Account page

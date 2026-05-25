@@ -38,7 +38,8 @@ func NewClientProvider(cfg *Config, redirectURI string) (*ClientProvider, error)
 	}
 	keySet := &ecPublicKeySet{pub: &cfg.SigningKey.PublicKey}
 	verifier := gooidc.NewVerifier(cfg.IssuerURL, keySet, &gooidc.Config{
-		ClientID: cfg.ClientID,
+		ClientID:             cfg.ClientID,
+		SupportedSigningAlgs: []string{"ES256"},
 	})
 	oauth2Cfg := &oauth2.Config{
 		ClientID:     cfg.ClientID,

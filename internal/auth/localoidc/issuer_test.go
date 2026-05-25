@@ -97,6 +97,35 @@ func (f *fakeMembershipStore) CountOrgMembers(_ context.Context, _ string) (int6
 	return 0, nil
 }
 
+type fakeOrgStore struct{ bySource map[string]auth.Organization }
+
+func newFakeOrgStore() *fakeOrgStore {
+	return &fakeOrgStore{bySource: make(map[string]auth.Organization)}
+}
+
+func (f *fakeOrgStore) CreateOrganization(_ context.Context, o auth.Organization) (auth.Organization, error) {
+	f.bySource[o.Source+"/"+o.ExternalID] = o
+	return o, nil
+}
+
+func (f *fakeOrgStore) GetOrganization(_ context.Context, _ string) (auth.Organization, error) {
+	return auth.Organization{}, auth.ErrNotFound
+}
+
+func (f *fakeOrgStore) GetOrganizationBySource(_ context.Context, source, externalID string) (auth.Organization, error) {
+	o, ok := f.bySource[source+"/"+externalID]
+	if !ok {
+		return auth.Organization{}, auth.ErrNotFound
+	}
+	return o, nil
+}
+
+func (f *fakeOrgStore) ListOrganizations(_ context.Context) ([]auth.Organization, error) {
+	return nil, nil
+}
+
+func (f *fakeOrgStore) DeleteOrganization(_ context.Context, _ string) error { return nil }
+
 type fakeCredStore struct{ byUser map[string]auth.Credential }
 
 func newFakeCredStore(creds ...auth.Credential) *fakeCredStore {
@@ -263,7 +292,7 @@ func TestDiscovery(t *testing.T) {
 	cfg := confidentialConfig(t, key)
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		newFakeUserStore(), newFakeMembershipStore(),
+		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/.well-known/openid-configuration", nil)
@@ -293,7 +322,7 @@ func TestJWKS(t *testing.T) {
 	cfg := confidentialConfig(t, key)
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		newFakeUserStore(), newFakeMembershipStore(),
+		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/jwks.json", nil)
@@ -324,7 +353,7 @@ func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 	cfg := confidentialConfig(t, key)
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		newFakeUserStore(), newFakeMembershipStore(),
+		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
 
 	q := url.Values{
@@ -347,7 +376,7 @@ func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
 	cfg := confidentialConfig(t, key)
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		newFakeUserStore(), newFakeMembershipStore(),
+		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
 
 	q := url.Values{
@@ -375,7 +404,7 @@ func TestAuthorizePostIssuesCode(t *testing.T) {
 	users, memberships, creds := seedUserAndMembership(userID, orgID, "user@test.example", "pass123")
 	codeStore := newFakeCodeStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, memberships, creds, nil, nil)
+	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -411,7 +440,7 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	codeStore := newFakeCodeStore()
 	tokenStore := newFakeTokenStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, tokenStore, users, memberships, creds, nil, nil)
+	issuer := localoidc.NewIssuer(cfg, codeStore, tokenStore, users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	// Step 1: authorize POST → get code.
 	q := url.Values{
@@ -485,7 +514,7 @@ func TestCodeCannotBeReused(t *testing.T) {
 	users, memberships, creds := seedUserAndMembership(userID, orgID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, memberships, creds, nil, nil)
+	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	// Authorize.
 	q := url.Values{
@@ -539,7 +568,7 @@ func TestPKCERequired(t *testing.T) {
 	cfg := publicConfig(t, key) // public client requires PKCE
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		newFakeUserStore(), newFakeMembershipStore(),
+		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
 
 	q := url.Values{
@@ -565,7 +594,7 @@ func TestPKCEVerification(t *testing.T) {
 	users, memberships, creds := seedUserAndMembership(userID, orgID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, memberships, creds, nil, nil)
+	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	verifier := strings.Repeat("v", 43)
 	challenge := pkceS256(verifier)
@@ -618,7 +647,7 @@ func TestUserinfoWithValidToken(t *testing.T) {
 
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), tokenStore,
-		users, memberships, newFakeCredStore(), nil, nil)
+		users, newFakeOrgStore(), memberships, newFakeCredStore(), nil, nil)
 
 	// Seed an access token directly.
 	rawToken := strings.Repeat("a", 64)
@@ -656,7 +685,7 @@ func TestUserinfoWithNoToken(t *testing.T) {
 	cfg := confidentialConfig(t, key)
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		newFakeUserStore(), newFakeMembershipStore(),
+		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/userinfo", nil)
@@ -680,7 +709,7 @@ func TestDisabledMembershipCannotAuthorize(t *testing.T) {
 
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		users, memberships, creds, nil, nil)
+		users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -704,7 +733,7 @@ func TestWrongClientIDRejected(t *testing.T) {
 	cfg := confidentialConfig(t, key)
 	issuer := localoidc.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
-		newFakeUserStore(), newFakeMembershipStore(),
+		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
 
 	form := url.Values{

@@ -16,10 +16,15 @@ import (
 func (s *Server) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
 	out := apitypes.OIDCProviderList{Providers: []apitypes.OIDCProvider{}}
 	for _, p := range s.authProviders {
-		out.Providers = append(out.Providers, apitypes.OIDCProvider{
+		prov := apitypes.OIDCProvider{
 			Name:     p.Name(),
 			LoginUrl: fmt.Sprintf("/auth/login/%s", p.Name()),
-		})
+		}
+		if p.Name() == "local" {
+			regURL := fmt.Sprintf("/auth/login/%s?mode=register", p.Name())
+			prov.RegisterUrl = &regURL
+		}
+		out.Providers = append(out.Providers, prov)
 	}
 	writeData(w, http.StatusOK, out)
 }
@@ -65,6 +70,10 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		slog.Error("oidc: build login url", "provider", providerName, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	if mode := r.URL.Query().Get("mode"); mode != "" {
+		loginURL += "&mode=" + mode
 	}
 
 	http.Redirect(w, r, loginURL, http.StatusFound)

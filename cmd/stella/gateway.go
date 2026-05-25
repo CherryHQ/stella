@@ -251,7 +251,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 						issuer := localoidc.NewIssuer(
 							localCfg,
 							oidcStore, oidcStore,
-							oidcStore, oidcStore, oidcStore,
+							oidcStore, oidcStore, oidcStore, oidcStore,
 							issuerAuthSvc,
 							issuerSessionMgr,
 						)

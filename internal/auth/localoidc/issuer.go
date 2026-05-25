@@ -27,12 +27,13 @@ import (
 // It exposes discovery, JWKS, authorize, token, and userinfo under a stable
 // URL prefix (recommended: /oidc/local).
 type Issuer struct {
-	cfg         *Config
-	codes       auth.OIDCCodeStore
-	tokens      auth.OIDCAccessTokenStore
-	users       auth.UserStore
-	memberships auth.MembershipStore
-	credentials auth.CredentialStore
+	cfg           *Config
+	codes         auth.OIDCCodeStore
+	tokens        auth.OIDCAccessTokenStore
+	users         auth.UserStore
+	organizations auth.OrganizationStore
+	memberships   auth.MembershipStore
+	credentials   auth.CredentialStore
 	// authSvc is used to validate an existing Stella OIDC session on the authorize endpoint.
 	// May be nil; when nil, the authorize endpoint always shows the login form.
 	authSvc    *auth.AuthService
@@ -45,20 +46,22 @@ func NewIssuer(
 	codes auth.OIDCCodeStore,
 	tokens auth.OIDCAccessTokenStore,
 	users auth.UserStore,
+	organizations auth.OrganizationStore,
 	memberships auth.MembershipStore,
 	credentials auth.CredentialStore,
 	authSvc *auth.AuthService,
 	sessionMgr *auth.SessionManager,
 ) *Issuer {
 	return &Issuer{
-		cfg:         cfg,
-		codes:       codes,
-		tokens:      tokens,
-		users:       users,
-		memberships: memberships,
-		credentials: credentials,
-		authSvc:     authSvc,
-		sessionMgr:  sessionMgr,
+		cfg:           cfg,
+		codes:         codes,
+		tokens:        tokens,
+		users:         users,
+		organizations: organizations,
+		memberships:   memberships,
+		credentials:   credentials,
+		authSvc:       authSvc,
+		sessionMgr:    sessionMgr,
 	}
 }
 
@@ -150,7 +153,11 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if r.Method == http.MethodPost {
-		is.handleAuthorizePost(w, r, ctx, params)
+		if r.URL.Query().Get("mode") == "register" {
+			is.handleRegisterPost(w, r, ctx, params)
+		} else {
+			is.handleAuthorizePost(w, r, ctx, params)
+		}
 		return
 	}
 
@@ -164,8 +171,12 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// No session — show the credential login form.
-	is.renderLoginForm(w, params, "")
+	// No session — show login or register form based on mode param.
+	if r.URL.Query().Get("mode") == "register" {
+		is.renderRegisterForm(w, params, "")
+	} else {
+		is.renderLoginForm(w, params, "")
+	}
 }
 
 type authorizeParams struct {
@@ -247,6 +258,76 @@ func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ct
 	is.issueCodeAndRedirect(w, r, ctx, user.ID, membership.OrganizationID, params)
 }
 
+func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	email := strings.TrimSpace(r.FormValue("email"))
+	password := r.FormValue("password")
+	if name == "" || email == "" || password == "" {
+		is.renderRegisterForm(w, params, "All fields are required.")
+		return
+	}
+
+	if _, err := is.users.GetUserByEmail(ctx, email); err == nil {
+		is.renderRegisterForm(w, params, "An account with this email already exists.")
+		return
+	}
+
+	newUser, err := is.users.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: email,
+		Name:  name,
+	})
+	if err != nil {
+		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		return
+	}
+
+	credSvc := auth.NewCredentialService(is.credentials)
+	if err := credSvc.SetPassword(ctx, newUser.ID, password); err != nil {
+		_ = is.users.DeleteUser(ctx, newUser.ID)
+		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		return
+	}
+
+	org, err := is.organizations.GetOrganizationBySource(ctx, "local", "default")
+	if err != nil {
+		org, err = is.organizations.CreateOrganization(ctx, auth.Organization{
+			ID:         uuid.NewString(),
+			Name:       "Default",
+			ExternalID: "default",
+			Source:     "local",
+		})
+		if err != nil {
+			is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+			return
+		}
+	}
+
+	role := auth.RoleUser
+	count, err := is.memberships.CountOrgMembers(ctx, org.ID)
+	if err == nil && count == 0 {
+		role = auth.RoleAdmin
+	}
+
+	membership, err := is.memberships.CreateMembership(ctx, auth.Membership{
+		ID:             uuid.NewString(),
+		UserID:         newUser.ID,
+		OrganizationID: org.ID,
+		Role:           role,
+		IsActive:       true,
+	})
+	if err != nil {
+		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		return
+	}
+
+	is.issueCodeAndRedirect(w, r, ctx, newUser.ID, membership.OrganizationID, params)
+}
+
 func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, ctx context.Context, userID, orgID string, params *authorizeParams) {
 	rawCode := generateOpaqueToken()
 	codeHash := hashToken(rawCode)
@@ -276,22 +357,25 @@ func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, c
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
+const formCSS = `body{font-family:system-ui,sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12);padding:2rem;width:100%;max-width:360px}
+h1{font-size:1.25rem;margin:0 0 1.5rem}
+label{display:block;font-size:.875rem;margin-bottom:.25rem;color:#555}
+input[type=email],input[type=password],input[type=text]{width:100%;box-sizing:border-box;padding:.5rem .75rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;margin-bottom:1rem}
+button{width:100%;padding:.625rem;background:#0070f3;color:#fff;border:none;border-radius:4px;font-size:1rem;cursor:pointer}
+button:hover{background:#0051bb}
+.error{background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:.5rem .75rem;margin-bottom:1rem;font-size:.875rem}
+.switch{text-align:center;margin-top:1rem;font-size:.875rem;color:#555}
+.switch a{color:#0070f3;text-decoration:none}
+.switch a:hover{text-decoration:underline}`
+
 var loginFormTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sign in — Stella</title>
-<style>
-body{font-family:system-ui,sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12);padding:2rem;width:100%;max-width:360px}
-h1{font-size:1.25rem;margin:0 0 1.5rem}
-label{display:block;font-size:.875rem;margin-bottom:.25rem;color:#555}
-input[type=email],input[type=password]{width:100%;box-sizing:border-box;padding:.5rem .75rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;margin-bottom:1rem}
-button{width:100%;padding:.625rem;background:#0070f3;color:#fff;border:none;border-radius:4px;font-size:1rem;cursor:pointer}
-button:hover{background:#0051bb}
-.error{background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:.5rem .75rem;margin-bottom:1rem;font-size:.875rem}
-</style>
+<style>` + formCSS + `</style>
 </head>
 <body>
 <div class="card">
@@ -304,6 +388,33 @@ button:hover{background:#0051bb}
     <input type="password" id="password" name="password" autocomplete="current-password" required>
     <button type="submit">Sign in</button>
   </form>
+  <div class="switch">Don't have an account? <a href="{{.RegisterURL}}">Sign up</a></div>
+</div>
+</body>
+</html>`))
+
+var registerFormTmpl = template.Must(template.New("register").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign up — Stella</title>
+<style>` + formCSS + `</style>
+</head>
+<body>
+<div class="card">
+  <h1>Create an account</h1>
+  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+  <form method="POST" action="{{.Action}}">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" autocomplete="name" required>
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" autocomplete="email" required>
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="new-password" required>
+    <button type="submit">Sign up</button>
+  </form>
+  <div class="switch">Already have an account? <a href="{{.LoginURL}}">Sign in</a></div>
 </div>
 </body>
 </html>`))
@@ -311,13 +422,22 @@ button:hover{background:#0051bb}
 func (is *Issuer) renderLoginForm(w http.ResponseWriter, params *authorizeParams, errMsg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = loginFormTmpl.Execute(w, map[string]any{
-		"Action": buildAuthorizeAction(params),
-		"Error":  errMsg,
+		"Action":      buildAuthorizeAction(params, ""),
+		"RegisterURL": buildAuthorizeAction(params, "register"),
+		"Error":       errMsg,
 	})
 }
 
-func buildAuthorizeAction(p *authorizeParams) string {
-	// POST back to authorize with the same OIDC params preserved in the query string.
+func (is *Issuer) renderRegisterForm(w http.ResponseWriter, params *authorizeParams, errMsg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = registerFormTmpl.Execute(w, map[string]any{
+		"Action":   buildAuthorizeAction(params, "register"),
+		"LoginURL": buildAuthorizeAction(params, ""),
+		"Error":    errMsg,
+	})
+}
+
+func buildAuthorizeAction(p *authorizeParams, mode string) string {
 	q := "?client_id=" + p.clientID +
 		"&redirect_uri=" + p.redirectURI +
 		"&response_type=code" +
@@ -331,6 +451,9 @@ func buildAuthorizeAction(p *authorizeParams) string {
 	if p.pkceChallenge != "" {
 		q += "&code_challenge=" + p.pkceChallenge +
 			"&code_challenge_method=" + p.pkceChallengeMethod
+	}
+	if mode != "" {
+		q += "&mode=" + mode
 	}
 	return "authorize" + q
 }

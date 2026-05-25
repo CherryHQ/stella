@@ -1044,6 +1044,9 @@ type OIDCProvider struct {
 
 	// Name Human-readable provider name (e.g. "Zitadel")
 	Name string `json:"name"`
+
+	// RegisterUrl URL to redirect the browser to for registration (local provider only)
+	RegisterUrl *string `json:"register_url,omitempty"`
 }
 
 // OIDCProviderList defines model for OIDCProviderList.

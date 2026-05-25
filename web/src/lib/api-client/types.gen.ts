@@ -857,6 +857,10 @@ export type OidcProvider = {
    * URL to redirect the browser to for login
    */
   login_url: string;
+  /**
+   * URL to redirect the browser to for registration (local provider only)
+   */
+  register_url?: string;
 };
 
 export type OidcProviderList = {
