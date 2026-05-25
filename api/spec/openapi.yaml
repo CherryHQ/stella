@@ -49,6 +49,7 @@ tags:
   - name: auth-users
   - name: profile
   - name: auth
+  - name: invites
   - name: plugins
   - name: status
   - name: tasks
@@ -64,6 +65,15 @@ paths:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1me"
   /api/auth/providers:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1providers"
+  # ── Invites ────────────────────────────────────────────────────────────────
+  /api/auth/invites:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites"
+  /api/auth/invites/{id}:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{id}"
+  /api/auth/invites/{token}/info:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{token}~1info"
+  /api/auth/invites/{token}/accept:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{token}~1accept"
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents"

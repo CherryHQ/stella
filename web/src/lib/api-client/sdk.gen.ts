@@ -8,6 +8,9 @@ import {
 } from "./client";
 import { client } from "./client.gen";
 import type {
+  AcceptInviteData,
+  AcceptInviteErrors,
+  AcceptInviteResponses,
   AgentTaskActionData,
   AgentTaskActionErrors,
   AgentTaskActionResponses,
@@ -32,6 +35,9 @@ import type {
   CreateFeedData,
   CreateFeedErrors,
   CreateFeedResponses,
+  CreateInviteData,
+  CreateInviteErrors,
+  CreateInviteResponses,
   CreateProjectData,
   CreateProjectErrors,
   CreateProjectResponses,
@@ -137,6 +143,9 @@ import type {
   GetFeedData,
   GetFeedErrors,
   GetFeedResponses,
+  GetInviteInfoData,
+  GetInviteInfoErrors,
+  GetInviteInfoResponses,
   GetMeData,
   GetMeErrors,
   GetMeResponses,
@@ -240,6 +249,9 @@ import type {
   ListFeedsData,
   ListFeedsErrors,
   ListFeedsResponses,
+  ListInvitesData,
+  ListInvitesErrors,
+  ListInvitesResponses,
   ListManifestPluginsData,
   ListManifestPluginsErrors,
   ListManifestPluginsResponses,
@@ -317,6 +329,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
+  RevokeInviteData,
+  RevokeInviteErrors,
+  RevokeInviteResponses,
   RevokeShareData,
   RevokeShareErrors,
   RevokeShareResponses,
@@ -494,6 +509,86 @@ export const listAuthProviders = <ThrowOnError extends boolean = false>(
     unknown,
     ThrowOnError
   >({ url: "/api/auth/providers", ...options });
+
+/**
+ * List invites for the current user's org (admin only)
+ */
+export const listInvites = <ThrowOnError extends boolean = false>(
+  options?: Options<ListInvitesData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListInvitesResponses,
+    ListInvitesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites",
+    ...options,
+  });
+
+/**
+ * Create an invite for the current user's org (admin only)
+ */
+export const createInvite = <ThrowOnError extends boolean = false>(
+  options: Options<CreateInviteData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateInviteResponses,
+    CreateInviteErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Revoke a pending invite (admin only)
+ */
+export const revokeInvite = <ThrowOnError extends boolean = false>(
+  options: Options<RevokeInviteData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    RevokeInviteResponses,
+    RevokeInviteErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites/{id}",
+    ...options,
+  });
+
+/**
+ * Get invite metadata (public, for accept page)
+ */
+export const getInviteInfo = <ThrowOnError extends boolean = false>(
+  options: Options<GetInviteInfoData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetInviteInfoResponses,
+    GetInviteInfoErrors,
+    ThrowOnError
+  >({ url: "/api/auth/invites/{token}/info", ...options });
+
+/**
+ * Accept an invite (authenticated users)
+ */
+export const acceptInvite = <ThrowOnError extends boolean = false>(
+  options: Options<AcceptInviteData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    AcceptInviteResponses,
+    AcceptInviteErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites/{token}/accept",
+    ...options,
+  });
 
 /**
  * List agents (any authenticated user; non-admin sees accessible only)

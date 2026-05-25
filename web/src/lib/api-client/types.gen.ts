@@ -507,6 +507,18 @@ export type ComponentsCreateFeedRequest = {
   agent_id?: string | null;
 };
 
+export type CreateInviteRequest = {
+  email?: string;
+  role: "admin" | "user";
+  max_uses?: number;
+  ttl_hours?: number;
+};
+
+export type CreateInviteResponse = {
+  invite: Invite;
+  invite_url: string;
+};
+
 export type CreateProjectRequest = {
   name: string;
   base_dir: string;
@@ -651,6 +663,30 @@ export type ComponentsIdentity = {
 
 export type ComponentsInstallSkillRequest = {
   source: string;
+};
+
+export type Invite = {
+  id: string;
+  org_id: string;
+  email?: string;
+  role: string;
+  status: "pending" | "accepted" | "revoked";
+  max_uses: number;
+  use_count: number;
+  invited_by: string;
+  accepted_by?: string;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InviteInfo = {
+  invite: Invite;
+  org_name: string;
+};
+
+export type InviteList = {
+  items: Array<Invite>;
 };
 
 export type ComponentsJob = {
@@ -1430,6 +1466,14 @@ export type _1Api1Channels1Weixin1Qr1Status = unknown;
 
 export type _1Api1Channels1Id = unknown;
 
+export type _1Api1Auth1Invites = unknown;
+
+export type _1Api1Auth1Invites1Id = unknown;
+
+export type _1Api1Auth1Invites1Token1Accept = unknown;
+
+export type _1Api1Auth1Invites1Token1Info = unknown;
+
 export type _1Api1Models = unknown;
 
 export type _1Api1ManifestPlugins = unknown;
@@ -1667,6 +1711,194 @@ export type ListAuthProvidersResponses = {
 
 export type ListAuthProvidersResponse =
   ListAuthProvidersResponses[keyof ListAuthProvidersResponses];
+
+export type ListInvitesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/api/auth/invites";
+};
+
+export type ListInvitesErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+};
+
+export type ListInvitesError = ListInvitesErrors[keyof ListInvitesErrors];
+
+export type ListInvitesResponses = {
+  /**
+   * OK
+   */
+  200: InviteList;
+};
+
+export type ListInvitesResponse =
+  ListInvitesResponses[keyof ListInvitesResponses];
+
+export type CreateInviteData = {
+  body: CreateInviteRequest;
+  path?: never;
+  query?: never;
+  url: "/api/auth/invites";
+};
+
+export type CreateInviteErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+};
+
+export type CreateInviteError = CreateInviteErrors[keyof CreateInviteErrors];
+
+export type CreateInviteResponses = {
+  /**
+   * Created
+   */
+  201: CreateInviteResponse;
+};
+
+export type CreateInviteResponse2 =
+  CreateInviteResponses[keyof CreateInviteResponses];
+
+export type RevokeInviteData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/api/auth/invites/{id}";
+};
+
+export type RevokeInviteErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * insufficient permissions
+   */
+  403: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type RevokeInviteError = RevokeInviteErrors[keyof RevokeInviteErrors];
+
+export type RevokeInviteResponses = {
+  /**
+   * Revoked
+   */
+  200: ComponentsDeleteResult;
+};
+
+export type RevokeInviteResponse =
+  RevokeInviteResponses[keyof RevokeInviteResponses];
+
+export type GetInviteInfoData = {
+  body?: never;
+  path: {
+    token: string;
+  };
+  query?: never;
+  url: "/api/auth/invites/{token}/info";
+};
+
+export type GetInviteInfoErrors = {
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type GetInviteInfoError = GetInviteInfoErrors[keyof GetInviteInfoErrors];
+
+export type GetInviteInfoResponses = {
+  /**
+   * OK
+   */
+  200: InviteInfo;
+};
+
+export type GetInviteInfoResponse =
+  GetInviteInfoResponses[keyof GetInviteInfoResponses];
+
+export type AcceptInviteData = {
+  body?: never;
+  path: {
+    token: string;
+  };
+  query?: never;
+  url: "/api/auth/invites/{token}/accept";
+};
+
+export type AcceptInviteErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type AcceptInviteError = AcceptInviteErrors[keyof AcceptInviteErrors];
+
+export type AcceptInviteResponses = {
+  /**
+   * Accepted
+   */
+  200: ComponentsDeleteResult;
+};
+
+export type AcceptInviteResponse =
+  AcceptInviteResponses[keyof AcceptInviteResponses];
 
 export type ListAgentsData = {
   body?: never;

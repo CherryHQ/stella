@@ -193,6 +193,24 @@ func (e ArticleStatus) Valid() bool {
 	}
 }
 
+// Defines values for CreateInviteRequestRole.
+const (
+	Admin CreateInviteRequestRole = "admin"
+	User  CreateInviteRequestRole = "user"
+)
+
+// Valid indicates whether the value is a known member of the CreateInviteRequestRole enum.
+func (e CreateInviteRequestRole) Valid() bool {
+	switch e {
+	case Admin:
+		return true
+	case User:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSessionRequestKind.
 const (
 	CreateSessionRequestKindChat      CreateSessionRequestKind = "chat"
@@ -277,6 +295,27 @@ func (e FeedEntryStatus) Valid() bool {
 	case FeedEntryStatusSaved:
 		return true
 	case FeedEntryStatusSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InviteStatus.
+const (
+	InviteStatusAccepted InviteStatus = "accepted"
+	InviteStatusPending  InviteStatus = "pending"
+	InviteStatusRevoked  InviteStatus = "revoked"
+)
+
+// Valid indicates whether the value is a known member of the InviteStatus enum.
+func (e InviteStatus) Valid() bool {
+	switch e {
+	case InviteStatusAccepted:
+		return true
+	case InviteStatusPending:
+		return true
+	case InviteStatusRevoked:
 		return true
 	default:
 		return false
@@ -673,6 +712,23 @@ type CreateFeedRequest struct {
 	Url   string  `json:"url"`
 }
 
+// CreateInviteRequest defines model for CreateInviteRequest.
+type CreateInviteRequest struct {
+	Email    *string                 `json:"email,omitempty"`
+	MaxUses  *int                    `json:"max_uses,omitempty"`
+	Role     CreateInviteRequestRole `json:"role"`
+	TtlHours *int                    `json:"ttl_hours,omitempty"`
+}
+
+// CreateInviteRequestRole defines model for CreateInviteRequest.Role.
+type CreateInviteRequestRole string
+
+// CreateInviteResponse defines model for CreateInviteResponse.
+type CreateInviteResponse struct {
+	Invite    Invite `json:"invite"`
+	InviteUrl string `json:"invite_url"`
+}
+
 // CreateProjectRequest defines model for CreateProjectRequest.
 type CreateProjectRequest struct {
 	BaseDir     string  `json:"base_dir"`
@@ -838,6 +894,36 @@ type Identity struct {
 // InstallSkillRequest defines model for InstallSkillRequest.
 type InstallSkillRequest struct {
 	Source string `json:"source"`
+}
+
+// Invite defines model for Invite.
+type Invite struct {
+	AcceptedBy *string      `json:"accepted_by,omitempty"`
+	CreatedAt  time.Time    `json:"created_at"`
+	Email      *string      `json:"email,omitempty"`
+	ExpiresAt  time.Time    `json:"expires_at"`
+	Id         string       `json:"id"`
+	InvitedBy  string       `json:"invited_by"`
+	MaxUses    int          `json:"max_uses"`
+	OrgId      string       `json:"org_id"`
+	Role       string       `json:"role"`
+	Status     InviteStatus `json:"status"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+	UseCount   int          `json:"use_count"`
+}
+
+// InviteStatus defines model for Invite.Status.
+type InviteStatus string
+
+// InviteInfo defines model for InviteInfo.
+type InviteInfo struct {
+	Invite  Invite `json:"invite"`
+	OrgName string `json:"org_name"`
+}
+
+// InviteList defines model for InviteList.
+type InviteList struct {
+	Items []Invite `json:"items"`
 }
 
 // Job defines model for Job.

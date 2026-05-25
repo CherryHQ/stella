@@ -10,6 +10,7 @@ import {
 
 import { client } from "../client.gen";
 import {
+  acceptInvite,
   agentTaskAction,
   assignAgentUser,
   changePassword,
@@ -18,6 +19,7 @@ import {
   createAgentTask,
   createChannel,
   createFeed,
+  createInvite,
   createProject,
   createProvider,
   createSchedulerJob,
@@ -53,6 +55,7 @@ import {
   getChannel,
   getDigest,
   getFeed,
+  getInviteInfo,
   getMe,
   getOAuthConnected,
   getOAuthProviderConfig,
@@ -88,6 +91,7 @@ import {
   listChannels,
   listFeedEntries,
   listFeeds,
+  listInvites,
   listManifestPlugins,
   listModels,
   listOAuthProviders,
@@ -115,6 +119,7 @@ import {
   pollOAuthFlow,
   pollWeixinQrStatus,
   removeAgentUser,
+  revokeInvite,
   revokeShare,
   saveArticle,
   saveDigest,
@@ -152,6 +157,9 @@ import {
   uploadWorkspaceFile,
 } from "../sdk.gen";
 import type {
+  AcceptInviteData,
+  AcceptInviteError,
+  AcceptInviteResponse,
   AgentTaskActionData,
   AgentTaskActionError,
   AgentTaskActionResponse,
@@ -176,6 +184,9 @@ import type {
   CreateFeedData,
   CreateFeedError,
   CreateFeedResponse,
+  CreateInviteData,
+  CreateInviteError,
+  CreateInviteResponse2,
   CreateProjectData,
   CreateProjectError,
   CreateProjectResponse,
@@ -281,6 +292,9 @@ import type {
   GetFeedData,
   GetFeedError,
   GetFeedResponse,
+  GetInviteInfoData,
+  GetInviteInfoError,
+  GetInviteInfoResponse,
   GetMeData,
   GetMeError,
   GetMeResponse,
@@ -384,6 +398,9 @@ import type {
   ListFeedsData,
   ListFeedsError,
   ListFeedsResponse,
+  ListInvitesData,
+  ListInvitesError,
+  ListInvitesResponse,
   ListManifestPluginsData,
   ListManifestPluginsError,
   ListManifestPluginsResponse,
@@ -460,6 +477,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
+  RevokeInviteData,
+  RevokeInviteError,
+  RevokeInviteResponse,
   RevokeShareData,
   RevokeShareError,
   RevokeShareResponse,
@@ -707,6 +727,137 @@ export const listAuthProvidersOptions = (
     },
     queryKey: listAuthProvidersQueryKey(options),
   });
+
+export const listInvitesQueryKey = (options?: Options<ListInvitesData>) =>
+  createQueryKey("listInvites", options);
+
+/**
+ * List invites for the current user's org (admin only)
+ */
+export const listInvitesOptions = (options?: Options<ListInvitesData>) =>
+  queryOptions<
+    ListInvitesResponse,
+    ListInvitesError,
+    ListInvitesResponse,
+    ReturnType<typeof listInvitesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listInvites({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listInvitesQueryKey(options),
+  });
+
+/**
+ * Create an invite for the current user's org (admin only)
+ */
+export const createInviteMutation = (
+  options?: Partial<Options<CreateInviteData>>,
+): UseMutationOptions<
+  CreateInviteResponse2,
+  CreateInviteError,
+  Options<CreateInviteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateInviteResponse2,
+    CreateInviteError,
+    Options<CreateInviteData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createInvite({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Revoke a pending invite (admin only)
+ */
+export const revokeInviteMutation = (
+  options?: Partial<Options<RevokeInviteData>>,
+): UseMutationOptions<
+  RevokeInviteResponse,
+  RevokeInviteError,
+  Options<RevokeInviteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RevokeInviteResponse,
+    RevokeInviteError,
+    Options<RevokeInviteData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await revokeInvite({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getInviteInfoQueryKey = (options: Options<GetInviteInfoData>) =>
+  createQueryKey("getInviteInfo", options);
+
+/**
+ * Get invite metadata (public, for accept page)
+ */
+export const getInviteInfoOptions = (options: Options<GetInviteInfoData>) =>
+  queryOptions<
+    GetInviteInfoResponse,
+    GetInviteInfoError,
+    GetInviteInfoResponse,
+    ReturnType<typeof getInviteInfoQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getInviteInfo({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getInviteInfoQueryKey(options),
+  });
+
+/**
+ * Accept an invite (authenticated users)
+ */
+export const acceptInviteMutation = (
+  options?: Partial<Options<AcceptInviteData>>,
+): UseMutationOptions<
+  AcceptInviteResponse,
+  AcceptInviteError,
+  Options<AcceptInviteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AcceptInviteResponse,
+    AcceptInviteError,
+    Options<AcceptInviteData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await acceptInvite({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
 
 export const listAgentsQueryKey = (options?: Options<ListAgentsData>) =>
   createQueryKey("listAgents", options);

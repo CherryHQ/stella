@@ -1,0 +1,122 @@
+paths:
+  /api/auth/invites:
+    get:
+      tags: [invites]
+      summary: List invites for the current user's org (admin only)
+      operationId: listInvites
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/InviteList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    post:
+      tags: [invites]
+      summary: Create an invite for the current user's org (admin only)
+      operationId: createInvite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CreateInviteRequest",
+              }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/CreateInviteResponse",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/auth/invites/{id}:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string },
+        }
+    delete:
+      tags: [invites]
+      summary: Revoke a pending invite (admin only)
+      operationId: revokeInvite
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/DeleteResult",
+                }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/auth/invites/{token}/info:
+    parameters:
+      - {
+          name: token,
+          in: path,
+          required: true,
+          schema: { type: string },
+        }
+    get:
+      tags: [invites]
+      summary: Get invite metadata (public, for accept page)
+      operationId: getInviteInfo
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/InviteInfo",
+                }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/auth/invites/{token}/accept:
+    parameters:
+      - {
+          name: token,
+          in: path,
+          required: true,
+          schema: { type: string },
+        }
+    post:
+      tags: [invites]
+      summary: Accept an invite (authenticated users)
+      operationId: acceptInvite
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "../../components.yaml#/components/schemas/DeleteResult",
+                }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "../../components.yaml#/components/responses/NotFound" }

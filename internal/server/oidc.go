@@ -132,6 +132,13 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if inviteToken := readInviteCookie(r); inviteToken != "" {
+		if err := s.authSvc.RedeemInvite(r.Context(), inviteToken, result.User.ID); err != nil {
+			slog.Warn("oidc: redeem invite failed", "error", err)
+		}
+		clearInviteCookie(w)
+	}
+
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	s.sessionMgr.SetCookie(w, result.SessionToken, secure)
 	http.Redirect(w, r, "/", http.StatusFound)
