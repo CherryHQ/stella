@@ -19,7 +19,7 @@ func (q *Queries) DeletePlugin(ctx context.Context, id string) error {
 }
 
 const getPlugin = `-- name: GetPlugin :one
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugins WHERE id = ?
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins WHERE id = ?
 `
 
 func (q *Queries) GetPlugin(ctx context.Context, id string) (SettingsPlugin, error) {
@@ -31,6 +31,7 @@ func (q *Queries) GetPlugin(ctx context.Context, id string) (SettingsPlugin, err
 		&i.Name,
 		&i.Enabled,
 		&i.Config,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -38,7 +39,7 @@ func (q *Queries) GetPlugin(ctx context.Context, id string) (SettingsPlugin, err
 }
 
 const listEnabledPlugins = `-- name: ListEnabledPlugins :many
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugins WHERE enabled = 1 ORDER BY kind, name
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins WHERE enabled = 1 ORDER BY kind, name
 `
 
 func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]SettingsPlugin, error) {
@@ -56,6 +57,7 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]SettingsPlugin, err
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -73,7 +75,7 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]SettingsPlugin, err
 }
 
 const listPlugins = `-- name: ListPlugins :many
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugins ORDER BY kind, name
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins ORDER BY kind, name
 `
 
 func (q *Queries) ListPlugins(ctx context.Context) ([]SettingsPlugin, error) {
@@ -91,6 +93,7 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]SettingsPlugin, error) {
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -108,7 +111,7 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]SettingsPlugin, error) {
 }
 
 const listPluginsByKind = `-- name: ListPluginsByKind :many
-SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugins WHERE kind = ? ORDER BY name
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins WHERE kind = ? ORDER BY name
 `
 
 func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]SettingsPlugin, error) {
@@ -126,6 +129,7 @@ func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]Setting
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

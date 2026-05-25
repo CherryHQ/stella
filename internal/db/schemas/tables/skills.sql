@@ -9,6 +9,7 @@ CREATE TABLE skills (
                 CHECK (status IN ('draft','active','deprecated')),
     disable_model_invocation INTEGER NOT NULL DEFAULT 0,
     metadata    TEXT NOT NULL DEFAULT '{}',
+    org_id      TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
 
@@ -24,3 +25,5 @@ CREATE UNIQUE INDEX idx_skills_owner_name
 
 CREATE INDEX idx_skills_visibility
     ON skills (scope, user_id, agent_id);
+
+CREATE INDEX idx_skills_org_id ON skills(org_id);

@@ -10,9 +10,12 @@ CREATE TABLE ctx_conversations (
     bootstrapped_at TEXT,
     agent_id TEXT,
     user_id TEXT,
+    org_id TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX idx_ctx_conversations_org_id ON ctx_conversations(org_id);
 
 CREATE UNIQUE INDEX idx_one_agent_main
   ON ctx_conversations(agent_id, user_id)

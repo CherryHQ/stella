@@ -69,18 +69,18 @@ type AuthOauthProvider struct {
 }
 
 type AuthPolicy struct {
-	ID         string         `json:"id"`
-	Name       string         `json:"name"`
-	Effect     string         `json:"effect"`
-	Subjects   string         `json:"subjects"`
-	Actions    string         `json:"actions"`
-	Resources  string         `json:"resources"`
-	Conditions string         `json:"conditions"`
-	Priority   int64          `json:"priority"`
-	IsSystem   int64          `json:"is_system"`
-	Enabled    int64          `json:"enabled"`
-	OrgID      sql.NullString `json:"org_id"`
-	CreatedAt  string         `json:"created_at"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Effect     string `json:"effect"`
+	Subjects   string `json:"subjects"`
+	Actions    string `json:"actions"`
+	Resources  string `json:"resources"`
+	Conditions string `json:"conditions"`
+	Priority   int64  `json:"priority"`
+	IsSystem   int64  `json:"is_system"`
+	Enabled    int64  `json:"enabled"`
+	OrgID      string `json:"org_id"`
+	CreatedAt  string `json:"created_at"`
 }
 
 type AuthUserAgent struct {
@@ -125,6 +125,7 @@ type CtxConversation struct {
 	BootstrappedAt sql.NullString `json:"bootstrapped_at"`
 	AgentID        sql.NullString `json:"agent_id"`
 	UserID         sql.NullString `json:"user_id"`
+	OrgID          string         `json:"org_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
 }
@@ -233,6 +234,7 @@ type Project struct {
 	BaseDir     string         `json:"base_dir"`
 	Description sql.NullString `json:"description"`
 	Archived    int64          `json:"archived"`
+	OrgID       string         `json:"org_id"`
 	CreatedAt   string         `json:"created_at"`
 	UpdatedAt   string         `json:"updated_at"`
 }
@@ -309,6 +311,7 @@ type SchedJob struct {
 	Enabled       int64          `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        sql.NullString `json:"user_id"`
+	OrgID         string         `json:"org_id"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
 	LastRunAt     sql.NullString `json:"last_run_at"`
@@ -329,26 +332,27 @@ type SchedJobRun struct {
 type Setting struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
+	OrgID     string `json:"org_id"`
 	UpdatedAt string `json:"updated_at"`
 }
 
 type SettingsAgent struct {
-	ID                   string         `json:"id"`
-	Name                 string         `json:"name"`
-	Model                string         `json:"model"`
-	ModelStrong          string         `json:"model_strong"`
-	ModelFast            string         `json:"model_fast"`
-	SystemPrompt         string         `json:"system_prompt"`
-	Soul                 string         `json:"soul"`
-	Workspace            string         `json:"workspace"`
-	Sandbox              string         `json:"sandbox"`
-	EnabledBuiltinSkills string         `json:"enabled_builtin_skills"`
-	Scope                string         `json:"scope"`
-	CreatorID            string         `json:"creator_id"`
-	Enabled              int64          `json:"enabled"`
-	OrgID                sql.NullString `json:"org_id"`
-	CreatedAt            string         `json:"created_at"`
-	UpdatedAt            string         `json:"updated_at"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Model                string `json:"model"`
+	ModelStrong          string `json:"model_strong"`
+	ModelFast            string `json:"model_fast"`
+	SystemPrompt         string `json:"system_prompt"`
+	Soul                 string `json:"soul"`
+	Workspace            string `json:"workspace"`
+	Sandbox              string `json:"sandbox"`
+	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
+	Scope                string `json:"scope"`
+	CreatorID            string `json:"creator_id"`
+	Enabled              int64  `json:"enabled"`
+	OrgID                string `json:"org_id"`
+	CreatedAt            string `json:"created_at"`
+	UpdatedAt            string `json:"updated_at"`
 }
 
 type SettingsChannel struct {
@@ -357,7 +361,7 @@ type SettingsChannel struct {
 	AgentID   sql.NullString `json:"agent_id"`
 	Enabled   int64          `json:"enabled"`
 	Config    string         `json:"config"`
-	OrgID     sql.NullString `json:"org_id"`
+	OrgID     string         `json:"org_id"`
 	CreatedAt string         `json:"created_at"`
 	UpdatedAt string         `json:"updated_at"`
 }
@@ -367,6 +371,7 @@ type SettingsChannelAgent struct {
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
 	AgentID   string `json:"agent_id"`
+	OrgID     string `json:"org_id"`
 	UpdatedAt string `json:"updated_at"`
 }
 
@@ -376,19 +381,20 @@ type SettingsPlugin struct {
 	Name      string `json:"name"`
 	Enabled   int64  `json:"enabled"`
 	Config    string `json:"config"`
+	OrgID     string `json:"org_id"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
 
 type SettingsProvider struct {
-	ID        string         `json:"id"`
-	Type      string         `json:"type"`
-	Name      string         `json:"name"`
-	Enabled   int64          `json:"enabled"`
-	Config    string         `json:"config"`
-	OrgID     sql.NullString `json:"org_id"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Enabled   int64  `json:"enabled"`
+	Config    string `json:"config"`
+	OrgID     string `json:"org_id"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type Share struct {
@@ -413,6 +419,7 @@ type Skill struct {
 	Status                 string         `json:"status"`
 	DisableModelInvocation int64          `json:"disable_model_invocation"`
 	Metadata               string         `json:"metadata"`
+	OrgID                  string         `json:"org_id"`
 	CreatedAt              string         `json:"created_at"`
 	UpdatedAt              string         `json:"updated_at"`
 }

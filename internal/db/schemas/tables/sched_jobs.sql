@@ -16,6 +16,7 @@ CREATE TABLE sched_jobs (
     enabled INTEGER NOT NULL DEFAULT 1,
     agent_id TEXT,
     user_id TEXT,
+    org_id TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_run_at TEXT,
@@ -23,3 +24,4 @@ CREATE TABLE sched_jobs (
 );
 
 CREATE INDEX idx_sched_jobs_owner ON sched_jobs(owner_kind, plugin_id, job_key);
+CREATE INDEX idx_sched_jobs_org_id ON sched_jobs(org_id);

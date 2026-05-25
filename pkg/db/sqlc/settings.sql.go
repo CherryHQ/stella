@@ -19,18 +19,23 @@ func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
 }
 
 const getSetting = `-- name: GetSetting :one
-SELECT "key", value, updated_at FROM settings WHERE key = ?
+SELECT "key", value, org_id, updated_at FROM settings WHERE key = ?
 `
 
 func (q *Queries) GetSetting(ctx context.Context, key string) (Setting, error) {
 	row := q.db.QueryRowContext(ctx, getSetting, key)
 	var i Setting
-	err := row.Scan(&i.Key, &i.Value, &i.UpdatedAt)
+	err := row.Scan(
+		&i.Key,
+		&i.Value,
+		&i.OrgID,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
 const listSettings = `-- name: ListSettings :many
-SELECT "key", value, updated_at FROM settings ORDER BY key
+SELECT "key", value, org_id, updated_at FROM settings ORDER BY key
 `
 
 func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
@@ -42,7 +47,12 @@ func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
 	items := []Setting{}
 	for rows.Next() {
 		var i Setting
-		if err := rows.Scan(&i.Key, &i.Value, &i.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&i.Key,
+			&i.Value,
+			&i.OrgID,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

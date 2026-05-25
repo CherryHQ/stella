@@ -13,7 +13,7 @@ import (
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversations (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
+RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at
 `
 
 type CreateConversationParams struct {
@@ -55,6 +55,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -62,7 +63,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at FROM ctx_conversations
 WHERE id = ?1
   AND user_id = ?2
   AND agent_id IS ?3
@@ -89,6 +90,7 @@ func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -96,7 +98,7 @@ func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams
 }
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at FROM ctx_conversations
 WHERE session_id = ?1
   AND user_id = ?2
   AND agent_id IS ?3
@@ -123,6 +125,7 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -130,7 +133,7 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 }
 
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at FROM ctx_conversations
 WHERE project_id = ?1
   AND user_id = ?2
   AND agent_id IS ?3
@@ -158,6 +161,7 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainC
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -165,7 +169,7 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainC
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at FROM ctx_conversations
 WHERE user_id = ?1
   AND (?2 IS NULL OR agent_id = ?2)
   AND archived = 0
@@ -198,6 +202,7 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 			&i.BootstrappedAt,
 			&i.AgentID,
 			&i.UserID,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -215,7 +220,7 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 }
 
 const listConversationsAll = `-- name: ListConversationsAll :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at FROM ctx_conversations
 WHERE user_id = ?1
   AND (?2 IS NULL OR agent_id = ?2)
 ORDER BY last_active DESC
@@ -247,6 +252,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 			&i.BootstrappedAt,
 			&i.AgentID,
 			&i.UserID,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -264,7 +270,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 }
 
 const listConversationsByKind = `-- name: ListConversationsByKind :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE agent_id = ? AND user_id = ? AND kind = ? AND archived = 0 ORDER BY last_active DESC
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, org_id, created_at, updated_at FROM ctx_conversations WHERE agent_id = ? AND user_id = ? AND kind = ? AND archived = 0 ORDER BY last_active DESC
 `
 
 type ListConversationsByKindParams struct {
@@ -294,6 +300,7 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 			&i.BootstrappedAt,
 			&i.AgentID,
 			&i.UserID,
+			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

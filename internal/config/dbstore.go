@@ -89,7 +89,7 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
 }
 
 func (s *DBStore) ListProvidersForOrg(ctx context.Context, orgID string) ([]Provider, error) {
-	rows, err := s.q.ListProvidersByOrg(ctx, sql.NullString{String: orgID, Valid: orgID != ""})
+	rows, err := s.q.ListProvidersByOrg(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list providers for org %q: %w", orgID, err)
 	}
@@ -103,7 +103,7 @@ func (s *DBStore) ListProvidersForOrg(ctx context.Context, orgID string) ([]Prov
 
 func (s *DBStore) SetProviderOrg(ctx context.Context, providerID, orgID string) error {
 	return s.q.SetProviderOrg(ctx, sqlc.SetProviderOrgParams{
-		OrgID: sql.NullString{String: orgID, Valid: orgID != ""},
+		OrgID: orgID,
 		ID:    providerID,
 	})
 }
@@ -234,7 +234,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 }
 
 func (s *DBStore) ListAgentsForOrg(ctx context.Context, orgID string) ([]Agent, error) {
-	rows, err := s.q.ListAgentsByOrg(ctx, sql.NullString{String: orgID, Valid: orgID != ""})
+	rows, err := s.q.ListAgentsByOrg(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list agents for org %q: %w", orgID, err)
 	}
@@ -251,7 +251,7 @@ func (s *DBStore) ListAgentsForOrg(ctx context.Context, orgID string) ([]Agent, 
 
 func (s *DBStore) SetAgentOrg(ctx context.Context, agentID, orgID string) error {
 	return s.q.SetAgentOrg(ctx, sqlc.SetAgentOrgParams{
-		OrgID: sql.NullString{String: orgID, Valid: orgID != ""},
+		OrgID: orgID,
 		ID:    agentID,
 	})
 }
@@ -309,7 +309,7 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
 }
 
 func (s *DBStore) ListChannelsForOrg(ctx context.Context, orgID string) ([]Channel, error) {
-	rows, err := s.q.ListChannelsByOrg(ctx, sql.NullString{String: orgID, Valid: orgID != ""})
+	rows, err := s.q.ListChannelsByOrg(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list channels for org %q: %w", orgID, err)
 	}
@@ -322,7 +322,7 @@ func (s *DBStore) ListChannelsForOrg(ctx context.Context, orgID string) ([]Chann
 
 func (s *DBStore) SetChannelOrg(ctx context.Context, channelID, orgID string) error {
 	return s.q.SetChannelOrg(ctx, sqlc.SetChannelOrgParams{
-		OrgID: sql.NullString{String: orgID, Valid: orgID != ""},
+		OrgID: orgID,
 		ID:    channelID,
 	})
 }
@@ -1003,7 +1003,7 @@ func providerFromDB(r sqlc.SettingsProvider) Provider {
 		APIKey:  apiKey,
 		BaseURL: baseURL,
 		Models:  providerModelsFromAny(cfg["models"]),
-		OrgID:   r.OrgID.String,
+		OrgID:   r.OrgID,
 	}
 }
 
@@ -1171,7 +1171,7 @@ func agentFromDB(r sqlc.SettingsAgent) (Agent, error) {
 		Scope:        scope,
 		CreatorID:    r.CreatorID,
 		Enabled:      r.Enabled == 1,
-		OrgID:        r.OrgID.String,
+		OrgID:        r.OrgID,
 	}, nil
 }
 
@@ -1224,6 +1224,6 @@ func channelFromDB(r sqlc.SettingsChannel) Channel {
 		AgentID: agentID,
 		Enabled: r.Enabled == 1,
 		Config:  r.Config,
-		OrgID:   r.OrgID.String,
+		OrgID:   r.OrgID,
 	}
 }

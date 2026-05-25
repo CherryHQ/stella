@@ -25,7 +25,7 @@ func (q *Queries) DeleteChatAgent(ctx context.Context, arg DeleteChatAgentParams
 }
 
 const getChatAgent = `-- name: GetChatAgent :one
-SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agents WHERE channel_id = ? AND platform = ? AND chat_id = ?
+SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agents WHERE channel_id = ? AND platform = ? AND chat_id = ?
 `
 
 type GetChatAgentParams struct {
@@ -42,13 +42,14 @@ func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (Set
 		&i.Platform,
 		&i.ChatID,
 		&i.AgentID,
+		&i.OrgID,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getLegacyChatAgent = `-- name: GetLegacyChatAgent :one
-SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agents WHERE channel_id = '' AND platform = ? AND chat_id = ?
+SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agents WHERE channel_id = '' AND platform = ? AND chat_id = ?
 `
 
 type GetLegacyChatAgentParams struct {
@@ -64,13 +65,14 @@ func (q *Queries) GetLegacyChatAgent(ctx context.Context, arg GetLegacyChatAgent
 		&i.Platform,
 		&i.ChatID,
 		&i.AgentID,
+		&i.OrgID,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listChatAgents = `-- name: ListChatAgents :many
-SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agents ORDER BY channel_id, platform, chat_id
+SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agents ORDER BY channel_id, platform, chat_id
 `
 
 func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, error) {
@@ -87,6 +89,7 @@ func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, e
 			&i.Platform,
 			&i.ChatID,
 			&i.AgentID,
+			&i.OrgID,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err

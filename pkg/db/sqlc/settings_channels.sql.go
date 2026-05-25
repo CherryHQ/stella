@@ -79,7 +79,7 @@ const listChannelsByOrg = `-- name: ListChannelsByOrg :many
 SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channels WHERE org_id = ? ORDER BY type, id
 `
 
-func (q *Queries) ListChannelsByOrg(ctx context.Context, orgID sql.NullString) ([]SettingsChannel, error) {
+func (q *Queries) ListChannelsByOrg(ctx context.Context, orgID string) ([]SettingsChannel, error) {
 	rows, err := q.db.QueryContext(ctx, listChannelsByOrg, orgID)
 	if err != nil {
 		return nil, err
@@ -152,8 +152,8 @@ SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM 
 `
 
 type ListChannelsByTypeAndOrgParams struct {
-	Type  string         `json:"type"`
-	OrgID sql.NullString `json:"org_id"`
+	Type  string `json:"type"`
+	OrgID string `json:"org_id"`
 }
 
 func (q *Queries) ListChannelsByTypeAndOrg(ctx context.Context, arg ListChannelsByTypeAndOrgParams) ([]SettingsChannel, error) {
@@ -193,8 +193,8 @@ UPDATE settings_channels SET org_id = ? WHERE id = ?
 `
 
 type SetChannelOrgParams struct {
-	OrgID sql.NullString `json:"org_id"`
-	ID    string         `json:"id"`
+	OrgID string `json:"org_id"`
+	ID    string `json:"id"`
 }
 
 func (q *Queries) SetChannelOrg(ctx context.Context, arg SetChannelOrgParams) error {

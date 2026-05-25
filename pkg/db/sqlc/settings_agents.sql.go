@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 )
 
 const createAgent = `-- name: CreateAgent :one
@@ -155,7 +154,7 @@ const listAgentsByOrg = `-- name: ListAgentsByOrg :many
 SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agents WHERE org_id = ? ORDER BY name
 `
 
-func (q *Queries) ListAgentsByOrg(ctx context.Context, orgID sql.NullString) ([]SettingsAgent, error) {
+func (q *Queries) ListAgentsByOrg(ctx context.Context, orgID string) ([]SettingsAgent, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentsByOrg, orgID)
 	if err != nil {
 		return nil, err
@@ -243,7 +242,7 @@ const listEnabledAgentsByOrg = `-- name: ListEnabledAgentsByOrg :many
 SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agents WHERE org_id = ? AND enabled = 1 ORDER BY name
 `
 
-func (q *Queries) ListEnabledAgentsByOrg(ctx context.Context, orgID sql.NullString) ([]SettingsAgent, error) {
+func (q *Queries) ListEnabledAgentsByOrg(ctx context.Context, orgID string) ([]SettingsAgent, error) {
 	rows, err := q.db.QueryContext(ctx, listEnabledAgentsByOrg, orgID)
 	if err != nil {
 		return nil, err
@@ -288,8 +287,8 @@ UPDATE settings_agents SET org_id = ? WHERE id = ?
 `
 
 type SetAgentOrgParams struct {
-	OrgID sql.NullString `json:"org_id"`
-	ID    string         `json:"id"`
+	OrgID string `json:"org_id"`
+	ID    string `json:"id"`
 }
 
 func (q *Queries) SetAgentOrg(ctx context.Context, arg SetAgentOrgParams) error {

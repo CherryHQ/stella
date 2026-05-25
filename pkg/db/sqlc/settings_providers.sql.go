@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 )
 
 const createProvider = `-- name: CreateProvider :one
@@ -115,7 +114,7 @@ const listEnabledProvidersByOrg = `-- name: ListEnabledProvidersByOrg :many
 SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_providers WHERE org_id = ? AND enabled = 1 ORDER BY name, id
 `
 
-func (q *Queries) ListEnabledProvidersByOrg(ctx context.Context, orgID sql.NullString) ([]SettingsProvider, error) {
+func (q *Queries) ListEnabledProvidersByOrg(ctx context.Context, orgID string) ([]SettingsProvider, error) {
 	rows, err := q.db.QueryContext(ctx, listEnabledProvidersByOrg, orgID)
 	if err != nil {
 		return nil, err
@@ -187,7 +186,7 @@ const listProvidersByOrg = `-- name: ListProvidersByOrg :many
 SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_providers WHERE org_id = ? ORDER BY name, id
 `
 
-func (q *Queries) ListProvidersByOrg(ctx context.Context, orgID sql.NullString) ([]SettingsProvider, error) {
+func (q *Queries) ListProvidersByOrg(ctx context.Context, orgID string) ([]SettingsProvider, error) {
 	rows, err := q.db.QueryContext(ctx, listProvidersByOrg, orgID)
 	if err != nil {
 		return nil, err
@@ -248,8 +247,8 @@ UPDATE settings_providers SET org_id = ? WHERE id = ?
 `
 
 type SetProviderOrgParams struct {
-	OrgID sql.NullString `json:"org_id"`
-	ID    string         `json:"id"`
+	OrgID string `json:"org_id"`
+	ID    string `json:"id"`
 }
 
 func (q *Queries) SetProviderOrg(ctx context.Context, arg SetProviderOrgParams) error {
