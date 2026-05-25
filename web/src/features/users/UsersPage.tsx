@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { InviteManagement } from "@/features/invites/InviteManagement";
 import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
@@ -843,11 +844,7 @@ export function UsersPage() {
         listHeader={listHeader}
         list={list}
         detail={detail}
-        emptyState={
-          <p className="text-sm text-muted-foreground">
-            Select a user to manage their agents and memory.
-          </p>
-        }
+        emptyState={<InviteManagement />}
       />
 
       <ConfirmDialog

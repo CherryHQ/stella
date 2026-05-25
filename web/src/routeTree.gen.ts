@@ -24,6 +24,7 @@ import { Route as AppAutomationsRouteImport } from './routes/_app/automations'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
+import { Route as InviteTokenAcceptRouteImport } from './routes/invite.$token.accept'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
@@ -132,6 +133,11 @@ const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppAgentsRoute,
+} as any)
+const InviteTokenAcceptRoute = InviteTokenAcceptRouteImport.update({
+  id: '/invite/$token/accept',
+  path: '/invite/$token/accept',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppTasksTaskIdRoute = AppTasksTaskIdRouteImport.update({
   id: '/$taskId',
@@ -430,6 +436,7 @@ export interface FileRoutesByFullPath {
   '/settings/providers': typeof AppSettingsProvidersRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/invite/$token/accept': typeof InviteTokenAcceptRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
@@ -475,6 +482,7 @@ export interface FileRoutesByTo {
   '/settings/providers': typeof AppSettingsProvidersRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/invite/$token/accept': typeof InviteTokenAcceptRoute
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
@@ -525,6 +533,7 @@ export interface FileRoutesById {
   '/_app/settings/providers': typeof AppSettingsProvidersRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/invite/$token/accept': typeof InviteTokenAcceptRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
@@ -575,6 +584,7 @@ export interface FileRouteTypes {
     | '/settings/providers'
     | '/settings/users'
     | '/tasks/$taskId'
+    | '/invite/$token/accept'
     | '/agents/'
     | '/settings/'
     | '/settings/agents/$agentId'
@@ -620,6 +630,7 @@ export interface FileRouteTypes {
     | '/settings/providers'
     | '/settings/users'
     | '/tasks/$taskId'
+    | '/invite/$token/accept'
     | '/agents'
     | '/settings'
     | '/settings/agents/$agentId'
@@ -669,6 +680,7 @@ export interface FileRouteTypes {
     | '/_app/settings/providers'
     | '/_app/settings/users'
     | '/_app/tasks/$taskId'
+    | '/invite/$token/accept'
     | '/_app/agents/'
     | '/_app/settings/'
     | '/_app/settings/agents/$agentId'
@@ -700,6 +712,7 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   DocsSplatRoute: typeof DocsSplatRoute
   STokenRoute: typeof STokenRoute
+  InviteTokenAcceptRoute: typeof InviteTokenAcceptRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -808,6 +821,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/'
       preLoaderRoute: typeof AppAgentsIndexRouteImport
       parentRoute: typeof AppAgentsRoute
+    }
+    '/invite/$token/accept': {
+      id: '/invite/$token/accept'
+      path: '/invite/$token/accept'
+      fullPath: '/invite/$token/accept'
+      preLoaderRoute: typeof InviteTokenAcceptRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/tasks/$taskId': {
       id: '/_app/tasks/$taskId'
@@ -1232,6 +1252,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   DocsSplatRoute: DocsSplatRoute,
   STokenRoute: STokenRoute,
+  InviteTokenAcceptRoute: InviteTokenAcceptRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
