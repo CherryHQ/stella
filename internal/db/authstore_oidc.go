@@ -64,6 +64,7 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 		Organizations: txStore,
 		Memberships:   txStore,
 		Credentials:   txStore,
+		Invites:       txStore,
 	}
 	rollback := func() { _ = tx.Rollback() }
 	return stores, tx.Commit, rollback, nil
@@ -83,6 +84,7 @@ var (
 	_ auth.CredentialStore      = (*OIDCStore)(nil)
 	_ auth.OIDCCodeStore        = (*OIDCStore)(nil)
 	_ auth.OIDCAccessTokenStore = (*OIDCStore)(nil)
+	_ auth.InviteStore          = (*OIDCStore)(nil)
 )
 
 // ---- Agent assignments ----
@@ -783,4 +785,101 @@ func scanOIDCAccessToken(r rowScanner) (auth.OIDCAccessToken, error) {
 	t.ExpiresAt = parseOIDCTime(expiresAt)
 	t.CreatedAt = parseOIDCTime(createdAt)
 	return t, nil
+}
+
+// ---- Invites ----
+
+func (s *OIDCStore) CreateInvite(ctx context.Context, inv auth.Invite) (auth.Invite, error) {
+	const q = `INSERT INTO auth_invite (id, token_hash, org_id, email, role, status, max_uses, use_count, invited_by, expires_at)
+	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	           RETURNING id, token_hash, org_id, email, role, status, max_uses, use_count, invited_by, accepted_by, expires_at, created_at, updated_at`
+	row := s.db.QueryRowContext(ctx, q,
+		inv.ID, inv.TokenHash, inv.OrgID, nullString(inv.Email), inv.Role,
+		inv.Status, inv.MaxUses, inv.UseCount, inv.InvitedBy,
+		inv.ExpiresAt.UTC().Format(oidcTimeLayout))
+	return scanInvite(row)
+}
+
+func (s *OIDCStore) GetInviteByTokenHash(ctx context.Context, tokenHash string) (auth.Invite, error) {
+	const q = `SELECT id, token_hash, org_id, email, role, status, max_uses, use_count, invited_by, accepted_by, expires_at, created_at, updated_at
+	           FROM auth_invite WHERE token_hash=?`
+	row := s.db.QueryRowContext(ctx, q, tokenHash)
+	return scanInvite(row)
+}
+
+func (s *OIDCStore) ListInvitesByOrg(ctx context.Context, orgID string) ([]auth.Invite, error) {
+	const q = `SELECT id, token_hash, org_id, email, role, status, max_uses, use_count, invited_by, accepted_by, expires_at, created_at, updated_at
+	           FROM auth_invite WHERE org_id=? ORDER BY created_at DESC`
+	rows, err := s.db.QueryContext(ctx, q, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []auth.Invite
+	for rows.Next() {
+		inv, err := scanInvite(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
+func (s *OIDCStore) ConsumeInvite(ctx context.Context, id string, acceptedBy string) error {
+	const q = `UPDATE auth_invite
+	           SET use_count = use_count + 1,
+	               accepted_by = ?,
+	               status = CASE WHEN use_count + 1 >= max_uses THEN 'accepted' ELSE status END,
+	               updated_at = datetime('now')
+	           WHERE id=? AND status='pending'`
+	res, err := s.db.ExecContext(ctx, q, acceptedBy, id)
+	if err != nil {
+		return fmt.Errorf("auth_invite consume: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return auth.ErrNotFound
+	}
+	return nil
+}
+
+func (s *OIDCStore) RevokeInvite(ctx context.Context, id string) error {
+	const q = `UPDATE auth_invite SET status='revoked', updated_at=datetime('now') WHERE id=? AND status='pending'`
+	res, err := s.db.ExecContext(ctx, q, id)
+	if err != nil {
+		return fmt.Errorf("auth_invite revoke: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return auth.ErrNotFound
+	}
+	return nil
+}
+
+func scanInvite(r rowScanner) (auth.Invite, error) {
+	var inv auth.Invite
+	var email, acceptedBy sql.NullString
+	var expiresAt, createdAt, updatedAt string
+	err := r.Scan(
+		&inv.ID, &inv.TokenHash, &inv.OrgID, &email, &inv.Role,
+		&inv.Status, &inv.MaxUses, &inv.UseCount, &inv.InvitedBy,
+		&acceptedBy, &expiresAt, &createdAt, &updatedAt,
+	)
+	if err != nil {
+		return auth.Invite{}, fmt.Errorf("auth_invite scan: %w", err)
+	}
+	inv.Email = email.String
+	inv.AcceptedBy = acceptedBy.String
+	inv.ExpiresAt = parseOIDCTime(expiresAt)
+	inv.CreatedAt = parseOIDCTime(createdAt)
+	inv.UpdatedAt = parseOIDCTime(updatedAt)
+	return inv, nil
+}
+
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
 }

@@ -227,6 +227,30 @@ type Credential struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// Invite is a pending invitation to join an organization.
+type Invite struct {
+	ID         string    `json:"id"`
+	TokenHash  string    `json:"-"`
+	OrgID      string    `json:"org_id"`
+	Email      string    `json:"email,omitempty"`
+	Role       string    `json:"role"`
+	Status     string    `json:"status"`
+	MaxUses    int       `json:"max_uses"`
+	UseCount   int       `json:"use_count"`
+	InvitedBy  string    `json:"invited_by"`
+	AcceptedBy string    `json:"accepted_by,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Invite status constants.
+const (
+	InviteStatusPending  = "pending"
+	InviteStatusAccepted = "accepted"
+	InviteStatusRevoked  = "revoked"
+)
+
 // RoleAdmin and RoleUser are the built-in role IDs.
 const (
 	RoleAdmin = "admin"

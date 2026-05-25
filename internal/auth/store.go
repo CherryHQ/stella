@@ -67,6 +67,15 @@ type MembershipStore interface {
 	CountOrgMembers(ctx context.Context, orgID string) (int64, error)
 }
 
+// InviteStore provides CRUD for auth_invite (organization invitations).
+type InviteStore interface {
+	CreateInvite(ctx context.Context, inv Invite) (Invite, error)
+	GetInviteByTokenHash(ctx context.Context, tokenHash string) (Invite, error)
+	ListInvitesByOrg(ctx context.Context, orgID string) ([]Invite, error)
+	ConsumeInvite(ctx context.Context, id string, acceptedBy string) error
+	RevokeInvite(ctx context.Context, id string) error
+}
+
 // OIDCCodeStore provides operations for local OIDC authorization codes.
 type OIDCCodeStore interface {
 	CreateOIDCCode(ctx context.Context, c OIDCCode) (OIDCCode, error)
@@ -100,6 +109,7 @@ type AuthStores struct {
 	Organizations OrganizationStore
 	Memberships   MembershipStore
 	Credentials   CredentialStore
+	Invites       InviteStore
 }
 
 // Transactioner is an optional interface that store implementations may satisfy
