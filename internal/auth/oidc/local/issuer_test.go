@@ -53,7 +53,7 @@ func (f *fakeUserStore) GetUserByEmail(_ context.Context, email string) (auth.Us
 	return u, nil
 }
 func (f *fakeUserStore) CreateUser(_ context.Context, u auth.User) (auth.User, error) { return u, nil }
-func (f *fakeUserStore) ListUsers(_ context.Context) ([]auth.User, error)             { return nil, nil }
+func (f *fakeUserStore) ListUsers(_ context.Context, _ string) ([]auth.User, error)   { return nil, nil }
 func (f *fakeUserStore) UpdateUser(_ context.Context, _ auth.User) error              { return nil }
 func (f *fakeUserStore) DeleteUser(_ context.Context, _ string) error                 { return nil }
 func (f *fakeUserStore) CountUsers(_ context.Context) (int64, error)                  { return 0, nil }

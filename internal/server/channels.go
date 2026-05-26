@@ -182,7 +182,7 @@ func sortPublicChannels(channels []publicChannelView) {
 }
 
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := r.Context()
@@ -209,7 +209,7 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := r.Context()
@@ -227,7 +227,7 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var req channelWriteRequest
@@ -255,7 +255,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var req channelWriteRequest
@@ -394,7 +394,7 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 }
 
 func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := r.Context()

@@ -10,15 +10,11 @@ import (
 const channelPluginConfigError = "channel instance config lives on /channels, not plugin config"
 
 func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	info := UserFromContext(r.Context())
-	var orgID string
-	if info != nil {
-		orgID = info.OrgID
-	}
-	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context(), orgID)
+	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context(), info.OrgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -67,7 +63,7 @@ func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) 
 }
 
 func (s *Server) GetPluginStatus(w http.ResponseWriter, r *http.Request, kind string, name string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	id := pluginRouteID(kind, name)
@@ -80,7 +76,7 @@ func (s *Server) GetPluginStatus(w http.ResponseWriter, r *http.Request, kind st
 }
 
 func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if kind == config.PluginKindChannel {
@@ -97,7 +93,7 @@ func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, kind st
 }
 
 func (s *Server) GetPluginConfigSchema(w http.ResponseWriter, r *http.Request, kind string, name string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	id := pluginRouteID(kind, name)
@@ -105,7 +101,7 @@ func (s *Server) GetPluginConfigSchema(w http.ResponseWriter, r *http.Request, k
 }
 
 func (s *Server) TogglePlugin(w http.ResponseWriter, r *http.Request, kind string, name string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	id := pluginRouteID(kind, name)
@@ -151,7 +147,7 @@ func (s *Server) TogglePlugin(w http.ResponseWriter, r *http.Request, kind strin
 }
 
 func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if kind == config.PluginKindChannel {

@@ -124,46 +124,45 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 		}
 		return nil
 	}
-	// Get role and active status from membership (authoritative source).
-	role := auth.RoleUser
-	isActive := user.IsActive
-	orgID := ""
-	if s.authSvc != nil {
-		membership, err := s.authSvc.GetUserMembership(ctx, user.ID)
-		if err != nil || !membership.IsActive {
-			return nil
-		}
-		role = membership.Role
-		isActive = membership.IsActive
-		orgID = membership.OrganizationID
-	} else if s.memberships != nil {
-		if m, err := s.memberships.GetUserMembership(ctx, user.ID); err == nil {
-			role = m.Role
-			isActive = m.IsActive
-		}
+	if s.memberships == nil {
+		return nil
 	}
-	if !isActive {
+	membership, err := s.memberships.GetUserMembership(ctx, user.ID)
+	if err != nil || !membership.IsActive {
 		return nil
 	}
 	return &AuthInfo{
 		UserID:   user.ID,
 		Username: user.Email,
-		Role:     role,
-		IsAdmin:  role == auth.RoleAdmin,
-		OrgID:    orgID,
+		Role:     membership.Role,
+		IsAdmin:  membership.Role == auth.RoleAdmin,
+		OrgID:    membership.OrganizationID,
 	}
 }
 
-// requireAdmin checks that the authenticated user has the admin role.
-// It writes a 403 JSON error and returns false when the caller is not admin.
-// Returns true when the caller is admin. Intended for inline use in API handlers.
-func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+// requireAuth extracts the authenticated user from the request context.
+// Returns nil and writes a 401 error if the user is not authenticated.
+func requireAuth(w http.ResponseWriter, r *http.Request) *AuthInfo {
 	info := UserFromContext(r.Context())
-	if info == nil || !info.IsAdmin {
-		writeError(w, http.StatusForbidden, "admin access required")
-		return false
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil
 	}
-	return true
+	return info
+}
+
+// requireAdmin checks that the authenticated user has the admin role.
+// Returns nil and writes a 403 error if the user is not admin.
+func requireAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
+	info := requireAuth(w, r)
+	if info == nil {
+		return nil
+	}
+	if !info.IsAdmin {
+		writeError(w, http.StatusForbidden, "admin access required")
+		return nil
+	}
+	return info
 }
 
 // denyAccess returns 401 for API routes or redirects to /login for page routes.

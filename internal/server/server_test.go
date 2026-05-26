@@ -229,7 +229,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	srv.SetCredentialStore(oidcStore)
 
 	// Create an admin user for authenticated requests.
-	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin)
+	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin, orgID)
 
 	// Seed a password credential for the admin user so change-password tests work.
 	hash, err := auth.HashPassword("testpassword")
@@ -259,7 +259,7 @@ func setupAdmin(t *testing.T) *testEnv {
 }
 
 // createTestUserWithToken creates a user, organization, membership, and bearer token for testing.
-func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string) (auth.User, string) {
+func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string, orgIDs ...string) (auth.User, string) {
 	t.Helper()
 	ctx := context.Background()
 	user, err := oidcStore.CreateUser(ctx, auth.User{
@@ -271,19 +271,25 @@ func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb
 	if err != nil {
 		t.Fatalf("CreateUser %q: %v", name, err)
 	}
-	org, err := oidcStore.CreateOrganization(ctx, auth.Organization{
-		ID:         uuid.NewString(),
-		Name:       name + "-org",
-		Source:     "test",
-		ExternalID: uuid.NewString(),
-	})
-	if err != nil {
-		t.Fatalf("CreateOrganization %q: %v", name, err)
+	orgID := ""
+	if len(orgIDs) > 0 && orgIDs[0] != "" {
+		orgID = orgIDs[0]
+	} else {
+		org, err := oidcStore.CreateOrganization(ctx, auth.Organization{
+			ID:         uuid.NewString(),
+			Name:       name + "-org",
+			Source:     "test",
+			ExternalID: uuid.NewString(),
+		})
+		if err != nil {
+			t.Fatalf("CreateOrganization %q: %v", name, err)
+		}
+		orgID = org.ID
 	}
 	_, err = oidcStore.CreateMembership(ctx, auth.Membership{
 		ID:             uuid.NewString(),
 		UserID:         user.ID,
-		OrganizationID: org.ID,
+		OrganizationID: orgID,
 		Role:           role,
 		IsActive:       true,
 	})
@@ -1124,7 +1130,7 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
 	env := setupAdmin(t)
 
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser)
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser, env.orgID)
 
 	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/channels", nil)
 	if rr.Code != http.StatusOK {
@@ -1293,7 +1299,7 @@ func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
 	env := setupAdmin(t)
 
 	// Create a non-admin user.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser)
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser, env.orgID)
 
 	// Admin-only API should return 403.
 	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/providers", nil)
@@ -1325,7 +1331,7 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 	}
 
 	// Authenticated non-admin with missing q → 400, proving search is no longer admin-only.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser)
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser, env.orgID)
 	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/skills/search", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("user missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())

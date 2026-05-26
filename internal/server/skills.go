@@ -87,7 +87,7 @@ func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) GetSkill(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	store := s.skillStore()
@@ -120,7 +120,7 @@ func (s *Server) GetSkill(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) GetSkillFile(w http.ResponseWriter, r *http.Request, id string, params struct{ Path string }) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	s.serveSkillFile(w, r, id, params.Path)
@@ -152,7 +152,7 @@ func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id, path
 
 // DeleteSkillFile removes a single file under a skill (admin-only route).
 func (s *Server) DeleteSkillFile(w http.ResponseWriter, r *http.Request, id string, params struct{ Path string }) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	s.doDeleteSkillFile(w, r, id, params.Path)
@@ -192,7 +192,7 @@ type createSkillRequest struct {
 }
 
 func (s *Server) CreateSkill(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	store := s.skillStore()
@@ -267,7 +267,7 @@ type updateSkillRequest struct {
 }
 
 func (s *Server) UpdateSkill(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	s.applySkillUpdate(w, r, id, skills.ViewContext{})
@@ -332,7 +332,7 @@ func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx
 }
 
 func (s *Server) DeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	s.doDeleteSkill(w, r, id, skills.ViewContext{})
@@ -424,7 +424,7 @@ type installSkillRequest struct {
 // "Actually install from a real GitHub repo" is integration-level and should be
 // tested manually — unit tests cover only validation and auth.
 func (s *Server) InstallSkill(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	store := s.skillStore()

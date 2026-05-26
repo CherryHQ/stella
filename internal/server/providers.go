@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := r.Context()
@@ -34,7 +34,7 @@ func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var p config.Provider
@@ -72,7 +72,7 @@ func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) GetProvider(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := r.Context()
@@ -90,7 +90,7 @@ func (s *Server) GetProvider(w http.ResponseWriter, r *http.Request, id string) 
 }
 
 func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := r.Context()
@@ -125,7 +125,7 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := r.Context()
@@ -166,7 +166,7 @@ type providerModelItem struct {
 }
 
 func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	provider, err := s.store.GetProvider(r.Context(), id)
@@ -179,7 +179,7 @@ func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id s
 }
 
 func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 
@@ -336,7 +336,7 @@ func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
 }
 
 func (s *Server) ListProviderTypes(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 

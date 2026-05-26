@@ -276,18 +276,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	if s.schedulerSvc != nil {
+		orgID := s.defaultOrgID
 		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
-			users, err := as.ListUsers(ctx)
-			if err != nil {
-				return nil, err
-			}
-			ids := make([]string, 0, len(users))
-			for _, u := range users {
-				if u.IsActive {
-					ids = append(ids, u.ID)
-				}
-			}
-			return ids, nil
+			return as.ListActiveUserIDs(ctx, orgID)
 		})
 		s.schedulerSvc.EnsureBuiltinJobs()
 	}

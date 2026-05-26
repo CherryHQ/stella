@@ -309,7 +309,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	})
 
 	// Create non-admin user with bearer token.
-	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser)
+	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser, env.orgID)
 
 	// Non-admin listing agents should see "stella" (system scope) but not the restricted agent.
 	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents", nil)
@@ -367,7 +367,7 @@ func TestNonAdminGetAgentAccessCheck(t *testing.T) {
 	})
 
 	// Create non-admin user with bearer token.
-	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular2", auth.RoleUser)
+	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular2", auth.RoleUser, env.orgID)
 
 	// Non-admin can get system agent.
 	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/stella", nil)

@@ -103,6 +103,7 @@ type setupResult struct {
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               pkgplugins.SkillStore
+	defaultOrgID             string
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
 	backgroundTasks          *sync.WaitGroup
@@ -275,6 +276,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,
 		skillStore:               skillStoreAdapter,
+		defaultOrgID:             orgID,
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,

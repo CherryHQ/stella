@@ -56,10 +56,10 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 
 // UpdateOrg handles PATCH /api/auth/org. Returns the updated organization.
 func (s *Server) UpdateOrg(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	info := UserFromContext(r.Context())
 	if info.OrgID == "" {
 		writeError(w, http.StatusBadRequest, "no organization")
 		return

@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body struct {
@@ -26,7 +26,7 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body struct {
@@ -44,7 +44,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), id)
@@ -56,7 +56,7 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body struct {
@@ -75,7 +75,7 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)

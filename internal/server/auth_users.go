@@ -10,6 +10,20 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
+// requireSameOrg verifies the target user belongs to the admin's org.
+// Returns false and writes 404 if the target user is not in the admin's org.
+func (s *Server) requireSameOrg(w http.ResponseWriter, r *http.Request, info *AuthInfo, targetUserID string) bool {
+	if s.memberships == nil || info.OrgID == "" {
+		return true
+	}
+	m, err := s.memberships.GetUserMembership(r.Context(), targetUserID)
+	if err != nil || m.OrganizationID != info.OrgID {
+		writeError(w, http.StatusNotFound, "user not found")
+		return false
+	}
+	return true
+}
+
 // --- Auth User Management API (admin-only) ---
 
 // authUserResponse is the response shape for auth user endpoints.
@@ -57,10 +71,11 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserRe
 
 // ListAuthUsers handles GET /api/auth/users.
 func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	users, err := s.users.ListUsers(r.Context())
+	users, err := s.users.ListUsers(r.Context(), info.OrgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users: "+err.Error())
 		return
@@ -81,7 +96,11 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 
 // GetAuthUser handles GET /api/auth/users/{id}.
 func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	u, err := s.users.GetUser(r.Context(), id)
@@ -101,7 +120,8 @@ func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) 
 
 // UpdateAuthUserRole handles PATCH /api/auth/users/{id}/role.
 func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
 	var body struct {
@@ -117,9 +137,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	// Cannot demote yourself.
-	info := UserFromContext(r.Context())
-	if info != nil && info.UserID == id && body.Role != auth.RoleAdmin {
+	if info.UserID == id && body.Role != auth.RoleAdmin {
 		writeError(w, http.StatusBadRequest, "cannot remove your own admin role")
 		return
 	}
@@ -130,8 +148,8 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	m, err := s.memberships.GetUserMembership(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "membership not found for user")
+	if err != nil || m.OrganizationID != info.OrgID {
+		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
@@ -145,7 +163,11 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 
 // ListAuthUserAgents handles GET /api/auth/users/{id}/agents.
 func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	agentIDs, err := s.authStore.ListUserAgentIDs(r.Context(), id)
@@ -159,7 +181,11 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 
 // UpdateAuthUserAgents handles PATCH /api/auth/users/{id}/agents.
 func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	var body struct {
@@ -217,7 +243,11 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 
 // DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
 func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id string, identityId string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	if s.users == nil {
@@ -249,7 +279,11 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 
 // UpdateAuthUserActive handles PATCH /api/auth/users/{id}/active.
 func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	var body struct {
@@ -260,9 +294,7 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	// Cannot deactivate yourself.
-	info := UserFromContext(r.Context())
-	if info != nil && info.UserID == id && !body.IsActive {
+	if info.UserID == id && !body.IsActive {
 		writeError(w, http.StatusBadRequest, "cannot deactivate your own account")
 		return
 	}
@@ -288,7 +320,11 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 
 // ListAuthUserLoginIdentities handles GET /api/auth/users/{id}/identities/login.
 func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	if s.logins == nil {
@@ -309,7 +345,11 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 
 // LinkAuthUserLoginIdentity handles POST /api/auth/users/{id}/identities/login.
 func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	if s.logins == nil {
@@ -372,7 +412,11 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 
 // ListAuthUserChannelIdentities handles GET /api/auth/users/{id}/identities/channel.
 func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if !s.requireSameOrg(w, r, info, id) {
 		return
 	}
 	if _, err := s.users.GetUser(r.Context(), id); err != nil {

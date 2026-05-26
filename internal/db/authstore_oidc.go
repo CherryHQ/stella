@@ -177,11 +177,14 @@ func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User
 	return scanUser(row)
 }
 
-func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
-	const q = `SELECT id, email, name, avatar_url, default_agent_id, notify_identity_id,
-	           age_public_key, age_private_key, created_at, updated_at
-	           FROM auth_user ORDER BY created_at ASC`
-	rows, err := s.db.QueryContext(ctx, q)
+func (s *OIDCStore) ListUsers(ctx context.Context, orgID string) ([]auth.User, error) {
+	const q = `SELECT u.id, u.email, u.name, u.avatar_url, u.default_agent_id, u.notify_identity_id,
+	           u.age_public_key, u.age_private_key, u.created_at, u.updated_at
+	           FROM auth_user u
+	           JOIN auth_membership m ON m.user_id = u.id
+	           WHERE m.organization_id = ?
+	           ORDER BY u.created_at ASC`
+	rows, err := s.db.QueryContext(ctx, q, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +196,27 @@ func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
 			return nil, err
 		}
 		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *OIDCStore) ListActiveUserIDs(ctx context.Context, orgID string) ([]string, error) {
+	const q = `SELECT u.id FROM auth_user u
+	           JOIN auth_membership m ON m.user_id = u.id
+	           WHERE m.is_active = 1 AND m.organization_id = ?
+	           ORDER BY u.id`
+	rows, err := s.db.QueryContext(ctx, q, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
 	}
 	return out, rows.Err()
 }
@@ -231,15 +255,21 @@ func (s *OIDCStore) GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser
 
 // ListVaultUsers returns the ID and age public key for all users. Satisfies vault.BackfillDB.
 func (s *OIDCStore) ListVaultUsers(ctx context.Context) ([]sqlc.VaultUserRecord, error) {
-	users, err := s.ListUsers(ctx)
+	const q = `SELECT id, age_public_key FROM auth_user`
+	rows, err := s.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]sqlc.VaultUserRecord, len(users))
-	for i, u := range users {
-		out[i] = sqlc.VaultUserRecord{ID: u.ID, AgePublicKey: u.AgePublicKey}
+	defer func() { _ = rows.Close() }()
+	var out []sqlc.VaultUserRecord
+	for rows.Next() {
+		var r sqlc.VaultUserRecord
+		if err := rows.Scan(&r.ID, &r.AgePublicKey); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // UpdateVaultUserAgeKeys updates age keys for a user. Satisfies vault.BackfillDB.

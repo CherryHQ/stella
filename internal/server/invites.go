@@ -10,10 +10,10 @@ const inviteCookieName = "stella_invite"
 
 // ListInvites handles GET /api/auth/invites (admin only).
 func (s *Server) ListInvites(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	info := UserFromContext(r.Context())
 	invites, err := s.authSvc.ListOrgInvites(r.Context(), info.OrgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -24,10 +24,10 @@ func (s *Server) ListInvites(w http.ResponseWriter, r *http.Request) {
 
 // CreateInvite handles POST /api/auth/invites (admin only).
 func (s *Server) CreateInvite(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	info := UserFromContext(r.Context())
 
 	var req struct {
 		Email    string `json:"email"`
@@ -76,7 +76,7 @@ func (s *Server) CreateInvite(w http.ResponseWriter, r *http.Request) {
 
 // RevokeInvite handles DELETE /api/auth/invites/{id} (admin only).
 func (s *Server) RevokeInvite(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if err := s.authSvc.RevokeInvite(r.Context(), id); err != nil {

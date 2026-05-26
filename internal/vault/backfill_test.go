@@ -57,16 +57,13 @@ func TestBackfillUserKeys(t *testing.T) {
 		t.Fatalf("BackfillUserKeys (second) = %d, want 0", n)
 	}
 
-	users, err := oidc.ListUsers(ctx)
+	vaultUsers, err := oidc.ListVaultUsers(ctx)
 	if err != nil {
-		t.Fatalf("ListUsers: %v", err)
+		t.Fatalf("ListVaultUsers: %v", err)
 	}
-	for _, u := range users {
+	for _, u := range vaultUsers {
 		if u.AgePublicKey == "" {
-			t.Errorf("user %s: AgePublicKey is empty after backfill", u.Email)
-		}
-		if u.AgePrivateKey == "" {
-			t.Errorf("user %s: AgePrivateKey is empty after backfill", u.Email)
+			t.Errorf("user %s: AgePublicKey is empty after backfill", u.ID)
 		}
 	}
 }

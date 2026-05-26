@@ -7,7 +7,7 @@ import (
 // --- Agent user assignment API (admin-only) ---
 
 func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	agentID := id
@@ -36,7 +36,7 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	agentID := id
@@ -73,7 +73,7 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 }
 
 func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	agentID := id
