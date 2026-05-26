@@ -11,6 +11,9 @@ RETURNING *;
 -- name: ListSchedulerJobs :many
 SELECT * FROM sched_job WHERE org_id = ? ORDER BY created_at;
 
+-- name: ListAllSchedulerJobs :many
+SELECT * FROM sched_job ORDER BY created_at;
+
 -- name: ListSchedulerJobsByAgent :many
 SELECT * FROM sched_job
 WHERE org_id = ?

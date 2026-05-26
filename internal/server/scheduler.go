@@ -80,7 +80,8 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 			Every: derefStr(body.Every),
 			At:    derefStr(body.At),
 		}
-		job, err := s.schedulerSvc.AddJobWithOwner(*body.Name, *body.Message, sched, sessionMode, agentID, userID)
+		orgID := config.OrgIDFromContext(r.Context())
+		job, err := s.schedulerSvc.AddJobWithOwner(*body.Name, *body.Message, sched, sessionMode, agentID, userID, orgID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
