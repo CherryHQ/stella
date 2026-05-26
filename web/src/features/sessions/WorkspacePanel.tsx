@@ -141,9 +141,10 @@ export function WorkspacePanel({
           query: { path },
           throwOnError: true,
         });
+        const file = data as { content?: string; language?: string };
         setViewer((v) =>
           v && v.path === path
-            ? { ...v, content: data.content ?? "", language: data.language ?? "", loading: false }
+            ? { ...v, content: file.content ?? "", language: file.language ?? "", loading: false }
             : v,
         );
       } catch (e) {

@@ -379,17 +379,32 @@ func doBearerRequestWithSession(t *testing.T, srv *server.Server, sessionID, tok
 }
 
 type apiResponse struct {
-	Data  json.RawMessage `json:"data"`
-	Error string          `json:"error"`
+	Data  json.RawMessage
+	Error string
 }
 
 func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 	t.Helper()
-	var resp apiResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v (body: %s)", err, rr.Body.String())
+	body := rr.Body.Bytes()
+	var errResp struct {
+		Error string `json:"error"`
 	}
-	return resp
+	if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
+		return apiResponse{Error: errResp.Error}
+	}
+	return apiResponse{Data: json.RawMessage(body)}
+}
+
+func parseListItems(t *testing.T, rr *httptest.ResponseRecorder) json.RawMessage {
+	t.Helper()
+	resp := parseResponse(t, rr)
+	var wrapper struct {
+		Items json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
+		t.Fatalf("unmarshal list wrapper: %v", err)
+	}
+	return wrapper.Items
 }
 
 type testChannel struct {
@@ -481,9 +496,9 @@ func TestListAgents(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	resp := parseResponse(t, rr)
+	items := parseListItems(t, rr)
 	var agents []config.Agent
-	if err := json.Unmarshal(resp.Data, &agents); err != nil {
+	if err := json.Unmarshal(items, &agents); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(agents) == 0 {
@@ -1029,7 +1044,6 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	resp := parseResponse(t, rr)
 	type publicChannelPayload struct {
 		ID        string `json:"id"`
 		Type      string `json:"type"`
@@ -1039,7 +1053,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 		Enabled   bool   `json:"enabled"`
 	}
 	var channels []publicChannelPayload
-	if err := json.Unmarshal(resp.Data, &channels); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr), &channels); err != nil {
 		t.Fatalf("unmarshal public channels: %v", err)
 	}
 	byID := make(map[string]publicChannelPayload, len(channels))

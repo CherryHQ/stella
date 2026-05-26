@@ -19,7 +19,7 @@ func (s *Server) ListInvites(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"items": invites})
+	writeListData(w, http.StatusOK, invites)
 }
 
 // CreateInvite handles POST /api/auth/invites (admin only).

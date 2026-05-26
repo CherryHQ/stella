@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { getSessionMessages } from "@/lib/api-client/sdk.gen";
-import { unwrapApiList } from "@/lib/api-data";
 import type { Message } from "@/lib/types";
 import {
   createSessionTransport,
@@ -74,7 +73,7 @@ export function SessionConversation({
         },
         throwOnError: true,
       });
-      return unwrapApiList<Message>(data);
+      return (data as unknown as Message[]) ?? [];
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,

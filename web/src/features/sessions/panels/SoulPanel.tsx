@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { getAgent, updateAgent } from "@/lib/api-client";
-import { unwrapApiData } from "@/lib/api-data";
 import type { AgentDetail } from "@/lib/types";
 import type { UpdateAgentData } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
@@ -43,7 +42,7 @@ export function SoulPanel({ agentId }: Props) {
         path: { id: agentId },
         throwOnError: true,
       });
-      const a = unwrapApiData(data) as AgentDetail;
+      const a = data as AgentDetail;
       setAgent(a);
       setSoul(a.soul ?? "");
       setEditing(false);

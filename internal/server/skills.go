@@ -83,7 +83,7 @@ func (s *Server) ListSkills(w http.ResponseWriter, r *http.Request) {
 	for _, sk := range all {
 		out = append(out, skillToView(sk, nil))
 	}
-	writeData(w, http.StatusOK, out)
+	writeListData(w, http.StatusOK, out)
 }
 
 func (s *Server) GetSkill(w http.ResponseWriter, r *http.Request, id string) {
@@ -408,7 +408,7 @@ func (s *Server) SearchSkills(w http.ResponseWriter, r *http.Request, params api
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, results)
+	writeListData(w, http.StatusOK, results)
 }
 
 // installSkillRequest is the body for POST /api/skills/install.

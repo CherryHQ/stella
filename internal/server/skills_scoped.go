@@ -231,7 +231,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	out = append(out, projectViews...)
-	writeData(w, http.StatusOK, out)
+	writeListData(w, http.StatusOK, out)
 }
 
 func (s *Server) requireAgentSkillWrite(ctx context.Context, agentID, scope string) (string, skills.ViewContext, int, string) {
@@ -755,7 +755,7 @@ func (s *Server) ListProfileSkills(w http.ResponseWriter, r *http.Request) {
 			out = append(out, skillToView(sk, nil))
 		}
 	}
-	writeData(w, http.StatusOK, out)
+	writeListData(w, http.StatusOK, out)
 }
 
 func (s *Server) GetProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {

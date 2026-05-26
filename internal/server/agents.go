@@ -81,7 +81,7 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
 	for i := range agents {
 		fillAgentDefaults(&agents[i])
 	}
-	writeData(w, http.StatusOK, agents)
+	writeListData(w, http.StatusOK, agents)
 }
 
 func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {

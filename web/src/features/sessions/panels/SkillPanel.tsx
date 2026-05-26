@@ -87,7 +87,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         query: { path: "SKILL.md" },
         throwOnError: true,
       }).catch(() => null);
-      const content = res?.data?.content ?? "";
+      const content = (res?.data as { content?: string })?.content ?? "";
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",

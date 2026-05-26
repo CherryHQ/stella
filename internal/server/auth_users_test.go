@@ -20,7 +20,6 @@ func TestListAuthUsers(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	resp := parseResponse(t, rr)
 	var users []struct {
 		ID         string `json:"id"`
 		Email      string `json:"email"`
@@ -30,7 +29,7 @@ func TestListAuthUsers(t *testing.T) {
 		Identities []any  `json:"identities"`
 		CreatedAt  string `json:"created_at"`
 	}
-	if err := json.Unmarshal(resp.Data, &users); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr), &users); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(users) == 0 {

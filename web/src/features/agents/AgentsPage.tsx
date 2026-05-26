@@ -27,11 +27,9 @@ import {
   updateChannel,
   uploadAgentScopedSkill,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiData, unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import type {
   CreateAgentData,
   ComponentsCachedModel,
-  ComponentsMeResponse,
   InstallAgentScopedSkillData,
   UpdateAgentData,
   UpdateAgentScopedSkillData,
@@ -61,7 +59,7 @@ type Toast = { message: string; type: "success" | "error" } | null;
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
 
 function profileMemories(value: unknown) {
-  return unwrapApiList<ProfileMemory>(value);
+  return (value as ProfileMemory[]) ?? [];
 }
 
 function ToastAlert({ toast }: { toast: Toast }) {
@@ -160,20 +158,20 @@ export interface AgentsSettingsLoaderData {
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
     listAgents({ throwOnError: true })
-      .then(({ data }) => unwrapApiItems<AgentDetail>(data))
+      .then(({ data }) => data?.items ?? [])
       .catch(() => []),
     listModels({ throwOnError: true })
-      .then(({ data }) => unwrapApiList<ComponentsCachedModel>(data))
+      .then(({ data }) => (data as ComponentsCachedModel[]) ?? [])
       .catch(() => []),
     getMe({ throwOnError: true })
-      .then(({ data }) => unwrapApiData<ComponentsMeResponse>(data))
+      .then(({ data }) => data)
       .catch(() => null),
     Promise.all([
       listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
-        .then(({ data }) => unwrapApiList<BuiltinItem>(data))
+        .then(({ data }) => (data as BuiltinItem[]) ?? [])
         .catch(() => []),
       listBuiltinResources({ path: { kind: "soul" }, throwOnError: true })
-        .then(({ data }) => unwrapApiList<BuiltinItem>(data))
+        .then(({ data }) => (data as BuiltinItem[]) ?? [])
         .catch(() => []),
     ]),
   ]);
@@ -182,25 +180,27 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     ...a,
     sandbox: normalizeSandbox(a.sandbox),
     _highlight: a.id === agentId,
-  }));
+  })) as AgentDetail[];
   const selectedAgent = agentId ? agents.find((a) => a.id === agentId) : undefined;
   const channels = isAdmin
     ? (
         (await listChannels({ throwOnError: true })
-          .then(({ data }) => unwrapApiItems<Channel>(data))
+          .then(({ data }) => data?.items ?? [])
           .catch(() => [])) ?? []
       ).map(normalizeChannel)
     : [];
   const allUsers = isAdmin
     ? ((await listAuthUsers({ throwOnError: true })
-        .then(({ data }) => unwrapApiList<User>(data))
+        .then(({ data }) => ((data as { items?: User[] })?.items ?? []) as User[])
         .catch(() => [])) ?? [])
     : [];
-  const agentSkills = agentId
-    ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
-        .then(({ data }) => unwrapApiItems<Skill>(data))
-        .catch(() => [])) ?? [])
-    : [];
+  const agentSkills = (
+    agentId
+      ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
+          .then(({ data }) => data?.items ?? [])
+          .catch(() => [])) ?? [])
+      : []
+  ) as Skill[];
   let personalisation: Personalisation = {
     soul: "",
     soulDraft: "",
@@ -358,11 +358,11 @@ export function AgentsPage() {
     async (currentState?: AgentsPageState) => {
       try {
         const { data } = await listAgents({ throwOnError: true });
-        const agents = unwrapApiItems<AgentDetail>(data).map((a) => ({
+        const agents = (data?.items ?? []).map((a) => ({
           ...a,
           sandbox: normalizeSandbox(a.sandbox),
           _highlight: a.id === requestedAgentID(),
-        }));
+        })) as AgentDetail[];
         setState((prev) => {
           const s = currentState ?? prev;
           return { ...s, agents };
@@ -379,7 +379,7 @@ export function AgentsPage() {
   const loadChannels = useCallback(async () => {
     try {
       const { data } = await listChannels({ throwOnError: true });
-      const channels = unwrapApiItems<Channel>(data).map(normalizeChannel);
+      const channels = ((data?.items ?? []) as Channel[]).map(normalizeChannel);
       setState((prev) => ({ ...prev, channels }));
       return channels;
     } catch {
@@ -396,8 +396,12 @@ export function AgentsPage() {
     setState((prev) => ({ ...prev, agentSkillsLoading: true }));
     try {
       const { data } = await listAgentSkills({ path: { id: agentId }, throwOnError: true });
-      const agentSkills = unwrapApiItems<Skill>(data);
-      setState((prev) => ({ ...prev, agentSkills, agentSkillsLoading: false }));
+      const agentSkills = data?.items ?? [];
+      setState((prev) => ({
+        ...prev,
+        agentSkills: agentSkills as Skill[],
+        agentSkillsLoading: false,
+      }));
       return agentSkills;
     } catch {
       setState((prev) => ({ ...prev, agentSkills: [], agentSkillsLoading: false }));
@@ -432,7 +436,7 @@ export function AgentsPage() {
   const loadAssignedUsers = useCallback(async (agentId: string) => {
     try {
       const { data } = await listAgentUsers({ path: { id: agentId }, throwOnError: true });
-      const assignedUsers = unwrapApiItems<User>(data);
+      const assignedUsers = ((data as { items?: User[] })?.items ?? []) as User[];
       setState((prev) => ({ ...prev, assignedUsers }));
     } catch {
       setState((prev) => ({ ...prev, assignedUsers: [] }));
@@ -704,7 +708,7 @@ export function AgentsPage() {
           query: { path },
           throwOnError: true,
         });
-        const content = res?.content ?? "";
+        const content = (res as { content?: string })?.content ?? "";
         setState((prev) => ({
           ...prev,
           selectedSkillFileContent: content,
@@ -738,15 +742,16 @@ export function AgentsPage() {
         selectedSkillNewFileName: "",
       }));
       try {
-        const { data: full } = await getAgentScopedSkill({
+        const { data: raw } = await getAgentScopedSkill({
           path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
           throwOnError: true,
         });
+        const unwrapped = raw as Skill;
         const skill: Skill = {
-          ...(full as Skill),
+          ...unwrapped,
           scope: sk.scope,
         };
-        const files = (full as Skill).files ?? ["SKILL.md"];
+        const files = unwrapped.files ?? ["SKILL.md"];
         const initialFile = files.includes("SKILL.md") ? "SKILL.md" : files[0];
         setState((prev) => ({
           ...prev,
@@ -820,7 +825,7 @@ export function AgentsPage() {
             [selectedSkillActiveFile]: selectedSkillFileContent,
           },
         }));
-        const { data: full } = await getAgentScopedSkill({
+        const { data: raw2 } = await getAgentScopedSkill({
           path: {
             id: currentState.editingId ?? "",
             scope: selectedSkill.scope as SkillScope,
@@ -830,7 +835,7 @@ export function AgentsPage() {
         });
         setState((prev) => ({
           ...prev,
-          selectedSkill: { ...(full as Skill), scope: selectedSkill.scope },
+          selectedSkill: { ...(raw2 as Skill), scope: selectedSkill.scope },
           selectedSkillSaving: false,
         }));
         await loadAgentSkills(currentState.editingId);
@@ -892,7 +897,10 @@ export function AgentsPage() {
         const updated = await loadAgentSkills(currentState.editingId);
         const created = updated.find((sk) => sk.name === (res?.name ?? ""));
         if (created) {
-          await selectSkill({ ...created, scope }, { ...currentState, agentSkills: updated });
+          await selectSkill({ ...created, scope } as Skill, {
+            ...currentState,
+            agentSkills: updated as Skill[],
+          });
         }
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -925,7 +933,10 @@ export function AgentsPage() {
         const updated = await loadAgentSkills(currentState.editingId);
         const created = updated.find((sk) => sk.id === res?.id);
         if (created) {
-          await selectSkill({ ...created, scope }, { ...currentState, agentSkills: updated });
+          await selectSkill({ ...created, scope } as Skill, {
+            ...currentState,
+            agentSkills: updated as Skill[],
+          });
         }
       } catch (e) {
         showToast((e as Error).message, "error");

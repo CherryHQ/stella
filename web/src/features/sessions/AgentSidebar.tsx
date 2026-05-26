@@ -10,7 +10,6 @@ import {
   listAgentTasks,
 } from "@/lib/api-client/sdk.gen";
 import { cn } from "@/lib/utils";
-import { unwrapApiData } from "@/lib/api-data";
 import type { AgentTaskList, ComponentsSession } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
@@ -451,7 +450,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
     queryKey: ["tasks", agentId],
     queryFn: async () => {
       const { data } = await listAgentTasks({ path: { agentID: agentId }, throwOnError: true });
-      return unwrapApiData<AgentTaskList>(data);
+      return data as AgentTaskList;
     },
   });
   const taskAttentionCount =
@@ -483,7 +482,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
       path: { agentID: agentId },
       throwOnError: true,
     });
-    const sess = unwrapApiData<ComponentsSession>(data);
+    const sess = data as ComponentsSession;
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
     closeMobile();
     void navigate({

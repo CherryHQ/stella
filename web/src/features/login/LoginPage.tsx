@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { listAuthProviders } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
-import { unwrapApiData } from "@/lib/api-data";
 import type { OidcProviderList } from "@/lib/api-client/types.gen";
 
 export function LoginPage() {
@@ -13,7 +12,7 @@ export function LoginPage() {
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
   });
-  const providers = unwrapApiData<OidcProviderList>(providersData?.data)?.items ?? [];
+  const providers = (providersData?.data as OidcProviderList)?.items ?? [];
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">

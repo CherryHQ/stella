@@ -38,7 +38,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 	for _, row := range rows {
 		jobs = append(jobs, dbRowToAPIJob(row))
 	}
-	writeJSON(w, http.StatusOK, apiserver.JobList{Items: jobs})
+	writeData(w, http.StatusOK, apiserver.JobList{Items: jobs})
 }
 
 func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string) {
@@ -83,7 +83,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, schedulerJobToAPI(job))
+		writeData(w, http.StatusCreated, schedulerJobToAPI(job))
 		return
 	}
 
@@ -146,7 +146,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		CreatedAt:   nowT,
 		UpdatedAt:   nowT,
 	}
-	writeJSON(w, http.StatusCreated, resp)
+	writeData(w, http.StatusCreated, resp)
 }
 
 func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
@@ -172,7 +172,7 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 		return
 	}
 
-	writeJSON(w, http.StatusOK, dbRowToAPIJob(existing))
+	writeData(w, http.StatusOK, dbRowToAPIJob(existing))
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
@@ -290,7 +290,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		LastRunAt:   parseDBTimeNullable(existing.LastRunAt),
 		LastError:   ptrStr(existing.LastError),
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeData(w, http.StatusOK, resp)
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
@@ -374,7 +374,7 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 	}
 
 	resp := apitypes.TriggerJobResult{RunId: runID}
-	writeJSON(w, http.StatusAccepted, resp)
+	writeData(w, http.StatusAccepted, resp)
 }
 
 func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
@@ -427,7 +427,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		}
 		runs = append(runs, j)
 	}
-	writeJSON(w, http.StatusOK, apitypes.JobRunList{Items: runs})
+	writeData(w, http.StatusOK, apitypes.JobRunList{Items: runs})
 }
 
 // --------------- converter functions ---------------

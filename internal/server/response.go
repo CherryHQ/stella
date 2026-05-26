@@ -7,8 +7,14 @@ import (
 
 // writeData writes a success JSON response with the given data.
 func writeData(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+// writeListData writes a success JSON response wrapping items in {"items": ...}.
+func writeListData(w http.ResponseWriter, status int, items any) {
+	writeData(w, status, map[string]any{"items": items})
 }
 
 // writeError writes an error JSON response.

@@ -32,7 +32,7 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 		users = append(users, agentUser{ID: u.ID, Username: u.Email})
 	}
 
-	writeData(w, http.StatusOK, users)
+	writeListData(w, http.StatusOK, users)
 }
 
 func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id string) {

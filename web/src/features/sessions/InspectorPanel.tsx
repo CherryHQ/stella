@@ -10,7 +10,6 @@ import {
   listAgentTasks,
   listTools,
 } from "@/lib/api-client";
-import { unwrapApiData, unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import {
   agentMemoriesOptions,
   agentSchedulerJobsOptions,
@@ -298,7 +297,7 @@ function ContextPanel({
       throwOnError: true,
     })
       .then(({ data }) => {
-        if (!cancelled) setMessages(unwrapApiList<Message>(data));
+        if (!cancelled) setMessages((data as unknown as Message[]) ?? []);
       })
       .catch((e) => {
         console.error(e);
@@ -315,7 +314,7 @@ function ContextPanel({
     })
       .then(({ data }) => {
         if (!cancelled) {
-          setSystemPrompt(unwrapApiData<{ system_prompt: string }>(data).system_prompt);
+          setSystemPrompt((data as { system_prompt: string }).system_prompt);
         }
       })
       .catch((e) => {
@@ -336,7 +335,7 @@ function ContextPanel({
     setToolsLoading(true);
     try {
       const { data } = await listTools({ throwOnError: true });
-      setTools(unwrapApiList<Tool>(data));
+      setTools((data as Tool[]) ?? []);
     } finally {
       setToolsLoading(false);
     }
@@ -351,7 +350,7 @@ function ContextPanel({
         query: { session_id: session.id },
         throwOnError: true,
       });
-      setSessionSkills(unwrapApiItems<Skill>(data));
+      setSessionSkills((data?.items ?? []) as Skill[]);
     } finally {
       setSessionSkillsLoading(false);
     }
@@ -750,7 +749,7 @@ function useWorkData(agentID: string) {
         path: { agentID },
         throwOnError: true,
       });
-      setTasks(unwrapApiItems<ComponentsAgentTask>(data));
+      setTasks(data?.items ?? []);
     } catch (e) {
       console.error(e);
       setTasks([]);

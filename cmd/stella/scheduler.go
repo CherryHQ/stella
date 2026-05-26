@@ -84,7 +84,7 @@ func schedulerAddCommand() *ucli.Command {
 				body.At = &at
 			}
 
-			job, err := apiclient.CallJSON[apiclient.Job](func(api *apiclient.Client) (*http.Response, error) {
+			job, err := apiclient.Call[apiclient.Job](func(api *apiclient.Client) (*http.Response, error) {
 				return api.CreateSchedulerJob(c.Context, agentID, body)
 			})
 			if err != nil {
@@ -108,7 +108,7 @@ func schedulerListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			list, err := apiclient.CallJSON[apiclient.JobList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apiclient.JobList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListSchedulerJobs(c.Context, agentID)
 			})
 			if err != nil {
@@ -159,7 +159,7 @@ func schedulerRemoveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if err := apiclient.DoJSON(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteSchedulerJob(c.Context, agentID, id)
 			}); err != nil {
 				return err

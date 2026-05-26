@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { listProfileMemories, setProfileMemory } from "@/lib/api-client";
-import { unwrapApiList } from "@/lib/api-data";
 import type { UserMemory } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -25,7 +24,7 @@ export function MemoryPanel({ agentId }: Props) {
     setLoading(true);
     try {
       const { data } = await listProfileMemories({ throwOnError: true });
-      const memories = unwrapApiList<UserMemory>(data);
+      const memories = (data as UserMemory[]) ?? [];
       const mem = memories.find((m) => m.agent_id === agentId);
       setContent(mem?.content ?? "");
       setUpdatedAt(mem?.updated_at ?? "");

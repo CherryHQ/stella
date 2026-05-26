@@ -76,7 +76,7 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 		result = append(result, resp)
 	}
 
-	writeData(w, http.StatusOK, result)
+	writeListData(w, http.StatusOK, result)
 }
 
 // GetAuthUser handles GET /api/auth/users/{id}.

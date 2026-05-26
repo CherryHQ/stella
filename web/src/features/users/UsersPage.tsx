@@ -15,7 +15,6 @@ import {
   updateUserDefaultAgent,
   updateUserNotifyIdentity,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiData, unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import type { Agent, Identity, User, UserMemory } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,7 +62,7 @@ export function UsersPage() {
   const loadAuthUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      setAuthUsers(unwrapApiList<User>(data));
+      setAuthUsers(((data as { items?: User[] })?.items ?? []) as User[]);
     } catch (e) {
       console.error(e);
     }
@@ -75,7 +74,7 @@ export function UsersPage() {
         path: { id: userId },
         throwOnError: true,
       });
-      const ids = unwrapApiList<string>(data);
+      const ids = (data as string[]) ?? [];
       setUserAgentIds(ids);
       setAddAgentId("");
     } catch {
@@ -90,7 +89,7 @@ export function UsersPage() {
           path: { id: u.id },
           throwOnError: true,
         });
-        setSelectedUser(unwrapApiData(detail));
+        setSelectedUser(detail);
         await loadUserAgents(u.id);
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -112,7 +111,7 @@ export function UsersPage() {
           path: { id: selectedUser.id },
           throwOnError: true,
         });
-        setSelectedUser(unwrapApiData(updated));
+        setSelectedUser(updated);
         await loadAuthUsers();
         showToast(`Role updated to ${role}`);
       } catch (e) {
@@ -225,7 +224,7 @@ export function UsersPage() {
   const loadLegacyUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      const list = unwrapApiList<User>(data);
+      const list = ((data as { items?: User[] })?.items ?? []) as User[];
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
@@ -253,7 +252,7 @@ export function UsersPage() {
           path: { id: userId },
           throwOnError: true,
         });
-        const mems = unwrapApiList<UserMemory>(data);
+        const mems = (data as UserMemory[]) ?? [];
         setUserMemories((prev) => ({
           ...prev,
           [userId]: mems.map((m) => ({ ...m, _content: m.content })),
@@ -354,7 +353,7 @@ export function UsersPage() {
         .catch(() => {}),
       loadAuthUsers(),
       listAgents({ throwOnError: true })
-        .then(({ data }) => setAgents(unwrapApiItems<Agent>(data)))
+        .then(({ data }) => setAgents((data?.items ?? []) as Agent[]))
         .catch(() => {}),
     ]);
   }, [loadAuthUsers]);

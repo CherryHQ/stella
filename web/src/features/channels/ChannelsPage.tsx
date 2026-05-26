@@ -15,7 +15,6 @@ import {
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Channel, Identity, Plugin } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -743,7 +742,7 @@ export function ChannelsPage() {
   const loadIdentities = useCallback(async () => {
     try {
       const { data } = await listProfileIdentities({ throwOnError: true });
-      setLinkedIdentities(unwrapApiList<Identity>(data));
+      setLinkedIdentities((data as Identity[]) ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -753,7 +752,7 @@ export function ChannelsPage() {
     setLoadingPlatforms(true);
     try {
       const { data } = await listPublicChannels({ throwOnError: true });
-      setPublicChannels(unwrapApiItems<ComponentsPublicChannel>(data));
+      setPublicChannels(data?.items ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
     } finally {
@@ -764,7 +763,7 @@ export function ChannelsPage() {
   const loadChannelPlugins = useCallback(async () => {
     try {
       const { data } = await listPlugins({ throwOnError: true });
-      const plugins = unwrapApiList<Plugin>(data);
+      const plugins = (data as Plugin[]) ?? [];
       const enabled = (plugins || [])
         .filter((p) => p.kind === "channel" && p.enabled)
         .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
@@ -779,7 +778,7 @@ export function ChannelsPage() {
       setLoadingInstances(true);
       try {
         const { data } = await listChannels({ throwOnError: true });
-        const channels = unwrapApiItems<Channel>(data);
+        const channels = data?.items ?? [];
         const normalized = (channels || [])
           .map(normalizeChannel)
           .filter((ch) => currentEnabledIDs.includes(ch.type))
@@ -813,7 +812,7 @@ export function ChannelsPage() {
             // loadChannelPlugins sets state async; we need the IDs for loadInstances
             try {
               const { data } = await listPlugins({ throwOnError: true });
-              const pluginList = unwrapApiList<Plugin>(data);
+              const pluginList = (data as Plugin[]) ?? [];
               const enabled = (pluginList || [])
                 .filter((p) => p.kind === "channel" && p.enabled)
                 .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));

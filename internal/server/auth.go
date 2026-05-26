@@ -113,7 +113,7 @@ func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
 			"created_at": sess.CreatedAt,
 		}
 	}
-	writeData(w, http.StatusOK, map[string]any{"items": items})
+	writeListData(w, http.StatusOK, items)
 }
 
 // DeleteAuthSession handles DELETE /api/auth/sessions/{id}.

@@ -79,7 +79,7 @@ func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, buildPublicChannelViews(channels, enabledTypes, agentNames))
+	writeListData(w, http.StatusOK, buildPublicChannelViews(channels, enabledTypes, agentNames))
 }
 
 func (s *Server) enabledChannelTypes(r *http.Request) (map[string]bool, error) {
@@ -205,7 +205,7 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 	for i, ch := range channels {
 		views[i] = channelToView(ch)
 	}
-	writeData(w, http.StatusOK, views)
+	writeListData(w, http.StatusOK, views)
 }
 
 func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {

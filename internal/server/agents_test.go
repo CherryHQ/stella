@@ -241,12 +241,11 @@ func TestAgentUserAssignment(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list users: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
-	resp := parseResponse(t, rr)
 	var users []struct {
 		ID       string `json:"id"`
 		Username string `json:"username"`
 	}
-	_ = json.Unmarshal(resp.Data, &users)
+	_ = json.Unmarshal(parseListItems(t, rr), &users)
 	if len(users) != 0 {
 		t.Errorf("expected 0 users, got %d", len(users))
 	}
@@ -259,8 +258,7 @@ func TestAgentUserAssignment(t *testing.T) {
 
 	// Verify user appears in list.
 	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
-	resp = parseResponse(t, rr)
-	_ = json.Unmarshal(resp.Data, &users)
+	_ = json.Unmarshal(parseListItems(t, rr), &users)
 	if len(users) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(users))
 	}
@@ -279,8 +277,7 @@ func TestAgentUserAssignment(t *testing.T) {
 
 	// Verify user removed.
 	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
-	resp = parseResponse(t, rr)
-	_ = json.Unmarshal(resp.Data, &users)
+	_ = json.Unmarshal(parseListItems(t, rr), &users)
 	if len(users) != 0 {
 		t.Errorf("expected 0 users after removal, got %d", len(users))
 	}
@@ -319,9 +316,8 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list agents: status = %d", rr.Code)
 	}
-	resp := parseResponse(t, rr)
 	var agents []config.Agent
-	_ = json.Unmarshal(resp.Data, &agents)
+	_ = json.Unmarshal(parseListItems(t, rr), &agents)
 
 	foundStella := false
 	foundPrivate := false
@@ -345,8 +341,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 
 	// Now listing should include the assigned agent.
 	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents", nil)
-	resp = parseResponse(t, rr)
-	_ = json.Unmarshal(resp.Data, &agents)
+	_ = json.Unmarshal(parseListItems(t, rr), &agents)
 
 	foundPrivate = false
 	for _, a := range agents {
