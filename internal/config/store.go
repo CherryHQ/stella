@@ -101,6 +101,8 @@ type Store interface {
 	ListPlugins(ctx context.Context) ([]Plugin, error)
 	ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error)
 	ListEnabledPlugins(ctx context.Context) ([]Plugin, error)
+	ListPluginsForOrg(ctx context.Context, orgID string) ([]Plugin, error)
+	ListPluginsByKindForOrg(ctx context.Context, kind, orgID string) ([]Plugin, error)
 	GetPlugin(ctx context.Context, id string) (Plugin, error)
 	UpsertPlugin(ctx context.Context, p Plugin) error
 	SetPluginEnabled(ctx context.Context, id string, enabled bool) error

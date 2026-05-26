@@ -74,6 +74,42 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]SettingsPlugin, err
 	return items, nil
 }
 
+const listEnabledPluginsByOrg = `-- name: ListEnabledPluginsByOrg :many
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins WHERE org_id = ? AND enabled = 1 ORDER BY kind, name
+`
+
+func (q *Queries) ListEnabledPluginsByOrg(ctx context.Context, orgID string) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledPluginsByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SettingsPlugin{}
+	for rows.Next() {
+		var i SettingsPlugin
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Name,
+			&i.Enabled,
+			&i.Config,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPlugins = `-- name: ListPlugins :many
 SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins ORDER BY kind, name
 `
@@ -116,6 +152,83 @@ SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM sett
 
 func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]SettingsPlugin, error) {
 	rows, err := q.db.QueryContext(ctx, listPluginsByKind, kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SettingsPlugin{}
+	for rows.Next() {
+		var i SettingsPlugin
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Name,
+			&i.Enabled,
+			&i.Config,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPluginsByKindAndOrg = `-- name: ListPluginsByKindAndOrg :many
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins WHERE kind = ? AND org_id = ? ORDER BY name
+`
+
+type ListPluginsByKindAndOrgParams struct {
+	Kind  string `json:"kind"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) ListPluginsByKindAndOrg(ctx context.Context, arg ListPluginsByKindAndOrgParams) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listPluginsByKindAndOrg, arg.Kind, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SettingsPlugin{}
+	for rows.Next() {
+		var i SettingsPlugin
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Name,
+			&i.Enabled,
+			&i.Config,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPluginsByOrg = `-- name: ListPluginsByOrg :many
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugins WHERE org_id = ? ORDER BY kind, name
+`
+
+func (q *Queries) ListPluginsByOrg(ctx context.Context, orgID string) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listPluginsByOrg, orgID)
 	if err != nil {
 		return nil, err
 	}

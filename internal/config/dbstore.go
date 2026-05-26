@@ -373,6 +373,33 @@ func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin,
 	return out, nil
 }
 
+func (s *DBStore) ListPluginsForOrg(ctx context.Context, orgID string) ([]Plugin, error) {
+	rows, err := s.q.ListPluginsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list plugins for org %q: %w", orgID, err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) ListPluginsByKindForOrg(ctx context.Context, kind, orgID string) ([]Plugin, error) {
+	rows, err := s.q.ListPluginsByKindAndOrg(ctx, sqlc.ListPluginsByKindAndOrgParams{
+		Kind:  kind,
+		OrgID: orgID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list plugins kind %q org %q: %w", kind, orgID, err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
 func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
 	rows, err := s.q.ListEnabledPlugins(ctx)
 	if err != nil {

@@ -72,7 +72,7 @@ func (h *Host) ListProviderTypes() []ProviderType {
 	return types
 }
 
-func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.RegisteredPlugin, error) {
+func (h *Host) ListAdminVisiblePlugins(ctx context.Context, orgID ...string) ([]pkgplugins.RegisteredPlugin, error) {
 	registered := make(map[string]pkgplugins.RegisteredPlugin)
 	for _, meta := range h.ListRegisteredPlugins() {
 		if !meta.AdminVisible {
@@ -91,7 +91,13 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		}
 	}
 
-	persisted, err := h.store.ListPlugins(ctx)
+	var persisted []config.Plugin
+	var err error
+	if len(orgID) > 0 && orgID[0] != "" {
+		persisted, err = h.store.ListPluginsForOrg(ctx, orgID[0])
+	} else {
+		persisted, err = h.store.ListPlugins(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}

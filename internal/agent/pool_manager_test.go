@@ -102,6 +102,14 @@ func (m *mockStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plu
 	return nil, nil
 }
 func (m *mockStore) ListEnabledPlugins(_ context.Context) ([]config.Plugin, error) { return nil, nil }
+func (m *mockStore) ListPluginsForOrg(_ context.Context, _ string) ([]config.Plugin, error) {
+	return nil, nil
+}
+
+func (m *mockStore) ListPluginsByKindForOrg(_ context.Context, _, _ string) ([]config.Plugin, error) {
+	return nil, nil
+}
+
 func (m *mockStore) GetPlugin(_ context.Context, _ string) (config.Plugin, error) {
 	return config.Plugin{}, nil
 }

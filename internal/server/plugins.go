@@ -13,7 +13,12 @@ func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
-	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context())
+	info := UserFromContext(r.Context())
+	var orgID string
+	if info != nil {
+		orgID = info.OrgID
+	}
+	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context(), orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

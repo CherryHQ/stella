@@ -35,3 +35,12 @@ WHERE id = ?;
 
 -- name: DeletePlugin :exec
 DELETE FROM settings_plugins WHERE id = ?;
+
+-- name: ListPluginsByOrg :many
+SELECT * FROM settings_plugins WHERE org_id = ? ORDER BY kind, name;
+
+-- name: ListPluginsByKindAndOrg :many
+SELECT * FROM settings_plugins WHERE kind = ? AND org_id = ? ORDER BY name;
+
+-- name: ListEnabledPluginsByOrg :many
+SELECT * FROM settings_plugins WHERE org_id = ? AND enabled = 1 ORDER BY kind, name;

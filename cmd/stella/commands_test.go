@@ -108,6 +108,14 @@ func (commandTestStore) ListPluginsByKind(context.Context, string) ([]config.Plu
 	return nil, nil
 }
 func (commandTestStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
+func (commandTestStore) ListPluginsForOrg(context.Context, string) ([]config.Plugin, error) {
+	return nil, nil
+}
+
+func (commandTestStore) ListPluginsByKindForOrg(context.Context, string, string) ([]config.Plugin, error) {
+	return nil, nil
+}
+
 func (commandTestStore) GetPlugin(context.Context, string) (config.Plugin, error) {
 	return config.Plugin{}, nil
 }

@@ -136,6 +136,14 @@ func (s *stubStore) ListPluginsByKind(context.Context, string) ([]config.Plugin,
 	return nil, nil
 }
 func (s *stubStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
+func (s *stubStore) ListPluginsForOrg(context.Context, string) ([]config.Plugin, error) {
+	return nil, nil
+}
+
+func (s *stubStore) ListPluginsByKindForOrg(context.Context, string, string) ([]config.Plugin, error) {
+	return nil, nil
+}
+
 func (s *stubStore) GetPlugin(_ context.Context, id string) (config.Plugin, error) {
 	return s.plugins[id], nil
 }

@@ -390,7 +390,9 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 }
 
 // ensureMembership returns the user's existing membership or creates a new org
-// and membership if they don't have one yet.
+// and membership if they don't have one yet. When an unowned org exists (e.g.
+// the boot-time seed org), the first user adopts it instead of creating a new
+// one so that seeded resources (agents, providers, channels) are visible.
 func (s *AuthService) ensureMembership(ctx context.Context, userID string) (Membership, error) {
 	existing, err := s.memberships.GetUserMembership(ctx, userID)
 	if err == nil {
@@ -400,9 +402,12 @@ func (s *AuthService) ensureMembership(ctx context.Context, userID string) (Memb
 		return Membership{}, err
 	}
 
-	org, err := s.createOrganization(ctx)
+	org, err := s.findUnownedOrg(ctx)
 	if err != nil {
-		return Membership{}, fmt.Errorf("auth: create org for new user: %w", err)
+		org, err = s.createOrganization(ctx)
+		if err != nil {
+			return Membership{}, fmt.Errorf("auth: create org for new user: %w", err)
+		}
 	}
 
 	return s.memberships.CreateMembership(ctx, Membership{
@@ -412,4 +417,22 @@ func (s *AuthService) ensureMembership(ctx context.Context, userID string) (Memb
 		Role:           RoleAdmin,
 		IsActive:       true,
 	})
+}
+
+// findUnownedOrg returns the first organization that has zero members.
+func (s *AuthService) findUnownedOrg(ctx context.Context) (Organization, error) {
+	orgs, err := s.organizations.ListOrganizations(ctx)
+	if err != nil {
+		return Organization{}, err
+	}
+	for _, org := range orgs {
+		count, err := s.memberships.CountOrgMembers(ctx, org.ID)
+		if err != nil {
+			continue
+		}
+		if count == 0 {
+			return org, nil
+		}
+	}
+	return Organization{}, sql.ErrNoRows
 }
