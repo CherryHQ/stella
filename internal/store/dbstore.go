@@ -1,4 +1,4 @@
-package config
+package store
 
 import (
 	"context"
@@ -11,10 +11,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// DBStore implements Store using sqlc queries backed by SQLite.
+// DBStore implements config.Store using sqlc queries backed by SQLite.
 type DBStore struct {
 	q *sqlc.Queries
 }
@@ -26,9 +28,8 @@ func NewDBStore(db *sql.DB) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
-// requireOrgID extracts org_id from context, returning an error if absent.
 func requireOrgID(ctx context.Context) (string, error) {
-	orgID := OrgIDFromContext(ctx)
+	orgID := orgctx.OrgIDFromContext(ctx)
 	if orgID == "" {
 		return "", fmt.Errorf("org_id is required in context")
 	}
@@ -37,7 +38,7 @@ func requireOrgID(ctx context.Context) (string, error) {
 
 // --- Providers (backed by settings_provider) ---
 
-func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
+func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -46,7 +47,7 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
-	out := make([]Provider, len(rows))
+	out := make([]config.Provider, len(rows))
 	for i, r := range rows {
 		out[i] = providerFromDB(r)
 		applyProviderEnvFallback(&out[i])
@@ -54,21 +55,21 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
 	return out, nil
 }
 
-func (s *DBStore) GetProvider(ctx context.Context, id string) (Provider, error) {
+func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
-		return Provider{}, err
+		return config.Provider{}, err
 	}
 	r, err := s.q.GetProvider(ctx, sqlc.GetProviderParams{ID: id, OrgID: orgID})
 	if err != nil {
-		return Provider{}, fmt.Errorf("get provider %q: %w", id, err)
+		return config.Provider{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
 	p := providerFromDB(r)
 	applyProviderEnvFallback(&p)
 	return p, nil
 }
 
-func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
+func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
@@ -94,7 +95,7 @@ func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
 	return nil
 }
 
-func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
+func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
@@ -137,7 +138,7 @@ func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
 
 // --- Agents ---
 
-func (s *DBStore) ListAgents(ctx context.Context) ([]Agent, error) {
+func (s *DBStore) ListAgents(ctx context.Context) ([]config.Agent, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -146,7 +147,7 @@ func (s *DBStore) ListAgents(ctx context.Context) ([]Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
-	out := make([]Agent, len(rows))
+	out := make([]config.Agent, len(rows))
 	for i, r := range rows {
 		agent, err := agentFromDB(r)
 		if err != nil {
@@ -157,7 +158,7 @@ func (s *DBStore) ListAgents(ctx context.Context) ([]Agent, error) {
 	return out, nil
 }
 
-func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
+func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]config.Agent, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -166,7 +167,7 @@ func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list enabled agents: %w", err)
 	}
-	out := make([]Agent, len(rows))
+	out := make([]config.Agent, len(rows))
 	for i, r := range rows {
 		agent, err := agentFromDB(r)
 		if err != nil {
@@ -177,7 +178,7 @@ func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 	return out, nil
 }
 
-func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]Agent, error) {
+func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]config.Agent, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -189,7 +190,7 @@ func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 	if err != nil {
 		return nil, fmt.Errorf("list accessible agents: %w", err)
 	}
-	out := make([]Agent, len(rows))
+	out := make([]config.Agent, len(rows))
 	for i, r := range rows {
 		agent, err := agentFromDB(r)
 		if err != nil {
@@ -200,23 +201,23 @@ func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 	return out, nil
 }
 
-func (s *DBStore) GetAgent(ctx context.Context, id string) (Agent, error) {
+func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
-		return Agent{}, err
+		return config.Agent{}, err
 	}
 	r, err := s.q.GetAgent(ctx, sqlc.GetAgentParams{ID: id, OrgID: orgID})
 	if err != nil {
-		return Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
 	agent, err := agentFromDB(r)
 	if err != nil {
-		return Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
 	return agent, nil
 }
 
-func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
+func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
@@ -230,7 +231,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	}
 	scope := a.Scope
 	if scope == "" {
-		scope = AgentScopeSystem
+		scope = config.AgentScopeSystem
 	}
 	if err := a.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("create agent %q: %w", a.ID, err)
@@ -261,7 +262,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	return nil
 }
 
-func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
+func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
@@ -272,7 +273,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	}
 	scope := a.Scope
 	if scope == "" {
-		scope = AgentScopeSystem
+		scope = config.AgentScopeSystem
 	}
 	if err := a.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
@@ -319,7 +320,7 @@ func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
 
 // --- Channels ---
 
-func (s *DBStore) ListChannels(ctx context.Context) ([]Channel, error) {
+func (s *DBStore) ListChannels(ctx context.Context) ([]config.Channel, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -328,14 +329,14 @@ func (s *DBStore) ListChannels(ctx context.Context) ([]Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
-	out := make([]Channel, len(rows))
+	out := make([]config.Channel, len(rows))
 	for i, r := range rows {
 		out[i] = channelFromDB(r)
 	}
 	return out, nil
 }
 
-func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error) {
+func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([]config.Channel, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -347,26 +348,26 @@ func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([
 	if err != nil {
 		return nil, fmt.Errorf("list %s channels: %w", channelType, err)
 	}
-	out := make([]Channel, len(rows))
+	out := make([]config.Channel, len(rows))
 	for i, r := range rows {
 		out[i] = channelFromDB(r)
 	}
 	return out, nil
 }
 
-func (s *DBStore) GetChannel(ctx context.Context, id string) (Channel, error) {
+func (s *DBStore) GetChannel(ctx context.Context, id string) (config.Channel, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
-		return Channel{}, err
+		return config.Channel{}, err
 	}
 	r, err := s.q.GetChannel(ctx, sqlc.GetChannelParams{ID: id, OrgID: orgID})
 	if err != nil {
-		return Channel{}, fmt.Errorf("get channel %q: %w", id, err)
+		return config.Channel{}, fmt.Errorf("get channel %q: %w", id, err)
 	}
 	return channelFromDB(r), nil
 }
 
-func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
+func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
@@ -410,7 +411,7 @@ func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {
 
 // --- Plugins ---
 
-func (s *DBStore) ListPlugins(ctx context.Context) ([]Plugin, error) {
+func (s *DBStore) ListPlugins(ctx context.Context) ([]config.Plugin, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -419,14 +420,14 @@ func (s *DBStore) ListPlugins(ctx context.Context) ([]Plugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list plugins: %w", err)
 	}
-	out := make([]Plugin, len(rows))
+	out := make([]config.Plugin, len(rows))
 	for i, r := range rows {
 		out[i] = pluginFromDB(r)
 	}
 	return out, nil
 }
 
-func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error) {
+func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]config.Plugin, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -438,14 +439,14 @@ func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin,
 	if err != nil {
 		return nil, fmt.Errorf("list plugins by kind %q: %w", kind, err)
 	}
-	out := make([]Plugin, len(rows))
+	out := make([]config.Plugin, len(rows))
 	for i, r := range rows {
 		out[i] = pluginFromDB(r)
 	}
 	return out, nil
 }
 
-func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
+func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]config.Plugin, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -454,26 +455,26 @@ func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list enabled plugins: %w", err)
 	}
-	out := make([]Plugin, len(rows))
+	out := make([]config.Plugin, len(rows))
 	for i, r := range rows {
 		out[i] = pluginFromDB(r)
 	}
 	return out, nil
 }
 
-func (s *DBStore) GetPlugin(ctx context.Context, id string) (Plugin, error) {
+func (s *DBStore) GetPlugin(ctx context.Context, id string) (config.Plugin, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
-		return Plugin{}, err
+		return config.Plugin{}, err
 	}
 	r, err := s.q.GetPlugin(ctx, sqlc.GetPluginParams{ID: id, OrgID: orgID})
 	if err != nil {
-		return Plugin{}, fmt.Errorf("get plugin %q: %w", id, err)
+		return config.Plugin{}, fmt.Errorf("get plugin %q: %w", id, err)
 	}
 	return pluginFromDB(r), nil
 }
 
-func (s *DBStore) UpsertPlugin(ctx context.Context, p Plugin) error {
+func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
@@ -512,12 +513,12 @@ func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool)
 	})
 }
 
-func (s *DBStore) SetPluginConfig(ctx context.Context, id string, config map[string]any) error {
+func (s *DBStore) SetPluginConfig(ctx context.Context, id string, cfg map[string]any) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
 	}
-	configJSON, err := json.Marshal(config)
+	configJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", id, err)
 	}
@@ -629,7 +630,7 @@ func (s *DBStore) SetSetting(ctx context.Context, key, value string) error {
 
 // --- Snapshot ---
 
-func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, error) {
+func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapshot, error) {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return nil, err
@@ -643,51 +644,24 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
 	}
-	plugins := make([]Plugin, len(pluginRows))
+	plugins := make([]config.Plugin, len(pluginRows))
 	for i, r := range pluginRows {
 		plugins[i] = pluginFromDB(r)
 	}
 
-	provIDs := collectProviderIDs(ag.Model, ag.ModelStrong, ag.ModelFast)
-	providerRows, err := s.q.ListProviders(ctx, orgID)
+	providers, defaultCreds, err := s.resolveProviders(ctx, orgID, ag.Model, ag.ModelStrong, ag.ModelFast)
 	if err != nil {
-		return nil, fmt.Errorf("snapshot: list providers: %w", err)
-	}
-	providerByID := make(map[string]Provider, len(providerRows))
-	providerTypeCount := make(map[string]int, len(providerRows))
-	for _, row := range providerRows {
-		provider := providerFromDB(row)
-		applyProviderEnvFallback(&provider)
-		providerByID[provider.ID] = provider
-		if provider.Type != "" {
-			providerTypeCount[provider.Type]++
-		}
-	}
-	for _, provider := range providerByID {
-		if provider.Type == "" || providerTypeCount[provider.Type] != 1 {
-			continue
-		}
-		if _, exists := providerByID[provider.Type]; !exists {
-			providerByID[provider.Type] = provider
-		}
+		return nil, err
 	}
 
-	providers := make(map[string]ProviderCreds, len(provIDs))
-	for _, pid := range provIDs {
-		if provider, ok := providerByID[pid]; ok {
-			providers[pid] = ProviderCreds{Type: provider.Type, APIKey: provider.APIKey, BaseURL: provider.BaseURL}
-		}
-	}
-
-	defaultProvID, _ := ParseModelRef(ag.Model)
-	defaultCreds := providers[defaultProvID]
+	defaultProvID, _ := config.ParseModelRef(ag.Model)
 
 	sandboxCfg, err := parseSandboxConfig(ag.Sandbox)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: parse agent sandbox config %q: %w", agentID, err)
 	}
 
-	snap := &Snapshot{
+	snap := &config.Snapshot{
 		AgentID:      agentID,
 		Provider:     defaultProvID,
 		Model:        ag.Model,
@@ -703,7 +677,6 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		Plugins:      plugins,
 	}
 
-	// Load settings.
 	if val, err := s.GetSetting(ctx, "runner"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Runner)
 	}
@@ -716,7 +689,6 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	if val, err := s.GetSetting(ctx, "scheduler"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Scheduler)
 	}
-	// Apply defaults.
 	if snap.Runner.Type == "" {
 		snap.Runner.Type = "go"
 	}
@@ -727,9 +699,51 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	return snap, nil
 }
 
+func (s *DBStore) resolveProviders(ctx context.Context, orgID string, models ...string) (map[string]config.ProviderCreds, config.ProviderCreds, error) {
+	provIDs := collectProviderIDs(models...)
+	rows, err := s.q.ListProviders(ctx, orgID)
+	if err != nil {
+		return nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
+	}
+
+	byID := make(map[string]config.Provider, len(rows))
+	typeCount := make(map[string]int)
+	for _, row := range rows {
+		p := providerFromDB(row)
+		applyProviderEnvFallback(&p)
+		byID[p.ID] = p
+		if p.Type != "" {
+			typeCount[p.Type]++
+		}
+	}
+	// Alias: if only one provider of a type exists, allow lookup by type name.
+	for _, p := range byID {
+		if p.Type != "" && typeCount[p.Type] == 1 {
+			if _, exists := byID[p.Type]; !exists {
+				byID[p.Type] = p
+			}
+		}
+	}
+
+	creds := make(map[string]config.ProviderCreds, len(provIDs))
+	for _, pid := range provIDs {
+		if p, ok := byID[pid]; ok {
+			creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL}
+		}
+	}
+
+	var defaultModel string
+	if len(models) > 0 {
+		defaultModel = models[0]
+	}
+	defaultProvID, _ := config.ParseModelRef(defaultModel)
+	defaultCreds := creds[defaultProvID]
+
+	return creds, defaultCreds, nil
+}
+
 // --- Bootstrap ---
 
-// defaultStellaSoul is the default system prompt for the stella agent.
 const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI assistant.
 
 - Warm but not chatty. Friendly but not performative.
@@ -738,10 +752,8 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 - Own your mistakes quickly. No hedging or over-apologizing.
 - Use humor sparingly and naturally — never forced.`
 
-// SeedDefaults populates the DB with sensible defaults on first bootstrap.
-// It is idempotent: if providers/agents already exist, it does nothing.
 func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
-	ctx = WithOrgID(ctx, orgID)
+	ctx = config.WithOrgID(ctx, orgID)
 	if err := s.seedPlugins(ctx, orgID); err != nil {
 		return err
 	}
@@ -759,8 +771,8 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 	if len(agents) > 0 {
 		return nil
 	}
-	workspace := filepath.Join(StellaHome(), "workspaces", "stella")
-	sandboxJSON, err := marshalSandboxConfig(SandboxConfig{})
+	workspace := filepath.Join(config.StellaHome(), "workspaces", "stella")
+	sandboxJSON, err := marshalSandboxConfig(config.SandboxConfig{})
 	if err != nil {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
@@ -771,12 +783,12 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:                   uuid.NewString(),
 		Name:                 "Stella",
-		Model:                DefaultAgentModelRef(providers),
+		Model:                config.DefaultAgentModelRef(providers),
 		SystemPrompt:         defaultStellaSoul,
 		Workspace:            workspace,
 		Sandbox:              sandboxJSON,
 		EnabledBuiltinSkills: "[]",
-		Scope:                AgentScopeSystem,
+		Scope:                config.AgentScopeSystem,
 		Enabled:              1,
 		OrgID:                orgID,
 	})
@@ -787,12 +799,8 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 	return nil
 }
 
-// seedPlugins seeds built-in plugin rows. Channel plugin rows only carry
-// platform-level enablement; channel instance config lives in settings_channel.
 func (s *DBStore) seedPlugins(ctx context.Context, orgID string) error {
-	// Seed all built-in plugins with INSERT OR IGNORE to preserve
-	// user-modified state.
-	if err := s.seedBuiltinPlugins(ctx, orgID, PluginKindTool, builtinToolNames, func(name string) int64 {
+	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindTool, config.BuiltinToolNames, func(name string) int64 {
 		switch name {
 		case "mcp", "webfetch":
 			return 0
@@ -802,29 +810,28 @@ func (s *DBStore) seedPlugins(ctx context.Context, orgID string) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, PluginKindChannel, builtinChannelNames, nil); err != nil {
+	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindChannel, config.BuiltinChannelNames, nil); err != nil {
 		return err
 	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, PluginKindHook, builtinHookNames, nil); err != nil {
+	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindHook, config.BuiltinHookNames, nil); err != nil {
 		return err
 	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, PluginKindMemory, builtinMemoryNames, func(name string) int64 {
+	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindMemory, config.BuiltinMemoryNames, func(name string) int64 {
 		if name == "simple" {
-			return 0 // simple is opt-in; lcm is the default
+			return 0
 		}
 		return 1
 	}); err != nil {
 		return err
 	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, PluginKindSandbox, builtinSandboxNames, func(name string) int64 {
-		if name == SandboxBackendLocal {
-			return 1 // local is the default active backend
+	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindSandbox, config.BuiltinSandboxNames, func(name string) int64 {
+		if name == config.SandboxBackendLocal {
+			return 1
 		}
 		return 0
 	}); err != nil {
 		return err
 	}
-	// Seed the reflect plugin (conversation review).
 	if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 		ID:      "reflect",
 		Kind:    "reflect",
@@ -852,11 +859,11 @@ func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error 
 		}
 		existingTypes[t] = true
 	}
-	for _, name := range builtinChannelNames {
+	for _, name := range config.BuiltinChannelNames {
 		if existingTypes[name] {
 			continue
 		}
-		if err := s.UpsertChannel(ctx, Channel{
+		if err := s.UpsertChannel(ctx, config.Channel{
 			ID:      uuid.NewString(),
 			Type:    name,
 			Enabled: true,
@@ -876,7 +883,7 @@ func (s *DBStore) seedBuiltinPlugins(ctx context.Context, orgID string, kind str
 			enabled = enabledFor(name)
 		}
 		if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-			ID:      PluginID(kind, name),
+			ID:      config.PluginID(kind, name),
 			Kind:    kind,
 			Name:    name,
 			Enabled: enabled,
@@ -889,30 +896,6 @@ func (s *DBStore) seedBuiltinPlugins(ctx context.Context, orgID string, kind str
 	return nil
 }
 
-// --- Helpers ---
-
-func marshalSandboxConfig(cfg SandboxConfig) (string, error) {
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		return "", fmt.Errorf("marshal sandbox config: %w", err)
-	}
-	return string(data), nil
-}
-
-func parseSandboxConfig(raw string) (SandboxConfig, error) {
-	var cfg SandboxConfig
-	if raw == "" {
-		return cfg, nil
-	}
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		return SandboxConfig{}, fmt.Errorf("parse sandbox config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return SandboxConfig{}, err
-	}
-	return cfg, nil
-}
-
 func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
 	providers, err := s.q.ListProviders(ctx, orgID)
 	if err != nil {
@@ -922,8 +905,8 @@ func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
 		return nil
 	}
 
-	for _, name := range builtinProviderNames {
-		provider := Provider{
+	for _, name := range config.BuiltinProviderNames {
+		provider := config.Provider{
 			ID:      uuid.NewString(),
 			Type:    name,
 			Name:    name,
@@ -947,14 +930,38 @@ func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
 	return nil
 }
 
-func providerFromDB(r sqlc.SettingsProvider) Provider {
+// --- Helpers ---
+
+func marshalSandboxConfig(cfg config.SandboxConfig) (string, error) {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal sandbox config: %w", err)
+	}
+	return string(data), nil
+}
+
+func parseSandboxConfig(raw string) (config.SandboxConfig, error) {
+	var cfg config.SandboxConfig
+	if raw == "" {
+		return cfg, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return config.SandboxConfig{}, fmt.Errorf("parse sandbox config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return config.SandboxConfig{}, err
+	}
+	return cfg, nil
+}
+
+func providerFromDB(r sqlc.SettingsProvider) config.Provider {
 	cfg := map[string]any{}
 	if r.Config != "" {
 		_ = json.Unmarshal([]byte(r.Config), &cfg)
 	}
 	apiKey, _ := cfg["api_key"].(string)
 	baseURL, _ := cfg["base_url"].(string)
-	return Provider{
+	return config.Provider{
 		ID:      r.ID,
 		Type:    r.Type,
 		Name:    providerDisplayName(r.Name, r.ID),
@@ -967,12 +974,12 @@ func providerFromDB(r sqlc.SettingsProvider) Provider {
 }
 
 type providerConfigPayload struct {
-	APIKey  string                   `json:"api_key"`
-	BaseURL string                   `json:"base_url"`
-	Models  map[string]ProviderModel `json:"models,omitempty"`
+	APIKey  string                          `json:"api_key"`
+	BaseURL string                          `json:"base_url"`
+	Models  map[string]config.ProviderModel `json:"models,omitempty"`
 }
 
-func providerConfig(p Provider) providerConfigPayload {
+func providerConfig(p config.Provider) providerConfigPayload {
 	return providerConfigPayload{
 		APIKey:  p.APIKey,
 		BaseURL: p.BaseURL,
@@ -980,14 +987,14 @@ func providerConfig(p Provider) providerConfigPayload {
 	}
 }
 
-func providerType(p Provider) string {
+func providerType(p config.Provider) string {
 	if p.Type != "" {
 		return p.Type
 	}
 	return p.ID
 }
 
-func providerName(p Provider) string {
+func providerName(p config.Provider) string {
 	if p.Name != "" {
 		return p.Name
 	}
@@ -1008,11 +1015,11 @@ func boolToInt64(value bool) int64 {
 	return 0
 }
 
-func normalizeProviderModels(models map[string]ProviderModel) map[string]ProviderModel {
+func normalizeProviderModels(models map[string]config.ProviderModel) map[string]config.ProviderModel {
 	if len(models) == 0 {
 		return nil
 	}
-	out := make(map[string]ProviderModel, len(models))
+	out := make(map[string]config.ProviderModel, len(models))
 	for id, model := range models {
 		if model.ID == "" {
 			model.ID = id
@@ -1020,15 +1027,12 @@ func normalizeProviderModels(models map[string]ProviderModel) map[string]Provide
 		if model.Name == "" {
 			model.Name = id
 		}
-		if !model.Enabled {
-			model.Enabled = false
-		}
 		out[id] = model
 	}
 	return out
 }
 
-func providerModelsFromAny(value any) map[string]ProviderModel {
+func providerModelsFromAny(value any) map[string]config.ProviderModel {
 	if value == nil {
 		return nil
 	}
@@ -1036,13 +1040,13 @@ func providerModelsFromAny(value any) map[string]ProviderModel {
 	if !ok {
 		return nil
 	}
-	models := make(map[string]ProviderModel, len(rawModels))
+	models := make(map[string]config.ProviderModel, len(rawModels))
 	for id, raw := range rawModels {
 		data, err := json.Marshal(raw)
 		if err != nil {
 			continue
 		}
-		var model ProviderModel
+		var model config.ProviderModel
 		if err := json.Unmarshal(data, &model); err != nil {
 			continue
 		}
@@ -1061,16 +1065,13 @@ func providerModelsFromAny(value any) map[string]ProviderModel {
 	return models
 }
 
-// providerEnvVars maps provider slugs to their (apiKey, baseURL) env var names.
 var providerEnvVars = map[string][2]string{
 	"anthropic":       {"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"},
 	"openai":          {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
 	"openai-response": {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
 }
 
-// applyProviderEnvFallback fills empty API key and base URL from environment
-// variables for known provider slugs.
-func applyProviderEnvFallback(p *Provider) {
+func applyProviderEnvFallback(p *config.Provider) {
 	providerKey := p.Type
 	if providerKey == "" {
 		providerKey = p.ID
@@ -1089,16 +1090,16 @@ func envFallback(dst *string, envKey string) {
 	}
 }
 
-func agentFromDB(r sqlc.SettingsAgent) (Agent, error) {
+func agentFromDB(r sqlc.SettingsAgent) (config.Agent, error) {
 	scope := r.Scope
 	if scope == "" {
-		scope = AgentScopeSystem
+		scope = config.AgentScopeSystem
 	}
 	sandboxCfg, err := parseSandboxConfig(r.Sandbox)
 	if err != nil {
-		return Agent{}, fmt.Errorf("parse agent %q sandbox config: %w", r.ID, err)
+		return config.Agent{}, fmt.Errorf("parse agent %q sandbox config: %w", r.ID, err)
 	}
-	return Agent{
+	return config.Agent{
 		ID:           r.ID,
 		Name:         r.Name,
 		Model:        r.Model,
@@ -1115,7 +1116,6 @@ func agentFromDB(r sqlc.SettingsAgent) (Agent, error) {
 	}, nil
 }
 
-// collectProviderIDs extracts unique provider IDs from model refs.
 func collectProviderIDs(models ...string) []string {
 	seen := make(map[string]bool)
 	var out []string
@@ -1123,7 +1123,7 @@ func collectProviderIDs(models ...string) []string {
 		if m == "" {
 			continue
 		}
-		pid, _ := ParseModelRef(m)
+		pid, _ := config.ParseModelRef(m)
 		if pid != "" && !seen[pid] {
 			seen[pid] = true
 			out = append(out, pid)
@@ -1132,7 +1132,7 @@ func collectProviderIDs(models ...string) []string {
 	return out
 }
 
-func pluginFromDB(r sqlc.SettingsPlugin) Plugin {
+func pluginFromDB(r sqlc.SettingsPlugin) config.Plugin {
 	var cfg map[string]any
 	if r.Config != "" && r.Config != "{}" {
 		_ = json.Unmarshal([]byte(r.Config), &cfg)
@@ -1140,7 +1140,7 @@ func pluginFromDB(r sqlc.SettingsPlugin) Plugin {
 	if cfg == nil {
 		cfg = make(map[string]any)
 	}
-	return Plugin{
+	return config.Plugin{
 		ID:      r.ID,
 		Kind:    r.Kind,
 		Name:    r.Name,
@@ -1150,7 +1150,7 @@ func pluginFromDB(r sqlc.SettingsPlugin) Plugin {
 	}
 }
 
-func channelFromDB(r sqlc.SettingsChannel) Channel {
+func channelFromDB(r sqlc.SettingsChannel) config.Channel {
 	agentID := ""
 	if r.AgentID.Valid {
 		agentID = r.AgentID.String
@@ -1159,7 +1159,7 @@ func channelFromDB(r sqlc.SettingsChannel) Channel {
 	if channelType == "" {
 		channelType = r.ID
 	}
-	return Channel{
+	return config.Channel{
 		ID:      r.ID,
 		Type:    channelType,
 		AgentID: agentID,

@@ -30,6 +30,7 @@ import (
 	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/skills"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	mcp "github.com/CherryHQ/stella/internal/tools/mcp"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -68,7 +69,7 @@ func ensureTemplateDB() string {
 		if err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: EnsureDefaultOrg: %v", err))
 		}
-		store := config.NewDBStore(db)
+		store := cfgstore.NewDBStore(db)
 		if err := store.SeedDefaults(ctx, orgID); err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: SeedDefaults: %v", err))
 		}
@@ -129,7 +130,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	store := config.NewDBStore(db)
+	store := cfgstore.NewDBStore(db)
 	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
 	if err != nil {
 		t.Fatalf("EnsureDefaultOrg: %v", err)

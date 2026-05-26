@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 
 	"github.com/google/uuid"
@@ -56,7 +57,7 @@ func setupStores(t *testing.T) testStores {
 	if err != nil {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
-	store := config.NewDBStore(db)
+	store := cfgstore.NewDBStore(db)
 	ctx := config.WithOrgID(context.Background(), orgID)
 	if err := store.SeedDefaults(ctx, orgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)

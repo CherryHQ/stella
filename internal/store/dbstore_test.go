@@ -1,4 +1,4 @@
-package config
+package store_test
 
 import (
 	"context"
@@ -6,22 +6,24 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/store"
 )
 
 const testOrgID = "test-org-id"
 
 func testCtx() context.Context {
-	return WithOrgID(context.Background(), testOrgID)
+	return config.WithOrgID(context.Background(), testOrgID)
 }
 
-func setupDBStore(t *testing.T) *DBStore {
+func setupDBStore(t *testing.T) *store.DBStore {
 	t.Helper()
-	store, _ := setupDBStoreWithDB(t)
-	return store
+	s, _ := setupDBStoreWithDB(t)
+	return s
 }
 
-func setupDBStoreWithDB(t *testing.T) (*DBStore, *sql.DB) {
+func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *sql.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := appdb.OpenDB(dbPath)
@@ -33,24 +35,24 @@ func setupDBStoreWithDB(t *testing.T) (*DBStore, *sql.DB) {
 	if err != nil {
 		t.Fatalf("create test org: %v", err)
 	}
-	store := NewDBStore(db)
-	return store, db
+	s := store.NewDBStore(db)
+	return s, db
 }
 
 func TestSeedDefaults(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	providers, err := store.ListProviders(ctx)
+	providers, err := s.ListProviders(ctx)
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
 	}
-	if len(providers) != len(builtinProviderNames) {
-		t.Errorf("expected %d providers, got %d", len(builtinProviderNames), len(providers))
+	if len(providers) != len(config.BuiltinProviderNames) {
+		t.Errorf("expected %d providers, got %d", len(config.BuiltinProviderNames), len(providers))
 	}
 	found := false
 	for _, p := range providers {
@@ -62,7 +64,7 @@ func TestSeedDefaults(t *testing.T) {
 		t.Error("expected anthropic provider to be seeded")
 	}
 
-	agents, err := store.ListAgents(ctx)
+	agents, err := s.ListAgents(ctx)
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
@@ -75,17 +77,17 @@ func TestSeedDefaults(t *testing.T) {
 }
 
 func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
+	if err := s.CreateProvider(ctx, config.Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	agents, err := store.ListAgents(ctx)
+	agents, err := s.ListAgents(ctx)
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
@@ -98,32 +100,32 @@ func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 }
 
 func TestSeedDefaultsIdempotent(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("first SeedDefaults: %v", err)
 	}
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("second SeedDefaults: %v", err)
 	}
 
-	providers, _ := store.ListProviders(ctx)
-	if len(providers) != len(builtinProviderNames) {
-		t.Errorf("expected %d providers after double seed, got %d", len(builtinProviderNames), len(providers))
+	providers, _ := s.ListProviders(ctx)
+	if len(providers) != len(config.BuiltinProviderNames) {
+		t.Errorf("expected %d providers after double seed, got %d", len(config.BuiltinProviderNames), len(providers))
 	}
 }
 
 func TestProviderCRUD(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	p := Provider{ID: "openai", Name: "OpenAI", APIKey: "sk-test", BaseURL: "https://api.openai.com"}
-	if err := store.CreateProvider(ctx, p); err != nil {
+	p := config.Provider{ID: "openai", Name: "OpenAI", APIKey: "sk-test", BaseURL: "https://api.openai.com"}
+	if err := s.CreateProvider(ctx, p); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
 
-	got, err := store.GetProvider(ctx, "openai")
+	got, err := s.GetProvider(ctx, "openai")
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
@@ -133,18 +135,18 @@ func TestProviderCRUD(t *testing.T) {
 
 	p.Name = "OpenAI Updated"
 	p.APIKey = "sk-new"
-	if err := store.UpdateProvider(ctx, p); err != nil {
+	if err := s.UpdateProvider(ctx, p); err != nil {
 		t.Fatalf("UpdateProvider: %v", err)
 	}
-	got, _ = store.GetProvider(ctx, "openai")
+	got, _ = s.GetProvider(ctx, "openai")
 	if got.Name != "OpenAI Updated" || got.APIKey != "sk-new" {
 		t.Errorf("after update: %+v", got)
 	}
 
-	if err := store.DeleteProvider(ctx, "openai"); err != nil {
+	if err := s.DeleteProvider(ctx, "openai"); err != nil {
 		t.Fatalf("DeleteProvider: %v", err)
 	}
-	providers, _ := store.ListProviders(ctx)
+	providers, _ := s.ListProviders(ctx)
 	for _, pr := range providers {
 		if pr.ID == "openai" {
 			t.Error("provider should be deleted")
@@ -153,10 +155,10 @@ func TestProviderCRUD(t *testing.T) {
 }
 
 func TestProviderCustomModels(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	wantModels := map[string]ProviderModel{
+	wantModels := map[string]config.ProviderModel{
 		"qwen3.6-plus": {
 			ID:            "qwen3.6-plus",
 			Name:          "Qwen3.6 Plus",
@@ -168,17 +170,17 @@ func TestProviderCustomModels(t *testing.T) {
 			MaxTokens:     65536,
 		},
 	}
-	p := Provider{
+	p := config.Provider{
 		ID:     "openai",
 		Name:   "OpenAI",
 		APIKey: "sk-test",
 		Models: wantModels,
 	}
-	if err := store.CreateProvider(ctx, p); err != nil {
+	if err := s.CreateProvider(ctx, p); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
 
-	got, err := store.GetProvider(ctx, "openai")
+	got, err := s.GetProvider(ctx, "openai")
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
@@ -189,12 +191,12 @@ func TestProviderCustomModels(t *testing.T) {
 		t.Fatalf("custom model should be enabled: %+v", got.Models["qwen3.6-plus"])
 	}
 
-	got.Models["qwen3.5-plus"] = ProviderModel{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", Enabled: false}
-	if err := store.UpdateProvider(ctx, got); err != nil {
+	got.Models["qwen3.5-plus"] = config.ProviderModel{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", Enabled: false}
+	if err := s.UpdateProvider(ctx, got); err != nil {
 		t.Fatalf("UpdateProvider: %v", err)
 	}
 
-	updated, err := store.GetProvider(ctx, "openai")
+	updated, err := s.GetProvider(ctx, "openai")
 	if err != nil {
 		t.Fatalf("GetProvider after update: %v", err)
 	}
@@ -207,17 +209,17 @@ func TestProviderCustomModels(t *testing.T) {
 }
 
 func TestProviderEnvFallback(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic"}); err != nil {
+	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic", Name: "Anthropic"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
 
 	t.Setenv("ANTHROPIC_API_KEY", "env-key")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
 
-	got, err := store.GetProvider(ctx, "anthropic")
+	got, err := s.GetProvider(ctx, "anthropic")
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
@@ -230,15 +232,15 @@ func TestProviderEnvFallback(t *testing.T) {
 }
 
 func TestProviderEnvFallbackOpenAI(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.CreateProvider(ctx, Provider{ID: "openai", Name: "OpenAI"}); err != nil {
+	if err := s.CreateProvider(ctx, config.Provider{ID: "openai", Name: "OpenAI"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
 
 	t.Setenv("OPENAI_API_KEY", "openai-env-key")
-	got, err := store.GetProvider(ctx, "openai")
+	got, err := s.GetProvider(ctx, "openai")
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
@@ -248,25 +250,25 @@ func TestProviderEnvFallbackOpenAI(t *testing.T) {
 }
 
 func TestProviderEnvNoOverwrite(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "db-key"}); err != nil {
+	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic", Name: "Anthropic", APIKey: "db-key"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
 
 	t.Setenv("ANTHROPIC_API_KEY", "env-key")
-	got, _ := store.GetProvider(ctx, "anthropic")
+	got, _ := s.GetProvider(ctx, "anthropic")
 	if got.APIKey != "db-key" {
 		t.Errorf("APIKey = %q, want DB value preserved over env", got.APIKey)
 	}
 }
 
 func TestAgentCRUD(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	a := Agent{
+	a := config.Agent{
 		ID:           "coder",
 		Name:         "Coder",
 		Model:        "anthropic/claude-sonnet-4-6",
@@ -276,11 +278,11 @@ func TestAgentCRUD(t *testing.T) {
 		Workspace:    "/tmp/coder",
 		Enabled:      true,
 	}
-	if err := store.CreateAgent(ctx, a); err != nil {
+	if err := s.CreateAgent(ctx, a); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	got, err := store.GetAgent(ctx, "coder")
+	got, err := s.GetAgent(ctx, "coder")
 	if err != nil {
 		t.Fatalf("GetAgent: %v", err)
 	}
@@ -290,18 +292,18 @@ func TestAgentCRUD(t *testing.T) {
 
 	a.Name = "Coder Updated"
 	a.Enabled = false
-	if err := store.UpdateAgent(ctx, a); err != nil {
+	if err := s.UpdateAgent(ctx, a); err != nil {
 		t.Fatalf("UpdateAgent: %v", err)
 	}
-	got, _ = store.GetAgent(ctx, "coder")
+	got, _ = s.GetAgent(ctx, "coder")
 	if got.Name != "Coder Updated" || got.Enabled {
 		t.Errorf("after update: %+v", got)
 	}
 
-	if err := store.DeleteAgent(ctx, "coder"); err != nil {
+	if err := s.DeleteAgent(ctx, "coder"); err != nil {
 		t.Fatalf("DeleteAgent: %v", err)
 	}
-	agents, _ := store.ListAgents(ctx)
+	agents, _ := s.ListAgents(ctx)
 	for _, ag := range agents {
 		if ag.ID == "coder" {
 			t.Error("agent should be deleted")
@@ -310,13 +312,13 @@ func TestAgentCRUD(t *testing.T) {
 }
 
 func TestListEnabledAgents(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = store.CreateAgent(ctx, Agent{ID: "a1", Name: "A1", Model: "anthropic/m", Enabled: true})
-	_ = store.CreateAgent(ctx, Agent{ID: "a2", Name: "A2", Model: "anthropic/m", Enabled: false})
+	_ = s.CreateAgent(ctx, config.Agent{ID: "a1", Name: "A1", Model: "anthropic/m", Enabled: true})
+	_ = s.CreateAgent(ctx, config.Agent{ID: "a2", Name: "A2", Model: "anthropic/m", Enabled: false})
 
-	enabled, err := store.ListEnabledAgents(ctx)
+	enabled, err := s.ListEnabledAgents(ctx)
 	if err != nil {
 		t.Fatalf("ListEnabledAgents: %v", err)
 	}
@@ -326,15 +328,15 @@ func TestListEnabledAgents(t *testing.T) {
 }
 
 func TestChannelCRUD(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	ch := Channel{ID: "telegram", Enabled: true, Config: `{"token":"abc"}`}
-	if err := store.UpsertChannel(ctx, ch); err != nil {
+	ch := config.Channel{ID: "telegram", Enabled: true, Config: `{"token":"abc"}`}
+	if err := s.UpsertChannel(ctx, ch); err != nil {
 		t.Fatalf("UpsertChannel: %v", err)
 	}
 
-	got, err := store.GetChannel(ctx, "telegram")
+	got, err := s.GetChannel(ctx, "telegram")
 	if err != nil {
 		t.Fatalf("GetChannel: %v", err)
 	}
@@ -345,15 +347,15 @@ func TestChannelCRUD(t *testing.T) {
 	// Upsert update.
 	ch.Config = `{"token":"xyz"}`
 	ch.Enabled = false
-	if err := store.UpsertChannel(ctx, ch); err != nil {
+	if err := s.UpsertChannel(ctx, ch); err != nil {
 		t.Fatalf("UpsertChannel update: %v", err)
 	}
-	got, _ = store.GetChannel(ctx, "telegram")
+	got, _ = s.GetChannel(ctx, "telegram")
 	if got.Enabled || got.Config != `{"token":"xyz"}` {
 		t.Errorf("after upsert: %+v", got)
 	}
 
-	channels, err := store.ListChannels(ctx)
+	channels, err := s.ListChannels(ctx)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
@@ -363,28 +365,28 @@ func TestChannelCRUD(t *testing.T) {
 }
 
 func TestChannelSameIDIsOrgScoped(t *testing.T) {
-	store, db := setupDBStoreWithDB(t)
+	s, db := setupDBStoreWithDB(t)
 	ctx1 := testCtx()
-	ctx2 := WithOrgID(context.Background(), "org-2")
+	ctx2 := config.WithOrgID(context.Background(), "org-2")
 	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, "org-2", "Org 2", "org-2", "test"); err != nil {
 		t.Fatalf("create org 2: %v", err)
 	}
 
-	if err := store.UpsertChannel(ctx1, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org1"}`}); err != nil {
+	if err := s.UpsertChannel(ctx1, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org1"}`}); err != nil {
 		t.Fatalf("UpsertChannel org1: %v", err)
 	}
-	if err := store.UpsertChannel(ctx2, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org2"}`}); err != nil {
+	if err := s.UpsertChannel(ctx2, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org2"}`}); err != nil {
 		t.Fatalf("UpsertChannel org2: %v", err)
 	}
-	if err := store.SetChannelOrg(ctx2, "telegram", "org-2"); err != nil {
+	if err := s.SetChannelOrg(ctx2, "telegram", "org-2"); err != nil {
 		t.Fatalf("SetChannelOrg org2 no-op: %v", err)
 	}
 
-	got1, err := store.GetChannel(ctx1, "telegram")
+	got1, err := s.GetChannel(ctx1, "telegram")
 	if err != nil {
 		t.Fatalf("GetChannel org1: %v", err)
 	}
-	got2, err := store.GetChannel(ctx2, "telegram")
+	got2, err := s.GetChannel(ctx2, "telegram")
 	if err != nil {
 		t.Fatalf("GetChannel org2: %v", err)
 	}
@@ -394,31 +396,31 @@ func TestChannelSameIDIsOrgScoped(t *testing.T) {
 }
 
 func TestChatAgentSameChatIsOrgScoped(t *testing.T) {
-	store, db := setupDBStoreWithDB(t)
+	s, db := setupDBStoreWithDB(t)
 	ctx1 := testCtx()
-	ctx2 := WithOrgID(context.Background(), "org-2")
+	ctx2 := config.WithOrgID(context.Background(), "org-2")
 	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, "org-2", "Org 2", "org-2", "test"); err != nil {
 		t.Fatalf("create org 2: %v", err)
 	}
-	if err := store.CreateAgent(ctx1, Agent{ID: "agent-org-1", Name: "Agent 1", Model: "p/m", Enabled: true}); err != nil {
+	if err := s.CreateAgent(ctx1, config.Agent{ID: "agent-org-1", Name: "Agent 1", Model: "p/m", Enabled: true}); err != nil {
 		t.Fatalf("CreateAgent org1: %v", err)
 	}
-	if err := store.CreateAgent(ctx2, Agent{ID: "agent-org-2", Name: "Agent 2", Model: "p/m", Enabled: true}); err != nil {
+	if err := s.CreateAgent(ctx2, config.Agent{ID: "agent-org-2", Name: "Agent 2", Model: "p/m", Enabled: true}); err != nil {
 		t.Fatalf("CreateAgent org2: %v", err)
 	}
 
-	if err := store.SetChatAgent(ctx1, "telegram", "telegram", "chat-1", "agent-org-1"); err != nil {
+	if err := s.SetChatAgent(ctx1, "telegram", "telegram", "chat-1", "agent-org-1"); err != nil {
 		t.Fatalf("SetChatAgent org1: %v", err)
 	}
-	if err := store.SetChatAgent(ctx2, "telegram", "telegram", "chat-1", "agent-org-2"); err != nil {
+	if err := s.SetChatAgent(ctx2, "telegram", "telegram", "chat-1", "agent-org-2"); err != nil {
 		t.Fatalf("SetChatAgent org2: %v", err)
 	}
 
-	got1, err := store.GetChatAgent(ctx1, "telegram", "telegram", "chat-1")
+	got1, err := s.GetChatAgent(ctx1, "telegram", "telegram", "chat-1")
 	if err != nil {
 		t.Fatalf("GetChatAgent org1: %v", err)
 	}
-	got2, err := store.GetChatAgent(ctx2, "telegram", "telegram", "chat-1")
+	got2, err := s.GetChatAgent(ctx2, "telegram", "telegram", "chat-1")
 	if err != nil {
 		t.Fatalf("GetChatAgent org2: %v", err)
 	}
@@ -428,16 +430,16 @@ func TestChatAgentSameChatIsOrgScoped(t *testing.T) {
 }
 
 func TestChatAgentCRUD(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
+	_ = s.CreateAgent(ctx, config.Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
 
-	if err := store.SetChatAgent(ctx, "telegram", "telegram", "group-42", "agent1"); err != nil {
+	if err := s.SetChatAgent(ctx, "telegram", "telegram", "group-42", "agent1"); err != nil {
 		t.Fatalf("SetChatAgent: %v", err)
 	}
 
-	agentID, err := store.GetChatAgent(ctx, "telegram", "telegram", "group-42")
+	agentID, err := s.GetChatAgent(ctx, "telegram", "telegram", "group-42")
 	if err != nil {
 		t.Fatalf("GetChatAgent: %v", err)
 	}
@@ -445,22 +447,21 @@ func TestChatAgentCRUD(t *testing.T) {
 		t.Errorf("agentID = %q, want %q", agentID, "agent1")
 	}
 
-	if err := store.DeleteChatAgent(ctx, "telegram", "telegram", "group-42"); err != nil {
+	if err := s.DeleteChatAgent(ctx, "telegram", "telegram", "group-42"); err != nil {
 		t.Fatalf("DeleteChatAgent: %v", err)
 	}
 
-	_, err = store.GetChatAgent(ctx, "telegram", "telegram", "group-42")
+	_, err = s.GetChatAgent(ctx, "telegram", "telegram", "group-42")
 	if err == nil {
 		t.Error("expected error after delete")
 	}
 }
 
 func TestSettings(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	// Empty by default.
-	val, err := store.GetSetting(ctx, "runner")
+	val, err := s.GetSetting(ctx, "runner")
 	if err != nil {
 		t.Fatalf("GetSetting: %v", err)
 	}
@@ -468,36 +469,35 @@ func TestSettings(t *testing.T) {
 		t.Errorf("expected empty, got %q", val)
 	}
 
-	if err := store.SetSetting(ctx, "runner", `{"type":"go"}`); err != nil {
+	if err := s.SetSetting(ctx, "runner", `{"type":"go"}`); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
 
-	val, _ = store.GetSetting(ctx, "runner")
+	val, _ = s.GetSetting(ctx, "runner")
 	if val != `{"type":"go"}` {
 		t.Errorf("setting = %q", val)
 	}
 
-	// Overwrite.
-	_ = store.SetSetting(ctx, "runner", `{"type":"docker"}`)
-	val, _ = store.GetSetting(ctx, "runner")
+	_ = s.SetSetting(ctx, "runner", `{"type":"docker"}`)
+	val, _ = s.GetSetting(ctx, "runner")
 	if val != `{"type":"docker"}` {
 		t.Errorf("setting = %q", val)
 	}
 }
 
 func TestSnapshot(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = store.SeedDefaults(ctx, testOrgID)
+	_ = s.SeedDefaults(ctx, testOrgID)
 
-	agents, err := store.ListAgents(ctx)
+	agents, err := s.ListAgents(ctx)
 	if err != nil || len(agents) == 0 {
 		t.Fatalf("ListAgents: %v (count=%d)", err, len(agents))
 	}
 	stellaID := agents[0].ID
 
-	providers, err := store.ListProviders(ctx)
+	providers, err := s.ListProviders(ctx)
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
 	}
@@ -508,32 +508,32 @@ func TestSnapshot(t *testing.T) {
 			break
 		}
 	}
-	_ = store.UpdateProvider(ctx, Provider{ID: anthropicID, Type: "anthropic", Name: "Anthropic", APIKey: "sk-test", Enabled: true})
-	_ = store.UpdateAgent(ctx, Agent{
+	_ = s.UpdateProvider(ctx, config.Provider{ID: anthropicID, Type: "anthropic", Name: "Anthropic", APIKey: "sk-test", Enabled: true})
+	_ = s.UpdateAgent(ctx, config.Agent{
 		ID:           stellaID,
 		Name:         "Stella",
 		Model:        "anthropic/claude-sonnet-4-6",
 		ModelStrong:  "anthropic/claude-opus-4-6",
 		SystemPrompt: "You are Stella.",
 		Workspace:    "/tmp/stella",
-		Sandbox: SandboxConfig{
-			Network: SandboxNetworkConfig{Mode: SandboxNetworkAllowAll},
+		Sandbox: config.SandboxConfig{
+			Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkAllowAll},
 		},
 		Enabled: true,
 	})
 
-	_ = store.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
-	_ = store.SetSetting(ctx, "compaction", `{"enabled":true}`)
+	_ = s.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
+	_ = s.SetSetting(ctx, "compaction", `{"enabled":true}`)
 
-	_ = store.UpsertPlugin(ctx, Plugin{
+	_ = s.UpsertPlugin(ctx, config.Plugin{
 		ID:      "tool/custom",
-		Kind:    PluginKindTool,
+		Kind:    config.PluginKindTool,
 		Name:    "custom",
 		Enabled: true,
 		Config:  map[string]any{"mode": "test"},
 	})
 
-	snap, err := store.Snapshot(ctx, stellaID)
+	snap, err := s.Snapshot(ctx, stellaID)
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
@@ -559,14 +559,12 @@ func TestSnapshot(t *testing.T) {
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
 	}
-	if snap.Sandbox.NetworkMode() != SandboxNetworkAllowAll {
+	if snap.Sandbox.NetworkMode() != config.SandboxNetworkAllowAll {
 		t.Errorf("Sandbox.NetworkMode() = %q", snap.Sandbox.NetworkMode())
 	}
-	// built-in + 1 custom plugin.
-	if len(snap.Plugins) != len(BuiltinPluginIDs())+1 {
-		t.Errorf("expected %d plugins, got %d", len(BuiltinPluginIDs())+1, len(snap.Plugins))
+	if len(snap.Plugins) != len(config.BuiltinPluginIDs())+1 {
+		t.Errorf("expected %d plugins, got %d", len(config.BuiltinPluginIDs())+1, len(snap.Plugins))
 	}
-	// Verify custom plugin is present.
 	found := false
 	for _, p := range snap.Plugins {
 		if p.ID == "tool/custom" && p.Config["mode"] == "test" {
@@ -580,17 +578,17 @@ func TestSnapshot(t *testing.T) {
 }
 
 func TestSnapshotResolvesUniqueProviderTypeAlias(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude", APIKey: "sk-claude"}); err != nil {
+	if err := s.CreateProvider(ctx, config.Provider{ID: "claude", Type: "anthropic", Name: "Claude", APIKey: "sk-claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
-	if err := store.CreateAgent(ctx, Agent{ID: "stella", Name: "Stella", Model: "anthropic/claude-sonnet-4-6", Enabled: true}); err != nil {
+	if err := s.CreateAgent(ctx, config.Agent{ID: "stella", Name: "Stella", Model: "anthropic/claude-sonnet-4-6", Enabled: true}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	snap, err := store.Snapshot(ctx, "stella")
+	snap, err := s.Snapshot(ctx, "stella")
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
@@ -611,13 +609,13 @@ func TestSnapshotResolvesUniqueProviderTypeAlias(t *testing.T) {
 }
 
 func TestSnapshotDefaults(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = store.SeedDefaults(ctx, testOrgID)
-	_ = store.CreateAgent(ctx, Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
+	_ = s.SeedDefaults(ctx, testOrgID)
+	_ = s.CreateAgent(ctx, config.Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
 
-	snap, err := store.Snapshot(ctx, "a")
+	snap, err := s.Snapshot(ctx, "a")
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
@@ -630,25 +628,25 @@ func TestSnapshotDefaults(t *testing.T) {
 }
 
 func TestSnapshotNotFound(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_, err := store.Snapshot(ctx, "nonexistent")
+	_, err := s.Snapshot(ctx, "nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent agent")
 	}
 }
 
 func TestCreateAgentRejectsInvalidSandbox(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	err := store.CreateAgent(ctx, Agent{
+	err := s.CreateAgent(ctx, config.Agent{
 		ID:      "bad-sandbox",
 		Name:    "Bad Sandbox",
 		Model:   "anthropic/m",
 		Enabled: true,
-		Sandbox: SandboxConfig{Network: SandboxNetworkConfig{Mode: "bogus"}},
+		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: "bogus"}},
 	})
 	if err == nil {
 		t.Fatal("expected invalid sandbox config error")
@@ -656,55 +654,52 @@ func TestCreateAgentRejectsInvalidSandbox(t *testing.T) {
 }
 
 func TestGetProviderNotFound(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_, err := store.GetProvider(ctx, "nope")
+	_, err := s.GetProvider(ctx, "nope")
 	if err == nil {
 		t.Error("expected error")
 	}
 }
 
 func TestGetAgentNotFound(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_, err := store.GetAgent(ctx, "nope")
+	_, err := s.GetAgent(ctx, "nope")
 	if err == nil {
 		t.Error("expected error")
 	}
 }
 
 func TestPluginCRUD(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	// Create via Upsert.
-	p := Plugin{
+	p := config.Plugin{
 		ID:      "tool/read",
-		Kind:    PluginKindTool,
+		Kind:    config.PluginKindTool,
 		Name:    "read",
 		Enabled: true,
 		Config:  map[string]any{"timeout": float64(30)},
 	}
-	if err := store.UpsertPlugin(ctx, p); err != nil {
+	if err := s.UpsertPlugin(ctx, p); err != nil {
 		t.Fatalf("UpsertPlugin: %v", err)
 	}
 
-	// Get.
-	got, err := store.GetPlugin(ctx, "tool/read")
+	got, err := s.GetPlugin(ctx, "tool/read")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
-	if got.Kind != PluginKindTool || got.Name != "read" || !got.Enabled {
+	if got.Kind != config.PluginKindTool || got.Name != "read" || !got.Enabled {
 		t.Errorf("GetPlugin = %+v", got)
 	}
 	if got.Config["timeout"] != float64(30) {
 		t.Errorf("Config[timeout] = %v", got.Config["timeout"])
 	}
 
-	// List.
-	all, err := store.ListPlugins(ctx)
+	all, err := s.ListPlugins(ctx)
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
@@ -712,17 +707,15 @@ func TestPluginCRUD(t *testing.T) {
 		t.Errorf("expected 1 plugin, got %d", len(all))
 	}
 
-	// SetEnabled.
-	if err := store.SetPluginEnabled(ctx, "tool/read", false); err != nil {
+	if err := s.SetPluginEnabled(ctx, "tool/read", false); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	got, _ = store.GetPlugin(ctx, "tool/read")
+	got, _ = s.GetPlugin(ctx, "tool/read")
 	if got.Enabled {
 		t.Error("expected disabled")
 	}
 
-	// ListEnabled should be empty now.
-	enabled, err := store.ListEnabledPlugins(ctx)
+	enabled, err := s.ListEnabledPlugins(ctx)
 	if err != nil {
 		t.Fatalf("ListEnabledPlugins: %v", err)
 	}
@@ -730,19 +723,17 @@ func TestPluginCRUD(t *testing.T) {
 		t.Errorf("expected 0 enabled, got %d", len(enabled))
 	}
 
-	// SetConfig.
 	newCfg := map[string]any{"timeout": float64(60), "verbose": true}
-	if err := store.SetPluginConfig(ctx, "tool/read", newCfg); err != nil {
+	if err := s.SetPluginConfig(ctx, "tool/read", newCfg); err != nil {
 		t.Fatalf("SetPluginConfig: %v", err)
 	}
-	got, _ = store.GetPlugin(ctx, "tool/read")
+	got, _ = s.GetPlugin(ctx, "tool/read")
 	if got.Config["timeout"] != float64(60) || got.Config["verbose"] != true {
 		t.Errorf("Config after update = %+v", got.Config)
 	}
 
-	// ListByKind.
-	_ = store.UpsertPlugin(ctx, Plugin{ID: "channel/telegram", Kind: PluginKindChannel, Name: "telegram", Enabled: true, Config: map[string]any{}})
-	tools, err := store.ListPluginsByKind(ctx, PluginKindTool)
+	_ = s.UpsertPlugin(ctx, config.Plugin{ID: "channel/telegram", Kind: config.PluginKindChannel, Name: "telegram", Enabled: true, Config: map[string]any{}})
+	tools, err := s.ListPluginsByKind(ctx, config.PluginKindTool)
 	if err != nil {
 		t.Fatalf("ListPluginsByKind: %v", err)
 	}
@@ -750,38 +741,36 @@ func TestPluginCRUD(t *testing.T) {
 		t.Errorf("ListPluginsByKind(tool) = %+v", tools)
 	}
 
-	// Delete.
-	if err := store.DeletePlugin(ctx, "tool/read"); err != nil {
+	if err := s.DeletePlugin(ctx, "tool/read"); err != nil {
 		t.Fatalf("DeletePlugin: %v", err)
 	}
-	_, err = store.GetPlugin(ctx, "tool/read")
+	_, err = s.GetPlugin(ctx, "tool/read")
 	if err == nil {
 		t.Error("expected error after delete")
 	}
 }
 
 func TestPluginSeedDefaults(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	plugins, err := store.ListPlugins(ctx)
+	plugins, err := s.ListPlugins(ctx)
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
-	if len(plugins) != len(BuiltinPluginIDs()) {
-		t.Fatalf("expected %d built-in plugins, got %d", len(BuiltinPluginIDs()), len(plugins))
+	if len(plugins) != len(config.BuiltinPluginIDs()) {
+		t.Fatalf("expected %d built-in plugins, got %d", len(config.BuiltinPluginIDs()), len(plugins))
 	}
 
-	// Verify all built-in IDs are present.
 	have := make(map[string]bool)
 	for _, p := range plugins {
 		have[p.ID] = true
 	}
-	for _, id := range BuiltinPluginIDs() {
+	for _, id := range config.BuiltinPluginIDs() {
 		if !have[id] {
 			t.Errorf("missing built-in plugin %q", id)
 		}
@@ -789,35 +778,33 @@ func TestPluginSeedDefaults(t *testing.T) {
 }
 
 func TestPluginSeedDefaultsIdempotent(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("first SeedDefaults: %v", err)
 	}
 
-	// User modifies plugin/channel state.
-	if err := store.SetPluginEnabled(ctx, "tool/webfetch", false); err != nil {
+	if err := s.SetPluginEnabled(ctx, "tool/webfetch", false); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	if err := store.UpsertChannel(ctx, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"abc"}`}); err != nil {
+	if err := s.UpsertChannel(ctx, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"abc"}`}); err != nil {
 		t.Fatalf("UpsertChannel: %v", err)
 	}
 
-	// Second seed should NOT overwrite user changes.
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("second SeedDefaults: %v", err)
 	}
 
-	plugins, err := store.ListPlugins(ctx)
+	plugins, err := s.ListPlugins(ctx)
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
-	if len(plugins) != len(BuiltinPluginIDs()) {
-		t.Errorf("expected %d plugins after double seed, got %d", len(BuiltinPluginIDs()), len(plugins))
+	if len(plugins) != len(config.BuiltinPluginIDs()) {
+		t.Errorf("expected %d plugins after double seed, got %d", len(config.BuiltinPluginIDs()), len(plugins))
 	}
 
-	webfetchPlugin, err := store.GetPlugin(ctx, "tool/webfetch")
+	webfetchPlugin, err := s.GetPlugin(ctx, "tool/webfetch")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
@@ -825,7 +812,7 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 		t.Error("expected tool/webfetch to remain disabled after second seed")
 	}
 
-	tgChannel, err := store.GetChannel(ctx, "telegram")
+	tgChannel, err := s.GetChannel(ctx, "telegram")
 	if err != nil {
 		t.Fatalf("GetChannel: %v", err)
 	}
@@ -833,7 +820,7 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 		t.Errorf("expected telegram channel config preserved, got %s", tgChannel.Config)
 	}
 
-	tgPlugin, err := store.GetPlugin(ctx, "channel/telegram")
+	tgPlugin, err := s.GetPlugin(ctx, "channel/telegram")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
@@ -843,18 +830,18 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 }
 
 func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := store.UpsertChannel(ctx, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"tg-123"}`}); err != nil {
+	if err := s.UpsertChannel(ctx, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"tg-123"}`}); err != nil {
 		t.Fatalf("UpsertChannel: %v", err)
 	}
 
-	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
+	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	p, err := store.GetPlugin(ctx, "channel/telegram")
+	p, err := s.GetPlugin(ctx, "channel/telegram")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
@@ -865,7 +852,7 @@ func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
 		t.Errorf("expected channel plugin config to stay empty, got %+v", p.Config)
 	}
 
-	ch, err := store.GetChannel(ctx, "telegram")
+	ch, err := s.GetChannel(ctx, "telegram")
 	if err != nil {
 		t.Fatalf("GetChannel: %v", err)
 	}
@@ -875,10 +862,10 @@ func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
 }
 
 func TestGetChannelNotFound(t *testing.T) {
-	store := setupDBStore(t)
+	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_, err := store.GetChannel(ctx, "nope")
+	_, err := s.GetChannel(ctx, "nope")
 	if err == nil {
 		t.Error("expected error")
 	}

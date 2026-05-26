@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
 type testEnv struct {
@@ -31,7 +32,7 @@ func setupAdminStore(t *testing.T) testEnv {
 	if err != nil {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
-	store := config.NewDBStore(db)
+	store := cfgstore.NewDBStore(db)
 	return testEnv{store: store, orgID: orgID}
 }
 

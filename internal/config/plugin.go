@@ -25,48 +25,48 @@ type Plugin struct {
 // PluginID constructs a plugin ID from kind and name.
 func PluginID(kind, name string) string { return kind + "/" + name }
 
-// builtinToolNames lists the built-in tool plugins.
+// BuiltinToolNames lists the built-in tool plugins.
 // Core tools (read, bash, edit, write) are always-on and no longer managed as plugins.
-var builtinToolNames = []string{"gh", "lark-cli", "mcp", "mise", "tap-web", "webfetch"}
+var BuiltinToolNames = []string{"gh", "lark-cli", "mcp", "mise", "tap-web", "webfetch"}
 
-// builtinChannelNames lists the 4 built-in channel plugins.
-var builtinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
+// BuiltinChannelNames lists the 4 built-in channel plugins.
+var BuiltinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
 
-// builtinHookNames lists the built-in hook plugins.
-var builtinHookNames = []string{"rtk", "trace"}
+// BuiltinHookNames lists the built-in hook plugins.
+var BuiltinHookNames = []string{"rtk", "trace"}
 
-// builtinProviderNames lists the built-in provider types.
-var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
+// BuiltinProviderNames lists the built-in provider types.
+var BuiltinProviderNames = []string{"anthropic", "openai", "openai-response"}
 
-// builtinMemoryNames lists the built-in memory plugins.
-var builtinMemoryNames = []string{"lcm", "simple"}
+// BuiltinMemoryNames lists the built-in memory plugins.
+var BuiltinMemoryNames = []string{"lcm", "simple"}
 
-// builtinSandboxNames lists the built-in sandbox backend plugins.
-var builtinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone}
+// BuiltinSandboxNames lists the built-in sandbox backend plugins.
+var BuiltinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone}
 
-// builtinStandalonePlugins lists plugins that don't follow the kind/name pattern.
-var builtinStandalonePlugins = []string{"reflect"}
+// BuiltinStandalonePlugins lists plugins that don't follow the kind/name pattern.
+var BuiltinStandalonePlugins = []string{"reflect"}
 
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
 // Provider instances are stored separately in settings_provider.
 func BuiltinPluginIDs() []string {
-	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinMemoryNames)+len(builtinSandboxNames)+len(builtinStandalonePlugins))
-	for _, n := range builtinToolNames {
+	ids := make([]string, 0, len(BuiltinToolNames)+len(BuiltinChannelNames)+len(BuiltinHookNames)+len(BuiltinMemoryNames)+len(BuiltinSandboxNames)+len(BuiltinStandalonePlugins))
+	for _, n := range BuiltinToolNames {
 		ids = append(ids, PluginID(PluginKindTool, n))
 	}
-	for _, n := range builtinChannelNames {
+	for _, n := range BuiltinChannelNames {
 		ids = append(ids, PluginID(PluginKindChannel, n))
 	}
-	for _, n := range builtinHookNames {
+	for _, n := range BuiltinHookNames {
 		ids = append(ids, PluginID(PluginKindHook, n))
 	}
-	for _, n := range builtinMemoryNames {
+	for _, n := range BuiltinMemoryNames {
 		ids = append(ids, PluginID(PluginKindMemory, n))
 	}
-	for _, n := range builtinSandboxNames {
+	for _, n := range BuiltinSandboxNames {
 		ids = append(ids, PluginID(PluginKindSandbox, n))
 	}
-	ids = append(ids, builtinStandalonePlugins...)
+	ids = append(ids, BuiltinStandalonePlugins...)
 	return ids
 }
 

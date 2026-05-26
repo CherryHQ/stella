@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/store"
 )
 
 const testOrgID = "test-org-id"
@@ -48,7 +49,7 @@ func createUser(t *testing.T, oidc *appdb.OIDCStore, email string) auth.User {
 // seedAgent creates a test agent (needed for FK constraints on auth_user_agent).
 func seedAgent(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
-	cs := config.NewDBStore(db)
+	cs := store.NewDBStore(db)
 	ctx := config.WithOrgID(context.Background(), testOrgID)
 	if err := cs.CreateAgent(ctx, config.Agent{
 		ID: id, Name: id, Model: "p/m", Workspace: "/tmp/" + id, Enabled: true,

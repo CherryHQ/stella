@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -52,7 +53,7 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 		t.Fatalf("seed user: %v", err)
 	}
 	agentID := "agent1"
-	cs := config.NewDBStore(db)
+	cs := store.NewDBStore(db)
 	orgCtx := config.WithOrgID(ctx, orgID)
 	_ = cs.SeedDefaults(ctx, orgID)
 	if err := cs.CreateAgent(orgCtx, config.Agent{

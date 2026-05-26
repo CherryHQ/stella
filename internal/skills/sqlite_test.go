@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
 // newTestStore opens a fresh in-tmpdir SQLite DB, ensures a default org, and returns a Store.
@@ -53,7 +54,7 @@ func seedFixtures(t *testing.T, db *sql.DB) (string, string, string) {
 	}
 
 	agentID := "agent1"
-	cs := config.NewDBStore(db)
+	cs := cfgstore.NewDBStore(db)
 	orgCtx := config.WithOrgID(ctx, orgID)
 	if err := cs.CreateAgent(orgCtx, config.Agent{
 		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
@@ -257,7 +258,7 @@ func TestVisibilityFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user2: %v", err)
 	}
-	cs := config.NewDBStore(db)
+	cs := cfgstore.NewDBStore(db)
 	if err := cs.CreateAgent(config.WithOrgID(ctx, orgID), config.Agent{
 		ID: "agent2", Name: "agent2", Model: "p/m", Workspace: "/tmp/agent2", Enabled: true, OrgID: orgID,
 	}); err != nil {

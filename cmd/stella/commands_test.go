@@ -14,6 +14,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -209,7 +210,7 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default org: %v", err)
 	}
-	store := config.NewDBStore(db)
+	store := cfgstore.NewDBStore(db)
 	ctx := config.WithOrgID(context.Background(), orgID)
 	if err := store.SeedDefaults(ctx, orgID); err != nil {
 		t.Fatalf("seed defaults: %v", err)

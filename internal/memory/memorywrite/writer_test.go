@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -44,7 +45,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, string, string, func()) 
 
 	// Create test agent (required for FK constraint)
 	agentID := "test-agent-1"
-	store := config.NewDBStore(db)
+	store := cfgstore.NewDBStore(db)
 	orgCtx := config.WithOrgID(ctx, orgID)
 	if err := store.CreateAgent(orgCtx, config.Agent{
 		ID:      agentID,

@@ -14,6 +14,7 @@ import (
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
@@ -54,7 +55,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
 	orgCtx := config.WithOrgID(context.Background(), orgID)
-	store := config.NewDBStore(db)
+	store := cfgstore.NewDBStore(db)
 	if err := store.SeedDefaults(orgCtx, orgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}

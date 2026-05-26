@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/internal/tools"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
@@ -115,7 +116,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	store := config.NewDBStore(db)
+	store := cfgstore.NewDBStore(db)
 
 	if err := ensureEmbeddedAssets(); err != nil {
 		return nil, err
