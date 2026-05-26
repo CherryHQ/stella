@@ -542,6 +542,8 @@ components:
       properties:
         provider:
           type: string
+        provider_name:
+          type: string
         model:
           type: string
     PluginView:

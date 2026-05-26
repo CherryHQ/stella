@@ -455,6 +455,7 @@ export type ComponentsBuiltinResourceDetail = {
 
 export type ComponentsCachedModel = {
   provider: string;
+  provider_name?: string;
   model: string;
 };
 

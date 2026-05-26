@@ -140,10 +140,12 @@ function agentRequestBody(form: Omit<AgentDetail, "id">): CreateAgentData["body"
   };
 }
 
+export type ModelOption = { value: string; label: string };
+
 export interface AgentsSettingsLoaderData {
   agents: AgentDetail[];
   channels: Channel[];
-  cachedModels: string[];
+  cachedModels: ModelOption[];
   isAdmin: boolean;
   currentUserId: string;
   allUsers: User[];
@@ -222,7 +224,10 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   return {
     agents,
     channels,
-    cachedModels: (modelsRaw ?? []).map((m) => `${m.provider}/${m.model}`),
+    cachedModels: (modelsRaw ?? []).map((m) => ({
+      value: `${m.provider}/${m.model}`,
+      label: `${m.provider_name || m.provider}/${m.model}`,
+    })),
     isAdmin,
     currentUserId: me?.id ?? "",
     allUsers,
@@ -240,7 +245,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
 export interface AgentsPageState {
   agents: AgentDetail[];
   channels: Channel[];
-  cachedModels: string[];
+  cachedModels: ModelOption[];
   isAdmin: boolean;
   currentUserId: string;
   allUsers: User[];

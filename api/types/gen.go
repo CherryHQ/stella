@@ -651,8 +651,9 @@ type BuiltinResourceDetail struct {
 
 // CachedModel defines model for CachedModel.
 type CachedModel struct {
-	Model    string `json:"model"`
-	Provider string `json:"provider"`
+	Model        string  `json:"model"`
+	Provider     string  `json:"provider"`
+	ProviderName *string `json:"provider_name,omitempty"`
 }
 
 // ChangePasswordRequest defines model for ChangePasswordRequest.

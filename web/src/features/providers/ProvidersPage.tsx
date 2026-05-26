@@ -330,12 +330,9 @@ function ProviderDetail({
       <DetailPanelHeader
         title={provider.name || provider.id}
         subtitle={
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-muted-foreground">{provider.id}</span>
-            <Badge variant="outline" size="sm">
-              {provider.type}
-            </Badge>
-          </div>
+          <Badge variant="outline" size="sm">
+            {provider.type}
+          </Badge>
         }
         action={
           <div className="flex items-center gap-2">
@@ -1065,7 +1062,7 @@ export function ProvidersPage() {
             />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-tight truncate">{p.name || p.id}</p>
-              <p className="text-[11px] font-mono text-muted-foreground truncate">{p.id}</p>
+              <p className="text-[11px] font-mono text-muted-foreground truncate">{p.type}</p>
             </div>
             {modelCount > 0 && (
               <span className="shrink-0 text-xs text-muted-foreground">{modelCount}</span>

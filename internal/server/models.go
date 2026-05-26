@@ -41,7 +41,7 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[key] = true
-		filtered = append(filtered, config.CachedModel{Provider: providerID, Model: modelID})
+		filtered = append(filtered, config.CachedModel{Provider: providerID, ProviderName: provider.Name, Model: modelID})
 	}
 	for _, provider := range providers {
 		providerByID[provider.ID] = provider

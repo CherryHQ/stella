@@ -26,8 +26,8 @@ export function InviteManagement() {
   const loadInvites = useCallback(async () => {
     const res = await listInvites();
     if (res.data) {
-      const data = res.data as { data?: { items?: Invite[] } };
-      setInvites(data.data?.items ?? []);
+      const data = res.data as { items?: Invite[] };
+      setInvites(data.items ?? []);
     }
   }, []);
 
@@ -45,7 +45,7 @@ export function InviteManagement() {
       showToast("Failed to create invite", "error");
       return;
     }
-    const data = (res.data as { data?: { invite_url?: string } })?.data;
+    const data = res.data as { invite_url?: string };
     if (data?.invite_url) {
       setInviteURL(data.invite_url);
     }

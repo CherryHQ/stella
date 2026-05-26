@@ -352,7 +352,7 @@ function ChannelDetail({
             {platformLabel}
           </span>
         }
-        subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.id}</p>}
+        subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
         action={
           <>
             <Switch
@@ -1075,7 +1075,7 @@ export function ChannelsPage() {
               )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
-                <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.id}</p>
+                <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.type}</p>
               </div>
             </SettingsListItem>
           );
