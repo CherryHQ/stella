@@ -60,7 +60,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			(strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback")) ||
 			strings.HasPrefix(path, "/auth/invite/") ||
 			strings.HasSuffix(path, "/info") && strings.HasPrefix(path, "/api/auth/invites/") ||
-			localOIDCExempt(path) {
+			strings.HasPrefix(path, "/oidc/local/") {
 			next.ServeHTTP(w, r)
 			return
 		}

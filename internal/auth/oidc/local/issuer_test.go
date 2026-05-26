@@ -1,4 +1,4 @@
-package localoidc_test
+package local_test
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/auth/localoidc"
+	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 )
 
 // --- in-memory fakes ---
@@ -228,9 +228,9 @@ func keyToPEM(key *ecdsa.PrivateKey) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}))
 }
 
-func confidentialConfig(t *testing.T, key *ecdsa.PrivateKey) *localoidc.Config {
+func confidentialConfig(t *testing.T, key *ecdsa.PrivateKey) *local.Config {
 	t.Helper()
-	return &localoidc.Config{
+	return &local.Config{
 		IssuerURL:      "http://localhost:25678/oidc/local",
 		ClientID:       "test-client",
 		ClientSecret:   "test-secret",
@@ -242,9 +242,9 @@ func confidentialConfig(t *testing.T, key *ecdsa.PrivateKey) *localoidc.Config {
 	}
 }
 
-func publicConfig(t *testing.T, key *ecdsa.PrivateKey) *localoidc.Config {
+func publicConfig(t *testing.T, key *ecdsa.PrivateKey) *local.Config {
 	t.Helper()
-	return &localoidc.Config{
+	return &local.Config{
 		IssuerURL:      "http://localhost:25678/oidc/local",
 		ClientID:       "test-client",
 		RedirectURIs:   []string{"http://localhost/callback"},
@@ -291,7 +291,7 @@ func seedUserAndMembership(userID, orgID, email, password string) (*fakeUserStor
 func TestDiscovery(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
@@ -303,7 +303,7 @@ func TestDiscovery(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", w.Code)
 	}
-	var doc localoidc.DiscoveryDocument
+	var doc local.DiscoveryDocument
 	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
 		t.Fatalf("unmarshal discovery: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestDiscovery(t *testing.T) {
 func TestJWKS(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
@@ -333,7 +333,7 @@ func TestJWKS(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", w.Code)
 	}
-	var resp map[string][]localoidc.JWK
+	var resp map[string][]local.JWK
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal jwks: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestJWKS(t *testing.T) {
 func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
@@ -375,7 +375,7 @@ func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
@@ -405,7 +405,7 @@ func TestAuthorizePostIssuesCode(t *testing.T) {
 	users, memberships, creds := seedUserAndMembership(userID, orgID, "user@test.example", "pass123")
 	codeStore := newFakeCodeStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
+	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -441,7 +441,7 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	codeStore := newFakeCodeStore()
 	tokenStore := newFakeTokenStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, tokenStore, users, newFakeOrgStore(), memberships, creds, nil, nil)
+	issuer := local.NewIssuer(cfg, codeStore, tokenStore, users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	// Step 1: authorize POST → get code.
 	q := url.Values{
@@ -487,7 +487,7 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	}
 
 	// Verify ID token signature and claims.
-	claims, err := localoidc.VerifyES256(idToken, &key.PublicKey)
+	claims, err := local.VerifyES256(idToken, &key.PublicKey)
 	if err != nil {
 		t.Fatalf("verify id_token: %v", err)
 	}
@@ -515,7 +515,7 @@ func TestCodeCannotBeReused(t *testing.T) {
 	users, memberships, creds := seedUserAndMembership(userID, orgID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
+	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	// Authorize.
 	q := url.Values{
@@ -567,7 +567,7 @@ func TestCodeCannotBeReused(t *testing.T) {
 func TestPKCERequired(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := publicConfig(t, key) // public client requires PKCE
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
@@ -595,7 +595,7 @@ func TestPKCEVerification(t *testing.T) {
 	users, memberships, creds := seedUserAndMembership(userID, orgID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := localoidc.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
+	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, newFakeOrgStore(), memberships, creds, nil, nil)
 
 	verifier := strings.Repeat("v", 43)
 	challenge := pkceS256(verifier)
@@ -646,7 +646,7 @@ func TestUserinfoWithValidToken(t *testing.T) {
 	})
 	tokenStore := newFakeTokenStore()
 
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), tokenStore,
 		users, newFakeOrgStore(), memberships, newFakeCredStore(), nil, nil)
 
@@ -684,7 +684,7 @@ func TestUserinfoWithValidToken(t *testing.T) {
 func TestUserinfoWithNoToken(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
@@ -708,7 +708,7 @@ func TestDisabledMembershipCannotAuthorize(t *testing.T) {
 	})
 	creds := newFakeCredStore(auth.Credential{ID: uuid.NewString(), UserID: userID, PasswordHash: hash})
 
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		users, newFakeOrgStore(), memberships, creds, nil, nil)
 
@@ -732,7 +732,7 @@ func TestDisabledMembershipCannotAuthorize(t *testing.T) {
 func TestWrongClientIDRejected(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := localoidc.NewIssuer(cfg,
+	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(), newFakeOrgStore(), newFakeMembershipStore(),
 		newFakeCredStore(), nil, nil)
@@ -764,27 +764,27 @@ func TestConfigValidate(t *testing.T) {
 	key := generateTestKey(t)
 	cases := []struct {
 		name   string
-		cfg    localoidc.Config
+		cfg    local.Config
 		wantOK bool
 	}{
 		{
 			name:   "valid",
-			cfg:    localoidc.Config{IssuerURL: "http://h/oidc/local", ClientID: "c", RedirectURIs: []string{"http://h/cb"}, SigningKey: key},
+			cfg:    local.Config{IssuerURL: "http://h/oidc/local", ClientID: "c", RedirectURIs: []string{"http://h/cb"}, SigningKey: key},
 			wantOK: true,
 		},
 		{
 			name:   "missing issuer_url",
-			cfg:    localoidc.Config{ClientID: "c", RedirectURIs: []string{"http://h/cb"}, SigningKey: key},
+			cfg:    local.Config{ClientID: "c", RedirectURIs: []string{"http://h/cb"}, SigningKey: key},
 			wantOK: false,
 		},
 		{
 			name:   "missing redirect_uris",
-			cfg:    localoidc.Config{IssuerURL: "http://h/oidc/local", ClientID: "c", SigningKey: key},
+			cfg:    local.Config{IssuerURL: "http://h/oidc/local", ClientID: "c", SigningKey: key},
 			wantOK: false,
 		},
 		{
 			name:   "missing client_id",
-			cfg:    localoidc.Config{IssuerURL: "http://h/oidc/local", RedirectURIs: []string{"http://h/cb"}, SigningKey: key},
+			cfg:    local.Config{IssuerURL: "http://h/oidc/local", RedirectURIs: []string{"http://h/cb"}, SigningKey: key},
 			wantOK: false,
 		},
 	}

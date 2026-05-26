@@ -1,7 +1,7 @@
 // Package localoidc implements a minimal built-in OIDC issuer for Stella.
 // It is designed for development and single-user/self-contained deployments.
 // The issuer supports authorization-code + PKCE only.
-package localoidc
+package local
 
 import (
 	"context"

@@ -12,8 +12,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/auth/localoidc"
-	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
+	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -53,9 +52,7 @@ type Server struct {
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
 	sessionMgr    *auth.SessionManager
-	stateMgr      *authoidc.StateManager
-	// localOIDC is the built-in local OIDC issuer (optional).
-	localOIDC *localoidc.Issuer
+	stateMgr      *oidc.StateManager
 	// organizations provides access to auth_organization (optional).
 	organizations auth.OrganizationStore
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
@@ -148,14 +145,6 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
 }
 
-// SetLocalOIDCIssuer wires the built-in local OIDC issuer into the server.
-// When set, routes under /oidc/local/ are registered for the issuer endpoints.
-// Call before serving requests.
-func (s *Server) SetLocalOIDCIssuer(issuer *localoidc.Issuer) {
-	s.localOIDC = issuer
-	s.registerLocalOIDCRoutes()
-}
-
 // SetOrganizationStore wires the organization store into the admin server.
 func (s *Server) SetOrganizationStore(store auth.OrganizationStore) {
 	s.organizations = store
@@ -200,16 +189,14 @@ func (s *Server) SetCredentialStore(store auth.CredentialStore) {
 // SetOIDCAuth wires all OIDC authentication components into the server.
 // Call before serving requests. If not set, OIDC login is disabled and
 // ListAuthProviders returns an empty list.
-func (s *Server) SetOIDCAuth(
-	providers []auth.AuthProvider,
-	authSvc *auth.AuthService,
-	sessionMgr *auth.SessionManager,
-	stateMgr *authoidc.StateManager,
-) {
-	s.authProviders = providers
-	s.authSvc = authSvc
-	s.sessionMgr = sessionMgr
-	s.stateMgr = stateMgr
+func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
+	s.authProviders = result.Providers
+	s.authSvc = result.AuthSvc
+	s.sessionMgr = result.SessionMgr
+	s.stateMgr = result.StateMgr
+	if result.RegisterRoutes != nil {
+		result.RegisterRoutes(s.mux)
+	}
 }
 
 // CredentialsService returns the shared credentials service.

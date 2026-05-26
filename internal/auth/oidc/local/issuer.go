@@ -1,4 +1,4 @@
-package localoidc
+package local
 
 import (
 	"context"

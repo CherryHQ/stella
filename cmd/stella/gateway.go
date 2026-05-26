@@ -19,8 +19,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/auth/localoidc"
-	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
+	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -170,113 +169,26 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		slog.Warn("org settings backfill failed", "error", err)
 	}
 
-	// Wire OIDC authentication if configured via environment variables.
-	// Only attempt setup when at least OIDC_ISSUER_URL is set.
-	if os.Getenv("OIDC_ISSUER_URL") != "" {
-		cfg, err := authoidc.ConfigFromEnv()
-		if err != nil {
-			slog.Warn("oidc: invalid configuration", "error", err)
-		} else {
-			vaultKey := os.Getenv("STELLA_VAULT_KEY")
-			oidcStore := appdb.NewOIDCStore(s.db)
-			adminSrv.SetLoginIdentityStore(oidcStore)
-			adminSrv.SetMembershipStore(oidcStore)
-			adminSrv.SetUserStore(oidcStore)
-			adminSrv.SetSessionStore(oidcStore)
-			adminSrv.SetCredentialStore(oidcStore)
-			adminSrv.SetOrganizationStore(oidcStore)
-			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
-			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
-			if err != nil {
-				slog.Warn("oidc: session manager init failed", "error", err)
-			} else {
-				stateMgr, err := authoidc.NewStateManager(vaultKey)
-				if err != nil {
-					slog.Warn("oidc: state manager init failed", "error", err)
-				} else {
-					provider, err := authoidc.NewProvider(gctx, cfg)
-					if err != nil {
-						slog.Warn("oidc: provider init failed", "error", err)
-					} else {
-						adminSrv.SetOIDCAuth(
-							[]auth.AuthProvider{provider},
-							authSvc,
-							sessionMgr,
-							stateMgr,
-						)
-						slog.Info("oidc: authentication configured", "provider", provider.Name())
-					}
-				}
-			}
-		}
+	// Wire OIDC authentication (external provider or built-in local issuer).
+	oidcStore := appdb.NewOIDCStore(s.db)
+	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
+		DB:         s.db,
+		Store:      s.store,
+		BaseURL:    resolveBaseURL(adminHost, adminPort),
+		VaultKey:   os.Getenv("STELLA_VAULT_KEY"),
+		AuthStores: oidcStore,
+	})
+	if err != nil {
+		slog.Warn("oidc: setup failed", "error", err)
 	} else {
-		// No external OIDC — auto-configure the built-in local issuer.
-		// The signing key is generated once and persisted in the settings DB so it
-		// survives restarts. STELLA_VAULT_KEY is used for session management (it is
-		// always set — the startup check above enforces this).
-		baseURL := resolveBaseURL(adminHost, adminPort)
-		signingKey, err := localoidc.LoadOrGenerateSigningKey(gctx, s.store)
-		if err != nil {
-			slog.Warn("local oidc: auto-config failed", "error", err)
-		}
-		var localCfg *localoidc.Config
-		if signingKey != nil {
-			localCfg = &localoidc.Config{
-				IssuerURL:      baseURL + "/oidc/local",
-				ClientID:       localoidc.AutoClientID,
-				SigningKey:     signingKey,
-				KeyID:          localoidc.AutoKeyID,
-				RedirectURIs:   []string{baseURL + "/auth/callback/local"},
-				AccessTokenTTL: 3600,
-				AuthCodeTTL:    120,
-			}
-		}
-		if localCfg == nil {
-			slog.Warn("local oidc: auto-config failed", "error", err)
-		} else {
-			vaultKey := os.Getenv("STELLA_VAULT_KEY")
-			oidcStore := appdb.NewOIDCStore(s.db)
-			authSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
-			sessionMgr, err := auth.NewSessionManager(oidcStore, vaultKey)
-			if err != nil {
-				slog.Warn("local oidc: session manager init failed", "error", err)
-			} else {
-				stateMgr, err := authoidc.NewStateManager(vaultKey)
-				if err != nil {
-					slog.Warn("local oidc: state manager init failed", "error", err)
-				} else {
-					clientProvider, err := localoidc.NewClientProvider(localCfg, baseURL+"/auth/callback/local")
-					if err != nil {
-						slog.Warn("local oidc: client provider init failed", "error", err)
-					} else {
-						// Wire the issuer (serves /oidc/local/* endpoints).
-						issuerAuthSvc := auth.NewAuthService(s.db, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, oidcStore)
-						issuerSessionMgr := sessionMgr.WithStore(oidcStore)
-						issuer := localoidc.NewIssuer(
-							localCfg,
-							oidcStore, oidcStore,
-							oidcStore, oidcStore, oidcStore, oidcStore,
-							issuerAuthSvc,
-							issuerSessionMgr,
-						)
-						adminSrv.SetLocalOIDCIssuer(issuer)
-						adminSrv.SetLoginIdentityStore(oidcStore)
-						adminSrv.SetMembershipStore(oidcStore)
-						adminSrv.SetUserStore(oidcStore)
-						adminSrv.SetSessionStore(oidcStore)
-						adminSrv.SetCredentialStore(oidcStore)
-						adminSrv.SetOrganizationStore(oidcStore)
-						adminSrv.SetOIDCAuth(
-							[]auth.AuthProvider{clientProvider},
-							authSvc,
-							sessionMgr,
-							stateMgr,
-						)
-						slog.Info("local oidc: auto-configured built-in issuer", "issuer_url", localCfg.IssuerURL)
-					}
-				}
-			}
-		}
+		adminSrv.SetLoginIdentityStore(oidcStore)
+		adminSrv.SetMembershipStore(oidcStore)
+		adminSrv.SetUserStore(oidcStore)
+		adminSrv.SetSessionStore(oidcStore)
+		adminSrv.SetCredentialStore(oidcStore)
+		adminSrv.SetOrganizationStore(oidcStore)
+		adminSrv.SetOIDCAuth(oidcResult)
+		slog.Info("oidc: authentication configured")
 	}
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
