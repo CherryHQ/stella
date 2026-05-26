@@ -7,19 +7,24 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func newTestWatermarkStore(t *testing.T) *watermarkStore {
+func newTestWatermarkStore(t *testing.T) (*watermarkStore, context.Context) {
 	t.Helper()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
 
-	return newWatermarkStore(testStateStore{store: pluginstate.New(db)})
+	return newWatermarkStore(testStateStore{store: pluginstate.New(db)}), orgctx.WithOrgID(context.Background(), orgID)
 }
 
 type testStateStore struct {
@@ -39,8 +44,8 @@ func (s testStateStore) Delete(ctx context.Context, scope pkgplugins.StateScope,
 }
 
 func TestWatermarkStore_GetMissing(t *testing.T) {
-	ws := newTestWatermarkStore(t)
-	ts, err := ws.get(context.Background(), "nonexistent")
+	ws, ctx := newTestWatermarkStore(t)
+	ts, err := ws.get(ctx, "nonexistent")
 	if err != nil {
 		t.Fatalf("expected nil error for missing key, got %v", err)
 	}
@@ -50,8 +55,7 @@ func TestWatermarkStore_GetMissing(t *testing.T) {
 }
 
 func TestWatermarkStore_SetAndGet(t *testing.T) {
-	ws := newTestWatermarkStore(t)
-	ctx := context.Background()
+	ws, ctx := newTestWatermarkStore(t)
 
 	now := time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)
 	if err := ws.set(ctx, "s1", now); err != nil {
@@ -68,8 +72,7 @@ func TestWatermarkStore_SetAndGet(t *testing.T) {
 }
 
 func TestWatermarkStore_Upsert(t *testing.T) {
-	ws := newTestWatermarkStore(t)
-	ctx := context.Background()
+	ws, ctx := newTestWatermarkStore(t)
 
 	t1 := time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 4, 6, 13, 0, 0, 0, time.UTC)
