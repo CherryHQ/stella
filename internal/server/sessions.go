@@ -831,7 +831,6 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 }
 
 func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
-	// TODO: change to return 204 with empty body
 	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
@@ -854,12 +853,7 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeData(w, http.StatusOK, diskInfo)
+	writeNoContent(w)
 }
 
 func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -953,7 +947,6 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return

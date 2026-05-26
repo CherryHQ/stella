@@ -33,9 +33,8 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, identities)
 }
 
-// ChangePassword handles PUT /api/auth/profile/password.
+// ChangePassword handles PATCH /api/auth/profile/password.
 func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -98,7 +97,7 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "password changed"})
+	writeNoContent(w)
 }
 
 // GenerateLinkCode handles POST /api/auth/profile/link-code.
@@ -135,7 +134,6 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 
 // UnlinkProfileIdentity handles DELETE /api/auth/profile/identities/{id}.
 func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -167,7 +165,7 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "unlinked"})
+	writeNoContent(w)
 }
 
 // ListProfileMemories handles GET /api/auth/profile/memories.
@@ -192,9 +190,8 @@ func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, memories)
 }
 
-// SetProfileMemory handles PUT /api/auth/profile/memories/{agentID}.
+// SetProfileMemory handles PATCH /api/auth/profile/memories/{agentID}.
 func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -213,12 +210,11 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+	writeNoContent(w)
 }
 
-// SetProfileSoul handles PUT /api/auth/profile/soul/{agentID}.
+// SetProfileSoul handles PATCH /api/auth/profile/soul/{agentID}.
 func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -237,12 +233,11 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+	writeNoContent(w)
 }
 
 // DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentID}.
 func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
-	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -254,7 +249,7 @@ func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writeNoContent(w)
 }
 
 // OauthCallback handles GET /api/auth/profile/oauth/{provider}/callback.

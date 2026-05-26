@@ -8,7 +8,6 @@ import (
 )
 
 func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -23,11 +22,10 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeNoContent(w)
 }
 
 func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -42,7 +40,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeNoContent(w)
 }
 
 func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {
@@ -58,7 +56,6 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -74,11 +71,10 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+	writeNoContent(w)
 }
 
 func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -87,5 +83,5 @@ func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writeNoContent(w)
 }

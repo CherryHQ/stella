@@ -36,7 +36,6 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: change to return 201 with created AgentUser object
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -59,7 +58,8 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	if _, err := s.users.GetUser(ctx, body.UserID); err != nil {
+	u, err := s.users.GetUser(ctx, body.UserID)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
@@ -69,11 +69,10 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "assigned"})
+	writeData(w, http.StatusCreated, map[string]string{"id": u.ID, "username": u.Email})
 }
 
 func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string) {
-	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -85,5 +84,5 @@ func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "removed"})
+	writeNoContent(w)
 }

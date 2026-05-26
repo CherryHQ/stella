@@ -96,8 +96,8 @@ func TestUpdateAuthUserRolePromote(t *testing.T) {
 
 	body := map[string]string{"role": "admin"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	got, _ := env.oidcStore.GetUserMembership(ctx, user.ID)
@@ -114,8 +114,8 @@ func TestUpdateAuthUserRoleDemote(t *testing.T) {
 
 	body := map[string]string{"role": "user"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	got, _ := env.oidcStore.GetUserMembership(ctx, user.ID)
@@ -166,8 +166,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	// Assign agent.
 	body := map[string]any{"agent_ids": []string{"stella"}}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	// Verify assignment.
@@ -181,8 +181,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	// Remove by setting empty.
 	body = map[string]any{"agent_ids": []string{}}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusNoContent)
 	}
 
 	// Verify empty.
@@ -205,8 +205,8 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Deactivate.
 	body := map[string]any{"is_active": false}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/active", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	// Verify membership is inactive.
@@ -218,8 +218,8 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Reactivate.
 	body = map[string]any{"is_active": true}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/active", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
 	}
 
 	m, _ = env.oidcStore.GetUserMembership(ctx, user.ID)
@@ -512,8 +512,8 @@ func TestRoleDowngradeReflectsInMembership(t *testing.T) {
 	// Demote to user via admin API.
 	body := map[string]string{"role": auth.RoleUser}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+u.ID+"/role", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	// Membership should now reflect user role.
@@ -546,8 +546,8 @@ func TestInactiveMembershipBlocksAccess(t *testing.T) {
 	// Deactivate via admin API.
 	body := map[string]any{"is_active": false}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+u.ID+"/active", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	// Membership should be inactive.

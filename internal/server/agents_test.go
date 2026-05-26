@@ -253,7 +253,7 @@ func TestAgentUserAssignment(t *testing.T) {
 
 	// Assign user.
 	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/users", map[string]any{"user_id": user.ID})
-	if rr.Code != http.StatusOK {
+	if rr.Code != http.StatusCreated {
 		t.Fatalf("assign user: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -273,7 +273,7 @@ func TestAgentUserAssignment(t *testing.T) {
 
 	// Remove user.
 	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/users/"+user.ID, nil)
-	if rr.Code != http.StatusOK {
+	if rr.Code != http.StatusNoContent {
 		t.Fatalf("remove user: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 

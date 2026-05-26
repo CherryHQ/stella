@@ -152,7 +152,6 @@ func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id, path
 
 // DeleteSkillFile removes a single file under a skill (admin-only route).
 func (s *Server) DeleteSkillFile(w http.ResponseWriter, r *http.Request, id string, params struct{ Path string }) {
-	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -178,7 +177,7 @@ func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, p
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"path": path})
+	writeNoContent(w)
 }
 
 type createSkillRequest struct {
@@ -268,14 +267,13 @@ type updateSkillRequest struct {
 }
 
 func (s *Server) UpdateSkill(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if !requireAdmin(w, r) {
 		return
 	}
 	s.applySkillUpdate(w, r, id, skills.ViewContext{})
 }
 
-// applySkillUpdate is the shared body for PUT .../skills/{id}.
+// applySkillUpdate is the shared body for PATCH .../skills/{id}.
 func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
 	store := s.skillStore()
 	if store == nil {
@@ -334,7 +332,6 @@ func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx
 }
 
 func (s *Server) DeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -377,7 +374,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 					writeError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
-				writeData(w, http.StatusOK, map[string]string{"id": id})
+				writeNoContent(w)
 				return
 			}
 		}
@@ -387,7 +384,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"id": id})
+	writeNoContent(w)
 }
 
 // SearchSkills handles GET /api/skills/search?q=<query>&limit=<n>.

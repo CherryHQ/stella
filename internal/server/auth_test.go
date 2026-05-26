@@ -16,8 +16,8 @@ func TestLogout(t *testing.T) {
 	env := setupAdmin(t)
 
 	rr := doRequest(t, env, "POST", "/api/auth/logout", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
 	}
 
 	// Session cookie should be cleared.

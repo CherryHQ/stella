@@ -291,8 +291,8 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	}
 
 	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/agent/"+skID+"/file?path=reference.md", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("delete file status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/agent/"+skID+"/file?path=SKILL.md", nil)

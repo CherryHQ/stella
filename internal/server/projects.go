@@ -128,7 +128,6 @@ func (s *Server) GetProject(w http.ResponseWriter, r *http.Request, agentID stri
 }
 
 func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID string, projectID string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	auth := UserFromContext(r.Context())
 	if auth == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")

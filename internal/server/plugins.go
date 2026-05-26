@@ -151,7 +151,6 @@ func (s *Server) TogglePlugin(w http.ResponseWriter, r *http.Request, kind strin
 }
 
 func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if !requireAdmin(w, r) {
 		return
 	}

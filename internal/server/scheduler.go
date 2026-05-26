@@ -176,7 +176,6 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -295,7 +294,6 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	// TODO: change to return 204 with empty body
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -332,11 +330,10 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, http.StatusInternalServerError, deleteErr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.DeleteResult{Status: "deleted"})
+	writeNoContent(w)
 }
 
 func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	// TODO: remove ad-hoc Status field from TriggerJobResult response
 	if s.schedulerSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
 		return
@@ -381,7 +378,6 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 }
 
 func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
-	// TODO: wrap response in {items: [...]} object to match updated JobRunList schema
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return

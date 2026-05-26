@@ -227,7 +227,6 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -395,7 +394,6 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 }
 
 func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -418,5 +416,5 @@ func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]bool{"deleted": true})
+	writeNoContent(w)
 }

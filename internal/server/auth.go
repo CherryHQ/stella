@@ -9,13 +9,12 @@ import (
 
 // Logout handles POST /api/auth/logout.
 func (s *Server) Logout(w http.ResponseWriter, r *http.Request) {
-	// TODO: change to return 204 with empty body
 	rawToken, err := auth.GetSessionCookie(r)
 	if err == nil && s.authSvc != nil {
 		_ = s.authSvc.Logout(r.Context(), rawToken)
 	}
 	auth.ClearSessionCookie(w)
-	writeData(w, http.StatusOK, map[string]string{"status": "logged out"})
+	writeNoContent(w)
 }
 
 // GetMe handles GET /api/auth/me.
@@ -55,9 +54,8 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, resp)
 }
 
-// UpdateOrg handles PUT /api/auth/org.
+// UpdateOrg handles PATCH /api/auth/org. Returns the updated organization.
 func (s *Server) UpdateOrg(w http.ResponseWriter, r *http.Request) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; return the updated resource instead of { success: true }
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -83,7 +81,12 @@ func (s *Server) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"success": true})
+	org, err := s.organizations.GetOrganization(r.Context(), info.OrgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, org)
 }
 
 // ListAuthSessions handles GET /api/auth/sessions.
@@ -115,7 +118,6 @@ func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
 
 // DeleteAuthSession handles DELETE /api/auth/sessions/{id}.
 func (s *Server) DeleteAuthSession(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -138,5 +140,5 @@ func (s *Server) DeleteAuthSession(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"success": true})
+	writeNoContent(w)
 }

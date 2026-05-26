@@ -99,9 +99,8 @@ func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) 
 	writeData(w, http.StatusOK, resp)
 }
 
-// UpdateAuthUserRole handles PUT /api/auth/users/{id}/role.
+// UpdateAuthUserRole handles PATCH /api/auth/users/{id}/role.
 func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -141,7 +140,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeNoContent(w)
 }
 
 // ListAuthUserAgents handles GET /api/auth/users/{id}/agents.
@@ -158,9 +157,8 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 	writeData(w, http.StatusOK, agentIDs)
 }
 
-// UpdateAuthUserAgents handles PUT /api/auth/users/{id}/agents.
+// UpdateAuthUserAgents handles PATCH /api/auth/users/{id}/agents.
 func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -214,12 +212,11 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 		}
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeNoContent(w)
 }
 
 // DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
 func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id string, identityId string) {
-	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -247,12 +244,11 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "unlinked"})
+	writeNoContent(w)
 }
 
-// UpdateAuthUserActive handles PUT /api/auth/users/{id}/active.
+// UpdateAuthUserActive handles PATCH /api/auth/users/{id}/active.
 func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -287,7 +283,7 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		_ = s.sessions.DeleteUserSessions(r.Context(), id)
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeNoContent(w)
 }
 
 // ListAuthUserLoginIdentities handles GET /api/auth/users/{id}/identities/login.

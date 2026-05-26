@@ -72,8 +72,8 @@ func TestChangePasswordSuccess(t *testing.T) {
 		"new_password":     "newpassword123",
 	}
 	rr := doRequest(t, env, "PATCH", "/api/auth/profile/password", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	// Verify the new password works.
@@ -168,8 +168,8 @@ func TestUnlinkIdentity(t *testing.T) {
 	}
 
 	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+identity.ID, nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
 	// Verify it's gone.

@@ -76,7 +76,6 @@ func (s *Server) CreateInvite(w http.ResponseWriter, r *http.Request) {
 
 // RevokeInvite handles DELETE /api/auth/invites/{id} (admin only).
 func (s *Server) RevokeInvite(w http.ResponseWriter, r *http.Request, id string) {
-	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -84,7 +83,7 @@ func (s *Server) RevokeInvite(w http.ResponseWriter, r *http.Request, id string)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"success": true})
+	writeNoContent(w)
 }
 
 // GetInviteInfo handles GET /api/auth/invites/{token}/info (public).
@@ -102,7 +101,6 @@ func (s *Server) GetInviteInfo(w http.ResponseWriter, r *http.Request, token str
 
 // AcceptInvite handles POST /api/auth/invites/{token}/accept (authenticated).
 func (s *Server) AcceptInvite(w http.ResponseWriter, r *http.Request, token string) {
-	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
@@ -112,7 +110,7 @@ func (s *Server) AcceptInvite(w http.ResponseWriter, r *http.Request, token stri
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"success": true})
+	writeNoContent(w)
 }
 
 // handleInviteRedirect handles GET /invite/{token}.
