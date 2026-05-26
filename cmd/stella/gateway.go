@@ -21,7 +21,6 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/localoidc"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
-	authzitadel "github.com/CherryHQ/stella/internal/auth/zitadel"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -195,7 +194,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 				if err != nil {
 					slog.Warn("oidc: state manager init failed", "error", err)
 				} else {
-					provider, err := authzitadel.NewProvider(gctx, cfg)
+					provider, err := authoidc.NewProvider(gctx, cfg)
 					if err != nil {
 						slog.Warn("oidc: provider init failed", "error", err)
 					} else {
