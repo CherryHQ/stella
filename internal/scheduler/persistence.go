@@ -18,7 +18,7 @@ const dbTimeLayout = "2006-01-02 15:04:05"
 
 // loadJobs reads all persisted jobs from the database.
 func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
-	rows, err := s.q.ListSchedulerJobs(ctx)
+	rows, err := s.q.ListSchedulerJobs(ctx, s.defaultOrgID)
 	if err != nil {
 		return nil, fmt.Errorf("list scheduler jobs: %w", err)
 	}
@@ -51,12 +51,13 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 		LastError: lastError,
 		UpdatedAt: ranAt.UTC().Format(dbTimeLayout),
 		ID:        id,
+		OrgID:     s.defaultOrgID,
 	})
 }
 
 // deleteJob removes a job from the database.
 func (s *Service) deleteJob(ctx context.Context, id string) error {
-	return s.q.DeleteSchedulerJob(ctx, id)
+	return s.q.DeleteSchedulerJob(ctx, sqlc.DeleteSchedulerJobParams{ID: id, OrgID: s.defaultOrgID})
 }
 
 // migrateJobsFile imports jobs from the legacy jobs.json file into the database
@@ -111,7 +112,7 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 // migrateLegacyPluginJobs converts plugin-owned jobs that still use the old
 // reserved message envelope into first-class ownership columns.
 func (s *Service) migrateLegacyPluginJobs(ctx context.Context) error {
-	rows, err := s.q.ListSchedulerJobs(ctx)
+	rows, err := s.q.ListSchedulerJobs(ctx, s.defaultOrgID)
 	if err != nil {
 		return fmt.Errorf("list scheduler jobs: %w", err)
 	}
@@ -208,6 +209,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
 		ID:            job.ID,
+		OrgID:         job.OrgID,
 	}
 }
 
@@ -352,12 +354,13 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 	return tx.Commit()
 }
 
-func (s *Service) finishJobRun(ctx context.Context, id, status string, finishedAt time.Time, errStr string) error {
+func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, finishedAt time.Time, errStr string) error {
 	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
 		Status:     status,
 		FinishedAt: sql.NullString{String: finishedAt.UTC().Format(dbTimeLayout), Valid: true},
 		Error:      errStr,
 		ID:         id,
+		JobID:      jobID,
 	})
 }
 

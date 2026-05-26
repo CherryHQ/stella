@@ -11,6 +11,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -26,6 +27,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 	info := UserFromContext(r.Context())
 
 	rows, err := s.q.ListSchedulerJobsByAgent(r.Context(), sqlc.ListSchedulerJobsByAgentParams{
+		OrgID:   config.OrgIDFromContext(r.Context()),
 		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
 		UserID:  sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 	})
@@ -156,7 +158,7 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 	}
 	info := UserFromContext(r.Context())
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
+	existing, err := s.q.GetSchedulerJob(r.Context(), sqlc.GetSchedulerJobParams{ID: jobID, OrgID: config.OrgIDFromContext(r.Context())})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -182,7 +184,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	}
 	info := UserFromContext(r.Context())
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
+	existing, err := s.q.GetSchedulerJob(r.Context(), sqlc.GetSchedulerJobParams{ID: jobID, OrgID: config.OrgIDFromContext(r.Context())})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -244,6 +246,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	now := time.Now().UTC().Format(adminDBTimeLayout)
 	err = s.q.UpdateSchedulerJob(r.Context(), sqlc.UpdateSchedulerJobParams{
 		ID:            jobID,
+		OrgID:         config.OrgIDFromContext(r.Context()),
 		OwnerKind:     existing.OwnerKind,
 		ExecScope:     existing.ExecScope,
 		PluginID:      existing.PluginID,
@@ -300,7 +303,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	}
 	info := UserFromContext(r.Context())
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
+	existing, err := s.q.GetSchedulerJob(r.Context(), sqlc.GetSchedulerJobParams{ID: jobID, OrgID: config.OrgIDFromContext(r.Context())})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -324,7 +327,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	if s.schedulerSvc != nil {
 		deleteErr = s.schedulerSvc.RemoveJob(jobID)
 	} else {
-		deleteErr = s.q.DeleteSchedulerJob(r.Context(), jobID)
+		deleteErr = s.q.DeleteSchedulerJob(r.Context(), sqlc.DeleteSchedulerJobParams{ID: jobID, OrgID: config.OrgIDFromContext(r.Context())})
 	}
 	if deleteErr != nil {
 		writeError(w, http.StatusInternalServerError, deleteErr.Error())
@@ -343,7 +346,7 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
+	existing, err := s.q.GetSchedulerJob(r.Context(), sqlc.GetSchedulerJobParams{ID: jobID, OrgID: config.OrgIDFromContext(r.Context())})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -383,7 +386,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		return
 	}
 
-	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
+	existing, err := s.q.GetSchedulerJob(r.Context(), sqlc.GetSchedulerJobParams{ID: jobID, OrgID: config.OrgIDFromContext(r.Context())})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return

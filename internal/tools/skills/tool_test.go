@@ -66,6 +66,7 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 
 func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
+		OrgID:   s.orgID,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 	})
@@ -81,6 +82,7 @@ func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContex
 
 func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
+		OrgID:   s.orgID,
 		Name:    name,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
@@ -158,7 +160,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 }
 
 func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, OrgID: s.orgID})
 	if err != nil {
 		return err
 	}
@@ -183,7 +185,7 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 		meta = string(patch.Metadata)
 	}
 	params := sqlc.UpdateSkillMetadataParams{
-		ID: id, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
+		ID: id, OrgID: s.orgID, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
 	}
 	if row.Scope == "agent" {
 		params.AgentID = row.AgentID
@@ -203,11 +205,11 @@ func (s *testSkillStore) DeleteFile(ctx context.Context, skillID, path string) e
 }
 
 func (s *testSkillStore) Delete(ctx context.Context, id string) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, OrgID: s.orgID})
 	if err != nil {
 		return err
 	}
-	params := sqlc.DeleteSkillParams{ID: id}
+	params := sqlc.DeleteSkillParams{ID: id, OrgID: s.orgID}
 	if row.Scope == "agent" {
 		params.AgentID = row.AgentID
 	}
@@ -218,7 +220,10 @@ func (s *testSkillStore) Delete(ctx context.Context, id string) error {
 }
 
 func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	return s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339))
+	return s.q.DeprecateExpiredDrafts(ctx, sqlc.DeprecateExpiredDraftsParams{
+		OrgID:    s.orgID,
+		Metadata: before.UTC().Format(time.RFC3339),
+	})
 }
 
 func tsMapRow(r sqlc.Skill) pkgplugins.Skill {

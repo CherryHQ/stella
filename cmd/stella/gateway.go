@@ -89,7 +89,7 @@ func serverAction(c *ucli.Context) error {
 }
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
-	g, gctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(config.WithOrgID(ctx, s.defaultOrgID))
 	channels := make([]pkgchannel.Channel, 0)
 
 	// Create auth store and policy engine for channel bots and Web UI.
@@ -107,7 +107,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
-	adminSrv := server.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+	adminSrv := server.New(gctx, s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
 	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)

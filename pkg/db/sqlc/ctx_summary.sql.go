@@ -134,11 +134,40 @@ func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDep
 }
 
 const getSummary = `-- name: GetSummary :one
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE id = ? AND conversation_id = ?
+`
+
+type GetSummaryParams struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+func (q *Queries) GetSummary(ctx context.Context, arg GetSummaryParams) (CtxSummary, error) {
+	row := q.db.QueryRowContext(ctx, getSummary, arg.ID, arg.ConversationID)
+	var i CtxSummary
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.Kind,
+		&i.Depth,
+		&i.Content,
+		&i.TokenCount,
+		&i.EarliestAt,
+		&i.LatestAt,
+		&i.DescendantCount,
+		&i.DescendantTokenCount,
+		&i.SourceMessageTokenCount,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSummaryByID = `-- name: GetSummaryByID :one
 SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE id = ?
 `
 
-func (q *Queries) GetSummary(ctx context.Context, id string) (CtxSummary, error) {
-	row := q.db.QueryRowContext(ctx, getSummary, id)
+func (q *Queries) GetSummaryByID(ctx context.Context, id string) (CtxSummary, error) {
+	row := q.db.QueryRowContext(ctx, getSummaryByID, id)
 	var i CtxSummary
 	err := row.Scan(
 		&i.ID,

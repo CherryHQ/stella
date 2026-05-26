@@ -29,6 +29,8 @@ func New(db *sql.DB) *SQLiteStore {
 // SetDefaultOrgID sets the fallback org ID used when creating skills without an explicit OrgID.
 func (s *SQLiteStore) SetDefaultOrgID(orgID string) { s.defaultOrgID = orgID }
 
+func (s *SQLiteStore) resolveOrgID() string { return s.defaultOrgID }
+
 func viewSQLParams(vc ViewContext) (sql.NullString, sql.NullString) {
 	return sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""}, sql.NullString{String: vc.UserID, Valid: vc.UserID != ""}
 }
@@ -36,6 +38,7 @@ func viewSQLParams(vc ViewContext) (sql.NullString, sql.NullString) {
 // List returns all visible skills for the given context.
 func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
+		OrgID:   s.resolveOrgID(),
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 	})
@@ -51,7 +54,7 @@ func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error)
 
 // ListAll returns every skill regardless of status, visibility, or scope filter.
 func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
-	rows, err := s.q.ListAllSkills(ctx)
+	rows, err := s.q.ListAllSkills(ctx, s.resolveOrgID())
 	if err != nil {
 		return nil, fmt.Errorf("skills: list all: %w", err)
 	}
@@ -65,6 +68,7 @@ func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
 // ListForAgentContext returns system, agent, and current-user skills for one agent.
 func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForAgentContext(ctx, sqlc.ListSkillsForAgentContextParams{
+		OrgID:   s.resolveOrgID(),
 		UserID:  sql.NullString{String: userID, Valid: userID != ""},
 		AgentID: sql.NullString{String: agentID, Valid: agentID != ""},
 	})
@@ -80,7 +84,10 @@ func (s *SQLiteStore) ListForAgentContext(ctx context.Context, userID string, ag
 
 // ListForAdmin returns system and agent skills, plus the admin user's own user skills.
 func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
-	rows, err := s.q.ListSkillsForAdmin(ctx, sql.NullString{String: userID, Valid: userID != ""})
+	rows, err := s.q.ListSkillsForAdmin(ctx, sqlc.ListSkillsForAdminParams{
+		OrgID:  s.resolveOrgID(),
+		UserID: sql.NullString{String: userID, Valid: userID != ""},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list for admin: %w", err)
 	}
@@ -94,6 +101,7 @@ func (s *SQLiteStore) ListForAdmin(ctx context.Context, userID string) ([]Skill,
 // ListForUser returns skills visible to a non-admin user across accessible agents.
 func (s *SQLiteStore) ListForUser(ctx context.Context, userID string, agentIDs []string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsForUser(ctx, sqlc.ListSkillsForUserParams{
+		OrgID:       s.resolveOrgID(),
 		UserID:      sql.NullString{String: userID, Valid: userID != ""},
 		AgentIdsCsv: sql.NullString{String: strings.Join(agentIDs, ","), Valid: len(agentIDs) > 0},
 	})
@@ -136,6 +144,7 @@ func (s *SQLiteStore) ListFilesWithContent(ctx context.Context, skillID string) 
 // Resolve finds the highest-priority visible skill by name.
 func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
+		OrgID:   s.resolveOrgID(),
 		Name:    name,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
@@ -280,13 +289,14 @@ func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
 // Update patches metadata fields using read-modify-write.
 func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error {
 	agentID, userID := viewSQLParams(vc)
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: agentID, UserID: userID})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, OrgID: s.resolveOrgID(), AgentID: agentID, UserID: userID})
 	if err != nil {
 		return fmt.Errorf("skills: update get %s: %w", id, err)
 	}
 	p := applyPatch(row, patch)
 	if err := s.q.UpdateSkillMetadata(ctx, sqlc.UpdateSkillMetadataParams{
 		ID:                     id,
+		OrgID:                  s.resolveOrgID(),
 		AgentID:                agentID,
 		UserID:                 userID,
 		Description:            p.Description,
@@ -325,14 +335,14 @@ func (s *SQLiteStore) DeleteFile(ctx context.Context, skillID, path string) erro
 // Delete removes a skill and (via ON DELETE CASCADE) all its files.
 func (s *SQLiteStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	agentID, userID := viewSQLParams(vc)
-	if err := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id, AgentID: agentID, UserID: userID}); err != nil {
+	if err := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id, OrgID: s.resolveOrgID(), AgentID: agentID, UserID: userID}); err != nil {
 		return fmt.Errorf("skills: delete %s: %w", id, err)
 	}
 	return nil
 }
 
 func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch UpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, OrgID: s.resolveOrgID()})
 	if err != nil {
 		return fmt.Errorf("skills: system update get %s: %w", id, err)
 	}
@@ -342,6 +352,7 @@ func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch Up
 	p := applyPatch(row, patch)
 	if err := s.q.UpdateSystemSkillMetadata(ctx, sqlc.UpdateSystemSkillMetadataParams{
 		ID:                     id,
+		OrgID:                  s.resolveOrgID(),
 		Description:            p.Description,
 		Status:                 p.Status,
 		DisableModelInvocation: p.DisableModelInvocation,
@@ -353,7 +364,7 @@ func (s *SQLiteStore) UpdateSystemSkill(ctx context.Context, id string, patch Up
 }
 
 func (s *SQLiteStore) DeleteSystemSkill(ctx context.Context, id string) error {
-	if err := s.q.DeleteSystemSkill(ctx, id); err != nil {
+	if err := s.q.DeleteSystemSkill(ctx, sqlc.DeleteSystemSkillParams{ID: id, OrgID: s.resolveOrgID()}); err != nil {
 		return fmt.Errorf("skills: system delete %s: %w", id, err)
 	}
 	return nil
@@ -362,7 +373,10 @@ func (s *SQLiteStore) DeleteSystemSkill(ctx context.Context, id string) error {
 // ExpireDrafts deprecates all draft skills (disable_model_invocation=0) whose
 // created-at metadata timestamp is before the given cutoff.
 func (s *SQLiteStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	if err := s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339)); err != nil {
+	if err := s.q.DeprecateExpiredDrafts(ctx, sqlc.DeprecateExpiredDraftsParams{
+		OrgID:    s.resolveOrgID(),
+		Metadata: before.UTC().Format(time.RFC3339),
+	}); err != nil {
 		return fmt.Errorf("skills: expire drafts: %w", err)
 	}
 	return nil
@@ -376,6 +390,7 @@ func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types .
 		typeFilter = string(types[0])
 	}
 	rows, err := s.q.ListActiveKnowledgeByType(ctx, sqlc.ListActiveKnowledgeByTypeParams{
+		OrgID:         s.resolveOrgID(),
 		AgentID:       sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:        sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 		KnowledgeType: typeFilter,
@@ -404,6 +419,7 @@ func (s *SQLiteStore) ListKnowledge(ctx context.Context, vc ViewContext, types .
 // whose created-at timestamp is before the cutoff.
 func (s *SQLiteStore) ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error {
 	if err := s.q.ExpireKnowledgeDraftsByType(ctx, sqlc.ExpireKnowledgeDraftsByTypeParams{
+		OrgID:         s.resolveOrgID(),
 		KnowledgeType: sql.NullString{String: string(knowledgeType), Valid: true},
 		Cutoff:        before.UTC().Format(time.RFC3339),
 	}); err != nil {

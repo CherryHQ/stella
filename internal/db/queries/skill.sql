@@ -6,11 +6,13 @@ RETURNING *;
 -- name: GetSkill :one
 SELECT * FROM skill
 WHERE id = sqlc.arg(id)
+  AND org_id = sqlc.arg(org_id)
   AND ((sqlc.narg(agent_id) IS NULL AND sqlc.narg(user_id) IS NULL) OR scope='system' OR (scope='agent' AND agent_id=sqlc.narg(agent_id)) OR (scope='user' AND user_id=sqlc.narg(user_id)));
 
 -- name: ListSkillsVisible :many
 SELECT * FROM skill
-WHERE status != 'deprecated'
+WHERE org_id = sqlc.arg(org_id)
+  AND status != 'deprecated'
   AND disable_model_invocation = 0
   AND (
     scope = 'system'
@@ -24,7 +26,8 @@ ORDER BY created_at;
 
 -- name: ListSkillsForAgentContext :many
 SELECT * FROM skill
-WHERE status != 'deprecated'
+WHERE org_id = sqlc.arg(org_id)
+  AND status != 'deprecated'
   AND (
     scope = 'system'
     OR (scope = 'agent' AND agent_id = sqlc.arg(agent_id))
@@ -34,13 +37,15 @@ ORDER BY scope, created_at;
 
 -- name: ListSkillsForAdmin :many
 SELECT * FROM skill
-WHERE scope != 'user'
-   OR user_id = sqlc.arg(user_id)
+WHERE org_id = sqlc.arg(org_id)
+  AND (scope != 'user'
+       OR user_id = sqlc.arg(user_id))
 ORDER BY scope, created_at;
 
 -- name: ListSkillsForUser :many
 SELECT * FROM skill
-WHERE status != 'deprecated'
+WHERE org_id = sqlc.arg(org_id)
+  AND status != 'deprecated'
   AND (
     scope = 'system'
     OR (scope = 'agent' AND instr(',' || sqlc.arg(agent_ids_csv) || ',', ',' || agent_id || ',') > 0)
@@ -53,7 +58,8 @@ ORDER BY scope, created_at;
 
 -- name: ResolveSkill :one
 SELECT * FROM skill
-WHERE name = sqlc.arg(name)
+WHERE org_id = sqlc.arg(org_id)
+  AND name = sqlc.arg(name)
   AND status != 'deprecated'
   AND disable_model_invocation = 0
   AND (
@@ -80,12 +86,14 @@ SET description              = sqlc.arg(description),
     metadata                 = sqlc.arg(metadata),
     updated_at               = datetime('now')
 WHERE id = sqlc.arg(id)
+  AND org_id = sqlc.arg(org_id)
   AND ((scope='agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user' AND user_id=sqlc.narg(user_id)));
 
 -- name: DeleteSkill :exec
 DELETE FROM skill
 WHERE id = sqlc.arg(id)
+  AND org_id = sqlc.arg(org_id)
   AND ((scope='agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user' AND user_id=sqlc.narg(user_id)));
 
@@ -96,10 +104,10 @@ SET description              = sqlc.arg(description),
     disable_model_invocation = sqlc.arg(disable_model_invocation),
     metadata                 = sqlc.arg(metadata),
     updated_at               = datetime('now')
-WHERE id = sqlc.arg(id) AND scope = 'system';
+WHERE id = sqlc.arg(id) AND scope = 'system' AND org_id = sqlc.arg(org_id);
 
 -- name: DeleteSystemSkill :exec
-DELETE FROM skill WHERE id = ? AND scope = 'system';
+DELETE FROM skill WHERE id = ? AND scope = 'system' AND org_id = ?;
 
 -- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)
@@ -116,7 +124,7 @@ SELECT * FROM skill_file WHERE skill_id = ? AND path = ?;
 SELECT * FROM skill_file WHERE skill_id = ? ORDER BY path;
 
 -- name: GetSystemSkillByName :one
-SELECT * FROM skill WHERE scope = 'system' AND name = ?;
+SELECT * FROM skill WHERE scope = 'system' AND name = ? AND org_id = ?;
 
 -- name: GetAgentSkillByName :one
 SELECT * FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ?;
@@ -129,11 +137,13 @@ UPDATE skill
 SET status = 'deprecated', updated_at = datetime('now')
 WHERE status = 'draft'
   AND disable_model_invocation = 0
+  AND org_id = ?
   AND json_extract(metadata, '$."created-at"') < ?;
 
 -- name: ListActiveKnowledgeByType :many
 SELECT * FROM skill
-WHERE disable_model_invocation = 1
+WHERE org_id = sqlc.arg(org_id)
+  AND disable_model_invocation = 1
   AND status = 'active'
   AND (
     scope = 'system'
@@ -148,8 +158,9 @@ UPDATE skill
 SET status = 'deprecated', updated_at = datetime('now')
 WHERE status = 'draft'
   AND disable_model_invocation = 1
+  AND org_id = sqlc.arg(org_id)
   AND metadata LIKE '%"knowledge_type":"' || sqlc.arg(knowledge_type) || '"%'
   AND json_extract(metadata, '$."created-at"') < sqlc.arg(cutoff);
 
 -- name: ListAllSkills :many
-SELECT * FROM skill ORDER BY scope, created_at;
+SELECT * FROM skill WHERE org_id = ? ORDER BY scope, created_at;

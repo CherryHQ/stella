@@ -4,13 +4,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAuthPolicy :one
-SELECT * FROM auth_policy WHERE id = ?;
+SELECT * FROM auth_policy WHERE id = ? AND org_id = ?;
 
 -- name: ListAuthPolicies :many
-SELECT * FROM auth_policy ORDER BY priority DESC, name;
+SELECT * FROM auth_policy WHERE org_id = ? ORDER BY priority DESC, name;
 
 -- name: ListEnabledAuthPolicies :many
-SELECT * FROM auth_policy WHERE enabled = 1 ORDER BY priority DESC, name;
+SELECT * FROM auth_policy WHERE org_id = ? AND enabled = 1 ORDER BY priority DESC, name;
 
 -- name: UpdateAuthPolicy :exec
 UPDATE auth_policy SET
@@ -22,7 +22,7 @@ UPDATE auth_policy SET
     conditions = ?,
     priority = ?,
     enabled = ?
-WHERE id = ?;
+WHERE id = ? AND org_id = ?;
 
 -- name: DeleteAuthPolicy :exec
-DELETE FROM auth_policy WHERE id = ?;
+DELETE FROM auth_policy WHERE id = ? AND org_id = ?;

@@ -1,16 +1,15 @@
 package config
 
-import "context"
+import (
+	"context"
 
-type ctxKey string
-
-const orgIDKey ctxKey = "orgID"
+	"github.com/CherryHQ/stella/internal/orgctx"
+)
 
 func WithOrgID(ctx context.Context, orgID string) context.Context {
-	return context.WithValue(ctx, orgIDKey, orgID)
+	return orgctx.WithOrgID(ctx, orgID)
 }
 
 func OrgIDFromContext(ctx context.Context) string {
-	orgID, _ := ctx.Value(orgIDKey).(string)
-	return orgID
+	return orgctx.OrgIDFromContext(ctx)
 }

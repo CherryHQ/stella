@@ -10,20 +10,30 @@ import (
 )
 
 const deleteSetting = `-- name: DeleteSetting :exec
-DELETE FROM settings WHERE key = ?
+DELETE FROM settings WHERE key = ? AND org_id = ?
 `
 
-func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
-	_, err := q.db.ExecContext(ctx, deleteSetting, key)
+type DeleteSettingParams struct {
+	Key   string `json:"key"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) DeleteSetting(ctx context.Context, arg DeleteSettingParams) error {
+	_, err := q.db.ExecContext(ctx, deleteSetting, arg.Key, arg.OrgID)
 	return err
 }
 
 const getSetting = `-- name: GetSetting :one
-SELECT "key", value, org_id, updated_at FROM settings WHERE key = ?
+SELECT "key", value, org_id, updated_at FROM settings WHERE key = ? AND org_id = ?
 `
 
-func (q *Queries) GetSetting(ctx context.Context, key string) (Setting, error) {
-	row := q.db.QueryRowContext(ctx, getSetting, key)
+type GetSettingParams struct {
+	Key   string `json:"key"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) GetSetting(ctx context.Context, arg GetSettingParams) (Setting, error) {
+	row := q.db.QueryRowContext(ctx, getSetting, arg.Key, arg.OrgID)
 	var i Setting
 	err := row.Scan(
 		&i.Key,
@@ -35,11 +45,11 @@ func (q *Queries) GetSetting(ctx context.Context, key string) (Setting, error) {
 }
 
 const listSettings = `-- name: ListSettings :many
-SELECT "key", value, org_id, updated_at FROM settings ORDER BY key
+SELECT "key", value, org_id, updated_at FROM settings WHERE org_id = ? ORDER BY key
 `
 
-func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
-	rows, err := q.db.QueryContext(ctx, listSettings)
+func (q *Queries) ListSettings(ctx context.Context, orgID string) ([]Setting, error) {
+	rows, err := q.db.QueryContext(ctx, listSettings, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,9 +79,8 @@ func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
 const upsertSetting = `-- name: UpsertSetting :exec
 INSERT INTO settings (key, value, org_id, updated_at)
 VALUES (?, ?, ?, datetime('now'))
-ON CONFLICT(key) DO UPDATE SET
+ON CONFLICT(key, org_id) DO UPDATE SET
     value = excluded.value,
-    org_id = excluded.org_id,
     updated_at = datetime('now')
 `
 

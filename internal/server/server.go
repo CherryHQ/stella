@@ -75,14 +75,14 @@ type Server struct {
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
 // Web UI can be consumed by channel handlers.
-func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
+func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
 	if pluginHost == nil {
 		panic("admin: plugin host is required")
 	}
 
-	// Read CORS origin once at startup.
+	// Read CORS origin once at startup (uses org context for settings scoping).
 	corsOrigin := "http://localhost:8080"
-	if val, err := store.GetSetting(context.Background(), "admin.cors_origin"); err == nil && val != "" {
+	if val, err := store.GetSetting(ctx, "admin.cors_origin"); err == nil && val != "" {
 		corsOrigin = val
 	}
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -85,7 +86,7 @@ func TestAddListRemoveJob(t *testing.T) {
 	}
 
 	// Verify persistence in DB.
-	row, err := svc.q.GetSchedulerJob(context.Background(), job.ID)
+	row, err := svc.q.GetSchedulerJob(context.Background(), sqlc.GetSchedulerJobParams{ID: job.ID, OrgID: svc.defaultOrgID})
 	if err != nil {
 		t.Fatalf("GetSchedulerJob: %v", err)
 	}

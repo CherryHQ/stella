@@ -6,7 +6,7 @@ RETURNING *;
 -- name: UpdateSchedJobRun :exec
 UPDATE sched_job_run
 SET status = ?, finished_at = ?, error = ?
-WHERE id = ?;
+WHERE id = ? AND job_id = ?;
 
 -- name: ListSchedJobRuns :many
 SELECT * FROM sched_job_run
@@ -15,7 +15,7 @@ ORDER BY started_at DESC
 LIMIT ?;
 
 -- name: GetSchedJobRun :one
-SELECT * FROM sched_job_run WHERE id = ?;
+SELECT * FROM sched_job_run WHERE id = ? AND job_id = ?;
 
 -- name: CountRunningSchedJobRuns :one
 SELECT COUNT(*) FROM sched_job_run

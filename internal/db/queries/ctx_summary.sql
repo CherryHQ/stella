@@ -3,6 +3,9 @@ INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count,
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetSummary :one
+SELECT * FROM ctx_summary WHERE id = ? AND conversation_id = ?;
+
+-- name: GetSummaryByID :one
 SELECT * FROM ctx_summary WHERE id = ?;
 
 -- name: GetSummariesByConversation :many

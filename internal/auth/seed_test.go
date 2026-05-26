@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
@@ -28,7 +29,7 @@ func setupSeedStore(t *testing.T) auth.AuthStore {
 
 func TestSeedPolicies(t *testing.T) {
 	store := setupSeedStore(t)
-	ctx := context.Background()
+	ctx := config.WithOrgID(context.Background(), testOrgID)
 
 	if err := auth.SeedPolicies(ctx, store, testOrgID); err != nil {
 		t.Fatalf("SeedPolicies: %v", err)
@@ -66,7 +67,7 @@ func TestSeedPolicies(t *testing.T) {
 
 func TestSeedPolicies_Idempotent(t *testing.T) {
 	store := setupSeedStore(t)
-	ctx := context.Background()
+	ctx := config.WithOrgID(context.Background(), testOrgID)
 
 	if err := auth.SeedPolicies(ctx, store, testOrgID); err != nil {
 		t.Fatalf("first seed: %v", err)
@@ -83,7 +84,7 @@ func TestSeedPolicies_Idempotent(t *testing.T) {
 
 func TestNewEngine_WithSeededPolicies(t *testing.T) {
 	store := setupSeedStore(t)
-	ctx := context.Background()
+	ctx := config.WithOrgID(context.Background(), testOrgID)
 
 	if err := auth.SeedPolicies(ctx, store, testOrgID); err != nil {
 		t.Fatalf("SeedPolicies: %v", err)

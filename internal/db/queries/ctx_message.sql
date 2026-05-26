@@ -4,7 +4,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetMessage :one
-SELECT * FROM ctx_message WHERE id = ?;
+SELECT * FROM ctx_message WHERE id = ? AND conversation_id = ?;
 
 -- name: GetMessagesByConversation :many
 SELECT * FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC;

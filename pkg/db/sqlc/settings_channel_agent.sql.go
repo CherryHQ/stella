@@ -10,32 +10,44 @@ import (
 )
 
 const deleteChatAgent = `-- name: DeleteChatAgent :exec
-DELETE FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
+DELETE FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ? AND org_id = ?
 `
 
 type DeleteChatAgentParams struct {
 	ChannelID string `json:"channel_id"`
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
+	OrgID     string `json:"org_id"`
 }
 
 func (q *Queries) DeleteChatAgent(ctx context.Context, arg DeleteChatAgentParams) error {
-	_, err := q.db.ExecContext(ctx, deleteChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
+	_, err := q.db.ExecContext(ctx, deleteChatAgent,
+		arg.ChannelID,
+		arg.Platform,
+		arg.ChatID,
+		arg.OrgID,
+	)
 	return err
 }
 
 const getChatAgent = `-- name: GetChatAgent :one
-SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
+SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ? AND org_id = ?
 `
 
 type GetChatAgentParams struct {
 	ChannelID string `json:"channel_id"`
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
+	OrgID     string `json:"org_id"`
 }
 
 func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (SettingsChannelAgent, error) {
-	row := q.db.QueryRowContext(ctx, getChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
+	row := q.db.QueryRowContext(ctx, getChatAgent,
+		arg.ChannelID,
+		arg.Platform,
+		arg.ChatID,
+		arg.OrgID,
+	)
 	var i SettingsChannelAgent
 	err := row.Scan(
 		&i.ChannelID,
@@ -49,16 +61,17 @@ func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (Set
 }
 
 const getLegacyChatAgent = `-- name: GetLegacyChatAgent :one
-SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent WHERE channel_id = '' AND platform = ? AND chat_id = ?
+SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent WHERE channel_id = '' AND platform = ? AND chat_id = ? AND org_id = ?
 `
 
 type GetLegacyChatAgentParams struct {
 	Platform string `json:"platform"`
 	ChatID   string `json:"chat_id"`
+	OrgID    string `json:"org_id"`
 }
 
 func (q *Queries) GetLegacyChatAgent(ctx context.Context, arg GetLegacyChatAgentParams) (SettingsChannelAgent, error) {
-	row := q.db.QueryRowContext(ctx, getLegacyChatAgent, arg.Platform, arg.ChatID)
+	row := q.db.QueryRowContext(ctx, getLegacyChatAgent, arg.Platform, arg.ChatID, arg.OrgID)
 	var i SettingsChannelAgent
 	err := row.Scan(
 		&i.ChannelID,
@@ -72,11 +85,11 @@ func (q *Queries) GetLegacyChatAgent(ctx context.Context, arg GetLegacyChatAgent
 }
 
 const listChatAgents = `-- name: ListChatAgents :many
-SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent ORDER BY channel_id, platform, chat_id
+SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent WHERE org_id = ? ORDER BY channel_id, platform, chat_id
 `
 
-func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listChatAgents)
+func (q *Queries) ListChatAgents(ctx context.Context, orgID string) ([]SettingsChannelAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listChatAgents, orgID)
 	if err != nil {
 		return nil, err
 	}

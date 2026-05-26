@@ -241,7 +241,7 @@ func (p *Provider) hasCompactableRun(ctx context.Context, items []sqlc.CtxItem) 
 		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
 			continue
 		}
-		sum, err := p.q.GetSummary(ctx, item.SummaryID.String)
+		sum, err := p.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: item.SummaryID.String, ConversationID: item.ConversationID})
 		if err != nil {
 			return false
 		}

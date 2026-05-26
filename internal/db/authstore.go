@@ -10,8 +10,17 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func authRequireOrgID(ctx context.Context) (string, error) {
+	orgID := orgctx.OrgIDFromContext(ctx)
+	if orgID == "" {
+		return "", fmt.Errorf("org_id not set in context")
+	}
+	return orgID, nil
+}
 
 const authTimeLayout = "2006-01-02 15:04:05"
 
@@ -60,7 +69,11 @@ func (s *AuthStore) CreatePolicy(ctx context.Context, p auth.Policy) (auth.Polic
 }
 
 func (s *AuthStore) GetPolicy(ctx context.Context, id string) (auth.Policy, error) {
-	r, err := s.q.GetAuthPolicy(ctx, id)
+	orgID, err := authRequireOrgID(ctx)
+	if err != nil {
+		return auth.Policy{}, err
+	}
+	r, err := s.q.GetAuthPolicy(ctx, sqlc.GetAuthPolicyParams{ID: id, OrgID: orgID})
 	if err != nil {
 		return auth.Policy{}, fmt.Errorf("get policy %q: %w", id, err)
 	}
@@ -68,7 +81,11 @@ func (s *AuthStore) GetPolicy(ctx context.Context, id string) (auth.Policy, erro
 }
 
 func (s *AuthStore) ListPolicies(ctx context.Context) ([]auth.Policy, error) {
-	rows, err := s.q.ListAuthPolicies(ctx)
+	orgID, err := authRequireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListAuthPolicies(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
@@ -80,7 +97,11 @@ func (s *AuthStore) ListPolicies(ctx context.Context) ([]auth.Policy, error) {
 }
 
 func (s *AuthStore) ListEnabledPolicies(ctx context.Context) ([]auth.Policy, error) {
-	rows, err := s.q.ListEnabledAuthPolicies(ctx)
+	orgID, err := authRequireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListEnabledAuthPolicies(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled policies: %w", err)
 	}
@@ -92,6 +113,10 @@ func (s *AuthStore) ListEnabledPolicies(ctx context.Context) ([]auth.Policy, err
 }
 
 func (s *AuthStore) UpdatePolicy(ctx context.Context, p auth.Policy) error {
+	orgID, err := authRequireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	enabled := int64(0)
 	if p.Enabled {
 		enabled = 1
@@ -106,6 +131,7 @@ func (s *AuthStore) UpdatePolicy(ctx context.Context, p auth.Policy) error {
 		Conditions: p.Conditions,
 		Priority:   int64(p.Priority),
 		Enabled:    enabled,
+		OrgID:      orgID,
 	}); err != nil {
 		return fmt.Errorf("update policy %q: %w", p.ID, err)
 	}
@@ -113,7 +139,11 @@ func (s *AuthStore) UpdatePolicy(ctx context.Context, p auth.Policy) error {
 }
 
 func (s *AuthStore) DeletePolicy(ctx context.Context, id string) error {
-	if err := s.q.DeleteAuthPolicy(ctx, id); err != nil {
+	orgID, err := authRequireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.q.DeleteAuthPolicy(ctx, sqlc.DeleteAuthPolicyParams{ID: id, OrgID: orgID}); err != nil {
 		return fmt.Errorf("delete policy %q: %w", id, err)
 	}
 	return nil

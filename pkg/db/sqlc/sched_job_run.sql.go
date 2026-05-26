@@ -65,11 +65,16 @@ func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunPa
 }
 
 const getSchedJobRun = `-- name: GetSchedJobRun :one
-SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_run WHERE id = ?
+SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_run WHERE id = ? AND job_id = ?
 `
 
-func (q *Queries) GetSchedJobRun(ctx context.Context, id string) (SchedJobRun, error) {
-	row := q.db.QueryRowContext(ctx, getSchedJobRun, id)
+type GetSchedJobRunParams struct {
+	ID    string `json:"id"`
+	JobID string `json:"job_id"`
+}
+
+func (q *Queries) GetSchedJobRun(ctx context.Context, arg GetSchedJobRunParams) (SchedJobRun, error) {
+	row := q.db.QueryRowContext(ctx, getSchedJobRun, arg.ID, arg.JobID)
 	var i SchedJobRun
 	err := row.Scan(
 		&i.ID,
@@ -131,7 +136,7 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 const updateSchedJobRun = `-- name: UpdateSchedJobRun :exec
 UPDATE sched_job_run
 SET status = ?, finished_at = ?, error = ?
-WHERE id = ?
+WHERE id = ? AND job_id = ?
 `
 
 type UpdateSchedJobRunParams struct {
@@ -139,6 +144,7 @@ type UpdateSchedJobRunParams struct {
 	FinishedAt sql.NullString `json:"finished_at"`
 	Error      string         `json:"error"`
 	ID         string         `json:"id"`
+	JobID      string         `json:"job_id"`
 }
 
 func (q *Queries) UpdateSchedJobRun(ctx context.Context, arg UpdateSchedJobRunParams) error {
@@ -147,6 +153,7 @@ func (q *Queries) UpdateSchedJobRun(ctx context.Context, arg UpdateSchedJobRunPa
 		arg.FinishedAt,
 		arg.Error,
 		arg.ID,
+		arg.JobID,
 	)
 	return err
 }

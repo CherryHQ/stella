@@ -537,15 +537,21 @@ func (s *DBStore) GetChatAgent(ctx context.Context, channelID, platform, chatID 
 	if channelID == "" {
 		channelID = platform
 	}
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return "", err
+	}
 	r, err := s.q.GetChatAgent(ctx, sqlc.GetChatAgentParams{
 		ChannelID: channelID,
 		Platform:  platform,
 		ChatID:    chatID,
+		OrgID:     orgID,
 	})
 	if err != nil {
 		r, err = s.q.GetLegacyChatAgent(ctx, sqlc.GetLegacyChatAgentParams{
 			Platform: platform,
 			ChatID:   chatID,
+			OrgID:    orgID,
 		})
 		if err != nil {
 			return "", fmt.Errorf("get chat agent: %w", err)
@@ -575,17 +581,26 @@ func (s *DBStore) DeleteChatAgent(ctx context.Context, channelID, platform, chat
 	if channelID == "" {
 		channelID = platform
 	}
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	return s.q.DeleteChatAgent(ctx, sqlc.DeleteChatAgentParams{
 		ChannelID: channelID,
 		Platform:  platform,
 		ChatID:    chatID,
+		OrgID:     orgID,
 	})
 }
 
 // --- Settings ---
 
 func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
-	r, err := s.q.GetSetting(ctx, key)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return "", err
+	}
+	r, err := s.q.GetSetting(ctx, sqlc.GetSettingParams{Key: key, OrgID: orgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil

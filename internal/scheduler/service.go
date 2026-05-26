@@ -613,7 +613,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		errStr = runErr.Error()
 	}
 
-	if err := s.finishJobRun(ctx, runID, status, finishedAt, errStr); err != nil {
+	if err := s.finishJobRun(ctx, runID, job.ID, status, finishedAt, errStr); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 	}
 
@@ -701,7 +701,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 			errStr = runErr.Error()
 		}
 
-		if err := s.finishJobRun(svcCtx, runID, status, finishedAt, errStr); err != nil {
+		if err := s.finishJobRun(svcCtx, runID, jobID, status, finishedAt, errStr); err != nil {
 			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 		}
 		if err := s.recordJobRun(svcCtx, jobID, finishedAt, runErr); err != nil {

@@ -134,10 +134,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
-	_ = store.SeedDefaults(context.Background(), orgID)
+	orgCtx := config.WithOrgID(context.Background(), orgID)
+	_ = store.SeedDefaults(orgCtx, orgID)
 	as := appdb.NewAuthStore(db)
 
-	engine, err := auth.NewEngine(context.Background(), as)
+	engine, err := auth.NewEngine(orgCtx, as)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -211,14 +212,13 @@ func setupAdmin(t *testing.T) *testEnv {
 	skillStore := skills.New(db)
 	skillStore.SetDefaultOrgID(orgID)
 	phost.SetSkillStore(skillStore)
-	orgCtx := config.WithOrgID(context.Background(), orgID)
 	if err := phost.ApplyPlugin(orgCtx, mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
 	if err := phost.ApplyPlugin(orgCtx, reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
-	srv := server.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
+	srv := server.New(orgCtx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	oidcStore := appdb.NewOIDCStore(db)
 	tokenSvc := auth.NewTokenService(as, nil)
@@ -324,7 +324,7 @@ func TestNewPanicsWithoutPluginHost(t *testing.T) {
 		}
 	}()
 
-	_ = server.New(nil, nil, nil, nil, nil, nil, nil, nil)
+	_ = server.New(context.Background(), nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {

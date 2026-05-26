@@ -60,7 +60,7 @@ func seedAgent(t *testing.T, db *sql.DB, id string) {
 func TestPolicyCRUD(t *testing.T) {
 	t.Parallel()
 	store, _, _ := setupAuthStore(t)
-	ctx := context.Background()
+	ctx := config.WithOrgID(context.Background(), testOrgID)
 
 	policy, err := store.CreatePolicy(ctx, auth.Policy{
 		ID:        "system:admin-full",

@@ -1,8 +1,8 @@
 -- name: GetChatAgent :one
-SELECT * FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?;
+SELECT * FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ? AND org_id = ?;
 
 -- name: GetLegacyChatAgent :one
-SELECT * FROM settings_channel_agent WHERE channel_id = '' AND platform = ? AND chat_id = ?;
+SELECT * FROM settings_channel_agent WHERE channel_id = '' AND platform = ? AND chat_id = ? AND org_id = ?;
 
 -- name: UpsertChatAgent :exec
 INSERT INTO settings_channel_agent (channel_id, platform, chat_id, agent_id, org_id, updated_at)
@@ -12,7 +12,7 @@ ON CONFLICT(channel_id, platform, chat_id) DO UPDATE SET
     updated_at = datetime('now');
 
 -- name: DeleteChatAgent :exec
-DELETE FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?;
+DELETE FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ? AND org_id = ?;
 
 -- name: ListChatAgents :many
-SELECT * FROM settings_channel_agent ORDER BY channel_id, platform, chat_id;
+SELECT * FROM settings_channel_agent WHERE org_id = ? ORDER BY channel_id, platform, chat_id;

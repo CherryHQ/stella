@@ -53,13 +53,14 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
+	orgCtx := config.WithOrgID(context.Background(), orgID)
 	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background(), orgID); err != nil {
+	if err := store.SeedDefaults(orgCtx, orgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)
-	engine, err := auth.NewEngine(context.Background(), as)
+	engine, err := auth.NewEngine(orgCtx, as)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -87,7 +88,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	srv := New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
+	srv := New(context.Background(), store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	status := &weixinplugin.QRCodeStatusResponse{
 		Status:      "confirmed",

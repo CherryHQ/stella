@@ -97,11 +97,16 @@ func (q *Queries) GetMaxSeq(ctx context.Context, conversationID string) (int64, 
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE id = ?
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE id = ? AND conversation_id = ?
 `
 
-func (q *Queries) GetMessage(ctx context.Context, id string) (CtxMessage, error) {
-	row := q.db.QueryRowContext(ctx, getMessage, id)
+type GetMessageParams struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (CtxMessage, error) {
+	row := q.db.QueryRowContext(ctx, getMessage, arg.ID, arg.ConversationID)
 	var i CtxMessage
 	err := row.Scan(
 		&i.ID,
