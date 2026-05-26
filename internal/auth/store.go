@@ -67,7 +67,6 @@ type MembershipStore interface {
 	UpdateMembershipRole(ctx context.Context, id, role string) error
 	UpdateMembershipActive(ctx context.Context, id string, active bool) error
 	DeleteMembership(ctx context.Context, id string) error
-	CountOrgMembers(ctx context.Context, orgID string) (int64, error)
 }
 
 // InviteStore provides CRUD for auth_invite (organization invitations).

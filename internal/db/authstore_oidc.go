@@ -628,12 +628,6 @@ func (s *OIDCStore) DeleteMembership(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *OIDCStore) CountOrgMembers(ctx context.Context, orgID string) (int64, error) {
-	var n int64
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_membership WHERE organization_id=?`, orgID).Scan(&n)
-	return n, err
-}
-
 func scanMembership(r rowScanner) (auth.Membership, error) {
 	var m auth.Membership
 	var isActive int

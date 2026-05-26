@@ -93,9 +93,6 @@ func (f *fakeMembershipStore) UpdateMembershipActive(_ context.Context, _ string
 	return nil
 }
 func (f *fakeMembershipStore) DeleteMembership(_ context.Context, _ string) error { return nil }
-func (f *fakeMembershipStore) CountOrgMembers(_ context.Context, _ string) (int64, error) {
-	return 0, nil
-}
 
 type fakeCredStore struct{ byUser map[string]auth.Credential }
 
