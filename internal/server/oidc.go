@@ -122,8 +122,13 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Provision vault age keys for brand-new OIDC users.
-	if result.IsNewUser && s.vaultRecipient != nil {
+	// Initialize per-org runtime (lazy; idempotent for returning users).
+	if err := s.authSvc.InitOrg(r.Context(), result.Membership.OrganizationID); err != nil {
+		slog.Warn("oidc: org runtime init failed", "org_id", result.Membership.OrganizationID, "error", err)
+	}
+
+	// Provision vault age keys when the user doesn't have them yet.
+	if result.User.AgePublicKey == "" && s.vaultRecipient != nil {
 		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
 		if err != nil {
 			slog.Warn("oidc: generate age keys failed", "user_id", result.User.ID, "error", err)

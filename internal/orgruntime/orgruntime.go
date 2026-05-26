@@ -111,3 +111,10 @@ func (m *Manager) GetOrInit(ctx context.Context, orgID string) (*OrgRuntime, err
 
 	return rt, nil
 }
+
+// EnsureStarted satisfies auth.OrgInitializer — starts the org runtime,
+// discarding the *OrgRuntime value.
+func (m *Manager) EnsureStarted(ctx context.Context, orgID string) error {
+	_, err := m.GetOrInit(ctx, orgID)
+	return err
+}

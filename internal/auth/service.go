@@ -26,6 +26,7 @@ type AuthService struct {
 	memberships   MembershipStore
 	invites       InviteStore
 	seeder        OrgSeeder
+	orgInit       OrgInitializer
 	db            *sql.DB
 }
 
@@ -53,14 +54,31 @@ func NewAuthService(
 // SetOrgSeeder registers a seeder that populates default resources when a new org is created.
 func (s *AuthService) SetOrgSeeder(seeder OrgSeeder) { s.seeder = seeder }
 
+// OrgInitializer is called after successful login to ensure per-org runtime is started.
+type OrgInitializer interface {
+	EnsureStarted(ctx context.Context, orgID string) error
+}
+
+// SetOrgInitializer registers a callback to initialize per-org runtime after login.
+func (s *AuthService) SetOrgInitializer(init OrgInitializer) { s.orgInit = init }
+
+// InitOrg initializes per-org runtime for the given org, if an initializer is set.
+func (s *AuthService) InitOrg(ctx context.Context, orgID string) error {
+	if s.orgInit != nil {
+		return s.orgInit.EnsureStarted(ctx, orgID)
+	}
+	return nil
+}
+
 // OIDCLoginResult holds everything the HTTP handler needs after a successful
 // OIDC callback.
 type OIDCLoginResult struct {
-	User         User
-	Session      Session
-	Membership   Membership
-	IsNewUser    bool
-	SessionToken string // raw token for the session cookie (not stored in DB)
+	User           User
+	Session        Session
+	Membership     Membership
+	IsNewUser      bool
+	NeedsSeedOrgID string // non-empty when a new org was created and needs seeding
+	SessionToken   string // raw token for the session cookie (not stored in DB)
 }
 
 // ProcessOIDCLogin is the single transaction entry point for an OIDC callback.
@@ -97,7 +115,6 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 		organizations: stores.Organizations,
 		memberships:   stores.Memberships,
 		invites:       stores.Invites,
-		seeder:        s.seeder,
 		db:            s.db,
 	}
 	// Session insert must also run inside the transaction.
@@ -110,6 +127,14 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 	if err := commit(); err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: commit login tx: %w", err)
 	}
+
+	// Seed after commit using the outer (non-tx) seeder.
+	if result.NeedsSeedOrgID != "" && s.seeder != nil {
+		if err := s.seeder.SeedOrg(ctx, result.NeedsSeedOrgID); err != nil {
+			return OIDCLoginResult{}, fmt.Errorf("auth: seed new org: %w", err)
+		}
+	}
+
 	return result, nil
 }
 
@@ -120,9 +145,15 @@ func (s *AuthService) processOIDCLoginNoTx(ctx context.Context, ext ExternalIden
 		return OIDCLoginResult{}, fmt.Errorf("auth: resolve user: %w", err)
 	}
 
-	membership, err := s.ensureMembership(ctx, user.ID)
+	membership, needsSeedOrgID, err := s.ensureMembership(ctx, user.ID)
 	if err != nil {
 		return OIDCLoginResult{}, fmt.Errorf("auth: manage membership: %w", err)
+	}
+
+	if needsSeedOrgID != "" && s.seeder != nil {
+		if err := s.seeder.SeedOrg(ctx, needsSeedOrgID); err != nil {
+			return OIDCLoginResult{}, fmt.Errorf("auth: seed new org: %w", err)
+		}
 	}
 
 	rawToken, session, err := sessionMgr.Create(ctx, user.ID)
@@ -131,11 +162,12 @@ func (s *AuthService) processOIDCLoginNoTx(ctx context.Context, ext ExternalIden
 	}
 
 	return OIDCLoginResult{
-		User:         user,
-		Session:      session,
-		Membership:   membership,
-		IsNewUser:    isNewUser,
-		SessionToken: rawToken,
+		User:           user,
+		Session:        session,
+		Membership:     membership,
+		IsNewUser:      isNewUser,
+		NeedsSeedOrgID: needsSeedOrgID,
+		SessionToken:   rawToken,
 	}, nil
 }
 
@@ -177,9 +209,18 @@ func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (
 }
 
 // EnsureMembership returns the user's existing membership or creates a new org
-// (with default seed data) and membership if they don't have one yet.
+// and membership if they don't have one yet. Seeds the new org if a seeder is set.
 func (s *AuthService) EnsureMembership(ctx context.Context, userID string) (Membership, error) {
-	return s.ensureMembership(ctx, userID)
+	m, needsSeedOrgID, err := s.ensureMembership(ctx, userID)
+	if err != nil {
+		return Membership{}, err
+	}
+	if needsSeedOrgID != "" && s.seeder != nil {
+		if err := s.seeder.SeedOrg(ctx, needsSeedOrgID); err != nil {
+			return Membership{}, fmt.Errorf("auth: seed new org: %w", err)
+		}
+	}
+	return m, nil
 }
 
 // GetUserMembership returns the user's current org membership.
@@ -406,31 +447,31 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 }
 
 // ensureMembership returns the user's existing membership or creates a new org
-// (with seeded defaults) and membership if they don't have one yet.
-func (s *AuthService) ensureMembership(ctx context.Context, userID string) (Membership, error) {
+// and membership if they don't have one yet. Does NOT seed the org — the caller
+// must check needsSeedOrgID and call SeedOrg after commit.
+func (s *AuthService) ensureMembership(ctx context.Context, userID string) (membership Membership, needsSeedOrgID string, err error) {
 	existing, err := s.memberships.GetUserMembership(ctx, userID)
 	if err == nil {
-		return existing, nil
+		return existing, "", nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Membership{}, err
+		return Membership{}, "", err
 	}
 
 	org, err := s.createOrganization(ctx)
 	if err != nil {
-		return Membership{}, fmt.Errorf("auth: create org for new user: %w", err)
-	}
-	if s.seeder != nil {
-		if err := s.seeder.SeedOrg(ctx, org.ID); err != nil {
-			return Membership{}, fmt.Errorf("auth: seed new org: %w", err)
-		}
+		return Membership{}, "", fmt.Errorf("auth: create org for new user: %w", err)
 	}
 
-	return s.memberships.CreateMembership(ctx, Membership{
+	m, err := s.memberships.CreateMembership(ctx, Membership{
 		ID:             uuid.NewString(),
 		UserID:         userID,
 		OrganizationID: org.ID,
 		Role:           RoleAdmin,
 		IsActive:       true,
 	})
+	if err != nil {
+		return Membership{}, "", err
+	}
+	return m, org.ID, nil
 }
