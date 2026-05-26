@@ -27,10 +27,11 @@ import {
   updateChannel,
   uploadAgentScopedSkill,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
+import { unwrapApiData, unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import type {
   CreateAgentData,
   ComponentsCachedModel,
+  ComponentsMeResponse,
   InstallAgentScopedSkillData,
   UpdateAgentData,
   UpdateAgentScopedSkillData,
@@ -165,7 +166,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
       .then(({ data }) => unwrapApiList<ComponentsCachedModel>(data))
       .catch(() => []),
     getMe({ throwOnError: true })
-      .then(({ data }) => data)
+      .then(({ data }) => unwrapApiData<ComponentsMeResponse>(data))
       .catch(() => null),
     Promise.all([
       listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
