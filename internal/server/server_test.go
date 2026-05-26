@@ -1079,13 +1079,13 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 		t.Fatalf("expected telegram public channel, got %#v", channels)
 	}
 	if _, ok := byID[pkgchannel.PlatformFeishu]; ok {
-		t.Fatalf("feishu disabled channel should not be public: %#v", channels)
+		t.Fatalf("feishu disabled default should not be public: %#v", channels)
+	}
+	if _, ok := byID["feishu-stella"]; !ok {
+		t.Fatalf("feishu-stella dedicated enabled channel should be public: %#v", channels)
 	}
 	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
 		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
-	}
-	if _, ok := byID["feishu-stella"]; ok {
-		t.Fatalf("dedicated instances should not appear in public channels: %#v", channels)
 	}
 }
 

@@ -125,10 +125,9 @@ func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]
 	views := make([]publicChannelView, 0, len(channels))
 	for _, ch := range channels {
 		channelType := effectiveChannelType(ch)
-		if !ch.Enabled || !enabledTypes[channelType] || ch.ID != channelType {
+		if !ch.Enabled || !enabledTypes[channelType] {
 			continue
 		}
-
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
@@ -137,7 +136,6 @@ func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]
 				continue
 			}
 		}
-
 		views = append(views, publicChannelView{
 			ID:        ch.ID,
 			Type:      channelType,
