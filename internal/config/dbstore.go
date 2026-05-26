@@ -389,9 +389,14 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
 }
 
 func (s *DBStore) SetChannelOrg(ctx context.Context, channelID, orgID string) error {
+	currentOrgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	return s.q.SetChannelOrg(ctx, sqlc.SetChannelOrgParams{
-		OrgID: orgID,
-		ID:    channelID,
+		OrgID:        orgID,
+		ID:           channelID,
+		CurrentOrgID: currentOrgID,
 	})
 }
 

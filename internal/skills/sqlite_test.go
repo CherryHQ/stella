@@ -145,6 +145,43 @@ func TestCreateMissingSkillMD(t *testing.T) {
 	}
 }
 
+func TestCreateSystemSkillSameNameAcrossOrgs(t *testing.T) {
+	store1, db := newTestStore(t)
+	_, _, org1 := seedFixtures(t, db)
+	org2 := "org-2"
+	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, org2, "Org 2", org2, "test"); err != nil {
+		t.Fatalf("create org 2: %v", err)
+	}
+	store2 := New(db)
+	store2.SetDefaultOrgID(org2)
+	ctx := context.Background()
+	files := map[string]string{MainFile: "body"}
+
+	id1, err := store1.Create(ctx, Skill{Scope: "system", Name: "shared", Description: "org1"}, files)
+	if err != nil {
+		t.Fatalf("create org1 skill: %v", err)
+	}
+	id2, err := store2.Create(ctx, Skill{Scope: "system", Name: "shared", Description: "org2"}, files)
+	if err != nil {
+		t.Fatalf("create org2 skill: %v", err)
+	}
+	if id1 == id2 {
+		t.Fatalf("expected distinct skill IDs, got %q", id1)
+	}
+
+	got1, err := store1.Resolve(ctx, "shared", ViewContext{})
+	if err != nil || got1 == nil {
+		t.Fatalf("resolve org1: %v skill=%v", err, got1)
+	}
+	got2, err := store2.Resolve(ctx, "shared", ViewContext{})
+	if err != nil || got2 == nil {
+		t.Fatalf("resolve org2: %v skill=%v", err, got2)
+	}
+	if got1.OrgID != org1 || got2.OrgID != org2 {
+		t.Fatalf("skills crossed orgs: org1=%+v org2=%+v", got1, got2)
+	}
+}
+
 func TestResolvePrecedence(t *testing.T) {
 	store, db := newTestStore(t)
 	userID, agentID, _ := seedFixtures(t, db)

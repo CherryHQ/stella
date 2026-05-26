@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -16,6 +17,12 @@ func testCtx() context.Context {
 
 func setupDBStore(t *testing.T) *DBStore {
 	t.Helper()
+	store, _ := setupDBStoreWithDB(t)
+	return store
+}
+
+func setupDBStoreWithDB(t *testing.T) (*DBStore, *sql.DB) {
+	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
@@ -27,7 +34,7 @@ func setupDBStore(t *testing.T) *DBStore {
 		t.Fatalf("create test org: %v", err)
 	}
 	store := NewDBStore(db)
-	return store
+	return store, db
 }
 
 func TestSeedDefaults(t *testing.T) {
@@ -352,6 +359,71 @@ func TestChannelCRUD(t *testing.T) {
 	}
 	if len(channels) != 1 {
 		t.Errorf("expected 1 channel, got %d", len(channels))
+	}
+}
+
+func TestChannelSameIDIsOrgScoped(t *testing.T) {
+	store, db := setupDBStoreWithDB(t)
+	ctx1 := testCtx()
+	ctx2 := WithOrgID(context.Background(), "org-2")
+	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, "org-2", "Org 2", "org-2", "test"); err != nil {
+		t.Fatalf("create org 2: %v", err)
+	}
+
+	if err := store.UpsertChannel(ctx1, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org1"}`}); err != nil {
+		t.Fatalf("UpsertChannel org1: %v", err)
+	}
+	if err := store.UpsertChannel(ctx2, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org2"}`}); err != nil {
+		t.Fatalf("UpsertChannel org2: %v", err)
+	}
+	if err := store.SetChannelOrg(ctx2, "telegram", "org-2"); err != nil {
+		t.Fatalf("SetChannelOrg org2 no-op: %v", err)
+	}
+
+	got1, err := store.GetChannel(ctx1, "telegram")
+	if err != nil {
+		t.Fatalf("GetChannel org1: %v", err)
+	}
+	got2, err := store.GetChannel(ctx2, "telegram")
+	if err != nil {
+		t.Fatalf("GetChannel org2: %v", err)
+	}
+	if got1.Config != `{"token":"org1"}` || got2.Config != `{"token":"org2"}` {
+		t.Fatalf("channels crossed orgs: org1=%+v org2=%+v", got1, got2)
+	}
+}
+
+func TestChatAgentSameChatIsOrgScoped(t *testing.T) {
+	store, db := setupDBStoreWithDB(t)
+	ctx1 := testCtx()
+	ctx2 := WithOrgID(context.Background(), "org-2")
+	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, "org-2", "Org 2", "org-2", "test"); err != nil {
+		t.Fatalf("create org 2: %v", err)
+	}
+	if err := store.CreateAgent(ctx1, Agent{ID: "agent-org-1", Name: "Agent 1", Model: "p/m", Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent org1: %v", err)
+	}
+	if err := store.CreateAgent(ctx2, Agent{ID: "agent-org-2", Name: "Agent 2", Model: "p/m", Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent org2: %v", err)
+	}
+
+	if err := store.SetChatAgent(ctx1, "telegram", "telegram", "chat-1", "agent-org-1"); err != nil {
+		t.Fatalf("SetChatAgent org1: %v", err)
+	}
+	if err := store.SetChatAgent(ctx2, "telegram", "telegram", "chat-1", "agent-org-2"); err != nil {
+		t.Fatalf("SetChatAgent org2: %v", err)
+	}
+
+	got1, err := store.GetChatAgent(ctx1, "telegram", "telegram", "chat-1")
+	if err != nil {
+		t.Fatalf("GetChatAgent org1: %v", err)
+	}
+	got2, err := store.GetChatAgent(ctx2, "telegram", "telegram", "chat-1")
+	if err != nil {
+		t.Fatalf("GetChatAgent org2: %v", err)
+	}
+	if got1 != "agent-org-1" || got2 != "agent-org-2" {
+		t.Fatalf("chat agents crossed orgs: org1=%q org2=%q", got1, got2)
 	}
 }
 

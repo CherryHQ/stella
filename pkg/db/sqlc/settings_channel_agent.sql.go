@@ -121,7 +121,7 @@ func (q *Queries) ListChatAgents(ctx context.Context, orgID string) ([]SettingsC
 const upsertChatAgent = `-- name: UpsertChatAgent :exec
 INSERT INTO settings_channel_agent (channel_id, platform, chat_id, agent_id, org_id, updated_at)
 VALUES (?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(channel_id, platform, chat_id) DO UPDATE SET
+ON CONFLICT(channel_id, platform, chat_id, org_id) DO UPDATE SET
     agent_id = excluded.agent_id,
     updated_at = datetime('now')
 `

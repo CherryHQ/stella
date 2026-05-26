@@ -21,7 +21,7 @@ CREATE TABLE skill (
 );
 
 CREATE UNIQUE INDEX idx_skills_owner_name
-    ON skill (name, scope, ifnull(user_id, 0), ifnull(agent_id, ''));
+    ON skill (org_id, name, scope, ifnull(user_id, 0), ifnull(agent_id, ''));
 
 CREATE INDEX idx_skills_visibility
     ON skill (scope, user_id, agent_id);

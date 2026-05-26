@@ -154,16 +154,17 @@ func (q *Queries) ExpireKnowledgeDraftsByType(ctx context.Context, arg ExpireKno
 }
 
 const getAgentSkillByName = `-- name: GetAgentSkillByName :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ?
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ? AND org_id = ?
 `
 
 type GetAgentSkillByNameParams struct {
 	AgentID sql.NullString `json:"agent_id"`
 	Name    string         `json:"name"`
+	OrgID   string         `json:"org_id"`
 }
 
 func (q *Queries) GetAgentSkillByName(ctx context.Context, arg GetAgentSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getAgentSkillByName, arg.AgentID, arg.Name)
+	row := q.db.QueryRowContext(ctx, getAgentSkillByName, arg.AgentID, arg.Name, arg.OrgID)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -267,16 +268,17 @@ func (q *Queries) GetSystemSkillByName(ctx context.Context, arg GetSystemSkillBy
 }
 
 const getUserSkillByName = `-- name: GetUserSkillByName :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE scope = 'user' AND user_id = ? AND name = ?
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE scope = 'user' AND user_id = ? AND name = ? AND org_id = ?
 `
 
 type GetUserSkillByNameParams struct {
 	UserID sql.NullString `json:"user_id"`
 	Name   string         `json:"name"`
+	OrgID  string         `json:"org_id"`
 }
 
 func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getUserSkillByName, arg.UserID, arg.Name)
+	row := q.db.QueryRowContext(ctx, getUserSkillByName, arg.UserID, arg.Name, arg.OrgID)
 	var i Skill
 	err := row.Scan(
 		&i.ID,

@@ -127,28 +127,28 @@ func (q *Queries) ListChannelsByType(ctx context.Context, arg ListChannelsByType
 }
 
 const setChannelOrg = `-- name: SetChannelOrg :exec
-UPDATE settings_channel SET org_id = ? WHERE id = ?
+UPDATE settings_channel SET org_id = ?1 WHERE id = ?2 AND org_id = ?3
 `
 
 type SetChannelOrgParams struct {
-	OrgID string `json:"org_id"`
-	ID    string `json:"id"`
+	OrgID        string `json:"org_id"`
+	ID           string `json:"id"`
+	CurrentOrgID string `json:"current_org_id"`
 }
 
 func (q *Queries) SetChannelOrg(ctx context.Context, arg SetChannelOrgParams) error {
-	_, err := q.db.ExecContext(ctx, setChannelOrg, arg.OrgID, arg.ID)
+	_, err := q.db.ExecContext(ctx, setChannelOrg, arg.OrgID, arg.ID, arg.CurrentOrgID)
 	return err
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec
 INSERT INTO settings_channel (id, type, agent_id, enabled, config, org_id, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(id) DO UPDATE SET
+ON CONFLICT(id, org_id) DO UPDATE SET
     type = excluded.type,
     agent_id = excluded.agent_id,
     enabled = excluded.enabled,
     config = excluded.config,
-    org_id = excluded.org_id,
     updated_at = datetime('now')
 `
 

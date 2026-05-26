@@ -127,10 +127,10 @@ SELECT * FROM skill_file WHERE skill_id = ? ORDER BY path;
 SELECT * FROM skill WHERE scope = 'system' AND name = ? AND org_id = ?;
 
 -- name: GetAgentSkillByName :one
-SELECT * FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ?;
+SELECT * FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ? AND org_id = ?;
 
 -- name: GetUserSkillByName :one
-SELECT * FROM skill WHERE scope = 'user' AND user_id = ? AND name = ?;
+SELECT * FROM skill WHERE scope = 'user' AND user_id = ? AND name = ? AND org_id = ?;
 
 -- name: DeprecateExpiredDrafts :exec
 UPDATE skill
