@@ -37,8 +37,9 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
-	if agentID != "stella" {
-		t.Errorf("agentID = %q, want %q", agentID, "stella")
+	stellaID := ts.stellaAgentID(t)
+	if agentID != stellaID {
+		t.Errorf("agentID = %q, want %q", agentID, stellaID)
 	}
 }
 
@@ -66,8 +67,9 @@ func TestResolveAgentWithAuthRestrictedFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}
-	if agentID != "stella" {
-		t.Errorf("agentID = %q, want fallback to %q", agentID, "stella")
+	stellaID := ts.stellaAgentID(t)
+	if agentID != stellaID {
+		t.Errorf("agentID = %q, want fallback to %q", agentID, stellaID)
 	}
 }
 
@@ -105,8 +107,9 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	ts := setupStoresWithEngine(t)
 	ctx := ts.ctx()
 
+	stellaID := ts.stellaAgentID(t)
 	_ = ts.store.UpdateAgent(ctx, config.Agent{
-		ID:        "stella",
+		ID:        stellaID,
 		Name:      "Stella",
 		Model:     "anthropic/claude-sonnet-4-6",
 		Workspace: "/tmp/stella",
@@ -161,8 +164,9 @@ func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}
-	if agentID != "stella" {
-		t.Errorf("agentID = %q, want fallback to %q", agentID, "stella")
+	stellaID2 := ts.stellaAgentID(t)
+	if agentID != stellaID2 {
+		t.Errorf("agentID = %q, want fallback to %q", agentID, stellaID2)
 	}
 }
 

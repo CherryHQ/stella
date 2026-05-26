@@ -162,8 +162,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 		t.Errorf("expected 0 agents, got %d", len(agentIDs))
 	}
 
-	// Assign agent.
-	body := map[string]any{"agent_ids": []string{"stella"}}
+	stellaID := findStellaID(t, env)
+	body := map[string]any{"agent_ids": []string{stellaID}}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
@@ -173,8 +173,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
 	resp = parseResponse(t, rr)
 	_ = json.Unmarshal(resp.Data, &agentIDs)
-	if len(agentIDs) != 1 || agentIDs[0] != "stella" {
-		t.Errorf("expected [stella], got %v", agentIDs)
+	if len(agentIDs) != 1 || agentIDs[0] != stellaID {
+		t.Errorf("expected [%s], got %v", stellaID, agentIDs)
 	}
 
 	// Remove by setting empty.

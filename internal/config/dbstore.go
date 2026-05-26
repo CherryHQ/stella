@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -70,6 +72,9 @@ func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
+	}
+	if p.ID == "" {
+		p.ID = uuid.NewString()
 	}
 	configJSON, err := json.Marshal(providerConfig(p))
 	if err != nil {
@@ -215,6 +220,9 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
+	}
+	if a.ID == "" {
+		a.ID = uuid.NewString()
 	}
 	enabled := int64(0)
 	if a.Enabled {
@@ -362,6 +370,9 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
 	orgID, err := requireOrgID(ctx)
 	if err != nil {
 		return err
+	}
+	if ch.ID == "" {
+		ch.ID = uuid.NewString()
 	}
 	channelType := ch.Type
 	if channelType == "" {
@@ -738,7 +749,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}
 	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID:                   "stella",
+		ID:                   uuid.NewString(),
 		Name:                 "Stella",
 		Model:                DefaultAgentModelRef(providers),
 		SystemPrompt:         defaultStellaSoul,
@@ -813,16 +824,20 @@ func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error 
 	if err != nil {
 		return fmt.Errorf("seed: list channel instances: %w", err)
 	}
-	existing := make(map[string]bool, len(rows))
+	existingTypes := make(map[string]bool, len(rows))
 	for _, row := range rows {
-		existing[row.ID] = true
+		t := row.Type
+		if t == "" {
+			t = row.ID
+		}
+		existingTypes[t] = true
 	}
 	for _, name := range builtinChannelNames {
-		if existing[name] {
+		if existingTypes[name] {
 			continue
 		}
 		if err := s.UpsertChannel(ctx, Channel{
-			ID:      name,
+			ID:      uuid.NewString(),
 			Type:    name,
 			Enabled: true,
 			Config:  "{}",
@@ -889,12 +904,10 @@ func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
 
 	for _, name := range builtinProviderNames {
 		provider := Provider{
-			ID:      name,
+			ID:      uuid.NewString(),
 			Type:    name,
 			Name:    name,
 			Enabled: true,
-			APIKey:  "",
-			BaseURL: "",
 		}
 		configJSON, err := json.Marshal(providerConfig(provider))
 		if err != nil {

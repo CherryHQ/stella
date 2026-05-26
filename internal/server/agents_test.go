@@ -10,6 +10,23 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
+// findStellaID lists agents and returns the seeded Stella agent's UUID.
+func findStellaID(t *testing.T, env *testEnv) string {
+	t.Helper()
+	octx := config.WithOrgID(context.Background(), env.orgID)
+	agents, err := env.store.ListAgents(octx)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	for _, a := range agents {
+		if a.Name == "Stella" {
+			return a.ID
+		}
+	}
+	t.Fatal("no Stella agent found")
+	return ""
+}
+
 // createTestAgent creates an agent via POST and returns its auto-generated ID.
 func createTestAgent(t *testing.T, env *testEnv, a config.Agent) string {
 	t.Helper()
@@ -96,8 +113,8 @@ func TestAgentScopeInCreateAndGet(t *testing.T) {
 func TestAgentScopeDefaultsToSystem(t *testing.T) {
 	env := setupAdmin(t)
 
-	// The seeded "stella" agent should have system scope.
-	rr := doRequest(t, env, "GET", "/api/agents/stella", nil)
+	stellaID := findStellaID(t, env)
+	rr := doRequest(t, env, "GET", "/api/agents/"+stellaID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -311,7 +328,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	// Create non-admin user with bearer token.
 	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser, env.orgID)
 
-	// Non-admin listing agents should see "stella" (system scope) but not the restricted agent.
+	stellaID := findStellaID(t, env)
 	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list agents: status = %d", rr.Code)
@@ -322,7 +339,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	foundStella := false
 	foundPrivate := false
 	for _, a := range agents {
-		if a.ID == "stella" {
+		if a.ID == stellaID {
 			foundStella = true
 		}
 		if a.ID == agentID {
@@ -330,7 +347,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 		}
 	}
 	if !foundStella {
-		t.Error("expected non-admin to see system-scoped 'stella' agent")
+		t.Error("expected non-admin to see system-scoped Stella agent")
 	}
 	if foundPrivate {
 		t.Error("non-admin should not see restricted agent")
@@ -369,8 +386,8 @@ func TestNonAdminGetAgentAccessCheck(t *testing.T) {
 	// Create non-admin user with bearer token.
 	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular2", auth.RoleUser, env.orgID)
 
-	// Non-admin can get system agent.
-	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/stella", nil)
+	stellaID := findStellaID(t, env)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/"+stellaID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get stella: status = %d, want %d", rr.Code, http.StatusOK)
 	}

@@ -10,6 +10,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// OrgSeeder seeds all default resources (settings, policies) for a newly created org.
+type OrgSeeder interface {
+	SeedOrg(ctx context.Context, orgID string) error
+}
+
 // AuthService composes the auth stores and owns business-level transactions
 // such as ProcessOIDCLogin. It is the only place that coordinates cross-store
 // writes inside a single DB transaction.
@@ -20,6 +25,7 @@ type AuthService struct {
 	organizations OrganizationStore
 	memberships   MembershipStore
 	invites       InviteStore
+	seeder        OrgSeeder
 	db            *sql.DB
 }
 
@@ -43,6 +49,9 @@ func NewAuthService(
 		invites:       invites,
 	}
 }
+
+// SetOrgSeeder registers a seeder that populates default resources when a new org is created.
+func (s *AuthService) SetOrgSeeder(seeder OrgSeeder) { s.seeder = seeder }
 
 // OIDCLoginResult holds everything the HTTP handler needs after a successful
 // OIDC callback.
@@ -407,6 +416,11 @@ func (s *AuthService) ensureMembership(ctx context.Context, userID string) (Memb
 		org, err = s.createOrganization(ctx)
 		if err != nil {
 			return Membership{}, fmt.Errorf("auth: create org for new user: %w", err)
+		}
+		if s.seeder != nil {
+			if err := s.seeder.SeedOrg(ctx, org.ID); err != nil {
+				return Membership{}, fmt.Errorf("auth: seed new org: %w", err)
+			}
 		}
 	}
 

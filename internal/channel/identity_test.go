@@ -28,6 +28,21 @@ func (ts testStores) ctx() context.Context {
 	return config.WithOrgID(context.Background(), ts.orgID)
 }
 
+func (ts testStores) stellaAgentID(t *testing.T) string {
+	t.Helper()
+	agents, err := ts.store.ListAgents(ts.ctx())
+	if err != nil {
+		t.Fatalf("stellaAgentID: %v", err)
+	}
+	for _, a := range agents {
+		if a.Name == "Stella" {
+			return a.ID
+		}
+	}
+	t.Fatal("stellaAgentID: no Stella agent found")
+	return ""
+}
+
 func setupStores(t *testing.T) testStores {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -207,8 +222,9 @@ func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
-	if agentID != "stella" {
-		t.Errorf("agentID = %q, want %q", agentID, "stella")
+	stellaID := ts.stellaAgentID(t)
+	if agentID != stellaID {
+		t.Errorf("agentID = %q, want %q", agentID, stellaID)
 	}
 }
 

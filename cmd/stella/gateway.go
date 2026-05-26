@@ -146,6 +146,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Wire OIDC authentication (external provider or built-in local issuer).
 	oidcStore := appdb.NewOIDCStore(s.db)
+	authStore := appdb.NewAuthStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
 		Store:      s.store,
@@ -156,6 +157,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if err != nil {
 		slog.Warn("oidc: setup failed", "error", err)
 	} else {
+		oidcResult.AuthSvc.SetOrgSeeder(&orgSeeder{store: s.store, authStore: authStore})
 		adminSrv.SetLoginIdentityStore(oidcStore)
 		adminSrv.SetMembershipStore(oidcStore)
 		adminSrv.SetUserStore(oidcStore)
@@ -395,6 +397,22 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 			"base_url": creds.BaseURL,
 		})
 	}
+}
+
+// orgSeeder combines settings and policy seeding into auth.OrgSeeder.
+type orgSeeder struct {
+	store     config.Store
+	authStore *appdb.AuthStore
+}
+
+func (s *orgSeeder) SeedOrg(ctx context.Context, orgID string) error {
+	if err := s.store.SeedDefaults(ctx, orgID); err != nil {
+		return fmt.Errorf("seed settings: %w", err)
+	}
+	if err := auth.SeedPolicies(ctx, s.authStore, orgID); err != nil {
+		return fmt.Errorf("seed policies: %w", err)
+	}
+	return nil
 }
 
 func noRunningChannelReason(managedChannels managedChannelRuntimeSummary) string {

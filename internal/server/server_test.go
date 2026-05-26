@@ -459,8 +459,8 @@ func TestListProviders(t *testing.T) {
 	if len(providers) == 0 {
 		t.Fatal("expected at least one provider")
 	}
-	if providers[0].ID != "anthropic" {
-		t.Errorf("provider ID = %q, want %q", providers[0].ID, "anthropic")
+	if providers[0].Type != "anthropic" {
+		t.Errorf("provider Type = %q, want %q", providers[0].Type, "anthropic")
 	}
 }
 
@@ -511,8 +511,8 @@ func TestListAgents(t *testing.T) {
 	if len(agents) == 0 {
 		t.Fatal("expected at least one agent")
 	}
-	if agents[0].ID != "stella" {
-		t.Errorf("agent ID = %q, want %q", agents[0].ID, "stella")
+	if agents[0].Name != "Stella" {
+		t.Errorf("agent Name = %q, want %q", agents[0].Name, "Stella")
 	}
 }
 
@@ -1014,6 +1014,7 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	env := setupAdmin(t)
 	octx := config.WithOrgID(context.Background(), env.orgID)
+	stellaID := findStellaID(t, env)
 
 	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
@@ -1034,7 +1035,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      "feishu-stella",
 		Type:    pkgchannel.PlatformFeishu,
-		AgentID: "stella",
+		AgentID: stellaID,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {

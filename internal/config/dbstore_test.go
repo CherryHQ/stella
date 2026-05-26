@@ -45,10 +45,9 @@ func TestSeedDefaults(t *testing.T) {
 	if len(providers) != len(builtinProviderNames) {
 		t.Errorf("expected %d providers, got %d", len(builtinProviderNames), len(providers))
 	}
-	// Anthropic should be present.
 	found := false
 	for _, p := range providers {
-		if p.ID == "anthropic" {
+		if p.Type == "anthropic" {
 			found = true
 		}
 	}
@@ -60,8 +59,8 @@ func TestSeedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
-	if len(agents) != 1 || agents[0].ID != "stella" {
-		t.Errorf("expected 1 stella agent, got %v", agents)
+	if len(agents) != 1 || agents[0].Name != "Stella" {
+		t.Errorf("expected 1 Stella agent, got %v", agents)
 	}
 	if !agents[0].Enabled {
 		t.Error("stella agent should be enabled")
@@ -79,12 +78,15 @@ func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	agent, err := store.GetAgent(ctx, "stella")
+	agents, err := store.ListAgents(ctx)
 	if err != nil {
-		t.Fatalf("GetAgent: %v", err)
+		t.Fatalf("ListAgents: %v", err)
 	}
-	if agent.Model != "claude/claude-sonnet-4-6" {
-		t.Fatalf("agent.Model = %q, want %q", agent.Model, "claude/claude-sonnet-4-6")
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	if agents[0].Model != "anthropic/claude-sonnet-4-6" {
+		t.Fatalf("agent.Model = %q, want %q", agents[0].Model, "anthropic/claude-sonnet-4-6")
 	}
 }
 
@@ -415,11 +417,28 @@ func TestSnapshot(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := testCtx()
 
-	// Seed first (matches real startup order), then configure.
 	_ = store.SeedDefaults(ctx, testOrgID)
-	_ = store.UpdateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "sk-test"})
+
+	agents, err := store.ListAgents(ctx)
+	if err != nil || len(agents) == 0 {
+		t.Fatalf("ListAgents: %v (count=%d)", err, len(agents))
+	}
+	stellaID := agents[0].ID
+
+	providers, err := store.ListProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	var anthropicID string
+	for _, p := range providers {
+		if p.Type == "anthropic" {
+			anthropicID = p.ID
+			break
+		}
+	}
+	_ = store.UpdateProvider(ctx, Provider{ID: anthropicID, Type: "anthropic", Name: "Anthropic", APIKey: "sk-test", Enabled: true})
 	_ = store.UpdateAgent(ctx, Agent{
-		ID:           "stella",
+		ID:           stellaID,
 		Name:         "Stella",
 		Model:        "anthropic/claude-sonnet-4-6",
 		ModelStrong:  "anthropic/claude-opus-4-6",
@@ -434,7 +453,6 @@ func TestSnapshot(t *testing.T) {
 	_ = store.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
 	_ = store.SetSetting(ctx, "compaction", `{"enabled":true}`)
 
-	// Add a custom plugin to verify it appears in the snapshot.
 	_ = store.UpsertPlugin(ctx, Plugin{
 		ID:      "tool/custom",
 		Kind:    PluginKindTool,
@@ -443,7 +461,7 @@ func TestSnapshot(t *testing.T) {
 		Config:  map[string]any{"mode": "test"},
 	})
 
-	snap, err := store.Snapshot(ctx, "stella")
+	snap, err := store.Snapshot(ctx, stellaID)
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
