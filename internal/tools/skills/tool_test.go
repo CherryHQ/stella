@@ -53,8 +53,9 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	}
 	agentID := "agent1"
 	cs := config.NewDBStore(db)
+	orgCtx := config.WithOrgID(ctx, orgID)
 	_ = cs.SeedDefaults(ctx, orgID)
-	if err := cs.CreateAgent(ctx, config.Agent{
+	if err := cs.CreateAgent(orgCtx, config.Agent{
 		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
 	}); err != nil {
 		t.Fatalf("seed agent: %v", err)

@@ -72,20 +72,30 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 }
 
 const deleteAgent = `-- name: DeleteAgent :exec
-DELETE FROM settings_agent WHERE id = ?
+DELETE FROM settings_agent WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteAgent, id)
+type DeleteAgentParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAgent, arg.ID, arg.OrgID)
 	return err
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE id = ?
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error) {
-	row := q.db.QueryRowContext(ctx, getAgent, id)
+type GetAgentParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (SettingsAgent, error) {
+	row := q.db.QueryRowContext(ctx, getAgent, arg.ID, arg.OrgID)
 	var i SettingsAgent
 	err := row.Scan(
 		&i.ID,
@@ -276,7 +286,7 @@ UPDATE settings_agent SET
     scope = ?,
     enabled = ?,
     updated_at = datetime('now')
-WHERE id = ?
+WHERE id = ? AND org_id = ?
 `
 
 type UpdateAgentParams struct {
@@ -292,6 +302,7 @@ type UpdateAgentParams struct {
 	Scope                string `json:"scope"`
 	Enabled              int64  `json:"enabled"`
 	ID                   string `json:"id"`
+	OrgID                string `json:"org_id"`
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
@@ -308,6 +319,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.Scope,
 		arg.Enabled,
 		arg.ID,
+		arg.OrgID,
 	)
 	return err
 }

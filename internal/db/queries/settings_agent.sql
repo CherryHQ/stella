@@ -4,7 +4,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgent :one
-SELECT * FROM settings_agent WHERE id = ?;
+SELECT * FROM settings_agent WHERE id = ? AND org_id = ?;
 
 -- name: ListAgents :many
 SELECT * FROM settings_agent WHERE org_id = ? ORDER BY name;
@@ -32,10 +32,10 @@ UPDATE settings_agent SET
     scope = ?,
     enabled = ?,
     updated_at = datetime('now')
-WHERE id = ?;
+WHERE id = ? AND org_id = ?;
 
 -- name: DeleteAgent :exec
-DELETE FROM settings_agent WHERE id = ?;
+DELETE FROM settings_agent WHERE id = ? AND org_id = ?;
 
 -- name: SetAgentOrg :exec
 UPDATE settings_agent SET org_id = ? WHERE id = ?;

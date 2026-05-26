@@ -54,7 +54,8 @@ func seedFixtures(t *testing.T, db *sql.DB) (string, string, string) {
 
 	agentID := "agent1"
 	cs := config.NewDBStore(db)
-	if err := cs.CreateAgent(ctx, config.Agent{
+	orgCtx := config.WithOrgID(ctx, orgID)
+	if err := cs.CreateAgent(orgCtx, config.Agent{
 		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
 	}); err != nil {
 		t.Fatalf("seed agent: %v", err)
@@ -220,7 +221,7 @@ func TestVisibilityFiltering(t *testing.T) {
 		t.Fatalf("create user2: %v", err)
 	}
 	cs := config.NewDBStore(db)
-	if err := cs.CreateAgent(ctx, config.Agent{
+	if err := cs.CreateAgent(config.WithOrgID(ctx, orgID), config.Agent{
 		ID: "agent2", Name: "agent2", Model: "p/m", Workspace: "/tmp/agent2", Enabled: true, OrgID: orgID,
 	}); err != nil {
 		t.Fatalf("create agent2: %v", err)

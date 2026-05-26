@@ -11,20 +11,30 @@ import (
 )
 
 const deleteChannel = `-- name: DeleteChannel :exec
-DELETE FROM settings_channel WHERE id = ?
+DELETE FROM settings_channel WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteChannel, id)
+type DeleteChannelParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) DeleteChannel(ctx context.Context, arg DeleteChannelParams) error {
+	_, err := q.db.ExecContext(ctx, deleteChannel, arg.ID, arg.OrgID)
 	return err
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE id = ?
+SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) GetChannel(ctx context.Context, id string) (SettingsChannel, error) {
-	row := q.db.QueryRowContext(ctx, getChannel, id)
+type GetChannelParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) GetChannel(ctx context.Context, arg GetChannelParams) (SettingsChannel, error) {
+	row := q.db.QueryRowContext(ctx, getChannel, arg.ID, arg.OrgID)
 	var i SettingsChannel
 	err := row.Scan(
 		&i.ID,

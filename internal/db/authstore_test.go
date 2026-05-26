@@ -49,8 +49,8 @@ func createUser(t *testing.T, oidc *appdb.OIDCStore, email string) auth.User {
 func seedAgent(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
 	cs := config.NewDBStore(db)
-	cs.SetDefaultOrgID(testOrgID)
-	if err := cs.CreateAgent(context.Background(), config.Agent{
+	ctx := config.WithOrgID(context.Background(), testOrgID)
+	if err := cs.CreateAgent(ctx, config.Agent{
 		ID: id, Name: id, Model: "p/m", Workspace: "/tmp/" + id, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed agent %q: %v", id, err)

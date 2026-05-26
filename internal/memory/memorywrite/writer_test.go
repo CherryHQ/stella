@@ -45,8 +45,8 @@ func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, string, string, func()) 
 	// Create test agent (required for FK constraint)
 	agentID := "test-agent-1"
 	store := config.NewDBStore(db)
-	store.SetDefaultOrgID(orgID)
-	if err := store.CreateAgent(ctx, config.Agent{
+	orgCtx := config.WithOrgID(ctx, orgID)
+	if err := store.CreateAgent(orgCtx, config.Agent{
 		ID:      agentID,
 		Name:    "Test Agent",
 		Model:   "anthropic/claude",

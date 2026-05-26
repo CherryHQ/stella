@@ -10,20 +10,30 @@ import (
 )
 
 const deletePlugin = `-- name: DeletePlugin :exec
-DELETE FROM settings_plugin WHERE id = ?
+DELETE FROM settings_plugin WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) DeletePlugin(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deletePlugin, id)
+type DeletePluginParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) DeletePlugin(ctx context.Context, arg DeletePluginParams) error {
+	_, err := q.db.ExecContext(ctx, deletePlugin, arg.ID, arg.OrgID)
 	return err
 }
 
 const getPlugin = `-- name: GetPlugin :one
-SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE id = ?
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) GetPlugin(ctx context.Context, id string) (SettingsPlugin, error) {
-	row := q.db.QueryRowContext(ctx, getPlugin, id)
+type GetPluginParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) GetPlugin(ctx context.Context, arg GetPluginParams) (SettingsPlugin, error) {
+	row := q.db.QueryRowContext(ctx, getPlugin, arg.ID, arg.OrgID)
 	var i SettingsPlugin
 	err := row.Scan(
 		&i.ID,
@@ -179,43 +189,44 @@ func (q *Queries) SeedPlugin(ctx context.Context, arg SeedPluginParams) error {
 
 const updatePluginConfig = `-- name: UpdatePluginConfig :exec
 UPDATE settings_plugin SET config = ?, updated_at = datetime('now')
-WHERE id = ?
+WHERE id = ? AND org_id = ?
 `
 
 type UpdatePluginConfigParams struct {
 	Config string `json:"config"`
 	ID     string `json:"id"`
+	OrgID  string `json:"org_id"`
 }
 
 func (q *Queries) UpdatePluginConfig(ctx context.Context, arg UpdatePluginConfigParams) error {
-	_, err := q.db.ExecContext(ctx, updatePluginConfig, arg.Config, arg.ID)
+	_, err := q.db.ExecContext(ctx, updatePluginConfig, arg.Config, arg.ID, arg.OrgID)
 	return err
 }
 
 const updatePluginEnabled = `-- name: UpdatePluginEnabled :exec
 UPDATE settings_plugin SET enabled = ?, updated_at = datetime('now')
-WHERE id = ?
+WHERE id = ? AND org_id = ?
 `
 
 type UpdatePluginEnabledParams struct {
 	Enabled int64  `json:"enabled"`
 	ID      string `json:"id"`
+	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) UpdatePluginEnabled(ctx context.Context, arg UpdatePluginEnabledParams) error {
-	_, err := q.db.ExecContext(ctx, updatePluginEnabled, arg.Enabled, arg.ID)
+	_, err := q.db.ExecContext(ctx, updatePluginEnabled, arg.Enabled, arg.ID, arg.OrgID)
 	return err
 }
 
 const upsertPlugin = `-- name: UpsertPlugin :exec
 INSERT INTO settings_plugin (id, kind, name, enabled, config, org_id, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(id) DO UPDATE SET
+ON CONFLICT(id, org_id) DO UPDATE SET
     kind = excluded.kind,
     name = excluded.name,
     enabled = excluded.enabled,
     config = excluded.config,
-    org_id = excluded.org_id,
     updated_at = datetime('now')
 `
 

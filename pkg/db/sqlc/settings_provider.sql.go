@@ -48,20 +48,30 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 }
 
 const deleteProvider = `-- name: DeleteProvider :exec
-DELETE FROM settings_provider WHERE id = ?
+DELETE FROM settings_provider WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) DeleteProvider(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteProvider, id)
+type DeleteProviderParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) DeleteProvider(ctx context.Context, arg DeleteProviderParams) error {
+	_, err := q.db.ExecContext(ctx, deleteProvider, arg.ID, arg.OrgID)
 	return err
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE id = ?
+SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) GetProvider(ctx context.Context, id string) (SettingsProvider, error) {
-	row := q.db.QueryRowContext(ctx, getProvider, id)
+type GetProviderParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
+}
+
+func (q *Queries) GetProvider(ctx context.Context, arg GetProviderParams) (SettingsProvider, error) {
+	row := q.db.QueryRowContext(ctx, getProvider, arg.ID, arg.OrgID)
 	var i SettingsProvider
 	err := row.Scan(
 		&i.ID,
@@ -195,7 +205,7 @@ UPDATE settings_provider SET
     enabled = ?,
     config = ?,
     updated_at = datetime('now')
-WHERE id = ?
+WHERE id = ? AND org_id = ?
 `
 
 type UpdateProviderParams struct {
@@ -204,6 +214,7 @@ type UpdateProviderParams struct {
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
 	ID      string `json:"id"`
+	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) error {
@@ -213,6 +224,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		arg.Enabled,
 		arg.Config,
 		arg.ID,
+		arg.OrgID,
 	)
 	return err
 }

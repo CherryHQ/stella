@@ -14,8 +14,7 @@ import (
 
 // DBStore implements Store using sqlc queries backed by SQLite.
 type DBStore struct {
-	q            *sqlc.Queries
-	defaultOrgID string
+	q *sqlc.Queries
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
@@ -54,7 +53,11 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (Provider, error) {
-	r, err := s.q.GetProvider(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return Provider{}, err
+	}
+	r, err := s.q.GetProvider(ctx, sqlc.GetProviderParams{ID: id, OrgID: orgID})
 	if err != nil {
 		return Provider{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
@@ -64,15 +67,15 @@ func (s *DBStore) GetProvider(ctx context.Context, id string) (Provider, error) 
 }
 
 func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	configJSON, err := json.Marshal(providerConfig(p))
 	if err != nil {
 		return fmt.Errorf("create provider %q: marshal config: %w", p.ID, err)
 	}
 	enabled := int64(1)
-	orgID := p.OrgID
-	if orgID == "" {
-		orgID = s.defaultOrgID
-	}
 	if _, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
 		ID:      p.ID,
 		Type:    providerType(p),
@@ -87,6 +90,10 @@ func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
 }
 
 func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	configJSON, err := json.Marshal(providerConfig(p))
 	if err != nil {
 		return fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
@@ -101,6 +108,7 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
 		Enabled: enabled,
 		Config:  string(configJSON),
 		ID:      p.ID,
+		OrgID:   orgID,
 	}); err != nil {
 		return fmt.Errorf("update provider %q: %w", p.ID, err)
 	}
@@ -115,7 +123,11 @@ func (s *DBStore) SetProviderOrg(ctx context.Context, providerID, orgID string) 
 }
 
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
-	return s.q.DeleteProvider(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	return s.q.DeleteProvider(ctx, sqlc.DeleteProviderParams{ID: id, OrgID: orgID})
 }
 
 // --- Agents ---
@@ -184,7 +196,11 @@ func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 }
 
 func (s *DBStore) GetAgent(ctx context.Context, id string) (Agent, error) {
-	r, err := s.q.GetAgent(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return Agent{}, err
+	}
+	r, err := s.q.GetAgent(ctx, sqlc.GetAgentParams{ID: id, OrgID: orgID})
 	if err != nil {
 		return Agent{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
@@ -196,6 +212,10 @@ func (s *DBStore) GetAgent(ctx context.Context, id string) (Agent, error) {
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	enabled := int64(0)
 	if a.Enabled {
 		enabled = 1
@@ -204,17 +224,12 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	if scope == "" {
 		scope = AgentScopeSystem
 	}
-	// backend is global; only network is per-agent (no Backend field to clear)
 	if err := a.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
 	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
 	if err != nil {
 		return fmt.Errorf("create agent %q: %w", a.ID, err)
-	}
-	orgID := a.OrgID
-	if orgID == "" {
-		orgID = s.defaultOrgID
 	}
 	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:                   a.ID,
@@ -239,6 +254,10 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 }
 
 func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	enabled := int64(0)
 	if a.Enabled {
 		enabled = 1
@@ -247,7 +266,6 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	if scope == "" {
 		scope = AgentScopeSystem
 	}
-	// backend is global; only network is per-agent (no Backend field to clear)
 	if err := a.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
@@ -257,6 +275,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	}
 	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
 		ID:                   a.ID,
+		OrgID:                orgID,
 		Name:                 a.Name,
 		Model:                a.Model,
 		ModelStrong:          a.ModelStrong,
@@ -283,7 +302,11 @@ func (s *DBStore) SetAgentOrg(ctx context.Context, agentID, orgID string) error 
 }
 
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
-	return s.q.DeleteAgent(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	return s.q.DeleteAgent(ctx, sqlc.DeleteAgentParams{ID: id, OrgID: orgID})
 }
 
 // --- Channels ---
@@ -324,7 +347,11 @@ func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([
 }
 
 func (s *DBStore) GetChannel(ctx context.Context, id string) (Channel, error) {
-	r, err := s.q.GetChannel(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return Channel{}, err
+	}
+	r, err := s.q.GetChannel(ctx, sqlc.GetChannelParams{ID: id, OrgID: orgID})
 	if err != nil {
 		return Channel{}, fmt.Errorf("get channel %q: %w", id, err)
 	}
@@ -332,13 +359,13 @@ func (s *DBStore) GetChannel(ctx context.Context, id string) (Channel, error) {
 }
 
 func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	channelType := ch.Type
 	if channelType == "" {
 		channelType = ch.ID
-	}
-	orgID := ch.OrgID
-	if orgID == "" {
-		orgID = s.defaultOrgID
 	}
 	return s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
 		ID:      ch.ID,
@@ -358,7 +385,11 @@ func (s *DBStore) SetChannelOrg(ctx context.Context, channelID, orgID string) er
 }
 
 func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {
-	return s.q.DeleteChannel(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	return s.q.DeleteChannel(ctx, sqlc.DeleteChannelParams{ID: id, OrgID: orgID})
 }
 
 // --- Plugins ---
@@ -415,7 +446,11 @@ func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
 }
 
 func (s *DBStore) GetPlugin(ctx context.Context, id string) (Plugin, error) {
-	r, err := s.q.GetPlugin(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return Plugin{}, err
+	}
+	r, err := s.q.GetPlugin(ctx, sqlc.GetPluginParams{ID: id, OrgID: orgID})
 	if err != nil {
 		return Plugin{}, fmt.Errorf("get plugin %q: %w", id, err)
 	}
@@ -423,6 +458,10 @@ func (s *DBStore) GetPlugin(ctx context.Context, id string) (Plugin, error) {
 }
 
 func (s *DBStore) UpsertPlugin(ctx context.Context, p Plugin) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	configJSON, err := json.Marshal(p.Config)
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", p.ID, err)
@@ -430,10 +469,6 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p Plugin) error {
 	enabled := int64(0)
 	if p.Enabled {
 		enabled = 1
-	}
-	orgID := p.OrgID
-	if orgID == "" {
-		orgID = s.defaultOrgID
 	}
 	return s.q.UpsertPlugin(ctx, sqlc.UpsertPluginParams{
 		ID:      p.ID,
@@ -446,29 +481,43 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p Plugin) error {
 }
 
 func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	v := int64(0)
 	if enabled {
 		v = 1
 	}
 	return s.q.UpdatePluginEnabled(ctx, sqlc.UpdatePluginEnabledParams{
-		ID:      id,
 		Enabled: v,
+		ID:      id,
+		OrgID:   orgID,
 	})
 }
 
 func (s *DBStore) SetPluginConfig(ctx context.Context, id string, config map[string]any) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", id, err)
 	}
 	return s.q.UpdatePluginConfig(ctx, sqlc.UpdatePluginConfigParams{
-		ID:     id,
 		Config: string(configJSON),
+		ID:     id,
+		OrgID:  orgID,
 	})
 }
 
 func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
-	return s.q.DeletePlugin(ctx, id)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	return s.q.DeletePlugin(ctx, sqlc.DeletePluginParams{ID: id, OrgID: orgID})
 }
 
 // --- Chat Agents ---
@@ -498,12 +547,16 @@ func (s *DBStore) SetChatAgent(ctx context.Context, channelID, platform, chatID,
 	if channelID == "" {
 		channelID = platform
 	}
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	return s.q.UpsertChatAgent(ctx, sqlc.UpsertChatAgentParams{
 		ChannelID: channelID,
 		Platform:  platform,
 		ChatID:    chatID,
 		AgentID:   agentID,
-		OrgID:     s.defaultOrgID,
+		OrgID:     orgID,
 	})
 }
 
@@ -532,25 +585,27 @@ func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
 }
 
 func (s *DBStore) SetSetting(ctx context.Context, key, value string) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
 	return s.q.UpsertSetting(ctx, sqlc.UpsertSettingParams{
 		Key:   key,
 		Value: value,
-		OrgID: s.defaultOrgID,
+		OrgID: orgID,
 	})
 }
 
 // --- Snapshot ---
 
 func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, error) {
-	ag, err := s.q.GetAgent(ctx, agentID)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ag, err := s.q.GetAgent(ctx, sqlc.GetAgentParams{ID: agentID, OrgID: orgID})
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
-	}
-
-	// Scope subsequent queries to the agent's org.
-	orgID := ag.OrgID
-	if orgID == "" {
-		orgID = s.defaultOrgID
 	}
 
 	pluginRows, err := s.q.ListPlugins(ctx, orgID)
@@ -654,12 +709,8 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 
 // SeedDefaults populates the DB with sensible defaults on first bootstrap.
 // It is idempotent: if providers/agents already exist, it does nothing.
-// SetDefaultOrgID sets the fallback org ID used when creating resources without an explicit OrgID.
-func (s *DBStore) SetDefaultOrgID(orgID string) { s.defaultOrgID = orgID }
-
 func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
-	s.defaultOrgID = orgID
-	// Seed plugins: migrate existing channels and seed all built-ins.
+	ctx = WithOrgID(ctx, orgID)
 	if err := s.seedPlugins(ctx, orgID); err != nil {
 		return err
 	}
@@ -670,8 +721,6 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 		return err
 	}
 
-	// Seed default agent after providers so its model can derive from the
-	// configured provider instances instead of hardcoding a specific provider ID.
 	agents, err := s.q.ListAgents(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("seed: list agents: %w", err)
@@ -684,8 +733,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 	if err != nil {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
-	orgCtx := WithOrgID(ctx, orgID)
-	providers, err := s.ListProviders(orgCtx)
+	providers, err := s.ListProviders(ctx)
 	if err != nil {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}

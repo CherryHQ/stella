@@ -27,7 +27,6 @@ func setupDBStore(t *testing.T) *DBStore {
 		t.Fatalf("create test org: %v", err)
 	}
 	store := NewDBStore(db)
-	store.defaultOrgID = testOrgID
 	return store
 }
 

@@ -32,7 +32,6 @@ func setupAdminStore(t *testing.T) testEnv {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
 	store := config.NewDBStore(db)
-	store.SetDefaultOrgID(orgID)
 	return testEnv{store: store, orgID: orgID}
 }
 
@@ -42,7 +41,7 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	t.Cleanup(config.ResetStellaHome)
 
 	env := setupAdminStore(t)
-	ctx := context.Background()
+	ctx := config.WithOrgID(context.Background(), env.orgID)
 
 	if err := env.store.CreateProvider(ctx, config.Provider{
 		ID:      "openai",

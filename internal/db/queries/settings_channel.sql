@@ -1,5 +1,5 @@
 -- name: GetChannel :one
-SELECT * FROM settings_channel WHERE id = ?;
+SELECT * FROM settings_channel WHERE id = ? AND org_id = ?;
 
 -- name: UpsertChannel :exec
 INSERT INTO settings_channel (id, type, agent_id, enabled, config, org_id, updated_at)
@@ -19,7 +19,7 @@ SELECT * FROM settings_channel WHERE org_id = ? ORDER BY type, id;
 SELECT * FROM settings_channel WHERE type = ? AND org_id = ? ORDER BY id;
 
 -- name: DeleteChannel :exec
-DELETE FROM settings_channel WHERE id = ?;
+DELETE FROM settings_channel WHERE id = ? AND org_id = ?;
 
 -- name: SetChannelOrg :exec
 UPDATE settings_channel SET org_id = ? WHERE id = ?;

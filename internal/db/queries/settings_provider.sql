@@ -1,5 +1,5 @@
 -- name: GetProvider :one
-SELECT * FROM settings_provider WHERE id = ?;
+SELECT * FROM settings_provider WHERE id = ? AND org_id = ?;
 
 -- name: ListProviders :many
 SELECT * FROM settings_provider WHERE org_id = ? ORDER BY name, id;
@@ -19,10 +19,10 @@ UPDATE settings_provider SET
     enabled = ?,
     config = ?,
     updated_at = datetime('now')
-WHERE id = ?;
+WHERE id = ? AND org_id = ?;
 
 -- name: DeleteProvider :exec
-DELETE FROM settings_provider WHERE id = ?;
+DELETE FROM settings_provider WHERE id = ? AND org_id = ?;
 
 -- name: SeedProvider :exec
 INSERT OR IGNORE INTO settings_provider (id, type, name, enabled, config, org_id)

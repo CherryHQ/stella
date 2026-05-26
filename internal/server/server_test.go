@@ -134,7 +134,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
-	_ = store.SeedDefaults(context.Background(), orgID) // sets defaultOrgID on the store
+	_ = store.SeedDefaults(context.Background(), orgID)
 	as := appdb.NewAuthStore(db)
 
 	engine, err := auth.NewEngine(context.Background(), as)
@@ -211,10 +211,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	skillStore := skills.New(db)
 	skillStore.SetDefaultOrgID(orgID)
 	phost.SetSkillStore(skillStore)
-	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
+	orgCtx := config.WithOrgID(context.Background(), orgID)
+	if err := phost.ApplyPlugin(orgCtx, mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
-	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
+	if err := phost.ApplyPlugin(orgCtx, reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
 	srv := server.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
@@ -566,13 +567,14 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 
 func TestGetMCPPluginStatus(t *testing.T) {
 	env := setupAdmin(t)
-	if err := env.store.SetPluginEnabled(context.Background(), mcp.PluginID, true); err != nil {
+	octx := config.WithOrgID(context.Background(), env.orgID)
+	if err := env.store.SetPluginEnabled(octx, mcp.PluginID, true); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	if err := env.store.SetPluginConfig(context.Background(), mcp.PluginID, map[string]any{"servers": []any{}}); err != nil {
+	if err := env.store.SetPluginConfig(octx, mcp.PluginID, map[string]any{"servers": []any{}}); err != nil {
 		t.Fatalf("SetPluginConfig: %v", err)
 	}
-	if err := env.pluginHost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
+	if err := env.pluginHost.ApplyPlugin(octx, mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin: %v", err)
 	}
 	if _, ok := mcp.LookupRuntime(env.pluginHost.Runtime()); !ok {
@@ -679,7 +681,8 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), reflectplugin.PluginID, map[string]any{
+	octx := config.WithOrgID(context.Background(), env.orgID)
+	if err := env.store.SetPluginConfig(octx, reflectplugin.PluginID, map[string]any{
 		"interval": "30m",
 		"batch":    3,
 	}); err != nil {
@@ -1010,8 +1013,9 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 
 func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	env := setupAdmin(t)
+	octx := config.WithOrgID(context.Background(), env.orgID)
 
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: true,
@@ -1019,7 +1023,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel telegram: %v", err)
 	}
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformFeishu,
 		Type:    pkgchannel.PlatformFeishu,
 		Enabled: false,
@@ -1027,7 +1031,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel feishu: %v", err)
 	}
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      "feishu-stella",
 		Type:    pkgchannel.PlatformFeishu,
 		AgentID: "stella",
@@ -1036,7 +1040,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel feishu-stella: %v", err)
 	}
-	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
 		Kind:    config.PluginKindChannel,
 		Name:    pkgchannel.PlatformQQ,
@@ -1085,8 +1089,9 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 
 func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	env := setupAdmin(t)
+	octx := config.WithOrgID(context.Background(), env.orgID)
 
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: false,
@@ -1094,7 +1099,7 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel telegram: %v", err)
 	}
-	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram),
 		Kind:    config.PluginKindChannel,
 		Name:    pkgchannel.PlatformTelegram,
@@ -1111,14 +1116,14 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	ch, err := env.store.GetChannel(context.Background(), pkgchannel.PlatformTelegram)
+	ch, err := env.store.GetChannel(octx, pkgchannel.PlatformTelegram)
 	if err != nil {
 		t.Fatalf("GetChannel telegram: %v", err)
 	}
 	if ch.Enabled {
 		t.Fatal("channel config update should not enable channel")
 	}
-	plugin, err := env.store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram))
+	plugin, err := env.store.GetPlugin(octx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram))
 	if err != nil {
 		t.Fatalf("GetPlugin telegram: %v", err)
 	}
