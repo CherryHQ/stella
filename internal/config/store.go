@@ -68,10 +68,10 @@ type Channel struct {
 }
 
 // Store provides typed access to configuration stored in the database.
+// List methods read orgID from context via OrgIDFromContext.
 type Store interface {
 	// Providers
 	ListProviders(ctx context.Context) ([]Provider, error)
-	ListProvidersForOrg(ctx context.Context, orgID string) ([]Provider, error)
 	GetProvider(ctx context.Context, id string) (Provider, error)
 	CreateProvider(ctx context.Context, p Provider) error
 	UpdateProvider(ctx context.Context, p Provider) error
@@ -81,7 +81,7 @@ type Store interface {
 	// Agents
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListEnabledAgents(ctx context.Context) ([]Agent, error)
-	ListAgentsForOrg(ctx context.Context, orgID string) ([]Agent, error)
+	ListAccessibleAgents(ctx context.Context, userID string) ([]Agent, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	CreateAgent(ctx context.Context, a Agent) error
 	UpdateAgent(ctx context.Context, a Agent) error
@@ -91,7 +91,6 @@ type Store interface {
 	// Channels
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
-	ListChannelsForOrg(ctx context.Context, orgID string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
@@ -101,8 +100,6 @@ type Store interface {
 	ListPlugins(ctx context.Context) ([]Plugin, error)
 	ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error)
 	ListEnabledPlugins(ctx context.Context) ([]Plugin, error)
-	ListPluginsForOrg(ctx context.Context, orgID string) ([]Plugin, error)
-	ListPluginsByKindForOrg(ctx context.Context, kind, orgID string) ([]Plugin, error)
 	GetPlugin(ctx context.Context, id string) (Plugin, error)
 	UpsertPlugin(ctx context.Context, p Plugin) error
 	SetPluginEnabled(ctx context.Context, id string, enabled bool) error

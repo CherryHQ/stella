@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // contextKey is used for storing auth info in request context.
@@ -35,9 +36,13 @@ func UserFromContext(ctx context.Context) *AuthInfo {
 	return info
 }
 
-// withAuthInfo sets the AuthInfo in the request context.
+// withAuthInfo sets the AuthInfo and orgID in the request context.
 func withAuthInfo(ctx context.Context, info *AuthInfo) context.Context {
-	return context.WithValue(ctx, authInfoKey, info)
+	ctx = context.WithValue(ctx, authInfoKey, info)
+	if info.OrgID != "" {
+		ctx = config.WithOrgID(ctx, info.OrgID)
+	}
+	return ctx
 }
 
 // authMiddleware validates the session cookie, loads the user and roles,

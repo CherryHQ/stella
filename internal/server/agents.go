@@ -51,31 +51,22 @@ func applyTemplate(a *config.Agent, templateID string) error {
 }
 
 func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 	ctx := r.Context()
-	info := UserFromContext(ctx)
 
-	var (
-		agents []config.Agent
-		err    error
-	)
-	if info != nil && info.OrgID != "" {
-		agents, err = s.store.ListAgentsForOrg(ctx, info.OrgID)
-	} else {
+	var agents []config.Agent
+	var err error
+	if info.IsAdmin {
 		agents, err = s.store.ListAgents(ctx)
+	} else {
+		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-
-	// Admin sees all agents in scope. Non-admin users see only accessible agents.
-	if info != nil && !info.IsAdmin {
-		agents, err = s.filterAccessibleAgents(ctx, info, agents)
-		if err != nil {
-			s.log.Error("filter accessible agents", "user_id", info.UserID, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to filter agents")
-			return
-		}
 	}
 
 	for i := range agents {

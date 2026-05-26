@@ -2,13 +2,13 @@
 SELECT * FROM settings_plugin WHERE id = ?;
 
 -- name: ListPlugins :many
-SELECT * FROM settings_plugin ORDER BY kind, name;
+SELECT * FROM settings_plugin WHERE org_id = ? ORDER BY kind, name;
 
 -- name: ListPluginsByKind :many
-SELECT * FROM settings_plugin WHERE kind = ? ORDER BY name;
+SELECT * FROM settings_plugin WHERE kind = ? AND org_id = ? ORDER BY name;
 
 -- name: ListEnabledPlugins :many
-SELECT * FROM settings_plugin WHERE enabled = 1 ORDER BY kind, name;
+SELECT * FROM settings_plugin WHERE org_id = ? AND enabled = 1 ORDER BY kind, name;
 
 -- name: UpsertPlugin :exec
 INSERT INTO settings_plugin (id, kind, name, enabled, config, org_id, updated_at)
@@ -35,12 +35,3 @@ WHERE id = ?;
 
 -- name: DeletePlugin :exec
 DELETE FROM settings_plugin WHERE id = ?;
-
--- name: ListPluginsByOrg :many
-SELECT * FROM settings_plugin WHERE org_id = ? ORDER BY kind, name;
-
--- name: ListPluginsByKindAndOrg :many
-SELECT * FROM settings_plugin WHERE kind = ? AND org_id = ? ORDER BY name;
-
--- name: ListEnabledPluginsByOrg :many
-SELECT * FROM settings_plugin WHERE org_id = ? AND enabled = 1 ORDER BY kind, name;

@@ -11,6 +11,10 @@ import (
 // filtered to only include models whose provider instance is enabled.
 // No provider API calls — reads only from the DB and ~/.stella/cache/models.json.
 func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 	providers, err := s.store.ListProviders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list provider config: "+err.Error())

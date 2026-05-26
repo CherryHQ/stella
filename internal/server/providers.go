@@ -11,21 +11,11 @@ import (
 )
 
 func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	ctx := r.Context()
-	info := UserFromContext(ctx)
-
-	var (
-		pList []config.Provider
-		err   error
-	)
-	if info != nil && info.OrgID != "" {
-		pList, err = s.store.ListProvidersForOrg(ctx, info.OrgID)
-	} else {
-		pList, err = s.store.ListProviders(ctx)
-	}
+	pList, err := s.store.ListProviders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

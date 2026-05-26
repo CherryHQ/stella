@@ -108,12 +108,20 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error
 	return i, err
 }
 
-const listAgents = `-- name: ListAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent ORDER BY name
+const listAccessibleAgents = `-- name: ListAccessibleAgents :many
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent
+WHERE org_id = ? AND enabled = 1
+  AND (scope = 'system' OR id IN (SELECT agent_id FROM auth_user_agent WHERE user_id = ?))
+ORDER BY name
 `
 
-func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgents)
+type ListAccessibleAgentsParams struct {
+	OrgID  string `json:"org_id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) ListAccessibleAgents(ctx context.Context, arg ListAccessibleAgentsParams) ([]SettingsAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listAccessibleAgents, arg.OrgID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -152,12 +160,12 @@ func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
 	return items, nil
 }
 
-const listAgentsByOrg = `-- name: ListAgentsByOrg :many
+const listAgents = `-- name: ListAgents :many
 SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE org_id = ? ORDER BY name
 `
 
-func (q *Queries) ListAgentsByOrg(ctx context.Context, orgID string) ([]SettingsAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentsByOrg, orgID)
+func (q *Queries) ListAgents(ctx context.Context, orgID string) ([]SettingsAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgents, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -197,55 +205,11 @@ func (q *Queries) ListAgentsByOrg(ctx context.Context, orgID string) ([]Settings
 }
 
 const listEnabledAgents = `-- name: ListEnabledAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE enabled = 1 ORDER BY name
-`
-
-func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledAgents)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SettingsAgent{}
-	for rows.Next() {
-		var i SettingsAgent
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Model,
-			&i.ModelStrong,
-			&i.ModelFast,
-			&i.SystemPrompt,
-			&i.Soul,
-			&i.Workspace,
-			&i.Sandbox,
-			&i.EnabledBuiltinSkills,
-			&i.Scope,
-			&i.CreatorID,
-			&i.Enabled,
-			&i.OrgID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEnabledAgentsByOrg = `-- name: ListEnabledAgentsByOrg :many
 SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE org_id = ? AND enabled = 1 ORDER BY name
 `
 
-func (q *Queries) ListEnabledAgentsByOrg(ctx context.Context, orgID string) ([]SettingsAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledAgentsByOrg, orgID)
+func (q *Queries) ListEnabledAgents(ctx context.Context, orgID string) ([]SettingsAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledAgents, orgID)
 	if err != nil {
 		return nil, err
 	}

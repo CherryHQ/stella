@@ -1,7 +1,6 @@
 package channel
 
 import (
-	"context"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -16,9 +15,8 @@ type testStoresWithEngine struct {
 func setupStoresWithEngine(t *testing.T) testStoresWithEngine {
 	t.Helper()
 	ts := setupStores(t)
-	ctx := context.Background()
 
-	engine, err := auth.NewEngine(ctx, ts.authStore)
+	engine, err := auth.NewEngine(ts.ctx(), ts.authStore)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -28,7 +26,7 @@ func setupStoresWithEngine(t *testing.T) testStoresWithEngine {
 
 func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	ts := setupStoresWithEngine(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	authUser := createTestUser(t, ts.oidcStore, "alice@example.com")
 
@@ -46,7 +44,7 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 
 func TestResolveAgentWithAuthRestrictedFallback(t *testing.T) {
 	ts := setupStoresWithEngine(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	_ = ts.store.CreateAgent(ctx, config.Agent{
 		ID:        "private",
@@ -75,7 +73,7 @@ func TestResolveAgentWithAuthRestrictedFallback(t *testing.T) {
 
 func TestResolveAgentWithAuthRestrictedAllowed(t *testing.T) {
 	ts := setupStoresWithEngine(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	_ = ts.store.CreateAgent(ctx, config.Agent{
 		ID:        "vip",
@@ -105,7 +103,7 @@ func TestResolveAgentWithAuthRestrictedAllowed(t *testing.T) {
 
 func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	ts := setupStoresWithEngine(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	_ = ts.store.UpdateAgent(ctx, config.Agent{
 		ID:        "stella",
@@ -141,7 +139,7 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 
 func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 	ts := setupStoresWithEngine(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	_ = ts.store.CreateAgent(ctx, config.Agent{
 		ID:        "group-agent",
@@ -170,7 +168,7 @@ func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 
 func TestResolveAgentDedicatedChannelBypassesAgentAssignment(t *testing.T) {
 	ts := setupStoresWithEngine(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	_ = ts.store.CreateAgent(ctx, config.Agent{
 		ID:        "dedicated",

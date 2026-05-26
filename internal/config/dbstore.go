@@ -25,10 +25,23 @@ func NewDBStore(db *sql.DB) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
+// requireOrgID extracts org_id from context, returning an error if absent.
+func requireOrgID(ctx context.Context) (string, error) {
+	orgID := OrgIDFromContext(ctx)
+	if orgID == "" {
+		return "", fmt.Errorf("org_id is required in context")
+	}
+	return orgID, nil
+}
+
 // --- Providers (backed by settings_provider) ---
 
 func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
-	rows, err := s.q.ListProviders(ctx)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListProviders(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
@@ -94,19 +107,6 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
 	return nil
 }
 
-func (s *DBStore) ListProvidersForOrg(ctx context.Context, orgID string) ([]Provider, error) {
-	rows, err := s.q.ListProvidersByOrg(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("list providers for org %q: %w", orgID, err)
-	}
-	out := make([]Provider, len(rows))
-	for i, r := range rows {
-		out[i] = providerFromDB(r)
-		applyProviderEnvFallback(&out[i])
-	}
-	return out, nil
-}
-
 func (s *DBStore) SetProviderOrg(ctx context.Context, providerID, orgID string) error {
 	return s.q.SetProviderOrg(ctx, sqlc.SetProviderOrgParams{
 		OrgID: orgID,
@@ -121,7 +121,11 @@ func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
 // --- Agents ---
 
 func (s *DBStore) ListAgents(ctx context.Context) ([]Agent, error) {
-	rows, err := s.q.ListAgents(ctx)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListAgents(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
@@ -137,7 +141,11 @@ func (s *DBStore) ListAgents(ctx context.Context) ([]Agent, error) {
 }
 
 func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
-	rows, err := s.q.ListEnabledAgents(ctx)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListEnabledAgents(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled agents: %w", err)
 	}
@@ -146,6 +154,29 @@ func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 		agent, err := agentFromDB(r)
 		if err != nil {
 			return nil, fmt.Errorf("list enabled agents: %w", err)
+		}
+		out[i] = agent
+	}
+	return out, nil
+}
+
+func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]Agent, error) {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListAccessibleAgents(ctx, sqlc.ListAccessibleAgentsParams{
+		OrgID:  orgID,
+		UserID: userID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list accessible agents: %w", err)
+	}
+	out := make([]Agent, len(rows))
+	for i, r := range rows {
+		agent, err := agentFromDB(r)
+		if err != nil {
+			return nil, fmt.Errorf("list accessible agents: %w", err)
 		}
 		out[i] = agent
 	}
@@ -244,22 +275,6 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	return nil
 }
 
-func (s *DBStore) ListAgentsForOrg(ctx context.Context, orgID string) ([]Agent, error) {
-	rows, err := s.q.ListAgentsByOrg(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("list agents for org %q: %w", orgID, err)
-	}
-	out := make([]Agent, len(rows))
-	for i, r := range rows {
-		agent, err := agentFromDB(r)
-		if err != nil {
-			return nil, fmt.Errorf("list agents for org %q: %w", orgID, err)
-		}
-		out[i] = agent
-	}
-	return out, nil
-}
-
 func (s *DBStore) SetAgentOrg(ctx context.Context, agentID, orgID string) error {
 	return s.q.SetAgentOrg(ctx, sqlc.SetAgentOrgParams{
 		OrgID: orgID,
@@ -274,7 +289,11 @@ func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
 // --- Channels ---
 
 func (s *DBStore) ListChannels(ctx context.Context) ([]Channel, error) {
-	rows, err := s.q.ListChannels(ctx)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListChannels(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
@@ -286,7 +305,14 @@ func (s *DBStore) ListChannels(ctx context.Context) ([]Channel, error) {
 }
 
 func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error) {
-	rows, err := s.q.ListChannelsByType(ctx, channelType)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListChannelsByType(ctx, sqlc.ListChannelsByTypeParams{
+		Type:  channelType,
+		OrgID: orgID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list %s channels: %w", channelType, err)
 	}
@@ -324,18 +350,6 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
 	})
 }
 
-func (s *DBStore) ListChannelsForOrg(ctx context.Context, orgID string) ([]Channel, error) {
-	rows, err := s.q.ListChannelsByOrg(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("list channels for org %q: %w", orgID, err)
-	}
-	out := make([]Channel, len(rows))
-	for i, r := range rows {
-		out[i] = channelFromDB(r)
-	}
-	return out, nil
-}
-
 func (s *DBStore) SetChannelOrg(ctx context.Context, channelID, orgID string) error {
 	return s.q.SetChannelOrg(ctx, sqlc.SetChannelOrgParams{
 		OrgID: orgID,
@@ -350,7 +364,11 @@ func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {
 // --- Plugins ---
 
 func (s *DBStore) ListPlugins(ctx context.Context) ([]Plugin, error) {
-	rows, err := s.q.ListPlugins(ctx)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListPlugins(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list plugins: %w", err)
 	}
@@ -362,7 +380,14 @@ func (s *DBStore) ListPlugins(ctx context.Context) ([]Plugin, error) {
 }
 
 func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error) {
-	rows, err := s.q.ListPluginsByKind(ctx, kind)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListPluginsByKind(ctx, sqlc.ListPluginsByKindParams{
+		Kind:  kind,
+		OrgID: orgID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list plugins by kind %q: %w", kind, err)
 	}
@@ -373,35 +398,12 @@ func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin,
 	return out, nil
 }
 
-func (s *DBStore) ListPluginsForOrg(ctx context.Context, orgID string) ([]Plugin, error) {
-	rows, err := s.q.ListPluginsByOrg(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("list plugins for org %q: %w", orgID, err)
-	}
-	out := make([]Plugin, len(rows))
-	for i, r := range rows {
-		out[i] = pluginFromDB(r)
-	}
-	return out, nil
-}
-
-func (s *DBStore) ListPluginsByKindForOrg(ctx context.Context, kind, orgID string) ([]Plugin, error) {
-	rows, err := s.q.ListPluginsByKindAndOrg(ctx, sqlc.ListPluginsByKindAndOrgParams{
-		Kind:  kind,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list plugins kind %q org %q: %w", kind, orgID, err)
-	}
-	out := make([]Plugin, len(rows))
-	for i, r := range rows {
-		out[i] = pluginFromDB(r)
-	}
-	return out, nil
-}
-
 func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
-	rows, err := s.q.ListEnabledPlugins(ctx)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListEnabledPlugins(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled plugins: %w", err)
 	}
@@ -545,8 +547,13 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
 
-	// Load plugins once for non-provider plugin state exposed in the snapshot.
-	pluginRows, err := s.q.ListPlugins(ctx)
+	// Scope subsequent queries to the agent's org.
+	orgID := ag.OrgID
+	if orgID == "" {
+		orgID = s.defaultOrgID
+	}
+
+	pluginRows, err := s.q.ListPlugins(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
 	}
@@ -556,7 +563,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	}
 
 	provIDs := collectProviderIDs(ag.Model, ag.ModelStrong, ag.ModelFast)
-	providerRows, err := s.q.ListProviders(ctx)
+	providerRows, err := s.q.ListProviders(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: list providers: %w", err)
 	}
@@ -665,7 +672,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 
 	// Seed default agent after providers so its model can derive from the
 	// configured provider instances instead of hardcoding a specific provider ID.
-	agents, err := s.q.ListAgents(ctx)
+	agents, err := s.q.ListAgents(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("seed: list agents: %w", err)
 	}
@@ -677,7 +684,8 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 	if err != nil {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
-	providers, err := s.ListProviders(ctx)
+	orgCtx := WithOrgID(ctx, orgID)
+	providers, err := s.ListProviders(orgCtx)
 	if err != nil {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}
@@ -753,7 +761,7 @@ func (s *DBStore) seedPlugins(ctx context.Context, orgID string) error {
 }
 
 func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error {
-	rows, err := s.q.ListChannels(ctx)
+	rows, err := s.q.ListChannels(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("seed: list channel instances: %w", err)
 	}
@@ -823,7 +831,7 @@ func parseSandboxConfig(raw string) (SandboxConfig, error) {
 }
 
 func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
-	providers, err := s.q.ListProviders(ctx)
+	providers, err := s.q.ListProviders(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}

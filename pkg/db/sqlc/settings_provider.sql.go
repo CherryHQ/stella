@@ -77,47 +77,11 @@ func (q *Queries) GetProvider(ctx context.Context, id string) (SettingsProvider,
 }
 
 const listEnabledProviders = `-- name: ListEnabledProviders :many
-SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE enabled = 1 ORDER BY name, id
-`
-
-func (q *Queries) ListEnabledProviders(ctx context.Context) ([]SettingsProvider, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledProviders)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SettingsProvider{}
-	for rows.Next() {
-		var i SettingsProvider
-		if err := rows.Scan(
-			&i.ID,
-			&i.Type,
-			&i.Name,
-			&i.Enabled,
-			&i.Config,
-			&i.OrgID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEnabledProvidersByOrg = `-- name: ListEnabledProvidersByOrg :many
 SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE org_id = ? AND enabled = 1 ORDER BY name, id
 `
 
-func (q *Queries) ListEnabledProvidersByOrg(ctx context.Context, orgID string) ([]SettingsProvider, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledProvidersByOrg, orgID)
+func (q *Queries) ListEnabledProviders(ctx context.Context, orgID string) ([]SettingsProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledProviders, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -149,47 +113,11 @@ func (q *Queries) ListEnabledProvidersByOrg(ctx context.Context, orgID string) (
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider ORDER BY name, id
-`
-
-func (q *Queries) ListProviders(ctx context.Context) ([]SettingsProvider, error) {
-	rows, err := q.db.QueryContext(ctx, listProviders)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SettingsProvider{}
-	for rows.Next() {
-		var i SettingsProvider
-		if err := rows.Scan(
-			&i.ID,
-			&i.Type,
-			&i.Name,
-			&i.Enabled,
-			&i.Config,
-			&i.OrgID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProvidersByOrg = `-- name: ListProvidersByOrg :many
 SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE org_id = ? ORDER BY name, id
 `
 
-func (q *Queries) ListProvidersByOrg(ctx context.Context, orgID string) ([]SettingsProvider, error) {
-	rows, err := q.db.QueryContext(ctx, listProvidersByOrg, orgID)
+func (q *Queries) ListProviders(ctx context.Context, orgID string) ([]SettingsProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listProviders, orgID)
 	if err != nil {
 		return nil, err
 	}

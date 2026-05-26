@@ -12,7 +12,12 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
-func setupAdminStore(t *testing.T) config.Store {
+type testEnv struct {
+	store config.Store
+	orgID string
+}
+
+func setupAdminStore(t *testing.T) testEnv {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -28,7 +33,7 @@ func setupAdminStore(t *testing.T) config.Store {
 	}
 	store := config.NewDBStore(db)
 	store.SetDefaultOrgID(orgID)
-	return store
+	return testEnv{store: store, orgID: orgID}
 }
 
 func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) {
@@ -36,13 +41,14 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	t.Setenv("STELLA_HOME", t.TempDir())
 	t.Cleanup(config.ResetStellaHome)
 
-	store := setupAdminStore(t)
+	env := setupAdminStore(t)
 	ctx := context.Background()
 
-	if err := store.CreateProvider(ctx, config.Provider{
-		ID:     "openai",
-		Name:   "OpenAI",
-		APIKey: "sk-test",
+	if err := env.store.CreateProvider(ctx, config.Provider{
+		ID:      "openai",
+		Name:    "OpenAI",
+		APIKey:  "sk-test",
+		Enabled: true,
 		Models: map[string]config.ProviderModel{
 			"qwen3.6-plus":     {ID: "qwen3.6-plus", Name: "Qwen 3.6 Plus", Enabled: true},
 			"custom-only":      {ID: "custom-only", Name: "Custom Only", Enabled: true},
@@ -52,15 +58,22 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("CreateProvider(openai): %v", err)
 	}
-	if err := store.CreateProvider(ctx, config.Provider{
-		ID:     "anthropic",
-		Name:   "Anthropic",
-		APIKey: "sk-test",
+	if err := env.store.SetProviderOrg(ctx, "openai", env.orgID); err != nil {
+		t.Fatalf("SetProviderOrg(openai): %v", err)
+	}
+	if err := env.store.CreateProvider(ctx, config.Provider{
+		ID:      "anthropic",
+		Name:    "Anthropic",
+		APIKey:  "sk-test",
+		Enabled: true,
 		Models: map[string]config.ProviderModel{
 			"disabled-custom": {ID: "disabled-custom", Name: "Disabled Custom", Enabled: false},
 		},
 	}); err != nil {
 		t.Fatalf("CreateProvider(anthropic): %v", err)
+	}
+	if err := env.store.SetProviderOrg(ctx, "anthropic", env.orgID); err != nil {
+		t.Fatalf("SetProviderOrg(anthropic): %v", err)
 	}
 
 	if err := config.SaveModelsCache(&config.ModelsCache{Models: []config.CachedModel{
@@ -72,8 +85,13 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		t.Fatalf("SaveModelsCache: %v", err)
 	}
 
-	server := &Server{store: store}
+	server := &Server{store: env.store}
 	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	req = req.WithContext(withAuthInfo(req.Context(), &AuthInfo{
+		UserID:  "test-user",
+		OrgID:   env.orgID,
+		IsAdmin: true,
+	}))
 	rec := httptest.NewRecorder()
 
 	server.ListModels(rec, req)

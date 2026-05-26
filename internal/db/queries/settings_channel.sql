@@ -13,19 +13,13 @@ ON CONFLICT(id) DO UPDATE SET
     updated_at = datetime('now');
 
 -- name: ListChannels :many
-SELECT * FROM settings_channel ORDER BY type, id;
+SELECT * FROM settings_channel WHERE org_id = ? ORDER BY type, id;
 
 -- name: ListChannelsByType :many
-SELECT * FROM settings_channel WHERE type = ? ORDER BY id;
+SELECT * FROM settings_channel WHERE type = ? AND org_id = ? ORDER BY id;
 
 -- name: DeleteChannel :exec
 DELETE FROM settings_channel WHERE id = ?;
-
--- name: ListChannelsByOrg :many
-SELECT * FROM settings_channel WHERE org_id = ? ORDER BY type, id;
-
--- name: ListChannelsByTypeAndOrg :many
-SELECT * FROM settings_channel WHERE type = ? AND org_id = ? ORDER BY id;
 
 -- name: SetChannelOrg :exec
 UPDATE settings_channel SET org_id = ? WHERE id = ?;

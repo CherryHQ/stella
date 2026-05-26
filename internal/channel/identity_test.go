@@ -21,6 +21,11 @@ type testStores struct {
 	authStore *appdb.AuthStore // policy/token store
 	oidcStore *appdb.OIDCStore // user/identity/session store
 	db        *sql.DB
+	orgID     string
+}
+
+func (ts testStores) ctx() context.Context {
+	return config.WithOrgID(context.Background(), ts.orgID)
 }
 
 func setupStores(t *testing.T) testStores {
@@ -37,18 +42,19 @@ func setupStores(t *testing.T) testStores {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
 	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background(), orgID); err != nil {
+	ctx := config.WithOrgID(context.Background(), orgID)
+	if err := store.SeedDefaults(ctx, orgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(context.Background(), as, orgID); err != nil {
+	if err := auth.SeedPolicies(ctx, as, orgID); err != nil {
 		t.Fatalf("SeedPolicies: %v", err)
 	}
 
 	oidcStore := appdb.NewOIDCStore(db)
 
-	return testStores{store: store, authStore: as, oidcStore: oidcStore, db: db}
+	return testStores{store: store, authStore: as, oidcStore: oidcStore, db: db, orgID: orgID}
 }
 
 // createTestUser creates a user in the OIDC store for tests.
@@ -169,7 +175,7 @@ func TestResolveUserDeactivated(t *testing.T) {
 
 func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
 	ts := setupStores(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	engine, err := auth.NewEngine(ctx, ts.authStore)
 	if err != nil {
@@ -186,7 +192,7 @@ func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
 
 func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 	ts := setupStores(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	engine, err := auth.NewEngine(ctx, ts.authStore)
 	if err != nil {
@@ -208,7 +214,7 @@ func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 
 func TestResolveAgentGroupAssignment(t *testing.T) {
 	ts := setupStores(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	engine, err := auth.NewEngine(ctx, ts.authStore)
 	if err != nil {

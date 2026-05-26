@@ -17,24 +17,22 @@ func (s *stubStore) ListProviders(context.Context) ([]config.Provider, error) { 
 func (s *stubStore) GetProvider(context.Context, string) (config.Provider, error) {
 	return config.Provider{}, nil
 }
-func (s *stubStore) CreateProvider(context.Context, config.Provider) error { return nil }
-func (s *stubStore) UpdateProvider(context.Context, config.Provider) error { return nil }
-func (s *stubStore) DeleteProvider(context.Context, string) error          { return nil }
-func (s *stubStore) ListProvidersForOrg(context.Context, string) ([]config.Provider, error) {
-	return nil, nil
-}
+func (s *stubStore) CreateProvider(context.Context, config.Provider) error     { return nil }
+func (s *stubStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
+func (s *stubStore) DeleteProvider(context.Context, string) error              { return nil }
 func (s *stubStore) SetProviderOrg(context.Context, string, string) error      { return nil }
 func (s *stubStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
 func (s *stubStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+func (s *stubStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
+	return nil, nil
+}
+
 func (s *stubStore) GetAgent(context.Context, string) (config.Agent, error) {
 	return config.Agent{}, nil
 }
-func (s *stubStore) CreateAgent(context.Context, config.Agent) error { return nil }
-func (s *stubStore) UpdateAgent(context.Context, config.Agent) error { return nil }
-func (s *stubStore) DeleteAgent(context.Context, string) error       { return nil }
-func (s *stubStore) ListAgentsForOrg(context.Context, string) ([]config.Agent, error) {
-	return nil, nil
-}
+func (s *stubStore) CreateAgent(context.Context, config.Agent) error        { return nil }
+func (s *stubStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
+func (s *stubStore) DeleteAgent(context.Context, string) error              { return nil }
 func (s *stubStore) SetAgentOrg(context.Context, string, string) error      { return nil }
 func (s *stubStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
@@ -46,9 +44,6 @@ func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) 
 }
 func (s *stubStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) DeleteChannel(context.Context, string) error         { return nil }
-func (s *stubStore) ListChannelsForOrg(context.Context, string) ([]config.Channel, error) {
-	return nil, nil
-}
 func (s *stubStore) SetChannelOrg(context.Context, string, string) error { return nil }
 func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	plugins := make([]config.Plugin, 0, len(s.plugins))
@@ -75,14 +70,6 @@ func (s *stubStore) ListPluginsByKind(_ context.Context, kind string) ([]config.
 	return plugins, nil
 }
 func (s *stubStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
-func (s *stubStore) ListPluginsForOrg(_ context.Context, _ string) ([]config.Plugin, error) {
-	return nil, nil
-}
-
-func (s *stubStore) ListPluginsByKindForOrg(_ context.Context, _, _ string) ([]config.Plugin, error) {
-	return nil, nil
-}
-
 func (s *stubStore) GetPlugin(_ context.Context, id string) (config.Plugin, error) {
 	return s.plugins[id], nil
 }

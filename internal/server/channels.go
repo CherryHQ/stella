@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sort"
 
@@ -61,13 +60,18 @@ func channelToView(ch config.Channel) channelView {
 }
 
 func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+
 	enabledTypes, err := s.enabledChannelTypes(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	agentNames, err := s.accessibleAgentNames(r)
+	agentNames, err := s.accessibleAgentNames(r, info)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -96,18 +100,17 @@ func (s *Server) enabledChannelTypes(r *http.Request) (map[string]bool, error) {
 	return enabled, nil
 }
 
-func (s *Server) accessibleAgentNames(r *http.Request) (map[string]string, error) {
-	agents, err := s.store.ListAgents(r.Context())
+func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[string]string, error) {
+	ctx := r.Context()
+	var agents []config.Agent
+	var err error
+	if info.IsAdmin {
+		agents, err = s.store.ListAgents(ctx)
+	} else {
+		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)
+	}
 	if err != nil {
 		return nil, err
-	}
-	info := UserFromContext(r.Context())
-	if info != nil && !info.IsAdmin {
-		agents, err = s.filterAccessibleAgents(r.Context(), info, agents)
-		if err != nil {
-			s.log.Error("filter accessible agents for public channels", "user_id", info.UserID, "error", err)
-			return nil, fmt.Errorf("failed to filter agents")
-		}
 	}
 	names := make(map[string]string, len(agents))
 	for _, agent := range agents {
@@ -182,21 +185,11 @@ func sortPublicChannels(channels []publicChannelView) {
 }
 
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	ctx := r.Context()
-	info := UserFromContext(ctx)
-
-	var (
-		channels []config.Channel
-		err      error
-	)
-	if info != nil && info.OrgID != "" {
-		channels, err = s.store.ListChannelsForOrg(ctx, info.OrgID)
-	} else {
-		channels, err = s.store.ListChannels(ctx)
-	}
+	channels, err := s.store.ListChannels(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

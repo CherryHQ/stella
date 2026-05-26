@@ -14,7 +14,7 @@ func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request) {
 	if info == nil {
 		return
 	}
-	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context(), info.OrgID)
+	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

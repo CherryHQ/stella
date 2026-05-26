@@ -9,6 +9,8 @@ import (
 
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 
+	"github.com/CherryHQ/stella/internal/config"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
@@ -35,14 +37,15 @@ func (s *Server) skillStore() skills.Store {
 }
 
 func (s *Server) accessibleAgentIDs(ctx context.Context, info *AuthInfo) ([]string, int, string) {
-	agents, err := s.store.ListAgents(ctx)
+	var agents []config.Agent
+	var err error
+	if info.IsAdmin {
+		agents, err = s.store.ListAgents(ctx)
+	} else {
+		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)
+	}
 	if err != nil {
 		return nil, http.StatusInternalServerError, err.Error()
-	}
-	agents, err = s.filterAccessibleAgents(ctx, info, agents)
-	if err != nil {
-		s.log.Error("filter accessible agents for skill list", "user_id", info.UserID, "error", err)
-		return nil, http.StatusInternalServerError, "failed to filter agents"
 	}
 	agentIDs := make([]string, 0, len(agents))
 	for _, a := range agents {

@@ -40,47 +40,11 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (SettingsChannel, e
 }
 
 const listChannels = `-- name: ListChannels :many
-SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel ORDER BY type, id
-`
-
-func (q *Queries) ListChannels(ctx context.Context) ([]SettingsChannel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannels)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SettingsChannel{}
-	for rows.Next() {
-		var i SettingsChannel
-		if err := rows.Scan(
-			&i.ID,
-			&i.Type,
-			&i.AgentID,
-			&i.Enabled,
-			&i.Config,
-			&i.OrgID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listChannelsByOrg = `-- name: ListChannelsByOrg :many
 SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE org_id = ? ORDER BY type, id
 `
 
-func (q *Queries) ListChannelsByOrg(ctx context.Context, orgID string) ([]SettingsChannel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannelsByOrg, orgID)
+func (q *Queries) ListChannels(ctx context.Context, orgID string) ([]SettingsChannel, error) {
+	rows, err := q.db.QueryContext(ctx, listChannels, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,52 +76,16 @@ func (q *Queries) ListChannelsByOrg(ctx context.Context, orgID string) ([]Settin
 }
 
 const listChannelsByType = `-- name: ListChannelsByType :many
-SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE type = ? ORDER BY id
-`
-
-func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]SettingsChannel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannelsByType, type_)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SettingsChannel{}
-	for rows.Next() {
-		var i SettingsChannel
-		if err := rows.Scan(
-			&i.ID,
-			&i.Type,
-			&i.AgentID,
-			&i.Enabled,
-			&i.Config,
-			&i.OrgID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listChannelsByTypeAndOrg = `-- name: ListChannelsByTypeAndOrg :many
 SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE type = ? AND org_id = ? ORDER BY id
 `
 
-type ListChannelsByTypeAndOrgParams struct {
+type ListChannelsByTypeParams struct {
 	Type  string `json:"type"`
 	OrgID string `json:"org_id"`
 }
 
-func (q *Queries) ListChannelsByTypeAndOrg(ctx context.Context, arg ListChannelsByTypeAndOrgParams) ([]SettingsChannel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannelsByTypeAndOrg, arg.Type, arg.OrgID)
+func (q *Queries) ListChannelsByType(ctx context.Context, arg ListChannelsByTypeParams) ([]SettingsChannel, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelsByType, arg.Type, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}

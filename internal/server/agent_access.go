@@ -8,22 +8,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
-// filterAccessibleAgents returns only agents the user can access (system scope + assigned).
-func (s *Server) filterAccessibleAgents(ctx context.Context, info *AuthInfo, agents []config.Agent) ([]config.Agent, error) {
-	subject, err := s.agentAccessSubject(ctx, info)
-	if err != nil {
-		return nil, err
-	}
-
-	var filtered []config.Agent
-	for _, a := range agents {
-		if s.engine.Can(ctx, s.agentReadRequest(subject, a)) {
-			filtered = append(filtered, a)
-		}
-	}
-	return filtered, nil
-}
-
 // canAccessAgent checks if the user can access a specific agent.
 func (s *Server) canAccessAgent(ctx context.Context, info *AuthInfo, a config.Agent) bool {
 	subject, err := s.agentAccessSubject(ctx, info)

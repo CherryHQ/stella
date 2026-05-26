@@ -10,6 +10,10 @@ import (
 
 const testOrgID = "test-org-id"
 
+func testCtx() context.Context {
+	return WithOrgID(context.Background(), testOrgID)
+}
+
 func setupDBStore(t *testing.T) *DBStore {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -29,7 +33,7 @@ func setupDBStore(t *testing.T) *DBStore {
 
 func TestSeedDefaults(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
@@ -67,7 +71,7 @@ func TestSeedDefaults(t *testing.T) {
 
 func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
@@ -87,7 +91,7 @@ func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 
 func TestSeedDefaultsIdempotent(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("first SeedDefaults: %v", err)
@@ -104,7 +108,7 @@ func TestSeedDefaultsIdempotent(t *testing.T) {
 
 func TestProviderCRUD(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	p := Provider{ID: "openai", Name: "OpenAI", APIKey: "sk-test", BaseURL: "https://api.openai.com"}
 	if err := store.CreateProvider(ctx, p); err != nil {
@@ -142,7 +146,7 @@ func TestProviderCRUD(t *testing.T) {
 
 func TestProviderCustomModels(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	wantModels := map[string]ProviderModel{
 		"qwen3.6-plus": {
@@ -196,7 +200,7 @@ func TestProviderCustomModels(t *testing.T) {
 
 func TestProviderEnvFallback(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
@@ -219,7 +223,7 @@ func TestProviderEnvFallback(t *testing.T) {
 
 func TestProviderEnvFallbackOpenAI(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.CreateProvider(ctx, Provider{ID: "openai", Name: "OpenAI"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
@@ -237,7 +241,7 @@ func TestProviderEnvFallbackOpenAI(t *testing.T) {
 
 func TestProviderEnvNoOverwrite(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "db-key"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
@@ -252,7 +256,7 @@ func TestProviderEnvNoOverwrite(t *testing.T) {
 
 func TestAgentCRUD(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	a := Agent{
 		ID:           "coder",
@@ -299,7 +303,7 @@ func TestAgentCRUD(t *testing.T) {
 
 func TestListEnabledAgents(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	_ = store.CreateAgent(ctx, Agent{ID: "a1", Name: "A1", Model: "anthropic/m", Enabled: true})
 	_ = store.CreateAgent(ctx, Agent{ID: "a2", Name: "A2", Model: "anthropic/m", Enabled: false})
@@ -315,7 +319,7 @@ func TestListEnabledAgents(t *testing.T) {
 
 func TestChannelCRUD(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	ch := Channel{ID: "telegram", Enabled: true, Config: `{"token":"abc"}`}
 	if err := store.UpsertChannel(ctx, ch); err != nil {
@@ -352,7 +356,7 @@ func TestChannelCRUD(t *testing.T) {
 
 func TestChatAgentCRUD(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
 
@@ -380,7 +384,7 @@ func TestChatAgentCRUD(t *testing.T) {
 
 func TestSettings(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	// Empty by default.
 	val, err := store.GetSetting(ctx, "runner")
@@ -410,7 +414,7 @@ func TestSettings(t *testing.T) {
 
 func TestSnapshot(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	// Seed first (matches real startup order), then configure.
 	_ = store.SeedDefaults(ctx, testOrgID)
@@ -488,7 +492,7 @@ func TestSnapshot(t *testing.T) {
 
 func TestSnapshotResolvesUniqueProviderTypeAlias(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude", APIKey: "sk-claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
@@ -519,7 +523,7 @@ func TestSnapshotResolvesUniqueProviderTypeAlias(t *testing.T) {
 
 func TestSnapshotDefaults(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	_ = store.SeedDefaults(ctx, testOrgID)
 	_ = store.CreateAgent(ctx, Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
@@ -538,7 +542,7 @@ func TestSnapshotDefaults(t *testing.T) {
 
 func TestSnapshotNotFound(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	_, err := store.Snapshot(ctx, "nonexistent")
 	if err == nil {
@@ -548,7 +552,7 @@ func TestSnapshotNotFound(t *testing.T) {
 
 func TestCreateAgentRejectsInvalidSandbox(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	err := store.CreateAgent(ctx, Agent{
 		ID:      "bad-sandbox",
@@ -564,7 +568,7 @@ func TestCreateAgentRejectsInvalidSandbox(t *testing.T) {
 
 func TestGetProviderNotFound(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	_, err := store.GetProvider(ctx, "nope")
 	if err == nil {
@@ -574,7 +578,7 @@ func TestGetProviderNotFound(t *testing.T) {
 
 func TestGetAgentNotFound(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	_, err := store.GetAgent(ctx, "nope")
 	if err == nil {
@@ -584,7 +588,7 @@ func TestGetAgentNotFound(t *testing.T) {
 
 func TestPluginCRUD(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	// Create via Upsert.
 	p := Plugin{
@@ -669,7 +673,7 @@ func TestPluginCRUD(t *testing.T) {
 
 func TestPluginSeedDefaults(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
@@ -697,7 +701,7 @@ func TestPluginSeedDefaults(t *testing.T) {
 
 func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.SeedDefaults(ctx, testOrgID); err != nil {
 		t.Fatalf("first SeedDefaults: %v", err)
@@ -751,7 +755,7 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 
 func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	if err := store.UpsertChannel(ctx, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"tg-123"}`}); err != nil {
 		t.Fatalf("UpsertChannel: %v", err)
@@ -783,7 +787,7 @@ func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
 
 func TestGetChannelNotFound(t *testing.T) {
 	store := setupDBStore(t)
-	ctx := context.Background()
+	ctx := testCtx()
 
 	_, err := store.GetChannel(ctx, "nope")
 	if err == nil {

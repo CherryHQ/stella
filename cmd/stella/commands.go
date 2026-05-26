@@ -125,6 +125,8 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ensure default org: %w", err)
 	}
+	// Enrich context so all Store calls are org-scoped.
+	parent = config.WithOrgID(parent, orgID)
 
 	ss, err := setupSkillStores(parent, db, orgID)
 	if err != nil {

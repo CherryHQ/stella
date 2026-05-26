@@ -67,12 +67,9 @@ func (commandTestStore) ListProviders(context.Context) ([]config.Provider, error
 func (commandTestStore) GetProvider(context.Context, string) (config.Provider, error) {
 	return config.Provider{}, errors.New("not found")
 }
-func (commandTestStore) CreateProvider(context.Context, config.Provider) error { return nil }
-func (commandTestStore) UpdateProvider(context.Context, config.Provider) error { return nil }
-func (commandTestStore) DeleteProvider(context.Context, string) error          { return nil }
-func (commandTestStore) ListProvidersForOrg(context.Context, string) ([]config.Provider, error) {
-	return nil, nil
-}
+func (commandTestStore) CreateProvider(context.Context, config.Provider) error     { return nil }
+func (commandTestStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
+func (commandTestStore) DeleteProvider(context.Context, string) error              { return nil }
 func (commandTestStore) SetProviderOrg(context.Context, string, string) error      { return nil }
 func (commandTestStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
 func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
@@ -82,7 +79,7 @@ func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) 
 func (commandTestStore) CreateAgent(context.Context, config.Agent) error { return nil }
 func (commandTestStore) UpdateAgent(context.Context, config.Agent) error { return nil }
 func (commandTestStore) DeleteAgent(context.Context, string) error       { return nil }
-func (commandTestStore) ListAgentsForOrg(context.Context, string) ([]config.Agent, error) {
+func (commandTestStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
 	return nil, nil
 }
 func (commandTestStore) SetAgentOrg(context.Context, string, string) error      { return nil }
@@ -96,9 +93,6 @@ func (commandTestStore) GetChannel(context.Context, string) (config.Channel, err
 }
 func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
-func (commandTestStore) ListChannelsForOrg(context.Context, string) ([]config.Channel, error) {
-	return nil, nil
-}
 func (commandTestStore) SetChannelOrg(context.Context, string, string) error { return nil }
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return nil, nil
@@ -108,14 +102,6 @@ func (commandTestStore) ListPluginsByKind(context.Context, string) ([]config.Plu
 	return nil, nil
 }
 func (commandTestStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
-func (commandTestStore) ListPluginsForOrg(context.Context, string) ([]config.Plugin, error) {
-	return nil, nil
-}
-
-func (commandTestStore) ListPluginsByKindForOrg(context.Context, string, string) ([]config.Plugin, error) {
-	return nil, nil
-}
-
 func (commandTestStore) GetPlugin(context.Context, string) (config.Plugin, error) {
 	return config.Plugin{}, nil
 }
@@ -224,14 +210,15 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 		t.Fatalf("ensure default org: %v", err)
 	}
 	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background(), orgID); err != nil {
+	ctx := config.WithOrgID(context.Background(), orgID)
+	if err := store.SeedDefaults(ctx, orgID); err != nil {
 		t.Fatalf("seed defaults: %v", err)
 	}
-	agents, err := store.ListEnabledAgents(context.Background())
+	agents, err := store.ListEnabledAgents(ctx)
 	if err != nil || len(agents) == 0 {
 		t.Fatal("no enabled agents found")
 	}
-	snap, err := store.Snapshot(context.Background(), agents[0].ID)
+	snap, err := store.Snapshot(ctx, agents[0].ID)
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
