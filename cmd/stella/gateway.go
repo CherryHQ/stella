@@ -163,6 +163,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		slog.Warn("oidc: setup failed", "error", err)
 	} else {
 		oidcResult.AuthSvc.SetOrgSeeder(&orgSeeder{store: s.store, authStore: authStore})
+		oidcResult.AuthSvc.SetOrgInitializer(s.orgRuntimeManager)
 		adminSrv.SetLoginIdentityStore(oidcStore)
 		adminSrv.SetMembershipStore(oidcStore)
 		adminSrv.SetUserStore(oidcStore)
@@ -175,6 +176,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
+	if s.orgRuntimeManager != nil {
+		coordOpts = append(coordOpts, channel.WithOrgRuntimeInitializer(s.orgRuntimeManager))
+	}
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(

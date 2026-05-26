@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -72,11 +73,13 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 		if info := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); info != nil {
+			s.ensureOrgRuntime(ctx, info.OrgID)
 			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 			return
 		}
 
 		if info := s.authInfoFromOIDCSession(ctx, r); info != nil {
+			s.ensureOrgRuntime(ctx, info.OrgID)
 			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 			return
 		}
@@ -168,6 +171,16 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
 		return nil
 	}
 	return info
+}
+
+// ensureOrgRuntime triggers lazy OrgRuntime initialization for the user's org.
+func (s *Server) ensureOrgRuntime(ctx context.Context, orgID string) {
+	if s.authSvc == nil || orgID == "" {
+		return
+	}
+	if err := s.authSvc.InitOrg(ctx, orgID); err != nil {
+		slog.Warn("auth: org runtime init failed", "org_id", orgID, "error", err)
+	}
 }
 
 // denyAccess returns 401 for API routes or redirects to /login for page routes.
