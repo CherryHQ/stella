@@ -253,30 +253,6 @@ func (s *OIDCStore) GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser
 	return sqlc.VaultUser{AgePublicKey: u.AgePublicKey, AgePrivateKey: u.AgePrivateKey}, nil
 }
 
-// ListVaultUsers returns the ID and age public key for all users. Satisfies vault.BackfillDB.
-func (s *OIDCStore) ListVaultUsers(ctx context.Context) ([]sqlc.VaultUserRecord, error) {
-	const q = `SELECT id, age_public_key FROM auth_user`
-	rows, err := s.db.QueryContext(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []sqlc.VaultUserRecord
-	for rows.Next() {
-		var r sqlc.VaultUserRecord
-		if err := rows.Scan(&r.ID, &r.AgePublicKey); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// UpdateVaultUserAgeKeys updates age keys for a user. Satisfies vault.BackfillDB.
-func (s *OIDCStore) UpdateVaultUserAgeKeys(ctx context.Context, id, publicKey, privateKey string) error {
-	return s.UpdateUserAgeKeys(ctx, id, publicKey, privateKey)
-}
-
 func (s *OIDCStore) UpdateUserDefaultAgent(ctx context.Context, userID, agentID string) error {
 	const q = `UPDATE auth_user SET default_agent_id=?, updated_at=datetime('now') WHERE id=?`
 	_, err := s.db.ExecContext(ctx, q, agentID, userID)

@@ -10,7 +10,7 @@ type User struct {
 	AvatarURL        string  `json:"avatar_url"`
 	DefaultAgentID   string  `json:"default_agent_id,omitempty"`
 	NotifyIdentityID *string `json:"notify_identity_id,omitempty"`
-	// IsActive is always true for OIDC users; retained for gateway.go compatibility.
+	// IsActive is always true for OIDC users; membership controls access.
 	IsActive      bool      `json:"is_active"`
 	AgePublicKey  string    `json:"-"`
 	AgePrivateKey string    `json:"-"`
@@ -257,3 +257,5 @@ const (
 	RoleAdmin = "admin"
 	RoleUser  = "user"
 )
+
+const DefaultOrgName = "My Organization"

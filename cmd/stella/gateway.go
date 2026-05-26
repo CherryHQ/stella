@@ -141,32 +141,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			s.poolManager.SetTokenService(gctx, tokenSvc)
 			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
 			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
-			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())
-			if err != nil {
-				slog.Warn("vault: backfill user keys failed", "error", err)
-			} else if n > 0 {
-				slog.Info("vault: backfilled age keys for users", "count", n)
-			}
 		}
-	}
-
-	// Backfill legacy auth data into new OIDC tables on first startup.
-	if n, err := appdb.BackfillOIDCTables(gctx, s.db); err != nil {
-		slog.Warn("oidc backfill failed", "error", err)
-	} else if n > 0 {
-		slog.Info("oidc backfill: migrated users to new auth tables", "count", n)
-	}
-
-	// Backfill password hashes from legacy auth_users into auth_credential.
-	if n, err := appdb.BackfillCredentials(gctx, s.db); err != nil {
-		slog.Warn("credential backfill failed", "error", err)
-	} else if n > 0 {
-		slog.Info("credential backfill: copied password hashes", "count", n)
-	}
-
-	// Assign existing settings resources to the legacy org when available.
-	if err := appdb.BackfillOrgScopedSettings(gctx, s.db); err != nil {
-		slog.Warn("org settings backfill failed", "error", err)
 	}
 
 	// Wire OIDC authentication (external provider or built-in local issuer).

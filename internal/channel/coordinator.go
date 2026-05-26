@@ -56,7 +56,7 @@ func WithCoordinatorAuth(store channelAuthStore, engine *auth.PolicyEngine, link
 }
 
 // WithVaultRecipient sets the master age recipient so channel-provisioned users
-// get age keys immediately instead of waiting for the startup backfill.
+// get age keys at creation time.
 func WithVaultRecipient(r *age.X25519Recipient) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.vaultRecipient = r

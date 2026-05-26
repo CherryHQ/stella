@@ -147,10 +147,9 @@ func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID string,
 	return nil
 }
 
-// loadVaultToken attempts to read an existing STELLA_TOKEN from the vault for
-// backfill migration. Returns ("", false, nil) when the vault does not
-// implement vaultLoader (e.g. write-only test stubs), which intentionally
-// skips backfill and falls through to token generation.
+// activeVaultTokenValid checks whether the active vault token is still valid.
+// Returns (true, nil) when the vault does not implement vaultLoader
+// (e.g. write-only test stubs).
 func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID string, token UserToken) (bool, error) {
 	if _, ok := s.vault.(vaultLoader); !ok {
 		return true, nil

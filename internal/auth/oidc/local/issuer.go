@@ -295,7 +295,7 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 
 	org, err := is.organizations.CreateOrganization(ctx, auth.Organization{
 		ID:         uuid.NewString(),
-		Name:       "My Organization",
+		Name:       auth.DefaultOrgName,
 		ExternalID: uuid.NewString(),
 		Source:     "stella",
 	})

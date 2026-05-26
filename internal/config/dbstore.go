@@ -737,10 +737,6 @@ func (s *DBStore) seedPlugins(ctx context.Context, orgID string) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.migrateLegacyAuthPlugins(ctx, orgID); err != nil {
-		return err
-	}
-
 	// Seed the reflect plugin (conversation review).
 	if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 		ID:      "reflect",
@@ -756,161 +752,23 @@ func (s *DBStore) seedPlugins(ctx context.Context, orgID string) error {
 	return nil
 }
 
-func (s *DBStore) migrateLegacyAuthPlugins(ctx context.Context, orgID string) error {
-	if err := s.purgeGitHubAuthPluginConfig(ctx); err != nil {
-		return err
-	}
-
-	type migration struct {
-		legacyID string
-		newID    string
-		newName  string
-	}
-	migrations := []migration{
-		{legacyID: PluginID(PluginKindAuth, "lark"), newID: PluginID(PluginKindTool, "lark-cli"), newName: "lark-cli"},
-	}
-	for _, m := range migrations {
-		legacyRow, err := s.q.GetPlugin(ctx, m.legacyID)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("seed: load legacy plugin %q: %w", m.legacyID, err)
-		}
-		target, err := s.GetPlugin(ctx, m.newID)
-		if err != nil {
-			target = Plugin{ID: m.newID, Kind: PluginKindTool, Name: m.newName, Enabled: true, Config: map[string]any{}}
-		}
-		legacy := pluginFromDB(legacyRow)
-		if len(target.Config) == 0 && len(legacy.Config) > 0 {
-			target.Config = legacy.Config
-		}
-		if !target.Enabled && legacy.Enabled {
-			target.Enabled = true
-		}
-		if err := s.UpsertPlugin(ctx, target); err != nil {
-			return fmt.Errorf("seed: upsert migrated plugin %q: %w", m.newID, err)
-		}
-		if err := s.DeletePlugin(ctx, m.legacyID); err != nil {
-			return fmt.Errorf("seed: delete legacy plugin %q: %w", m.legacyID, err)
-		}
-	}
-	return nil
-}
-
-func (s *DBStore) purgeGitHubAuthPluginConfig(ctx context.Context) error {
-	toolID := PluginID(PluginKindTool, "gh")
-	plugin, err := s.GetPlugin(ctx, toolID)
-	if err == nil && len(plugin.Config) > 0 {
-		plugin.Config = map[string]any{}
-		if err := s.UpsertPlugin(ctx, plugin); err != nil {
-			return fmt.Errorf("seed: clear github tool plugin config: %w", err)
-		}
-	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("seed: load github tool plugin: %w", err)
-	}
-
-	legacyID := PluginID(PluginKindAuth, "github")
-	if _, err := s.q.GetPlugin(ctx, legacyID); errors.Is(err, sql.ErrNoRows) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("seed: load legacy plugin %q: %w", legacyID, err)
-	}
-	if err := s.DeletePlugin(ctx, legacyID); err != nil {
-		return fmt.Errorf("seed: delete legacy plugin %q: %w", legacyID, err)
-	}
-	return nil
-}
-
 func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error {
-	existingByID, missingTypeIDs, err := s.loadExistingChannels(ctx)
-	if err != nil {
-		return err
-	}
-	if err := s.backfillChannelTypes(ctx, existingByID, missingTypeIDs, orgID); err != nil {
-		return err
-	}
-
-	pluginByName, err := s.loadChannelPlugins(ctx)
-	if err != nil {
-		return err
-	}
-	if err := s.migrateLegacyChannelPluginConfigs(ctx, existingByID, pluginByName, orgID); err != nil {
-		return err
-	}
-	return s.seedDefaultChannelInstances(ctx, existingByID, pluginByName, orgID)
-}
-
-func (s *DBStore) loadExistingChannels(ctx context.Context) (map[string]Channel, []string, error) {
 	rows, err := s.q.ListChannels(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("seed: list channel instances: %w", err)
+		return fmt.Errorf("seed: list channel instances: %w", err)
 	}
-	existingByID := make(map[string]Channel, len(rows))
-	missingTypeIDs := make([]string, 0, len(rows))
+	existing := make(map[string]bool, len(rows))
 	for _, row := range rows {
-		ch := channelFromDB(row)
-		existingByID[ch.ID] = ch
-		if row.Type == "" {
-			missingTypeIDs = append(missingTypeIDs, ch.ID)
-		}
+		existing[row.ID] = true
 	}
-	return existingByID, missingTypeIDs, nil
-}
-
-func (s *DBStore) backfillChannelTypes(ctx context.Context, channels map[string]Channel, ids []string, orgID string) error {
-	for _, id := range ids {
-		ch := channels[id]
-		if ch.OrgID == "" {
-			ch.OrgID = orgID
-		}
-		if err := s.UpsertChannel(ctx, ch); err != nil {
-			return fmt.Errorf("seed: backfill channel type %q: %w", ch.ID, err)
-		}
-	}
-	return nil
-}
-
-func (s *DBStore) loadChannelPlugins(ctx context.Context) (map[string]Plugin, error) {
-	rows, err := s.q.ListPluginsByKind(ctx, PluginKindChannel)
-	if err != nil {
-		return nil, fmt.Errorf("seed: list channel plugins: %w", err)
-	}
-	plugins := make(map[string]Plugin, len(rows))
-	for _, row := range rows {
-		plugin := pluginFromDB(row)
-		plugins[plugin.Name] = plugin
-	}
-	return plugins, nil
-}
-
-func (s *DBStore) migrateLegacyChannelPluginConfigs(ctx context.Context, existingByID map[string]Channel, pluginByName map[string]Plugin, orgID string) error {
-	for _, plugin := range pluginByName {
-		existing := existingByID[plugin.Name]
-		migrated, err := s.migrateLegacyChannelPluginConfig(ctx, plugin, existing, orgID)
-		if err != nil {
-			return err
-		}
-		if migrated.ID != "" {
-			existingByID[migrated.ID] = migrated
-		}
-	}
-	return nil
-}
-
-func (s *DBStore) seedDefaultChannelInstances(ctx context.Context, existingByID map[string]Channel, pluginByName map[string]Plugin, orgID string) error {
 	for _, name := range builtinChannelNames {
-		if _, ok := existingByID[name]; ok {
+		if existing[name] {
 			continue
-		}
-		enabled := true
-		if plugin, ok := pluginByName[name]; ok {
-			enabled = plugin.Enabled
 		}
 		if err := s.UpsertChannel(ctx, Channel{
 			ID:      name,
 			Type:    name,
-			Enabled: enabled,
+			Enabled: true,
 			Config:  "{}",
 			OrgID:   orgID,
 		}); err != nil {
@@ -938,34 +796,6 @@ func (s *DBStore) seedBuiltinPlugins(ctx context.Context, orgID string, kind str
 		}
 	}
 	return nil
-}
-
-func (s *DBStore) migrateLegacyChannelPluginConfig(ctx context.Context, plugin Plugin, existing Channel, orgID string) (Channel, error) {
-	if plugin.Kind != PluginKindChannel || plugin.Name == "" || len(plugin.Config) == 0 {
-		return Channel{}, nil
-	}
-
-	migrated := existing
-	if migrated.ID == "" {
-		migrated = Channel{ID: plugin.Name, Type: plugin.Name, Enabled: plugin.Enabled, OrgID: orgID}
-	}
-	if migrated.OrgID == "" {
-		migrated.OrgID = orgID
-	}
-	if migrated.Config == "" || migrated.Config == "{}" {
-		configJSON, err := json.Marshal(plugin.Config)
-		if err != nil {
-			return Channel{}, fmt.Errorf("seed: marshal channel %q config: %w", plugin.Name, err)
-		}
-		migrated.Config = string(configJSON)
-		if err := s.UpsertChannel(ctx, migrated); err != nil {
-			return Channel{}, fmt.Errorf("seed: migrate channel plugin config %q: %w", plugin.Name, err)
-		}
-	}
-	if err := s.SetPluginConfig(ctx, plugin.ID, map[string]any{}); err != nil {
-		return Channel{}, fmt.Errorf("seed: clear channel plugin config %q: %w", plugin.Name, err)
-	}
-	return migrated, nil
 }
 
 // --- Helpers ---
@@ -998,32 +828,6 @@ func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}
 	if len(providers) > 0 {
-		return nil
-	}
-
-	providerPlugins, err := s.q.ListPluginsByKind(ctx, PluginKindProvider)
-	if err != nil {
-		return fmt.Errorf("seed: list legacy provider plugins: %w", err)
-	}
-	if len(providerPlugins) > 0 {
-		for _, row := range providerPlugins {
-			plugin := pluginFromDB(row)
-			legacy := legacyProviderFromPlugin(plugin)
-			configJSON, err := json.Marshal(providerConfig(legacy))
-			if err != nil {
-				return fmt.Errorf("seed: marshal migrated provider %q: %w", legacy.ID, err)
-			}
-			if err := s.q.SeedProvider(ctx, sqlc.SeedProviderParams{
-				ID:      legacy.ID,
-				Type:    providerType(legacy),
-				Name:    providerName(legacy),
-				Enabled: boolToInt64(legacy.Enabled),
-				Config:  string(configJSON),
-				OrgID:   orgID,
-			}); err != nil {
-				return fmt.Errorf("seed: migrate provider %q: %w", legacy.ID, err)
-			}
-		}
 		return nil
 	}
 
@@ -1070,25 +874,6 @@ func providerFromDB(r sqlc.SettingsProvider) Provider {
 		BaseURL: baseURL,
 		Models:  providerModelsFromAny(cfg["models"]),
 		OrgID:   r.OrgID,
-	}
-}
-
-func legacyProviderFromPlugin(p Plugin) Provider {
-	apiKey, _ := p.Config["api_key"].(string)
-	baseURL, _ := p.Config["base_url"].(string)
-	typeName := p.Name
-	if value, ok := p.Config["type"].(string); ok && value != "" {
-		typeName = value
-	}
-	displayName, _ := p.Config["display_name"].(string)
-	return Provider{
-		ID:      p.Name,
-		Type:    typeName,
-		Name:    providerDisplayName(displayName, p.Name),
-		Enabled: p.Enabled,
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-		Models:  providerModelsFromAny(p.Config["models"]),
 	}
 }
 

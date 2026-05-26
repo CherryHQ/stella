@@ -63,7 +63,7 @@ type OIDCLoginResult struct {
 // the identity is created for that user instead of creating a new one.
 //
 // Membership transition: if the user already has a membership in a different
-// (backfill-created default) org, that membership is replaced by the OIDC org
+// (seed-created default) org, that membership is replaced by the OIDC org
 // membership. If the old org becomes empty it is deleted.
 func (s *AuthService) ProcessOIDCLogin(ctx context.Context, ext ExternalIdentity, sessionMgr *SessionManager) (OIDCLoginResult, error) {
 	// Use a real DB transaction when the store supports it (OIDCStore does).
@@ -314,7 +314,7 @@ func (s *AuthService) RevokeInvite(ctx context.Context, id string) error {
 func (s *AuthService) createOrganization(ctx context.Context) (Organization, error) {
 	return s.organizations.CreateOrganization(ctx, Organization{
 		ID:         uuid.NewString(),
-		Name:       "My Organization",
+		Name:       DefaultOrgName,
 		ExternalID: uuid.NewString(),
 		Source:     "stella",
 	})
