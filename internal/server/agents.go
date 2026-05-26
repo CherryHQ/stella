@@ -201,6 +201,7 @@ func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
@@ -261,6 +262,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 }
 
 func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: change to return 204 with empty body
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 

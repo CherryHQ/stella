@@ -127,7 +127,7 @@ func TestAgentScopeInUpdate(t *testing.T) {
 		Scope:   "system",
 		Enabled: true,
 	}
-	rr := doRequest(t, env, "PUT", "/api/agents/"+agentID, body)
+	rr := doRequest(t, env, "PATCH", "/api/agents/"+agentID, body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -154,7 +154,7 @@ func TestAdminCanUpdateAgentCreatedByAnotherUser(t *testing.T) {
 		Scope:   "system",
 		Enabled: true,
 	}
-	rr := doRequest(t, env, "PUT", "/api/agents/"+agentID, body)
+	rr := doRequest(t, env, "PATCH", "/api/agents/"+agentID, body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("admin update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -217,7 +217,7 @@ func TestAgentInvalidSandboxOnUpdate(t *testing.T) {
 		Enabled: true,
 		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: "bogus"}},
 	}
-	rr := doRequest(t, env, "PUT", "/api/agents/"+agentID, body)
+	rr := doRequest(t, env, "PATCH", "/api/agents/"+agentID, body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}

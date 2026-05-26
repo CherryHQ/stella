@@ -9,6 +9,7 @@ import (
 
 // Logout handles POST /api/auth/logout.
 func (s *Server) Logout(w http.ResponseWriter, r *http.Request) {
+	// TODO: change to return 204 with empty body
 	rawToken, err := auth.GetSessionCookie(r)
 	if err == nil && s.authSvc != nil {
 		_ = s.authSvc.Logout(r.Context(), rawToken)
@@ -56,6 +57,7 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 
 // UpdateOrg handles PUT /api/auth/org.
 func (s *Server) UpdateOrg(w http.ResponseWriter, r *http.Request) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update; return the updated resource instead of { success: true }
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -113,6 +115,7 @@ func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
 
 // DeleteAuthSession handles DELETE /api/auth/sessions/{id}.
 func (s *Server) DeleteAuthSession(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")

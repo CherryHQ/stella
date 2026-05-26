@@ -4108,7 +4108,7 @@ func NewUpdateProjectRequestWithBody(server string, agentID string, projectId st
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -4325,7 +4325,7 @@ func NewUpdateSchedulerJobRequestWithBody(server string, agentID string, jobID s
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -5013,7 +5013,7 @@ func NewUpdateWorkspaceFileContentRequestWithBody(server string, agentID string,
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -5462,7 +5462,7 @@ func NewUpdateAgentTaskRequestWithBody(server string, agentID string, taskID str
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -5672,7 +5672,7 @@ func NewUpdateAgentRequestWithBody(server string, id string, contentType string,
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -6122,7 +6122,7 @@ func NewUpdateAgentScopedSkillRequestWithBody(server string, id string, scope st
 		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -6673,7 +6673,7 @@ func NewUpdateOrgRequestWithBody(server string, contentType string, body io.Read
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -6882,7 +6882,7 @@ func NewSetProfileMemoryRequestWithBody(server string, agentID string, contentTy
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7157,7 +7157,7 @@ func NewChangePasswordRequestWithBody(server string, contentType string, body io
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7204,7 +7204,7 @@ func NewSetProfileSoulRequestWithBody(server string, agentID string, contentType
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7542,7 +7542,7 @@ func NewUpdateAuthUserActiveRequestWithBody(server string, id string, contentTyp
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7623,7 +7623,7 @@ func NewUpdateAuthUserAgentsRequestWithBody(server string, id string, contentTyp
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7826,7 +7826,7 @@ func NewUpdateAuthUserRoleRequestWithBody(server string, id string, contentType 
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -8187,7 +8187,7 @@ func NewUpdateChannelRequestWithBody(server string, id string, contentType strin
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -8254,7 +8254,7 @@ func NewSaveManifestPluginsRequestWithBody(server string, contentType string, bo
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -8444,7 +8444,7 @@ func NewUpdatePluginConfigRequestWithBody(server string, kind string, name strin
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -8775,7 +8775,7 @@ func NewUpdateProviderRequestWithBody(server string, id string, contentType stri
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -9152,7 +9152,7 @@ func NewUpdateArticleRequestWithBody(server string, id string, contentType strin
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -9540,7 +9540,7 @@ func NewUpdateFeedEntryRequestWithBody(server string, feedId string, id string, 
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -9655,7 +9655,7 @@ func NewUpdateFeedRequestWithBody(server string, id string, contentType string, 
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -10014,7 +10014,7 @@ func NewUpdateUserDefaultAgentRequestWithBody(server string, id string, contentT
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -10143,7 +10143,7 @@ func NewSetUserMemoryRequestWithBody(server string, id string, agentID string, c
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -10190,7 +10190,7 @@ func NewUpdateUserNotifyIdentityRequestWithBody(server string, id string, conten
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -11169,7 +11169,6 @@ func (r CreateSchedulerJobResponse) ContentType() string {
 type DeleteSchedulerJobResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
@@ -11631,7 +11630,6 @@ func (r UpdateWorkspaceFileContentResponse) ContentType() string {
 type DeleteWorkspaceFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.SessionWorkspace
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -11830,7 +11828,6 @@ func (r CreateAgentTaskResponse) ContentType() string {
 type DeleteAgentTaskResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON404      *externalRef0.NotFound
 }
@@ -11992,7 +11989,6 @@ func (r ListAgentTaskEventsResponse) ContentType() string {
 type DeleteAgentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
@@ -12226,7 +12222,6 @@ func (r UploadAgentScopedSkillResponse) ContentType() string {
 type DeleteAgentScopedSkillResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
@@ -12326,8 +12321,6 @@ func (r UpdateAgentScopedSkillResponse) ContentType() string {
 type DeleteAgentScopedSkillFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteFileResult
-	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
@@ -12426,7 +12419,7 @@ func (r ListAgentUsersResponse) ContentType() string {
 type AssignAgentUserResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
+	JSON201      *externalRef0.AgentUser
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -12460,7 +12453,6 @@ func (r AssignAgentUserResponse) ContentType() string {
 type RemoveAgentUserResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 }
@@ -12557,7 +12549,6 @@ func (r CreateInviteResponse) ContentType() string {
 type RevokeInviteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
@@ -12590,7 +12581,6 @@ func (r RevokeInviteResponse) ContentType() string {
 type AcceptInviteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON404      *externalRef0.NotFound
@@ -12654,10 +12644,7 @@ func (r GetInviteInfoResponse) ContentType() string {
 type LogoutResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *struct {
-		Status *string `json:"status,omitempty"`
-	}
-	JSON401 *externalRef0.Unauthorized
+	JSON401      *externalRef0.Unauthorized
 }
 
 // Status returns HTTPResponse.Status
@@ -12719,7 +12706,8 @@ type UpdateOrgResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *struct {
-		Success *bool `json:"success,omitempty"`
+		Id   string `json:"id"`
+		Name string `json:"name"`
 	}
 	JSON401 *externalRef0.Unauthorized
 	JSON403 *externalRef0.Forbidden
@@ -12783,7 +12771,6 @@ func (r ListProfileIdentitiesResponse) ContentType() string {
 type UnlinkProfileIdentityResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *map[string]interface{}
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -12880,7 +12867,6 @@ func (r ListProfileMemoriesResponse) ContentType() string {
 type DeleteProfileMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *map[string]interface{}
 	JSON401      *externalRef0.Unauthorized
 }
 
@@ -12911,7 +12897,6 @@ func (r DeleteProfileMemoryResponse) ContentType() string {
 type SetProfileMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *map[string]interface{}
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 }
@@ -13130,7 +13115,6 @@ func (r PollOAuthFlowResponse) ContentType() string {
 type ChangePasswordResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *map[string]interface{}
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 }
@@ -13162,7 +13146,6 @@ func (r ChangePasswordResponse) ContentType() string {
 type SetProfileSoulResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *map[string]interface{}
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 }
@@ -13379,10 +13362,7 @@ func (r ListAuthSessionsResponse) ContentType() string {
 type DeleteAuthSessionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *struct {
-		Success *bool `json:"success,omitempty"`
-	}
-	JSON401 *externalRef0.Unauthorized
+	JSON401      *externalRef0.Unauthorized
 }
 
 // Status returns HTTPResponse.Status
@@ -13477,7 +13457,6 @@ func (r GetAuthUserResponse) ContentType() string {
 type UpdateAuthUserActiveResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -13542,7 +13521,6 @@ func (r ListAuthUserAgentsResponse) ContentType() string {
 type UpdateAuthUserAgentsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -13676,7 +13654,6 @@ func (r LinkAuthUserLoginIdentityResponse) ContentType() string {
 type DeleteAuthUserIdentityResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -13710,7 +13687,6 @@ func (r DeleteAuthUserIdentityResponse) ContentType() string {
 type UpdateAuthUserRoleResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -13968,7 +13944,6 @@ func (r PollWeixinQRStatusResponse) ContentType() string {
 type DeleteChannelResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
@@ -14488,7 +14463,6 @@ func (r CreateProviderResponse) ContentType() string {
 type DeleteProviderResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 	JSON404      *externalRef0.NotFound
@@ -15416,7 +15390,6 @@ func (r ListToolsResponse) ContentType() string {
 type UpdateUserDefaultAgentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -15482,7 +15455,6 @@ func (r ListUserMemoriesResponse) ContentType() string {
 type DeleteUserMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
 }
@@ -15514,7 +15486,6 @@ func (r DeleteUserMemoryResponse) ContentType() string {
 type SetUserMemoryResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -15547,7 +15518,6 @@ func (r SetUserMemoryResponse) ContentType() string {
 type UpdateUserNotifyIdentityResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *externalRef0.DeleteResult
 	JSON400      *externalRef0.BadRequest
 	JSON401      *externalRef0.Unauthorized
 	JSON403      *externalRef0.Forbidden
@@ -17767,13 +17737,6 @@ func ParseDeleteSchedulerJobResponse(rsp *http.Response) (*DeleteSchedulerJobRes
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -18428,13 +18391,6 @@ func ParseDeleteWorkspaceFileResponse(rsp *http.Response) (*DeleteWorkspaceFileR
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.SessionWorkspace
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -18717,13 +18673,6 @@ func ParseDeleteAgentTaskResponse(rsp *http.Response) (*DeleteAgentTaskResponse,
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -18931,13 +18880,6 @@ func ParseDeleteAgentResponse(rsp *http.Response) (*DeleteAgentResponse, error) 
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19281,13 +19223,6 @@ func ParseDeleteAgentScopedSkillResponse(rsp *http.Response) (*DeleteAgentScoped
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19429,20 +19364,6 @@ func ParseDeleteAgentScopedSkillFileResponse(rsp *http.Response) (*DeleteAgentSc
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteFileResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19577,12 +19498,12 @@ func ParseAssignAgentUserResponse(rsp *http.Response) (*AssignAgentUserResponse,
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.AgentUser
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.JSON200 = &dest
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
@@ -19631,13 +19552,6 @@ func ParseRemoveAgentUserResponse(rsp *http.Response) (*RemoveAgentUserResponse,
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19758,13 +19672,6 @@ func ParseRevokeInviteResponse(rsp *http.Response) (*RevokeInviteResponse, error
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19805,13 +19712,6 @@ func ParseAcceptInviteResponse(rsp *http.Response) (*AcceptInviteResponse, error
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19885,15 +19785,6 @@ func ParseLogoutResponse(rsp *http.Response) (*LogoutResponse, error) {
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Status *string `json:"status,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -19955,7 +19846,8 @@ func ParseUpdateOrgResponse(rsp *http.Response) (*UpdateOrgResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest struct {
-			Success *bool `json:"success,omitempty"`
+			Id   string `json:"id"`
+			Name string `json:"name"`
 		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
@@ -20028,13 +19920,6 @@ func ParseUnlinkProfileIdentityResponse(rsp *http.Response) (*UnlinkProfileIdent
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -20155,13 +20040,6 @@ func ParseDeleteProfileMemoryResponse(rsp *http.Response) (*DeleteProfileMemoryR
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -20188,13 +20066,6 @@ func ParseSetProfileMemoryResponse(rsp *http.Response) (*SetProfileMemoryRespons
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -20430,13 +20301,6 @@ func ParseChangePasswordResponse(rsp *http.Response) (*ChangePasswordResponse, e
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -20470,13 +20334,6 @@ func ParseSetProfileSoulResponse(rsp *http.Response) (*SetProfileSoulResponse, e
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -20701,15 +20558,6 @@ func ParseDeleteAuthSessionResponse(rsp *http.Response) (*DeleteAuthSessionRespo
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			Success *bool `json:"success,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -20823,13 +20671,6 @@ func ParseUpdateAuthUserActiveResponse(rsp *http.Response) (*UpdateAuthUserActiv
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -20910,13 +20751,6 @@ func ParseUpdateAuthUserAgentsResponse(rsp *http.Response) (*UpdateAuthUserAgent
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -21112,13 +20946,6 @@ func ParseDeleteAuthUserIdentityResponse(rsp *http.Response) (*DeleteAuthUserIde
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -21166,13 +20993,6 @@ func ParseUpdateAuthUserRoleResponse(rsp *http.Response) (*UpdateAuthUserRoleRes
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -21500,13 +21320,6 @@ func ParseDeleteChannelResponse(rsp *http.Response) (*DeleteChannelResponse, err
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -22196,13 +22009,6 @@ func ParseDeleteProviderResponse(rsp *http.Response) (*DeleteProviderResponse, e
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -23356,13 +23162,6 @@ func ParseUpdateUserDefaultAgentResponse(rsp *http.Response) (*UpdateUserDefault
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -23450,13 +23249,6 @@ func ParseDeleteUserMemoryResponse(rsp *http.Response) (*DeleteUserMemoryRespons
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -23490,13 +23282,6 @@ func ParseSetUserMemoryResponse(rsp *http.Response) (*SetUserMemoryResponse, err
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -23537,13 +23322,6 @@ func ParseUpdateUserNotifyIdentityResponse(rsp *http.Response) (*UpdateUserNotif
 	}
 
 	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.DeleteResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest externalRef0.BadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

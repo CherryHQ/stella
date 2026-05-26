@@ -35,6 +35,7 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 
 // ChangePassword handles PUT /api/auth/profile/password.
 func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -134,6 +135,7 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 
 // UnlinkProfileIdentity handles DELETE /api/auth/profile/identities/{id}.
 func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -192,6 +194,7 @@ func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 
 // SetProfileMemory handles PUT /api/auth/profile/memories/{agentID}.
 func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -215,6 +218,7 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 
 // SetProfileSoul handles PUT /api/auth/profile/soul/{agentID}.
 func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update; change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -238,6 +242,7 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 
 // DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentID}.
 func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
+	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")

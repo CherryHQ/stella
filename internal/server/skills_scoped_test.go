@@ -282,7 +282,7 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 
 	skID := createTestSkill(t, env, "agent", "", agentID, "skill-ud")
 
-	rr = doRequestWithSession(t, env.srv, sid, "PUT", "/api/agents/"+agentID+"/skills/agent/"+skID, map[string]any{
+	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/agent/"+skID, map[string]any{
 		"description": "updated",
 		"files":       map[string]string{"SKILL.md": "# updated body"},
 	})

@@ -13,7 +13,7 @@ export function LoginPage() {
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
   });
-  const providers = unwrapApiData<OidcProviderList>(providersData?.data)?.providers ?? [];
+  const providers = unwrapApiData<OidcProviderList>(providersData?.data)?.items ?? [];
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">

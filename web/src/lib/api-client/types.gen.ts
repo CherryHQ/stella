@@ -786,7 +786,9 @@ export type JobRun = {
   duration?: string;
 };
 
-export type JobRunList = Array<JobRun>;
+export type JobRunList = {
+  items: Array<JobRun>;
+};
 
 export type ComponentsLinkCodeResponse = {
   code: string;
@@ -918,7 +920,7 @@ export type OidcProvider = {
 };
 
 export type OidcProviderList = {
-  providers: Array<OidcProvider>;
+  items: Array<OidcProvider>;
 };
 
 export type ComponentsPluginView = {
@@ -1266,8 +1268,7 @@ export type ComponentsTool = {
 };
 
 export type TriggerJobResult = {
-  status: string;
-  run_id?: string;
+  run_id: string;
 };
 
 export type ComponentsUpdateActiveRequest = {
@@ -1687,11 +1688,9 @@ export type LogoutError = LogoutErrors[keyof LogoutErrors];
 
 export type LogoutResponses = {
   /**
-   * ok
+   * logged out
    */
-  200: {
-    status?: string;
-  };
+  204: void;
 };
 
 export type LogoutResponse = LogoutResponses[keyof LogoutResponses];
@@ -1769,7 +1768,8 @@ export type UpdateOrgResponses = {
    * ok
    */
   200: {
-    success?: boolean;
+    id: string;
+    name: string;
   };
 };
 
@@ -1827,11 +1827,9 @@ export type DeleteAuthSessionError =
 
 export type DeleteAuthSessionResponses = {
   /**
-   * ok
+   * deleted
    */
-  200: {
-    success?: boolean;
-  };
+  204: void;
 };
 
 export type DeleteAuthSessionResponse =
@@ -1945,9 +1943,9 @@ export type RevokeInviteError = RevokeInviteErrors[keyof RevokeInviteErrors];
 
 export type RevokeInviteResponses = {
   /**
-   * Revoked
+   * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type RevokeInviteResponse =
@@ -2017,9 +2015,9 @@ export type AcceptInviteError = AcceptInviteErrors[keyof AcceptInviteErrors];
 
 export type AcceptInviteResponses = {
   /**
-   * Accepted
+   * accepted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type AcceptInviteResponse =
@@ -2122,7 +2120,7 @@ export type DeleteAgentResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteAgentResponse =
@@ -2295,9 +2293,9 @@ export type AssignAgentUserError =
 
 export type AssignAgentUserResponses = {
   /**
-   * ok
+   * created
    */
-  200: ComponentsDeleteResult;
+  201: ComponentsAgentUser;
 };
 
 export type AssignAgentUserResponse =
@@ -2333,9 +2331,9 @@ export type RemoveAgentUserError =
 
 export type RemoveAgentUserResponses = {
   /**
-   * ok
+   * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type RemoveAgentUserResponse =
@@ -2573,7 +2571,7 @@ export type DeleteAgentScopedSkillResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteAgentScopedSkillResponse =
@@ -2695,12 +2693,6 @@ export type DeleteAgentScopedSkillFileData = {
 
 export type DeleteAgentScopedSkillFileErrors = {
   /**
-   * malformed request
-   */
-  400: {
-    error: string;
-  };
-  /**
    * missing or invalid bearer token
    */
   401: {
@@ -2727,7 +2719,7 @@ export type DeleteAgentScopedSkillFileResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteFileResult;
+  204: void;
 };
 
 export type DeleteAgentScopedSkillFileResponse =
@@ -3903,7 +3895,7 @@ export type DeleteChannelResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteChannelResponse =
@@ -4186,7 +4178,7 @@ export type DeleteProviderResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteProviderResponse =
@@ -4741,9 +4733,9 @@ export type DeleteWorkspaceFileError =
 
 export type DeleteWorkspaceFileResponses = {
   /**
-   * ok
+   * deleted
    */
-  200: SessionWorkspace;
+  204: void;
 };
 
 export type DeleteWorkspaceFileResponse =
@@ -5234,7 +5226,7 @@ export type UpdateUserDefaultAgentResponses = {
   /**
    * updated
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type UpdateUserDefaultAgentResponse =
@@ -5277,7 +5269,7 @@ export type UpdateUserNotifyIdentityResponses = {
   /**
    * updated
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type UpdateUserNotifyIdentityResponse =
@@ -5358,7 +5350,7 @@ export type DeleteUserMemoryResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteUserMemoryResponse =
@@ -5401,7 +5393,7 @@ export type SetUserMemoryResponses = {
   /**
    * saved
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type SetUserMemoryResponse =
@@ -5520,7 +5512,7 @@ export type UpdateAuthUserRoleResponses = {
   /**
    * updated
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type UpdateAuthUserRoleResponse =
@@ -5600,7 +5592,7 @@ export type UpdateAuthUserAgentsResponses = {
   /**
    * updated
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type UpdateAuthUserAgentsResponse =
@@ -5789,9 +5781,9 @@ export type DeleteAuthUserIdentityError =
 
 export type DeleteAuthUserIdentityResponses = {
   /**
-   * unlinked
+   * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteAuthUserIdentityResponse =
@@ -5834,7 +5826,7 @@ export type UpdateAuthUserActiveResponses = {
   /**
    * updated
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type UpdateAuthUserActiveResponse =
@@ -5910,11 +5902,9 @@ export type UnlinkProfileIdentityError =
 
 export type UnlinkProfileIdentityResponses = {
   /**
-   * ok
+   * deleted
    */
-  200: {
-    [key: string]: unknown;
-  };
+  204: void;
 };
 
 export type UnlinkProfileIdentityResponse =
@@ -5947,11 +5937,9 @@ export type ChangePasswordError =
 
 export type ChangePasswordResponses = {
   /**
-   * ok
+   * password changed
    */
-  200: {
-    [key: string]: unknown;
-  };
+  204: void;
 };
 
 export type ChangePasswordResponse =
@@ -6044,11 +6032,9 @@ export type DeleteProfileMemoryError =
 
 export type DeleteProfileMemoryResponses = {
   /**
-   * ok
+   * deleted
    */
-  200: {
-    [key: string]: unknown;
-  };
+  204: void;
 };
 
 export type DeleteProfileMemoryResponse =
@@ -6083,11 +6069,9 @@ export type SetProfileMemoryError =
 
 export type SetProfileMemoryResponses = {
   /**
-   * ok
+   * saved
    */
-  200: {
-    [key: string]: unknown;
-  };
+  204: void;
 };
 
 export type SetProfileMemoryResponse =
@@ -6122,11 +6106,9 @@ export type SetProfileSoulError =
 
 export type SetProfileSoulResponses = {
   /**
-   * ok
+   * saved
    */
-  200: {
-    [key: string]: unknown;
-  };
+  204: void;
 };
 
 export type SetProfileSoulResponse =
@@ -6687,7 +6669,7 @@ export type DeleteSchedulerJobResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteSchedulerJobResponse =
@@ -6983,7 +6965,7 @@ export type DeleteAgentTaskResponses = {
   /**
    * deleted
    */
-  200: ComponentsDeleteResult;
+  204: void;
 };
 
 export type DeleteAgentTaskResponse =

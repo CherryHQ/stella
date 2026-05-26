@@ -133,6 +133,7 @@ func (s *Server) GetAgentTask(w http.ResponseWriter, r *http.Request, agentID st
 }
 
 func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
@@ -188,6 +189,7 @@ func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, agentID
 }
 
 func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	// TODO: change to return 204 with empty body
 	if s.tasksSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return

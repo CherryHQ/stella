@@ -321,9 +321,9 @@ components:
           description: URL to redirect the browser to for registration (local provider only)
     OIDCProviderList:
       type: object
-      required: [providers]
+      required: [items]
       properties:
-        providers:
+        items:
           type: array
           items:
             $ref: "#/components/schemas/OIDCProvider"
@@ -1455,15 +1455,17 @@ components:
         duration:
           type: string
     JobRunList:
-      type: array
-      items:
-        $ref: "#/components/schemas/JobRun"
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobRun"
     TriggerJobResult:
       type: object
-      required: [status]
+      required: [run_id]
       properties:
-        status:
-          type: string
         run_id:
           type: string
     DeleteResult:

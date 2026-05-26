@@ -509,7 +509,7 @@ func TestUpdateMCPPluginConfig(t *testing.T) {
 			},
 		},
 	}
-	rr := doRequest(t, env, "PUT", "/api/plugin-config/tool/mcp", body)
+	rr := doRequest(t, env, "PATCH", "/api/plugin-config/tool/mcp", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -537,7 +537,7 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 			},
 		},
 	}
-	rr := doRequest(t, env, "PUT", "/api/plugin-config/tool/mcp", body)
+	rr := doRequest(t, env, "PATCH", "/api/plugin-config/tool/mcp", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -727,7 +727,7 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "PUT", "/api/plugin-config/channel/telegram", map[string]any{
+	rr = doRequest(t, env, "PATCH", "/api/plugin-config/channel/telegram", map[string]any{
 		"config": map[string]any{"token": "telegram-secret"},
 	})
 	if rr.Code != http.StatusBadRequest {
@@ -738,7 +738,7 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 func TestReflectPluginConfigAndStatus(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/plugin-config/reflect/reflect", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/plugin-config/reflect/reflect", map[string]any{
 		"config": map[string]any{"interval": "30m", "batch": 3},
 	})
 	if rr.Code != http.StatusOK {
@@ -802,7 +802,7 @@ func TestReflectPluginConfigAndStatus(t *testing.T) {
 func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
 		"enabled": true,
 		"config":  `{"token":"tg-token","enable_notify":true,"group_mode":"mention"}`,
 	})
@@ -847,7 +847,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/qq", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/qq", map[string]any{
 		"enabled": true,
 		"config":  `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true,"group_mode":"mention"}`,
 	})
@@ -892,7 +892,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/feishu", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/feishu", map[string]any{
 		"enabled": true,
 		"config":  `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"group_mode":"mention","groups":{"oc_123":{"group_mode":"always","system_prompt":"be brief"}}}`,
 	})
@@ -941,7 +941,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/weixin", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/weixin", map[string]any{
 		"enabled": true,
 		"config":  `{"bot_token":"wx-token","base_url":"https://wx.example","bot_id":"bot-1","user_id":"user-1","enable_notify":true}`,
 	})
@@ -1084,7 +1084,7 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 		t.Fatalf("UpsertPlugin telegram: %v", err)
 	}
 
-	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
 		"enabled": true,
 		"config":  `{"token":"tg-token","enable_notify":true}`,
 	})

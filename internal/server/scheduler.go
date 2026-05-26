@@ -176,6 +176,7 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -294,6 +295,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	// TODO: change to return 204 with empty body
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -334,6 +336,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 }
 
 func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	// TODO: remove ad-hoc Status field from TriggerJobResult response
 	if s.schedulerSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
 		return
@@ -373,14 +376,12 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 
-	resp := apitypes.TriggerJobResult{Status: "triggered"}
-	if runID != "" {
-		resp.RunId = &runID
-	}
+	resp := apitypes.TriggerJobResult{RunId: runID}
 	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+	// TODO: wrap response in {items: [...]} object to match updated JobRunList schema
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -413,7 +414,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	}
 
 	sm, _ := s.mem.(memory.SessionManager)
-	result := make(apitypes.JobRunList, 0, len(rows))
+	runs := make([]apitypes.JobRun, 0, len(rows))
 	for _, row := range rows {
 		if info == nil || (row.UserID.Valid && row.UserID.String != info.UserID) {
 			continue
@@ -428,9 +429,9 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 				j.SessionId = ""
 			}
 		}
-		result = append(result, j)
+		runs = append(runs, j)
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, apitypes.JobRunList{Items: runs})
 }
 
 // --------------- converter functions ---------------

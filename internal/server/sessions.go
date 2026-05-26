@@ -831,6 +831,7 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 }
 
 func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	// TODO: change to return 204 with empty body
 	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return
@@ -952,6 +953,7 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return

@@ -125,7 +125,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    put:
+    patch:
       tags: [skills]
       summary: Update a skill (admin only)
       operationId: updateSkill
@@ -158,14 +158,8 @@ paths:
       summary: Delete a skill (admin only)
       operationId: deleteSkill
       responses:
-        "200":
+        "204":
           description: deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id: { type: string }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -210,13 +204,8 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteFileResult",
-              }
+        "204":
+          description: deleted
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

@@ -76,6 +76,7 @@ func (s *Server) CreateInvite(w http.ResponseWriter, r *http.Request) {
 
 // RevokeInvite handles DELETE /api/auth/invites/{id} (admin only).
 func (s *Server) RevokeInvite(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -101,6 +102,7 @@ func (s *Server) GetInviteInfo(w http.ResponseWriter, r *http.Request, token str
 
 // AcceptInvite handles POST /api/auth/invites/{token}/accept (authenticated).
 func (s *Server) AcceptInvite(w http.ResponseWriter, r *http.Request, token string) {
+	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")

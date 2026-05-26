@@ -525,7 +525,7 @@ export const listAuthProviders = <ThrowOnError extends boolean = false>(
 export const updateOrg = <ThrowOnError extends boolean = false>(
   options: Options<UpdateOrgData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateOrgResponses,
     UpdateOrgErrors,
     ThrowOnError
@@ -725,7 +725,7 @@ export const getAgent = <ThrowOnError extends boolean = false>(
 export const updateAgent = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAgentResponses,
     UpdateAgentErrors,
     ThrowOnError
@@ -906,7 +906,7 @@ export const getAgentScopedSkill = <ThrowOnError extends boolean = false>(
 export const updateAgentScopedSkill = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAgentScopedSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAgentScopedSkillResponses,
     UpdateAgentScopedSkillErrors,
     ThrowOnError
@@ -1028,7 +1028,7 @@ export const getProject = <ThrowOnError extends boolean = false>(
 export const updateProject = <ThrowOnError extends boolean = false>(
   options: Options<UpdateProjectData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateProjectResponses,
     UpdateProjectErrors,
     ThrowOnError
@@ -1132,7 +1132,7 @@ export const getArticle = <ThrowOnError extends boolean = false>(
 export const updateArticle = <ThrowOnError extends boolean = false>(
   options: Options<UpdateArticleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateArticleResponses,
     UpdateArticleErrors,
     ThrowOnError
@@ -1218,7 +1218,7 @@ export const getFeed = <ThrowOnError extends boolean = false>(
 export const updateFeed = <ThrowOnError extends boolean = false>(
   options: Options<UpdateFeedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateFeedResponses,
     UpdateFeedErrors,
     ThrowOnError
@@ -1270,7 +1270,7 @@ export const listFeedEntries = <ThrowOnError extends boolean = false>(
 export const updateFeedEntry = <ThrowOnError extends boolean = false>(
   options: Options<UpdateFeedEntryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateFeedEntryResponses,
     UpdateFeedEntryErrors,
     ThrowOnError
@@ -1506,7 +1506,7 @@ export const getChannel = <ThrowOnError extends boolean = false>(
 export const updateChannel = <ThrowOnError extends boolean = false>(
   options: Options<UpdateChannelData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateChannelResponses,
     UpdateChannelErrors,
     ThrowOnError
@@ -1626,7 +1626,7 @@ export const getProvider = <ThrowOnError extends boolean = false>(
 export const updateProvider = <ThrowOnError extends boolean = false>(
   options: Options<UpdateProviderData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateProviderResponses,
     UpdateProviderErrors,
     ThrowOnError
@@ -1884,7 +1884,7 @@ export const updateWorkspaceFileContent = <
 >(
   options: Options<UpdateWorkspaceFileContentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateWorkspaceFileContentResponses,
     UpdateWorkspaceFileContentErrors,
     ThrowOnError
@@ -2005,7 +2005,7 @@ export const getShareContent = <ThrowOnError extends boolean = false>(
 export const updateUserDefaultAgent = <ThrowOnError extends boolean = false>(
   options: Options<UpdateUserDefaultAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateUserDefaultAgentResponses,
     UpdateUserDefaultAgentErrors,
     ThrowOnError
@@ -2025,7 +2025,7 @@ export const updateUserDefaultAgent = <ThrowOnError extends boolean = false>(
 export const updateUserNotifyIdentity = <ThrowOnError extends boolean = false>(
   options: Options<UpdateUserNotifyIdentityData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateUserNotifyIdentityResponses,
     UpdateUserNotifyIdentityErrors,
     ThrowOnError
@@ -2077,7 +2077,7 @@ export const deleteUserMemory = <ThrowOnError extends boolean = false>(
 export const setUserMemory = <ThrowOnError extends boolean = false>(
   options: Options<SetUserMemoryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SetUserMemoryResponses,
     SetUserMemoryErrors,
     ThrowOnError
@@ -2129,7 +2129,7 @@ export const getAuthUser = <ThrowOnError extends boolean = false>(
 export const updateAuthUserRole = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAuthUserRoleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAuthUserRoleResponses,
     UpdateAuthUserRoleErrors,
     ThrowOnError
@@ -2165,7 +2165,7 @@ export const listAuthUserAgents = <ThrowOnError extends boolean = false>(
 export const updateAuthUserAgents = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAuthUserAgentsData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAuthUserAgentsResponses,
     UpdateAuthUserAgentsErrors,
     ThrowOnError
@@ -2257,7 +2257,7 @@ export const deleteAuthUserIdentity = <ThrowOnError extends boolean = false>(
 export const updateAuthUserActive = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAuthUserActiveData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAuthUserActiveResponses,
     UpdateAuthUserActiveErrors,
     ThrowOnError
@@ -2309,7 +2309,7 @@ export const unlinkProfileIdentity = <ThrowOnError extends boolean = false>(
 export const changePassword = <ThrowOnError extends boolean = false>(
   options: Options<ChangePasswordData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     ChangePasswordResponses,
     ChangePasswordErrors,
     ThrowOnError
@@ -2381,7 +2381,7 @@ export const deleteProfileMemory = <ThrowOnError extends boolean = false>(
 export const setProfileMemory = <ThrowOnError extends boolean = false>(
   options: Options<SetProfileMemoryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SetProfileMemoryResponses,
     SetProfileMemoryErrors,
     ThrowOnError
@@ -2401,7 +2401,7 @@ export const setProfileMemory = <ThrowOnError extends boolean = false>(
 export const setProfileSoul = <ThrowOnError extends boolean = false>(
   options: Options<SetProfileSoulData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SetProfileSoulResponses,
     SetProfileSoulErrors,
     ThrowOnError
@@ -2700,7 +2700,7 @@ export const getSchedulerJob = <ThrowOnError extends boolean = false>(
 export const updateSchedulerJob = <ThrowOnError extends boolean = false>(
   options: Options<UpdateSchedulerJobData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateSchedulerJobResponses,
     UpdateSchedulerJobErrors,
     ThrowOnError
@@ -2820,7 +2820,7 @@ export const getAgentTask = <ThrowOnError extends boolean = false>(
 export const updateAgentTask = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAgentTaskData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAgentTaskResponses,
     UpdateAgentTaskErrors,
     ThrowOnError
@@ -2944,7 +2944,7 @@ export const getPluginConfig = <ThrowOnError extends boolean = false>(
 export const updatePluginConfig = <ThrowOnError extends boolean = false>(
   options: Options<UpdatePluginConfigData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdatePluginConfigResponses,
     UpdatePluginConfigErrors,
     ThrowOnError
@@ -2996,7 +2996,7 @@ export const listManifestPlugins = <ThrowOnError extends boolean = false>(
 export const saveManifestPlugins = <ThrowOnError extends boolean = false>(
   options: Options<SaveManifestPluginsData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SaveManifestPluginsResponses,
     SaveManifestPluginsErrors,
     ThrowOnError

@@ -90,6 +90,7 @@ func (s *Server) GetProvider(w http.ResponseWriter, r *http.Request, id string) 
 }
 
 func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -125,6 +126,7 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}

@@ -1011,7 +1011,9 @@ type JobRun struct {
 }
 
 // JobRunList defines model for JobRunList.
-type JobRunList = []JobRun
+type JobRunList struct {
+	Items []JobRun `json:"items"`
+}
 
 // LinkCodeResponse defines model for LinkCodeResponse.
 type LinkCodeResponse struct {
@@ -1151,7 +1153,7 @@ type OIDCProvider struct {
 
 // OIDCProviderList defines model for OIDCProviderList.
 type OIDCProviderList struct {
-	Providers []OIDCProvider `json:"providers"`
+	Items []OIDCProvider `json:"items"`
 }
 
 // PluginView defines model for PluginView.
@@ -1533,8 +1535,7 @@ type Tool struct {
 
 // TriggerJobResult defines model for TriggerJobResult.
 type TriggerJobResult struct {
-	RunId  *string `json:"run_id,omitempty"`
-	Status string  `json:"status"`
+	RunId string `json:"run_id"`
 }
 
 // UpdateActiveRequest defines model for UpdateActiveRequest.

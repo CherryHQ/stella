@@ -54,14 +54,8 @@ paths:
       summary: Revoke a pending invite (admin only)
       operationId: revokeInvite
       responses:
-        "200":
-          description: Revoked
-          content:
-            application/json:
-              schema:
-                {
-                  $ref: "../../components.yaml#/components/schemas/DeleteResult",
-                }
+        "204":
+          description: deleted
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
@@ -106,14 +100,8 @@ paths:
       summary: Accept an invite (authenticated users)
       operationId: acceptInvite
       responses:
-        "200":
-          description: Accepted
-          content:
-            application/json:
-              schema:
-                {
-                  $ref: "../../components.yaml#/components/schemas/DeleteResult",
-                }
+        "204":
+          description: accepted
         "400":
           { $ref: "../../components.yaml#/components/responses/BadRequest" }
         "401":

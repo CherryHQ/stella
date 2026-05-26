@@ -46,6 +46,7 @@ func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if !requireAdmin(w, r) {
 		return
 	}

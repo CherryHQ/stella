@@ -242,6 +242,7 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return
@@ -410,6 +411,7 @@ func (h *recallyHandlers) GetFeed(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return
@@ -551,6 +553,7 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 }
 
 func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	userID, ok := h.requireUser(w, r)
 	if !ok {
 		return

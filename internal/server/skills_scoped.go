@@ -442,6 +442,7 @@ func (s *Server) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.UpdateAgentScopedSkillParams) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	if scope == "project" {
 		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
@@ -493,6 +494,7 @@ func (s *Server) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillParams) {
+	// TODO: change to return 204 with empty body
 	if scope == "project" {
 		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
@@ -528,6 +530,7 @@ func (s *Server) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillFileParams) {
+	// TODO: change to return 204 with empty body
 	if scope == "project" {
 		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		if err != nil {
@@ -619,6 +622,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	agentID := id
 	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
@@ -633,6 +637,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string) {
+	// TODO: change to return 204 with empty body
 	agentID := id
 	skillID := skillId
 	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
@@ -779,6 +784,7 @@ func (s *Server) GetProfileSkill(w http.ResponseWriter, r *http.Request, skillId
 }
 
 func (s *Server) UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
+	// TODO: handler uses PUT semantics, update to PATCH partial-update
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -793,6 +799,7 @@ func (s *Server) UpdateProfileSkill(w http.ResponseWriter, r *http.Request, skil
 }
 
 func (s *Server) DeleteProfileSkill(w http.ResponseWriter, r *http.Request, skillId string) {
+	// TODO: change to return 204 with empty body
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")

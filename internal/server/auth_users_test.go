@@ -95,7 +95,7 @@ func TestUpdateAuthUserRolePromote(t *testing.T) {
 	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular1", auth.RoleUser)
 
 	body := map[string]string{"role": "admin"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+user.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -113,7 +113,7 @@ func TestUpdateAuthUserRoleDemote(t *testing.T) {
 	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "admin2", auth.RoleAdmin)
 
 	body := map[string]string{"role": "user"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+user.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -128,7 +128,7 @@ func TestCannotDemoteSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]string{"role": "user"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+env.adminUser.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+env.adminUser.ID+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -138,7 +138,7 @@ func TestUpdateAuthUserRoleInvalid(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]string{"role": "superadmin"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+env.adminUser.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+env.adminUser.ID+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -165,7 +165,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	// Assign agent.
 	body := map[string]any{"agent_ids": []string{"stella"}}
-	rr = doRequest(t, env, "PUT", "/api/auth/users/"+uid+"/agents", body)
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -180,7 +180,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	// Remove by setting empty.
 	body = map[string]any{"agent_ids": []string{}}
-	rr = doRequest(t, env, "PUT", "/api/auth/users/"+uid+"/agents", body)
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -204,7 +204,7 @@ func TestUpdateAuthUserActive(t *testing.T) {
 
 	// Deactivate.
 	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+uid+"/active", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/active", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -217,7 +217,7 @@ func TestUpdateAuthUserActive(t *testing.T) {
 
 	// Reactivate.
 	body = map[string]any{"is_active": true}
-	rr = doRequest(t, env, "PUT", "/api/auth/users/"+uid+"/active", body)
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/active", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -232,7 +232,7 @@ func TestCannotDeactivateSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+env.adminUser.ID+"/active", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+env.adminUser.ID+"/active", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -256,10 +256,10 @@ func TestNonAdminCannotAccessAuthUserAPIs(t *testing.T) {
 	}{
 		{"GET", "/api/auth/users"},
 		{"GET", "/api/auth/users/1"},
-		{"PUT", "/api/auth/users/1/role"},
+		{"PATCH", "/api/auth/users/1/role"},
 		{"GET", "/api/auth/users/1/agents"},
-		{"PUT", "/api/auth/users/1/agents"},
-		{"PUT", "/api/auth/users/1/active"},
+		{"PATCH", "/api/auth/users/1/agents"},
+		{"PATCH", "/api/auth/users/1/active"},
 	}
 
 	for _, ep := range endpoints {
@@ -511,7 +511,7 @@ func TestRoleDowngradeReflectsInMembership(t *testing.T) {
 
 	// Demote to user via admin API.
 	body := map[string]string{"role": auth.RoleUser}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+u.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+u.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -545,7 +545,7 @@ func TestInactiveMembershipBlocksAccess(t *testing.T) {
 
 	// Deactivate via admin API.
 	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+u.ID+"/active", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+u.ID+"/active", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}

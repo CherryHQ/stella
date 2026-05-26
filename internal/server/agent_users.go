@@ -36,6 +36,7 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id string) {
+	// TODO: change to return 201 with created AgentUser object
 	if !requireAdmin(w, r) {
 		return
 	}
@@ -72,6 +73,7 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 }
 
 func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string) {
+	// TODO: change to return 204 with empty body
 	if !requireAdmin(w, r) {
 		return
 	}

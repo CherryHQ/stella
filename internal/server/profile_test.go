@@ -71,7 +71,7 @@ func TestChangePasswordSuccess(t *testing.T) {
 		"current_password": "testpassword",
 		"new_password":     "newpassword123",
 	}
-	rr := doRequest(t, env, "PUT", "/api/auth/profile/password", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/profile/password", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -93,7 +93,7 @@ func TestChangePasswordWrongCurrent(t *testing.T) {
 		"current_password": "wrongpassword",
 		"new_password":     "newpassword123",
 	}
-	rr := doRequest(t, env, "PUT", "/api/auth/profile/password", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/profile/password", body)
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
@@ -106,7 +106,7 @@ func TestChangePasswordTooShort(t *testing.T) {
 		"current_password": "testpassword",
 		"new_password":     "short",
 	}
-	rr := doRequest(t, env, "PUT", "/api/auth/profile/password", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/profile/password", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
