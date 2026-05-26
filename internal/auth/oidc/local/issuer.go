@@ -27,13 +27,12 @@ import (
 // It exposes discovery, JWKS, authorize, token, and userinfo under a stable
 // URL prefix (recommended: /oidc/local).
 type Issuer struct {
-	cfg           *Config
-	codes         auth.OIDCCodeStore
-	tokens        auth.OIDCAccessTokenStore
-	users         auth.UserStore
-	organizations auth.OrganizationStore
-	memberships   auth.MembershipStore
-	credentials   auth.CredentialStore
+	cfg         *Config
+	codes       auth.OIDCCodeStore
+	tokens      auth.OIDCAccessTokenStore
+	users       auth.UserStore
+	memberships auth.MembershipStore
+	credentials auth.CredentialStore
 	// authSvc is used to validate an existing Stella OIDC session on the authorize endpoint.
 	// May be nil; when nil, the authorize endpoint always shows the login form.
 	authSvc    *auth.AuthService
@@ -46,22 +45,20 @@ func NewIssuer(
 	codes auth.OIDCCodeStore,
 	tokens auth.OIDCAccessTokenStore,
 	users auth.UserStore,
-	organizations auth.OrganizationStore,
 	memberships auth.MembershipStore,
 	credentials auth.CredentialStore,
 	authSvc *auth.AuthService,
 	sessionMgr *auth.SessionManager,
 ) *Issuer {
 	return &Issuer{
-		cfg:           cfg,
-		codes:         codes,
-		tokens:        tokens,
-		users:         users,
-		organizations: organizations,
-		memberships:   memberships,
-		credentials:   credentials,
-		authSvc:       authSvc,
-		sessionMgr:    sessionMgr,
+		cfg:         cfg,
+		codes:       codes,
+		tokens:      tokens,
+		users:       users,
+		memberships: memberships,
+		credentials: credentials,
+		authSvc:     authSvc,
+		sessionMgr:  sessionMgr,
 	}
 }
 
@@ -293,24 +290,7 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		return
 	}
 
-	org, err := is.organizations.CreateOrganization(ctx, auth.Organization{
-		ID:         uuid.NewString(),
-		Name:       auth.DefaultOrgName,
-		ExternalID: uuid.NewString(),
-		Source:     "stella",
-	})
-	if err != nil {
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
-		return
-	}
-
-	membership, err := is.memberships.CreateMembership(ctx, auth.Membership{
-		ID:             uuid.NewString(),
-		UserID:         newUser.ID,
-		OrganizationID: org.ID,
-		Role:           auth.RoleAdmin,
-		IsActive:       true,
-	})
+	membership, err := is.authSvc.EnsureMembership(ctx, newUser.ID)
 	if err != nil {
 		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
 		return

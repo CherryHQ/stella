@@ -97,6 +97,7 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 		organizations: stores.Organizations,
 		memberships:   stores.Memberships,
 		invites:       stores.Invites,
+		seeder:        s.seeder,
 		db:            s.db,
 	}
 	// Session insert must also run inside the transaction.
@@ -173,6 +174,12 @@ func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (
 		AvatarURL: user.AvatarURL,
 		Role:      membership.Role,
 	}, nil
+}
+
+// EnsureMembership returns the user's existing membership or creates a new org
+// (with default seed data) and membership if they don't have one yet.
+func (s *AuthService) EnsureMembership(ctx context.Context, userID string) (Membership, error) {
+	return s.ensureMembership(ctx, userID)
 }
 
 // GetUserMembership returns the user's current org membership.
