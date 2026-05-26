@@ -4,7 +4,7 @@ CREATE TABLE auth_user (
     name                TEXT NOT NULL DEFAULT '',
     avatar_url          TEXT NOT NULL DEFAULT '',
     default_agent_id    TEXT REFERENCES settings_agent(id),
-    notify_identity_id  TEXT REFERENCES auth_channel_identity(id) ON DELETE SET NULL,
+    notify_identity_id  TEXT REFERENCES plugin_channel_identity(id) ON DELETE SET NULL,
     age_public_key      TEXT NOT NULL DEFAULT '',
     age_private_key     TEXT NOT NULL DEFAULT '',
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),

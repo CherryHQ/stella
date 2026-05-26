@@ -16,7 +16,7 @@ const oidcTimeLayout = "2006-01-02 15:04:05"
 
 // OIDCStore implements all five new auth store interfaces using raw SQL against
 // the new OIDC tables (auth_user, auth_identity, auth_session, auth_organization,
-// auth_membership, auth_channel_identity).
+// auth_membership, plugin_channel_identity).
 //
 // The new tables are not included in the sqlc schema glob to avoid struct name
 // conflicts with the legacy auth_users/auth_sessions/auth_identities tables
@@ -367,7 +367,7 @@ func scanLoginIdentity(r rowScanner) (auth.LoginIdentity, error) {
 // ---- ChannelIdentityStore ----
 
 func (s *OIDCStore) CreateChannelIdentity(ctx context.Context, i auth.ChannelIdentity) (auth.ChannelIdentity, error) {
-	const q = `INSERT INTO auth_channel_identity (id, user_id, platform, external_id, name)
+	const q = `INSERT INTO plugin_channel_identity (id, user_id, platform, external_id, name)
 	           VALUES (?, ?, ?, ?, ?)
 	           RETURNING id, user_id, platform, external_id, name, created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, i.ID, i.UserID, i.Platform, i.ExternalID, i.Name)
@@ -376,21 +376,21 @@ func (s *OIDCStore) CreateChannelIdentity(ctx context.Context, i auth.ChannelIde
 
 func (s *OIDCStore) GetChannelIdentity(ctx context.Context, id string) (auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM auth_channel_identity WHERE id=?`
+	           FROM plugin_channel_identity WHERE id=?`
 	row := s.db.QueryRowContext(ctx, q, id)
 	return scanChannelIdentity(row)
 }
 
 func (s *OIDCStore) GetChannelIdentityByPlatform(ctx context.Context, platform, externalID string) (auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM auth_channel_identity WHERE platform=? AND external_id=?`
+	           FROM plugin_channel_identity WHERE platform=? AND external_id=?`
 	row := s.db.QueryRowContext(ctx, q, platform, externalID)
 	return scanChannelIdentity(row)
 }
 
 func (s *OIDCStore) ListChannelIdentitiesByUser(ctx context.Context, userID string) ([]auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM auth_channel_identity WHERE user_id=? ORDER BY created_at ASC`
+	           FROM plugin_channel_identity WHERE user_id=? ORDER BY created_at ASC`
 	rows, err := s.db.QueryContext(ctx, q, userID)
 	if err != nil {
 		return nil, err
@@ -408,13 +408,13 @@ func (s *OIDCStore) ListChannelIdentitiesByUser(ctx context.Context, userID stri
 }
 
 func (s *OIDCStore) UpdateChannelIdentityExternalID(ctx context.Context, id, externalID string) error {
-	const q = `UPDATE auth_channel_identity SET external_id=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE plugin_channel_identity SET external_id=?, updated_at=datetime('now') WHERE id=?`
 	_, err := s.db.ExecContext(ctx, q, externalID, id)
 	return err
 }
 
 func (s *OIDCStore) DeleteChannelIdentity(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_channel_identity WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM plugin_channel_identity WHERE id=?`, id)
 	return err
 }
 
@@ -423,7 +423,7 @@ func scanChannelIdentity(r rowScanner) (auth.ChannelIdentity, error) {
 	var createdAt, updatedAt string
 	err := r.Scan(&ci.ID, &ci.UserID, &ci.Platform, &ci.ExternalID, &ci.Name, &createdAt, &updatedAt)
 	if err != nil {
-		return auth.ChannelIdentity{}, fmt.Errorf("auth_channel_identity scan: %w", err)
+		return auth.ChannelIdentity{}, fmt.Errorf("plugin_channel_identity scan: %w", err)
 	}
 	ci.CreatedAt = parseOIDCTime(createdAt)
 	ci.UpdatedAt = parseOIDCTime(updatedAt)

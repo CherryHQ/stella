@@ -386,15 +386,15 @@ CREATE TABLE `auth_user` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`notify_identity_id`) REFERENCES `auth_channel_identity` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `0` FOREIGN KEY (`notify_identity_id`) REFERENCES `plugin_channel_identity` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `1` FOREIGN KEY (`default_agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 -- Create index "auth_user_email" to table: "auth_user"
 CREATE UNIQUE INDEX `auth_user_email` ON `auth_user` (`email`);
 -- Create index "idx_auth_user_email" to table: "auth_user"
 CREATE INDEX `idx_auth_user_email` ON `auth_user` (`email`);
--- Create "auth_channel_identity" table
-CREATE TABLE `auth_channel_identity` (
+-- Create "plugin_channel_identity" table
+CREATE TABLE `plugin_channel_identity` (
   `id` text NOT NULL,
   `user_id` text NOT NULL,
   `platform` text NOT NULL,
@@ -405,10 +405,10 @@ CREATE TABLE `auth_channel_identity` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "auth_channel_identity_platform_external_id" to table: "auth_channel_identity"
-CREATE UNIQUE INDEX `auth_channel_identity_platform_external_id` ON `auth_channel_identity` (`platform`, `external_id`);
--- Create index "idx_channel_identity_user_id" to table: "auth_channel_identity"
-CREATE INDEX `idx_channel_identity_user_id` ON `auth_channel_identity` (`user_id`);
+-- Create index "plugin_channel_identity_platform_external_id" to table: "plugin_channel_identity"
+CREATE UNIQUE INDEX `plugin_channel_identity_platform_external_id` ON `plugin_channel_identity` (`platform`, `external_id`);
+-- Create index "idx_channel_identity_user_id" to table: "plugin_channel_identity"
+CREATE INDEX `idx_channel_identity_user_id` ON `plugin_channel_identity` (`user_id`);
 -- Create "auth_identity" table
 CREATE TABLE `auth_identity` (
   `id` text NOT NULL,
@@ -630,8 +630,8 @@ CREATE TABLE `vault_entry` (
 );
 -- Create index "vault_entry_user_id_name" to table: "vault_entry"
 CREATE UNIQUE INDEX `vault_entry_user_id_name` ON `vault_entry` (`user_id`, `name`);
--- Create "auth_oauth_provider" table
-CREATE TABLE `auth_oauth_provider` (
+-- Create "plugin_oauth_provider" table
+CREATE TABLE `plugin_oauth_provider` (
   `id` text NULL,
   `provider_id` text NOT NULL,
   `client_id` text NOT NULL DEFAULT '',
@@ -641,8 +641,8 @@ CREATE TABLE `auth_oauth_provider` (
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`)
 );
--- Create index "auth_oauth_provider_provider_id" to table: "auth_oauth_provider"
-CREATE UNIQUE INDEX `auth_oauth_provider_provider_id` ON `auth_oauth_provider` (`provider_id`);
+-- Create index "plugin_oauth_provider_provider_id" to table: "plugin_oauth_provider"
+CREATE UNIQUE INDEX `plugin_oauth_provider_provider_id` ON `plugin_oauth_provider` (`provider_id`);
 -- Create "recally_article" table
 CREATE TABLE `recally_article` (
   `id` text NOT NULL,

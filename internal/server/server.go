@@ -64,7 +64,7 @@ type Server struct {
 	logins auth.LoginIdentityStore
 	// memberships provides access to auth_membership (optional).
 	memberships auth.MembershipStore
-	// users provides access to auth_user and auth_channel_identity via the OIDC store (optional).
+	// users provides access to auth_user and plugin_channel_identity via the OIDC store (optional).
 	users interface {
 		auth.UserStore
 		auth.ChannelIdentityStore

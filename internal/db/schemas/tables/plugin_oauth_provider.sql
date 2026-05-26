@@ -1,4 +1,4 @@
-CREATE TABLE auth_oauth_provider (
+CREATE TABLE plugin_oauth_provider (
     id                TEXT PRIMARY KEY,
     provider_id       TEXT UNIQUE NOT NULL,
     client_id         TEXT NOT NULL DEFAULT '',

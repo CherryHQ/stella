@@ -36,16 +36,6 @@ type AgentTaskEvent struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-type AuthChannelIdentity struct {
-	ID         string `json:"id"`
-	UserID     string `json:"user_id"`
-	Platform   string `json:"platform"`
-	ExternalID string `json:"external_id"`
-	Name       string `json:"name"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
-}
-
 type AuthCredential struct {
 	ID           string `json:"id"`
 	UserID       string `json:"user_id"`
@@ -91,16 +81,6 @@ type AuthMembership struct {
 	IsActive       int64  `json:"is_active"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
-}
-
-type AuthOauthProvider struct {
-	ID              string `json:"id"`
-	ProviderID      string `json:"provider_id"`
-	ClientID        string `json:"client_id"`
-	ClientSecretEnc string `json:"client_secret_enc"`
-	RedirectUrl     string `json:"redirect_url"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
 }
 
 type AuthOrganization struct {
@@ -307,6 +287,26 @@ type OidcCode struct {
 	ExpiresAt     string         `json:"expires_at"`
 	ConsumedAt    sql.NullString `json:"consumed_at"`
 	CreatedAt     string         `json:"created_at"`
+}
+
+type PluginChannelIdentity struct {
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	Platform   string `json:"platform"`
+	ExternalID string `json:"external_id"`
+	Name       string `json:"name"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+type PluginOauthProvider struct {
+	ID              string `json:"id"`
+	ProviderID      string `json:"provider_id"`
+	ClientID        string `json:"client_id"`
+	ClientSecretEnc string `json:"client_secret_enc"`
+	RedirectUrl     string `json:"redirect_url"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 type RecallyArticle struct {

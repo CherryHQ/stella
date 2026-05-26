@@ -22,7 +22,7 @@
 -- atlas:import tables/auth_user_agent.sql
 -- atlas:import tables/auth_user_token.sql
 -- atlas:import tables/auth_user.sql
--- atlas:import tables/auth_channel_identity.sql
+-- atlas:import tables/plugin_channel_identity.sql
 -- atlas:import tables/auth_identity.sql
 -- atlas:import tables/auth_session.sql
 -- atlas:import tables/auth_membership.sql
@@ -36,7 +36,7 @@
 -- atlas:import tables/skill.sql
 -- atlas:import tables/skill_file.sql
 -- atlas:import tables/vault_entry.sql
--- atlas:import tables/auth_oauth_provider.sql
+-- atlas:import tables/plugin_oauth_provider.sql
 -- atlas:import tables/recally_article.sql
 -- atlas:import tables/recally_rss_feed.sql
 -- atlas:import tables/recally_digest.sql
