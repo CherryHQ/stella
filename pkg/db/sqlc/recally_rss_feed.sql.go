@@ -208,11 +208,16 @@ func (q *Queries) GetRSSFeedByURL(ctx context.Context, arg GetRSSFeedByURLParams
 }
 
 const getRSSFeedEntry = `-- name: GetRSSFeedEntry :one
-SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM rss_feed_entries WHERE id = ?
+SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM rss_feed_entries WHERE id = ? AND feed_id = ?
 `
 
-func (q *Queries) GetRSSFeedEntry(ctx context.Context, id string) (RssFeedEntry, error) {
-	row := q.db.QueryRowContext(ctx, getRSSFeedEntry, id)
+type GetRSSFeedEntryParams struct {
+	ID     string `json:"id"`
+	FeedID string `json:"feed_id"`
+}
+
+func (q *Queries) GetRSSFeedEntry(ctx context.Context, arg GetRSSFeedEntryParams) (RssFeedEntry, error) {
+	row := q.db.QueryRowContext(ctx, getRSSFeedEntry, arg.ID, arg.FeedID)
 	var i RssFeedEntry
 	err := row.Scan(
 		&i.ID,
@@ -435,7 +440,7 @@ SET status       = ?1,
     attempts     = attempts + 1,
     error_msg    = ?3,
     processed_at = datetime('now')
-WHERE id = ?4
+WHERE id = ?4 AND feed_id = ?5
 RETURNING id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at
 `
 
@@ -444,6 +449,7 @@ type UpdateRSSFeedEntryParams struct {
 	ArticleID sql.NullString `json:"article_id"`
 	ErrorMsg  string         `json:"error_msg"`
 	ID        string         `json:"id"`
+	FeedID    string         `json:"feed_id"`
 }
 
 func (q *Queries) UpdateRSSFeedEntry(ctx context.Context, arg UpdateRSSFeedEntryParams) (RssFeedEntry, error) {
@@ -452,6 +458,7 @@ func (q *Queries) UpdateRSSFeedEntry(ctx context.Context, arg UpdateRSSFeedEntry
 		arg.ArticleID,
 		arg.ErrorMsg,
 		arg.ID,
+		arg.FeedID,
 	)
 	var i RssFeedEntry
 	err := row.Scan(

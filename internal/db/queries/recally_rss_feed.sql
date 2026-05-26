@@ -43,7 +43,7 @@ ON CONFLICT(feed_id, guid) DO NOTHING
 RETURNING *;
 
 -- name: GetRSSFeedEntry :one
-SELECT * FROM rss_feed_entries WHERE id = ?;
+SELECT * FROM rss_feed_entries WHERE id = ? AND feed_id = ?;
 
 -- name: ListRSSFeedEntries :many
 SELECT * FROM rss_feed_entries
@@ -67,7 +67,7 @@ SET status       = sqlc.arg('status'),
     attempts     = attempts + 1,
     error_msg    = sqlc.arg('error_msg'),
     processed_at = datetime('now')
-WHERE id = sqlc.arg('id')
+WHERE id = sqlc.arg('id') AND feed_id = sqlc.arg('feed_id')
 RETURNING *;
 
 -- name: DeleteOldRSSEntries :exec

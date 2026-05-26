@@ -445,8 +445,8 @@ func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit
 }
 
 // GetFeedEntry retrieves a feed entry by ID.
-func (s *Store) GetFeedEntry(ctx context.Context, entryID string) (*FeedEntry, error) {
-	row, err := s.q.GetRSSFeedEntry(ctx, entryID)
+func (s *Store) GetFeedEntry(ctx context.Context, feedID string, entryID string) (*FeedEntry, error) {
+	row, err := s.q.GetRSSFeedEntry(ctx, sqlc.GetRSSFeedEntryParams{ID: entryID, FeedID: feedID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("feed entry not found: %s", entryID)
@@ -459,9 +459,10 @@ func (s *Store) GetFeedEntry(ctx context.Context, entryID string) (*FeedEntry, e
 }
 
 // MarkFeedEntry updates the status of a feed entry after processing.
-func (s *Store) MarkFeedEntry(ctx context.Context, entryID string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
+func (s *Store) MarkFeedEntry(ctx context.Context, feedID string, entryID string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
 	updated, err := s.q.UpdateRSSFeedEntry(ctx, sqlc.UpdateRSSFeedEntryParams{
 		ID:        entryID,
+		FeedID:    feedID,
 		Status:    string(status),
 		ArticleID: toNullString(articleID),
 		ErrorMsg:  errorMsg,

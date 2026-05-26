@@ -490,7 +490,7 @@ func TestStore_FeedEntries(t *testing.T) {
 
 	// Mark entry as saved
 	articleID := "article-123"
-	updated, err := store.MarkFeedEntry(ctx, pending[0].ID, EntryStatusSaved, &articleID, "")
+	updated, err := store.MarkFeedEntry(ctx, feed.ID, pending[0].ID, EntryStatusSaved, &articleID, "")
 	if err != nil {
 		t.Fatalf("MarkFeedEntry failed: %v", err)
 	}
@@ -505,7 +505,7 @@ func TestStore_FeedEntries(t *testing.T) {
 	}
 
 	// Mark entry as error
-	_, err = store.MarkFeedEntry(ctx, pending[1].ID, EntryStatusError, nil, "Failed to fetch")
+	_, err = store.MarkFeedEntry(ctx, feed.ID, pending[1].ID, EntryStatusError, nil, "Failed to fetch")
 	if err != nil {
 		t.Fatalf("MarkFeedEntry (error) failed: %v", err)
 	}

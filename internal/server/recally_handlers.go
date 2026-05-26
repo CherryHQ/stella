@@ -554,7 +554,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	entry, err := h.store.GetFeedEntry(r.Context(), id)
+	entry, err := h.store.GetFeedEntry(r.Context(), feedId, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -582,7 +582,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "article_id required when status=saved")
 		return
 	}
-	updated, err := h.store.MarkFeedEntry(r.Context(), id, status, body.ArticleId, strDeref(body.ErrorMsg))
+	updated, err := h.store.MarkFeedEntry(r.Context(), feedId, id, status, body.ArticleId, strDeref(body.ErrorMsg))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

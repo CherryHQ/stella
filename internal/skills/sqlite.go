@@ -115,8 +115,18 @@ func (s *SQLiteStore) ListForUser(ctx context.Context, userID string, agentIDs [
 	return out, nil
 }
 
+func (s *SQLiteStore) ensureSkillInOrg(ctx context.Context, skillID string) error {
+	if _, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: skillID, OrgID: s.resolveOrgID()}); err != nil {
+		return fmt.Errorf("skills: scoped skill %s: %w", skillID, err)
+	}
+	return nil
+}
+
 // ListFiles returns all file paths for a skill (no content).
 func (s *SQLiteStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
+	if err := s.ensureSkillInOrg(ctx, skillID); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.ListSkillFiles(ctx, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list files for %s: %w", skillID, err)
@@ -130,6 +140,9 @@ func (s *SQLiteStore) ListFiles(ctx context.Context, skillID string) ([]string, 
 
 // ListFilesWithContent returns all files for a skill keyed by path.
 func (s *SQLiteStore) ListFilesWithContent(ctx context.Context, skillID string) (map[string]string, error) {
+	if err := s.ensureSkillInOrg(ctx, skillID); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.ListSkillFiles(ctx, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list files with content for %s: %w", skillID, err)
@@ -161,6 +174,9 @@ func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) 
 
 // LoadFile fetches a single file by path.
 func (s *SQLiteStore) LoadFile(ctx context.Context, skillID, path string) (string, error) {
+	if err := s.ensureSkillInOrg(ctx, skillID); err != nil {
+		return "", err
+	}
 	f, err := s.q.GetSkillFile(ctx, sqlc.GetSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
@@ -311,6 +327,9 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, vc ViewContext, pat
 
 // UpsertFile creates or replaces a single file under a skill.
 func (s *SQLiteStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
+	if err := s.ensureSkillInOrg(ctx, skillID); err != nil {
+		return err
+	}
 	if err := s.q.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
@@ -323,6 +342,9 @@ func (s *SQLiteStore) UpsertFile(ctx context.Context, skillID, path, content str
 
 // DeleteFile removes a single file from a skill.
 func (s *SQLiteStore) DeleteFile(ctx context.Context, skillID, path string) error {
+	if err := s.ensureSkillInOrg(ctx, skillID); err != nil {
+		return err
+	}
 	if err := s.q.DeleteSkillFile(ctx, sqlc.DeleteSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
