@@ -18,7 +18,7 @@ const dbTimeLayout = "2006-01-02 15:04:05"
 
 // loadJobs reads all persisted jobs from the database.
 func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
-	rows, err := s.q.ListSchedulerJobs(ctx, s.defaultOrgID)
+	rows, err := s.q.ListAllSchedulerJobs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list scheduler jobs: %w", err)
 	}
@@ -46,18 +46,26 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 	if runErr != nil {
 		lastError = runErr.Error()
 	}
+	job, ok := s.jobs[id]
+	if !ok {
+		return fmt.Errorf("job %q not found in memory", id)
+	}
 	return s.q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
 		LastRunAt: sql.NullString{String: ranAt.UTC().Format(dbTimeLayout), Valid: true},
 		LastError: lastError,
 		UpdatedAt: ranAt.UTC().Format(dbTimeLayout),
 		ID:        id,
-		OrgID:     s.defaultOrgID,
+		OrgID:     job.OrgID,
 	})
 }
 
 // deleteJob removes a job from the database.
 func (s *Service) deleteJob(ctx context.Context, id string) error {
-	return s.q.DeleteSchedulerJob(ctx, sqlc.DeleteSchedulerJobParams{ID: id, OrgID: s.defaultOrgID})
+	job, ok := s.jobs[id]
+	if !ok {
+		return fmt.Errorf("job %q not found in memory", id)
+	}
+	return s.q.DeleteSchedulerJob(ctx, sqlc.DeleteSchedulerJobParams{ID: id, OrgID: job.OrgID})
 }
 
 // migrateJobsFile imports jobs from the legacy jobs.json file into the database
@@ -92,9 +100,6 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 
 	qtx := s.q.WithTx(tx)
 	for _, job := range jobs {
-		if job.OrgID == "" {
-			job.OrgID = s.defaultOrgID
-		}
 		if _, err := qtx.CreateSchedulerJob(ctx, createSchedulerJobParams(job)); err != nil {
 			return fmt.Errorf("migrate job %s: %w", job.ID, err)
 		}
@@ -112,7 +117,7 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 // migrateLegacyPluginJobs converts plugin-owned jobs that still use the old
 // reserved message envelope into first-class ownership columns.
 func (s *Service) migrateLegacyPluginJobs(ctx context.Context) error {
-	rows, err := s.q.ListSchedulerJobs(ctx, s.defaultOrgID)
+	rows, err := s.q.ListAllSchedulerJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("list scheduler jobs: %w", err)
 	}

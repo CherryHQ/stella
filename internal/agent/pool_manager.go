@@ -277,7 +277,8 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 		return fmt.Errorf("list enabled agents: %w", err)
 	}
 	if len(agents) == 0 {
-		return fmt.Errorf("no enabled agents found")
+		pm.log.Info("no enabled agents found, pool manager started empty")
+		return nil
 	}
 
 	for _, ag := range agents {
@@ -292,7 +293,8 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	pm.mu.RUnlock()
 
 	if count == 0 {
-		return fmt.Errorf("no agents could be started")
+		pm.log.Warn("agents found but none could be started")
+		return nil
 	}
 
 	pm.log.Info("all agents started", "count", count)

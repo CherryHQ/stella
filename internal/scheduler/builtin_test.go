@@ -45,10 +45,10 @@ func TestBuiltinDigestJobRegistered(t *testing.T) {
 }
 
 func TestEnsureBuiltinJobs(t *testing.T) {
-	svc := testService(t)
+	svc, orgID := testService(t)
 
 	// EnsureBuiltinJobs creates one row per builtin regardless of ExecScope.
-	svc.EnsureBuiltinJobs()
+	svc.EnsureBuiltinJobs(orgID)
 
 	found := false
 	for _, j := range svc.ListJobs() {
@@ -67,7 +67,7 @@ func TestEnsureBuiltinJobs(t *testing.T) {
 	}
 
 	// Idempotent: second call does not duplicate.
-	svc.EnsureBuiltinJobs()
+	svc.EnsureBuiltinJobs(orgID)
 	count := 0
 	for _, j := range svc.ListJobs() {
 		if j.Name == "recally-rss" {

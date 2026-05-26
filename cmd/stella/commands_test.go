@@ -7,15 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
-	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -125,20 +122,6 @@ func (commandTestStore) SetSetting(context.Context, string, string) error       
 func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)    { return nil, nil }
 func (commandTestStore) SeedDefaults(context.Context, string) error                    { return nil }
 
-type commandTestMemory struct{}
-
-func (commandTestMemory) Name() string                                                { return "test" }
-func (commandTestMemory) Bootstrap(context.Context, memory.Session) error             { return nil }
-func (commandTestMemory) Append(context.Context, memory.Session, ...ai.Message) error { return nil }
-func (commandTestMemory) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
-	return nil, nil
-}
-
-func (commandTestMemory) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
-	return memory.SessionStats{}, nil
-}
-func (commandTestMemory) Close() error { return nil }
-
 func setupCommandTestStellaHome(t *testing.T) string {
 	t.Helper()
 	stellaHome := t.TempDir()
@@ -247,70 +230,5 @@ func TestRunHelpShort(t *testing.T) {
 	err := app.Run([]string{"stella", "-h"})
 	if err != nil {
 		t.Fatalf("run -h: %v", err)
-	}
-}
-
-func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
-	setupCommandTestStellaHome(t)
-
-	snap := &config.Snapshot{
-		AgentID:  "test-agent",
-		Provider: "anthropic",
-		Model:    "anthropic/old-model",
-		APIKey:   "test-key",
-		Runner:   config.RunnerConfig{Type: "go"},
-	}
-	snap.Workspace = t.TempDir()
-
-	initialFactory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-		Snap:                  snap,
-		ProviderStreamBuilder: testProviderStreamBuilder,
-	})
-	if err != nil {
-		t.Fatalf("NewRunnerFactory: %v", err)
-	}
-
-	pool := agent.NewPool(initialFactory, commandTestMemory{}, agent.WithAgentID(snap.AgentID), agent.WithDefaultModel(snap.Model))
-
-	promptToolsCalls := 0
-	promptSectionsCalls := 0
-	switchFn := modelSwitcher(
-		snap,
-		commandTestStore{},
-		pool,
-		nil,
-		nil,
-		testProviderStreamBuilder,
-		func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
-			promptToolsCalls++
-			return nil, nil
-		},
-		func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
-			promptSectionsCalls++
-			return nil, nil
-		},
-		nil,
-		&coreagent.ToolLifecycle{},
-	)
-
-	if err := switchFn("anthropic", "new-model"); err != nil {
-		t.Fatalf("switchFn: %v", err)
-	}
-
-	session, err := pool.CreateSession("cli", "1")
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	for range pool.Chat(ctx, session.ID, "hello") {
-	}
-
-	if promptToolsCalls == 0 {
-		t.Fatal("expected prompt tools builder to be preserved after model switch")
-	}
-	if promptSectionsCalls == 0 {
-		t.Fatal("expected prompt sections builder to be preserved after model switch")
 	}
 }

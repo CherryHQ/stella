@@ -12,6 +12,7 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -32,9 +33,9 @@ type OnJobFunc func(ctx context.Context, job Job) error
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
-// ListActiveUsersFunc returns the IDs of all currently active users.
+// ListActiveUsersFunc returns the IDs of all currently active users for the given org.
 // Used by the scheduler to fan out ExecScopeAllUsers jobs.
-type ListActiveUsersFunc func(ctx context.Context) ([]string, error)
+type ListActiveUsersFunc func(ctx context.Context, orgID string) ([]string, error)
 
 // Service manages scheduled jobs backed by gocron/v2 with database persistence.
 type Service struct {
@@ -52,8 +53,6 @@ type Service struct {
 	log             *slog.Logger
 	userJobsEnabled bool
 	listActiveUsers ListActiveUsersFunc
-
-	defaultOrgID string
 
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
@@ -79,8 +78,8 @@ func New(db *sql.DB) (*Service, error) {
 	}, nil
 }
 
-// SetDefaultOrgID sets the fallback org ID used when creating jobs without an explicit OrgID.
-func (s *Service) SetDefaultOrgID(orgID string) { s.defaultOrgID = orgID }
+// SetDefaultOrgID is deprecated and a no-op. OrgID is now set per-job.
+func (s *Service) SetDefaultOrgID(_ string) {}
 
 // NewFromPath creates a scheduler service that opens its own SQLite database
 // at the given path. The database is closed when Stop is called.
@@ -234,35 +233,29 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 	return nil
 }
 
-// AddJob creates, persists, and schedules a new system-scoped job (no user context).
-// sessionMode controls session reuse: "reuse" (default) or "new".
-func (s *Service) AddJob(name, message string, sched Schedule, sessionMode string) (Job, error) {
-	return s.addJobInternal(name, message, sched, sessionMode, "", "", JobOwnerUser, ExecScopeSystem)
-}
-
 // AddJobForContext creates a user-owned job bound to the current execution context.
-// When the caller context carries agent/user scope, scheduled executions inherit it.
+// OrgID is read from the context via config.OrgIDFromContext.
 func (s *Service) AddJobForContext(ctx context.Context, name, message string, sched Schedule, sessionMode string) (Job, error) {
 	userID := memory.UserIDFromContext(ctx)
 	agentID := memory.AgentIDFromContext(ctx)
+	orgID := config.OrgIDFromContext(ctx)
 	execScope := ExecScopeSystem
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, orgID)
 }
 
 // AddJobWithOwner creates a user-owned job with explicit owner parameters.
-// Use AddJobForContext when a Go context carries agent/user scope.
-func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID string) (Job, error) {
+func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID string, orgID string) (Job, error) {
 	execScope := ExecScopeSystem
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, userID, JobOwnerUser, execScope, orgID)
 }
 
-func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope string) (Job, error) {
+func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMode, agentID string, userID string, ownerKind, execScope, orgID string) (Job, error) {
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
@@ -292,7 +285,7 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 		Enabled:     true,
 		AgentID:     agentID,
 		UserID:      userID,
-		OrgID:       s.defaultOrgID,
+		OrgID:       orgID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -320,7 +313,8 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 }
 
 // AddPluginJob creates, persists, and schedules a plugin-owned job.
-func (s *Service) AddPluginJob(pluginID, key, runtimeName, name, description string, sched Schedule, payload map[string]any) (Job, error) {
+// OrgID is read from ctx via config.OrgIDFromContext.
+func (s *Service) AddPluginJob(ctx context.Context, pluginID, key, runtimeName, name, description string, sched Schedule, payload map[string]any) (Job, error) {
 	if pluginID == "" {
 		return Job{}, fmt.Errorf("plugin_id is required")
 	}
@@ -350,6 +344,7 @@ func (s *Service) AddPluginJob(pluginID, key, runtimeName, name, description str
 		Payload:     clonePayload(payload),
 		SessionMode: SessionReuse,
 		Enabled:     true,
+		OrgID:       config.OrgIDFromContext(ctx),
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -436,7 +431,7 @@ func (s *Service) RemoveJob(id string) error {
 // the existing job when any field has changed.
 // It is intended for builtin jobs that should be seeded on startup.
 // Jobs created by EnsureJob are owned by the system (JobOwnerSystem).
-func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, agentID, execScope string) (Job, error) {
+func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, agentID, execScope, orgID string) (Job, error) {
 	if sessionMode == "" {
 		sessionMode = SessionReuse
 	}
@@ -446,7 +441,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 
 	s.mu.Lock()
 	for _, j := range s.jobs {
-		if j.Name != name {
+		if j.Name != name || j.OrgID != orgID {
 			continue
 		}
 		if j.Message == message && j.Schedule == sched && j.SessionMode == sessionMode && j.AgentID == agentID && j.ExecScope == execScope {
@@ -478,7 +473,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		return j, nil
 	}
 	s.mu.Unlock()
-	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope)
+	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope, orgID)
 }
 
 // ListJobs returns all jobs.
@@ -551,7 +546,7 @@ func (s *Service) executeJobForAllUsers(ctx context.Context, job Job, isOneTime 
 		return
 	}
 
-	userIDs, err := fn(ctx)
+	userIDs, err := fn(ctx, job.OrgID)
 	if err != nil {
 		s.log.Warn("failed to list active users for all_users job", "job_id", job.ID, "error", err)
 		return

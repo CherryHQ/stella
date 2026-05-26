@@ -8,19 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/orgruntime"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -88,12 +87,10 @@ type setupResult struct {
 	ctx                      context.Context
 	db                       *sql.DB
 	mem                      memory.Provider
-	snap                     *config.Snapshot
 	store                    config.Store
 	pluginHost               *pluginhost.Host
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
-	pool                     *agent.Pool
 	schedulerSvc             *scheduler.Service
 	tasksSvc                 *tasks.Service
 	builtinTools             []pkgtools.Tool
@@ -104,7 +101,7 @@ type setupResult struct {
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               pkgplugins.SkillStore
-	defaultOrgID             string
+	orgRuntimeManager        *orgruntime.Manager
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
 	backgroundTasks          *sync.WaitGroup
@@ -122,39 +119,10 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, err
 	}
 
-	orgID, err := appdb.EnsureDefaultOrg(parent, db)
-	if err != nil {
-		return nil, fmt.Errorf("ensure default org: %w", err)
-	}
-	// Enrich context so all Store calls are org-scoped.
-	parent = config.WithOrgID(parent, orgID)
-
-	ss, err := setupSkillStores(parent, db, orgID)
+	ss, err := setupSkillStores(parent, db, "")
 	if err != nil {
 		return nil, err
 	}
-
-	if err := store.SeedDefaults(parent, orgID); err != nil {
-		return nil, fmt.Errorf("seed defaults: %w", err)
-	}
-
-	authStore := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(parent, authStore, orgID); err != nil {
-		return nil, fmt.Errorf("seed auth: %w", err)
-	}
-
-	agents, err := store.ListEnabledAgents(parent)
-	if err != nil || len(agents) == 0 {
-		return nil, fmt.Errorf("no enabled agents found")
-	}
-	defaultAgentID := agents[0].ID
-
-	snap, err := store.Snapshot(parent, defaultAgentID)
-	if err != nil {
-		return nil, fmt.Errorf("load config snapshot: %w", err)
-	}
-
-	migrateFilesystemSkills(parent, ss.raw, snap)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -165,7 +133,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 	phost := ps.host
 
-	schedulerSvc, err := setupScheduler(db, snap, phost, orgID)
+	schedulerSvc, err := setupScheduler(db, phost)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +145,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		})
 	}
 
-	memProvider, err := setupMemoryProvider(parent, db, store, defaultAgentID, providerStreamBuilder)
+	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder)
 	if err != nil {
 		return nil, fmt.Errorf("memory provider: %w", err)
 	}
@@ -196,7 +164,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
-	ps.reflectRuntimeServices.Set(parent, memProvider, store, snap.Workspace, providerStreamBuilder)
+	ps.reflectRuntimeServices.Set(parent, memProvider, store, config.StellaHome(), providerStreamBuilder)
 
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
 		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
@@ -211,16 +179,12 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	tasksSvc := buildTasksService(db, dispatcher, memProvider, &poolMgr, defaultAgentID)
+	tasksSvc := buildTasksService(db, dispatcher, memProvider, &poolMgr)
 
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
-	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 	poolMgr = agent.NewPoolManager(store, memProvider,
-		agent.WithIdleTimeoutPM(idleTimeout),
-		agent.WithCompactionPM(agent.CompactionConfig{
-			MaxTokens: snap.Runner.Compaction.MaxTokens,
-			KeepTail:  snap.Runner.Compaction.KeepTail,
-		}.WithDefaults()),
+		agent.WithIdleTimeoutPM(0),
+		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -247,12 +211,11 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
 
-	pool := poolMgr.Get(defaultAgentID)
-	if pool == nil {
-		pool = poolMgr.DefaultPool()
-	}
-
-	wireSchedulerCallbacks(schedulerSvc, snap, pool, poolMgr, dispatcher)
+	orgRtMgr := orgruntime.NewManager(orgruntime.ManagerDeps{
+		Store:    store,
+		Syncer:   poolMgr,
+		Channels: nil, // Channels wired later in runServer
+	})
 
 	backgroundTasks := &sync.WaitGroup{}
 	if ps.manifestToReconcile != nil {
@@ -263,12 +226,10 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		ctx:                      parent,
 		db:                       db,
 		mem:                      memProvider,
-		snap:                     snap,
 		store:                    store,
 		pluginHost:               phost,
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,
-		pool:                     pool,
 		schedulerSvc:             schedulerSvc,
 		tasksSvc:                 tasksSvc,
 		builtinTools:             builtinTools,
@@ -279,7 +240,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,
 		skillStore:               skillStoreAdapter,
-		defaultOrgID:             orgID,
+		orgRuntimeManager:        orgRtMgr,
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,
@@ -302,49 +263,34 @@ func ensureEmbeddedAssets() error {
 	return nil
 }
 
-func setupScheduler(db *sql.DB, snap *config.Snapshot, phost *pluginhost.Host, orgID string) (*scheduler.Service, error) {
+func setupScheduler(db *sql.DB, phost *pluginhost.Host) (*scheduler.Service, error) {
 	svc, err := scheduler.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
-	svc.SetDefaultOrgID(orgID)
-	dataDir := snap.Scheduler.DataDir
-	if dataDir == "" {
-		dataDir = filepath.Join(snap.Workspace, "scheduler")
-	}
-	svc.SetLegacyDataPath(dataDir)
-	svc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
+	svc.SetLegacyDataPath(config.StellaHome() + "/scheduler")
 	phost.SetSchedulerService(newSchedulerServiceAdapter(svc, phost.Runtime()))
 	return svc, nil
 }
 
-func wireSchedulerCallbacks(svc *scheduler.Service, snap *config.Snapshot, pool *agent.Pool, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {
+func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {
 	if svc == nil {
 		return
-	}
-	if snap.Heartbeat.IsEnabled() {
-		svc.SetHeartbeat(scheduler.HeartbeatConfig{
-			File:      snap.Heartbeat.FilePath(snap.Workspace),
-			FastModel: snap.ResolveModelID(config.ModelTierFast),
-		}, func(ctx context.Context, sessionID, message, model string) <-chan agent.Event {
-			if model != "" {
-				return pool.Chat(ctx, sessionID, message, agent.WithModel(model))
-			}
-			return pool.Chat(ctx, sessionID, message)
-		}, dispatcher)
 	}
 	svc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
 		if scheduler.IsPluginJob(job) {
 			return nil
 		}
-		targetPool := pool
-		if job.AgentID != "" {
-			if p := poolMgr.Get(job.AgentID); p != nil {
-				targetPool = p
-			}
+		pool := poolMgr.Get(job.AgentID)
+		if pool == nil {
+			pool = poolMgr.DefaultPool()
+		}
+		if pool == nil {
+			slog.Warn("scheduler: no pool available for job", "job_id", job.ID, "agent_id", job.AgentID)
+			return fmt.Errorf("no agent pool available for job %s", job.ID)
 		}
 		sessionID := job.SessionID()
-		ch := targetPool.Chat(schedulerJobContext(ctx, targetPool, job), sessionID, schedulerJobMessage(job))
+		ch := pool.Chat(schedulerJobContext(ctx, pool, job), sessionID, schedulerJobMessage(job))
 		var runErr error
 		for evt := range ch {
 			if evt.Err != nil {
@@ -356,13 +302,10 @@ func wireSchedulerCallbacks(svc *scheduler.Service, snap *config.Snapshot, pool 
 	})
 }
 
-func buildTasksService(db *sql.DB, dispatcher *notify.Dispatcher, mem memory.Provider, poolMgr **agent.PoolManager, defaultAgentID string) *tasks.Service {
+func buildTasksService(db *sql.DB, dispatcher *notify.Dispatcher, mem memory.Provider, poolMgr **agent.PoolManager) *tasks.Service {
 	runnerFactory := tasks.RunnerFactoryFn(func(agentID string) (agent.NewRunnerFunc, bool) {
 		if *poolMgr == nil {
 			return nil, false
-		}
-		if agentID == "" {
-			agentID = defaultAgentID
 		}
 		p := (*poolMgr).Get(agentID)
 		if p == nil {

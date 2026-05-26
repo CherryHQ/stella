@@ -85,12 +85,17 @@ func serverAction(c *ucli.Context) error {
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
 	}()
-	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.String("host"), c.Int("port"))
+
+	listFn := func() []pkgchannel.ModelOption {
+		return collectModelsFromStore(s.ctx, s.store)
+	}
+	switchFn := func(_, _ string) error { return nil }
+
+	return runServer(s.ctx, s, listFn, switchFn, c.String("host"), c.Int("port"))
 }
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
-	g, gctx := errgroup.WithContext(config.WithOrgID(ctx, s.defaultOrgID))
-	channels := make([]pkgchannel.Channel, 0)
+	g, gctx := errgroup.WithContext(ctx)
 
 	// Create auth store and policy engine for channel bots and Web UI.
 	as := appdb.NewAuthStore(s.db)
@@ -183,8 +188,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	managedChannels := applyManagedChannelPlugins(gctx, s.pluginHost)
-
 	// Start Web UI server.
 	listenAddr := adminListenAddress(adminHost, adminPort)
 	ln, err := net.Listen("tcp", listenAddr)
@@ -209,29 +212,17 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		return nil
 	})
 
-	if len(channels) == 0 && managedChannels.Started == 0 {
-		reason := noRunningChannelReason(managedChannels)
-		slog.Warn(reason+"; running Web UI only", "configured_channels", managedChannels.Configured)
-	}
-
-	// Start all channels.
-	for _, ch := range channels {
-		g.Go(func() error {
-			if err := ch.Start(gctx); err != nil && gctx.Err() == nil {
-				return fmt.Errorf("%s: %w", ch.Name(), err)
-			}
-			return nil
-		})
-	}
-
 	// Wire auth directory into dispatcher for per-user notification routing.
 	s.notifier.SetAuthService(s.pluginHost.Auth())
 
-	// Wire scheduler notifications and start the scheduler AFTER channels
-	// are registered, so early-firing jobs already use the dispatcher.
+	// Wire scheduler and start it. Builtin jobs and heartbeat are configured
+	// per-org via OrgRuntime.Start(), not at boot.
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
-		wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool)
+		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
+		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context, orgID string) ([]string, error) {
+			return as.ListActiveUserIDs(ctx, orgID)
+		})
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
@@ -252,20 +243,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	if s.schedulerSvc != nil {
-		orgID := s.defaultOrgID
-		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
-			return as.ListActiveUserIDs(ctx, orgID)
-		})
-		s.schedulerSvc.EnsureBuiltinJobs()
-	}
-
-	if s.snap.Heartbeat.IsEnabled() && s.schedulerSvc != nil {
-		if err := s.schedulerSvc.StartHeartbeat(ctx, s.snap.Heartbeat.Interval()); err != nil {
-			return fmt.Errorf("schedule heartbeat: %w", err)
-		}
-	}
-
 	if err := s.pluginHost.ApplyPlugin(gctx, reflectplugin.PluginID); err != nil {
 		return fmt.Errorf("apply reflect runtime: %w", err)
 	}
@@ -275,47 +252,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	return waitErr
 }
 
-// wireSchedulerNotifier overrides the scheduler callback to run the agent.
-// The agent decides whether to notify the user by calling the notify tool.
-func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool) {
-	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
-		if scheduler.IsPluginJob(job) {
-			return nil
-		}
-
-		pool := schedulerPool(job, poolMgr, defaultPool)
-		sessionID := scheduler.RunSessionIDFromContext(ctx)
-		if sessionID == "" {
-			sessionID = job.SessionID()
-		}
-		msg := schedulerJobMessage(job)
-
-		jobCtx := schedulerJobContext(ctx, pool, job)
-
-		for evt := range pool.Chat(jobCtx, sessionID, msg) {
-			if evt.Err != nil {
-				slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
-			}
-		}
-		return nil
-	})
-}
-
-func schedulerPool(job scheduler.Job, poolMgr *agent.PoolManager, defaultPool *agent.Pool) *agent.Pool {
-	if job.AgentID == "" {
-		return defaultPool
-	}
-
-	pool := poolMgr.Get(job.AgentID)
-	if pool != nil {
-		return pool
-	}
-
-	slog.Warn("scheduler job references unknown agent, using default pool",
-		"job_id", job.ID, "agent_id", job.AgentID)
-	return defaultPool
-}
-
 func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
 	if job.UserID != "" {
 		ctx = memory.WithUserID(ctx, job.UserID)
@@ -323,7 +259,6 @@ func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Jo
 	if pool.AgentID() != "" {
 		ctx = memory.WithAgentID(ctx, pool.AgentID())
 	}
-	// Prevent scheduled jobs from mutating scheduler control-plane state.
 	ctx = agent.WithExcludedTools(ctx, "scheduler")
 	return ctx
 }
@@ -339,8 +274,6 @@ func adminListenAddress(host string, port int) string {
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
 }
 
-// adminBaseURL returns the canonical HTTP base URL for the admin server. Used
-// to build OIDC issuer URLs and redirect URIs for the auto-configured local issuer.
 func adminBaseURL(host string, port int) string {
 	h := host
 	if h == "" {
@@ -349,9 +282,6 @@ func adminBaseURL(host string, port int) string {
 	return "http://" + net.JoinHostPort(h, fmt.Sprintf("%d", port))
 }
 
-// resolveBaseURL returns the public base URL for OIDC issuer and redirect URI
-// construction. STELLA_BASE_URL takes precedence; falls back to the local listen
-// address. Set STELLA_BASE_URL when running behind a reverse proxy.
 func resolveBaseURL(adminHost string, adminPort int) string {
 	if v := os.Getenv("STELLA_BASE_URL"); v != "" {
 		return strings.TrimRight(v, "/")
@@ -413,12 +343,4 @@ func (s *orgSeeder) SeedOrg(ctx context.Context, orgID string) error {
 		return fmt.Errorf("seed policies: %w", err)
 	}
 	return nil
-}
-
-func noRunningChannelReason(managedChannels managedChannelRuntimeSummary) string {
-	if managedChannels.Configured > 0 {
-		return "configured channels failed to start"
-	}
-
-	return "no channels configured"
 }

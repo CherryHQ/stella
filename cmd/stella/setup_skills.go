@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -63,24 +62,4 @@ func setupSkillStores(ctx context.Context, db *sql.DB, orgID string) (skillStore
 	}
 
 	return skillStores{raw: raw, diskSync: diskSync}, nil
-}
-
-func migrateFilesystemSkills(ctx context.Context, rawStore *skills.SQLiteStore, snap *config.Snapshot) {
-	userSkillsDir, err := cliUserSkillsDir(snap)
-	if err != nil {
-		slog.Warn("skip filesystem skill migration", "error", err)
-		return
-	}
-	fsCfg := skills.MigrateFSConfig{
-		AgentRoot:     snap.Workspace,
-		AgentID:       snap.AgentID,
-		UserSkillsDir: userSkillsDir,
-		UserID:        cliSkillsUserID,
-	}
-	fsResult, fsErr := skills.MigrateFilesystem(ctx, rawStore, fsCfg)
-	if fsErr != nil {
-		slog.Warn("filesystem skill migration failed", "error", fsErr)
-	} else if fsResult.Imported > 0 {
-		slog.Info("migrated on-disk skills", "imported", fsResult.Imported, "skipped", fsResult.Skipped)
-	}
 }

@@ -278,7 +278,10 @@ func TestPoolManagerStartAllNoAgents(t *testing.T) {
 	pm := NewPoolManager(store, mem)
 
 	err := pm.StartAll(context.Background())
-	if err == nil {
-		t.Fatal("expected error for no agents")
+	if err != nil {
+		t.Fatalf("StartAll with no agents should succeed, got: %v", err)
+	}
+	if pm.DefaultPool() != nil {
+		t.Fatal("expected no pools after starting with zero agents")
 	}
 }
