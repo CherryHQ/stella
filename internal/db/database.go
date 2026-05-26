@@ -41,6 +41,10 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("db: migrate: %w", err)
 	}
+	if err := backfillLegacyOrgScope(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("db: backfill org scope: %w", err)
+	}
 
 	return db, nil
 }

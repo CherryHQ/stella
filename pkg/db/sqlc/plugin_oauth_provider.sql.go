@@ -7,25 +7,36 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const deleteAuthOAuthProvider = `-- name: DeleteAuthOAuthProvider :exec
-DELETE FROM plugin_oauth_provider WHERE provider_id = ?
+DELETE FROM plugin_oauth_provider WHERE provider_id = ? AND org_id = ?
 `
 
-func (q *Queries) DeleteAuthOAuthProvider(ctx context.Context, providerID string) error {
-	_, err := q.db.ExecContext(ctx, deleteAuthOAuthProvider, providerID)
+type DeleteAuthOAuthProviderParams struct {
+	ProviderID string         `json:"provider_id"`
+	OrgID      sql.NullString `json:"org_id"`
+}
+
+func (q *Queries) DeleteAuthOAuthProvider(ctx context.Context, arg DeleteAuthOAuthProviderParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAuthOAuthProvider, arg.ProviderID, arg.OrgID)
 	return err
 }
 
 const getAuthOAuthProvider = `-- name: GetAuthOAuthProvider :one
-SELECT id, provider_id, client_id, client_secret_enc, redirect_url, created_at, updated_at
+SELECT id, provider_id, client_id, client_secret_enc, redirect_url, org_id, created_at, updated_at
 FROM plugin_oauth_provider
-WHERE provider_id = ?
+WHERE provider_id = ? AND org_id = ?
 `
 
-func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (PluginOauthProvider, error) {
-	row := q.db.QueryRowContext(ctx, getAuthOAuthProvider, providerID)
+type GetAuthOAuthProviderParams struct {
+	ProviderID string         `json:"provider_id"`
+	OrgID      sql.NullString `json:"org_id"`
+}
+
+func (q *Queries) GetAuthOAuthProvider(ctx context.Context, arg GetAuthOAuthProviderParams) (PluginOauthProvider, error) {
+	row := q.db.QueryRowContext(ctx, getAuthOAuthProvider, arg.ProviderID, arg.OrgID)
 	var i PluginOauthProvider
 	err := row.Scan(
 		&i.ID,
@@ -33,6 +44,7 @@ func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (
 		&i.ClientID,
 		&i.ClientSecretEnc,
 		&i.RedirectUrl,
+		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -40,9 +52,9 @@ func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (
 }
 
 const upsertAuthOAuthProvider = `-- name: UpsertAuthOAuthProvider :exec
-INSERT INTO plugin_oauth_provider (id, provider_id, client_id, client_secret_enc, redirect_url)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(provider_id) DO UPDATE SET
+INSERT INTO plugin_oauth_provider (id, provider_id, client_id, client_secret_enc, redirect_url, org_id)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(provider_id, org_id) DO UPDATE SET
     client_id         = excluded.client_id,
     client_secret_enc = excluded.client_secret_enc,
     redirect_url      = excluded.redirect_url,
@@ -50,11 +62,12 @@ ON CONFLICT(provider_id) DO UPDATE SET
 `
 
 type UpsertAuthOAuthProviderParams struct {
-	ID              string `json:"id"`
-	ProviderID      string `json:"provider_id"`
-	ClientID        string `json:"client_id"`
-	ClientSecretEnc string `json:"client_secret_enc"`
-	RedirectUrl     string `json:"redirect_url"`
+	ID              string         `json:"id"`
+	ProviderID      string         `json:"provider_id"`
+	ClientID        string         `json:"client_id"`
+	ClientSecretEnc string         `json:"client_secret_enc"`
+	RedirectUrl     string         `json:"redirect_url"`
+	OrgID           sql.NullString `json:"org_id"`
 }
 
 func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAuthProviderParams) error {
@@ -64,6 +77,7 @@ func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAu
 		arg.ClientID,
 		arg.ClientSecretEnc,
 		arg.RedirectUrl,
+		arg.OrgID,
 	)
 	return err
 }

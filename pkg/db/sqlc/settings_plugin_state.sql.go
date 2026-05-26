@@ -7,18 +7,20 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const deletePluginStateEntry = `-- name: DeletePluginStateEntry :exec
 DELETE FROM settings_plugin_state
-WHERE plugin_id = ? AND scope_kind = ? AND scope_id = ? AND state_key = ?
+WHERE plugin_id = ? AND scope_kind = ? AND scope_id = ? AND state_key = ? AND org_id = ?
 `
 
 type DeletePluginStateEntryParams struct {
-	PluginID  string `json:"plugin_id"`
-	ScopeKind string `json:"scope_kind"`
-	ScopeID   string `json:"scope_id"`
-	StateKey  string `json:"state_key"`
+	PluginID  string         `json:"plugin_id"`
+	ScopeKind string         `json:"scope_kind"`
+	ScopeID   string         `json:"scope_id"`
+	StateKey  string         `json:"state_key"`
+	OrgID     sql.NullString `json:"org_id"`
 }
 
 func (q *Queries) DeletePluginStateEntry(ctx context.Context, arg DeletePluginStateEntryParams) error {
@@ -27,20 +29,22 @@ func (q *Queries) DeletePluginStateEntry(ctx context.Context, arg DeletePluginSt
 		arg.ScopeKind,
 		arg.ScopeID,
 		arg.StateKey,
+		arg.OrgID,
 	)
 	return err
 }
 
 const getPluginStateEntry = `-- name: GetPluginStateEntry :one
 SELECT value FROM settings_plugin_state
-WHERE plugin_id = ? AND scope_kind = ? AND scope_id = ? AND state_key = ?
+WHERE plugin_id = ? AND scope_kind = ? AND scope_id = ? AND state_key = ? AND org_id = ?
 `
 
 type GetPluginStateEntryParams struct {
-	PluginID  string `json:"plugin_id"`
-	ScopeKind string `json:"scope_kind"`
-	ScopeID   string `json:"scope_id"`
-	StateKey  string `json:"state_key"`
+	PluginID  string         `json:"plugin_id"`
+	ScopeKind string         `json:"scope_kind"`
+	ScopeID   string         `json:"scope_id"`
+	StateKey  string         `json:"state_key"`
+	OrgID     sql.NullString `json:"org_id"`
 }
 
 func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEntryParams) (string, error) {
@@ -49,6 +53,7 @@ func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEnt
 		arg.ScopeKind,
 		arg.ScopeID,
 		arg.StateKey,
+		arg.OrgID,
 	)
 	var value string
 	err := row.Scan(&value)
@@ -56,18 +61,19 @@ func (q *Queries) GetPluginStateEntry(ctx context.Context, arg GetPluginStateEnt
 }
 
 const upsertPluginStateEntry = `-- name: UpsertPluginStateEntry :exec
-INSERT INTO settings_plugin_state (plugin_id, scope_kind, scope_id, state_key, value, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(plugin_id, scope_kind, scope_id, state_key)
+INSERT INTO settings_plugin_state (plugin_id, scope_kind, scope_id, state_key, value, org_id, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+ON CONFLICT(plugin_id, scope_kind, scope_id, state_key, org_id)
 DO UPDATE SET value = excluded.value, updated_at = datetime('now')
 `
 
 type UpsertPluginStateEntryParams struct {
-	PluginID  string `json:"plugin_id"`
-	ScopeKind string `json:"scope_kind"`
-	ScopeID   string `json:"scope_id"`
-	StateKey  string `json:"state_key"`
-	Value     string `json:"value"`
+	PluginID  string         `json:"plugin_id"`
+	ScopeKind string         `json:"scope_kind"`
+	ScopeID   string         `json:"scope_id"`
+	StateKey  string         `json:"state_key"`
+	Value     string         `json:"value"`
+	OrgID     sql.NullString `json:"org_id"`
 }
 
 func (q *Queries) UpsertPluginStateEntry(ctx context.Context, arg UpsertPluginStateEntryParams) error {
@@ -77,6 +83,7 @@ func (q *Queries) UpsertPluginStateEntry(ctx context.Context, arg UpsertPluginSt
 		arg.ScopeID,
 		arg.StateKey,
 		arg.Value,
+		arg.OrgID,
 	)
 	return err
 }

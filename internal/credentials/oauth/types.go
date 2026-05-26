@@ -29,6 +29,7 @@ type FlowStatus struct {
 	Provider        Provider
 	FlowID          string
 	UserID          string
+	OrgID           string
 	VerificationURI string
 	UserCode        string
 	ExpiresAt       time.Time

@@ -300,13 +300,14 @@ type PluginChannelIdentity struct {
 }
 
 type PluginOauthProvider struct {
-	ID              string `json:"id"`
-	ProviderID      string `json:"provider_id"`
-	ClientID        string `json:"client_id"`
-	ClientSecretEnc string `json:"client_secret_enc"`
-	RedirectUrl     string `json:"redirect_url"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
+	ID              string         `json:"id"`
+	ProviderID      string         `json:"provider_id"`
+	ClientID        string         `json:"client_id"`
+	ClientSecretEnc string         `json:"client_secret_enc"`
+	RedirectUrl     string         `json:"redirect_url"`
+	OrgID           sql.NullString `json:"org_id"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
 }
 
 type RecallyArticle struct {
@@ -479,13 +480,14 @@ type SettingsPlugin struct {
 }
 
 type SettingsPluginState struct {
-	PluginID  string `json:"plugin_id"`
-	ScopeKind string `json:"scope_kind"`
-	ScopeID   string `json:"scope_id"`
-	StateKey  string `json:"state_key"`
-	Value     string `json:"value"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	PluginID  string         `json:"plugin_id"`
+	ScopeKind string         `json:"scope_kind"`
+	ScopeID   string         `json:"scope_id"`
+	StateKey  string         `json:"state_key"`
+	Value     string         `json:"value"`
+	OrgID     sql.NullString `json:"org_id"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 type SettingsProject struct {
