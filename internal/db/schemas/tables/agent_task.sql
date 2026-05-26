@@ -9,9 +9,9 @@ CREATE TABLE agent_task (
     review_request TEXT NOT NULL DEFAULT '{}',
     deps TEXT NOT NULL DEFAULT '[]',
     notify_at TEXT,
-    scheduler_job_id TEXT REFERENCES sched_jobs(id) ON DELETE SET NULL,
-    scheduler_run_id TEXT REFERENCES sched_job_runs(id) ON DELETE SET NULL,
-    agent_id TEXT REFERENCES settings_agents(id) ON DELETE SET NULL,
+    scheduler_job_id TEXT REFERENCES sched_job(id) ON DELETE SET NULL,
+    scheduler_run_id TEXT REFERENCES sched_job_run(id) ON DELETE SET NULL,
+    agent_id TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,
     user_id TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))

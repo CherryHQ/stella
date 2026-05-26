@@ -777,7 +777,7 @@ func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
 		t.Fatalf("GetChannel: %v", err)
 	}
 	if ch.Config != `{"token":"tg-123"}` {
-		t.Errorf("channel config = %s, want token persisted on settings_channels", ch.Config)
+		t.Errorf("channel config = %s, want token persisted on settings_channel", ch.Config)
 	}
 }
 

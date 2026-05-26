@@ -45,7 +45,7 @@ func createUser(t *testing.T, oidc *appdb.OIDCStore, email string) auth.User {
 	return u
 }
 
-// seedAgent creates a test agent (needed for FK constraints on auth_user_agents).
+// seedAgent creates a test agent (needed for FK constraints on auth_user_agent).
 func seedAgent(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
 	cs := config.NewDBStore(db)
@@ -251,7 +251,7 @@ func TestUserTokenStore(t *testing.T) {
 
 	expiredAt := time.Now().Add(-time.Hour).UTC().Format("2006-01-02 15:04:05")
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO auth_user_tokens (user_id, name, token_hash, token_prefix, expires_at)
+		INSERT INTO auth_user_token (user_id, name, token_hash, token_prefix, expires_at)
 		VALUES (?, 'expired', 'hash-expired', 'stella_exp', ?)
 	`, user.ID, expiredAt); err != nil {
 		t.Fatalf("insert expired token: %v", err)

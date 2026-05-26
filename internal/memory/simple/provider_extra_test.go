@@ -29,7 +29,7 @@ func newTestDB(t *testing.T) (*simple.Provider, func()) {
 		t.Fatalf("seed org: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, org_id)
+	_, err = db.Exec(`INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, org_id)
 		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1, ?)`, testOrgID)
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)

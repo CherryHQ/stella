@@ -14,7 +14,7 @@ import (
 )
 
 // oidcVaultDB wraps OIDCStore.GetVaultUser with sqlc.Queries for vault entry operations.
-// This bridges the gap: OIDCStore reads age keys from auth_user, sqlc handles vault_entries.
+// This bridges the gap: OIDCStore reads age keys from auth_user, sqlc handles vault_entry.
 type oidcVaultDB struct {
 	*appdb.OIDCStore
 	q *sqlc.Queries

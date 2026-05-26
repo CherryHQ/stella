@@ -34,7 +34,7 @@ type LoginIdentity struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
-// ChannelIdentity is a messaging-platform identity stored in channel_identity.
+// ChannelIdentity is a messaging-platform identity stored in auth_channel_identity.
 // It replaces the old Identity type for channel-linked accounts (Telegram, Slack, etc.).
 type ChannelIdentity struct {
 	ID         string    `json:"id"`

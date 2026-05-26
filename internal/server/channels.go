@@ -11,7 +11,7 @@ import (
 )
 
 // channelView is the JSON shape the admin frontend expects for channel objects.
-// It matches the legacy settings_channels format: config is a JSON string.
+// It matches the legacy settings_channel format: config is a JSON string.
 type channelView struct {
 	ID      string `json:"id"`
 	Type    string `json:"type"`

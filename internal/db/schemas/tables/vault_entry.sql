@@ -1,0 +1,9 @@
+CREATE TABLE vault_entry (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    ciphertext TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
+);

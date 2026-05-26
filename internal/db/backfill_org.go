@@ -64,7 +64,7 @@ func BackfillOrgScopedSettings(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("org backfill: find legacy org: %w", err)
 	}
 
-	tables := []string{"settings_agents", "settings_providers", "settings_channels", "auth_policies"}
+	tables := []string{"settings_agent", "settings_provider", "settings_channel", "auth_policy"}
 	for _, tbl := range tables {
 		res, err := db.ExecContext(ctx,
 			"UPDATE "+tbl+" SET org_id=? WHERE org_id IS NULL",

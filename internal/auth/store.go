@@ -27,7 +27,7 @@ type LoginIdentityStore interface {
 	UpdateLoginIdentity(ctx context.Context, i LoginIdentity) error
 }
 
-// ChannelIdentityStore provides CRUD for channel_identity (messaging platform identities).
+// ChannelIdentityStore provides CRUD for auth_channel_identity (messaging platform identities).
 type ChannelIdentityStore interface {
 	CreateChannelIdentity(ctx context.Context, i ChannelIdentity) (ChannelIdentity, error)
 	GetChannelIdentity(ctx context.Context, id string) (ChannelIdentity, error)
@@ -137,7 +137,7 @@ type AuthStore interface {
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 	ListAgentUserIDs(ctx context.Context, agentID string) ([]string, error)
 
-	// API tokens (auth_user_tokens)
+	// API tokens (auth_user_token)
 	CreateUserToken(ctx context.Context, token UserToken) (UserToken, error)
 	GetUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)
 	GetActiveUserTokenByHash(ctx context.Context, tokenHash string) (UserToken, error)

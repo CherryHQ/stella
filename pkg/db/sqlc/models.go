@@ -36,26 +36,61 @@ type AgentTaskEvent struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-type Article struct {
-	ID           string         `json:"id"`
-	UserID       string         `json:"user_id"`
-	AgentID      sql.NullString `json:"agent_id"`
-	Url          string         `json:"url"`
-	CanonicalUrl string         `json:"canonical_url"`
-	SourceType   string         `json:"source_type"`
-	Title        string         `json:"title"`
-	Author       string         `json:"author"`
-	Summary      string         `json:"summary"`
-	Tags         string         `json:"tags"`
-	Status       string         `json:"status"`
-	Starred      int64          `json:"starred"`
-	FilePath     string         `json:"file_path"`
-	Metadata     string         `json:"metadata"`
-	PublishedAt  sql.NullString `json:"published_at"`
-	SavedAt      string         `json:"saved_at"`
-	ReadAt       sql.NullString `json:"read_at"`
-	CreatedAt    string         `json:"created_at"`
-	UpdatedAt    string         `json:"updated_at"`
+type AuthChannelIdentity struct {
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	Platform   string `json:"platform"`
+	ExternalID string `json:"external_id"`
+	Name       string `json:"name"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+type AuthCredential struct {
+	ID           string `json:"id"`
+	UserID       string `json:"user_id"`
+	PasswordHash string `json:"password_hash"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type AuthIdentity struct {
+	ID              string `json:"id"`
+	UserID          string `json:"user_id"`
+	Provider        string `json:"provider"`
+	ProviderSubject string `json:"provider_subject"`
+	Email           string `json:"email"`
+	Name            string `json:"name"`
+	AvatarUrl       string `json:"avatar_url"`
+	RawClaims       string `json:"raw_claims"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+type AuthInvite struct {
+	ID         string         `json:"id"`
+	TokenHash  string         `json:"token_hash"`
+	OrgID      string         `json:"org_id"`
+	Email      sql.NullString `json:"email"`
+	Role       string         `json:"role"`
+	Status     string         `json:"status"`
+	MaxUses    int64          `json:"max_uses"`
+	UseCount   int64          `json:"use_count"`
+	InvitedBy  string         `json:"invited_by"`
+	AcceptedBy sql.NullString `json:"accepted_by"`
+	ExpiresAt  string         `json:"expires_at"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
+}
+
+type AuthMembership struct {
+	ID             string `json:"id"`
+	UserID         string `json:"user_id"`
+	OrganizationID string `json:"organization_id"`
+	Role           string `json:"role"`
+	IsActive       int64  `json:"is_active"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type AuthOauthProvider struct {
@@ -66,6 +101,15 @@ type AuthOauthProvider struct {
 	RedirectUrl     string `json:"redirect_url"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
+}
+
+type AuthOrganization struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	ExternalID string `json:"external_id"`
+	Source     string `json:"source"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 type AuthPolicy struct {
@@ -81,6 +125,28 @@ type AuthPolicy struct {
 	Enabled    int64  `json:"enabled"`
 	OrgID      string `json:"org_id"`
 	CreatedAt  string `json:"created_at"`
+}
+
+type AuthSession struct {
+	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
+	TokenHash string `json:"token_hash"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type AuthUser struct {
+	ID               string         `json:"id"`
+	Email            string         `json:"email"`
+	Name             string         `json:"name"`
+	AvatarUrl        string         `json:"avatar_url"`
+	DefaultAgentID   sql.NullString `json:"default_agent_id"`
+	NotifyIdentityID sql.NullString `json:"notify_identity_id"`
+	AgePublicKey     string         `json:"age_public_key"`
+	AgePrivateKey    string         `json:"age_private_key"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
 }
 
 type AuthUserAgent struct {
@@ -111,6 +177,32 @@ type CtxAgentMemory struct {
 	Version     int64  `json:"version"`
 	Constraints string `json:"constraints"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+type CtxAgentMemoryChangelog struct {
+	ID                  string         `json:"id"`
+	UserID              string         `json:"user_id"`
+	AgentID             string         `json:"agent_id"`
+	SessionID           sql.NullString `json:"session_id"`
+	EntityID            sql.NullString `json:"entity_id"`
+	Scope               string         `json:"scope"`
+	Action              string         `json:"action"`
+	Source              string         `json:"source"`
+	MemoryVersionBefore sql.NullInt64  `json:"memory_version_before"`
+	MemoryVersionAfter  sql.NullInt64  `json:"memory_version_after"`
+	BeforeText          sql.NullString `json:"before_text"`
+	AfterText           sql.NullString `json:"after_text"`
+	Metadata            sql.NullString `json:"metadata"`
+	CreatedAt           string         `json:"created_at"`
+}
+
+type CtxAgentMemorySnapshot struct {
+	SessionID string `json:"session_id"`
+	UserID    string `json:"user_id"`
+	AgentID   string `json:"agent_id"`
+	Version   int64  `json:"version"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type CtxConversation struct {
@@ -190,53 +282,53 @@ type CtxSummaryParent struct {
 	Ordinal         int64  `json:"ordinal"`
 }
 
-type MemoryChangelog struct {
-	ID                  string         `json:"id"`
-	UserID              string         `json:"user_id"`
-	AgentID             string         `json:"agent_id"`
-	SessionID           sql.NullString `json:"session_id"`
-	EntityID            sql.NullString `json:"entity_id"`
-	Scope               string         `json:"scope"`
-	Action              string         `json:"action"`
-	Source              string         `json:"source"`
-	MemoryVersionBefore sql.NullInt64  `json:"memory_version_before"`
-	MemoryVersionAfter  sql.NullInt64  `json:"memory_version_after"`
-	BeforeText          sql.NullString `json:"before_text"`
-	AfterText           sql.NullString `json:"after_text"`
-	Metadata            sql.NullString `json:"metadata"`
-	CreatedAt           string         `json:"created_at"`
-}
-
-type MemorySnapshot struct {
-	SessionID string `json:"session_id"`
+type OidcAccessToken struct {
+	ID        string `json:"id"`
+	TokenHash string `json:"token_hash"`
 	UserID    string `json:"user_id"`
-	AgentID   string `json:"agent_id"`
-	Version   int64  `json:"version"`
+	OrgID     string `json:"org_id"`
+	ClientID  string `json:"client_id"`
+	Scopes    string `json:"scopes"`
+	ExpiresAt string `json:"expires_at"`
 	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
 }
 
-type PluginStateEntry struct {
-	PluginID  string `json:"plugin_id"`
-	ScopeKind string `json:"scope_kind"`
-	ScopeID   string `json:"scope_id"`
-	StateKey  string `json:"state_key"`
-	Value     string `json:"value"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+type OidcCode struct {
+	ID            string         `json:"id"`
+	CodeHash      string         `json:"code_hash"`
+	UserID        string         `json:"user_id"`
+	OrgID         string         `json:"org_id"`
+	ClientID      string         `json:"client_id"`
+	RedirectUri   string         `json:"redirect_uri"`
+	Scopes        string         `json:"scopes"`
+	Nonce         string         `json:"nonce"`
+	PkceChallenge string         `json:"pkce_challenge"`
+	PkceMethod    string         `json:"pkce_method"`
+	ExpiresAt     string         `json:"expires_at"`
+	ConsumedAt    sql.NullString `json:"consumed_at"`
+	CreatedAt     string         `json:"created_at"`
 }
 
-type Project struct {
-	ID          string         `json:"id"`
-	AgentID     string         `json:"agent_id"`
-	UserID      string         `json:"user_id"`
-	Name        string         `json:"name"`
-	BaseDir     string         `json:"base_dir"`
-	Description sql.NullString `json:"description"`
-	Archived    int64          `json:"archived"`
-	OrgID       string         `json:"org_id"`
-	CreatedAt   string         `json:"created_at"`
-	UpdatedAt   string         `json:"updated_at"`
+type RecallyArticle struct {
+	ID           string         `json:"id"`
+	UserID       string         `json:"user_id"`
+	AgentID      sql.NullString `json:"agent_id"`
+	Url          string         `json:"url"`
+	CanonicalUrl string         `json:"canonical_url"`
+	SourceType   string         `json:"source_type"`
+	Title        string         `json:"title"`
+	Author       string         `json:"author"`
+	Summary      string         `json:"summary"`
+	Tags         string         `json:"tags"`
+	Status       string         `json:"status"`
+	Starred      int64          `json:"starred"`
+	FilePath     string         `json:"file_path"`
+	Metadata     string         `json:"metadata"`
+	PublishedAt  sql.NullString `json:"published_at"`
+	SavedAt      string         `json:"saved_at"`
+	ReadAt       sql.NullString `json:"read_at"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
 }
 
 type RecallyDigest struct {
@@ -263,7 +355,7 @@ type RecallyDigestArticle struct {
 	Position  int64  `json:"position"`
 }
 
-type RssFeed struct {
+type RecallyRssFeed struct {
 	ID            string         `json:"id"`
 	UserID        string         `json:"user_id"`
 	AgentID       sql.NullString `json:"agent_id"`
@@ -384,6 +476,29 @@ type SettingsPlugin struct {
 	OrgID     string `json:"org_id"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+type SettingsPluginState struct {
+	PluginID  string `json:"plugin_id"`
+	ScopeKind string `json:"scope_kind"`
+	ScopeID   string `json:"scope_id"`
+	StateKey  string `json:"state_key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type SettingsProject struct {
+	ID          string         `json:"id"`
+	AgentID     string         `json:"agent_id"`
+	UserID      string         `json:"user_id"`
+	Name        string         `json:"name"`
+	BaseDir     string         `json:"base_dir"`
+	Description sql.NullString `json:"description"`
+	Archived    int64          `json:"archived"`
+	OrgID       string         `json:"org_id"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
 }
 
 type SettingsProvider struct {

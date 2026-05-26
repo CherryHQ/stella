@@ -11,7 +11,7 @@ const (
 	PluginKindAuth     = "auth"
 )
 
-// Plugin represents a unified plugin entry stored in settings_plugins.
+// Plugin represents a unified plugin entry stored in settings_plugin.
 // IDs follow "kind/name" format, e.g. "tool/webfetch" or "channel/telegram".
 type Plugin struct {
 	ID      string         `json:"id"`
@@ -48,7 +48,7 @@ var builtinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, Sa
 var builtinStandalonePlugins = []string{"reflect"}
 
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
-// Provider instances are stored separately in settings_providers.
+// Provider instances are stored separately in settings_provider.
 func BuiltinPluginIDs() []string {
 	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinMemoryNames)+len(builtinSandboxNames)+len(builtinStandalonePlugins))
 	for _, n := range builtinToolNames {

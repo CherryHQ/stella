@@ -26,7 +26,7 @@ func TestConformance(t *testing.T) {
 	}
 
 	// Seed test agent required by ctx_agent_memory FK constraint.
-	_, err = db.Exec(`INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, org_id)
+	_, err = db.Exec(`INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, org_id)
 		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1, ?)`, orgID)
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)

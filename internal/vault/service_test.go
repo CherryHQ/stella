@@ -14,7 +14,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// vaultTestDB combines OIDCStore (for auth_user) with sqlc.Queries (for vault_entries).
+// vaultTestDB combines OIDCStore (for auth_user) with sqlc.Queries (for vault_entry).
 type vaultTestDB struct {
 	oidc *appdb.OIDCStore
 	q    *sqlc.Queries

@@ -25,7 +25,7 @@ func NewDBStore(db *sql.DB) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
-// --- Providers (backed by settings_providers) ---
+// --- Providers (backed by settings_provider) ---
 
 func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := s.q.ListProviders(ctx)
@@ -701,7 +701,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 }
 
 // seedPlugins seeds built-in plugin rows. Channel plugin rows only carry
-// platform-level enablement; channel instance config lives in settings_channels.
+// platform-level enablement; channel instance config lives in settings_channel.
 func (s *DBStore) seedPlugins(ctx context.Context, orgID string) error {
 	// Seed all built-in plugins with INSERT OR IGNORE to preserve
 	// user-modified state.

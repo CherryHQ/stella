@@ -31,7 +31,7 @@ func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB) {
 	return s, db
 }
 
-// seedFixtures inserts the auth_organization, auth_users and settings_agents rows needed by FK constraints.
+// seedFixtures inserts the auth_organization, auth_users and settings_agent rows needed by FK constraints.
 // Returns (userID, agentID, orgID).
 func seedFixtures(t *testing.T, db *sql.DB) (string, string, string) {
 	t.Helper()
@@ -136,7 +136,7 @@ func TestCreateMissingSkillMD(t *testing.T) {
 
 	// Confirm no row was inserted.
 	var count int
-	if scanErr := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills WHERE name='bad'").Scan(&count); scanErr != nil {
+	if scanErr := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill WHERE name='bad'").Scan(&count); scanErr != nil {
 		t.Fatalf("count: %v", scanErr)
 	}
 	if count != 0 {
@@ -414,7 +414,7 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 
 	// Skill row gone.
 	var skillCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills WHERE id=?", id).Scan(&skillCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill WHERE id=?", id).Scan(&skillCount); err != nil {
 		t.Fatalf("count skills: %v", err)
 	}
 	if skillCount != 0 {
@@ -423,11 +423,11 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 
 	// Skill files cascade-deleted.
 	var fileCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill_files WHERE skill_id=?", id).Scan(&fileCount); err != nil {
-		t.Fatalf("count skill_files: %v", err)
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill_file WHERE skill_id=?", id).Scan(&fileCount); err != nil {
+		t.Fatalf("count skill_file: %v", err)
 	}
 	if fileCount != 0 {
-		t.Errorf("skill_files count = %d, want 0", fileCount)
+		t.Errorf("skill_file count = %d, want 0", fileCount)
 	}
 }
 

@@ -375,7 +375,7 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 
 	// Manually tamper the job to have a past timestamp to simulate missed window.
 	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
-	_, err = db1.Exec("UPDATE sched_jobs SET schedule_at = ? WHERE name = ?", pastTime, "restart-test")
+	_, err = db1.Exec("UPDATE sched_job SET schedule_at = ? WHERE name = ?", pastTime, "restart-test")
 	if err != nil {
 		t.Fatalf("update schedule_at: %v", err)
 	}
