@@ -19,11 +19,16 @@ type ChannelStarter interface {
 	StartChannels(ctx context.Context) error
 }
 
+// BuiltinJobSeeder ensures builtin scheduler jobs exist for an org.
+type BuiltinJobSeeder interface {
+	EnsureBuiltinJobs(orgID string)
+}
+
 // OrgRuntime holds per-org lifecycle state while using shared infrastructure.
 type OrgRuntime struct {
-	orgID   string
-	started bool
-	mu      sync.Mutex
+	orgID    string
+	once     sync.Once
+	startErr error
 }
 
 // OrgID returns the org's ID.
@@ -31,13 +36,16 @@ func (r *OrgRuntime) OrgID() string { return r.orgID }
 
 // Start initializes runtime services for this org: syncs agent pools,
 // starts channel runtimes, and ensures builtin scheduler jobs.
-func (r *OrgRuntime) Start(ctx context.Context, store config.Store, syncer AgentSyncer, channels ChannelStarter) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.started {
-		return nil
-	}
+// Safe for concurrent calls — only the first caller does the work,
+// all others block until it completes.
+func (r *OrgRuntime) Start(ctx context.Context, store config.Store, syncer AgentSyncer, channels ChannelStarter, jobs BuiltinJobSeeder) error {
+	r.once.Do(func() {
+		r.startErr = r.doStart(ctx, store, syncer, channels, jobs)
+	})
+	return r.startErr
+}
 
+func (r *OrgRuntime) doStart(ctx context.Context, store config.Store, syncer AgentSyncer, channels ChannelStarter, jobs BuiltinJobSeeder) error {
 	orgCtx := config.WithOrgID(ctx, r.orgID)
 
 	agents, err := store.ListEnabledAgents(orgCtx)
@@ -56,7 +64,10 @@ func (r *OrgRuntime) Start(ctx context.Context, store config.Store, syncer Agent
 		}
 	}
 
-	r.started = true
+	if jobs != nil {
+		jobs.EnsureBuiltinJobs(r.orgID)
+	}
+
 	slog.Info("orgruntime: started", "org_id", r.orgID, "agents", len(agents))
 	return nil
 }
@@ -69,6 +80,7 @@ type Manager struct {
 	store    config.Store
 	syncer   AgentSyncer
 	channels ChannelStarter
+	jobs     BuiltinJobSeeder
 }
 
 // ManagerDeps holds the shared dependencies injected into Manager.
@@ -76,6 +88,7 @@ type ManagerDeps struct {
 	Store    config.Store
 	Syncer   AgentSyncer
 	Channels ChannelStarter
+	Jobs     BuiltinJobSeeder
 }
 
 // NewManager creates a Manager with the given shared dependencies.
@@ -85,24 +98,23 @@ func NewManager(deps ManagerDeps) *Manager {
 		store:    deps.Store,
 		syncer:   deps.Syncer,
 		channels: deps.Channels,
+		jobs:     deps.Jobs,
 	}
 }
 
 // GetOrInit returns the cached OrgRuntime for orgID, or creates and starts one.
 // It does NOT seed the org — the org must already exist with seeded data.
-// Idempotent and safe for concurrent calls.
+// Concurrent calls for the same orgID block until the first caller's Start completes.
 func (m *Manager) GetOrInit(ctx context.Context, orgID string) (*OrgRuntime, error) {
 	m.mu.Lock()
-	if rt, ok := m.runtimes[orgID]; ok {
-		m.mu.Unlock()
-		return rt, nil
+	rt, ok := m.runtimes[orgID]
+	if !ok {
+		rt = &OrgRuntime{orgID: orgID}
+		m.runtimes[orgID] = rt
 	}
-
-	rt := &OrgRuntime{orgID: orgID}
-	m.runtimes[orgID] = rt
 	m.mu.Unlock()
 
-	if err := rt.Start(ctx, m.store, m.syncer, m.channels); err != nil {
+	if err := rt.Start(ctx, m.store, m.syncer, m.channels, m.jobs); err != nil {
 		m.mu.Lock()
 		delete(m.runtimes, orgID)
 		m.mu.Unlock()
