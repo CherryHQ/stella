@@ -53,6 +53,7 @@ Read the relevant reference file for detailed guidance:
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults         |
 | Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands        |
 | Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control |
+| Tasks         | [references/tasks.md](references/tasks.md)                 | Goals, task lifecycle, DAG deps, runs, reviews, criteria    |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                  |
 
 ## In-chat commands
@@ -91,11 +92,17 @@ stella share article <id>      # Create a public share link for a Recally articl
 stella scheduler add ...        # Create a scheduled job
 stella scheduler list           # List scheduled jobs
 stella scheduler remove <id>    # Remove a scheduled job
-stella task list [--status <s>] # List tasks
+stella task list [--status <s>] # List tasks (shows type, status, priority)
 stella task get <id>            # Get task details
 stella task create --title <t>  # Create a task
-stella task action <id> --type  # Take action on a task
+stella task action <id> --type  # Take action on a task (approve/reject/respond/cancel)
 stella task events <id>         # List task events
+stella task runs <id>           # List runs for a task
+stella task reviews <id>        # List reviews for a task
+stella task criteria <id>       # List acceptance criteria
+stella task split <id> -f <json># Split a goal into child tasks
+stella task plan-ready <id>     # Signal planning complete
+stella task reopen <id>         # Reopen a done/failed/cancelled task
 stella version                  # Print version
 stella upgrade                  # Self-update to latest release
 ```

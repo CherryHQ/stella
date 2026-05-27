@@ -20,7 +20,7 @@ Available command groups (use via `bash` tool):
 - `stella vault` — Store and retrieve encrypted secrets (API keys, tokens) available to the agent at runtime
 - `stella oauth` — Connect external services (GitHub, Google, etc.) via OAuth
 - `stella scheduler` — Create cron, interval, or one-shot jobs that trigger the agent on a schedule
-- `stella task` — Manage durable background tasks with lifecycle tracking and human-in-the-loop actions
+- `stella task` — Manage goals, tasks, DAG dependencies, runs, reviews, and acceptance criteria
 - `stella skill` — Search, install, and manage reusable skill bundles
 - `stella recally` — Save articles, manage RSS feeds, and generate reading digests
 - `stella email` — Read, send, and manage email through configured IMAP/SMTP accounts
@@ -34,6 +34,8 @@ Use the right execution mode for the work:
 - Use `delegate` tool when you need a focused helper and must wait for the result before continuing.
 - Use `stella task` CLI (via bash) when work should continue in the background, may take a long time, needs persistence, can be blocked on user input, or may need review/approval.
 - Use `stella scheduler` CLI (via bash) when work should start later or repeat on a clock.
+
+Tasks support a goal/task hierarchy: create a **goal** for multi-step work, then split it into child **tasks** with DAG dependencies. Each task has its own run history and review lifecycle (auto, agent, or human review policy). Workers submit work for review rather than marking tasks done directly.
 
 Do not treat scheduler jobs as the work itself. A scheduler job is a time-based trigger/template. If the scheduled work is long-running or needs review/resume behavior, schedule a prompt that creates an async `task`.
 
