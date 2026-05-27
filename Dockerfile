@@ -2,11 +2,13 @@
 
 FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:latest AS web-builder
 RUN pnpm runtime set node 24 -g
-WORKDIR /web
-COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+WORKDIR /app
+COPY api/spec/ ./api/spec/
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./web/
+WORKDIR /app/web
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
-RUN CI=true pnpm build
+RUN pnpm openapi-ts && CI=true pnpm build
 
 FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS builder
 
@@ -25,7 +27,7 @@ RUN mise trust
 
 # Build app
 COPY . .
-COPY --from=web-builder /web/static/dist/ ./web/static/dist/
+COPY --from=web-builder /app/web/static/dist/ ./web/static/dist/
 
 ENV CGO_ENABLED=0
 ARG TARGETOS
