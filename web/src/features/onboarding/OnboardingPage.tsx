@@ -124,7 +124,7 @@ function PendingInvitesSection({
   async function handleAccept(inviteId: string) {
     setLoading(inviteId);
     setError(null);
-    const res = await redeemInviteOnboarding({ body: { token: inviteId } });
+    const res = await redeemInviteOnboarding({ body: { invite_id: inviteId } });
     if (res.error) {
       setError("Failed to accept invite.");
       setLoading(null);

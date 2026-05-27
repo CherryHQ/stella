@@ -72,6 +72,7 @@ type MembershipStore interface {
 // InviteStore provides CRUD for auth_invite (organization invitations).
 type InviteStore interface {
 	CreateInvite(ctx context.Context, inv Invite) (Invite, error)
+	GetInvite(ctx context.Context, id string) (Invite, error)
 	GetInviteByTokenHash(ctx context.Context, tokenHash string) (Invite, error)
 	ListInvitesByOrg(ctx context.Context, orgID string) ([]Invite, error)
 	ListPendingInvitesByEmail(ctx context.Context, email string) ([]Invite, error)

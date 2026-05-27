@@ -1049,7 +1049,8 @@ export type ComponentsPublicChannelList = {
 };
 
 export type ComponentsRedeemInviteInput = {
-  token: string;
+  token?: string;
+  invite_id?: string;
 };
 
 export type ComponentsRegisterRequest = {
