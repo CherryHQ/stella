@@ -12,9 +12,6 @@ plan.md
 # Embedded tool binaries (downloaded via builddeps sync)
 resources/binaries/binaries/*/*.gz
 
-# Generated API docs spec (produced by mise run generate:api)
-internal/server/docs_spec.yaml
-
 cmd/stella/.agents/
 internal/agent/runner/.agents/
 .chorus/
