@@ -55,7 +55,7 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	agentID := "agent1"
 	cs := store.NewDBStore(db)
 	orgCtx := config.WithOrgID(ctx, orgID)
-	_ = cs.SeedDefaults(ctx, orgID)
+	_ = cs.SeedNewOrg(ctx, orgID)
 	if err := cs.CreateAgent(orgCtx, config.Agent{
 		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
 	}); err != nil {

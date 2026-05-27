@@ -124,7 +124,7 @@ func (commandTestStore) DeleteChatAgent(context.Context, string, string, string)
 func (commandTestStore) GetSetting(context.Context, string) (string, error)            { return "", nil }
 func (commandTestStore) SetSetting(context.Context, string, string) error              { return nil }
 func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)    { return nil, nil }
-func (commandTestStore) SeedDefaults(context.Context, string) error                    { return nil }
+func (commandTestStore) SeedNewOrg(context.Context, string) error                      { return nil }
 
 func setupCommandTestStellaHome(t *testing.T) string {
 	t.Helper()
@@ -199,7 +199,7 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	}
 	store := cfgstore.NewDBStore(db)
 	ctx := config.WithOrgID(context.Background(), orgID)
-	if err := store.SeedDefaults(ctx, orgID); err != nil {
+	if err := store.SeedNewOrg(ctx, orgID); err != nil {
 		t.Fatalf("seed defaults: %v", err)
 	}
 	agents, err := store.ListEnabledAgents(ctx)

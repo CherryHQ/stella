@@ -39,12 +39,12 @@ func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *sql.DB) {
 	return s, db
 }
 
-func TestSeedDefaults(t *testing.T) {
+func TestSeedNewOrg(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
+	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
+		t.Fatalf("SeedNewOrg: %v", err)
 	}
 
 	providers, err := s.ListProviders(ctx)
@@ -76,15 +76,15 @@ func TestSeedDefaults(t *testing.T) {
 	}
 }
 
-func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
+func TestSeedNewOrgUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
 	if err := s.CreateProvider(ctx, config.Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
+	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
+		t.Fatalf("SeedNewOrg: %v", err)
 	}
 
 	agents, err := s.ListAgents(ctx)
@@ -99,15 +99,15 @@ func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 	}
 }
 
-func TestSeedDefaultsIdempotent(t *testing.T) {
+func TestSeedNewOrgIdempotent(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("first SeedDefaults: %v", err)
+	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
+		t.Fatalf("first SeedNewOrg: %v", err)
 	}
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("second SeedDefaults: %v", err)
+	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
+		t.Fatalf("second SeedNewOrg: %v", err)
 	}
 
 	providers, _ := s.ListProviders(ctx)
@@ -495,7 +495,7 @@ func TestSnapshot(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = s.SeedDefaults(ctx, testOrgID)
+	_ = s.SeedNewOrg(ctx, testOrgID)
 
 	agents, err := s.ListAgents(ctx)
 	if err != nil || len(agents) == 0 {
@@ -618,7 +618,7 @@ func TestSnapshotDefaults(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = s.SeedDefaults(ctx, testOrgID)
+	_ = s.SeedNewOrg(ctx, testOrgID)
 	_ = s.CreateAgent(ctx, config.Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
 
 	snap, err := s.Snapshot(ctx, "a")

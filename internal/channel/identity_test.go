@@ -59,8 +59,8 @@ func setupStores(t *testing.T) testStores {
 	}
 	store := cfgstore.NewDBStore(db)
 	ctx := config.WithOrgID(context.Background(), orgID)
-	if err := store.SeedDefaults(ctx, orgID); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
+	if err := store.SeedNewOrg(ctx, orgID); err != nil {
+		t.Fatalf("SeedNewOrg: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)

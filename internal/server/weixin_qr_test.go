@@ -56,8 +56,8 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 	orgCtx := config.WithOrgID(context.Background(), orgID)
 	store := cfgstore.NewDBStore(db)
-	if err := store.SeedDefaults(orgCtx, orgID); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
+	if err := store.SeedNewOrg(orgCtx, orgID); err != nil {
+		t.Fatalf("SeedNewOrg: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)

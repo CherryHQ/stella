@@ -354,7 +354,7 @@ type orgSeeder struct {
 }
 
 func (s *orgSeeder) SeedOrg(ctx context.Context, orgID string) error {
-	if err := s.store.SeedDefaults(ctx, orgID); err != nil {
+	if err := s.store.SeedNewOrg(ctx, orgID); err != nil {
 		return fmt.Errorf("seed settings: %w", err)
 	}
 	return nil

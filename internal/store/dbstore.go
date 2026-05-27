@@ -820,7 +820,7 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 - Own your mistakes quickly. No hedging or over-apologizing.
 - Use humor sparingly and naturally — never forced.`
 
-func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
+func (s *DBStore) SeedNewOrg(ctx context.Context, orgID string) error {
 	ctx = config.WithOrgID(ctx, orgID)
 	if err := s.seedChannelInstances(ctx, orgID); err != nil {
 		return err
