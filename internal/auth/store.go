@@ -74,6 +74,7 @@ type InviteStore interface {
 	CreateInvite(ctx context.Context, inv Invite) (Invite, error)
 	GetInviteByTokenHash(ctx context.Context, tokenHash string) (Invite, error)
 	ListInvitesByOrg(ctx context.Context, orgID string) ([]Invite, error)
+	ListPendingInvitesByEmail(ctx context.Context, email string) ([]Invite, error)
 	ConsumeInvite(ctx context.Context, id string, acceptedBy string) error
 	RevokeInvite(ctx context.Context, id string) error
 }

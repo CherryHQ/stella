@@ -82,12 +82,11 @@ func (s *AuthService) InitOrg(ctx context.Context, orgID string) error {
 // OIDCLoginResult holds everything the HTTP handler needs after a successful
 // OIDC callback.
 type OIDCLoginResult struct {
-	User           User
-	Session        Session
-	Membership     Membership
-	IsNewUser      bool
-	NeedsSeedOrgID string // non-empty when a new org was created and needs seeding
-	SessionToken   string // raw token for the session cookie (not stored in DB)
+	User         User
+	Session      Session
+	Membership   *Membership // nil when the user has no org yet (needs onboarding)
+	IsNewUser    bool
+	SessionToken string // raw token for the session cookie (not stored in DB)
 }
 
 // ProcessOIDCLogin is the single transaction entry point for an OIDC callback.
@@ -137,19 +136,6 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 		return OIDCLoginResult{}, fmt.Errorf("auth: commit login tx: %w", err)
 	}
 
-	// Seed after commit using the outer (non-tx) seeder.
-	if result.NeedsSeedOrgID != "" && s.seeder != nil {
-		if err := s.seeder.SeedOrg(ctx, result.NeedsSeedOrgID); err != nil {
-			return OIDCLoginResult{}, fmt.Errorf("auth: seed new org: %w", err)
-		}
-	}
-
-	if result.IsNewUser && s.userSeeder != nil {
-		if err := s.userSeeder.SeedUser(ctx, result.User.ID, result.Membership.OrganizationID); err != nil {
-			return OIDCLoginResult{}, fmt.Errorf("auth: seed new user: %w", err)
-		}
-	}
-
 	return result, nil
 }
 
@@ -160,15 +146,12 @@ func (s *AuthService) processOIDCLoginNoTx(ctx context.Context, ext ExternalIden
 		return OIDCLoginResult{}, fmt.Errorf("auth: resolve user: %w", err)
 	}
 
-	membership, needsSeedOrgID, err := s.ensureMembership(ctx, user.ID)
-	if err != nil {
-		return OIDCLoginResult{}, fmt.Errorf("auth: manage membership: %w", err)
-	}
-
-	if needsSeedOrgID != "" && s.seeder != nil {
-		if err := s.seeder.SeedOrg(ctx, needsSeedOrgID); err != nil {
-			return OIDCLoginResult{}, fmt.Errorf("auth: seed new org: %w", err)
-		}
+	// Look up existing membership but don't auto-create one.
+	var membership *Membership
+	if m, err := s.memberships.GetUserMembership(ctx, user.ID); err == nil {
+		membership = &m
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return OIDCLoginResult{}, fmt.Errorf("auth: get membership: %w", err)
 	}
 
 	rawToken, session, err := sessionMgr.Create(ctx, user.ID)
@@ -177,40 +160,60 @@ func (s *AuthService) processOIDCLoginNoTx(ctx context.Context, ext ExternalIden
 	}
 
 	return OIDCLoginResult{
-		User:           user,
-		Session:        session,
-		Membership:     membership,
-		IsNewUser:      isNewUser,
-		NeedsSeedOrgID: needsSeedOrgID,
-		SessionToken:   rawToken,
+		User:         user,
+		Session:      session,
+		Membership:   membership,
+		IsNewUser:    isNewUser,
+		SessionToken: rawToken,
 	}, nil
 }
 
-// PrincipalFromToken resolves a Principal from a raw session token. It hashes
-// the token, looks up the session, loads the user and membership, and checks
-// is_active. Returns an error when the session is invalid, expired, or the
-// membership is inactive.
+// PrincipalFromToken resolves a Principal from a raw session token. Returns an
+// error when the session is invalid, expired, the membership is missing, or
+// the membership is inactive.
 func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (*Principal, error) {
+	p, hasMembership, err := s.PrincipalFromTokenPartial(ctx, rawToken)
+	if err != nil {
+		return nil, err
+	}
+	if !hasMembership {
+		return nil, errors.New("auth: no membership")
+	}
+	return p, nil
+}
+
+// PrincipalFromTokenPartial resolves a Principal from a raw session token,
+// tolerating a missing membership. Returns (principal, hasMembership, error).
+// When hasMembership is false the principal has OrgID="" and Role="".
+func (s *AuthService) PrincipalFromTokenPartial(ctx context.Context, rawToken string) (*Principal, bool, error) {
 	session, err := s.sessions.GetSessionByTokenHash(ctx, hashSessionToken(rawToken))
 	if err != nil {
-		return nil, fmt.Errorf("auth: session not found: %w", err)
+		return nil, false, fmt.Errorf("auth: session not found: %w", err)
 	}
 	if time.Now().After(session.ExpiresAt) {
 		_ = s.sessions.DeleteSession(ctx, session.ID)
-		return nil, errors.New("auth: session expired")
+		return nil, false, errors.New("auth: session expired")
 	}
 
 	user, err := s.users.GetUser(ctx, session.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("auth: get user: %w", err)
+		return nil, false, fmt.Errorf("auth: get user: %w", err)
 	}
 
 	membership, err := s.memberships.GetUserMembership(ctx, user.ID)
 	if err != nil {
-		return nil, fmt.Errorf("auth: get membership: %w", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return &Principal{
+				UserID:    user.ID,
+				Email:     user.Email,
+				Name:      user.Name,
+				AvatarURL: user.AvatarURL,
+			}, false, nil
+		}
+		return nil, false, fmt.Errorf("auth: get membership: %w", err)
 	}
 	if !membership.IsActive {
-		return nil, errors.New("auth: membership is inactive")
+		return nil, false, errors.New("auth: membership is inactive")
 	}
 
 	return &Principal{
@@ -220,27 +223,87 @@ func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (
 		Name:      user.Name,
 		AvatarURL: user.AvatarURL,
 		Role:      membership.Role,
-	}, nil
+	}, true, nil
 }
 
-// EnsureMembership returns the user's existing membership or creates a new org
-// and membership if they don't have one yet. Seeds the new org if a seeder is set.
+// EnsureMembership returns the user's existing membership or creates a new
+// workspace if they don't have one yet.
 func (s *AuthService) EnsureMembership(ctx context.Context, userID string) (Membership, error) {
-	m, needsSeedOrgID, err := s.ensureMembership(ctx, userID)
-	if err != nil {
-		return Membership{}, err
+	m, err := s.memberships.GetUserMembership(ctx, userID)
+	if err == nil {
+		return m, nil
 	}
-	if needsSeedOrgID != "" && s.seeder != nil {
-		if err := s.seeder.SeedOrg(ctx, needsSeedOrgID); err != nil {
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Membership{}, fmt.Errorf("auth: get membership: %w", err)
+	}
+	return s.CreateWorkspace(ctx, userID, "")
+}
+
+// CreateWorkspace creates a new org and membership for a user who has none.
+func (s *AuthService) CreateWorkspace(ctx context.Context, userID, orgName string) (Membership, error) {
+	if _, err := s.memberships.GetUserMembership(ctx, userID); err == nil {
+		return Membership{}, errors.New("auth: user already has a membership")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Membership{}, fmt.Errorf("auth: check membership: %w", err)
+	}
+
+	if orgName == "" {
+		orgName = DefaultOrgName
+	}
+	org, err := s.organizations.CreateOrganization(ctx, Organization{
+		ID:         uuid.NewString(),
+		Name:       orgName,
+		ExternalID: uuid.NewString(),
+		Source:     "stella",
+	})
+	if err != nil {
+		return Membership{}, fmt.Errorf("auth: create org: %w", err)
+	}
+
+	m, err := s.memberships.CreateMembership(ctx, Membership{
+		ID:             uuid.NewString(),
+		UserID:         userID,
+		OrganizationID: org.ID,
+		Role:           RoleAdmin,
+		IsActive:       true,
+	})
+	if err != nil {
+		return Membership{}, fmt.Errorf("auth: create membership: %w", err)
+	}
+
+	if s.seeder != nil {
+		if err := s.seeder.SeedOrg(ctx, org.ID); err != nil {
 			return Membership{}, fmt.Errorf("auth: seed new org: %w", err)
 		}
 	}
-	if needsSeedOrgID != "" && s.userSeeder != nil {
-		if err := s.userSeeder.SeedUser(ctx, userID, m.OrganizationID); err != nil {
+	if s.userSeeder != nil {
+		if err := s.userSeeder.SeedUser(ctx, userID, org.ID); err != nil {
 			return Membership{}, fmt.Errorf("auth: seed user: %w", err)
 		}
 	}
+
 	return m, nil
+}
+
+// ListPendingInvitesForEmail returns pending invites matching the given email,
+// each paired with the organization name.
+func (s *AuthService) ListPendingInvitesForEmail(ctx context.Context, email string) ([]InviteWithOrg, error) {
+	if email == "" {
+		return nil, nil
+	}
+	invites, err := s.invites.ListPendingInvitesByEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("auth: list pending invites: %w", err)
+	}
+	out := make([]InviteWithOrg, 0, len(invites))
+	for _, inv := range invites {
+		orgName := ""
+		if org, err := s.organizations.GetOrganization(ctx, inv.OrgID); err == nil {
+			orgName = org.Name
+		}
+		out = append(out, InviteWithOrg{Invite: inv, OrgName: orgName})
+	}
+	return out, nil
 }
 
 // GetUserMembership returns the user's current org membership.
@@ -359,6 +422,11 @@ func (s *AuthService) RedeemInvite(ctx context.Context, rawToken string, userID 
 		}); err != nil {
 			return fmt.Errorf("auth: create membership for invite: %w", err)
 		}
+		if s.userSeeder != nil {
+			if err := s.userSeeder.SeedUser(ctx, userID, inv.OrgID); err != nil {
+				return fmt.Errorf("auth: seed user after invite: %w", err)
+			}
+		}
 	default:
 		return fmt.Errorf("auth: check membership: %w", err)
 	}
@@ -374,16 +442,6 @@ func (s *AuthService) ListOrgInvites(ctx context.Context, orgID string) ([]Invit
 // RevokeInvite marks a pending invite as revoked.
 func (s *AuthService) RevokeInvite(ctx context.Context, id string) error {
 	return s.invites.RevokeInvite(ctx, id)
-}
-
-// createOrganization creates a new personal org for the user.
-func (s *AuthService) createOrganization(ctx context.Context) (Organization, error) {
-	return s.organizations.CreateOrganization(ctx, Organization{
-		ID:         uuid.NewString(),
-		Name:       DefaultOrgName,
-		ExternalID: uuid.NewString(),
-		Source:     "stella",
-	})
 }
 
 // resolveUser finds the existing user by login identity or email, or creates a new one.
@@ -453,34 +511,4 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 	}
 
 	return newUser, true, nil
-}
-
-// ensureMembership returns the user's existing membership or creates a new org
-// and membership if they don't have one yet. Does NOT seed the org — the caller
-// must check needsSeedOrgID and call SeedOrg after commit.
-func (s *AuthService) ensureMembership(ctx context.Context, userID string) (membership Membership, needsSeedOrgID string, err error) {
-	existing, err := s.memberships.GetUserMembership(ctx, userID)
-	if err == nil {
-		return existing, "", nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return Membership{}, "", err
-	}
-
-	org, err := s.createOrganization(ctx)
-	if err != nil {
-		return Membership{}, "", fmt.Errorf("auth: create org for new user: %w", err)
-	}
-
-	m, err := s.memberships.CreateMembership(ctx, Membership{
-		ID:             uuid.NewString(),
-		UserID:         userID,
-		OrganizationID: org.ID,
-		Role:           RoleAdmin,
-		IsActive:       true,
-	})
-	if err != nil {
-		return Membership{}, "", err
-	}
-	return m, org.ID, nil
 }
