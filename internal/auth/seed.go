@@ -1,15 +1,7 @@
 package auth
 
-import (
-	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"log/slog"
-	"strings"
-)
-
-// builtinPolicies defines the system policies seeded on bootstrap.
+// builtinPolicies defines the system policies. These live in code and are
+// never written to the DB. Custom (non-system) policies live in the DB.
 var builtinPolicies = []Policy{
 	{
 		ID:         "system:admin-full-access",
@@ -121,37 +113,11 @@ var builtinPolicies = []Policy{
 	},
 }
 
-// SeedPolicies ensures the built-in policies exist in the store.
-// It uses an idempotent pattern: existing entries are skipped.
-func SeedPolicies(ctx context.Context, store AuthStore, orgID string) error {
-	for _, policy := range builtinPolicies {
-		policy.OrgID = orgID
-		if _, err := store.CreatePolicy(ctx, policy); err != nil {
-			if isAlreadyExists(err) {
-				slog.Debug("auth seed: policy already exists", "policy_id", policy.ID)
-				continue
-			}
-			return fmt.Errorf("seed policy %q: %w", policy.ID, err)
-		}
-		slog.Info("auth seed: created policy", "policy_id", policy.ID)
-	}
-
-	return nil
-}
-
-// isAlreadyExists checks whether the error indicates a unique constraint
-// violation (SQLite UNIQUE constraint failed).
-func isAlreadyExists(err error) bool {
-	if err == nil {
-		return false
-	}
-	// sql.ErrNoRows is not a constraint error, but check common patterns.
-	if errors.Is(err, sql.ErrNoRows) {
-		return false
-	}
-	// SQLite returns "UNIQUE constraint failed" for duplicate keys.
-	errStr := err.Error()
-	return strings.Contains(errStr, "UNIQUE constraint failed") ||
-		strings.Contains(errStr, "constraint failed") ||
-		strings.Contains(errStr, "duplicate key")
+// BuiltinPolicies returns the authoritative list of system policies.
+// These are org-agnostic (OrgID is empty) and merged with custom DB
+// policies at query time by ListEnabledPolicies.
+func BuiltinPolicies() []Policy {
+	out := make([]Policy, len(builtinPolicies))
+	copy(out, builtinPolicies)
+	return out
 }
