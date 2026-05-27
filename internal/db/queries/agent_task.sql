@@ -31,6 +31,12 @@ SELECT * FROM agent_task WHERE root_id = ? AND user_id = ? ORDER BY created_at A
 -- name: ListReadyAgentTasks :many
 SELECT * FROM agent_task WHERE status = 'ready' ORDER BY created_at ASC;
 
+-- name: ListDraftAgentTasksWithDeps :many
+SELECT DISTINCT t.* FROM agent_task t
+JOIN agent_task_dep d ON d.task_id = t.id
+WHERE t.status = 'draft' AND t.parent_id IS NOT NULL
+ORDER BY t.created_at ASC;
+
 -- name: ListRunningAgentTasks :many
 SELECT * FROM agent_task WHERE status = 'running' ORDER BY created_at ASC;
 

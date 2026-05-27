@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,6 +20,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+var (
+	ErrNotFound      = errors.New("not found")
+	ErrCycle         = errors.New("cycle detected")
+	ErrInvalidStatus = errors.New("invalid status")
 )
 
 const defaultMaxConcurrency = 5
@@ -236,14 +243,21 @@ func (s *Service) notifyMessage(ctx context.Context, t sqlc.AgentTask) string {
 	}
 }
 
-// sweepDepFailures transitions pending tasks to blocked when any dep has failed/cancelled.
+// sweepDepFailures transitions ready and draft tasks to blocked/failed when any dep has failed/cancelled.
 func (s *Service) sweepDepFailures(ctx context.Context, now string) {
-	pending, err := s.q.ListReadyAgentTasks(ctx)
+	ready, err := s.q.ListReadyAgentTasks(ctx)
 	if err != nil {
-		s.log.Warn("dep failure sweep: list failed", "error", err)
-		return
+		s.log.Warn("dep failure sweep: list ready failed", "error", err)
 	}
-	for _, t := range pending {
+	drafts, err := s.q.ListDraftAgentTasksWithDeps(ctx)
+	if err != nil {
+		s.log.Warn("dep failure sweep: list drafts failed", "error", err)
+	}
+
+	candidates := make([]sqlc.AgentTask, 0, len(ready)+len(drafts))
+	candidates = append(candidates, ready...)
+	candidates = append(candidates, drafts...)
+	for _, t := range candidates {
 		depRows, err := s.q.ListAgentTaskDeps(ctx, t.ID)
 		if err != nil || len(depRows) == 0 {
 			continue
@@ -254,19 +268,25 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 				continue
 			}
 			if dep.Status == "failed" || dep.Status == "cancelled" {
+				targetStatus := "blocked"
+				if t.Status == "draft" {
+					targetStatus = "cancelled"
+				}
 				_ = s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-					Status:    "blocked",
+					Status:    targetStatus,
 					UpdatedAt: now,
 					ID:        t.ID,
 					UserID:    t.UserID,
 				})
-				_ = s.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
-					NotifyAt:  sql.NullString{String: now, Valid: true},
-					UpdatedAt: now,
-					ID:        t.ID,
-					UserID:    t.UserID,
-				})
-				insertEvent(ctx, s.q, t.ID, "blocked", detailJSON(fmt.Sprintf("dependency %q is %s", dep.Title, dep.Status)))
+				if targetStatus == "blocked" {
+					_ = s.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
+						NotifyAt:  sql.NullString{String: now, Valid: true},
+						UpdatedAt: now,
+						ID:        t.ID,
+						UserID:    t.UserID,
+					})
+				}
+				insertEvent(ctx, s.q, t.ID, targetStatus, detailJSON(fmt.Sprintf("dependency %q is %s", dep.Title, dep.Status)))
 				break
 			}
 		}
@@ -319,7 +339,15 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 
 	id := newID()
 	now := time.Now().Format(time.RFC3339)
-	task, err := s.q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
+
+	task, err := qtx.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
 		ID:              id,
 		RootID:          id,
 		TaskType:        "task",
@@ -341,14 +369,18 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: create: %w", err)
 	}
 
-	// Insert dependency edges.
 	for _, depID := range params.Deps {
-		_ = s.q.InsertAgentTaskDep(ctx, sqlc.InsertAgentTaskDepParams{
+		if err := qtx.InsertAgentTaskDep(ctx, sqlc.InsertAgentTaskDepParams{
 			TaskID: id,
 			DepID:  depID,
-		})
+		}); err != nil {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: insert dep: %w", err)
+		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: commit: %w", err)
+	}
 	return task, nil
 }
 
@@ -356,7 +388,7 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 func (s *Service) validateDeps(ctx context.Context, userID string, deps []string) error {
 	for _, id := range deps {
 		if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID}); err != nil {
-			return fmt.Errorf("tasks: dep %q not found: %w", id, err)
+			return fmt.Errorf("tasks: dep %q: %w", id, ErrNotFound)
 		}
 	}
 	// DFS to detect cycles in the transitive dep graph.
@@ -364,7 +396,7 @@ func (s *Service) validateDeps(ctx context.Context, userID string, deps []string
 	var dfs func(id string) error
 	dfs = func(id string) error {
 		if inStack[id] {
-			return fmt.Errorf("tasks: cycle detected involving task %q", id)
+			return fmt.Errorf("tasks: %w involving task %q", ErrCycle, id)
 		}
 		inStack[id] = true
 		defer func() { inStack[id] = false }()
@@ -400,7 +432,7 @@ func detectIntraBatchCycle(n int, edges map[int][]int) error {
 		color[i] = gray
 		for _, j := range edges[i] {
 			if color[j] == gray {
-				return fmt.Errorf("tasks: cycle detected in split children (index %d → %d)", i, j)
+				return fmt.Errorf("tasks: %w in split children (index %d → %d)", ErrCycle, i, j)
 			}
 			if color[j] == white {
 				if err := dfs(j); err != nil {
@@ -641,13 +673,13 @@ func (s *Service) ListTaskEvents(ctx context.Context, taskID string) ([]sqlc.Age
 func (s *Service) AddDep(ctx context.Context, taskID, depID, userID string) error {
 	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
 	if err != nil {
-		return fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+		return fmt.Errorf("tasks: task %q: %w", taskID, ErrNotFound)
 	}
 	if task.Status != "ready" && task.Status != "blocked" {
-		return fmt.Errorf("tasks: cannot add dep to task in status %q", task.Status)
+		return fmt.Errorf("tasks: cannot add dep to task in status %q: %w", task.Status, ErrInvalidStatus)
 	}
 	if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: userID}); err != nil {
-		return fmt.Errorf("tasks: dep %q not found: %w", depID, err)
+		return fmt.Errorf("tasks: dep %q: %w", depID, ErrNotFound)
 	}
 	if taskID == depID {
 		return fmt.Errorf("tasks: cannot depend on self")
@@ -657,7 +689,7 @@ func (s *Service) AddDep(ctx context.Context, taskID, depID, userID string) erro
 	var dfs func(id string) error
 	dfs = func(id string) error {
 		if id == taskID {
-			return fmt.Errorf("tasks: cycle detected — adding this dependency would create a loop")
+			return fmt.Errorf("tasks: %w — adding this dependency would create a loop", ErrCycle)
 		}
 		if visited[id] {
 			return nil
@@ -684,7 +716,7 @@ func (s *Service) AddDep(ctx context.Context, taskID, depID, userID string) erro
 func (s *Service) RemoveDep(ctx context.Context, taskID, depID, userID string) error {
 	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
 	if err != nil {
-		return fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+		return fmt.Errorf("tasks: task %q: %w", taskID, ErrNotFound)
 	}
 	if err := s.q.DeleteAgentTaskDep(ctx, sqlc.DeleteAgentTaskDepParams{TaskID: taskID, DepID: depID}); err != nil {
 		return fmt.Errorf("tasks: remove dep: %w", err)
@@ -707,7 +739,7 @@ type TaskDeps struct {
 // GetTaskDeps returns upstream dependencies and downstream dependents.
 func (s *Service) GetTaskDeps(ctx context.Context, taskID, userID string) (TaskDeps, error) {
 	if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID}); err != nil {
-		return TaskDeps{}, fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+		return TaskDeps{}, fmt.Errorf("tasks: task %q: %w", taskID, ErrNotFound)
 	}
 	depIDs, err := s.q.ListAgentTaskDeps(ctx, taskID)
 	if err != nil {
@@ -798,7 +830,7 @@ func (s *Service) BatchCreateTasks(ctx context.Context, params BatchCreateParams
 				resolvedDeps[i] = append(resolvedDeps[i], realID)
 			} else {
 				if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: dep, UserID: params.UserID}); err != nil {
-					return nil, fmt.Errorf("tasks: dep %q not found", dep)
+					return nil, fmt.Errorf("tasks: dep %q: %w", dep, ErrNotFound)
 				}
 				resolvedDeps[i] = append(resolvedDeps[i], dep)
 			}
@@ -814,7 +846,7 @@ func (s *Service) BatchCreateTasks(ctx context.Context, params BatchCreateParams
 	var dfs func(id string) error
 	dfs = func(id string) error {
 		if visited[id] == 1 {
-			return fmt.Errorf("tasks: cycle detected in batch")
+			return fmt.Errorf("tasks: %w in batch", ErrCycle)
 		}
 		if visited[id] == 2 {
 			return nil
@@ -914,13 +946,13 @@ func (s *Service) CreateGoal(ctx context.Context, params CreateGoalParams) (sqlc
 func (s *Service) SplitTask(ctx context.Context, goalID, userID string, children []ChildTaskInput) ([]sqlc.AgentTask, error) {
 	goal, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: goalID, UserID: userID})
 	if err != nil {
-		return nil, fmt.Errorf("tasks: goal %q not found: %w", goalID, err)
+		return nil, fmt.Errorf("tasks: goal %q: %w", goalID, ErrNotFound)
 	}
 	if goal.TaskType != "goal" {
-		return nil, fmt.Errorf("tasks: %q is not a goal", goalID)
+		return nil, fmt.Errorf("tasks: %q is not a goal: %w", goalID, ErrInvalidStatus)
 	}
 	if goal.Status != "draft" && goal.Status != "running" {
-		return nil, fmt.Errorf("tasks: cannot split goal in status %q", goal.Status)
+		return nil, fmt.Errorf("tasks: cannot split goal in status %q: %w", goal.Status, ErrInvalidStatus)
 	}
 	if len(children) == 0 {
 		return nil, fmt.Errorf("tasks: at least one child required")
@@ -955,7 +987,7 @@ func (s *Service) SplitTask(ctx context.Context, goalID, userID string, children
 			}
 			if !found {
 				if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: dep, UserID: userID}); err != nil {
-					return nil, fmt.Errorf("tasks: dep %q not found", dep)
+					return nil, fmt.Errorf("tasks: dep %q: %w", dep, ErrNotFound)
 				}
 				resolvedDeps[i] = append(resolvedDeps[i], dep)
 			}
@@ -1028,13 +1060,13 @@ func (s *Service) SplitTask(ctx context.Context, goalID, userID string, children
 func (s *Service) PlanReady(ctx context.Context, goalID, userID string) (sqlc.AgentTask, error) {
 	goal, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: goalID, UserID: userID})
 	if err != nil {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: goal %q not found: %w", goalID, err)
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: goal %q: %w", goalID, ErrNotFound)
 	}
 	if goal.TaskType != "goal" {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: %q is not a goal", goalID)
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: %q is not a goal: %w", goalID, ErrInvalidStatus)
 	}
 	if goal.Status != "draft" {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: goal must be in draft status, got %q", goal.Status)
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: goal must be in draft status, got %q: %w", goal.Status, ErrInvalidStatus)
 	}
 
 	now := time.Now().Format(time.RFC3339)
@@ -1043,14 +1075,21 @@ func (s *Service) PlanReady(ctx context.Context, goalID, userID string) (sqlc.Ag
 	if err := ValidateTaskTransition("goal", goal.Status, "ready", RoleManager); err != nil {
 		return sqlc.AgentTask{}, err
 	}
-	if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
+
+	if err := qtx.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 		Status: "ready", UpdatedAt: now, ID: goalID, UserID: userID,
 	}); err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: activate goal: %w", err)
 	}
 
-	// Activate unblocked draft children.
-	if err := s.q.ActivateDraftChildren(ctx, sqlc.ActivateDraftChildrenParams{
+	if err := qtx.ActivateDraftChildren(ctx, sqlc.ActivateDraftChildrenParams{
 		UpdatedAt: now,
 		ParentID:  sql.NullString{String: goalID, Valid: true},
 		UserID:    userID,
@@ -1058,7 +1097,11 @@ func (s *Service) PlanReady(ctx context.Context, goalID, userID string) (sqlc.Ag
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: activate children: %w", err)
 	}
 
-	insertEvent(ctx, s.q, goalID, "plan_ready", "{}")
+	insertEvent(ctx, qtx, goalID, "plan_ready", "{}")
+
+	if err := tx.Commit(); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: commit: %w", err)
+	}
 	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: goalID, UserID: userID})
 }
 
@@ -1069,7 +1112,7 @@ func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, su
 	}
 	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
 	if err != nil {
-		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: task %q: %w", taskID, ErrNotFound)
 	}
 	if err := ValidateTaskTransition(task.TaskType, task.Status, "reviewing", RoleWorker); err != nil {
 		return sqlc.AgentTaskReview{}, err
@@ -1144,15 +1187,15 @@ func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, su
 func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID string, decision ReviewDecision) (sqlc.AgentTask, error) {
 	review, err := s.q.GetAgentTaskReview(ctx, sqlc.GetAgentTaskReviewParams{ID: reviewID, UserID: userID})
 	if err != nil {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: review %q not found: %w", reviewID, err)
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: review %q: %w", reviewID, ErrNotFound)
 	}
 	if review.Status != "requested" {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: review already resolved (%s)", review.Status)
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: review already resolved (%s): %w", review.Status, ErrInvalidStatus)
 	}
 
 	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: review.TaskID, UserID: userID})
 	if err != nil {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: task not found: %w", err)
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: task: %w", ErrNotFound)
 	}
 
 	now := time.Now().Format(time.RFC3339)
@@ -1209,8 +1252,12 @@ func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID str
 	}
 
 	// If changes_requested: auto-retry if budget remains, otherwise fail.
+	finalStatus := newStatus
 	if newStatus == "changes_requested" {
 		if task.RetryCount < task.MaxRetries {
+			if err := ValidateTaskTransition(task.TaskType, "changes_requested", "ready", RoleSystem); err != nil {
+				return sqlc.AgentTask{}, err
+			}
 			if err := s.q.UpdateAgentTaskRetryCount(ctx, sqlc.UpdateAgentTaskRetryCountParams{
 				RetryCount: task.RetryCount + 1,
 				UpdatedAt:  now,
@@ -1224,17 +1271,22 @@ func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID str
 			}); err != nil {
 				s.log.Warn("failed to auto-transition to ready", "task_id", task.ID, "error", err)
 			}
+			finalStatus = "ready"
 		} else {
+			if err := ValidateTaskTransition(task.TaskType, "changes_requested", "failed", RoleSystem); err != nil {
+				return sqlc.AgentTask{}, err
+			}
 			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 				Status: "failed", UpdatedAt: now, ID: task.ID, UserID: userID,
 			}); err != nil {
 				s.log.Warn("failed to transition exhausted retries to failed", "task_id", task.ID, "error", err)
 			}
+			finalStatus = "failed"
 			insertEvent(ctx, s.q, task.ID, "failed", detailJSON("retry budget exhausted"))
 		}
 	}
 
-	insertEvent(ctx, s.q, task.ID, newStatus, detailJSON(decision.Feedback))
+	insertEvent(ctx, s.q, task.ID, finalStatus, detailJSON(decision.Feedback))
 	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: task.ID, UserID: userID})
 }
 
@@ -1242,7 +1294,7 @@ func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID str
 func (s *Service) ReopenTask(ctx context.Context, taskID, userID string) (sqlc.AgentTask, error) {
 	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
 	if err != nil {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: task %q: %w", taskID, ErrNotFound)
 	}
 	if err := ValidateTaskTransition(task.TaskType, task.Status, "ready", RoleManager); err != nil {
 		return sqlc.AgentTask{}, err

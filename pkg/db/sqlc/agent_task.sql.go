@@ -387,6 +387,60 @@ func (q *Queries) ListChildTasks(ctx context.Context, arg ListChildTasksParams) 
 	return items, nil
 }
 
+const listDraftAgentTasksWithDeps = `-- name: ListDraftAgentTasksWithDeps :many
+SELECT DISTINCT t.id, t.parent_id, t.root_id, t.task_type, t.title, t.description, t.status, t.priority, t.required, t.retry_count, t.max_retries, t.review_policy, t.session_id, t.context, t.review_request, t.notify_at, t.scheduler_job_id, t.scheduler_run_id, t.assignee_agent_id, t.created_by_agent_id, t.user_id, t.created_at, t.updated_at FROM agent_task t
+JOIN agent_task_dep d ON d.task_id = t.id
+WHERE t.status = 'draft' AND t.parent_id IS NOT NULL
+ORDER BY t.created_at ASC
+`
+
+func (q *Queries) ListDraftAgentTasksWithDeps(ctx context.Context) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listDraftAgentTasksWithDeps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.ParentID,
+			&i.RootID,
+			&i.TaskType,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.Required,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.ReviewPolicy,
+			&i.SessionID,
+			&i.Context,
+			&i.ReviewRequest,
+			&i.NotifyAt,
+			&i.SchedulerJobID,
+			&i.SchedulerRunID,
+			&i.AssigneeAgentID,
+			&i.CreatedByAgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPendingNotifyTasks = `-- name: ListPendingNotifyTasks :many
 SELECT id, parent_id, root_id, task_type, title, description, status, priority, required, retry_count, max_retries, review_policy, session_id, context, review_request, notify_at, scheduler_job_id, scheduler_run_id, assignee_agent_id, created_by_agent_id, user_id, created_at, updated_at FROM agent_task
 WHERE notify_at IS NOT NULL AND notify_at <= ?

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -403,6 +404,10 @@ func (s *Server) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request,
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	list, err := s.tasksSvc.ListUnblockedTasks(r.Context(), info.UserID, agentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -422,6 +427,10 @@ func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request, a
 	}
 	info := requireAuth(w, r)
 	if info == nil {
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -461,7 +470,7 @@ func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request, a
 		Tasks:  batchItems,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "cycle") || strings.Contains(err.Error(), "duplicate") {
+		if errors.Is(err, tasks.ErrNotFound) || errors.Is(err, tasks.ErrCycle) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -485,10 +494,14 @@ func (s *Server) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, agentI
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	deps, err := s.tasksSvc.GetTaskDeps(r.Context(), taskID, info.UserID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, tasks.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
@@ -519,6 +532,10 @@ func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, agentID
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	var body apiserver.AgentTaskDepsInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -527,7 +544,7 @@ func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, agentID
 	}
 
 	if err := s.tasksSvc.AddDep(r.Context(), taskID, body.DepId, info.UserID); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, tasks.ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -552,9 +569,13 @@ func (s *Server) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, agen
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	if err := s.tasksSvc.RemoveDep(r.Context(), taskID, depID, info.UserID); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, tasks.ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -626,6 +647,10 @@ func (s *Server) SplitGoalIntoTasks(w http.ResponseWriter, r *http.Request, agen
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	var body apitypes.SplitTaskInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -665,7 +690,7 @@ func (s *Server) SplitGoalIntoTasks(w http.ResponseWriter, r *http.Request, agen
 
 	created, err := s.tasksSvc.SplitTask(r.Context(), taskID, info.UserID, children)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not a goal") {
+		if errors.Is(err, tasks.ErrNotFound) || errors.Is(err, tasks.ErrInvalidStatus) || errors.Is(err, tasks.ErrCycle) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -689,10 +714,14 @@ func (s *Server) PlanReady(w http.ResponseWriter, r *http.Request, agentID strin
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	goal, err := s.tasksSvc.PlanReady(r.Context(), taskID, info.UserID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, tasks.ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -711,10 +740,14 @@ func (s *Server) ReopenAgentTask(w http.ResponseWriter, r *http.Request, agentID
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	task, err := s.tasksSvc.ReopenTask(r.Context(), taskID, info.UserID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, tasks.ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -731,6 +764,10 @@ func (s *Server) ListAgentTaskRuns(w http.ResponseWriter, r *http.Request, agent
 	}
 	info := requireAuth(w, r)
 	if info == nil {
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -756,6 +793,10 @@ func (s *Server) ListAgentTaskReviews(w http.ResponseWriter, r *http.Request, ag
 	if info == nil {
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	reviews, err := s.tasksSvc.ListReviews(r.Context(), taskID, info.UserID)
 	if err != nil {
@@ -777,6 +818,10 @@ func (s *Server) SubmitReviewDecision(w http.ResponseWriter, r *http.Request, ag
 	}
 	info := requireAuth(w, r)
 	if info == nil {
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -806,7 +851,7 @@ func (s *Server) SubmitReviewDecision(w http.ResponseWriter, r *http.Request, ag
 
 	task, err := s.tasksSvc.HandleReviewDecision(r.Context(), reviewID, info.UserID, decision)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, tasks.ErrNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -823,6 +868,10 @@ func (s *Server) ListAgentTaskCriteria(w http.ResponseWriter, r *http.Request, a
 	}
 	info := requireAuth(w, r)
 	if info == nil {
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -846,6 +895,10 @@ func (s *Server) CreateAgentTaskCriterion(w http.ResponseWriter, r *http.Request
 	}
 	info := requireAuth(w, r)
 	if info == nil {
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
