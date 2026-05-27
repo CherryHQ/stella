@@ -132,18 +132,18 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Wire vault service if STELLA_VAULT_KEY is set.
 	var coordOpts []channel.CoordinatorOption
+	var tokenSvc *auth.TokenService
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
 		vaultSvc, err := vault.NewService(sqlc.New(s.db), vaultKey)
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
 		} else {
-			tokenSvc := auth.NewTokenService(as, vaultSvc)
+			tokenSvc = auth.NewTokenService(as, vaultSvc)
 			adminSrv.SetVaultService(vaultSvc)
 			adminSrv.SetTokenService(tokenSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
 			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
-			s.poolManager.SetTokenService(gctx, tokenSvc)
 			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
 			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
 		}
@@ -162,6 +162,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		slog.Warn("oidc: setup failed", "error", err)
 	} else {
 		oidcResult.AuthSvc.SetOrgSeeder(&orgSeeder{store: s.store})
+		if tokenSvc != nil {
+			oidcResult.AuthSvc.SetUserSeeder(&userSeeder{tokenSvc: tokenSvc})
+		}
 		oidcResult.AuthSvc.SetOrgInitializer(s.orgRuntimeManager)
 		adminSrv.SetLoginIdentityStore(oidcStore)
 		adminSrv.SetMembershipStore(oidcStore)
@@ -355,4 +358,13 @@ func (s *orgSeeder) SeedOrg(ctx context.Context, orgID string) error {
 		return fmt.Errorf("seed settings: %w", err)
 	}
 	return nil
+}
+
+// userSeeder initializes per-user resources after org seed.
+type userSeeder struct {
+	tokenSvc *auth.TokenService
+}
+
+func (u *userSeeder) SeedUser(ctx context.Context, userID, _ string) error {
+	return u.tokenSvc.EnsureAutoToken(ctx, userID)
 }

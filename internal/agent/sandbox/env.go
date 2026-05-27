@@ -48,20 +48,6 @@ func skillMountsForSandbox(paths Paths) []string {
 func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]string, error) {
 	env := make(map[string]string)
 
-	if cfg.TokenService != nil {
-		// EnsureAutoToken is idempotent; concurrent calls for the same user
-		// may return a constraint error (two sessions starting simultaneously).
-		// That is harmless: the vault already holds a valid token from the
-		// winning writer, so LoadEnv below will find it.
-		if err := cfg.TokenService.EnsureAutoToken(ctx, cfg.UserID); err != nil {
-			slog.Warn("auto token ensure skipped",
-				"component", "runner_sandbox",
-				"user_id", cfg.UserID,
-				"error", err,
-			)
-		}
-	}
-
 	if cfg.VaultEnvLoader != nil {
 		vaultEnv, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
 		if err != nil {
