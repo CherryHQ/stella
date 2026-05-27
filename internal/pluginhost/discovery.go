@@ -91,11 +91,11 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		}
 	}
 
-	persisted, err := h.store.ListPlugins(ctx)
+	overrides, err := h.store.ListPluginOverrides(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, plugin := range persisted {
+	for _, plugin := range overrides {
 		entry, ok := registered[plugin.ID]
 		if !ok {
 			entry = pkgplugins.RegisteredPlugin{

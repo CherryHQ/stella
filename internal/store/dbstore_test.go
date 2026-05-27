@@ -699,12 +699,13 @@ func TestPluginCRUD(t *testing.T) {
 		t.Errorf("Config[timeout] = %v", got.Config["timeout"])
 	}
 
+	builtinCount := len(config.BuiltinPlugins())
 	all, err := s.ListPlugins(ctx)
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
-	if len(all) != 1 {
-		t.Errorf("expected 1 plugin, got %d", len(all))
+	if len(all) != builtinCount+1 {
+		t.Errorf("expected %d plugins (builtins + 1), got %d", builtinCount+1, len(all))
 	}
 
 	if err := s.SetPluginEnabled(ctx, "tool/read", false); err != nil {
@@ -714,13 +715,8 @@ func TestPluginCRUD(t *testing.T) {
 	if got.Enabled {
 		t.Error("expected disabled")
 	}
-
-	enabled, err := s.ListEnabledPlugins(ctx)
-	if err != nil {
-		t.Fatalf("ListEnabledPlugins: %v", err)
-	}
-	if len(enabled) != 0 {
-		t.Errorf("expected 0 enabled, got %d", len(enabled))
+	if got.Config["timeout"] != float64(30) {
+		t.Errorf("SetPluginEnabled should preserve config, got %+v", got.Config)
 	}
 
 	newCfg := map[string]any{"timeout": float64(60), "verbose": true}
@@ -731,14 +727,22 @@ func TestPluginCRUD(t *testing.T) {
 	if got.Config["timeout"] != float64(60) || got.Config["verbose"] != true {
 		t.Errorf("Config after update = %+v", got.Config)
 	}
+	if got.Enabled {
+		t.Error("SetPluginConfig should preserve enabled=false")
+	}
 
-	_ = s.UpsertPlugin(ctx, config.Plugin{ID: "channel/telegram", Kind: config.PluginKindChannel, Name: "telegram", Enabled: true, Config: map[string]any{}})
 	tools, err := s.ListPluginsByKind(ctx, config.PluginKindTool)
 	if err != nil {
 		t.Fatalf("ListPluginsByKind: %v", err)
 	}
-	if len(tools) != 1 || tools[0].ID != "tool/read" {
-		t.Errorf("ListPluginsByKind(tool) = %+v", tools)
+	foundRead := false
+	for _, t2 := range tools {
+		if t2.ID == "tool/read" {
+			foundRead = true
+		}
+	}
+	if !foundRead {
+		t.Error("ListPluginsByKind(tool) should include tool/read")
 	}
 
 	if err := s.DeletePlugin(ctx, "tool/read"); err != nil {
@@ -750,13 +754,9 @@ func TestPluginCRUD(t *testing.T) {
 	}
 }
 
-func TestPluginSeedDefaults(t *testing.T) {
+func TestPluginBuiltinsWithoutSeed(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
-
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
-	}
 
 	plugins, err := s.ListPlugins(ctx)
 	if err != nil {
@@ -777,23 +777,32 @@ func TestPluginSeedDefaults(t *testing.T) {
 	}
 }
 
-func TestPluginSeedDefaultsIdempotent(t *testing.T) {
+func TestPluginBuiltinOverrides(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("first SeedDefaults: %v", err)
+	webfetch, err := s.GetPlugin(ctx, "tool/webfetch")
+	if err != nil {
+		t.Fatalf("GetPlugin: %v", err)
+	}
+	if webfetch.Enabled {
+		t.Error("tool/webfetch should default to disabled")
 	}
 
-	if err := s.SetPluginEnabled(ctx, "tool/webfetch", false); err != nil {
+	if err := s.SetPluginEnabled(ctx, "tool/webfetch", true); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	if err := s.UpsertChannel(ctx, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"abc"}`}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
+	webfetch, _ = s.GetPlugin(ctx, "tool/webfetch")
+	if !webfetch.Enabled {
+		t.Error("expected tool/webfetch to be enabled after override")
 	}
 
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("second SeedDefaults: %v", err)
+	overrides, err := s.ListPluginOverrides(ctx)
+	if err != nil {
+		t.Fatalf("ListPluginOverrides: %v", err)
+	}
+	if len(overrides) != 1 || overrides[0].ID != "tool/webfetch" {
+		t.Errorf("expected 1 override for tool/webfetch, got %d", len(overrides))
 	}
 
 	plugins, err := s.ListPlugins(ctx)
@@ -801,63 +810,23 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 		t.Fatalf("ListPlugins: %v", err)
 	}
 	if len(plugins) != len(config.BuiltinPluginIDs()) {
-		t.Errorf("expected %d plugins after double seed, got %d", len(config.BuiltinPluginIDs()), len(plugins))
-	}
-
-	webfetchPlugin, err := s.GetPlugin(ctx, "tool/webfetch")
-	if err != nil {
-		t.Fatalf("GetPlugin: %v", err)
-	}
-	if webfetchPlugin.Enabled {
-		t.Error("expected tool/webfetch to remain disabled after second seed")
-	}
-
-	tgChannel, err := s.GetChannel(ctx, "telegram")
-	if err != nil {
-		t.Fatalf("GetChannel: %v", err)
-	}
-	if tgChannel.Config != `{"token":"abc"}` {
-		t.Errorf("expected telegram channel config preserved, got %s", tgChannel.Config)
-	}
-
-	tgPlugin, err := s.GetPlugin(ctx, "channel/telegram")
-	if err != nil {
-		t.Fatalf("GetPlugin: %v", err)
-	}
-	if len(tgPlugin.Config) != 0 {
-		t.Errorf("expected telegram plugin config cleared, got %+v", tgPlugin.Config)
+		t.Errorf("expected %d plugins, got %d", len(config.BuiltinPluginIDs()), len(plugins))
 	}
 }
 
-func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
+func TestPluginBuiltinChannelDefaults(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
-
-	if err := s.UpsertChannel(ctx, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"tg-123"}`}); err != nil {
-		t.Fatalf("UpsertChannel: %v", err)
-	}
-
-	if err := s.SeedDefaults(ctx, testOrgID); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
-	}
 
 	p, err := s.GetPlugin(ctx, "channel/telegram")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
 	if !p.Enabled {
-		t.Error("telegram plugin should be enabled")
+		t.Error("telegram plugin should default to enabled")
 	}
 	if len(p.Config) != 0 {
-		t.Errorf("expected channel plugin config to stay empty, got %+v", p.Config)
-	}
-
-	ch, err := s.GetChannel(ctx, "telegram")
-	if err != nil {
-		t.Fatalf("GetChannel: %v", err)
-	}
-	if ch.Config != `{"token":"tg-123"}` {
-		t.Errorf("channel config = %s, want token persisted on settings_channel", ch.Config)
+		t.Errorf("expected channel plugin config empty, got %+v", p.Config)
 	}
 }
 
