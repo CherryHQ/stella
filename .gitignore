@@ -10,7 +10,6 @@ handoff.md
 plan.md
 
 # Generated code (produced by mise run generate)
-api/spec/components.yaml
 api/types/gen.go
 api/server/gen.go
 api/client/gen.go
