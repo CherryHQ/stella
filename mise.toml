@@ -70,8 +70,7 @@ dprint fmt api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
 go tool oapi-codegen --config api/codegen/client.yaml  api/spec/openapi.yaml
-npx @redocly/cli bundle api/spec/openapi.yaml -o api/spec/bundled.yaml
-cp api/spec/bundled.yaml internal/server/docs_spec.yaml
+npx @redocly/cli bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 """
 
 # ============================================================================
