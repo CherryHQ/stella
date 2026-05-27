@@ -765,6 +765,9 @@ type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInp
 // CreateAgentJSONRequestBody defines body for CreateAgent for application/json ContentType.
 type CreateAgentJSONRequestBody = externalRef0.CreateAgentRequest
 
+// CreateGoalJSONRequestBody defines body for CreateGoal for application/json ContentType.
+type CreateGoalJSONRequestBody = externalRef0.GoalInput
+
 // CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
 type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
 
@@ -810,8 +813,17 @@ type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
 // AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
 type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
 
+// CreateAgentTaskCriterionJSONRequestBody defines body for CreateAgentTaskCriterion for application/json ContentType.
+type CreateAgentTaskCriterionJSONRequestBody = externalRef0.AgentTaskAcceptanceCriterionInput
+
 // AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
 type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
+
+// SubmitReviewDecisionJSONRequestBody defines body for SubmitReviewDecision for application/json ContentType.
+type SubmitReviewDecisionJSONRequestBody = externalRef0.ReviewDecisionInput
+
+// SplitGoalIntoTasksJSONRequestBody defines body for SplitGoalIntoTasks for application/json ContentType.
+type SplitGoalIntoTasksJSONRequestBody = externalRef0.SplitTaskInput
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
@@ -941,6 +953,9 @@ type ServerInterface interface {
 	// Create an agent
 	// (POST /api/agents)
 	CreateAgent(w http.ResponseWriter, r *http.Request)
+	// Create a goal (parent task container)
+	// (POST /api/agents/{agentID}/goals)
+	CreateGoal(w http.ResponseWriter, r *http.Request, agentID string)
 	// List projects for an agent
 	// (GET /api/agents/{agentID}/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request, agentID string, params ListProjectsParams)
@@ -1040,6 +1055,12 @@ type ServerInterface interface {
 	// Take an action on an agent task
 	// (POST /api/agents/{agentID}/tasks/{taskID}/action)
 	AgentTaskAction(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// List acceptance criteria for a task
+	// (GET /api/agents/{agentID}/tasks/{taskID}/criteria)
+	ListAgentTaskCriteria(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Add an acceptance criterion
+	// (POST /api/agents/{agentID}/tasks/{taskID}/criteria)
+	CreateAgentTaskCriterion(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
 	// Get task dependency info (upstream and downstream)
 	// (GET /api/agents/{agentID}/tasks/{taskID}/deps)
 	GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
@@ -1052,6 +1073,24 @@ type ServerInterface interface {
 	// List agent task events
 	// (GET /api/agents/{agentID}/tasks/{taskID}/events)
 	ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Activate a goal and its draft children
+	// (POST /api/agents/{agentID}/tasks/{taskID}/plan-ready)
+	PlanReady(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Reopen a completed or failed task
+	// (POST /api/agents/{agentID}/tasks/{taskID}/reopen)
+	ReopenAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// List reviews for a task
+	// (GET /api/agents/{agentID}/tasks/{taskID}/reviews)
+	ListAgentTaskReviews(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Submit a review decision
+	// (POST /api/agents/{agentID}/tasks/{taskID}/reviews/{reviewID}/decision)
+	SubmitReviewDecision(w http.ResponseWriter, r *http.Request, agentID string, taskID string, reviewID string)
+	// List runs for a task
+	// (GET /api/agents/{agentID}/tasks/{taskID}/runs)
+	ListAgentTaskRuns(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
+	// Split a goal into child tasks
+	// (POST /api/agents/{agentID}/tasks/{taskID}/split)
+	SplitGoalIntoTasks(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
 	// Delete an agent
 	// (DELETE /api/agents/{id})
 	DeleteAgent(w http.ResponseWriter, r *http.Request, id string)
@@ -1532,6 +1571,38 @@ func (siw *ServerInterfaceWrapper) CreateAgent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateAgent(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGoal operation middleware
+func (siw *ServerInterfaceWrapper) CreateGoal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGoal(w, r, agentID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3017,6 +3088,88 @@ func (siw *ServerInterfaceWrapper) AgentTaskAction(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// ListAgentTaskCriteria operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTaskCriteria(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTaskCriteria(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAgentTaskCriterion operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentTaskCriterion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAgentTaskCriterion(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetAgentTaskDeps operation middleware
 func (siw *ServerInterfaceWrapper) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request) {
 
@@ -3181,6 +3334,261 @@ func (siw *ServerInterfaceWrapper) ListAgentTaskEvents(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAgentTaskEvents(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PlanReady operation middleware
+func (siw *ServerInterfaceWrapper) PlanReady(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PlanReady(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReopenAgentTask operation middleware
+func (siw *ServerInterfaceWrapper) ReopenAgentTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReopenAgentTask(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentTaskReviews operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTaskReviews(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTaskReviews(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubmitReviewDecision operation middleware
+func (siw *ServerInterfaceWrapper) SubmitReviewDecision(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "reviewID" -------------
+	var reviewID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reviewID", r.PathValue("reviewID"), &reviewID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reviewID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitReviewDecision(w, r, agentID, taskID, reviewID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentTaskRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTaskRuns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTaskRuns(w, r, agentID, taskID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SplitGoalIntoTasks operation middleware
+func (siw *ServerInterfaceWrapper) SplitGoalIntoTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentID" -------------
+	var agentID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentID", r.PathValue("agentID"), &agentID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "taskID" -------------
+	var taskID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskID", r.PathValue("taskID"), &taskID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SplitGoalIntoTasks(w, r, agentID, taskID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7058,6 +7466,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/admin/oauth-providers/{id}/config", wrapper.SetOAuthProviderConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents", wrapper.ListAgents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents", wrapper.CreateAgent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/goals", wrapper.CreateGoal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/projects", wrapper.ListProjects)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/projects", wrapper.CreateProject)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.DeleteProject)
@@ -7091,10 +7500,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.GetAgentTask)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.UpdateAgentTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/action", wrapper.AgentTaskAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/criteria", wrapper.ListAgentTaskCriteria)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/criteria", wrapper.CreateAgentTaskCriterion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps", wrapper.GetAgentTaskDeps)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps", wrapper.AddAgentTaskDep)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps/{depID}", wrapper.RemoveAgentTaskDep)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/events", wrapper.ListAgentTaskEvents)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/plan-ready", wrapper.PlanReady)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/reopen", wrapper.ReopenAgentTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/reviews", wrapper.ListAgentTaskReviews)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/reviews/{reviewID}/decision", wrapper.SubmitReviewDecision)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/runs", wrapper.ListAgentTaskRuns)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/split", wrapper.SplitGoalIntoTasks)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}", wrapper.DeleteAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}", wrapper.GetAgent)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{id}", wrapper.UpdateAgent)

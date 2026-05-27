@@ -1853,10 +1853,18 @@ components:
           $ref: "#/components/schemas/StatusPlugins"
     AgentTask:
       type: object
-      required: [id, title, status, priority, created_at, updated_at]
+      required: [id, title, status, priority, task_type, created_at, updated_at]
       properties:
         id:
           type: string
+        parent_id:
+          type: string
+          nullable: true
+        root_id:
+          type: string
+        task_type:
+          type: string
+          enum: [goal, task]
         title:
           type: string
         description:
@@ -1864,10 +1872,12 @@ components:
         status:
           type: string
           enum: [
-            pending,
+            draft,
+            ready,
             running,
             blocked,
-            review_requested,
+            reviewing,
+            changes_requested,
             done,
             failed,
             cancelled,
@@ -1875,6 +1885,16 @@ components:
         priority:
           type: string
           enum: [routine, urgent]
+        required:
+          type: boolean
+        retry_count:
+          type: integer
+        max_retries:
+          type: integer
+        review_policy:
+          type: string
+          nullable: true
+          enum: [auto, agent, human]
         session_id:
           type: string
         context:
@@ -1891,9 +1911,14 @@ components:
         notify_at:
           type: string
           format: date-time
+          nullable: true
           description: "When to next notify the user; null means no pending notification"
-        agent_id:
+        assignee_agent_id:
           type: string
+          nullable: true
+        created_by_agent_id:
+          type: string
+          nullable: true
         user_id:
           type: string
         created_at:
@@ -1912,7 +1937,7 @@ components:
             $ref: "#/components/schemas/AgentTask"
     AgentTaskInput:
       type: object
-      required: [title, agent_id]
+      required: [title]
       description: "Fields for creating an agent task"
       properties:
         title:
@@ -1924,6 +1949,9 @@ components:
           enum: [routine, urgent]
         agent_id:
           type: string
+        review_policy:
+          type: string
+          enum: [auto, agent, human]
         deps:
           type: array
           items:
@@ -1978,16 +2006,24 @@ components:
           type: string
         task_id:
           type: string
+        run_id:
+          type: string
+          nullable: true
+        review_id:
+          type: string
+          nullable: true
         event_type:
           type: string
           enum: [
             started,
             progress,
             blocked,
-            review_requested,
+            reviewing,
             done,
             failed,
             cancelled,
+            reopened,
+            plan_ready,
           ]
         detail:
           type: object
@@ -2053,6 +2089,240 @@ components:
           items:
             type: string
           description: "IDs of existing tasks or draft_ids from this batch"
+    AgentTaskRun:
+      type: object
+      required: [id, task_id, kind, purpose, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+        kind:
+          type: string
+          enum: [manager_run, worker_run, reviewer_run]
+        purpose:
+          type: string
+          enum: [
+            planning,
+            synthesis,
+            replan,
+            execution,
+            review,
+            auto_approval,
+            failure_assessment,
+          ]
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled, interrupted]
+        session_id:
+          type: string
+          nullable: true
+        result_json:
+          type: object
+          additionalProperties: {}
+        error:
+          type: string
+        deadline_at:
+          type: string
+          format: date-time
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AgentTaskRunList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTaskRun"
+    AgentTaskReview:
+      type: object
+      required: [id, task_id, reviewer_type, status, created_at]
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        reviewer_type:
+          type: string
+          enum: [agent, human, system]
+        reviewer_id:
+          type: string
+        submitted_run_id:
+          type: string
+        reviewer_run_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [requested, approved, changes_requested, rejected, cancelled]
+        summary:
+          type: string
+        feedback:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTaskReviewItem"
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    AgentTaskReviewList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTaskReview"
+    AgentTaskReviewItem:
+      type: object
+      required: [id, criterion_id]
+      properties:
+        id:
+          type: string
+        criterion_id:
+          type: string
+        passed:
+          type: boolean
+          nullable: true
+        evidence:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    AgentTaskAcceptanceCriterion:
+      type: object
+      required: [id, task_id, description, required, position]
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        description:
+          type: string
+        required:
+          type: boolean
+        position:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    AgentTaskAcceptanceCriterionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentTaskAcceptanceCriterion"
+    AgentTaskAcceptanceCriterionInput:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+        required:
+          type: boolean
+          default: true
+        position:
+          type: integer
+    GoalInput:
+      type: object
+      required: [title]
+      description: "Fields for creating a goal"
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [routine, urgent]
+        agent_id:
+          type: string
+    SplitTaskInput:
+      type: object
+      required: [children]
+      description: "Children to create under a goal"
+      properties:
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChildTaskInput"
+    ChildTaskInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [routine, urgent]
+        agent_id:
+          type: string
+        required:
+          type: boolean
+          default: true
+        review_policy:
+          type: string
+          enum: [auto, agent, human]
+        deps:
+          type: array
+          items:
+            type: string
+          description: "Index or ID of sibling/external task dependencies"
+        criteria:
+          type: array
+          items:
+            type: string
+          description: "Acceptance criterion descriptions"
+    ReviewDecisionInput:
+      type: object
+      required: [status]
+      description: "A review decision on a task"
+      properties:
+        status:
+          type: string
+          enum: [approved, changes_requested, rejected]
+        summary:
+          type: string
+        feedback:
+          type: string
+        items:
+          type: array
+          items:
+            type: object
+            required: [criterion_id, passed]
+            properties:
+              criterion_id:
+                type: string
+              passed:
+                type: boolean
+              evidence:
+                type: string
     Tool:
       type: object
       required: [name, description, category]

@@ -767,6 +767,9 @@ type SetOAuthProviderConfigJSONRequestBody = externalRef0.OAuthProviderConfigInp
 // CreateAgentJSONRequestBody defines body for CreateAgent for application/json ContentType.
 type CreateAgentJSONRequestBody = externalRef0.CreateAgentRequest
 
+// CreateGoalJSONRequestBody defines body for CreateGoal for application/json ContentType.
+type CreateGoalJSONRequestBody = externalRef0.GoalInput
+
 // CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
 type CreateProjectJSONRequestBody = externalRef0.CreateProjectRequest
 
@@ -812,8 +815,17 @@ type UpdateAgentTaskJSONRequestBody = externalRef0.AgentTaskUpdate
 // AgentTaskActionJSONRequestBody defines body for AgentTaskAction for application/json ContentType.
 type AgentTaskActionJSONRequestBody = externalRef0.AgentTaskAction
 
+// CreateAgentTaskCriterionJSONRequestBody defines body for CreateAgentTaskCriterion for application/json ContentType.
+type CreateAgentTaskCriterionJSONRequestBody = externalRef0.AgentTaskAcceptanceCriterionInput
+
 // AddAgentTaskDepJSONRequestBody defines body for AddAgentTaskDep for application/json ContentType.
 type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
+
+// SubmitReviewDecisionJSONRequestBody defines body for SubmitReviewDecision for application/json ContentType.
+type SubmitReviewDecisionJSONRequestBody = externalRef0.ReviewDecisionInput
+
+// SplitGoalIntoTasksJSONRequestBody defines body for SplitGoalIntoTasks for application/json ContentType.
+type SplitGoalIntoTasksJSONRequestBody = externalRef0.SplitTaskInput
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
@@ -1018,6 +1030,11 @@ type ClientInterface interface {
 
 	CreateAgent(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateGoalWithBody request with any body
+	CreateGoalWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateGoal(ctx context.Context, agentID string, body CreateGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListProjects request
 	ListProjects(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1145,6 +1162,14 @@ type ClientInterface interface {
 
 	AgentTaskAction(ctx context.Context, agentID string, taskID string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListAgentTaskCriteria request
+	ListAgentTaskCriteria(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateAgentTaskCriterionWithBody request with any body
+	CreateAgentTaskCriterionWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateAgentTaskCriterion(ctx context.Context, agentID string, taskID string, body CreateAgentTaskCriterionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetAgentTaskDeps request
 	GetAgentTaskDeps(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1158,6 +1183,28 @@ type ClientInterface interface {
 
 	// ListAgentTaskEvents request
 	ListAgentTaskEvents(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanReady request
+	PlanReady(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReopenAgentTask request
+	ReopenAgentTask(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAgentTaskReviews request
+	ListAgentTaskReviews(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SubmitReviewDecisionWithBody request with any body
+	SubmitReviewDecisionWithBody(ctx context.Context, agentID string, taskID string, reviewID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SubmitReviewDecision(ctx context.Context, agentID string, taskID string, reviewID string, body SubmitReviewDecisionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAgentTaskRuns request
+	ListAgentTaskRuns(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SplitGoalIntoTasksWithBody request with any body
+	SplitGoalIntoTasksWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SplitGoalIntoTasks(ctx context.Context, agentID string, taskID string, body SplitGoalIntoTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteAgent request
 	DeleteAgent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1648,6 +1695,30 @@ func (c *Client) CreateAgentWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) CreateAgent(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateAgentRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateGoalWithBody(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateGoalRequestWithBody(c.Server, agentID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateGoal(ctx context.Context, agentID string, body CreateGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateGoalRequest(c.Server, agentID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2222,6 +2293,42 @@ func (c *Client) AgentTaskAction(ctx context.Context, agentID string, taskID str
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListAgentTaskCriteria(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentTaskCriteriaRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateAgentTaskCriterionWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentTaskCriterionRequestWithBody(c.Server, agentID, taskID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateAgentTaskCriterion(ctx context.Context, agentID string, taskID string, body CreateAgentTaskCriterionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateAgentTaskCriterionRequest(c.Server, agentID, taskID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetAgentTaskDeps(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetAgentTaskDepsRequest(c.Server, agentID, taskID)
 	if err != nil {
@@ -2272,6 +2379,102 @@ func (c *Client) RemoveAgentTaskDep(ctx context.Context, agentID string, taskID 
 
 func (c *Client) ListAgentTaskEvents(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAgentTaskEventsRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PlanReady(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanReadyRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReopenAgentTask(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReopenAgentTaskRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAgentTaskReviews(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentTaskReviewsRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SubmitReviewDecisionWithBody(ctx context.Context, agentID string, taskID string, reviewID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitReviewDecisionRequestWithBody(c.Server, agentID, taskID, reviewID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SubmitReviewDecision(ctx context.Context, agentID string, taskID string, reviewID string, body SubmitReviewDecisionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitReviewDecisionRequest(c.Server, agentID, taskID, reviewID, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListAgentTaskRuns(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentTaskRunsRequest(c.Server, agentID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SplitGoalIntoTasksWithBody(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSplitGoalIntoTasksRequestWithBody(c.Server, agentID, taskID, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SplitGoalIntoTasks(ctx context.Context, agentID string, taskID string, body SplitGoalIntoTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSplitGoalIntoTasksRequest(c.Server, agentID, taskID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4264,6 +4467,53 @@ func NewCreateAgentRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewCreateGoalRequest calls the generic CreateGoal builder with application/json body
+func NewCreateGoalRequest(server string, agentID string, body CreateGoalJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateGoalRequestWithBody(server, agentID, "application/json", bodyReader)
+}
+
+// NewCreateGoalRequestWithBody generates requests for CreateGoal with any type of body
+func NewCreateGoalRequestWithBody(server string, agentID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/goals", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListProjectsRequest generates requests for ListProjects
 func NewListProjectsRequest(server string, agentID string, params *ListProjectsParams) (*http.Request, error) {
 	var err error
@@ -5997,6 +6247,101 @@ func NewAgentTaskActionRequestWithBody(server string, agentID string, taskID str
 	return req, nil
 }
 
+// NewListAgentTaskCriteriaRequest generates requests for ListAgentTaskCriteria
+func NewListAgentTaskCriteriaRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/criteria", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateAgentTaskCriterionRequest calls the generic CreateAgentTaskCriterion builder with application/json body
+func NewCreateAgentTaskCriterionRequest(server string, agentID string, taskID string, body CreateAgentTaskCriterionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateAgentTaskCriterionRequestWithBody(server, agentID, taskID, "application/json", bodyReader)
+}
+
+// NewCreateAgentTaskCriterionRequestWithBody generates requests for CreateAgentTaskCriterion with any type of body
+func NewCreateAgentTaskCriterionRequestWithBody(server string, agentID string, taskID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/criteria", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetAgentTaskDepsRequest generates requests for GetAgentTaskDeps
 func NewGetAgentTaskDepsRequest(server string, agentID string, taskID string) (*http.Request, error) {
 	var err error
@@ -6177,6 +6522,285 @@ func NewListAgentTaskEventsRequest(server string, agentID string, taskID string)
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewPlanReadyRequest generates requests for PlanReady
+func NewPlanReadyRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/plan-ready", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReopenAgentTaskRequest generates requests for ReopenAgentTask
+func NewReopenAgentTaskRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/reopen", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListAgentTaskReviewsRequest generates requests for ListAgentTaskReviews
+func NewListAgentTaskReviewsRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/reviews", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSubmitReviewDecisionRequest calls the generic SubmitReviewDecision builder with application/json body
+func NewSubmitReviewDecisionRequest(server string, agentID string, taskID string, reviewID string, body SubmitReviewDecisionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSubmitReviewDecisionRequestWithBody(server, agentID, taskID, reviewID, "application/json", bodyReader)
+}
+
+// NewSubmitReviewDecisionRequestWithBody generates requests for SubmitReviewDecision with any type of body
+func NewSubmitReviewDecisionRequestWithBody(server string, agentID string, taskID string, reviewID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "reviewID", reviewID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/reviews/%s/decision", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListAgentTaskRunsRequest generates requests for ListAgentTaskRuns
+func NewListAgentTaskRunsRequest(server string, agentID string, taskID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/runs", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSplitGoalIntoTasksRequest calls the generic SplitGoalIntoTasks builder with application/json body
+func NewSplitGoalIntoTasksRequest(server string, agentID string, taskID string, body SplitGoalIntoTasksJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSplitGoalIntoTasksRequestWithBody(server, agentID, taskID, "application/json", bodyReader)
+}
+
+// NewSplitGoalIntoTasksRequestWithBody generates requests for SplitGoalIntoTasks with any type of body
+func NewSplitGoalIntoTasksRequestWithBody(server string, agentID string, taskID string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentID", agentID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "taskID", taskID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agents/%s/tasks/%s/split", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -10987,6 +11611,11 @@ type ClientWithResponsesInterface interface {
 
 	CreateAgentWithResponse(ctx context.Context, body CreateAgentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentResponse, error)
 
+	// CreateGoalWithBodyWithResponse request with any body
+	CreateGoalWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGoalResponse, error)
+
+	CreateGoalWithResponse(ctx context.Context, agentID string, body CreateGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateGoalResponse, error)
+
 	// ListProjectsWithResponse request
 	ListProjectsWithResponse(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error)
 
@@ -11114,6 +11743,14 @@ type ClientWithResponsesInterface interface {
 
 	AgentTaskActionWithResponse(ctx context.Context, agentID string, taskID string, body AgentTaskActionJSONRequestBody, reqEditors ...RequestEditorFn) (*AgentTaskActionResponse, error)
 
+	// ListAgentTaskCriteriaWithResponse request
+	ListAgentTaskCriteriaWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskCriteriaResponse, error)
+
+	// CreateAgentTaskCriterionWithBodyWithResponse request with any body
+	CreateAgentTaskCriterionWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentTaskCriterionResponse, error)
+
+	CreateAgentTaskCriterionWithResponse(ctx context.Context, agentID string, taskID string, body CreateAgentTaskCriterionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentTaskCriterionResponse, error)
+
 	// GetAgentTaskDepsWithResponse request
 	GetAgentTaskDepsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error)
 
@@ -11127,6 +11764,28 @@ type ClientWithResponsesInterface interface {
 
 	// ListAgentTaskEventsWithResponse request
 	ListAgentTaskEventsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskEventsResponse, error)
+
+	// PlanReadyWithResponse request
+	PlanReadyWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*PlanReadyResponse, error)
+
+	// ReopenAgentTaskWithResponse request
+	ReopenAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ReopenAgentTaskResponse, error)
+
+	// ListAgentTaskReviewsWithResponse request
+	ListAgentTaskReviewsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskReviewsResponse, error)
+
+	// SubmitReviewDecisionWithBodyWithResponse request with any body
+	SubmitReviewDecisionWithBodyWithResponse(ctx context.Context, agentID string, taskID string, reviewID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitReviewDecisionResponse, error)
+
+	SubmitReviewDecisionWithResponse(ctx context.Context, agentID string, taskID string, reviewID string, body SubmitReviewDecisionJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitReviewDecisionResponse, error)
+
+	// ListAgentTaskRunsWithResponse request
+	ListAgentTaskRunsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskRunsResponse, error)
+
+	// SplitGoalIntoTasksWithBodyWithResponse request with any body
+	SplitGoalIntoTasksWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SplitGoalIntoTasksResponse, error)
+
+	SplitGoalIntoTasksWithResponse(ctx context.Context, agentID string, taskID string, body SplitGoalIntoTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*SplitGoalIntoTasksResponse, error)
 
 	// DeleteAgentWithResponse request
 	DeleteAgentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteAgentResponse, error)
@@ -11695,6 +12354,38 @@ func (r CreateAgentResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CreateAgentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateGoalResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateGoalResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateGoalResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateGoalResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -12774,6 +13465,71 @@ func (r AgentTaskActionResponse) ContentType() string {
 	return ""
 }
 
+type ListAgentTaskCriteriaResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskAcceptanceCriterionList
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAgentTaskCriteriaResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAgentTaskCriteriaResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAgentTaskCriteriaResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateAgentTaskCriterionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.AgentTaskAcceptanceCriterion
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateAgentTaskCriterionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateAgentTaskCriterionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateAgentTaskCriterionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetAgentTaskDepsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -12897,6 +13653,202 @@ func (r ListAgentTaskEventsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAgentTaskEventsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PlanReadyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r PlanReadyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PlanReadyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PlanReadyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReopenAgentTaskResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ReopenAgentTaskResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReopenAgentTaskResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReopenAgentTaskResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAgentTaskReviewsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskReviewList
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAgentTaskReviewsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAgentTaskReviewsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAgentTaskReviewsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SubmitReviewDecisionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTask
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r SubmitReviewDecisionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SubmitReviewDecisionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SubmitReviewDecisionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAgentTaskRunsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.AgentTaskRunList
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAgentTaskRunsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAgentTaskRunsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAgentTaskRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SplitGoalIntoTasksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.AgentTaskList
+	JSON400      *externalRef0.BadRequest
+	JSON401      *externalRef0.Unauthorized
+	JSON404      *externalRef0.NotFound
+}
+
+// Status returns HTTPResponse.Status
+func (r SplitGoalIntoTasksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SplitGoalIntoTasksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SplitGoalIntoTasksResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -16616,6 +17568,23 @@ func (c *ClientWithResponses) CreateAgentWithResponse(ctx context.Context, body 
 	return ParseCreateAgentResponse(rsp)
 }
 
+// CreateGoalWithBodyWithResponse request with arbitrary body returning *CreateGoalResponse
+func (c *ClientWithResponses) CreateGoalWithBodyWithResponse(ctx context.Context, agentID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGoalResponse, error) {
+	rsp, err := c.CreateGoalWithBody(ctx, agentID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateGoalResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateGoalWithResponse(ctx context.Context, agentID string, body CreateGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateGoalResponse, error) {
+	rsp, err := c.CreateGoal(ctx, agentID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateGoalResponse(rsp)
+}
+
 // ListProjectsWithResponse request returning *ListProjectsResponse
 func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, agentID string, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error) {
 	rsp, err := c.ListProjects(ctx, agentID, params, reqEditors...)
@@ -17025,6 +17994,32 @@ func (c *ClientWithResponses) AgentTaskActionWithResponse(ctx context.Context, a
 	return ParseAgentTaskActionResponse(rsp)
 }
 
+// ListAgentTaskCriteriaWithResponse request returning *ListAgentTaskCriteriaResponse
+func (c *ClientWithResponses) ListAgentTaskCriteriaWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskCriteriaResponse, error) {
+	rsp, err := c.ListAgentTaskCriteria(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAgentTaskCriteriaResponse(rsp)
+}
+
+// CreateAgentTaskCriterionWithBodyWithResponse request with arbitrary body returning *CreateAgentTaskCriterionResponse
+func (c *ClientWithResponses) CreateAgentTaskCriterionWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateAgentTaskCriterionResponse, error) {
+	rsp, err := c.CreateAgentTaskCriterionWithBody(ctx, agentID, taskID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateAgentTaskCriterionResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateAgentTaskCriterionWithResponse(ctx context.Context, agentID string, taskID string, body CreateAgentTaskCriterionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateAgentTaskCriterionResponse, error) {
+	rsp, err := c.CreateAgentTaskCriterion(ctx, agentID, taskID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateAgentTaskCriterionResponse(rsp)
+}
+
 // GetAgentTaskDepsWithResponse request returning *GetAgentTaskDepsResponse
 func (c *ClientWithResponses) GetAgentTaskDepsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*GetAgentTaskDepsResponse, error) {
 	rsp, err := c.GetAgentTaskDeps(ctx, agentID, taskID, reqEditors...)
@@ -17067,6 +18062,76 @@ func (c *ClientWithResponses) ListAgentTaskEventsWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseListAgentTaskEventsResponse(rsp)
+}
+
+// PlanReadyWithResponse request returning *PlanReadyResponse
+func (c *ClientWithResponses) PlanReadyWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*PlanReadyResponse, error) {
+	rsp, err := c.PlanReady(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanReadyResponse(rsp)
+}
+
+// ReopenAgentTaskWithResponse request returning *ReopenAgentTaskResponse
+func (c *ClientWithResponses) ReopenAgentTaskWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ReopenAgentTaskResponse, error) {
+	rsp, err := c.ReopenAgentTask(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReopenAgentTaskResponse(rsp)
+}
+
+// ListAgentTaskReviewsWithResponse request returning *ListAgentTaskReviewsResponse
+func (c *ClientWithResponses) ListAgentTaskReviewsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskReviewsResponse, error) {
+	rsp, err := c.ListAgentTaskReviews(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAgentTaskReviewsResponse(rsp)
+}
+
+// SubmitReviewDecisionWithBodyWithResponse request with arbitrary body returning *SubmitReviewDecisionResponse
+func (c *ClientWithResponses) SubmitReviewDecisionWithBodyWithResponse(ctx context.Context, agentID string, taskID string, reviewID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitReviewDecisionResponse, error) {
+	rsp, err := c.SubmitReviewDecisionWithBody(ctx, agentID, taskID, reviewID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitReviewDecisionResponse(rsp)
+}
+
+func (c *ClientWithResponses) SubmitReviewDecisionWithResponse(ctx context.Context, agentID string, taskID string, reviewID string, body SubmitReviewDecisionJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitReviewDecisionResponse, error) {
+	rsp, err := c.SubmitReviewDecision(ctx, agentID, taskID, reviewID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitReviewDecisionResponse(rsp)
+}
+
+// ListAgentTaskRunsWithResponse request returning *ListAgentTaskRunsResponse
+func (c *ClientWithResponses) ListAgentTaskRunsWithResponse(ctx context.Context, agentID string, taskID string, reqEditors ...RequestEditorFn) (*ListAgentTaskRunsResponse, error) {
+	rsp, err := c.ListAgentTaskRuns(ctx, agentID, taskID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAgentTaskRunsResponse(rsp)
+}
+
+// SplitGoalIntoTasksWithBodyWithResponse request with arbitrary body returning *SplitGoalIntoTasksResponse
+func (c *ClientWithResponses) SplitGoalIntoTasksWithBodyWithResponse(ctx context.Context, agentID string, taskID string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SplitGoalIntoTasksResponse, error) {
+	rsp, err := c.SplitGoalIntoTasksWithBody(ctx, agentID, taskID, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSplitGoalIntoTasksResponse(rsp)
+}
+
+func (c *ClientWithResponses) SplitGoalIntoTasksWithResponse(ctx context.Context, agentID string, taskID string, body SplitGoalIntoTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*SplitGoalIntoTasksResponse, error) {
+	rsp, err := c.SplitGoalIntoTasks(ctx, agentID, taskID, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSplitGoalIntoTasksResponse(rsp)
 }
 
 // DeleteAgentWithResponse request returning *DeleteAgentResponse
@@ -18569,6 +19634,46 @@ func ParseCreateAgentResponse(rsp *http.Response) (*CreateAgentResponse, error) 
 	return response, nil
 }
 
+// ParseCreateGoalResponse parses an HTTP response from a CreateGoalWithResponse call
+func ParseCreateGoalResponse(rsp *http.Response) (*CreateGoalResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateGoalResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListProjectsResponse parses an HTTP response from a ListProjectsWithResponse call
 func ParseListProjectsResponse(rsp *http.Response) (*ListProjectsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -20011,6 +21116,93 @@ func ParseAgentTaskActionResponse(rsp *http.Response) (*AgentTaskActionResponse,
 	return response, nil
 }
 
+// ParseListAgentTaskCriteriaResponse parses an HTTP response from a ListAgentTaskCriteriaWithResponse call
+func ParseListAgentTaskCriteriaResponse(rsp *http.Response) (*ListAgentTaskCriteriaResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAgentTaskCriteriaResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskAcceptanceCriterionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateAgentTaskCriterionResponse parses an HTTP response from a CreateAgentTaskCriterionWithResponse call
+func ParseCreateAgentTaskCriterionResponse(rsp *http.Response) (*CreateAgentTaskCriterionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateAgentTaskCriterionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.AgentTaskAcceptanceCriterion
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetAgentTaskDepsResponse parses an HTTP response from a GetAgentTaskDepsWithResponse call
 func ParseGetAgentTaskDepsResponse(rsp *http.Response) (*GetAgentTaskDepsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -20158,6 +21350,274 @@ func ParseListAgentTaskEventsResponse(rsp *http.Response) (*ListAgentTaskEventsR
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePlanReadyResponse parses an HTTP response from a PlanReadyWithResponse call
+func ParsePlanReadyResponse(rsp *http.Response) (*PlanReadyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PlanReadyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReopenAgentTaskResponse parses an HTTP response from a ReopenAgentTaskWithResponse call
+func ParseReopenAgentTaskResponse(rsp *http.Response) (*ReopenAgentTaskResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReopenAgentTaskResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAgentTaskReviewsResponse parses an HTTP response from a ListAgentTaskReviewsWithResponse call
+func ParseListAgentTaskReviewsResponse(rsp *http.Response) (*ListAgentTaskReviewsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAgentTaskReviewsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskReviewList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSubmitReviewDecisionResponse parses an HTTP response from a SubmitReviewDecisionWithResponse call
+func ParseSubmitReviewDecisionResponse(rsp *http.Response) (*SubmitReviewDecisionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SubmitReviewDecisionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTask
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAgentTaskRunsResponse parses an HTTP response from a ListAgentTaskRunsWithResponse call
+func ParseListAgentTaskRunsResponse(rsp *http.Response) (*ListAgentTaskRunsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAgentTaskRunsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.AgentTaskRunList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSplitGoalIntoTasksResponse parses an HTTP response from a SplitGoalIntoTasksWithResponse call
+func ParseSplitGoalIntoTasksResponse(rsp *http.Response) (*SplitGoalIntoTasksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SplitGoalIntoTasksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.AgentTaskList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized

@@ -763,7 +763,7 @@ function useWorkData(agentID: string) {
   }, [loadTasks]);
 
   const needsTasks = tasks.filter(
-    (task) => task.status === "blocked" || task.status === "review_requested",
+    (task) => task.status === "blocked" || task.status === "reviewing",
   );
   const runningTasks = tasks.filter((task) => task.status === "running");
   const scheduledJobs = jobs.filter((job) => job.enabled);

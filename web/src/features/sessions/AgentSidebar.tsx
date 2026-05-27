@@ -456,7 +456,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const taskAttentionCount =
     taskList?.items?.filter(
       (task) =>
-        task.status === "blocked" || task.status === "review_requested" || task.status === "failed",
+        task.status === "blocked" || task.status === "reviewing" || task.status === "failed",
     ).length ?? 0;
 
   // ── active route detection ───────────────────────────────────────────────

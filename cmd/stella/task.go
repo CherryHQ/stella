@@ -138,7 +138,7 @@ func taskCreateCommand() *ucli.Command {
 			}
 			body := apiclient.CreateAgentTaskJSONRequestBody{
 				Title:   c.String("title"),
-				AgentId: agentID,
+				AgentId: &agentID,
 			}
 			if d := c.String("description"); d != "" {
 				body.Description = &d

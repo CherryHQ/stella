@@ -275,6 +275,22 @@ paths:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1deps"
   /api/agents/{agentID}/tasks/{taskID}/deps/{depID}:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1deps~1{depID}"
+  /api/agents/{agentID}/tasks/{taskID}/runs:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1runs"
+  /api/agents/{agentID}/tasks/{taskID}/reviews:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1reviews"
+  /api/agents/{agentID}/tasks/{taskID}/reviews/{reviewID}/decision:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1reviews~1{reviewID}~1decision"
+  /api/agents/{agentID}/tasks/{taskID}/criteria:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1criteria"
+  /api/agents/{agentID}/tasks/{taskID}/split:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1split"
+  /api/agents/{agentID}/tasks/{taskID}/plan-ready:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1plan-ready"
+  /api/agents/{agentID}/tasks/{taskID}/reopen:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1reopen"
+  /api/agents/{agentID}/goals:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1goals"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"

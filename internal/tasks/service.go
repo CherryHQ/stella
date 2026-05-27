@@ -1199,6 +1199,34 @@ func (s *Service) ListTaskDeps(ctx context.Context, taskID string) ([]string, er
 	return s.q.ListAgentTaskDeps(ctx, taskID)
 }
 
+// ListRuns returns all runs for a task.
+func (s *Service) ListRuns(ctx context.Context, taskID, userID string) ([]sqlc.AgentTaskRun, error) {
+	return s.q.ListRunsByTask(ctx, sqlc.ListRunsByTaskParams{TaskID: taskID, UserID: userID})
+}
+
+// ListReviews returns all reviews for a task.
+func (s *Service) ListReviews(ctx context.Context, taskID, userID string) ([]sqlc.AgentTaskReview, error) {
+	return s.q.ListReviewsByTask(ctx, sqlc.ListReviewsByTaskParams{TaskID: taskID, UserID: userID})
+}
+
+// ListCriteria returns acceptance criteria for a task.
+func (s *Service) ListCriteria(ctx context.Context, taskID, userID string) ([]sqlc.AgentTaskAcceptanceCriterion, error) {
+	return s.q.ListCriteriaByTask(ctx, sqlc.ListCriteriaByTaskParams{TaskID: taskID, UserID: userID})
+}
+
+// CreateCriterion adds an acceptance criterion to a task.
+func (s *Service) CreateCriterion(ctx context.Context, taskID, userID, description string, required bool, position int64) (sqlc.AgentTaskAcceptanceCriterion, error) {
+	return s.q.CreateAcceptanceCriterion(ctx, sqlc.CreateAcceptanceCriterionParams{
+		ID:          newID(),
+		UserID:      userID,
+		TaskID:      taskID,
+		Description: description,
+		Required:    required,
+		Position:    position,
+		CreatedAt:   time.Now().Format(time.RFC3339),
+	})
+}
+
 // createRun inserts a new run record for a task.
 func (s *Service) createRun(ctx context.Context, task sqlc.AgentTask, kind, purpose string) (sqlc.AgentTaskRun, error) {
 	now := time.Now().Format(time.RFC3339)

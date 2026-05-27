@@ -308,10 +308,12 @@ func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, age
 // toAPITask maps a sqlc.AgentTask to the API type.
 func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 	at := apiserver.AgentTask{
-		Id:        t.ID,
-		Title:     t.Title,
-		Status:    apitypes.AgentTaskStatus(t.Status),
-		Priority:  apitypes.AgentTaskPriority(t.Priority),
+		Id:       t.ID,
+		Title:    t.Title,
+		Status:   apitypes.AgentTaskStatus(t.Status),
+		Priority: apitypes.AgentTaskPriority(t.Priority),
+		TaskType: apitypes.AgentTaskTaskType(t.TaskType),
+
 		CreatedAt: parseTaskTime(t.CreatedAt),
 		UpdatedAt: parseTaskTime(t.UpdatedAt),
 	}
@@ -319,13 +321,31 @@ func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 		at.Description = &t.Description
 	}
 	if t.AssigneeAgentID.Valid && t.AssigneeAgentID.String != "" {
-		at.AgentId = &t.AssigneeAgentID.String
+		at.AssigneeAgentId = &t.AssigneeAgentID.String
 	}
+	if t.CreatedByAgentID.Valid && t.CreatedByAgentID.String != "" {
+		at.CreatedByAgentId = &t.CreatedByAgentID.String
+	}
+	if t.ParentID.Valid && t.ParentID.String != "" {
+		at.ParentId = &t.ParentID.String
+	}
+	at.RootId = &t.RootID
 	if t.SessionID.Valid && t.SessionID.String != "" {
 		at.SessionId = &t.SessionID.String
 	}
 	if t.UserID != "" {
 		at.UserId = &t.UserID
+	}
+	if t.Required {
+		at.Required = &t.Required
+	}
+	retryCount := int(t.RetryCount)
+	at.RetryCount = &retryCount
+	maxRetries := int(t.MaxRetries)
+	at.MaxRetries = &maxRetries
+	if t.ReviewPolicy.Valid {
+		rp := apitypes.AgentTaskReviewPolicy(t.ReviewPolicy.String)
+		at.ReviewPolicy = &rp
 	}
 	if t.Context != "" && t.Context != "{}" {
 		var ctx map[string]any
@@ -339,7 +359,6 @@ func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 			at.ReviewRequest = &rr
 		}
 	}
-	// deps are now populated separately from the edge table
 	if t.NotifyAt.Valid && t.NotifyAt.String != "" {
 		notifyAt := parseTaskTime(t.NotifyAt.String)
 		at.NotifyAt = &notifyAt
@@ -534,6 +553,364 @@ func (s *Server) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 	writeData(w, http.StatusOK, s.toAPITaskWithDeps(r.Context(), task))
+}
+
+func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request, agentID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	var body apitypes.GoalInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	description := ""
+	if body.Description != nil {
+		description = *body.Description
+	}
+	priority := ""
+	if body.Priority != nil {
+		priority = string(*body.Priority)
+	}
+
+	goal, err := s.tasksSvc.CreateGoal(r.Context(), tasks.CreateGoalParams{
+		Title:           body.Title,
+		Description:     description,
+		Priority:        priority,
+		AssigneeAgentID: agentID,
+		UserID:          info.UserID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, toAPITask(goal))
+}
+
+func (s *Server) SplitGoalIntoTasks(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	var body apitypes.SplitTaskInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	children := make([]tasks.ChildTaskInput, 0, len(body.Children))
+	for _, c := range body.Children {
+		child := tasks.ChildTaskInput{
+			Title:    c.Title,
+			Required: true,
+		}
+		if c.Description != nil {
+			child.Description = *c.Description
+		}
+		if c.Priority != nil {
+			child.Priority = string(*c.Priority)
+		}
+		if c.AgentId != nil {
+			child.AssigneeAgentID = *c.AgentId
+		}
+		if c.Required != nil {
+			child.Required = *c.Required
+		}
+		if c.ReviewPolicy != nil {
+			child.ReviewPolicy = string(*c.ReviewPolicy)
+		}
+		if c.Deps != nil {
+			child.Deps = *c.Deps
+		}
+		if c.Criteria != nil {
+			child.Criteria = *c.Criteria
+		}
+		children = append(children, child)
+	}
+
+	created, err := s.tasksSvc.SplitTask(r.Context(), taskID, info.UserID, children)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not a goal") {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]apiserver.AgentTask, 0, len(created))
+	for _, t := range created {
+		items = append(items, toAPITask(t))
+	}
+	writeData(w, http.StatusCreated, apiserver.AgentTaskList{Items: items})
+}
+
+func (s *Server) PlanReady(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	goal, err := s.tasksSvc.PlanReady(r.Context(), taskID, info.UserID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, toAPITask(goal))
+}
+
+func (s *Server) ReopenAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	task, err := s.tasksSvc.ReopenTask(r.Context(), taskID, info.UserID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, toAPITask(task))
+}
+
+func (s *Server) ListAgentTaskRuns(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	runs, err := s.tasksSvc.ListRuns(r.Context(), taskID, info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]apitypes.AgentTaskRun, 0, len(runs))
+	for _, run := range runs {
+		items = append(items, toAPIRun(run))
+	}
+	writeData(w, http.StatusOK, apitypes.AgentTaskRunList{Items: items})
+}
+
+func (s *Server) ListAgentTaskReviews(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	reviews, err := s.tasksSvc.ListReviews(r.Context(), taskID, info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]apitypes.AgentTaskReview, 0, len(reviews))
+	for _, rev := range reviews {
+		items = append(items, toAPIReview(rev))
+	}
+	writeData(w, http.StatusOK, apitypes.AgentTaskReviewList{Items: items})
+}
+
+func (s *Server) SubmitReviewDecision(w http.ResponseWriter, r *http.Request, agentID string, taskID string, reviewID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	var body apitypes.ReviewDecisionInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	decision := tasks.ReviewDecision{
+		Status:   string(body.Status),
+		Summary:  derefStr(body.Summary),
+		Feedback: derefStr(body.Feedback),
+	}
+	if body.Items != nil {
+		for _, item := range *body.Items {
+			ri := tasks.ReviewItemInput{
+				CriterionID: item.CriterionId,
+				Passed:      item.Passed,
+			}
+			if item.Evidence != nil {
+				ri.Evidence = *item.Evidence
+			}
+			decision.Items = append(decision.Items, ri)
+		}
+	}
+
+	task, err := s.tasksSvc.HandleReviewDecision(r.Context(), reviewID, info.UserID, decision)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, toAPITask(task))
+}
+
+func (s *Server) ListAgentTaskCriteria(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	criteria, err := s.tasksSvc.ListCriteria(r.Context(), taskID, info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]apitypes.AgentTaskAcceptanceCriterion, 0, len(criteria))
+	for _, c := range criteria {
+		items = append(items, toAPICriterion(c))
+	}
+	writeData(w, http.StatusOK, apitypes.AgentTaskAcceptanceCriterionList{Items: items})
+}
+
+func (s *Server) CreateAgentTaskCriterion(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
+	if s.tasksSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+
+	var body apitypes.AgentTaskAcceptanceCriterionInput
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	required := true
+	if body.Required != nil {
+		required = *body.Required
+	}
+	var position int64
+	if body.Position != nil {
+		position = int64(*body.Position)
+	}
+
+	criterion, err := s.tasksSvc.CreateCriterion(r.Context(), taskID, info.UserID, body.Description, required, position)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, toAPICriterion(criterion))
+}
+
+func toAPIRun(run sqlc.AgentTaskRun) apitypes.AgentTaskRun {
+	r := apitypes.AgentTaskRun{
+		Id:        run.ID,
+		TaskId:    run.TaskID,
+		Kind:      apitypes.AgentTaskRunKind(run.Kind),
+		Purpose:   apitypes.AgentTaskRunPurpose(run.Purpose),
+		Status:    apitypes.AgentTaskRunStatus(run.Status),
+		CreatedAt: parseTaskTime(run.CreatedAt),
+		UpdatedAt: parseTaskTime(run.UpdatedAt),
+	}
+	if run.AgentID.Valid {
+		r.AgentId = &run.AgentID.String
+	}
+	if run.SessionID.Valid {
+		r.SessionId = &run.SessionID.String
+	}
+	if run.ResultJson != "" && run.ResultJson != "{}" {
+		var result map[string]any
+		if err := json.Unmarshal([]byte(run.ResultJson), &result); err == nil && len(result) > 0 {
+			r.ResultJson = &result
+		}
+	}
+	if run.Error != "" {
+		r.Error = &run.Error
+	}
+	if run.DeadlineAt.Valid {
+		t := parseTaskTime(run.DeadlineAt.String)
+		r.DeadlineAt = &t
+	}
+	if run.StartedAt.Valid {
+		t := parseTaskTime(run.StartedAt.String)
+		r.StartedAt = &t
+	}
+	if run.FinishedAt.Valid {
+		t := parseTaskTime(run.FinishedAt.String)
+		r.FinishedAt = &t
+	}
+	return r
+}
+
+func toAPIReview(rev sqlc.AgentTaskReview) apitypes.AgentTaskReview {
+	r := apitypes.AgentTaskReview{
+		Id:           rev.ID,
+		TaskId:       rev.TaskID,
+		ReviewerType: apitypes.AgentTaskReviewReviewerType(rev.ReviewerType),
+		Status:       apitypes.AgentTaskReviewStatus(rev.Status),
+		CreatedAt:    parseTaskTime(rev.CreatedAt),
+	}
+	if rev.ReviewerID != "" {
+		r.ReviewerId = &rev.ReviewerID
+	}
+	if rev.SubmittedRunID != "" {
+		r.SubmittedRunId = &rev.SubmittedRunID
+	}
+	if rev.ReviewerRunID.Valid {
+		r.ReviewerRunId = &rev.ReviewerRunID.String
+	}
+	if rev.Summary != "" {
+		r.Summary = &rev.Summary
+	}
+	if rev.Feedback != "" {
+		r.Feedback = &rev.Feedback
+	}
+	if rev.ResolvedAt.Valid {
+		t := parseTaskTime(rev.ResolvedAt.String)
+		r.ResolvedAt = &t
+	}
+	return r
+}
+
+func toAPICriterion(c sqlc.AgentTaskAcceptanceCriterion) apitypes.AgentTaskAcceptanceCriterion {
+	pos := int(c.Position)
+	ct := parseTaskTime(c.CreatedAt)
+	return apitypes.AgentTaskAcceptanceCriterion{
+		Id:          c.ID,
+		TaskId:      c.TaskID,
+		Description: c.Description,
+		Required:    c.Required,
+		Position:    pos,
+		CreatedAt:   &ct,
+	}
 }
 
 // parseTaskTime parses a time string stored in the tasks tables.

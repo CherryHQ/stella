@@ -19,8 +19,10 @@ import {
   createAgent,
   createAgentSkill,
   createAgentTask,
+  createAgentTaskCriterion,
   createChannel,
   createFeed,
+  createGoal,
   createInvite,
   createProject,
   createProvider,
@@ -84,7 +86,10 @@ import {
   linkAuthUserLoginIdentity,
   listAgents,
   listAgentSkills,
+  listAgentTaskCriteria,
   listAgentTaskEvents,
+  listAgentTaskReviews,
+  listAgentTaskRuns,
   listAgentTasks,
   listAgentUsers,
   listArticles,
@@ -123,12 +128,14 @@ import {
   moveWorkspaceFile,
   oauthCallback,
   type Options,
+  planReady,
   pollFeed,
   pollOAuthFlow,
   pollWeixinQrStatus,
   redeemInviteOnboarding,
   removeAgentTaskDep,
   removeAgentUser,
+  reopenAgentTask,
   revokeInvite,
   revokeShare,
   saveArticle,
@@ -140,8 +147,10 @@ import {
   setProfileSoul,
   setUserMemory,
   setVaultEntry,
+  splitGoalIntoTasks,
   startOAuthFlow,
   startWeixinQr,
+  submitReviewDecision,
   syncManifestPlugins,
   togglePlugin,
   triggerSchedulerJob,
@@ -192,6 +201,9 @@ import type {
   CreateAgentSkillData,
   CreateAgentSkillError,
   CreateAgentSkillResponse,
+  CreateAgentTaskCriterionData,
+  CreateAgentTaskCriterionError,
+  CreateAgentTaskCriterionResponse,
   CreateAgentTaskData,
   CreateAgentTaskError,
   CreateAgentTaskResponse,
@@ -201,6 +213,9 @@ import type {
   CreateFeedData,
   CreateFeedError,
   CreateFeedResponse,
+  CreateGoalData,
+  CreateGoalError,
+  CreateGoalResponse,
   CreateInviteData,
   CreateInviteError,
   CreateInviteResponse2,
@@ -389,9 +404,18 @@ import type {
   ListAgentSkillsError,
   ListAgentSkillsResponse,
   ListAgentsResponse,
+  ListAgentTaskCriteriaData,
+  ListAgentTaskCriteriaError,
+  ListAgentTaskCriteriaResponse,
   ListAgentTaskEventsData,
   ListAgentTaskEventsError,
   ListAgentTaskEventsResponse,
+  ListAgentTaskReviewsData,
+  ListAgentTaskReviewsError,
+  ListAgentTaskReviewsResponse,
+  ListAgentTaskRunsData,
+  ListAgentTaskRunsError,
+  ListAgentTaskRunsResponse,
   ListAgentTasksData,
   ListAgentTasksError,
   ListAgentTasksResponse,
@@ -500,6 +524,9 @@ import type {
   MoveWorkspaceFileError,
   MoveWorkspaceFileResponse,
   OauthCallbackData,
+  PlanReadyData,
+  PlanReadyError,
+  PlanReadyResponse,
   PollFeedData,
   PollFeedError,
   PollFeedResponse,
@@ -518,6 +545,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
+  ReopenAgentTaskData,
+  ReopenAgentTaskError,
+  ReopenAgentTaskResponse,
   RevokeInviteData,
   RevokeInviteError,
   RevokeInviteResponse,
@@ -551,12 +581,18 @@ import type {
   SetVaultEntryData,
   SetVaultEntryError,
   SetVaultEntryResponse,
+  SplitGoalIntoTasksData,
+  SplitGoalIntoTasksError,
+  SplitGoalIntoTasksResponse,
   StartOAuthFlowData,
   StartOAuthFlowError,
   StartOAuthFlowResponse,
   StartWeixinQrData,
   StartWeixinQrError,
   StartWeixinQrResponse,
+  SubmitReviewDecisionData,
+  SubmitReviewDecisionError,
+  SubmitReviewDecisionResponse,
   SyncManifestPluginsData,
   SyncManifestPluginsError,
   SyncManifestPluginsResponse,
@@ -4744,6 +4780,252 @@ export const removeAgentTaskDepMutation = (
   > = {
     mutationFn: async (fnOptions) => {
       const { data } = await removeAgentTaskDep({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listAgentTaskRunsQueryKey = (
+  options: Options<ListAgentTaskRunsData>,
+) => createQueryKey("listAgentTaskRuns", options);
+
+/**
+ * List runs for a task
+ */
+export const listAgentTaskRunsOptions = (
+  options: Options<ListAgentTaskRunsData>,
+) =>
+  queryOptions<
+    ListAgentTaskRunsResponse,
+    ListAgentTaskRunsError,
+    ListAgentTaskRunsResponse,
+    ReturnType<typeof listAgentTaskRunsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentTaskRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAgentTaskRunsQueryKey(options),
+  });
+
+export const listAgentTaskReviewsQueryKey = (
+  options: Options<ListAgentTaskReviewsData>,
+) => createQueryKey("listAgentTaskReviews", options);
+
+/**
+ * List reviews for a task
+ */
+export const listAgentTaskReviewsOptions = (
+  options: Options<ListAgentTaskReviewsData>,
+) =>
+  queryOptions<
+    ListAgentTaskReviewsResponse,
+    ListAgentTaskReviewsError,
+    ListAgentTaskReviewsResponse,
+    ReturnType<typeof listAgentTaskReviewsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentTaskReviews({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAgentTaskReviewsQueryKey(options),
+  });
+
+/**
+ * Submit a review decision
+ */
+export const submitReviewDecisionMutation = (
+  options?: Partial<Options<SubmitReviewDecisionData>>,
+): UseMutationOptions<
+  SubmitReviewDecisionResponse,
+  SubmitReviewDecisionError,
+  Options<SubmitReviewDecisionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    SubmitReviewDecisionResponse,
+    SubmitReviewDecisionError,
+    Options<SubmitReviewDecisionData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await submitReviewDecision({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listAgentTaskCriteriaQueryKey = (
+  options: Options<ListAgentTaskCriteriaData>,
+) => createQueryKey("listAgentTaskCriteria", options);
+
+/**
+ * List acceptance criteria for a task
+ */
+export const listAgentTaskCriteriaOptions = (
+  options: Options<ListAgentTaskCriteriaData>,
+) =>
+  queryOptions<
+    ListAgentTaskCriteriaResponse,
+    ListAgentTaskCriteriaError,
+    ListAgentTaskCriteriaResponse,
+    ReturnType<typeof listAgentTaskCriteriaQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentTaskCriteria({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAgentTaskCriteriaQueryKey(options),
+  });
+
+/**
+ * Add an acceptance criterion
+ */
+export const createAgentTaskCriterionMutation = (
+  options?: Partial<Options<CreateAgentTaskCriterionData>>,
+): UseMutationOptions<
+  CreateAgentTaskCriterionResponse,
+  CreateAgentTaskCriterionError,
+  Options<CreateAgentTaskCriterionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateAgentTaskCriterionResponse,
+    CreateAgentTaskCriterionError,
+    Options<CreateAgentTaskCriterionData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createAgentTaskCriterion({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Split a goal into child tasks
+ */
+export const splitGoalIntoTasksMutation = (
+  options?: Partial<Options<SplitGoalIntoTasksData>>,
+): UseMutationOptions<
+  SplitGoalIntoTasksResponse,
+  SplitGoalIntoTasksError,
+  Options<SplitGoalIntoTasksData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    SplitGoalIntoTasksResponse,
+    SplitGoalIntoTasksError,
+    Options<SplitGoalIntoTasksData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await splitGoalIntoTasks({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Activate a goal and its draft children
+ */
+export const planReadyMutation = (
+  options?: Partial<Options<PlanReadyData>>,
+): UseMutationOptions<
+  PlanReadyResponse,
+  PlanReadyError,
+  Options<PlanReadyData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PlanReadyResponse,
+    PlanReadyError,
+    Options<PlanReadyData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await planReady({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Reopen a completed or failed task
+ */
+export const reopenAgentTaskMutation = (
+  options?: Partial<Options<ReopenAgentTaskData>>,
+): UseMutationOptions<
+  ReopenAgentTaskResponse,
+  ReopenAgentTaskError,
+  Options<ReopenAgentTaskData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ReopenAgentTaskResponse,
+    ReopenAgentTaskError,
+    Options<ReopenAgentTaskData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await reopenAgentTask({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Create a goal (parent task container)
+ */
+export const createGoalMutation = (
+  options?: Partial<Options<CreateGoalData>>,
+): UseMutationOptions<
+  CreateGoalResponse,
+  CreateGoalError,
+  Options<CreateGoalData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateGoalResponse,
+    CreateGoalError,
+    Options<CreateGoalData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createGoal({
         ...options,
         ...fnOptions,
         throwOnError: true,

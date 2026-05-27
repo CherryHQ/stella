@@ -257,17 +257,26 @@ export type ComponentsAgentList = {
 
 export type ComponentsAgentTask = {
   id: string;
+  parent_id?: string | null;
+  root_id?: string;
+  task_type: "goal" | "task";
   title: string;
   description?: string;
   status:
-    | "pending"
+    | "draft"
+    | "ready"
     | "running"
     | "blocked"
-    | "review_requested"
+    | "reviewing"
+    | "changes_requested"
     | "done"
     | "failed"
     | "cancelled";
   priority: "routine" | "urgent";
+  required?: boolean;
+  retry_count?: number;
+  max_retries?: number;
+  review_policy?: "auto" | "agent" | "human";
   session_id?: string;
   /**
    * Task-level metadata checkpoint (phase, decisions, blockers)
@@ -283,11 +292,31 @@ export type ComponentsAgentTask = {
   /**
    * When to next notify the user; null means no pending notification
    */
-  notify_at?: string;
-  agent_id?: string;
+  notify_at?: string | null;
+  assignee_agent_id?: string | null;
+  created_by_agent_id?: string | null;
   user_id?: string;
   created_at: string;
   updated_at: string;
+};
+
+export type AgentTaskAcceptanceCriterion = {
+  id: string;
+  task_id: string;
+  description: string;
+  required: boolean;
+  position: number;
+  created_at?: string;
+};
+
+export type AgentTaskAcceptanceCriterionInput = {
+  description: string;
+  required?: boolean;
+  position?: number;
+};
+
+export type AgentTaskAcceptanceCriterionList = {
+  items: Array<AgentTaskAcceptanceCriterion>;
 };
 
 /**
@@ -341,14 +370,18 @@ export type ComponentsAgentTaskDepsInput = {
 export type ComponentsAgentTaskEvent = {
   id: string;
   task_id: string;
+  run_id?: string | null;
+  review_id?: string | null;
   event_type:
     | "started"
     | "progress"
     | "blocked"
-    | "review_requested"
+    | "reviewing"
     | "done"
     | "failed"
-    | "cancelled";
+    | "cancelled"
+    | "reopened"
+    | "plan_ready";
   detail?: {
     [key: string]: unknown;
   };
@@ -366,7 +399,8 @@ export type ComponentsAgentTaskInput = {
   title: string;
   description?: string;
   priority?: "routine" | "urgent";
-  agent_id: string;
+  agent_id?: string;
+  review_policy?: "auto" | "agent" | "human";
   /**
    * IDs of tasks that must be done before this task can run
    */
@@ -375,6 +409,38 @@ export type ComponentsAgentTaskInput = {
 
 export type ComponentsAgentTaskList = {
   items: Array<ComponentsAgentTask>;
+};
+
+export type AgentTaskReview = {
+  id: string;
+  task_id: string;
+  reviewer_type: "agent" | "human" | "system";
+  reviewer_id?: string;
+  submitted_run_id?: string;
+  reviewer_run_id?: string | null;
+  status:
+    | "requested"
+    | "approved"
+    | "changes_requested"
+    | "rejected"
+    | "cancelled";
+  summary?: string;
+  feedback?: string;
+  items?: Array<AgentTaskReviewItem>;
+  created_at: string;
+  resolved_at?: string | null;
+};
+
+export type AgentTaskReviewItem = {
+  id: string;
+  criterion_id: string;
+  passed?: boolean | null;
+  evidence?: string;
+  created_at?: string;
+};
+
+export type AgentTaskReviewList = {
+  items: Array<AgentTaskReview>;
 };
 
 /**
@@ -386,6 +452,42 @@ export type ComponentsAgentTaskReviewRequest = {
   recommendation?: string;
   risk?: "low" | "medium" | "high";
   details?: string;
+};
+
+export type AgentTaskRun = {
+  id: string;
+  task_id: string;
+  agent_id?: string | null;
+  kind: "manager_run" | "worker_run" | "reviewer_run";
+  purpose:
+    | "planning"
+    | "synthesis"
+    | "replan"
+    | "execution"
+    | "review"
+    | "auto_approval"
+    | "failure_assessment";
+  status:
+    | "queued"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "interrupted";
+  session_id?: string | null;
+  result_json?: {
+    [key: string]: unknown;
+  };
+  error?: string;
+  deadline_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AgentTaskRunList = {
+  items: Array<AgentTaskRun>;
 };
 
 /**
@@ -544,6 +646,23 @@ export type ComponentsChannelWriteRequest = {
   config?: string;
 };
 
+export type ChildTaskInput = {
+  title: string;
+  description?: string;
+  priority?: "routine" | "urgent";
+  agent_id?: string;
+  required?: boolean;
+  review_policy?: "auto" | "agent" | "human";
+  /**
+   * Index or ID of sibling/external task dependencies
+   */
+  deps?: Array<string>;
+  /**
+   * Acceptance criterion descriptions
+   */
+  criteria?: Array<string>;
+};
+
 export type ComponentsCreateAgentRequest = {
   id?: string;
   name?: string;
@@ -698,6 +817,16 @@ export type ComponentsFetchModelsRequest = {
 
 export type ComponentsGenerateLinkCodeRequest = {
   platform: string;
+};
+
+/**
+ * Fields for creating a goal
+ */
+export type GoalInput = {
+  title: string;
+  description?: string;
+  priority?: "routine" | "urgent";
+  agent_id?: string;
 };
 
 export type ComponentsIdentity = {
@@ -1072,6 +1201,20 @@ export type ComponentsRegisterRequest = {
   password: string;
 };
 
+/**
+ * A review decision on a task
+ */
+export type ReviewDecisionInput = {
+  status: "approved" | "changes_requested" | "rejected";
+  summary?: string;
+  feedback?: string;
+  items?: Array<{
+    criterion_id: string;
+    passed: boolean;
+    evidence?: string;
+  }>;
+};
+
 export type ComponentsSandboxConfig = {
   network?: ComponentsSandboxNetworkConfig;
 };
@@ -1219,6 +1362,13 @@ export type ComponentsSourceType =
   | "github"
   | "rss"
   | "pdf";
+
+/**
+ * Children to create under a goal
+ */
+export type SplitTaskInput = {
+  children: Array<ChildTaskInput>;
+};
 
 export type ComponentsStatusDatabase = {
   status: string;
@@ -1673,6 +1823,8 @@ export type _1Api1Skills1Search = unknown;
 
 export type _1Api1Status = unknown;
 
+export type _1Api1Agents1AgentId1Goals = unknown;
+
 export type _1Api1Agents1AgentId1Tasks = unknown;
 
 export type _1Api1Agents1AgentId1Tasks1Batch = unknown;
@@ -1683,11 +1835,26 @@ export type _1Api1Agents1AgentId1Tasks1TaskId = unknown;
 
 export type _1Api1Agents1AgentId1Tasks1TaskId1Action = unknown;
 
+export type _1Api1Agents1AgentId1Tasks1TaskId1Criteria = unknown;
+
 export type _1Api1Agents1AgentId1Tasks1TaskId1Deps = unknown;
 
 export type _1Api1Agents1AgentId1Tasks1TaskId1Deps1DepId = unknown;
 
 export type _1Api1Agents1AgentId1Tasks1TaskId1Events = unknown;
+
+export type _1Api1Agents1AgentId1Tasks1TaskId1PlanReady = unknown;
+
+export type _1Api1Agents1AgentId1Tasks1TaskId1Reopen = unknown;
+
+export type _1Api1Agents1AgentId1Tasks1TaskId1Reviews = unknown;
+
+export type _1Api1Agents1AgentId1Tasks1TaskId1Reviews1ReviewId1Decision =
+  unknown;
+
+export type _1Api1Agents1AgentId1Tasks1TaskId1Runs = unknown;
+
+export type _1Api1Agents1AgentId1Tasks1TaskId1Split = unknown;
 
 export type _1Api1Tools = unknown;
 
@@ -7475,6 +7642,374 @@ export type RemoveAgentTaskDepResponses = {
 
 export type RemoveAgentTaskDepResponse =
   RemoveAgentTaskDepResponses[keyof RemoveAgentTaskDepResponses];
+
+export type ListAgentTaskRunsData = {
+  body?: never;
+  path: {
+    agentID: string;
+    taskID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/runs";
+};
+
+export type ListAgentTaskRunsErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type ListAgentTaskRunsError =
+  ListAgentTaskRunsErrors[keyof ListAgentTaskRunsErrors];
+
+export type ListAgentTaskRunsResponses = {
+  /**
+   * ok
+   */
+  200: AgentTaskRunList;
+};
+
+export type ListAgentTaskRunsResponse =
+  ListAgentTaskRunsResponses[keyof ListAgentTaskRunsResponses];
+
+export type ListAgentTaskReviewsData = {
+  body?: never;
+  path: {
+    agentID: string;
+    taskID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/reviews";
+};
+
+export type ListAgentTaskReviewsErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type ListAgentTaskReviewsError =
+  ListAgentTaskReviewsErrors[keyof ListAgentTaskReviewsErrors];
+
+export type ListAgentTaskReviewsResponses = {
+  /**
+   * ok
+   */
+  200: AgentTaskReviewList;
+};
+
+export type ListAgentTaskReviewsResponse =
+  ListAgentTaskReviewsResponses[keyof ListAgentTaskReviewsResponses];
+
+export type SubmitReviewDecisionData = {
+  body: ReviewDecisionInput;
+  path: {
+    agentID: string;
+    taskID: string;
+    reviewID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/reviews/{reviewID}/decision";
+};
+
+export type SubmitReviewDecisionErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type SubmitReviewDecisionError =
+  SubmitReviewDecisionErrors[keyof SubmitReviewDecisionErrors];
+
+export type SubmitReviewDecisionResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type SubmitReviewDecisionResponse =
+  SubmitReviewDecisionResponses[keyof SubmitReviewDecisionResponses];
+
+export type ListAgentTaskCriteriaData = {
+  body?: never;
+  path: {
+    agentID: string;
+    taskID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/criteria";
+};
+
+export type ListAgentTaskCriteriaErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type ListAgentTaskCriteriaError =
+  ListAgentTaskCriteriaErrors[keyof ListAgentTaskCriteriaErrors];
+
+export type ListAgentTaskCriteriaResponses = {
+  /**
+   * ok
+   */
+  200: AgentTaskAcceptanceCriterionList;
+};
+
+export type ListAgentTaskCriteriaResponse =
+  ListAgentTaskCriteriaResponses[keyof ListAgentTaskCriteriaResponses];
+
+export type CreateAgentTaskCriterionData = {
+  body: AgentTaskAcceptanceCriterionInput;
+  path: {
+    agentID: string;
+    taskID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/criteria";
+};
+
+export type CreateAgentTaskCriterionErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type CreateAgentTaskCriterionError =
+  CreateAgentTaskCriterionErrors[keyof CreateAgentTaskCriterionErrors];
+
+export type CreateAgentTaskCriterionResponses = {
+  /**
+   * created
+   */
+  201: AgentTaskAcceptanceCriterion;
+};
+
+export type CreateAgentTaskCriterionResponse =
+  CreateAgentTaskCriterionResponses[keyof CreateAgentTaskCriterionResponses];
+
+export type SplitGoalIntoTasksData = {
+  body: SplitTaskInput;
+  path: {
+    agentID: string;
+    taskID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/split";
+};
+
+export type SplitGoalIntoTasksErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type SplitGoalIntoTasksError =
+  SplitGoalIntoTasksErrors[keyof SplitGoalIntoTasksErrors];
+
+export type SplitGoalIntoTasksResponses = {
+  /**
+   * created
+   */
+  201: ComponentsAgentTaskList;
+};
+
+export type SplitGoalIntoTasksResponse =
+  SplitGoalIntoTasksResponses[keyof SplitGoalIntoTasksResponses];
+
+export type PlanReadyData = {
+  body?: never;
+  path: {
+    agentID: string;
+    taskID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/plan-ready";
+};
+
+export type PlanReadyErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type PlanReadyError = PlanReadyErrors[keyof PlanReadyErrors];
+
+export type PlanReadyResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type PlanReadyResponse = PlanReadyResponses[keyof PlanReadyResponses];
+
+export type ReopenAgentTaskData = {
+  body?: never;
+  path: {
+    agentID: string;
+    taskID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/tasks/{taskID}/reopen";
+};
+
+export type ReopenAgentTaskErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * resource not found
+   */
+  404: {
+    error: string;
+  };
+};
+
+export type ReopenAgentTaskError =
+  ReopenAgentTaskErrors[keyof ReopenAgentTaskErrors];
+
+export type ReopenAgentTaskResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsAgentTask;
+};
+
+export type ReopenAgentTaskResponse =
+  ReopenAgentTaskResponses[keyof ReopenAgentTaskResponses];
+
+export type CreateGoalData = {
+  body: GoalInput;
+  path: {
+    agentID: string;
+  };
+  query?: never;
+  url: "/api/agents/{agentID}/goals";
+};
+
+export type CreateGoalErrors = {
+  /**
+   * malformed request
+   */
+  400: {
+    error: string;
+  };
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type CreateGoalError = CreateGoalErrors[keyof CreateGoalErrors];
+
+export type CreateGoalResponses = {
+  /**
+   * created
+   */
+  201: ComponentsAgentTask;
+};
+
+export type CreateGoalResponse = CreateGoalResponses[keyof CreateGoalResponses];
 
 export type ListPluginsData = {
   body?: never;

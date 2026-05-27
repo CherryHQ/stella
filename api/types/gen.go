@@ -25,15 +25,38 @@ func (e AgentTaskPriority) Valid() bool {
 	}
 }
 
+// Defines values for AgentTaskReviewPolicy.
+const (
+	AgentTaskReviewPolicyAgent AgentTaskReviewPolicy = "agent"
+	AgentTaskReviewPolicyAuto  AgentTaskReviewPolicy = "auto"
+	AgentTaskReviewPolicyHuman AgentTaskReviewPolicy = "human"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskReviewPolicy enum.
+func (e AgentTaskReviewPolicy) Valid() bool {
+	switch e {
+	case AgentTaskReviewPolicyAgent:
+		return true
+	case AgentTaskReviewPolicyAuto:
+		return true
+	case AgentTaskReviewPolicyHuman:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentTaskStatus.
 const (
-	AgentTaskStatusBlocked         AgentTaskStatus = "blocked"
-	AgentTaskStatusCancelled       AgentTaskStatus = "cancelled"
-	AgentTaskStatusDone            AgentTaskStatus = "done"
-	AgentTaskStatusFailed          AgentTaskStatus = "failed"
-	AgentTaskStatusPending         AgentTaskStatus = "pending"
-	AgentTaskStatusReviewRequested AgentTaskStatus = "review_requested"
-	AgentTaskStatusRunning         AgentTaskStatus = "running"
+	AgentTaskStatusBlocked          AgentTaskStatus = "blocked"
+	AgentTaskStatusCancelled        AgentTaskStatus = "cancelled"
+	AgentTaskStatusChangesRequested AgentTaskStatus = "changes_requested"
+	AgentTaskStatusDone             AgentTaskStatus = "done"
+	AgentTaskStatusDraft            AgentTaskStatus = "draft"
+	AgentTaskStatusFailed           AgentTaskStatus = "failed"
+	AgentTaskStatusReady            AgentTaskStatus = "ready"
+	AgentTaskStatusReviewing        AgentTaskStatus = "reviewing"
+	AgentTaskStatusRunning          AgentTaskStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the AgentTaskStatus enum.
@@ -43,15 +66,37 @@ func (e AgentTaskStatus) Valid() bool {
 		return true
 	case AgentTaskStatusCancelled:
 		return true
+	case AgentTaskStatusChangesRequested:
+		return true
 	case AgentTaskStatusDone:
+		return true
+	case AgentTaskStatusDraft:
 		return true
 	case AgentTaskStatusFailed:
 		return true
-	case AgentTaskStatusPending:
+	case AgentTaskStatusReady:
 		return true
-	case AgentTaskStatusReviewRequested:
+	case AgentTaskStatusReviewing:
 		return true
 	case AgentTaskStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskTaskType.
+const (
+	AgentTaskTaskTypeGoal AgentTaskTaskType = "goal"
+	AgentTaskTaskTypeTask AgentTaskTaskType = "task"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskTaskType enum.
+func (e AgentTaskTaskType) Valid() bool {
+	switch e {
+	case AgentTaskTaskTypeGoal:
+		return true
+	case AgentTaskTaskTypeTask:
 		return true
 	default:
 		return false
@@ -102,13 +147,15 @@ func (e AgentTaskBatchItemPriority) Valid() bool {
 
 // Defines values for AgentTaskEventEventType.
 const (
-	AgentTaskEventEventTypeBlocked         AgentTaskEventEventType = "blocked"
-	AgentTaskEventEventTypeCancelled       AgentTaskEventEventType = "cancelled"
-	AgentTaskEventEventTypeDone            AgentTaskEventEventType = "done"
-	AgentTaskEventEventTypeFailed          AgentTaskEventEventType = "failed"
-	AgentTaskEventEventTypeProgress        AgentTaskEventEventType = "progress"
-	AgentTaskEventEventTypeReviewRequested AgentTaskEventEventType = "review_requested"
-	AgentTaskEventEventTypeStarted         AgentTaskEventEventType = "started"
+	AgentTaskEventEventTypeBlocked   AgentTaskEventEventType = "blocked"
+	AgentTaskEventEventTypeCancelled AgentTaskEventEventType = "cancelled"
+	AgentTaskEventEventTypeDone      AgentTaskEventEventType = "done"
+	AgentTaskEventEventTypeFailed    AgentTaskEventEventType = "failed"
+	AgentTaskEventEventTypePlanReady AgentTaskEventEventType = "plan_ready"
+	AgentTaskEventEventTypeProgress  AgentTaskEventEventType = "progress"
+	AgentTaskEventEventTypeReopened  AgentTaskEventEventType = "reopened"
+	AgentTaskEventEventTypeReviewing AgentTaskEventEventType = "reviewing"
+	AgentTaskEventEventTypeStarted   AgentTaskEventEventType = "started"
 )
 
 // Valid indicates whether the value is a known member of the AgentTaskEventEventType enum.
@@ -122,9 +169,13 @@ func (e AgentTaskEventEventType) Valid() bool {
 		return true
 	case AgentTaskEventEventTypeFailed:
 		return true
+	case AgentTaskEventEventTypePlanReady:
+		return true
 	case AgentTaskEventEventTypeProgress:
 		return true
-	case AgentTaskEventEventTypeReviewRequested:
+	case AgentTaskEventEventTypeReopened:
+		return true
+	case AgentTaskEventEventTypeReviewing:
 		return true
 	case AgentTaskEventEventTypeStarted:
 		return true
@@ -151,6 +202,75 @@ func (e AgentTaskInputPriority) Valid() bool {
 	}
 }
 
+// Defines values for AgentTaskInputReviewPolicy.
+const (
+	AgentTaskInputReviewPolicyAgent AgentTaskInputReviewPolicy = "agent"
+	AgentTaskInputReviewPolicyAuto  AgentTaskInputReviewPolicy = "auto"
+	AgentTaskInputReviewPolicyHuman AgentTaskInputReviewPolicy = "human"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskInputReviewPolicy enum.
+func (e AgentTaskInputReviewPolicy) Valid() bool {
+	switch e {
+	case AgentTaskInputReviewPolicyAgent:
+		return true
+	case AgentTaskInputReviewPolicyAuto:
+		return true
+	case AgentTaskInputReviewPolicyHuman:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskReviewReviewerType.
+const (
+	AgentTaskReviewReviewerTypeAgent  AgentTaskReviewReviewerType = "agent"
+	AgentTaskReviewReviewerTypeHuman  AgentTaskReviewReviewerType = "human"
+	AgentTaskReviewReviewerTypeSystem AgentTaskReviewReviewerType = "system"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskReviewReviewerType enum.
+func (e AgentTaskReviewReviewerType) Valid() bool {
+	switch e {
+	case AgentTaskReviewReviewerTypeAgent:
+		return true
+	case AgentTaskReviewReviewerTypeHuman:
+		return true
+	case AgentTaskReviewReviewerTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskReviewStatus.
+const (
+	AgentTaskReviewStatusApproved         AgentTaskReviewStatus = "approved"
+	AgentTaskReviewStatusCancelled        AgentTaskReviewStatus = "cancelled"
+	AgentTaskReviewStatusChangesRequested AgentTaskReviewStatus = "changes_requested"
+	AgentTaskReviewStatusRejected         AgentTaskReviewStatus = "rejected"
+	AgentTaskReviewStatusRequested        AgentTaskReviewStatus = "requested"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskReviewStatus enum.
+func (e AgentTaskReviewStatus) Valid() bool {
+	switch e {
+	case AgentTaskReviewStatusApproved:
+		return true
+	case AgentTaskReviewStatusCancelled:
+		return true
+	case AgentTaskReviewStatusChangesRequested:
+		return true
+	case AgentTaskReviewStatusRejected:
+		return true
+	case AgentTaskReviewStatusRequested:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentTaskReviewRequestRisk.
 const (
 	High   AgentTaskReviewRequestRisk = "high"
@@ -166,6 +286,90 @@ func (e AgentTaskReviewRequestRisk) Valid() bool {
 	case Low:
 		return true
 	case Medium:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskRunKind.
+const (
+	ManagerRun  AgentTaskRunKind = "manager_run"
+	ReviewerRun AgentTaskRunKind = "reviewer_run"
+	WorkerRun   AgentTaskRunKind = "worker_run"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskRunKind enum.
+func (e AgentTaskRunKind) Valid() bool {
+	switch e {
+	case ManagerRun:
+		return true
+	case ReviewerRun:
+		return true
+	case WorkerRun:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskRunPurpose.
+const (
+	AutoApproval      AgentTaskRunPurpose = "auto_approval"
+	Execution         AgentTaskRunPurpose = "execution"
+	FailureAssessment AgentTaskRunPurpose = "failure_assessment"
+	Planning          AgentTaskRunPurpose = "planning"
+	Replan            AgentTaskRunPurpose = "replan"
+	Review            AgentTaskRunPurpose = "review"
+	Synthesis         AgentTaskRunPurpose = "synthesis"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskRunPurpose enum.
+func (e AgentTaskRunPurpose) Valid() bool {
+	switch e {
+	case AutoApproval:
+		return true
+	case Execution:
+		return true
+	case FailureAssessment:
+		return true
+	case Planning:
+		return true
+	case Replan:
+		return true
+	case Review:
+		return true
+	case Synthesis:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTaskRunStatus.
+const (
+	AgentTaskRunStatusCancelled   AgentTaskRunStatus = "cancelled"
+	AgentTaskRunStatusCompleted   AgentTaskRunStatus = "completed"
+	AgentTaskRunStatusFailed      AgentTaskRunStatus = "failed"
+	AgentTaskRunStatusInterrupted AgentTaskRunStatus = "interrupted"
+	AgentTaskRunStatusQueued      AgentTaskRunStatus = "queued"
+	AgentTaskRunStatusRunning     AgentTaskRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AgentTaskRunStatus enum.
+func (e AgentTaskRunStatus) Valid() bool {
+	switch e {
+	case AgentTaskRunStatusCancelled:
+		return true
+	case AgentTaskRunStatusCompleted:
+		return true
+	case AgentTaskRunStatusFailed:
+		return true
+	case AgentTaskRunStatusInterrupted:
+		return true
+	case AgentTaskRunStatusQueued:
+		return true
+	case AgentTaskRunStatusRunning:
 		return true
 	default:
 		return false
@@ -205,6 +409,45 @@ func (e ArticleStatus) Valid() bool {
 	case Read:
 		return true
 	case Unread:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChildTaskInputPriority.
+const (
+	ChildTaskInputPriorityRoutine ChildTaskInputPriority = "routine"
+	ChildTaskInputPriorityUrgent  ChildTaskInputPriority = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the ChildTaskInputPriority enum.
+func (e ChildTaskInputPriority) Valid() bool {
+	switch e {
+	case ChildTaskInputPriorityRoutine:
+		return true
+	case ChildTaskInputPriorityUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChildTaskInputReviewPolicy.
+const (
+	ChildTaskInputReviewPolicyAgent ChildTaskInputReviewPolicy = "agent"
+	ChildTaskInputReviewPolicyAuto  ChildTaskInputReviewPolicy = "auto"
+	ChildTaskInputReviewPolicyHuman ChildTaskInputReviewPolicy = "human"
+)
+
+// Valid indicates whether the value is a known member of the ChildTaskInputReviewPolicy enum.
+func (e ChildTaskInputReviewPolicy) Valid() bool {
+	switch e {
+	case ChildTaskInputReviewPolicyAgent:
+		return true
+	case ChildTaskInputReviewPolicyAuto:
+		return true
+	case ChildTaskInputReviewPolicyHuman:
 		return true
 	default:
 		return false
@@ -337,6 +580,24 @@ func (e FeedEntryStatus) Valid() bool {
 	}
 }
 
+// Defines values for GoalInputPriority.
+const (
+	GoalInputPriorityRoutine GoalInputPriority = "routine"
+	GoalInputPriorityUrgent  GoalInputPriority = "urgent"
+)
+
+// Valid indicates whether the value is a known member of the GoalInputPriority enum.
+func (e GoalInputPriority) Valid() bool {
+	switch e {
+	case GoalInputPriorityRoutine:
+		return true
+	case GoalInputPriorityUrgent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InstallSkillRequestScope.
 const (
 	InstallSkillRequestScopeAgent InstallSkillRequestScope = "agent"
@@ -397,6 +658,27 @@ func (e MessagePartType) Valid() bool {
 	}
 }
 
+// Defines values for ReviewDecisionInputStatus.
+const (
+	Approved         ReviewDecisionInputStatus = "approved"
+	ChangesRequested ReviewDecisionInputStatus = "changes_requested"
+	Rejected         ReviewDecisionInputStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the ReviewDecisionInputStatus enum.
+func (e ReviewDecisionInputStatus) Valid() bool {
+	switch e {
+	case Approved:
+		return true
+	case ChangesRequested:
+		return true
+	case Rejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionKind.
 const (
 	SessionKindChat      SessionKind = "chat"
@@ -423,22 +705,22 @@ func (e SessionKind) Valid() bool {
 
 // Defines values for SessionDetailKind.
 const (
-	Chat      SessionDetailKind = "chat"
-	Main      SessionDetailKind = "main"
-	Scheduler SessionDetailKind = "scheduler"
-	Task      SessionDetailKind = "task"
+	SessionDetailKindChat      SessionDetailKind = "chat"
+	SessionDetailKindMain      SessionDetailKind = "main"
+	SessionDetailKindScheduler SessionDetailKind = "scheduler"
+	SessionDetailKindTask      SessionDetailKind = "task"
 )
 
 // Valid indicates whether the value is a known member of the SessionDetailKind enum.
 func (e SessionDetailKind) Valid() bool {
 	switch e {
-	case Chat:
+	case SessionDetailKindChat:
 		return true
-	case Main:
+	case SessionDetailKindMain:
 		return true
-	case Scheduler:
+	case SessionDetailKindScheduler:
 		return true
-	case Task:
+	case SessionDetailKindTask:
 		return true
 	default:
 		return false
@@ -522,25 +804,33 @@ type AgentList struct {
 
 // AgentTask defines model for AgentTask.
 type AgentTask struct {
-	AgentId *string `json:"agent_id,omitempty"`
+	AssigneeAgentId *string `json:"assignee_agent_id,omitempty"`
 
 	// Context Task-level metadata checkpoint (phase, decisions, blockers)
-	Context   *map[string]interface{} `json:"context,omitempty"`
-	CreatedAt time.Time               `json:"created_at"`
+	Context          *map[string]interface{} `json:"context,omitempty"`
+	CreatedAt        time.Time               `json:"created_at"`
+	CreatedByAgentId *string                 `json:"created_by_agent_id,omitempty"`
 
 	// Deps IDs of tasks that must be done before this task can run
 	Deps        *[]string `json:"deps,omitempty"`
 	Description *string   `json:"description,omitempty"`
 	Id          string    `json:"id"`
+	MaxRetries  *int      `json:"max_retries,omitempty"`
 
 	// NotifyAt When to next notify the user; null means no pending notification
-	NotifyAt *time.Time        `json:"notify_at,omitempty"`
-	Priority AgentTaskPriority `json:"priority"`
+	NotifyAt     *time.Time             `json:"notify_at,omitempty"`
+	ParentId     *string                `json:"parent_id,omitempty"`
+	Priority     AgentTaskPriority      `json:"priority"`
+	Required     *bool                  `json:"required,omitempty"`
+	RetryCount   *int                   `json:"retry_count,omitempty"`
+	ReviewPolicy *AgentTaskReviewPolicy `json:"review_policy,omitempty"`
 
 	// ReviewRequest Structured review request set by the task agent
 	ReviewRequest *AgentTaskReviewRequest `json:"review_request,omitempty"`
+	RootId        *string                 `json:"root_id,omitempty"`
 	SessionId     *string                 `json:"session_id,omitempty"`
 	Status        AgentTaskStatus         `json:"status"`
+	TaskType      AgentTaskTaskType       `json:"task_type"`
 	Title         string                  `json:"title"`
 	UpdatedAt     time.Time               `json:"updated_at"`
 	UserId        *string                 `json:"user_id,omitempty"`
@@ -549,8 +839,36 @@ type AgentTask struct {
 // AgentTaskPriority defines model for AgentTask.Priority.
 type AgentTaskPriority string
 
+// AgentTaskReviewPolicy defines model for AgentTask.ReviewPolicy.
+type AgentTaskReviewPolicy string
+
 // AgentTaskStatus defines model for AgentTask.Status.
 type AgentTaskStatus string
+
+// AgentTaskTaskType defines model for AgentTask.TaskType.
+type AgentTaskTaskType string
+
+// AgentTaskAcceptanceCriterion defines model for AgentTaskAcceptanceCriterion.
+type AgentTaskAcceptanceCriterion struct {
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	Description string     `json:"description"`
+	Id          string     `json:"id"`
+	Position    int        `json:"position"`
+	Required    bool       `json:"required"`
+	TaskId      string     `json:"task_id"`
+}
+
+// AgentTaskAcceptanceCriterionInput defines model for AgentTaskAcceptanceCriterionInput.
+type AgentTaskAcceptanceCriterionInput struct {
+	Description string `json:"description"`
+	Position    *int   `json:"position,omitempty"`
+	Required    *bool  `json:"required,omitempty"`
+}
+
+// AgentTaskAcceptanceCriterionList defines model for AgentTaskAcceptanceCriterionList.
+type AgentTaskAcceptanceCriterionList struct {
+	Items []AgentTaskAcceptanceCriterion `json:"items"`
+}
 
 // AgentTaskAction An action taken on a task (approve/reject review, respond to block, cancel)
 type AgentTaskAction struct {
@@ -605,6 +923,8 @@ type AgentTaskEvent struct {
 	Detail    *map[string]interface{} `json:"detail,omitempty"`
 	EventType AgentTaskEventEventType `json:"event_type"`
 	Id        string                  `json:"id"`
+	ReviewId  *string                 `json:"review_id,omitempty"`
+	RunId     *string                 `json:"run_id,omitempty"`
 	TaskId    string                  `json:"task_id"`
 }
 
@@ -618,21 +938,61 @@ type AgentTaskEventList struct {
 
 // AgentTaskInput Fields for creating an agent task
 type AgentTaskInput struct {
-	AgentId string `json:"agent_id"`
+	AgentId *string `json:"agent_id,omitempty"`
 
 	// Deps IDs of tasks that must be done before this task can run
-	Deps        *[]string               `json:"deps,omitempty"`
-	Description *string                 `json:"description,omitempty"`
-	Priority    *AgentTaskInputPriority `json:"priority,omitempty"`
-	Title       string                  `json:"title"`
+	Deps         *[]string                   `json:"deps,omitempty"`
+	Description  *string                     `json:"description,omitempty"`
+	Priority     *AgentTaskInputPriority     `json:"priority,omitempty"`
+	ReviewPolicy *AgentTaskInputReviewPolicy `json:"review_policy,omitempty"`
+	Title        string                      `json:"title"`
 }
 
 // AgentTaskInputPriority defines model for AgentTaskInput.Priority.
 type AgentTaskInputPriority string
 
+// AgentTaskInputReviewPolicy defines model for AgentTaskInput.ReviewPolicy.
+type AgentTaskInputReviewPolicy string
+
 // AgentTaskList defines model for AgentTaskList.
 type AgentTaskList struct {
 	Items []AgentTask `json:"items"`
+}
+
+// AgentTaskReview defines model for AgentTaskReview.
+type AgentTaskReview struct {
+	CreatedAt      time.Time                   `json:"created_at"`
+	Feedback       *string                     `json:"feedback,omitempty"`
+	Id             string                      `json:"id"`
+	Items          *[]AgentTaskReviewItem      `json:"items,omitempty"`
+	ResolvedAt     *time.Time                  `json:"resolved_at,omitempty"`
+	ReviewerId     *string                     `json:"reviewer_id,omitempty"`
+	ReviewerRunId  *string                     `json:"reviewer_run_id,omitempty"`
+	ReviewerType   AgentTaskReviewReviewerType `json:"reviewer_type"`
+	Status         AgentTaskReviewStatus       `json:"status"`
+	SubmittedRunId *string                     `json:"submitted_run_id,omitempty"`
+	Summary        *string                     `json:"summary,omitempty"`
+	TaskId         string                      `json:"task_id"`
+}
+
+// AgentTaskReviewReviewerType defines model for AgentTaskReview.ReviewerType.
+type AgentTaskReviewReviewerType string
+
+// AgentTaskReviewStatus defines model for AgentTaskReview.Status.
+type AgentTaskReviewStatus string
+
+// AgentTaskReviewItem defines model for AgentTaskReviewItem.
+type AgentTaskReviewItem struct {
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	CriterionId string     `json:"criterion_id"`
+	Evidence    *string    `json:"evidence,omitempty"`
+	Id          string     `json:"id"`
+	Passed      *bool      `json:"passed,omitempty"`
+}
+
+// AgentTaskReviewList defines model for AgentTaskReviewList.
+type AgentTaskReviewList struct {
+	Items []AgentTaskReview `json:"items"`
 }
 
 // AgentTaskReviewRequest Structured review request set by the task agent
@@ -646,6 +1006,38 @@ type AgentTaskReviewRequest struct {
 
 // AgentTaskReviewRequestRisk defines model for AgentTaskReviewRequest.Risk.
 type AgentTaskReviewRequestRisk string
+
+// AgentTaskRun defines model for AgentTaskRun.
+type AgentTaskRun struct {
+	AgentId    *string                 `json:"agent_id,omitempty"`
+	CreatedAt  time.Time               `json:"created_at"`
+	DeadlineAt *time.Time              `json:"deadline_at,omitempty"`
+	Error      *string                 `json:"error,omitempty"`
+	FinishedAt *time.Time              `json:"finished_at,omitempty"`
+	Id         string                  `json:"id"`
+	Kind       AgentTaskRunKind        `json:"kind"`
+	Purpose    AgentTaskRunPurpose     `json:"purpose"`
+	ResultJson *map[string]interface{} `json:"result_json,omitempty"`
+	SessionId  *string                 `json:"session_id,omitempty"`
+	StartedAt  *time.Time              `json:"started_at,omitempty"`
+	Status     AgentTaskRunStatus      `json:"status"`
+	TaskId     string                  `json:"task_id"`
+	UpdatedAt  time.Time               `json:"updated_at"`
+}
+
+// AgentTaskRunKind defines model for AgentTaskRun.Kind.
+type AgentTaskRunKind string
+
+// AgentTaskRunPurpose defines model for AgentTaskRun.Purpose.
+type AgentTaskRunPurpose string
+
+// AgentTaskRunStatus defines model for AgentTaskRun.Status.
+type AgentTaskRunStatus string
+
+// AgentTaskRunList defines model for AgentTaskRunList.
+type AgentTaskRunList struct {
+	Items []AgentTaskRun `json:"items"`
+}
 
 // AgentTaskUpdate Fields for updating an agent task (all optional)
 type AgentTaskUpdate struct {
@@ -813,6 +1205,28 @@ type ChannelWriteRequest struct {
 	Id     *string `json:"id,omitempty"`
 	Type   *string `json:"type,omitempty"`
 }
+
+// ChildTaskInput defines model for ChildTaskInput.
+type ChildTaskInput struct {
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Criteria Acceptance criterion descriptions
+	Criteria *[]string `json:"criteria,omitempty"`
+
+	// Deps Index or ID of sibling/external task dependencies
+	Deps         *[]string                   `json:"deps,omitempty"`
+	Description  *string                     `json:"description,omitempty"`
+	Priority     *ChildTaskInputPriority     `json:"priority,omitempty"`
+	Required     *bool                       `json:"required,omitempty"`
+	ReviewPolicy *ChildTaskInputReviewPolicy `json:"review_policy,omitempty"`
+	Title        string                      `json:"title"`
+}
+
+// ChildTaskInputPriority defines model for ChildTaskInput.Priority.
+type ChildTaskInputPriority string
+
+// ChildTaskInputReviewPolicy defines model for ChildTaskInput.ReviewPolicy.
+type ChildTaskInputReviewPolicy string
 
 // CreateAgentRequest defines model for CreateAgentRequest.
 type CreateAgentRequest struct {
@@ -995,6 +1409,17 @@ type FetchModelsRequest struct {
 type GenerateLinkCodeRequest struct {
 	Platform string `json:"platform"`
 }
+
+// GoalInput Fields for creating a goal
+type GoalInput struct {
+	AgentId     *string            `json:"agent_id,omitempty"`
+	Description *string            `json:"description,omitempty"`
+	Priority    *GoalInputPriority `json:"priority,omitempty"`
+	Title       string             `json:"title"`
+}
+
+// GoalInputPriority defines model for GoalInput.Priority.
+type GoalInputPriority string
 
 // Identity defines model for Identity.
 type Identity struct {
@@ -1388,6 +1813,21 @@ type RegisterRequest struct {
 	Username string `json:"username"`
 }
 
+// ReviewDecisionInput A review decision on a task
+type ReviewDecisionInput struct {
+	Feedback *string `json:"feedback,omitempty"`
+	Items    *[]struct {
+		CriterionId string  `json:"criterion_id"`
+		Evidence    *string `json:"evidence,omitempty"`
+		Passed      bool    `json:"passed"`
+	} `json:"items,omitempty"`
+	Status  ReviewDecisionInputStatus `json:"status"`
+	Summary *string                   `json:"summary,omitempty"`
+}
+
+// ReviewDecisionInputStatus defines model for ReviewDecisionInput.Status.
+type ReviewDecisionInputStatus string
+
 // SandboxConfig defines model for SandboxConfig.
 type SandboxConfig struct {
 	Network *SandboxNetworkConfig `json:"network,omitempty"`
@@ -1553,6 +1993,11 @@ type SkillSearchResultList struct {
 
 // SourceType defines model for SourceType.
 type SourceType string
+
+// SplitTaskInput Children to create under a goal
+type SplitTaskInput struct {
+	Children []ChildTaskInput `json:"children"`
+}
 
 // StatusDatabase defines model for StatusDatabase.
 type StatusDatabase struct {

@@ -32,6 +32,9 @@ import type {
   CreateAgentSkillData,
   CreateAgentSkillErrors,
   CreateAgentSkillResponses,
+  CreateAgentTaskCriterionData,
+  CreateAgentTaskCriterionErrors,
+  CreateAgentTaskCriterionResponses,
   CreateAgentTaskData,
   CreateAgentTaskErrors,
   CreateAgentTaskResponses,
@@ -41,6 +44,9 @@ import type {
   CreateFeedData,
   CreateFeedErrors,
   CreateFeedResponses,
+  CreateGoalData,
+  CreateGoalErrors,
+  CreateGoalResponses,
   CreateInviteData,
   CreateInviteErrors,
   CreateInviteResponses,
@@ -229,9 +235,18 @@ import type {
   ListAgentSkillsErrors,
   ListAgentSkillsResponses,
   ListAgentsResponses,
+  ListAgentTaskCriteriaData,
+  ListAgentTaskCriteriaErrors,
+  ListAgentTaskCriteriaResponses,
   ListAgentTaskEventsData,
   ListAgentTaskEventsErrors,
   ListAgentTaskEventsResponses,
+  ListAgentTaskReviewsData,
+  ListAgentTaskReviewsErrors,
+  ListAgentTaskReviewsResponses,
+  ListAgentTaskRunsData,
+  ListAgentTaskRunsErrors,
+  ListAgentTaskRunsResponses,
   ListAgentTasksData,
   ListAgentTasksErrors,
   ListAgentTasksResponses,
@@ -341,6 +356,9 @@ import type {
   MoveWorkspaceFileResponses,
   OauthCallbackData,
   OauthCallbackErrors,
+  PlanReadyData,
+  PlanReadyErrors,
+  PlanReadyResponses,
   PollFeedData,
   PollFeedErrors,
   PollFeedResponses,
@@ -359,6 +377,9 @@ import type {
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
+  ReopenAgentTaskData,
+  ReopenAgentTaskErrors,
+  ReopenAgentTaskResponses,
   RevokeInviteData,
   RevokeInviteErrors,
   RevokeInviteResponses,
@@ -396,12 +417,18 @@ import type {
   SetVaultEntryData,
   SetVaultEntryErrors,
   SetVaultEntryResponses,
+  SplitGoalIntoTasksData,
+  SplitGoalIntoTasksErrors,
+  SplitGoalIntoTasksResponses,
   StartOAuthFlowData,
   StartOAuthFlowErrors,
   StartOAuthFlowResponses,
   StartWeixinQrData,
   StartWeixinQrErrors,
   StartWeixinQrResponses,
+  SubmitReviewDecisionData,
+  SubmitReviewDecisionErrors,
+  SubmitReviewDecisionResponses,
   SyncManifestPluginsData,
   SyncManifestPluginsErrors,
   SyncManifestPluginsResponses,
@@ -3034,6 +3061,166 @@ export const removeAgentTaskDep = <ThrowOnError extends boolean = false>(
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/agents/{agentID}/tasks/{taskID}/deps/{depID}",
     ...options,
+  });
+
+/**
+ * List runs for a task
+ */
+export const listAgentTaskRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentTaskRunsData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAgentTaskRunsResponses,
+    ListAgentTaskRunsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/runs",
+    ...options,
+  });
+
+/**
+ * List reviews for a task
+ */
+export const listAgentTaskReviews = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentTaskReviewsData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAgentTaskReviewsResponses,
+    ListAgentTaskReviewsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/reviews",
+    ...options,
+  });
+
+/**
+ * Submit a review decision
+ */
+export const submitReviewDecision = <ThrowOnError extends boolean = false>(
+  options: Options<SubmitReviewDecisionData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    SubmitReviewDecisionResponses,
+    SubmitReviewDecisionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/reviews/{reviewID}/decision",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List acceptance criteria for a task
+ */
+export const listAgentTaskCriteria = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentTaskCriteriaData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAgentTaskCriteriaResponses,
+    ListAgentTaskCriteriaErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/criteria",
+    ...options,
+  });
+
+/**
+ * Add an acceptance criterion
+ */
+export const createAgentTaskCriterion = <ThrowOnError extends boolean = false>(
+  options: Options<CreateAgentTaskCriterionData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateAgentTaskCriterionResponses,
+    CreateAgentTaskCriterionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/criteria",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Split a goal into child tasks
+ */
+export const splitGoalIntoTasks = <ThrowOnError extends boolean = false>(
+  options: Options<SplitGoalIntoTasksData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    SplitGoalIntoTasksResponses,
+    SplitGoalIntoTasksErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/split",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Activate a goal and its draft children
+ */
+export const planReady = <ThrowOnError extends boolean = false>(
+  options: Options<PlanReadyData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    PlanReadyResponses,
+    PlanReadyErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/plan-ready",
+    ...options,
+  });
+
+/**
+ * Reopen a completed or failed task
+ */
+export const reopenAgentTask = <ThrowOnError extends boolean = false>(
+  options: Options<ReopenAgentTaskData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    ReopenAgentTaskResponses,
+    ReopenAgentTaskErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/tasks/{taskID}/reopen",
+    ...options,
+  });
+
+/**
+ * Create a goal (parent task container)
+ */
+export const createGoal = <ThrowOnError extends boolean = false>(
+  options: Options<CreateGoalData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateGoalResponses,
+    CreateGoalErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/agents/{agentID}/goals",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
   });
 
 /**

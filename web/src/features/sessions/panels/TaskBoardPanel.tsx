@@ -26,10 +26,10 @@ function matchesFilter(task: ComponentsAgentTask, filter: Filter): boolean {
   if (filter === "all") return true;
   if (filter === "active")
     return (
-      task.status === "pending" ||
+      task.status === "ready" ||
       task.status === "running" ||
       task.status === "blocked" ||
-      task.status === "review_requested"
+      task.status === "reviewing"
     );
   return task.status === "done" || task.status === "cancelled" || task.status === "failed";
 }
@@ -399,9 +399,9 @@ function StatusDot({ status, className }: { status: string; className?: string }
         "w-2 h-2 rounded-full shrink-0",
         status === "done" && "bg-emerald-500",
         status === "running" && "bg-blue-500",
-        status === "pending" && "bg-muted-foreground/30",
+        status === "ready" && "bg-muted-foreground/30",
         status === "failed" && "bg-destructive",
-        (status === "blocked" || status === "review_requested") && "bg-amber-500",
+        (status === "blocked" || status === "reviewing") && "bg-amber-500",
         status === "cancelled" && "bg-muted-foreground/20",
         className,
       )}
@@ -427,11 +427,11 @@ function statusColor(status: string): string {
   if (status === "done") return "text-emerald-600";
   if (status === "running") return "text-blue-600";
   if (status === "failed") return "text-destructive";
-  if (status === "blocked" || status === "review_requested") return "text-amber-600";
+  if (status === "blocked" || status === "reviewing") return "text-amber-600";
   return "text-muted-foreground";
 }
 
 function formatStatus(status: string): string {
-  if (status === "review_requested") return "Review Requested";
+  if (status === "reviewing") return "Reviewing";
   return status;
 }

@@ -196,7 +196,7 @@ export function AutomationDashPanel({
             .filter(
               (task) =>
                 task.status === "blocked" ||
-                task.status === "review_requested" ||
+                task.status === "reviewing" ||
                 task.status === "failed",
             )
             .map((task): BoardItem => ({ kind: "task", task })),
@@ -223,7 +223,7 @@ export function AutomationDashPanel({
         title: "Queued",
         detail: "Ready but not started",
         items: tasks
-          .filter((task) => task.status === "pending")
+          .filter((task) => task.status === "ready")
           .map((task): BoardItem => ({ kind: "task", task })),
       },
       {
@@ -808,9 +808,9 @@ function StatusDot({ status }: { status: string }) {
         "size-2 rounded-full",
         status === "done" && "bg-emerald-500",
         status === "running" && "bg-blue-500",
-        status === "pending" && "bg-muted-foreground/30",
+        status === "ready" && "bg-muted-foreground/30",
         status === "failed" && "bg-destructive",
-        (status === "blocked" || status === "review_requested") && "bg-amber-500",
+        (status === "blocked" || status === "reviewing") && "bg-amber-500",
         status === "cancelled" && "bg-muted-foreground/20",
       )}
     />
@@ -818,7 +818,7 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function formatStatus(status: string): string {
-  if (status === "review_requested") return "Review requested";
+  if (status === "reviewing") return "Reviewing";
   return status;
 }
 
