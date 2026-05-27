@@ -32,6 +32,26 @@ func (q *Queries) ActivateDraftChildren(ctx context.Context, arg ActivateDraftCh
 	return err
 }
 
+const activateEligibleDrafts = `-- name: ActivateEligibleDrafts :exec
+UPDATE agent_task
+SET status = 'ready', updated_at = ?
+WHERE status = 'draft' AND parent_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM agent_task g
+    WHERE g.id = agent_task.parent_id AND g.status IN ('ready', 'running')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_task_dep d
+    JOIN agent_task dep ON dep.id = d.dep_id
+    WHERE d.task_id = agent_task.id AND dep.status != 'done'
+  )
+`
+
+func (q *Queries) ActivateEligibleDrafts(ctx context.Context, updatedAt string) error {
+	_, err := q.db.ExecContext(ctx, activateEligibleDrafts, updatedAt)
+	return err
+}
+
 const countRunningAgentTasksByUser = `-- name: CountRunningAgentTasksByUser :one
 SELECT count(*) FROM agent_task WHERE status = 'running' AND user_id = ?
 `

@@ -198,6 +198,7 @@ func (s *Service) Tick() {
 
 	s.sweepNotifications(ctx, nowStr)
 	s.sweepDepFailures(ctx, nowStr)
+	s.sweepDraftActivation(ctx, nowStr)
 	s.sweepDispatch(ctx)
 }
 
@@ -293,6 +294,13 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 	}
 }
 
+// sweepDraftActivation promotes draft children to ready when their deps are all done.
+func (s *Service) sweepDraftActivation(ctx context.Context, now string) {
+	if err := s.q.ActivateEligibleDrafts(ctx, now); err != nil {
+		s.log.Warn("draft activation sweep failed", "error", err)
+	}
+}
+
 // sweepDispatch dispatches eligible ready tasks via the scheduler.
 func (s *Service) sweepDispatch(ctx context.Context) {
 	ready, err := s.q.ListReadyAgentTasks(ctx)
@@ -347,13 +355,18 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 	defer func() { _ = tx.Rollback() }()
 	qtx := s.q.WithTx(tx)
 
+	initialStatus := "ready"
+	if len(params.Deps) > 0 {
+		initialStatus = "blocked"
+	}
+
 	task, err := qtx.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
 		ID:              id,
 		RootID:          id,
 		TaskType:        "task",
 		Title:           params.Title,
 		Description:     params.Description,
-		Status:          "ready",
+		Status:          initialStatus,
 		Priority:        priority,
 		SessionID:       sql.NullString{String: "task:" + id, Valid: true},
 		Context:         "{}",
@@ -883,13 +896,17 @@ func (s *Service) BatchCreateTasks(ctx context.Context, params BatchCreateParams
 		if priority == "" {
 			priority = "routine"
 		}
+		batchStatus := "ready"
+		if len(resolvedDeps[i]) > 0 {
+			batchStatus = "blocked"
+		}
 		task, err := qtx.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
 			ID:              realIDs[i],
 			RootID:          realIDs[i],
 			TaskType:        "task",
 			Title:           t.Title,
 			Description:     t.Description,
-			Status:          "ready",
+			Status:          batchStatus,
 			Priority:        priority,
 			SessionID:       sql.NullString{String: "task:" + realIDs[i], Valid: true},
 			Context:         "{}",
@@ -1120,19 +1137,24 @@ func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, su
 
 	now := time.Now().Format(time.RFC3339)
 
-	// Complete the worker run.
-	if runID != "" {
-		_ = s.q.CompleteRun(ctx, sqlc.CompleteRunParams{
-			ResultJson: detailJSON(summary),
-			FinishedAt: sql.NullString{String: now, Valid: true},
-			UpdatedAt:  now,
-			ID:         runID,
-			UserID:     userID,
-		})
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: begin tx: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
+
+	// Complete the worker run.
+	_ = qtx.CompleteRun(ctx, sqlc.CompleteRunParams{
+		ResultJson: detailJSON(summary),
+		FinishedAt: sql.NullString{String: now, Valid: true},
+		UpdatedAt:  now,
+		ID:         runID,
+		UserID:     userID,
+	})
 
 	// Transition task to reviewing.
-	if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+	if err := qtx.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 		Status: "reviewing", UpdatedAt: now, ID: taskID, UserID: userID,
 	}); err != nil {
 		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: set reviewing: %w", err)
@@ -1140,7 +1162,7 @@ func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, su
 
 	// Auto-approval path.
 	if task.ReviewPolicy.String == "auto" || !task.ReviewPolicy.Valid {
-		review, err := s.q.CreateAgentTaskReview(ctx, sqlc.CreateAgentTaskReviewParams{
+		review, err := qtx.CreateAgentTaskReview(ctx, sqlc.CreateAgentTaskReviewParams{
 			ID:             newID(),
 			UserID:         userID,
 			TaskID:         taskID,
@@ -1156,17 +1178,20 @@ func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, su
 			return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: create auto-review: %w", err)
 		}
 		// Auto-approve: reviewing → done.
-		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+		if err := qtx.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 			Status: "done", UpdatedAt: now, ID: taskID, UserID: userID,
 		}); err != nil {
 			return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: auto-approve done: %w", err)
 		}
-		insertEvent(ctx, s.q, taskID, "done", detailJSON("auto-approved"))
+		insertEvent(ctx, qtx, taskID, "done", detailJSON("auto-approved"))
+		if err := tx.Commit(); err != nil {
+			return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: commit: %w", err)
+		}
 		return review, nil
 	}
 
 	// Create a pending review record.
-	review, err := s.q.CreateAgentTaskReview(ctx, sqlc.CreateAgentTaskReviewParams{
+	review, err := qtx.CreateAgentTaskReview(ctx, sqlc.CreateAgentTaskReviewParams{
 		ID:             newID(),
 		UserID:         userID,
 		TaskID:         taskID,
@@ -1179,7 +1204,10 @@ func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, su
 	if err != nil {
 		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: create review: %w", err)
 	}
-	insertEvent(ctx, s.q, taskID, "reviewing", detailJSON(summary))
+	insertEvent(ctx, qtx, taskID, "reviewing", detailJSON(summary))
+	if err := tx.Commit(); err != nil {
+		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: commit: %w", err)
+	}
 	return review, nil
 }
 
@@ -1200,36 +1228,7 @@ func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID str
 
 	now := time.Now().Format(time.RFC3339)
 
-	// Resolve the review record.
-	if err := s.q.ResolveReview(ctx, sqlc.ResolveReviewParams{
-		Status:        decision.Status,
-		Summary:       decision.Summary,
-		Feedback:      decision.Feedback,
-		ReviewerRunID: sql.NullString{},
-		ResolvedAt:    sql.NullString{String: now, Valid: true},
-		ID:            reviewID,
-		UserID:        userID,
-	}); err != nil {
-		return sqlc.AgentTask{}, fmt.Errorf("tasks: resolve review: %w", err)
-	}
-
-	// Create review items.
-	for _, item := range decision.Items {
-		_, err := s.q.UpsertReviewItem(ctx, sqlc.UpsertReviewItemParams{
-			ID:          newID(),
-			UserID:      userID,
-			ReviewID:    reviewID,
-			CriterionID: item.CriterionID,
-			Passed:      sql.NullBool{Bool: item.Passed, Valid: true},
-			Evidence:    item.Evidence,
-			CreatedAt:   now,
-		})
-		if err != nil {
-			s.log.Warn("failed to upsert review item", "criterion_id", item.CriterionID, "error", err)
-		}
-	}
-
-	// Transition task based on decision.
+	// Validate decision status before any writes.
 	var newStatus string
 	switch decision.Status {
 	case "approved":
@@ -1245,7 +1244,44 @@ func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID str
 	if err := ValidateTaskTransition(task.TaskType, task.Status, newStatus, RoleReviewer); err != nil {
 		return sqlc.AgentTask{}, err
 	}
-	if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
+
+	// Resolve the review record.
+	if err := qtx.ResolveReview(ctx, sqlc.ResolveReviewParams{
+		Status:        decision.Status,
+		Summary:       decision.Summary,
+		Feedback:      decision.Feedback,
+		ReviewerRunID: sql.NullString{},
+		ResolvedAt:    sql.NullString{String: now, Valid: true},
+		ID:            reviewID,
+		UserID:        userID,
+	}); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: resolve review: %w", err)
+	}
+
+	// Create review items.
+	for _, item := range decision.Items {
+		_, err := qtx.UpsertReviewItem(ctx, sqlc.UpsertReviewItemParams{
+			ID:          newID(),
+			UserID:      userID,
+			ReviewID:    reviewID,
+			CriterionID: item.CriterionID,
+			Passed:      sql.NullBool{Bool: item.Passed, Valid: true},
+			Evidence:    item.Evidence,
+			CreatedAt:   now,
+		})
+		if err != nil {
+			s.log.Warn("failed to upsert review item", "criterion_id", item.CriterionID, "error", err)
+		}
+	}
+
+	if err := qtx.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 		Status: newStatus, UpdatedAt: now, ID: task.ID, UserID: userID,
 	}); err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: update task status: %w", err)
@@ -1258,35 +1294,39 @@ func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID str
 			if err := ValidateTaskTransition(task.TaskType, "changes_requested", "ready", RoleSystem); err != nil {
 				return sqlc.AgentTask{}, err
 			}
-			if err := s.q.UpdateAgentTaskRetryCount(ctx, sqlc.UpdateAgentTaskRetryCountParams{
+			if err := qtx.UpdateAgentTaskRetryCount(ctx, sqlc.UpdateAgentTaskRetryCountParams{
 				RetryCount: task.RetryCount + 1,
 				UpdatedAt:  now,
 				ID:         task.ID,
 				UserID:     userID,
 			}); err != nil {
-				s.log.Warn("failed to increment retry count", "task_id", task.ID, "error", err)
+				return sqlc.AgentTask{}, fmt.Errorf("tasks: increment retry count: %w", err)
 			}
-			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+			if err := qtx.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 				Status: "ready", UpdatedAt: now, ID: task.ID, UserID: userID,
 			}); err != nil {
-				s.log.Warn("failed to auto-transition to ready", "task_id", task.ID, "error", err)
+				return sqlc.AgentTask{}, fmt.Errorf("tasks: auto-transition to ready: %w", err)
 			}
 			finalStatus = "ready"
 		} else {
 			if err := ValidateTaskTransition(task.TaskType, "changes_requested", "failed", RoleSystem); err != nil {
 				return sqlc.AgentTask{}, err
 			}
-			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+			if err := qtx.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 				Status: "failed", UpdatedAt: now, ID: task.ID, UserID: userID,
 			}); err != nil {
-				s.log.Warn("failed to transition exhausted retries to failed", "task_id", task.ID, "error", err)
+				return sqlc.AgentTask{}, fmt.Errorf("tasks: transition exhausted retries to failed: %w", err)
 			}
 			finalStatus = "failed"
-			insertEvent(ctx, s.q, task.ID, "failed", detailJSON("retry budget exhausted"))
+			insertEvent(ctx, qtx, task.ID, "failed", detailJSON("retry budget exhausted"))
 		}
 	}
 
-	insertEvent(ctx, s.q, task.ID, finalStatus, detailJSON(decision.Feedback))
+	insertEvent(ctx, qtx, task.ID, finalStatus, detailJSON(decision.Feedback))
+
+	if err := tx.Commit(); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: commit: %w", err)
+	}
 	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: task.ID, UserID: userID})
 }
 

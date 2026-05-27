@@ -93,6 +93,20 @@ WHERE parent_id = ? AND user_id = ? AND status = 'draft'
     WHERE d.task_id = agent_task.id AND dep.status != 'done'
   );
 
+-- name: ActivateEligibleDrafts :exec
+UPDATE agent_task
+SET status = 'ready', updated_at = ?
+WHERE status = 'draft' AND parent_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM agent_task g
+    WHERE g.id = agent_task.parent_id AND g.status IN ('ready', 'running')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_task_dep d
+    JOIN agent_task dep ON dep.id = d.dep_id
+    WHERE d.task_id = agent_task.id AND dep.status != 'done'
+  );
+
 -- name: ListUnblockedAgentTasks :many
 SELECT t.* FROM agent_task t
 WHERE t.status = 'ready'

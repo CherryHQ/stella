@@ -443,6 +443,10 @@ func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request, a
 		writeError(w, http.StatusBadRequest, "tasks array is required")
 		return
 	}
+	if len(body.Tasks) > 100 {
+		writeError(w, http.StatusBadRequest, "too many tasks (max 100)")
+		return
+	}
 
 	batchItems := make([]tasks.BatchTaskItem, 0, len(body.Tasks))
 	for _, t := range body.Tasks {
@@ -655,6 +659,11 @@ func (s *Server) SplitGoalIntoTasks(w http.ResponseWriter, r *http.Request, agen
 	var body apitypes.SplitTaskInput
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	if len(body.Children) > 100 {
+		writeError(w, http.StatusBadRequest, "too many children (max 100)")
 		return
 	}
 

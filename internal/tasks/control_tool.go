@@ -107,11 +107,15 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		return "progress recorded", nil
 
 	case "block":
-		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+		if err := ValidateTaskTransition("task", "running", "blocked", RoleWorker); err != nil {
+			return "", fmt.Errorf("task_control: %w", err)
+		}
+		if err := t.q.UpdateAgentTaskStatusFrom(ctx, sqlc.UpdateAgentTaskStatusFromParams{
 			Status:    "blocked",
 			UpdatedAt: now,
 			ID:        t.taskID,
 			UserID:    t.userID,
+			Status_2:  "running",
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set blocked: %w", err)
 		}
@@ -146,11 +150,15 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		return "submitted for review", nil
 
 	case "failed":
-		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+		if err := ValidateTaskTransition("task", "running", "failed", RoleWorker); err != nil {
+			return "", fmt.Errorf("task_control: %w", err)
+		}
+		if err := t.q.UpdateAgentTaskStatusFrom(ctx, sqlc.UpdateAgentTaskStatusFromParams{
 			Status:    "failed",
 			UpdatedAt: now,
 			ID:        t.taskID,
 			UserID:    t.userID,
+			Status_2:  "running",
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set failed: %w", err)
 		}
