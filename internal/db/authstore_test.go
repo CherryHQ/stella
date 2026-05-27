@@ -101,8 +101,9 @@ func TestPolicyCRUD(t *testing.T) {
 	}
 
 	enabled, _ := store.ListEnabledPolicies(ctx)
-	if len(enabled) != 1 {
-		t.Errorf("ListEnabledPolicies = %d, want 1", len(enabled))
+	builtinCount := len(auth.BuiltinPolicies())
+	if len(enabled) != builtinCount {
+		t.Errorf("ListEnabledPolicies = %d, want %d (builtins only, custom:deny is disabled)", len(enabled), builtinCount)
 	}
 
 	// Update.

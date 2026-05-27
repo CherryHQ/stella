@@ -97,17 +97,22 @@ func (s *AuthStore) ListPolicies(ctx context.Context) ([]auth.Policy, error) {
 }
 
 func (s *AuthStore) ListEnabledPolicies(ctx context.Context) ([]auth.Policy, error) {
-	orgID, err := authRequireOrgID(ctx)
-	if err != nil {
-		return nil, err
+	out := auth.BuiltinPolicies()
+
+	orgID := orgctx.OrgIDFromContext(ctx)
+	if orgID == "" {
+		return out, nil
 	}
+
 	rows, err := s.q.ListEnabledAuthPolicies(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled policies: %w", err)
 	}
-	out := make([]auth.Policy, len(rows))
-	for i, r := range rows {
-		out[i] = policyFromDB(r)
+	for _, r := range rows {
+		p := policyFromDB(r)
+		if !p.IsSystem {
+			out = append(out, p)
+		}
 	}
 	return out, nil
 }

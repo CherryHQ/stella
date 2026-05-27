@@ -64,10 +64,6 @@ func setupStores(t *testing.T) testStores {
 	}
 
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(ctx, as, orgID); err != nil {
-		t.Fatalf("SeedPolicies: %v", err)
-	}
-
 	oidcStore := appdb.NewOIDCStore(db)
 
 	return testStores{store: store, authStore: as, oidcStore: oidcStore, db: db, orgID: orgID}

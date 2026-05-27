@@ -73,10 +73,6 @@ func ensureTemplateDB() string {
 		if err := store.SeedDefaults(ctx, orgID); err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: SeedDefaults: %v", err))
 		}
-		as := appdb.NewAuthStore(db)
-		if err := auth.SeedPolicies(ctx, as, orgID); err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: SeedPolicies: %v", err))
-		}
 		if err := db.Close(); err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: Close: %v", err))
 		}
