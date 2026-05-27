@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { createAgentTask, listAgentTasks } from "@/lib/api-client";
 import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -33,8 +33,8 @@ export function TaskPanel({ agentId, onCreated }: Props) {
 
   useEffect(() => {
     if (!agentId) return;
-    api<{ items: ComponentsAgentTask[] }>("GET", `/api/agents/${encodeURIComponent(agentId)}/tasks`)
-      .then((res) => setAvailableTasks(res.items ?? []))
+    listAgentTasks({ path: { agentID: agentId } })
+      .then(({ data }) => setAvailableTasks(data?.items ?? []))
       .catch(() => {});
   }, [agentId]);
 
@@ -42,17 +42,17 @@ export function TaskPanel({ agentId, onCreated }: Props) {
     if (!title.trim()) return;
     setSaving(true);
     try {
-      const task = await api<ComponentsAgentTask>(
-        "POST",
-        `/api/agents/${encodeURIComponent(agentId)}/tasks`,
-        {
+      const { data: task } = await createAgentTask({
+        path: { agentID: agentId },
+        body: {
           title: title.trim(),
           description: description.trim() || undefined,
           priority,
           agent_id: agentId,
           deps: selectedDeps.length > 0 ? selectedDeps : undefined,
         },
-      );
+        throwOnError: true,
+      });
       onCreated(task);
     } catch (e) {
       console.error(e);

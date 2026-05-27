@@ -13,7 +13,7 @@ import (
 
 // DB is the minimal database interface the vault Service requires.
 type DB interface {
-	GetAuthUser(ctx context.Context, id string) (sqlc.AuthUser, error)
+	GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser, error)
 	GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error)
 	ListVaultEntriesByUser(ctx context.Context, userID string) ([]sqlc.VaultEntry, error)
 	UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error
@@ -84,7 +84,7 @@ func (s *Service) set(ctx context.Context, userID string, name string, plaintext
 		}
 	}
 
-	user, err := s.db.GetAuthUser(ctx, userID)
+	user, err := s.db.GetVaultUser(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("vault: set %q: get user: %w", name, err)
 	}
@@ -121,7 +121,7 @@ func (s *Service) Delete(ctx context.Context, userID string, name string) error 
 
 // Get decrypts and returns the plaintext value of a single vault entry by name.
 func (s *Service) Get(ctx context.Context, userID string, name string) (string, error) {
-	user, err := s.db.GetAuthUser(ctx, userID)
+	user, err := s.db.GetVaultUser(ctx, userID)
 	if err != nil {
 		return "", fmt.Errorf("vault: get %q: get user: %w", name, err)
 	}
@@ -165,7 +165,7 @@ func (s *Service) List(ctx context.Context, userID string) ([]EntryMeta, error) 
 // LoadEnv decrypts all vault entries for userID and returns them as a
 // name→plaintext map. Intended for injecting secrets into sandbox environments.
 func (s *Service) LoadEnv(ctx context.Context, userID string) (map[string]string, error) {
-	user, err := s.db.GetAuthUser(ctx, userID)
+	user, err := s.db.GetVaultUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("vault: load env: get user: %w", err)
 	}

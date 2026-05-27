@@ -5,7 +5,7 @@ export const meQueryOptions = queryOptions({
   queryKey: ["me"],
   queryFn: async () => {
     const { data } = await getMe({ throwOnError: true });
-    return (data as unknown as { data: typeof data }).data;
+    return data;
   },
   retry: false,
 });

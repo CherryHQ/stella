@@ -10,27 +10,31 @@ import {
 
 import { client } from "../client.gen";
 import {
+  acceptInvite,
   addAgentTaskDep,
   agentTaskAction,
   assignAgentUser,
   batchCreateAgentTasks,
   changePassword,
   createAgent,
-  createAgentScopedSkill,
+  createAgentSkill,
   createAgentTask,
   createChannel,
   createFeed,
+  createInvite,
   createProject,
   createProvider,
   createSchedulerJob,
   createSession,
   createShare,
+  createWorkspace,
   createWorkspaceFile,
   deleteAgent,
-  deleteAgentScopedSkill,
-  deleteAgentScopedSkillFile,
+  deleteAgentSkill,
+  deleteAgentSkillFile,
   deleteAgentTask,
   deleteArticle,
+  deleteAuthSession,
   deleteAuthUserIdentity,
   deleteChannel,
   deleteFeed,
@@ -46,8 +50,8 @@ import {
   fetchProviderModels,
   generateLinkCode,
   getAgent,
-  getAgentScopedSkill,
-  getAgentScopedSkillFile,
+  getAgentSkill,
+  getAgentSkillFile,
   getAgentTask,
   getAgentTaskDeps,
   getArticle,
@@ -56,9 +60,11 @@ import {
   getChannel,
   getDigest,
   getFeed,
+  getInviteInfo,
   getMe,
   getOAuthConnected,
   getOAuthProviderConfig,
+  getOnboardingStatus,
   getPluginConfig,
   getPluginConfigSchema,
   getPluginStatus,
@@ -74,19 +80,25 @@ import {
   getStoredDigest,
   getVaultEntry,
   getWorkspaceFileContent,
-  installAgentScopedSkill,
+  installAgentSkill,
+  linkAuthUserLoginIdentity,
   listAgents,
   listAgentSkills,
   listAgentTaskEvents,
   listAgentTasks,
   listAgentUsers,
   listArticles,
+  listAuthProviders,
+  listAuthSessions,
   listAuthUserAgents,
+  listAuthUserChannelIdentities,
+  listAuthUserLoginIdentities,
   listAuthUsers,
   listBuiltinResources,
   listChannels,
   listFeedEntries,
   listFeeds,
+  listInvites,
   listManifestPlugins,
   listModels,
   listOAuthProviders,
@@ -107,7 +119,6 @@ import {
   listUnblockedAgentTasks,
   listUserMemories,
   listVaultEntries,
-  login,
   logout,
   moveWorkspaceFile,
   oauthCallback,
@@ -115,9 +126,10 @@ import {
   pollFeed,
   pollOAuthFlow,
   pollWeixinQrStatus,
-  register,
+  redeemInviteOnboarding,
   removeAgentTaskDep,
   removeAgentUser,
+  revokeInvite,
   revokeShare,
   saveArticle,
   saveDigest,
@@ -135,7 +147,7 @@ import {
   triggerSchedulerJob,
   unlinkProfileIdentity,
   updateAgent,
-  updateAgentScopedSkill,
+  updateAgentSkill,
   updateAgentTask,
   updateArticle,
   updateAuthUserActive,
@@ -144,6 +156,7 @@ import {
   updateChannel,
   updateFeed,
   updateFeedEntry,
+  updateOrg,
   updatePluginConfig,
   updateProject,
   updateProvider,
@@ -151,10 +164,13 @@ import {
   updateUserDefaultAgent,
   updateUserNotifyIdentity,
   updateWorkspaceFileContent,
-  uploadAgentScopedSkill,
+  uploadAgentSkill,
   uploadWorkspaceFile,
 } from "../sdk.gen";
 import type {
+  AcceptInviteData,
+  AcceptInviteError,
+  AcceptInviteResponse,
   AddAgentTaskDepData,
   AddAgentTaskDepError,
   AddAgentTaskDepResponse,
@@ -173,9 +189,9 @@ import type {
   CreateAgentData,
   CreateAgentError,
   CreateAgentResponse,
-  CreateAgentScopedSkillData,
-  CreateAgentScopedSkillError,
-  CreateAgentScopedSkillResponse,
+  CreateAgentSkillData,
+  CreateAgentSkillError,
+  CreateAgentSkillResponse,
   CreateAgentTaskData,
   CreateAgentTaskError,
   CreateAgentTaskResponse,
@@ -185,6 +201,9 @@ import type {
   CreateFeedData,
   CreateFeedError,
   CreateFeedResponse,
+  CreateInviteData,
+  CreateInviteError,
+  CreateInviteResponse2,
   CreateProjectData,
   CreateProjectError,
   CreateProjectResponse,
@@ -200,24 +219,30 @@ import type {
   CreateShareData,
   CreateShareError,
   CreateShareResponse,
+  CreateWorkspaceData,
+  CreateWorkspaceError,
   CreateWorkspaceFileData,
   CreateWorkspaceFileError,
   CreateWorkspaceFileResponse,
+  CreateWorkspaceResponse,
   DeleteAgentData,
   DeleteAgentError,
   DeleteAgentResponse,
-  DeleteAgentScopedSkillData,
-  DeleteAgentScopedSkillError,
-  DeleteAgentScopedSkillFileData,
-  DeleteAgentScopedSkillFileError,
-  DeleteAgentScopedSkillFileResponse,
-  DeleteAgentScopedSkillResponse,
+  DeleteAgentSkillData,
+  DeleteAgentSkillError,
+  DeleteAgentSkillFileData,
+  DeleteAgentSkillFileError,
+  DeleteAgentSkillFileResponse,
+  DeleteAgentSkillResponse,
   DeleteAgentTaskData,
   DeleteAgentTaskError,
   DeleteAgentTaskResponse,
   DeleteArticleData,
   DeleteArticleError,
   DeleteArticleResponse,
+  DeleteAuthSessionData,
+  DeleteAuthSessionError,
+  DeleteAuthSessionResponse,
   DeleteAuthUserIdentityData,
   DeleteAuthUserIdentityError,
   DeleteAuthUserIdentityResponse,
@@ -263,12 +288,12 @@ import type {
   GetAgentData,
   GetAgentError,
   GetAgentResponse,
-  GetAgentScopedSkillData,
-  GetAgentScopedSkillError,
-  GetAgentScopedSkillFileData,
-  GetAgentScopedSkillFileError,
-  GetAgentScopedSkillFileResponse,
-  GetAgentScopedSkillResponse,
+  GetAgentSkillData,
+  GetAgentSkillError,
+  GetAgentSkillFileData,
+  GetAgentSkillFileError,
+  GetAgentSkillFileResponse,
+  GetAgentSkillResponse,
   GetAgentTaskData,
   GetAgentTaskDepsData,
   GetAgentTaskDepsError,
@@ -293,6 +318,9 @@ import type {
   GetFeedData,
   GetFeedError,
   GetFeedResponse,
+  GetInviteInfoData,
+  GetInviteInfoError,
+  GetInviteInfoResponse,
   GetMeData,
   GetMeError,
   GetMeResponse,
@@ -302,6 +330,9 @@ import type {
   GetOAuthProviderConfigData,
   GetOAuthProviderConfigError,
   GetOAuthProviderConfigResponse,
+  GetOnboardingStatusData,
+  GetOnboardingStatusError,
+  GetOnboardingStatusResponse,
   GetPluginConfigData,
   GetPluginConfigError,
   GetPluginConfigResponse,
@@ -346,9 +377,12 @@ import type {
   GetWorkspaceFileContentData,
   GetWorkspaceFileContentError,
   GetWorkspaceFileContentResponse,
-  InstallAgentScopedSkillData,
-  InstallAgentScopedSkillError,
-  InstallAgentScopedSkillResponse,
+  InstallAgentSkillData,
+  InstallAgentSkillError,
+  InstallAgentSkillResponse,
+  LinkAuthUserLoginIdentityData,
+  LinkAuthUserLoginIdentityError,
+  LinkAuthUserLoginIdentityResponse,
   ListAgentsData,
   ListAgentsError,
   ListAgentSkillsData,
@@ -367,9 +401,20 @@ import type {
   ListArticlesData,
   ListArticlesError,
   ListArticlesResponse,
+  ListAuthProvidersData,
+  ListAuthProvidersResponse,
+  ListAuthSessionsData,
+  ListAuthSessionsError,
+  ListAuthSessionsResponse,
   ListAuthUserAgentsData,
   ListAuthUserAgentsError,
   ListAuthUserAgentsResponse,
+  ListAuthUserChannelIdentitiesData,
+  ListAuthUserChannelIdentitiesError,
+  ListAuthUserChannelIdentitiesResponse,
+  ListAuthUserLoginIdentitiesData,
+  ListAuthUserLoginIdentitiesError,
+  ListAuthUserLoginIdentitiesResponse,
   ListAuthUsersData,
   ListAuthUsersError,
   ListAuthUsersResponse,
@@ -385,6 +430,9 @@ import type {
   ListFeedsData,
   ListFeedsError,
   ListFeedsResponse,
+  ListInvitesData,
+  ListInvitesError,
+  ListInvitesResponse,
   ListManifestPluginsData,
   ListManifestPluginsError,
   ListManifestPluginsResponse,
@@ -445,9 +493,6 @@ import type {
   ListVaultEntriesData,
   ListVaultEntriesError,
   ListVaultEntriesResponse,
-  LoginData,
-  LoginError,
-  LoginResponse,
   LogoutData,
   LogoutError,
   LogoutResponse,
@@ -464,15 +509,18 @@ import type {
   PollWeixinQrStatusData,
   PollWeixinQrStatusError,
   PollWeixinQrStatusResponse,
-  RegisterData,
-  RegisterError,
-  RegisterResponse,
+  RedeemInviteOnboardingData,
+  RedeemInviteOnboardingError,
+  RedeemInviteOnboardingResponse,
   RemoveAgentTaskDepData,
   RemoveAgentTaskDepError,
   RemoveAgentTaskDepResponse,
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
+  RevokeInviteData,
+  RevokeInviteError,
+  RevokeInviteResponse,
   RevokeShareData,
   RevokeShareError,
   RevokeShareResponse,
@@ -524,9 +572,9 @@ import type {
   UpdateAgentData,
   UpdateAgentError,
   UpdateAgentResponse,
-  UpdateAgentScopedSkillData,
-  UpdateAgentScopedSkillError,
-  UpdateAgentScopedSkillResponse,
+  UpdateAgentSkillData,
+  UpdateAgentSkillError,
+  UpdateAgentSkillResponse,
   UpdateAgentTaskData,
   UpdateAgentTaskError,
   UpdateAgentTaskResponse,
@@ -551,6 +599,9 @@ import type {
   UpdateFeedEntryResponse,
   UpdateFeedError,
   UpdateFeedResponse,
+  UpdateOrgData,
+  UpdateOrgError,
+  UpdateOrgResponse,
   UpdatePluginConfigData,
   UpdatePluginConfigError,
   UpdatePluginConfigResponse,
@@ -572,9 +623,9 @@ import type {
   UpdateWorkspaceFileContentData,
   UpdateWorkspaceFileContentError,
   UpdateWorkspaceFileContentResponse,
-  UploadAgentScopedSkillData,
-  UploadAgentScopedSkillError,
-  UploadAgentScopedSkillResponse,
+  UploadAgentSkillData,
+  UploadAgentSkillError,
+  UploadAgentSkillResponse,
   UploadWorkspaceFileData,
   UploadWorkspaceFileError,
   UploadWorkspaceFileResponse,
@@ -646,56 +697,6 @@ export const getStatusOptions = (options?: Options<GetStatusData>) =>
   });
 
 /**
- * Register a new user account
- */
-export const registerMutation = (
-  options?: Partial<Options<RegisterData>>,
-): UseMutationOptions<
-  RegisterResponse,
-  RegisterError,
-  Options<RegisterData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    RegisterResponse,
-    RegisterError,
-    Options<RegisterData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await register({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
-/**
- * Authenticate and start a session
- */
-export const loginMutation = (
-  options?: Partial<Options<LoginData>>,
-): UseMutationOptions<LoginResponse, LoginError, Options<LoginData>> => {
-  const mutationOptions: UseMutationOptions<
-    LoginResponse,
-    LoginError,
-    Options<LoginData>
-  > = {
-    mutationFn: async (fnOptions) => {
-      const { data } = await login({
-        ...options,
-        ...fnOptions,
-        throwOnError: true,
-      });
-      return data;
-    },
-  };
-  return mutationOptions;
-};
-
-/**
  * End the current session
  */
 export const logoutMutation = (
@@ -742,6 +743,329 @@ export const getMeOptions = (options?: Options<GetMeData>) =>
     },
     queryKey: getMeQueryKey(options),
   });
+
+export const listAuthProvidersQueryKey = (
+  options?: Options<ListAuthProvidersData>,
+) => createQueryKey("listAuthProviders", options);
+
+/**
+ * List available authentication providers
+ */
+export const listAuthProvidersOptions = (
+  options?: Options<ListAuthProvidersData>,
+) =>
+  queryOptions<
+    ListAuthProvidersResponse,
+    DefaultError,
+    ListAuthProvidersResponse,
+    ReturnType<typeof listAuthProvidersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthProviders({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthProvidersQueryKey(options),
+  });
+
+/**
+ * Update the current user's organization name
+ */
+export const updateOrgMutation = (
+  options?: Partial<Options<UpdateOrgData>>,
+): UseMutationOptions<
+  UpdateOrgResponse,
+  UpdateOrgError,
+  Options<UpdateOrgData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateOrgResponse,
+    UpdateOrgError,
+    Options<UpdateOrgData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await updateOrg({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getOnboardingStatusQueryKey = (
+  options?: Options<GetOnboardingStatusData>,
+) => createQueryKey("getOnboardingStatus", options);
+
+/**
+ * Get onboarding status for the current user
+ */
+export const getOnboardingStatusOptions = (
+  options?: Options<GetOnboardingStatusData>,
+) =>
+  queryOptions<
+    GetOnboardingStatusResponse,
+    GetOnboardingStatusError,
+    GetOnboardingStatusResponse,
+    ReturnType<typeof getOnboardingStatusQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getOnboardingStatus({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getOnboardingStatusQueryKey(options),
+  });
+
+/**
+ * Create a new workspace (org) for the current user
+ */
+export const createWorkspaceMutation = (
+  options?: Partial<Options<CreateWorkspaceData>>,
+): UseMutationOptions<
+  CreateWorkspaceResponse,
+  CreateWorkspaceError,
+  Options<CreateWorkspaceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateWorkspaceResponse,
+    CreateWorkspaceError,
+    Options<CreateWorkspaceData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createWorkspace({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Redeem an invite token during onboarding
+ */
+export const redeemInviteOnboardingMutation = (
+  options?: Partial<Options<RedeemInviteOnboardingData>>,
+): UseMutationOptions<
+  RedeemInviteOnboardingResponse,
+  RedeemInviteOnboardingError,
+  Options<RedeemInviteOnboardingData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RedeemInviteOnboardingResponse,
+    RedeemInviteOnboardingError,
+    Options<RedeemInviteOnboardingData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await redeemInviteOnboarding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listAuthSessionsQueryKey = (
+  options?: Options<ListAuthSessionsData>,
+) => createQueryKey("listAuthSessions", options);
+
+/**
+ * List current user's active sessions
+ */
+export const listAuthSessionsOptions = (
+  options?: Options<ListAuthSessionsData>,
+) =>
+  queryOptions<
+    ListAuthSessionsResponse,
+    ListAuthSessionsError,
+    ListAuthSessionsResponse,
+    ReturnType<typeof listAuthSessionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthSessions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthSessionsQueryKey(options),
+  });
+
+/**
+ * Revoke an auth session
+ */
+export const deleteAuthSessionMutation = (
+  options?: Partial<Options<DeleteAuthSessionData>>,
+): UseMutationOptions<
+  DeleteAuthSessionResponse,
+  DeleteAuthSessionError,
+  Options<DeleteAuthSessionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAuthSessionResponse,
+    DeleteAuthSessionError,
+    Options<DeleteAuthSessionData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await deleteAuthSession({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listInvitesQueryKey = (options?: Options<ListInvitesData>) =>
+  createQueryKey("listInvites", options);
+
+/**
+ * List invites for the current user's org (admin only)
+ */
+export const listInvitesOptions = (options?: Options<ListInvitesData>) =>
+  queryOptions<
+    ListInvitesResponse,
+    ListInvitesError,
+    ListInvitesResponse,
+    ReturnType<typeof listInvitesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listInvites({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listInvitesQueryKey(options),
+  });
+
+/**
+ * Create an invite for the current user's org (admin only)
+ */
+export const createInviteMutation = (
+  options?: Partial<Options<CreateInviteData>>,
+): UseMutationOptions<
+  CreateInviteResponse2,
+  CreateInviteError,
+  Options<CreateInviteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateInviteResponse2,
+    CreateInviteError,
+    Options<CreateInviteData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createInvite({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Revoke a pending invite (admin only)
+ */
+export const revokeInviteMutation = (
+  options?: Partial<Options<RevokeInviteData>>,
+): UseMutationOptions<
+  RevokeInviteResponse,
+  RevokeInviteError,
+  Options<RevokeInviteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RevokeInviteResponse,
+    RevokeInviteError,
+    Options<RevokeInviteData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await revokeInvite({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getInviteInfoQueryKey = (options: Options<GetInviteInfoData>) =>
+  createQueryKey("getInviteInfo", options);
+
+/**
+ * Get invite metadata (public, for accept page)
+ */
+export const getInviteInfoOptions = (options: Options<GetInviteInfoData>) =>
+  queryOptions<
+    GetInviteInfoResponse,
+    GetInviteInfoError,
+    GetInviteInfoResponse,
+    ReturnType<typeof getInviteInfoQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getInviteInfo({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getInviteInfoQueryKey(options),
+  });
+
+/**
+ * Accept an invite (authenticated users)
+ */
+export const acceptInviteMutation = (
+  options?: Partial<Options<AcceptInviteData>>,
+): UseMutationOptions<
+  AcceptInviteResponse,
+  AcceptInviteError,
+  Options<AcceptInviteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AcceptInviteResponse,
+    AcceptInviteError,
+    Options<AcceptInviteData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await acceptInvite({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
 
 export const listAgentsQueryKey = (options?: Options<ListAgentsData>) =>
   createQueryKey("listAgents", options);
@@ -982,20 +1306,20 @@ export const listAgentSkillsOptions = (options: Options<ListAgentSkillsData>) =>
 /**
  * Create a skill in an agent or current-user scope
  */
-export const createAgentScopedSkillMutation = (
-  options?: Partial<Options<CreateAgentScopedSkillData>>,
+export const createAgentSkillMutation = (
+  options?: Partial<Options<CreateAgentSkillData>>,
 ): UseMutationOptions<
-  CreateAgentScopedSkillResponse,
-  CreateAgentScopedSkillError,
-  Options<CreateAgentScopedSkillData>
+  CreateAgentSkillResponse,
+  CreateAgentSkillError,
+  Options<CreateAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    CreateAgentScopedSkillResponse,
-    CreateAgentScopedSkillError,
-    Options<CreateAgentScopedSkillData>
+    CreateAgentSkillResponse,
+    CreateAgentSkillError,
+    Options<CreateAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await createAgentScopedSkill({
+      const { data } = await createAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1007,22 +1331,22 @@ export const createAgentScopedSkillMutation = (
 };
 
 /**
- * Install a skill in an agent or current-user scope
+ * Install a skill from a remote source
  */
-export const installAgentScopedSkillMutation = (
-  options?: Partial<Options<InstallAgentScopedSkillData>>,
+export const installAgentSkillMutation = (
+  options?: Partial<Options<InstallAgentSkillData>>,
 ): UseMutationOptions<
-  InstallAgentScopedSkillResponse,
-  InstallAgentScopedSkillError,
-  Options<InstallAgentScopedSkillData>
+  InstallAgentSkillResponse,
+  InstallAgentSkillError,
+  Options<InstallAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    InstallAgentScopedSkillResponse,
-    InstallAgentScopedSkillError,
-    Options<InstallAgentScopedSkillData>
+    InstallAgentSkillResponse,
+    InstallAgentSkillError,
+    Options<InstallAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await installAgentScopedSkill({
+      const { data } = await installAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1034,22 +1358,22 @@ export const installAgentScopedSkillMutation = (
 };
 
 /**
- * Upload a skill zip in an agent or current-user scope
+ * Upload a skill zip
  */
-export const uploadAgentScopedSkillMutation = (
-  options?: Partial<Options<UploadAgentScopedSkillData>>,
+export const uploadAgentSkillMutation = (
+  options?: Partial<Options<UploadAgentSkillData>>,
 ): UseMutationOptions<
-  UploadAgentScopedSkillResponse,
-  UploadAgentScopedSkillError,
-  Options<UploadAgentScopedSkillData>
+  UploadAgentSkillResponse,
+  UploadAgentSkillError,
+  Options<UploadAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    UploadAgentScopedSkillResponse,
-    UploadAgentScopedSkillError,
-    Options<UploadAgentScopedSkillData>
+    UploadAgentSkillResponse,
+    UploadAgentSkillError,
+    Options<UploadAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await uploadAgentScopedSkill({
+      const { data } = await uploadAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1061,22 +1385,22 @@ export const uploadAgentScopedSkillMutation = (
 };
 
 /**
- * Delete a skill in an agent or current-user scope
+ * Delete a skill
  */
-export const deleteAgentScopedSkillMutation = (
-  options?: Partial<Options<DeleteAgentScopedSkillData>>,
+export const deleteAgentSkillMutation = (
+  options?: Partial<Options<DeleteAgentSkillData>>,
 ): UseMutationOptions<
-  DeleteAgentScopedSkillResponse,
-  DeleteAgentScopedSkillError,
-  Options<DeleteAgentScopedSkillData>
+  DeleteAgentSkillResponse,
+  DeleteAgentSkillError,
+  Options<DeleteAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    DeleteAgentScopedSkillResponse,
-    DeleteAgentScopedSkillError,
-    Options<DeleteAgentScopedSkillData>
+    DeleteAgentSkillResponse,
+    DeleteAgentSkillError,
+    Options<DeleteAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await deleteAgentScopedSkill({
+      const { data } = await deleteAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1087,24 +1411,21 @@ export const deleteAgentScopedSkillMutation = (
   return mutationOptions;
 };
 
-export const getAgentScopedSkillQueryKey = (
-  options: Options<GetAgentScopedSkillData>,
-) => createQueryKey("getAgentScopedSkill", options);
+export const getAgentSkillQueryKey = (options: Options<GetAgentSkillData>) =>
+  createQueryKey("getAgentSkill", options);
 
 /**
- * Get a skill in an agent context
+ * Get a skill by name (optionally scoped)
  */
-export const getAgentScopedSkillOptions = (
-  options: Options<GetAgentScopedSkillData>,
-) =>
+export const getAgentSkillOptions = (options: Options<GetAgentSkillData>) =>
   queryOptions<
-    GetAgentScopedSkillResponse,
-    GetAgentScopedSkillError,
-    GetAgentScopedSkillResponse,
-    ReturnType<typeof getAgentScopedSkillQueryKey>
+    GetAgentSkillResponse,
+    GetAgentSkillError,
+    GetAgentSkillResponse,
+    ReturnType<typeof getAgentSkillQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getAgentScopedSkill({
+      const { data } = await getAgentSkill({
         ...options,
         ...queryKey[0],
         signal,
@@ -1112,26 +1433,26 @@ export const getAgentScopedSkillOptions = (
       });
       return data;
     },
-    queryKey: getAgentScopedSkillQueryKey(options),
+    queryKey: getAgentSkillQueryKey(options),
   });
 
 /**
- * Update a skill in an agent or current-user scope
+ * Update a skill
  */
-export const updateAgentScopedSkillMutation = (
-  options?: Partial<Options<UpdateAgentScopedSkillData>>,
+export const updateAgentSkillMutation = (
+  options?: Partial<Options<UpdateAgentSkillData>>,
 ): UseMutationOptions<
-  UpdateAgentScopedSkillResponse,
-  UpdateAgentScopedSkillError,
-  Options<UpdateAgentScopedSkillData>
+  UpdateAgentSkillResponse,
+  UpdateAgentSkillError,
+  Options<UpdateAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    UpdateAgentScopedSkillResponse,
-    UpdateAgentScopedSkillError,
-    Options<UpdateAgentScopedSkillData>
+    UpdateAgentSkillResponse,
+    UpdateAgentSkillError,
+    Options<UpdateAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await updateAgentScopedSkill({
+      const { data } = await updateAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1143,22 +1464,22 @@ export const updateAgentScopedSkillMutation = (
 };
 
 /**
- * Delete a skill file in an agent or current-user scope
+ * Delete a skill file
  */
-export const deleteAgentScopedSkillFileMutation = (
-  options?: Partial<Options<DeleteAgentScopedSkillFileData>>,
+export const deleteAgentSkillFileMutation = (
+  options?: Partial<Options<DeleteAgentSkillFileData>>,
 ): UseMutationOptions<
-  DeleteAgentScopedSkillFileResponse,
-  DeleteAgentScopedSkillFileError,
-  Options<DeleteAgentScopedSkillFileData>
+  DeleteAgentSkillFileResponse,
+  DeleteAgentSkillFileError,
+  Options<DeleteAgentSkillFileData>
 > => {
   const mutationOptions: UseMutationOptions<
-    DeleteAgentScopedSkillFileResponse,
-    DeleteAgentScopedSkillFileError,
-    Options<DeleteAgentScopedSkillFileData>
+    DeleteAgentSkillFileResponse,
+    DeleteAgentSkillFileError,
+    Options<DeleteAgentSkillFileData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await deleteAgentScopedSkillFile({
+      const { data } = await deleteAgentSkillFile({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1169,24 +1490,24 @@ export const deleteAgentScopedSkillFileMutation = (
   return mutationOptions;
 };
 
-export const getAgentScopedSkillFileQueryKey = (
-  options: Options<GetAgentScopedSkillFileData>,
-) => createQueryKey("getAgentScopedSkillFile", options);
+export const getAgentSkillFileQueryKey = (
+  options: Options<GetAgentSkillFileData>,
+) => createQueryKey("getAgentSkillFile", options);
 
 /**
- * Get a skill file in an agent context
+ * Get a skill file by path
  */
-export const getAgentScopedSkillFileOptions = (
-  options: Options<GetAgentScopedSkillFileData>,
+export const getAgentSkillFileOptions = (
+  options: Options<GetAgentSkillFileData>,
 ) =>
   queryOptions<
-    GetAgentScopedSkillFileResponse,
-    GetAgentScopedSkillFileError,
-    GetAgentScopedSkillFileResponse,
-    ReturnType<typeof getAgentScopedSkillFileQueryKey>
+    GetAgentSkillFileResponse,
+    GetAgentSkillFileError,
+    GetAgentSkillFileResponse,
+    ReturnType<typeof getAgentSkillFileQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getAgentScopedSkillFile({
+      const { data } = await getAgentSkillFile({
         ...options,
         ...queryKey[0],
         signal,
@@ -1194,7 +1515,7 @@ export const getAgentScopedSkillFileOptions = (
       });
       return data;
     },
-    queryKey: getAgentScopedSkillFileQueryKey(options),
+    queryKey: getAgentSkillFileQueryKey(options),
   });
 
 export const listProjectsQueryKey = (options: Options<ListProjectsData>) =>
@@ -3215,6 +3536,89 @@ export const updateAuthUserAgentsMutation = (
   };
   return mutationOptions;
 };
+
+export const listAuthUserLoginIdentitiesQueryKey = (
+  options: Options<ListAuthUserLoginIdentitiesData>,
+) => createQueryKey("listAuthUserLoginIdentities", options);
+
+/**
+ * List OIDC login identities for an auth user (admin only)
+ */
+export const listAuthUserLoginIdentitiesOptions = (
+  options: Options<ListAuthUserLoginIdentitiesData>,
+) =>
+  queryOptions<
+    ListAuthUserLoginIdentitiesResponse,
+    ListAuthUserLoginIdentitiesError,
+    ListAuthUserLoginIdentitiesResponse,
+    ReturnType<typeof listAuthUserLoginIdentitiesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthUserLoginIdentities({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthUserLoginIdentitiesQueryKey(options),
+  });
+
+/**
+ * Link an OIDC login identity to an auth user (admin only)
+ */
+export const linkAuthUserLoginIdentityMutation = (
+  options?: Partial<Options<LinkAuthUserLoginIdentityData>>,
+): UseMutationOptions<
+  LinkAuthUserLoginIdentityResponse,
+  LinkAuthUserLoginIdentityError,
+  Options<LinkAuthUserLoginIdentityData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    LinkAuthUserLoginIdentityResponse,
+    LinkAuthUserLoginIdentityError,
+    Options<LinkAuthUserLoginIdentityData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await linkAuthUserLoginIdentity({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const listAuthUserChannelIdentitiesQueryKey = (
+  options: Options<ListAuthUserChannelIdentitiesData>,
+) => createQueryKey("listAuthUserChannelIdentities", options);
+
+/**
+ * List channel identities for an auth user (admin only)
+ */
+export const listAuthUserChannelIdentitiesOptions = (
+  options: Options<ListAuthUserChannelIdentitiesData>,
+) =>
+  queryOptions<
+    ListAuthUserChannelIdentitiesResponse,
+    ListAuthUserChannelIdentitiesError,
+    ListAuthUserChannelIdentitiesResponse,
+    ReturnType<typeof listAuthUserChannelIdentitiesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAuthUserChannelIdentities({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listAuthUserChannelIdentitiesQueryKey(options),
+  });
 
 /**
  * Delete an identity linked to an auth user (admin only)

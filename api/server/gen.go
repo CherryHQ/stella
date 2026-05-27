@@ -44,6 +44,168 @@ func (e ListSessionsParamsKind) Valid() bool {
 	}
 }
 
+// Defines values for ListAgentSkillsParamsScope.
+const (
+	ListAgentSkillsParamsScopeAgent   ListAgentSkillsParamsScope = "agent"
+	ListAgentSkillsParamsScopeProject ListAgentSkillsParamsScope = "project"
+	ListAgentSkillsParamsScopeSystem  ListAgentSkillsParamsScope = "system"
+	ListAgentSkillsParamsScopeUser    ListAgentSkillsParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the ListAgentSkillsParamsScope enum.
+func (e ListAgentSkillsParamsScope) Valid() bool {
+	switch e {
+	case ListAgentSkillsParamsScopeAgent:
+		return true
+	case ListAgentSkillsParamsScopeProject:
+		return true
+	case ListAgentSkillsParamsScopeSystem:
+		return true
+	case ListAgentSkillsParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteAgentSkillParamsScope.
+const (
+	DeleteAgentSkillParamsScopeAgent   DeleteAgentSkillParamsScope = "agent"
+	DeleteAgentSkillParamsScopeProject DeleteAgentSkillParamsScope = "project"
+	DeleteAgentSkillParamsScopeSystem  DeleteAgentSkillParamsScope = "system"
+	DeleteAgentSkillParamsScopeUser    DeleteAgentSkillParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the DeleteAgentSkillParamsScope enum.
+func (e DeleteAgentSkillParamsScope) Valid() bool {
+	switch e {
+	case DeleteAgentSkillParamsScopeAgent:
+		return true
+	case DeleteAgentSkillParamsScopeProject:
+		return true
+	case DeleteAgentSkillParamsScopeSystem:
+		return true
+	case DeleteAgentSkillParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetAgentSkillParamsScope.
+const (
+	GetAgentSkillParamsScopeAgent   GetAgentSkillParamsScope = "agent"
+	GetAgentSkillParamsScopeProject GetAgentSkillParamsScope = "project"
+	GetAgentSkillParamsScopeSystem  GetAgentSkillParamsScope = "system"
+	GetAgentSkillParamsScopeUser    GetAgentSkillParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the GetAgentSkillParamsScope enum.
+func (e GetAgentSkillParamsScope) Valid() bool {
+	switch e {
+	case GetAgentSkillParamsScopeAgent:
+		return true
+	case GetAgentSkillParamsScopeProject:
+		return true
+	case GetAgentSkillParamsScopeSystem:
+		return true
+	case GetAgentSkillParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateAgentSkillParamsScope.
+const (
+	UpdateAgentSkillParamsScopeAgent   UpdateAgentSkillParamsScope = "agent"
+	UpdateAgentSkillParamsScopeProject UpdateAgentSkillParamsScope = "project"
+	UpdateAgentSkillParamsScopeSystem  UpdateAgentSkillParamsScope = "system"
+	UpdateAgentSkillParamsScopeUser    UpdateAgentSkillParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the UpdateAgentSkillParamsScope enum.
+func (e UpdateAgentSkillParamsScope) Valid() bool {
+	switch e {
+	case UpdateAgentSkillParamsScopeAgent:
+		return true
+	case UpdateAgentSkillParamsScopeProject:
+		return true
+	case UpdateAgentSkillParamsScopeSystem:
+		return true
+	case UpdateAgentSkillParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteAgentSkillFileParamsScope.
+const (
+	DeleteAgentSkillFileParamsScopeAgent   DeleteAgentSkillFileParamsScope = "agent"
+	DeleteAgentSkillFileParamsScopeProject DeleteAgentSkillFileParamsScope = "project"
+	DeleteAgentSkillFileParamsScopeSystem  DeleteAgentSkillFileParamsScope = "system"
+	DeleteAgentSkillFileParamsScopeUser    DeleteAgentSkillFileParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the DeleteAgentSkillFileParamsScope enum.
+func (e DeleteAgentSkillFileParamsScope) Valid() bool {
+	switch e {
+	case DeleteAgentSkillFileParamsScopeAgent:
+		return true
+	case DeleteAgentSkillFileParamsScopeProject:
+		return true
+	case DeleteAgentSkillFileParamsScopeSystem:
+		return true
+	case DeleteAgentSkillFileParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetAgentSkillFileParamsScope.
+const (
+	GetAgentSkillFileParamsScopeAgent   GetAgentSkillFileParamsScope = "agent"
+	GetAgentSkillFileParamsScopeProject GetAgentSkillFileParamsScope = "project"
+	GetAgentSkillFileParamsScopeSystem  GetAgentSkillFileParamsScope = "system"
+	GetAgentSkillFileParamsScopeUser    GetAgentSkillFileParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the GetAgentSkillFileParamsScope enum.
+func (e GetAgentSkillFileParamsScope) Valid() bool {
+	switch e {
+	case GetAgentSkillFileParamsScopeAgent:
+		return true
+	case GetAgentSkillFileParamsScopeProject:
+		return true
+	case GetAgentSkillFileParamsScopeSystem:
+		return true
+	case GetAgentSkillFileParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UploadAgentSkillMultipartBodyScope.
+const (
+	UploadAgentSkillMultipartBodyScopeAgent UploadAgentSkillMultipartBodyScope = "agent"
+	UploadAgentSkillMultipartBodyScopeUser  UploadAgentSkillMultipartBodyScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the UploadAgentSkillMultipartBodyScope enum.
+func (e UploadAgentSkillMultipartBodyScope) Valid() bool {
+	switch e {
+	case UploadAgentSkillMultipartBodyScopeAgent:
+		return true
+	case UploadAgentSkillMultipartBodyScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Agent defines model for Agent.
 type Agent = externalRef0.Agent
 
@@ -107,6 +269,12 @@ type AssignAgentUserRequest = externalRef0.AssignAgentUserRequest
 // AuthResponse defines model for AuthResponse.
 type AuthResponse = externalRef0.AuthResponse
 
+// AuthSession defines model for AuthSession.
+type AuthSession = externalRef0.AuthSession
+
+// AuthSessionList defines model for AuthSessionList.
+type AuthSessionList = externalRef0.AuthSessionList
+
 // AuthUser defines model for AuthUser.
 type AuthUser = externalRef0.AuthUser
 
@@ -146,17 +314,14 @@ type CreateSessionRequest = externalRef0.CreateSessionRequest
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest = externalRef0.CreateSkillRequest
 
-// DeleteFileResult defines model for DeleteFileResult.
-type DeleteFileResult = externalRef0.DeleteFileResult
+// CreateWorkspaceInput defines model for CreateWorkspaceInput.
+type CreateWorkspaceInput = externalRef0.CreateWorkspaceInput
 
 // DeleteResult defines model for DeleteResult.
 type DeleteResult = externalRef0.DeleteResult
 
 // Digest defines model for Digest.
 type Digest = externalRef0.Digest
-
-// DuplicateSkillResult defines model for DuplicateSkillResult.
-type DuplicateSkillResult = externalRef0.DuplicateSkillResult
 
 // Error defines model for Error.
 type Error = externalRef0.Error
@@ -184,9 +349,6 @@ type FetchModelsRequest = externalRef0.FetchModelsRequest
 
 // GenerateLinkCodeRequest defines model for GenerateLinkCodeRequest.
 type GenerateLinkCodeRequest = externalRef0.GenerateLinkCodeRequest
-
-// GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
-type GlobalInstallSkillRequest = externalRef0.GlobalInstallSkillRequest
 
 // Identity defines model for Identity.
 type Identity = externalRef0.Identity
@@ -230,11 +392,14 @@ type OAuthProviderConfigInput = externalRef0.OAuthProviderConfigInput
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus = externalRef0.OAuthProviderStatus
 
+// OnboardingStatus defines model for OnboardingStatus.
+type OnboardingStatus = externalRef0.OnboardingStatus
+
+// PendingInvite defines model for PendingInvite.
+type PendingInvite = externalRef0.PendingInvite
+
 // PluginView defines model for PluginView.
 type PluginView = externalRef0.PluginView
-
-// ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
-type ProfileInstallSkillRequest = externalRef0.ProfileInstallSkillRequest
 
 // Provider defines model for Provider.
 type Provider = externalRef0.Provider
@@ -256,6 +421,9 @@ type PublicChannel = externalRef0.PublicChannel
 
 // PublicChannelList defines model for PublicChannelList.
 type PublicChannelList = externalRef0.PublicChannelList
+
+// RedeemInviteInput defines model for RedeemInviteInput.
+type RedeemInviteInput = externalRef0.RedeemInviteInput
 
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest = externalRef0.RegisterRequest
@@ -301,9 +469,6 @@ type SkillSearchResult = externalRef0.SkillSearchResult
 
 // SkillSearchResultList defines model for SkillSearchResultList.
 type SkillSearchResultList = externalRef0.SkillSearchResultList
-
-// SkillUploadResult defines model for SkillUploadResult.
-type SkillUploadResult = externalRef0.SkillUploadResult
 
 // SourceType defines model for SourceType.
 type SourceType = externalRef0.SourceType
@@ -356,6 +521,9 @@ type UpdateFeedRequest = externalRef0.UpdateFeedRequest
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest = externalRef0.UpdateNotifyIdentityRequest
 
+// UpdateOrgRequest defines model for UpdateOrgRequest.
+type UpdateOrgRequest = externalRef0.UpdateOrgRequest
+
 // UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
 type UpdatePluginConfigRequest = externalRef0.UpdatePluginConfigRequest
 
@@ -379,6 +547,9 @@ type WeixinQRCode = externalRef0.WeixinQRCode
 
 // WeixinQRStatus defines model for WeixinQRStatus.
 type WeixinQRStatus = externalRef0.WeixinQRStatus
+
+// WorkspaceCreated defines model for WorkspaceCreated.
+type WorkspaceCreated = externalRef0.WorkspaceCreated
 
 // WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
 type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
@@ -459,40 +630,68 @@ type ListAgentTasksParams struct {
 
 // ListAgentSkillsParams defines parameters for ListAgentSkills.
 type ListAgentSkillsParams struct {
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+	Scope     *ListAgentSkillsParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+	SessionId *string                     `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// UploadAgentScopedSkillMultipartBody defines parameters for UploadAgentScopedSkill.
-type UploadAgentScopedSkillMultipartBody struct {
-	File *openapi_types.File `json:"file,omitempty"`
+// ListAgentSkillsParamsScope defines parameters for ListAgentSkills.
+type ListAgentSkillsParamsScope string
+
+// DeleteAgentSkillParams defines parameters for DeleteAgentSkill.
+type DeleteAgentSkillParams struct {
+	Scope     DeleteAgentSkillParamsScope `form:"scope" json:"scope"`
+	SessionId *string                     `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// DeleteAgentScopedSkillParams defines parameters for DeleteAgentScopedSkill.
-type DeleteAgentScopedSkillParams struct {
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+// DeleteAgentSkillParamsScope defines parameters for DeleteAgentSkill.
+type DeleteAgentSkillParamsScope string
+
+// GetAgentSkillParams defines parameters for GetAgentSkill.
+type GetAgentSkillParams struct {
+	Scope     *GetAgentSkillParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+	SessionId *string                   `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// GetAgentScopedSkillParams defines parameters for GetAgentScopedSkill.
-type GetAgentScopedSkillParams struct {
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+// GetAgentSkillParamsScope defines parameters for GetAgentSkill.
+type GetAgentSkillParamsScope string
+
+// UpdateAgentSkillParams defines parameters for UpdateAgentSkill.
+type UpdateAgentSkillParams struct {
+	Scope     UpdateAgentSkillParamsScope `form:"scope" json:"scope"`
+	SessionId *string                     `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// UpdateAgentScopedSkillParams defines parameters for UpdateAgentScopedSkill.
-type UpdateAgentScopedSkillParams struct {
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+// UpdateAgentSkillParamsScope defines parameters for UpdateAgentSkill.
+type UpdateAgentSkillParamsScope string
+
+// DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
+type DeleteAgentSkillFileParams struct {
+	Path      string                          `form:"path" json:"path"`
+	Scope     DeleteAgentSkillFileParamsScope `form:"scope" json:"scope"`
+	SessionId *string                         `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// DeleteAgentScopedSkillFileParams defines parameters for DeleteAgentScopedSkillFile.
-type DeleteAgentScopedSkillFileParams struct {
-	Path      string  `form:"path" json:"path"`
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+// DeleteAgentSkillFileParamsScope defines parameters for DeleteAgentSkillFile.
+type DeleteAgentSkillFileParamsScope string
+
+// GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
+type GetAgentSkillFileParams struct {
+	Path      string                        `form:"path" json:"path"`
+	Scope     *GetAgentSkillFileParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+	SessionId *string                       `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
-// GetAgentScopedSkillFileParams defines parameters for GetAgentScopedSkillFile.
-type GetAgentScopedSkillFileParams struct {
-	Path      string  `form:"path" json:"path"`
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+// GetAgentSkillFileParamsScope defines parameters for GetAgentSkillFile.
+type GetAgentSkillFileParamsScope string
+
+// UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
+type UploadAgentSkillMultipartBody struct {
+	File  *openapi_types.File                 `json:"file,omitempty"`
+	Scope *UploadAgentSkillMultipartBodyScope `json:"scope,omitempty"`
 }
+
+// UploadAgentSkillMultipartBodyScope defines parameters for UploadAgentSkill.
+type UploadAgentSkillMultipartBodyScope string
 
 // OauthCallbackParams defines parameters for OauthCallback.
 type OauthCallbackParams struct {
@@ -617,23 +816,32 @@ type AddAgentTaskDepJSONRequestBody = externalRef0.AgentTaskDepsInput
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = externalRef0.Agent
 
-// CreateAgentScopedSkillJSONRequestBody defines body for CreateAgentScopedSkill for application/json ContentType.
-type CreateAgentScopedSkillJSONRequestBody = externalRef0.CreateSkillRequest
+// CreateAgentSkillJSONRequestBody defines body for CreateAgentSkill for application/json ContentType.
+type CreateAgentSkillJSONRequestBody = externalRef0.CreateSkillRequest
 
-// InstallAgentScopedSkillJSONRequestBody defines body for InstallAgentScopedSkill for application/json ContentType.
-type InstallAgentScopedSkillJSONRequestBody = externalRef0.InstallSkillRequest
+// UpdateAgentSkillJSONRequestBody defines body for UpdateAgentSkill for application/json ContentType.
+type UpdateAgentSkillJSONRequestBody = externalRef0.UpdateSkillRequest
 
-// UploadAgentScopedSkillMultipartRequestBody defines body for UploadAgentScopedSkill for multipart/form-data ContentType.
-type UploadAgentScopedSkillMultipartRequestBody UploadAgentScopedSkillMultipartBody
+// InstallAgentSkillJSONRequestBody defines body for InstallAgentSkill for application/json ContentType.
+type InstallAgentSkillJSONRequestBody = externalRef0.InstallSkillRequest
 
-// UpdateAgentScopedSkillJSONRequestBody defines body for UpdateAgentScopedSkill for application/json ContentType.
-type UpdateAgentScopedSkillJSONRequestBody = externalRef0.UpdateSkillRequest
+// UploadAgentSkillMultipartRequestBody defines body for UploadAgentSkill for multipart/form-data ContentType.
+type UploadAgentSkillMultipartRequestBody UploadAgentSkillMultipartBody
 
 // AssignAgentUserJSONRequestBody defines body for AssignAgentUser for application/json ContentType.
 type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
-// LoginJSONRequestBody defines body for Login for application/json ContentType.
-type LoginJSONRequestBody = externalRef0.LoginRequest
+// CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
+type CreateInviteJSONRequestBody = externalRef0.CreateInviteRequest
+
+// CreateWorkspaceJSONRequestBody defines body for CreateWorkspace for application/json ContentType.
+type CreateWorkspaceJSONRequestBody = externalRef0.CreateWorkspaceInput
+
+// RedeemInviteOnboardingJSONRequestBody defines body for RedeemInviteOnboarding for application/json ContentType.
+type RedeemInviteOnboardingJSONRequestBody = externalRef0.RedeemInviteInput
+
+// UpdateOrgJSONRequestBody defines body for UpdateOrg for application/json ContentType.
+type UpdateOrgJSONRequestBody = externalRef0.UpdateOrgRequest
 
 // GenerateLinkCodeJSONRequestBody defines body for GenerateLinkCode for application/json ContentType.
 type GenerateLinkCodeJSONRequestBody = externalRef0.GenerateLinkCodeRequest
@@ -650,14 +858,14 @@ type SetProfileSoulJSONRequestBody = externalRef0.SetSoulRequest
 // SetVaultEntryJSONRequestBody defines body for SetVaultEntry for application/json ContentType.
 type SetVaultEntryJSONRequestBody = externalRef0.SetVaultEntryRequest
 
-// RegisterJSONRequestBody defines body for Register for application/json ContentType.
-type RegisterJSONRequestBody = externalRef0.RegisterRequest
-
 // UpdateAuthUserActiveJSONRequestBody defines body for UpdateAuthUserActive for application/json ContentType.
 type UpdateAuthUserActiveJSONRequestBody = externalRef0.UpdateActiveRequest
 
 // UpdateAuthUserAgentsJSONRequestBody defines body for UpdateAuthUserAgents for application/json ContentType.
 type UpdateAuthUserAgentsJSONRequestBody = externalRef0.UpdateAgentsRequest
+
+// LinkAuthUserLoginIdentityJSONRequestBody defines body for LinkAuthUserLoginIdentity for application/json ContentType.
+type LinkAuthUserLoginIdentityJSONRequestBody = externalRef0.LinkLoginIdentityRequest
 
 // UpdateAuthUserRoleJSONRequestBody defines body for UpdateAuthUserRole for application/json ContentType.
 type UpdateAuthUserRoleJSONRequestBody = externalRef0.UpdateRoleRequest
@@ -746,7 +954,7 @@ type ServerInterface interface {
 	// (GET /api/agents/{agentID}/projects/{projectId})
 	GetProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
 	// Update a project
-	// (PUT /api/agents/{agentID}/projects/{projectId})
+	// (PATCH /api/agents/{agentID}/projects/{projectId})
 	UpdateProject(w http.ResponseWriter, r *http.Request, agentID string, projectId string)
 	// List scheduler jobs
 	// (GET /api/agents/{agentID}/scheduler/jobs)
@@ -761,7 +969,7 @@ type ServerInterface interface {
 	// (GET /api/agents/{agentID}/scheduler/jobs/{jobID})
 	GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
 	// Update a scheduler job (partial — missing fields are merged from existing)
-	// (PUT /api/agents/{agentID}/scheduler/jobs/{jobID})
+	// (PATCH /api/agents/{agentID}/scheduler/jobs/{jobID})
 	UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string)
 	// Trigger a scheduler job immediately
 	// (POST /api/agents/{agentID}/scheduler/jobs/{jobID}/run)
@@ -794,7 +1002,7 @@ type ServerInterface interface {
 	// (GET /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content)
 	GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params GetWorkspaceFileContentParams)
 	// Write content to a file in the session workspace
-	// (PUT /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content)
+	// (PATCH /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content)
 	UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Request, agentID string, sessionID string)
 	// Delete a file or directory from the session workspace
 	// (DELETE /api/agents/{agentID}/sessions/{sessionID}/workspace/files)
@@ -827,7 +1035,7 @@ type ServerInterface interface {
 	// (GET /api/agents/{agentID}/tasks/{taskID})
 	GetAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
 	// Update an agent task
-	// (PUT /api/agents/{agentID}/tasks/{taskID})
+	// (PATCH /api/agents/{agentID}/tasks/{taskID})
 	UpdateAgentTask(w http.ResponseWriter, r *http.Request, agentID string, taskID string)
 	// Take an action on an agent task
 	// (POST /api/agents/{agentID}/tasks/{taskID}/action)
@@ -851,35 +1059,35 @@ type ServerInterface interface {
 	// (GET /api/agents/{id})
 	GetAgent(w http.ResponseWriter, r *http.Request, id string)
 	// Update an agent
-	// (PUT /api/agents/{id})
+	// (PATCH /api/agents/{id})
 	UpdateAgent(w http.ResponseWriter, r *http.Request, id string)
 	// List skills visible to the current user in an agent context
 	// (GET /api/agents/{id}/skills)
 	ListAgentSkills(w http.ResponseWriter, r *http.Request, id string, params ListAgentSkillsParams)
 	// Create a skill in an agent or current-user scope
-	// (POST /api/agents/{id}/skills/{scope})
-	CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
-	// Install a skill in an agent or current-user scope
-	// (POST /api/agents/{id}/skills/{scope}/install)
-	InstallAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
-	// Upload a skill zip in an agent or current-user scope
-	// (POST /api/agents/{id}/skills/{scope}/upload)
-	UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string)
-	// Delete a skill in an agent or current-user scope
-	// (DELETE /api/agents/{id}/skills/{scope}/{skillId})
-	DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params DeleteAgentScopedSkillParams)
-	// Get a skill in an agent context
-	// (GET /api/agents/{id}/skills/{scope}/{skillId})
-	GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params GetAgentScopedSkillParams)
-	// Update a skill in an agent or current-user scope
-	// (PUT /api/agents/{id}/skills/{scope}/{skillId})
-	UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params UpdateAgentScopedSkillParams)
-	// Delete a skill file in an agent or current-user scope
-	// (DELETE /api/agents/{id}/skills/{scope}/{skillId}/file)
-	DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params DeleteAgentScopedSkillFileParams)
-	// Get a skill file in an agent context
-	// (GET /api/agents/{id}/skills/{scope}/{skillId}/file)
-	GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params GetAgentScopedSkillFileParams)
+	// (POST /api/agents/{id}/skills)
+	CreateAgentSkill(w http.ResponseWriter, r *http.Request, id string)
+	// Delete a skill
+	// (DELETE /api/agents/{id}/skills/{skillId})
+	DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params DeleteAgentSkillParams)
+	// Get a skill by name (optionally scoped)
+	// (GET /api/agents/{id}/skills/{skillId})
+	GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params GetAgentSkillParams)
+	// Update a skill
+	// (PATCH /api/agents/{id}/skills/{skillId})
+	UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params UpdateAgentSkillParams)
+	// Delete a skill file
+	// (DELETE /api/agents/{id}/skills/{skillId}/file)
+	DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params DeleteAgentSkillFileParams)
+	// Get a skill file by path
+	// (GET /api/agents/{id}/skills/{skillId}/file)
+	GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params GetAgentSkillFileParams)
+	// Install a skill from a remote source
+	// (POST /api/agents/{id}/skills:install)
+	InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string)
+	// Upload a skill zip
+	// (POST /api/agents/{id}/skills:upload)
+	UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string)
 	// List users assigned to an agent (admin only)
 	// (GET /api/agents/{id}/users)
 	ListAgentUsers(w http.ResponseWriter, r *http.Request, id string)
@@ -889,15 +1097,39 @@ type ServerInterface interface {
 	// Remove a user from an agent (admin only)
 	// (DELETE /api/agents/{id}/users/{userId})
 	RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string)
-	// Authenticate and start a session
-	// (POST /api/auth/login)
-	Login(w http.ResponseWriter, r *http.Request)
+	// List invites for the current user's org (admin only)
+	// (GET /api/auth/invites)
+	ListInvites(w http.ResponseWriter, r *http.Request)
+	// Create an invite for the current user's org (admin only)
+	// (POST /api/auth/invites)
+	CreateInvite(w http.ResponseWriter, r *http.Request)
+	// Revoke a pending invite (admin only)
+	// (DELETE /api/auth/invites/{id})
+	RevokeInvite(w http.ResponseWriter, r *http.Request, id string)
+	// Accept an invite (authenticated users)
+	// (POST /api/auth/invites/{token}/accept)
+	AcceptInvite(w http.ResponseWriter, r *http.Request, token string)
+	// Get invite metadata (public, for accept page)
+	// (GET /api/auth/invites/{token}/info)
+	GetInviteInfo(w http.ResponseWriter, r *http.Request, token string)
 	// End the current session
 	// (POST /api/auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
 	// Get the currently authenticated user
 	// (GET /api/auth/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// Get onboarding status for the current user
+	// (GET /api/auth/onboarding)
+	GetOnboardingStatus(w http.ResponseWriter, r *http.Request)
+	// Create a new workspace (org) for the current user
+	// (POST /api/auth/onboarding/create-workspace)
+	CreateWorkspace(w http.ResponseWriter, r *http.Request)
+	// Redeem an invite token during onboarding
+	// (POST /api/auth/onboarding/redeem-invite)
+	RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request)
+	// Update the current user's organization name
+	// (PATCH /api/auth/org)
+	UpdateOrg(w http.ResponseWriter, r *http.Request)
 	// List linked identities for the current user
 	// (GET /api/auth/profile/identities)
 	ListProfileIdentities(w http.ResponseWriter, r *http.Request)
@@ -914,7 +1146,7 @@ type ServerInterface interface {
 	// (DELETE /api/auth/profile/memories/{agentID})
 	DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string)
 	// Set the memory for a specific agent
-	// (PUT /api/auth/profile/memories/{agentID})
+	// (PATCH /api/auth/profile/memories/{agentID})
 	SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string)
 	// List OAuth provider statuses for the current user
 	// (GET /api/auth/profile/oauth/providers)
@@ -935,10 +1167,10 @@ type ServerInterface interface {
 	// (GET /api/auth/profile/oauth/{provider}/status/{flowID})
 	PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider string, flowID string)
 	// Change the current user's password
-	// (PUT /api/auth/profile/password)
+	// (PATCH /api/auth/profile/password)
 	ChangePassword(w http.ResponseWriter, r *http.Request)
 	// Set the soul for a specific agent
-	// (PUT /api/auth/profile/soul/{agentID})
+	// (PATCH /api/auth/profile/soul/{agentID})
 	SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string)
 	// List vault entries for the current user
 	// (GET /api/auth/profile/vault)
@@ -952,9 +1184,15 @@ type ServerInterface interface {
 	// Create or update a vault entry
 	// (PUT /api/auth/profile/vault/{name})
 	SetVaultEntry(w http.ResponseWriter, r *http.Request, name string)
-	// Register a new user account
-	// (POST /api/auth/register)
-	Register(w http.ResponseWriter, r *http.Request)
+	// List available authentication providers
+	// (GET /api/auth/providers)
+	ListAuthProviders(w http.ResponseWriter, r *http.Request)
+	// List current user's active sessions
+	// (GET /api/auth/sessions)
+	ListAuthSessions(w http.ResponseWriter, r *http.Request)
+	// Revoke an auth session
+	// (DELETE /api/auth/sessions/{id})
+	DeleteAuthSession(w http.ResponseWriter, r *http.Request, id string)
 	// List all auth users (admin only)
 	// (GET /api/auth/users)
 	ListAuthUsers(w http.ResponseWriter, r *http.Request)
@@ -962,19 +1200,28 @@ type ServerInterface interface {
 	// (GET /api/auth/users/{id})
 	GetAuthUser(w http.ResponseWriter, r *http.Request, id string)
 	// Update the active status of an auth user (admin only)
-	// (PUT /api/auth/users/{id}/active)
+	// (PATCH /api/auth/users/{id}/active)
 	UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id string)
 	// List agents assigned to an auth user (admin only)
 	// (GET /api/auth/users/{id}/agents)
 	ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id string)
 	// Update agents assigned to an auth user (admin only)
-	// (PUT /api/auth/users/{id}/agents)
+	// (PATCH /api/auth/users/{id}/agents)
 	UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string)
+	// List channel identities for an auth user (admin only)
+	// (GET /api/auth/users/{id}/identities/channel)
+	ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Request, id string)
+	// List OIDC login identities for an auth user (admin only)
+	// (GET /api/auth/users/{id}/identities/login)
+	ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Request, id string)
+	// Link an OIDC login identity to an auth user (admin only)
+	// (POST /api/auth/users/{id}/identities/login)
+	LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Request, id string)
 	// Delete an identity linked to an auth user (admin only)
 	// (DELETE /api/auth/users/{id}/identities/{identityId})
 	DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id string, identityId string)
 	// Update the role of an auth user (admin only)
-	// (PUT /api/auth/users/{id}/role)
+	// (PATCH /api/auth/users/{id}/role)
 	UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id string)
 	// List builtin resources of a given kind
 	// (GET /api/builtin/{kind})
@@ -1004,13 +1251,13 @@ type ServerInterface interface {
 	// (GET /api/channels/{id})
 	GetChannel(w http.ResponseWriter, r *http.Request, id string)
 	// Update a channel (admin only)
-	// (PUT /api/channels/{id})
+	// (PATCH /api/channels/{id})
 	UpdateChannel(w http.ResponseWriter, r *http.Request, id string)
 	// List manifest plugins (admin only)
 	// (GET /api/manifest-plugins)
 	ListManifestPlugins(w http.ResponseWriter, r *http.Request)
 	// Save manifest plugins (admin only)
-	// (PUT /api/manifest-plugins)
+	// (PATCH /api/manifest-plugins)
 	SaveManifestPlugins(w http.ResponseWriter, r *http.Request)
 	// Sync manifest plugins (admin only)
 	// (POST /api/manifest-plugins/sync)
@@ -1025,7 +1272,7 @@ type ServerInterface interface {
 	// (GET /api/plugin-config/{kind}/{name})
 	GetPluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string)
 	// Update plugin config (admin only)
-	// (PUT /api/plugin-config/{kind}/{name})
+	// (PATCH /api/plugin-config/{kind}/{name})
 	UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind string, name string)
 	// Get plugin status (admin only)
 	// (GET /api/plugin-status/{kind}/{name})
@@ -1052,7 +1299,7 @@ type ServerInterface interface {
 	// (GET /api/providers/{id})
 	GetProvider(w http.ResponseWriter, r *http.Request, id string)
 	// Update a provider (admin only)
-	// (PUT /api/providers/{id})
+	// (PATCH /api/providers/{id})
 	UpdateProvider(w http.ResponseWriter, r *http.Request, id string)
 	// List models for a provider (admin only)
 	// (GET /api/providers/{id}/models)
@@ -1073,7 +1320,7 @@ type ServerInterface interface {
 	// (GET /api/recally/articles/{id})
 	GetArticle(w http.ResponseWriter, r *http.Request, id string, params GetArticleParams)
 	// Update article fields (partial)
-	// (PUT /api/recally/articles/{id})
+	// (PATCH /api/recally/articles/{id})
 	UpdateArticle(w http.ResponseWriter, r *http.Request, id string)
 	// Get the current user's reading digest
 	// (GET /api/recally/digest)
@@ -1097,7 +1344,7 @@ type ServerInterface interface {
 	// (GET /api/recally/feeds/{feedId}/entries)
 	ListFeedEntries(w http.ResponseWriter, r *http.Request, feedId string, params ListFeedEntriesParams)
 	// Update an entry (status transition)
-	// (PUT /api/recally/feeds/{feedId}/entries/{id})
+	// (PATCH /api/recally/feeds/{feedId}/entries/{id})
 	UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string)
 	// Unsubscribe from a feed (cascade deletes entries)
 	// (DELETE /api/recally/feeds/{id})
@@ -1106,7 +1353,7 @@ type ServerInterface interface {
 	// (GET /api/recally/feeds/{id})
 	GetFeed(w http.ResponseWriter, r *http.Request, id string)
 	// Update feed fields (partial)
-	// (PUT /api/recally/feeds/{id})
+	// (PATCH /api/recally/feeds/{id})
 	UpdateFeed(w http.ResponseWriter, r *http.Request, id string)
 	// Poll a feed (server fetches RSS, creates pending entries)
 	// (POST /api/recally/feeds/{id}/poll)
@@ -1133,7 +1380,7 @@ type ServerInterface interface {
 	// (GET /api/tools)
 	ListTools(w http.ResponseWriter, r *http.Request)
 	// Update the default agent for a user (admin only)
-	// (PUT /api/users/{id}/default-agent)
+	// (PATCH /api/users/{id}/default-agent)
 	UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string)
 	// List memories for a user (admin only)
 	// (GET /api/users/{id}/memories)
@@ -1142,10 +1389,10 @@ type ServerInterface interface {
 	// (DELETE /api/users/{id}/memories/{agentID})
 	DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string)
 	// Set memory for a user and agent (admin only)
-	// (PUT /api/users/{id}/memories/{agentID})
+	// (PATCH /api/users/{id}/memories/{agentID})
 	SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string)
 	// Update the notify identity for a user (admin only)
-	// (PUT /api/users/{id}/notify-identity)
+	// (PATCH /api/users/{id}/notify-identity)
 	UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string)
 }
 
@@ -3063,6 +3310,19 @@ func (siw *ServerInterfaceWrapper) ListAgentSkills(w http.ResponseWriter, r *htt
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListAgentSkillsParams
 
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "session_id" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3087,8 +3347,8 @@ func (siw *ServerInterfaceWrapper) ListAgentSkills(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// CreateAgentScopedSkill operation middleware
-func (siw *ServerInterfaceWrapper) CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+// CreateAgentSkill operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3099,15 +3359,6 @@ func (siw *ServerInterfaceWrapper) CreateAgentScopedSkill(w http.ResponseWriter,
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -3118,7 +3369,7 @@ func (siw *ServerInterfaceWrapper) CreateAgentScopedSkill(w http.ResponseWriter,
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateAgentScopedSkill(w, r, id, scope)
+		siw.Handler.CreateAgentSkill(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3128,8 +3379,8 @@ func (siw *ServerInterfaceWrapper) CreateAgentScopedSkill(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// InstallAgentScopedSkill operation middleware
-func (siw *ServerInterfaceWrapper) InstallAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+// DeleteAgentSkill operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3140,97 +3391,6 @@ func (siw *ServerInterfaceWrapper) InstallAgentScopedSkill(w http.ResponseWriter
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.InstallAgentScopedSkill(w, r, id, scope)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UploadAgentScopedSkill operation middleware
-func (siw *ServerInterfaceWrapper) UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadAgentScopedSkill(w, r, id, scope)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteAgentScopedSkill operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -3250,7 +3410,20 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkill(w http.ResponseWriter,
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteAgentScopedSkillParams
+	var params DeleteAgentSkillParams
+
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
 
 	// ------------- Optional query parameter "session_id" -------------
 
@@ -3266,7 +3439,7 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkill(w http.ResponseWriter,
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentScopedSkill(w, r, id, scope, skillId, params)
+		siw.Handler.DeleteAgentSkill(w, r, id, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3276,8 +3449,8 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkill(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// GetAgentScopedSkill operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+// GetAgentSkill operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3288,15 +3461,6 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkill(w http.ResponseWriter, r 
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -3316,7 +3480,20 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkill(w http.ResponseWriter, r 
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetAgentScopedSkillParams
+	var params GetAgentSkillParams
+
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
 
 	// ------------- Optional query parameter "session_id" -------------
 
@@ -3332,7 +3509,7 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkill(w http.ResponseWriter, r 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentScopedSkill(w, r, id, scope, skillId, params)
+		siw.Handler.GetAgentSkill(w, r, id, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3342,8 +3519,8 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkill(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateAgentScopedSkill operation middleware
-func (siw *ServerInterfaceWrapper) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request) {
+// UpdateAgentSkill operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAgentSkill(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3354,15 +3531,6 @@ func (siw *ServerInterfaceWrapper) UpdateAgentScopedSkill(w http.ResponseWriter,
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -3382,7 +3550,20 @@ func (siw *ServerInterfaceWrapper) UpdateAgentScopedSkill(w http.ResponseWriter,
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params UpdateAgentScopedSkillParams
+	var params UpdateAgentSkillParams
+
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
 
 	// ------------- Optional query parameter "session_id" -------------
 
@@ -3398,7 +3579,7 @@ func (siw *ServerInterfaceWrapper) UpdateAgentScopedSkill(w http.ResponseWriter,
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateAgentScopedSkill(w, r, id, scope, skillId, params)
+		siw.Handler.UpdateAgentSkill(w, r, id, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3408,8 +3589,8 @@ func (siw *ServerInterfaceWrapper) UpdateAgentScopedSkill(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteAgentScopedSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request) {
+// DeleteAgentSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3420,15 +3601,6 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWri
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -3448,7 +3620,7 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWri
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteAgentScopedSkillFileParams
+	var params DeleteAgentSkillFileParams
 
 	// ------------- Required query parameter "path" -------------
 
@@ -3463,6 +3635,19 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWri
 		return
 	}
 
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "session_id" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3477,7 +3662,7 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWri
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAgentScopedSkillFile(w, r, id, scope, skillId, params)
+		siw.Handler.DeleteAgentSkillFile(w, r, id, skillId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3487,8 +3672,8 @@ func (siw *ServerInterfaceWrapper) DeleteAgentScopedSkillFile(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
-// GetAgentScopedSkillFile operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request) {
+// GetAgentSkillFile operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3499,15 +3684,6 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkillFile(w http.ResponseWriter
 	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "scope" -------------
-	var scope string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "scope", r.PathValue("scope"), &scope, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		return
 	}
 
@@ -3527,7 +3703,7 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkillFile(w http.ResponseWriter
 	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetAgentScopedSkillFileParams
+	var params GetAgentSkillFileParams
 
 	// ------------- Required query parameter "path" -------------
 
@@ -3538,6 +3714,19 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkillFile(w http.ResponseWriter
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		}
 		return
 	}
@@ -3556,7 +3745,71 @@ func (siw *ServerInterfaceWrapper) GetAgentScopedSkillFile(w http.ResponseWriter
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentScopedSkillFile(w, r, id, scope, skillId, params)
+		siw.Handler.GetAgentSkillFile(w, r, id, skillId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InstallAgentSkill operation middleware
+func (siw *ServerInterfaceWrapper) InstallAgentSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InstallAgentSkill(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadAgentSkill operation middleware
+func (siw *ServerInterfaceWrapper) UploadAgentSkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadAgentSkill(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3671,11 +3924,127 @@ func (siw *ServerInterfaceWrapper) RemoveAgentUser(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// Login operation middleware
-func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
+// ListInvites operation middleware
+func (siw *ServerInterfaceWrapper) ListInvites(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Login(w, r)
+		siw.Handler.ListInvites(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateInvite operation middleware
+func (siw *ServerInterfaceWrapper) CreateInvite(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateInvite(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeInvite operation middleware
+func (siw *ServerInterfaceWrapper) RevokeInvite(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeInvite(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptInvite operation middleware
+func (siw *ServerInterfaceWrapper) AcceptInvite(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptInvite(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetInviteInfo operation middleware
+func (siw *ServerInterfaceWrapper) GetInviteInfo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInviteInfo(w, r, token)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3716,6 +4085,86 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOnboardingStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOnboardingStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspace(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RedeemInviteOnboarding operation middleware
+func (siw *ServerInterfaceWrapper) RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RedeemInviteOnboarding(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOrg operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOrg(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOrg(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4261,11 +4710,63 @@ func (siw *ServerInterfaceWrapper) SetVaultEntry(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// Register operation middleware
-func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
+// ListAuthProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Register(w, r)
+		siw.Handler.ListAuthProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuthSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthSessions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAuthSession operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAuthSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAuthSession(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4414,6 +4915,102 @@ func (siw *ServerInterfaceWrapper) UpdateAuthUserAgents(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAuthUserAgents(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuthUserChannelIdentities operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthUserChannelIdentities(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuthUserLoginIdentities operation middleware
+func (siw *ServerInterfaceWrapper) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuthUserLoginIdentities(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LinkAuthUserLoginIdentity operation middleware
+func (siw *ServerInterfaceWrapper) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LinkAuthUserLoginIdentity(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6465,12 +7062,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/projects", wrapper.CreateProject)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.DeleteProject)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.GetProject)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.UpdateProject)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{agentID}/projects/{projectId}", wrapper.UpdateProject)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.ListSchedulerJobs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs", wrapper.CreateSchedulerJob)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.DeleteSchedulerJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.GetSchedulerJob)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.UpdateSchedulerJob)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}", wrapper.UpdateSchedulerJob)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}/run", wrapper.TriggerSchedulerJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/scheduler/jobs/{jobID}/runs", wrapper.ListSchedulerJobRuns)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions", wrapper.ListSessions)
@@ -6481,7 +7078,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/system-prompt", wrapper.GetSessionSystemPrompt)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace", wrapper.GetSessionWorkspace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content", wrapper.GetWorkspaceFileContent)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content", wrapper.UpdateWorkspaceFileContent)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/file-content", wrapper.UpdateWorkspaceFileContent)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/files", wrapper.DeleteWorkspaceFile)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/files", wrapper.MoveWorkspaceFile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/sessions/{sessionID}/workspace/files", wrapper.CreateWorkspaceFile)
@@ -6492,7 +7089,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/unblocked", wrapper.ListUnblockedAgentTasks)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.DeleteAgentTask)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.GetAgentTask)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.UpdateAgentTask)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}", wrapper.UpdateAgentTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/action", wrapper.AgentTaskAction)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps", wrapper.GetAgentTaskDeps)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/deps", wrapper.AddAgentTaskDep)
@@ -6500,48 +7097,61 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{agentID}/tasks/{taskID}/events", wrapper.ListAgentTaskEvents)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}", wrapper.DeleteAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}", wrapper.GetAgent)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}", wrapper.UpdateAgent)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{id}", wrapper.UpdateAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills", wrapper.ListAgentSkills)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}", wrapper.CreateAgentScopedSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/install", wrapper.InstallAgentScopedSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/upload", wrapper.UploadAgentScopedSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.DeleteAgentScopedSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.GetAgentScopedSkill)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}", wrapper.UpdateAgentScopedSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}/file", wrapper.DeleteAgentScopedSkillFile)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{scope}/{skillId}/file", wrapper.GetAgentScopedSkillFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills", wrapper.CreateAgentSkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.DeleteAgentSkill)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.GetAgentSkill)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}", wrapper.UpdateAgentSkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}/file", wrapper.DeleteAgentSkillFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/skills/{skillId}/file", wrapper.GetAgentSkillFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills:install", wrapper.InstallAgentSkill)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/skills:upload", wrapper.UploadAgentSkill)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.ListAgentUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agents/{id}/users", wrapper.AssignAgentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/agents/{id}/users/{userId}", wrapper.RemoveAgentUser)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/login", wrapper.Login)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/invites", wrapper.ListInvites)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/invites", wrapper.CreateInvite)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/invites/{id}", wrapper.RevokeInvite)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/invites/{token}/accept", wrapper.AcceptInvite)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/invites/{token}/info", wrapper.GetInviteInfo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/onboarding", wrapper.GetOnboardingStatus)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/onboarding/create-workspace", wrapper.CreateWorkspace)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/onboarding/redeem-invite", wrapper.RedeemInviteOnboarding)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/org", wrapper.UpdateOrg)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/identities", wrapper.ListProfileIdentities)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/identities/{id}", wrapper.UnlinkProfileIdentity)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/link-code", wrapper.GenerateLinkCode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/memories", wrapper.ListProfileMemories)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/memories/{agentID}", wrapper.DeleteProfileMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/memories/{agentID}", wrapper.SetProfileMemory)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/profile/memories/{agentID}", wrapper.SetProfileMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/providers", wrapper.ListOAuthProviders)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}", wrapper.DisconnectOAuth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/callback", wrapper.OauthCallback)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/connected", wrapper.GetOAuthConnected)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/start", wrapper.StartOAuthFlow)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/oauth/{provider}/status/{flowID}", wrapper.PollOAuthFlow)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/password", wrapper.ChangePassword)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/soul/{agentID}", wrapper.SetProfileSoul)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/profile/password", wrapper.ChangePassword)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/profile/soul/{agentID}", wrapper.SetProfileSoul)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault", wrapper.ListVaultEntries)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.DeleteVaultEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.GetVaultEntry)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/profile/vault/{name}", wrapper.SetVaultEntry)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/register", wrapper.Register)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/providers", wrapper.ListAuthProviders)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/sessions", wrapper.ListAuthSessions)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/sessions/{id}", wrapper.DeleteAuthSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users", wrapper.ListAuthUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}", wrapper.GetAuthUser)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/users/{id}/active", wrapper.UpdateAuthUserActive)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}/agents", wrapper.ListAuthUserAgents)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/agents", wrapper.UpdateAuthUserAgents)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/users/{id}/agents", wrapper.UpdateAuthUserAgents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}/identities/channel", wrapper.ListAuthUserChannelIdentities)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/users/{id}/identities/login", wrapper.ListAuthUserLoginIdentities)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/users/{id}/identities/login", wrapper.LinkAuthUserLoginIdentity)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/users/{id}/identities/{identityId}", wrapper.DeleteAuthUserIdentity)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/auth/users/{id}/role", wrapper.UpdateAuthUserRole)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/users/{id}/role", wrapper.UpdateAuthUserRole)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}", wrapper.ListBuiltinResources)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/builtin/{kind}/{id}", wrapper.GetBuiltinResource)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels", wrapper.ListChannels)
@@ -6551,14 +7161,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels/weixin/qr/status", wrapper.PollWeixinQRStatus)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/channels/{id}", wrapper.DeleteChannel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/channels/{id}", wrapper.GetChannel)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/channels/{id}", wrapper.UpdateChannel)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/channels/{id}", wrapper.UpdateChannel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/manifest-plugins", wrapper.ListManifestPlugins)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/manifest-plugins", wrapper.SaveManifestPlugins)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/manifest-plugins", wrapper.SaveManifestPlugins)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/manifest-plugins/sync", wrapper.SyncManifestPlugins)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/models", wrapper.ListModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugin-config-schema/{kind}/{name}", wrapper.GetPluginConfigSchema)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugin-config/{kind}/{name}", wrapper.GetPluginConfig)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/plugin-config/{kind}/{name}", wrapper.UpdatePluginConfig)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/plugin-config/{kind}/{name}", wrapper.UpdatePluginConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugin-status/{kind}/{name}", wrapper.GetPluginStatus)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/plugins", wrapper.ListPlugins)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/plugins/{kind}/{name}", wrapper.TogglePlugin)
@@ -6567,14 +7177,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/providers", wrapper.CreateProvider)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/providers/{id}", wrapper.DeleteProvider)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers/{id}", wrapper.GetProvider)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/providers/{id}", wrapper.UpdateProvider)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/providers/{id}", wrapper.UpdateProvider)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.ListProviderModels)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/providers/{id}/models", wrapper.FetchProviderModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles", wrapper.ListArticles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/articles", wrapper.SaveArticle)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.DeleteArticle)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.GetArticle)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.UpdateArticle)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/recally/articles/{id}", wrapper.UpdateArticle)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/digest", wrapper.GetDigest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/digests", wrapper.ListStoredDigests)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/digests", wrapper.SaveDigest)
@@ -6582,10 +7192,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/feeds", wrapper.ListFeeds)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/feeds", wrapper.CreateFeed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/feeds/{feedId}/entries", wrapper.ListFeedEntries)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/recally/feeds/{feedId}/entries/{id}", wrapper.UpdateFeedEntry)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/recally/feeds/{feedId}/entries/{id}", wrapper.UpdateFeedEntry)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/recally/feeds/{id}", wrapper.DeleteFeed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/recally/feeds/{id}", wrapper.GetFeed)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/recally/feeds/{id}", wrapper.UpdateFeed)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/recally/feeds/{id}", wrapper.UpdateFeed)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/recally/feeds/{id}/poll", wrapper.PollFeed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shares", wrapper.ListShares)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shares", wrapper.CreateShare)
@@ -6594,11 +7204,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/skills/search", wrapper.SearchSkills)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/status", wrapper.GetStatus)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tools", wrapper.ListTools)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/users/{id}/default-agent", wrapper.UpdateUserDefaultAgent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/users/{id}/memories", wrapper.ListUserMemories)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/users/{id}/memories/{agentID}", wrapper.DeleteUserMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/memories/{agentID}", wrapper.SetUserMemory)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/users/{id}/notify-identity", wrapper.UpdateUserNotifyIdentity)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/users/{id}/memories/{agentID}", wrapper.SetUserMemory)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/users/{id}/notify-identity", wrapper.UpdateUserNotifyIdentity)
 
 	return m
 }

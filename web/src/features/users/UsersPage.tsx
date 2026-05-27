@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import {
+  deleteAuthUserIdentity,
+  deleteUserMemory,
+  getAuthUser,
+  getMe,
+  listAgents,
+  listAuthUserAgents,
+  listAuthUsers,
+  listUserMemories,
+  setUserMemory,
+  updateAuthUserActive,
+  updateAuthUserAgents,
+  updateAuthUserRole,
+  updateUserDefaultAgent,
+  updateUserNotifyIdentity,
+} from "@/lib/api-client/sdk.gen";
 import type { Agent, Identity, User, UserMemory } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,13 +22,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { InviteManagement } from "@/features/invites/InviteManagement";
 import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import {
-  SettingsListBody,
-  SettingsListHeader,
-  SettingsListItem,
-} from "@/features/settings/SettingsListPanel";
+import { SettingsListBody, SettingsListItem } from "@/features/settings/SettingsListPanel";
 
 interface LegacyUser extends User {
   _defaultAgent: string;
@@ -27,7 +39,7 @@ interface LegacyUser extends User {
 export function UsersPage() {
   const { t } = useI18n();
   const [tab, setTab] = useState<"auth" | "memory">("auth");
-  const [currentUserId, setCurrentUserId] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
   const [authUsers, setAuthUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [userAgentIds, setUserAgentIds] = useState<string[]>([]);
@@ -35,7 +47,7 @@ export function UsersPage() {
   const [addAgentId, setAddAgentId] = useState("");
   const [legacyUsers, setLegacyUsers] = useState<LegacyUser[]>([]);
   const [userMemories, setUserMemories] = useState<
-    Record<number, (UserMemory & { _content: string })[]>
+    Record<string, (UserMemory & { _content: string })[]>
   >({});
   const { toasts, showToast } = useToast();
   const [confirmState, setConfirmState] = useState<{
@@ -49,16 +61,20 @@ export function UsersPage() {
 
   const loadAuthUsers = useCallback(async () => {
     try {
-      const users = (await api<User[]>("GET", "/api/auth/users")) ?? [];
-      setAuthUsers(users);
+      const { data } = await listAuthUsers({ throwOnError: true });
+      setAuthUsers(((data as { items?: User[] })?.items ?? []) as User[]);
     } catch (e) {
       console.error(e);
     }
   }, []);
 
-  const loadUserAgents = useCallback(async (userId: number) => {
+  const loadUserAgents = useCallback(async (userId: string) => {
     try {
-      const ids = (await api<string[]>("GET", `/api/auth/users/${userId}/agents`)) ?? [];
+      const { data } = await listAuthUserAgents({
+        path: { id: userId },
+        throwOnError: true,
+      });
+      const ids = (data as string[]) ?? [];
       setUserAgentIds(ids);
       setAddAgentId("");
     } catch {
@@ -69,7 +85,10 @@ export function UsersPage() {
   const selectUser = useCallback(
     async (u: User) => {
       try {
-        const detail = await api<User>("GET", `/api/auth/users/${u.id}`);
+        const { data: detail } = await getAuthUser({
+          path: { id: u.id },
+          throwOnError: true,
+        });
         setSelectedUser(detail);
         await loadUserAgents(u.id);
       } catch (e) {
@@ -83,8 +102,15 @@ export function UsersPage() {
     async (role: string) => {
       if (!selectedUser) return;
       try {
-        await api("PUT", `/api/auth/users/${selectedUser.id}/role`, { role });
-        const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
+        await updateAuthUserRole({
+          path: { id: selectedUser.id },
+          body: { role },
+          throwOnError: true,
+        });
+        const { data: updated } = await getAuthUser({
+          path: { id: selectedUser.id },
+          throwOnError: true,
+        });
         setSelectedUser(updated);
         await loadAuthUsers();
         showToast(`Role updated to ${role}`);
@@ -99,9 +125,16 @@ export function UsersPage() {
     if (!selectedUser) return;
     const newActive = !selectedUser.is_active;
     try {
-      await api("PUT", `/api/auth/users/${selectedUser.id}/active`, { is_active: newActive });
-      const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
-      setSelectedUser(updated);
+      await updateAuthUserActive({
+        path: { id: selectedUser.id },
+        body: { is_active: newActive },
+        throwOnError: true,
+      });
+      const { data: updated } = await getAuthUser({
+        path: { id: selectedUser.id },
+        throwOnError: true,
+      });
+      setSelectedUser(updated as User);
       await loadAuthUsers();
       showToast(newActive ? "User activated" : "User deactivated");
     } catch (e) {
@@ -113,7 +146,11 @@ export function UsersPage() {
     if (!selectedUser || !addAgentId) return;
     const newIds = [...userAgentIds, addAgentId];
     try {
-      await api("PUT", `/api/auth/users/${selectedUser.id}/agents`, { agent_ids: newIds });
+      await updateAuthUserAgents({
+        path: { id: selectedUser.id },
+        body: { agent_ids: newIds },
+        throwOnError: true,
+      });
       await loadUserAgents(selectedUser.id);
       showToast("Agent assigned");
     } catch (e) {
@@ -126,7 +163,11 @@ export function UsersPage() {
       if (!selectedUser) return;
       const newIds = userAgentIds.filter((id) => id !== agentId);
       try {
-        await api("PUT", `/api/auth/users/${selectedUser.id}/agents`, { agent_ids: newIds });
+        await updateAuthUserAgents({
+          path: { id: selectedUser.id },
+          body: { agent_ids: newIds },
+          throwOnError: true,
+        });
         await loadUserAgents(selectedUser.id);
         showToast("Agent removed");
       } catch (e) {
@@ -137,12 +178,18 @@ export function UsersPage() {
   );
 
   const unlinkIdentity = useCallback(
-    async (identityId: number) => {
+    async (identityId: string) => {
       if (!selectedUser) return;
       try {
-        await api("DELETE", `/api/auth/users/${selectedUser.id}/identities/${identityId}`);
-        const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
-        setSelectedUser(updated);
+        await deleteAuthUserIdentity({
+          path: { id: selectedUser.id, identityId },
+          throwOnError: true,
+        });
+        const { data: updated } = await getAuthUser({
+          path: { id: selectedUser.id },
+          throwOnError: true,
+        });
+        setSelectedUser(updated as User);
         await loadAuthUsers();
         showToast("Identity unlinked");
       } catch (e) {
@@ -156,12 +203,16 @@ export function UsersPage() {
     async (identityId: string) => {
       if (!selectedUser) return;
       try {
-        const val = identityId ? parseInt(identityId, 10) : null;
-        await api("PUT", `/api/users/${selectedUser.id}/notify-identity`, {
-          notify_identity_id: val,
+        await updateUserNotifyIdentity({
+          path: { id: selectedUser.id },
+          body: { notify_identity_id: identityId || null },
+          throwOnError: true,
         });
-        const updated = await api<User>("GET", `/api/auth/users/${selectedUser.id}`);
-        setSelectedUser(updated);
+        const { data: updated } = await getAuthUser({
+          path: { id: selectedUser.id },
+          throwOnError: true,
+        });
+        setSelectedUser(updated as User);
         showToast("Notify channel updated");
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -172,7 +223,8 @@ export function UsersPage() {
 
   const loadLegacyUsers = useCallback(async () => {
     try {
-      const list = (await api<User[]>("GET", "/api/auth/users")) ?? [];
+      const { data } = await listAuthUsers({ throwOnError: true });
+      const list = ((data as { items?: User[] })?.items ?? []) as User[];
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
@@ -194,9 +246,13 @@ export function UsersPage() {
   }, []);
 
   const loadUserMemories = useCallback(
-    async (userId: number) => {
+    async (userId: string) => {
       try {
-        const mems = (await api<UserMemory[]>("GET", `/api/users/${userId}/memories`)) ?? [];
+        const { data } = await listUserMemories({
+          path: { id: userId },
+          throwOnError: true,
+        });
+        const mems = (data as UserMemory[]) ?? [];
         setUserMemories((prev) => ({
           ...prev,
           [userId]: mems.map((m) => ({ ...m, _content: m.content })),
@@ -214,7 +270,11 @@ export function UsersPage() {
   const saveUserDefaultAgent = useCallback(
     async (u: LegacyUser) => {
       try {
-        await api("PUT", `/api/users/${u.id}`, { default_agent_id: u._defaultAgent });
+        await updateUserDefaultAgent({
+          path: { id: u.id },
+          body: { default_agent_id: u._defaultAgent },
+          throwOnError: true,
+        });
         setLegacyUsers((prev) =>
           prev.map((lu) => (lu.id === u.id ? { ...lu, default_agent_id: lu._defaultAgent } : lu)),
         );
@@ -227,9 +287,13 @@ export function UsersPage() {
   );
 
   const saveUserMemory = useCallback(
-    async (userId: number, agentId: string, content: string) => {
+    async (userId: string, agentId: string, content: string) => {
       try {
-        await api("PUT", `/api/users/${userId}/memories/${agentId}`, { content });
+        await setUserMemory({
+          path: { id: userId, agentID: agentId },
+          body: { content },
+          throwOnError: true,
+        });
         await loadUserMemories(userId);
         showToast("Saved");
       } catch (e) {
@@ -240,9 +304,12 @@ export function UsersPage() {
   );
 
   const doDeleteUserMemory = useCallback(
-    async (userId: number, agentId: string) => {
+    async (userId: string, agentId: string) => {
       try {
-        await api("DELETE", `/api/users/${userId}/memories/${agentId}`);
+        await deleteUserMemory({
+          path: { id: userId, agentID: agentId },
+          throwOnError: true,
+        });
         await loadUserMemories(userId);
         showToast("Deleted");
       } catch (e) {
@@ -256,8 +323,10 @@ export function UsersPage() {
     async (u: LegacyUser) => {
       if (!u._newMemoryAgent || !u._newMemoryContent) return;
       try {
-        await api("PUT", `/api/users/${u.id}/memories/${u._newMemoryAgent}`, {
-          content: u._newMemoryContent,
+        await setUserMemory({
+          path: { id: u.id, agentID: u._newMemoryAgent },
+          body: { content: u._newMemoryContent },
+          throwOnError: true,
         });
         setLegacyUsers((prev) =>
           prev.map((lu) =>
@@ -277,14 +346,14 @@ export function UsersPage() {
 
   useEffect(() => {
     void Promise.all([
-      api<{ id: number }>("GET", "/api/auth/me")
-        .then((r) => {
-          if (r?.id) setCurrentUserId(r.id);
+      getMe({ throwOnError: true })
+        .then(({ data }) => {
+          if (data?.id) setCurrentUserId(data.id);
         })
         .catch(() => {}),
       loadAuthUsers(),
-      api<Agent[]>("GET", "/api/agents")
-        .then((r) => setAgents(r ?? []))
+      listAgents({ throwOnError: true })
+        .then(({ data }) => setAgents((data?.items ?? []) as Agent[]))
         .catch(() => {}),
     ]);
   }, [loadAuthUsers]);
@@ -306,30 +375,62 @@ export function UsersPage() {
     ? (legacyUsers.find((u) => u.id === selectedUser.id) ?? null)
     : null;
 
+  const [listTab, setListTab] = useState<"users" | "invites">("users");
+
   // ── Left panel ──────────────────────────────────────────────────────────────
 
-  const listHeader = <SettingsListHeader title="Users" />;
-
-  const list = (
-    <SettingsListBody>
-      {authUsers.map((u) => (
-        <SettingsListItem
-          key={u.id}
-          onClick={() => void selectUser(u)}
-          active={selectedUser?.id === u.id}
+  const listHeader = (
+    <div>
+      <div className="flex border-b border-border">
+        <button
+          onClick={() => setListTab("users")}
+          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
+            listTab === "users"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
         >
-          <div className="truncate text-sm font-medium">{u.username}</div>
-          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
-            {u.role === "admin" ? (
-              <span className="text-primary">{u.role}</span>
-            ) : (
-              <span>{u.role}</span>
-            )}
-          </div>
-        </SettingsListItem>
-      ))}
-    </SettingsListBody>
+          Users
+        </button>
+        <button
+          onClick={() => setListTab("invites")}
+          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
+            listTab === "invites"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Invites
+        </button>
+      </div>
+    </div>
   );
+
+  const list =
+    listTab === "users" ? (
+      <SettingsListBody>
+        {authUsers.map((u) => (
+          <SettingsListItem
+            key={u.id}
+            onClick={() => void selectUser(u)}
+            active={selectedUser?.id === u.id}
+          >
+            <div className="truncate text-sm font-medium">{u.username}</div>
+            <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+              {u.role === "admin" ? (
+                <span className="text-primary">{u.role}</span>
+              ) : (
+                <span>{u.role}</span>
+              )}
+            </div>
+          </SettingsListItem>
+        ))}
+      </SettingsListBody>
+    ) : (
+      <div className="flex-1 overflow-y-auto">
+        <InviteManagement />
+      </div>
+    );
 
   // ── Right panel — user detail ────────────────────────────────────────────────
 
@@ -478,13 +579,13 @@ export function UsersPage() {
                   <FormSectionTitle>Notify Channel</FormSectionTitle>
                 </div>
                 <select
-                  value={selectedUser.notify_identity_id?.toString() ?? ""}
+                  value={selectedUser.notify_identity_id ?? ""}
                   onChange={(e) => void setNotifyIdentity(e.target.value)}
                   className="select select-bordered select-sm w-full text-sm"
                 >
                   <option value="">Auto (first linked)</option>
                   {selectedUser.identities.map((ident: Identity) => (
-                    <option key={ident.id} value={ident.id.toString()}>
+                    <option key={ident.id} value={ident.id}>
                       {ident.platform}
                       {ident.name ? ` — ${ident.name}` : ` — ${ident.external_id}`}
                     </option>
@@ -771,9 +872,7 @@ export function UsersPage() {
         list={list}
         detail={detail}
         emptyState={
-          <p className="text-sm text-muted-foreground">
-            Select a user to manage their agents and memory.
-          </p>
+          <p className="text-sm text-muted-foreground">Select a user to manage their settings.</p>
         }
       />
 

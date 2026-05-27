@@ -11,19 +11,20 @@ import (
 )
 
 func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	providers, err := s.store.ListProviders(r.Context())
+	pList, err := s.store.ListProviders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, providers)
+	writeData(w, http.StatusOK, pList)
 }
 
 func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var p config.Provider
@@ -44,38 +45,58 @@ func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	if !p.Enabled {
 		p.Enabled = true
 	}
-	if err := s.store.CreateProvider(r.Context(), p); err != nil {
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	if err := s.store.CreateProvider(ctx, p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.reloadProviders(r.Context())
+	if info != nil && info.OrgID != "" {
+		if err := s.store.SetProviderOrg(ctx, p.ID, info.OrgID); err != nil {
+			s.log.Error("stamp provider org", "provider_id", p.ID, "org_id", info.OrgID, "error", err)
+		}
+		p.OrgID = info.OrgID
+	}
+	s.reloadProviders(ctx)
 	writeData(w, http.StatusCreated, p)
 }
 
 func (s *Server) GetProvider(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
-	p, err := s.store.GetProvider(r.Context(), id)
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	p, err := s.store.GetProvider(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if info != nil && info.OrgID != "" && p.OrgID != "" && p.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "provider not found")
 		return
 	}
 	writeData(w, http.StatusOK, p)
 }
 
 func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
+	ctx := r.Context()
+	info := UserFromContext(ctx)
 	var p config.Provider
 	if err := decodeJSON(r, &p); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	existing, err := s.store.GetProvider(r.Context(), id)
+	existing, err := s.store.GetProvider(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "provider not found")
 		return
 	}
 	p.ID = id
@@ -85,24 +106,35 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 	if p.Name == "" {
 		p.Name = id
 	}
-	if err := s.store.UpdateProvider(r.Context(), p); err != nil {
+	if err := s.store.UpdateProvider(ctx, p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.reloadProviders(r.Context())
+	s.reloadProviders(ctx)
 	writeData(w, http.StatusOK, p)
 }
 
 func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
-	if err := s.store.DeleteProvider(r.Context(), id); err != nil {
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	existing, err := s.store.GetProvider(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "provider not found")
+		return
+	}
+	if err := s.store.DeleteProvider(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.reloadProviders(r.Context())
-	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+	s.reloadProviders(ctx)
+	writeNoContent(w)
 }
 
 // reloadProviders triggers a provider hot-reload if the pool manager is available.
@@ -124,7 +156,7 @@ type providerModelItem struct {
 }
 
 func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	provider, err := s.store.GetProvider(r.Context(), id)
@@ -137,7 +169,7 @@ func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id s
 }
 
 func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 
@@ -294,7 +326,7 @@ func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
 }
 
 func (s *Server) ListProviderTypes(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 

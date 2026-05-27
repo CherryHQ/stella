@@ -16,11 +16,16 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-func buildMemorySummarizer(defaultAgentID string, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) func(context.Context, string) (string, error) {
+func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, prompt string) (string, error) {
 		agentID := memory.AgentIDFromContext(ctx)
 		if agentID == "" {
-			agentID = defaultAgentID
+			if agents, err := store.ListEnabledAgents(ctx); err == nil && len(agents) > 0 {
+				agentID = agents[0].ID
+			}
+		}
+		if agentID == "" {
+			return "", fmt.Errorf("no agent ID in context for memory summarizer")
 		}
 		currentSnap, err := store.Snapshot(ctx, agentID)
 		if err != nil {
@@ -61,8 +66,8 @@ func buildMemorySummarizer(defaultAgentID string, store config.Store, providerSt
 	}
 }
 
-func setupMemoryProvider(ctx context.Context, db *sql.DB, store config.Store, defaultAgentID string, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
-	summarizer := buildMemorySummarizer(defaultAgentID, store, providerStreamBuilder)
+func setupMemoryProvider(ctx context.Context, db *sql.DB, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
+	summarizer := buildMemorySummarizer(store, providerStreamBuilder)
 
 	name := "lcm"
 	cfg := map[string]any{}

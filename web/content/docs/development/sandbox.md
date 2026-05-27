@@ -6,7 +6,7 @@ title: Sandbox Backend Abstraction
 
 ## Status
 
-Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments; Linux keeps OS-level hardening, while macOS currently runs local commands directly on the host without additional sandboxing. A `none` backend is also available for fully trusted workloads — it runs the agent directly on the host with the current user's permissions and no isolation of any kind. Stella's execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/agent/sandbox`.
+Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments; Linux keeps OS-level hardening, while macOS currently runs local commands directly on the host without additional sandboxing. A `none` backend is also available for fully trusted workloads — it runs the agent directly on the host with the current user's permissions and no isolation of any kind. Stella's execution boundary is described by `pkg/sandbox` contracts; backend dispatch lives in `internal/agent/sandbox/session.go`.
 
 ## Purpose
 
@@ -174,15 +174,15 @@ The abstraction is covered by:
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:
 
-| Step | File                                                                                     | What to do                                                                                                     |
-| ---- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 1    | `internal/config/sandbox.go`                                                             | Add `SandboxBackend<Name> = "<name>"` constant                                                                 |
-| 2    | `internal/config/plugin.go`                                                              | Append name to `builtinSandboxNames` so the DB row is seeded                                                   |
-| 3    | `plugins/sandbox/<name>/session.go`                                                      | Implement `sandbox.Factory` and `sandbox.Session`                                                              |
-| 4    | `plugins/sandbox/plugin.go`                                                              | Add entry to the `backends` slice in `init()` to register `AdminVisible` plugin metadata                       |
-| 5    | `internal/agent/sandbox/session.go`                                                      | Add `config.SandboxBackend<Name>: create<Name>Session` to `sessionRegistry` and implement the factory function |
-| 6    | `web/src/features/plugins/PluginsPage.tsx` and `web/src/features/plugins/pluginUtils.ts` | Add `"sandbox/<name>"` to `validSandboxBackends` and a `sandboxMeta` entry with features/limitations           |
-| 7    | Docs                                                                                     | Update this file and `sandbox.zh.md`                                                                           |
+| Step | File                                                                                     | What to do                                                                                                       |
+| ---- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1    | `internal/config/sandbox.go`                                                             | Add `SandboxBackend<Name> = "<name>"` constant                                                                   |
+| 2    | `internal/config/plugin.go`                                                              | Append name to `builtinSandboxNames` so the DB row is seeded                                                     |
+| 3    | `plugins/sandbox/<name>/session.go`                                                      | Implement `sandbox.Factory` and `sandbox.Session`                                                                |
+| 4    | `plugins/sandbox/plugin.go`                                                              | Add entry to the `backends` slice in `init()` to register `AdminVisible` plugin metadata                         |
+| 5    | `internal/agent/sandbox/session.go`                                                      | Add a `case config.SandboxBackend<Name>:` branch in `createSessionForBackend` and implement the factory function |
+| 6    | `web/src/features/plugins/PluginsPage.tsx` and `web/src/features/plugins/pluginUtils.ts` | Add `"sandbox/<name>"` to `validSandboxBackends` and a `sandboxMeta` entry with features/limitations             |
+| 7    | Docs                                                                                     | Update this file and `sandbox.zh.md`                                                                             |
 
 ## Related Docs
 

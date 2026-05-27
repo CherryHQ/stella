@@ -127,7 +127,12 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 		return "", "", nil, errors.New("missing path")
 	}
 
-	root, err := s.sessionWorkspaceRoot(w, r, "", sessionID)
+	agentID := strDeref(body.AgentId)
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, "agent_id is required for artifact shares")
+		return "", "", nil, errors.New("missing agent_id")
+	}
+	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
 		return "", "", nil, err
 	}

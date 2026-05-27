@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import {
+  createProvider,
+  deleteProvider,
+  fetchProviderModels,
+  listProviderModels,
+  listProviders,
+  listProviderTypes,
+  updateProvider,
+} from "@/lib/api-client/sdk.gen";
 import type {
   CustomModelForm,
   ModelConfig,
@@ -255,7 +263,7 @@ function ProviderDetail({
       const next = { ...provider, models: nextModels };
       setProvider(next);
       syncJSON(next);
-      setCustomModelForm(formFromModelConfig(modelID, nextModels[modelID]));
+      setCustomModelForm(formFromModelConfig(modelID, nextModels[modelID] as ModelConfig));
       setShowCustomModelForm(false);
       onAddCustomModel(provider.id, { ...customModelForm, id: modelID });
     } catch (e) {
@@ -264,8 +272,9 @@ function ProviderDetail({
   };
 
   const handleEditCustomModel = (model: ProviderModel) => {
-    const config = (provider.models || {})[model.id];
-    setCustomModelForm(formFromModelConfig(model.id, config));
+    const id = model.id ?? "";
+    const config = (provider.models || {})[id];
+    setCustomModelForm(formFromModelConfig(id, config as ModelConfig));
     setShowCustomModelForm(true);
   };
 
@@ -321,12 +330,9 @@ function ProviderDetail({
       <DetailPanelHeader
         title={provider.name || provider.id}
         subtitle={
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-muted-foreground">{provider.id}</span>
-            <Badge variant="outline" size="sm">
-              {provider.type}
-            </Badge>
-          </div>
+          <Badge variant="outline" size="sm">
+            {provider.type}
+          </Badge>
         }
         action={
           <div className="flex items-center gap-2">
@@ -830,7 +836,8 @@ export function ProvidersPage() {
 
   const loadProviderTypes = useCallback(async () => {
     try {
-      const types = (await api<ProviderType[]>("GET", "/api/provider-types")) || [];
+      const { data } = await listProviderTypes({ throwOnError: true });
+      const types = (data as ProviderType[]) ?? [];
       const defaults: Record<string, { base_url: string; name: string }> = {};
       for (const t of types) {
         defaults[t.id] = { base_url: t.default_url, name: t.name };
@@ -848,8 +855,8 @@ export function ProvidersPage() {
 
   const loadProviderModels = useCallback(async (providerID: string) => {
     try {
-      const models =
-        (await api<ProviderModel[]>("GET", `/api/providers/${providerID}/models`)) || [];
+      const { data } = await listProviderModels({ path: { id: providerID }, throwOnError: true });
+      const models = (data as ProviderModel[]) ?? [];
       setProviderModels((prev) => ({ ...prev, [providerID]: models }));
     } catch {
       setProviderModels((prev) => ({ ...prev, [providerID]: [] }));
@@ -858,7 +865,8 @@ export function ProvidersPage() {
 
   const loadProviders = useCallback(async () => {
     try {
-      const list = (await api<Provider[]>("GET", "/api/providers")) || [];
+      const { data } = await listProviders({ throwOnError: true });
+      const list = (data as Provider[]) ?? [];
       setProviders(
         list.map((p) => ({
           ...p,
@@ -891,14 +899,17 @@ export function ProvidersPage() {
   const handleAddProvider = async (type: string, id: string, name: string) => {
     const d = providerDefaults[type] || {};
     try {
-      await api("POST", "/api/providers", {
-        id,
-        type,
-        name: name || d.name || id,
-        enabled: true,
-        api_key: "",
-        base_url: "",
-        models: {},
+      await createProvider({
+        body: {
+          id,
+          type,
+          name: name || d.name || id,
+          enabled: true,
+          api_key: "",
+          base_url: "",
+          models: {},
+        },
+        throwOnError: true,
       });
       await loadProviders();
       setCreatingNew(false);
@@ -911,14 +922,18 @@ export function ProvidersPage() {
 
   const handleSaveProvider = async (p: Provider) => {
     try {
-      await api("PUT", `/api/providers/${p.id}`, {
-        id: p.id,
-        type: p.type,
-        name: p.name,
-        enabled: p.enabled,
-        api_key: p.api_key,
-        base_url: p.base_url,
-        models: p.models,
+      await updateProvider({
+        path: { id: p.id },
+        body: {
+          id: p.id,
+          type: p.type,
+          name: p.name,
+          enabled: p.enabled,
+          api_key: p.api_key,
+          base_url: p.base_url,
+          models: p.models,
+        },
+        throwOnError: true,
       });
       await loadProviders();
       showToast("Saved");
@@ -929,7 +944,7 @@ export function ProvidersPage() {
 
   const handleDeleteProvider = async (id: string) => {
     try {
-      await api("DELETE", `/api/providers/${id}`);
+      await deleteProvider({ path: { id }, throwOnError: true });
       setSelectedId(null);
       await loadProviders();
       showToast("Deleted");
@@ -940,11 +955,12 @@ export function ProvidersPage() {
 
   const handleFetchModels = async (p: Provider) => {
     try {
-      const models = await api<ProviderModel[]>("POST", `/api/providers/${p.id}/models`, {
-        api_key: p.api_key,
-        base_url: p.base_url,
+      const { data } = await fetchProviderModels({
+        path: { id: p.id },
+        body: { api_key: p.api_key, base_url: p.base_url },
+        throwOnError: true,
       });
-      const list = models || [];
+      const list = (data as ProviderModel[]) ?? [];
       setProviderModels((prev) => ({ ...prev, [p.id]: list }));
       showToast(`${list.length} models available`);
     } catch (e) {
@@ -1046,7 +1062,7 @@ export function ProvidersPage() {
             />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-tight truncate">{p.name || p.id}</p>
-              <p className="text-[11px] font-mono text-muted-foreground truncate">{p.id}</p>
+              <p className="text-[11px] font-mono text-muted-foreground truncate">{p.type}</p>
             </div>
             {modelCount > 0 && (
               <span className="shrink-0 text-xs text-muted-foreground">{modelCount}</span>

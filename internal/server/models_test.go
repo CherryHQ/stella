@@ -10,9 +10,15 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
-func setupAdminStore(t *testing.T) config.Store {
+type testEnv struct {
+	store config.Store
+	orgID string
+}
+
+func setupAdminStore(t *testing.T) testEnv {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -22,7 +28,12 @@ func setupAdminStore(t *testing.T) config.Store {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	return config.NewDBStore(db)
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+	store := cfgstore.NewDBStore(db)
+	return testEnv{store: store, orgID: orgID}
 }
 
 func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) {
@@ -30,13 +41,14 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	t.Setenv("STELLA_HOME", t.TempDir())
 	t.Cleanup(config.ResetStellaHome)
 
-	store := setupAdminStore(t)
-	ctx := context.Background()
+	env := setupAdminStore(t)
+	ctx := config.WithOrgID(context.Background(), env.orgID)
 
-	if err := store.CreateProvider(ctx, config.Provider{
-		ID:     "openai",
-		Name:   "OpenAI",
-		APIKey: "sk-test",
+	if err := env.store.CreateProvider(ctx, config.Provider{
+		ID:      "openai",
+		Name:    "OpenAI",
+		APIKey:  "sk-test",
+		Enabled: true,
 		Models: map[string]config.ProviderModel{
 			"qwen3.6-plus":     {ID: "qwen3.6-plus", Name: "Qwen 3.6 Plus", Enabled: true},
 			"custom-only":      {ID: "custom-only", Name: "Custom Only", Enabled: true},
@@ -46,15 +58,22 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("CreateProvider(openai): %v", err)
 	}
-	if err := store.CreateProvider(ctx, config.Provider{
-		ID:     "anthropic",
-		Name:   "Anthropic",
-		APIKey: "sk-test",
+	if err := env.store.SetProviderOrg(ctx, "openai", env.orgID); err != nil {
+		t.Fatalf("SetProviderOrg(openai): %v", err)
+	}
+	if err := env.store.CreateProvider(ctx, config.Provider{
+		ID:      "anthropic",
+		Name:    "Anthropic",
+		APIKey:  "sk-test",
+		Enabled: true,
 		Models: map[string]config.ProviderModel{
 			"disabled-custom": {ID: "disabled-custom", Name: "Disabled Custom", Enabled: false},
 		},
 	}); err != nil {
 		t.Fatalf("CreateProvider(anthropic): %v", err)
+	}
+	if err := env.store.SetProviderOrg(ctx, "anthropic", env.orgID); err != nil {
+		t.Fatalf("SetProviderOrg(anthropic): %v", err)
 	}
 
 	if err := config.SaveModelsCache(&config.ModelsCache{Models: []config.CachedModel{
@@ -66,8 +85,13 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		t.Fatalf("SaveModelsCache: %v", err)
 	}
 
-	server := &Server{store: store}
+	server := &Server{store: env.store}
 	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	req = req.WithContext(withAuthInfo(req.Context(), &AuthInfo{
+		UserID:  "test-user",
+		OrgID:   env.orgID,
+		IsAdmin: true,
+	}))
 	rec := httptest.NewRecorder()
 
 	server.ListModels(rec, req)
@@ -76,15 +100,13 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var res struct {
-		Data []config.CachedModel `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+	var models []config.CachedModel
+	if err := json.Unmarshal(rec.Body.Bytes(), &models); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	got := make(map[string]bool, len(res.Data))
-	for _, model := range res.Data {
+	got := make(map[string]bool, len(models))
+	for _, model := range models {
 		got[model.Provider+"/"+model.Model] = true
 	}
 
@@ -111,6 +133,6 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	}
 
 	if len(got) != len(wantPresent) {
-		t.Fatalf("model count = %d, want %d (%v)", len(got), len(wantPresent), res.Data)
+		t.Fatalf("model count = %d, want %d (%v)", len(got), len(wantPresent), models)
 	}
 }

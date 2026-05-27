@@ -227,13 +227,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/WorkspaceDeleteRequest",
             }
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/SessionWorkspace",
-              }
+        "204":
+          description: deleted
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -307,7 +302,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    put:
+    patch:
       tags: [sessions]
       summary: Write content to a file in the session workspace
       operationId: updateWorkspaceFileContent

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import {
+  createAgentSkill,
+  deleteAgentSkill,
+  getAgentSkill,
+  getAgentSkillFile,
+  updateAgentSkill,
+} from "@/lib/api-client";
+import type { UpdateAgentSkillData } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import type { Skill } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -34,14 +41,6 @@ function emptyForm(): Form {
   };
 }
 
-function skillUrl(scope: string | undefined, agentId: string, skillId: string) {
-  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(scope ?? "user")}/${encodeURIComponent(skillId)}`;
-}
-
-function skillFileUrl(scope: string | undefined, agentId: string, skillId: string) {
-  return `/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(scope ?? "user")}/${encodeURIComponent(skillId)}/file?path=SKILL.md`;
-}
-
 function scopeLabel(scope: string) {
   return { system: "Built-in", agent: "Agent", user: "User" }[scope] ?? scope;
 }
@@ -71,16 +70,21 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
-      const sk = await api<Skill & { content?: string }>("GET", skillUrl(scope, agentId, skillId));
-      const res = await api<{ content?: string }>(
-        "GET",
-        skillFileUrl(scope, agentId, skillId),
-      ).catch(() => null);
-      const content = res?.content ?? "";
+      const { data: skRaw } = await getAgentSkill({
+        path: { id: agentId, skillId },
+        throwOnError: true,
+      });
+      const sk = skRaw as Skill;
+      const res = await getAgentSkillFile({
+        path: { id: agentId, skillId },
+        query: { path: "SKILL.md" },
+        throwOnError: true,
+      }).catch(() => null);
+      const content = (res?.data as { content?: string })?.content ?? "";
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",
-        status: sk.status ?? "active",
+        status: (sk.status as Form["status"]) ?? "active",
         disable_model_invocation: sk.disable_model_invocation ?? false,
         content,
       };
@@ -110,19 +114,29 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     setSaving(true);
     try {
       if (isNew) {
-        await api("POST", `/api/agents/${encodeURIComponent(agentId)}/skills/user`, {
-          name: form.name,
-          description: form.description,
-          status: form.status,
-          disable_model_invocation: form.disable_model_invocation,
-          files: { "SKILL.md": form.content },
+        await createAgentSkill({
+          path: { id: agentId },
+          body: {
+            name: form.name,
+            scope: "user",
+            description: form.description,
+            status: form.status,
+            disable_model_invocation: form.disable_model_invocation,
+            files: { "SKILL.md": form.content },
+          },
+          throwOnError: true,
         });
       } else if (skillId) {
-        await api("PUT", skillUrl(scope, agentId, skillId), {
-          description: form.description,
-          status: form.status,
-          disable_model_invocation: form.disable_model_invocation,
-          files: { "SKILL.md": form.content },
+        await updateAgentSkill({
+          path: { id: agentId, skillId },
+          query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
+          body: {
+            description: form.description,
+            status: form.status,
+            disable_model_invocation: form.disable_model_invocation,
+            files: { "SKILL.md": form.content },
+          },
+          throwOnError: true,
         });
       }
       setSavedForm(form);
@@ -139,7 +153,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId) return;
     setDeleting(true);
     try {
-      await api("DELETE", skillUrl(scope, agentId, skillId));
+      await deleteAgentSkill({
+        path: { id: agentId, skillId },
+        query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
+        throwOnError: true,
+      });
       onDeleted();
     } catch (e) {
       console.error(e);

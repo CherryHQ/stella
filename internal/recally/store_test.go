@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS auth_users (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS articles (
+CREATE TABLE IF NOT EXISTS recally_article (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,
     agent_id TEXT,
@@ -65,9 +65,9 @@ CREATE TABLE IF NOT EXISTS articles (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_user_canonical ON articles (user_id, canonical_url);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_article_user_canonical ON recally_article (user_id, canonical_url);
 
-CREATE TABLE IF NOT EXISTS rss_feeds (
+CREATE TABLE IF NOT EXISTS recally_rss_feed (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,
     agent_id TEXT,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS rss_feeds (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rss_feeds_user_url ON rss_feeds (user_id, url);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_rss_feed_user_url ON recally_rss_feed (user_id, url);
 
 CREATE TABLE IF NOT EXISTS rss_feed_entries (
     id TEXT PRIMARY KEY,
@@ -490,7 +490,7 @@ func TestStore_FeedEntries(t *testing.T) {
 
 	// Mark entry as saved
 	articleID := "article-123"
-	updated, err := store.MarkFeedEntry(ctx, pending[0].ID, EntryStatusSaved, &articleID, "")
+	updated, err := store.MarkFeedEntry(ctx, feed.ID, pending[0].ID, EntryStatusSaved, &articleID, "")
 	if err != nil {
 		t.Fatalf("MarkFeedEntry failed: %v", err)
 	}
@@ -505,7 +505,7 @@ func TestStore_FeedEntries(t *testing.T) {
 	}
 
 	// Mark entry as error
-	_, err = store.MarkFeedEntry(ctx, pending[1].ID, EntryStatusError, nil, "Failed to fetch")
+	_, err = store.MarkFeedEntry(ctx, feed.ID, pending[1].ID, EntryStatusError, nil, "Failed to fetch")
 	if err != nil {
 		t.Fatalf("MarkFeedEntry (error) failed: %v", err)
 	}

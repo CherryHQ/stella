@@ -1,11 +1,13 @@
 import { queryOptions } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import type { Project } from "@/lib/types";
+import { listProjects } from "@/lib/api-client/sdk.gen";
 
 export function agentProjectsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["projects", agentId],
-    queryFn: () => api<Project[]>("GET", `/api/agents/${agentId}/projects`),
+    queryFn: async () => {
+      const { data } = await listProjects({ path: { agentID: agentId }, throwOnError: true });
+      return data ?? [];
+    },
     enabled: !!agentId,
   });
 }

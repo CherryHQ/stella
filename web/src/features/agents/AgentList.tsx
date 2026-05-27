@@ -1,5 +1,5 @@
 import type { AgentDetail } from "@/lib/types";
-import type { AgentsPageState } from "./AgentsPage";
+import type { AgentsPageState, ModelOption } from "./AgentsPage";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SettingsListBody, SettingsListItem } from "@/features/settings/SettingsListPanel";
@@ -11,11 +11,15 @@ interface Props {
   onDeleteAgent: (id: string) => void;
 }
 
+function modelLabel(value: string, cachedModels: ModelOption[]): string {
+  return cachedModels.find((m) => m.value === value)?.label ?? value;
+}
+
 export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Props) {
-  const { agents, editingId, isAdmin, currentUserId } = state;
+  const { agents, editingId, isAdmin, currentUserId, cachedModels } = state;
 
   const canEditAgent = (a: AgentDetail) =>
-    isAdmin || (a.creator_id !== 0 && a.creator_id === currentUserId);
+    isAdmin || (a.creator_id && a.creator_id === currentUserId);
 
   return (
     <div>
@@ -46,7 +50,7 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent }: Pro
                   )}
                 </div>
                 <div className="text-xs font-mono text-muted-foreground mt-0.5 truncate">
-                  {a.model || "—"}
+                  {a.model ? modelLabel(a.model, cachedModels) : "—"}
                 </div>
               </div>
               {canEditAgent(a) && (

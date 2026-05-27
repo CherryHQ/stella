@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -83,12 +85,17 @@ func serverAction(c *ucli.Context) error {
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
 	}()
-	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.String("host"), c.Int("port"))
+
+	listFn := func() []pkgchannel.ModelOption {
+		return collectModelsFromStore(s.ctx, s.store)
+	}
+	switchFn := func(_, _ string) error { return nil }
+
+	return runServer(s.ctx, s, listFn, switchFn, c.String("host"), c.Int("port"))
 }
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
-	channels := make([]pkgchannel.Channel, 0)
 
 	// Create auth store and policy engine for channel bots and Web UI.
 	as := appdb.NewAuthStore(s.db)
@@ -105,7 +112,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
-	adminSrv := server.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+	adminSrv := server.New(gctx, s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+	adminSrv.SetBaseURL(resolveBaseURL(adminHost, adminPort))
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 	}
@@ -124,31 +132,55 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Wire vault service if STELLA_VAULT_KEY is set.
 	var coordOpts []channel.CoordinatorOption
+	var tokenSvc *auth.TokenService
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if vaultKey := os.Getenv("STELLA_VAULT_KEY"); vaultKey != "" {
 		vaultSvc, err := vault.NewService(sqlc.New(s.db), vaultKey)
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
 		} else {
-			tokenSvc := auth.NewTokenService(as, vaultSvc)
+			tokenSvc = auth.NewTokenService(as, vaultSvc)
 			adminSrv.SetVaultService(vaultSvc)
 			adminSrv.SetTokenService(tokenSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
 			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
-			s.poolManager.SetTokenService(gctx, tokenSvc)
 			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
 			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
-			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())
-			if err != nil {
-				slog.Warn("vault: backfill user keys failed", "error", err)
-			} else if n > 0 {
-				slog.Info("vault: backfilled age keys for users", "count", n)
-			}
 		}
+	}
+
+	// Wire OIDC authentication (external provider or built-in local issuer).
+	oidcStore := appdb.NewOIDCStore(s.db)
+	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
+		DB:         s.db,
+		Store:      s.store,
+		BaseURL:    resolveBaseURL(adminHost, adminPort),
+		VaultKey:   os.Getenv("STELLA_VAULT_KEY"),
+		AuthStores: oidcStore,
+	})
+	if err != nil {
+		slog.Warn("oidc: setup failed", "error", err)
+	} else {
+		oidcResult.AuthSvc.SetOrgSeeder(&orgSeeder{store: s.store})
+		if tokenSvc != nil {
+			oidcResult.AuthSvc.SetUserSeeder(&userSeeder{tokenSvc: tokenSvc})
+		}
+		oidcResult.AuthSvc.SetOrgInitializer(s.orgRuntimeManager)
+		adminSrv.SetLoginIdentityStore(oidcStore)
+		adminSrv.SetMembershipStore(oidcStore)
+		adminSrv.SetUserStore(oidcStore)
+		adminSrv.SetSessionStore(oidcStore)
+		adminSrv.SetCredentialStore(oidcStore)
+		adminSrv.SetOrganizationStore(oidcStore)
+		adminSrv.SetOIDCAuth(oidcResult)
+		slog.Info("oidc: authentication configured")
 	}
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
+	if s.orgRuntimeManager != nil {
+		coordOpts = append(coordOpts, channel.WithOrgRuntimeInitializer(s.orgRuntimeManager))
+	}
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(
@@ -162,7 +194,13 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	managedChannels := applyManagedChannelPlugins(gctx, s.pluginHost)
+	// Wire channel startup into OrgRuntime so channels start per-org.
+	if s.orgRuntimeManager != nil {
+		s.orgRuntimeManager.SetChannels(channelStarterFunc(func(ctx context.Context) error {
+			applyManagedChannelPlugins(ctx, s.pluginHost)
+			return nil
+		}))
+	}
 
 	// Start Web UI server.
 	listenAddr := adminListenAddress(adminHost, adminPort)
@@ -188,29 +226,17 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		return nil
 	})
 
-	if len(channels) == 0 && managedChannels.Started == 0 {
-		reason := noRunningChannelReason(managedChannels)
-		slog.Warn(reason+"; running Web UI only", "configured_channels", managedChannels.Configured)
-	}
-
-	// Start all channels.
-	for _, ch := range channels {
-		g.Go(func() error {
-			if err := ch.Start(gctx); err != nil && gctx.Err() == nil {
-				return fmt.Errorf("%s: %w", ch.Name(), err)
-			}
-			return nil
-		})
-	}
-
 	// Wire auth directory into dispatcher for per-user notification routing.
 	s.notifier.SetAuthService(s.pluginHost.Auth())
 
-	// Wire scheduler notifications and start the scheduler AFTER channels
-	// are registered, so early-firing jobs already use the dispatcher.
+	// Wire scheduler and start it. Builtin jobs and heartbeat are configured
+	// per-org via OrgRuntime.Start(), not at boot.
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
-		wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool)
+		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
+		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context, orgID string) ([]string, error) {
+			return as.ListActiveUserIDs(ctx, orgID)
+		})
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
@@ -231,31 +257,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	if s.schedulerSvc != nil {
-		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
-			users, err := as.ListUsers(ctx)
-			if err != nil {
-				return nil, err
-			}
-			ids := make([]string, 0, len(users))
-			for _, u := range users {
-				if u.IsActive {
-					ids = append(ids, u.ID)
-				}
-			}
-			return ids, nil
-		})
-		s.schedulerSvc.EnsureBuiltinJobs()
-	}
-
-	if s.snap.Heartbeat.IsEnabled() && s.schedulerSvc != nil {
-		if err := s.schedulerSvc.StartHeartbeat(ctx, s.snap.Heartbeat.Interval()); err != nil {
-			return fmt.Errorf("schedule heartbeat: %w", err)
-		}
-	}
-
 	if err := s.pluginHost.ApplyPlugin(gctx, reflectplugin.PluginID); err != nil {
-		return fmt.Errorf("apply reflect runtime: %w", err)
+		slog.Warn("reflect: deferred runtime start (no org context at boot)", "error", err)
 	}
 
 	waitErr := g.Wait()
@@ -263,46 +266,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	return waitErr
 }
 
-// wireSchedulerNotifier overrides the scheduler callback to run the agent.
-// The agent decides whether to notify the user by calling the notify tool.
-func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool) {
-	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
-		if scheduler.IsPluginJob(job) {
-			return nil
-		}
+// channelStarterFunc adapts a plain function to orgruntime.ChannelStarter.
+type channelStarterFunc func(ctx context.Context) error
 
-		pool := schedulerPool(job, poolMgr, defaultPool)
-		sessionID := scheduler.RunSessionIDFromContext(ctx)
-		if sessionID == "" {
-			sessionID = job.SessionID()
-		}
-		msg := schedulerJobMessage(job)
-
-		jobCtx := schedulerJobContext(ctx, pool, job)
-
-		for evt := range pool.Chat(jobCtx, sessionID, msg) {
-			if evt.Err != nil {
-				slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
-			}
-		}
-		return nil
-	})
-}
-
-func schedulerPool(job scheduler.Job, poolMgr *agent.PoolManager, defaultPool *agent.Pool) *agent.Pool {
-	if job.AgentID == "" {
-		return defaultPool
-	}
-
-	pool := poolMgr.Get(job.AgentID)
-	if pool != nil {
-		return pool
-	}
-
-	slog.Warn("scheduler job references unknown agent, using default pool",
-		"job_id", job.ID, "agent_id", job.AgentID)
-	return defaultPool
-}
+func (f channelStarterFunc) StartChannels(ctx context.Context) error { return f(ctx) }
 
 func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
 	if job.UserID != "" {
@@ -311,7 +278,6 @@ func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Jo
 	if pool.AgentID() != "" {
 		ctx = memory.WithAgentID(ctx, pool.AgentID())
 	}
-	// Prevent scheduled jobs from mutating scheduler control-plane state.
 	ctx = agent.WithExcludedTools(ctx, "scheduler")
 	return ctx
 }
@@ -325,6 +291,21 @@ func adminListenAddress(host string, port int) string {
 		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}
+
+func adminBaseURL(host string, port int) string {
+	h := host
+	if h == "" {
+		h = "localhost"
+	}
+	return "http://" + net.JoinHostPort(h, fmt.Sprintf("%d", port))
+}
+
+func resolveBaseURL(adminHost string, adminPort int) string {
+	if v := os.Getenv("STELLA_BASE_URL"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return adminBaseURL(adminHost, adminPort)
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {
@@ -367,10 +348,23 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 	}
 }
 
-func noRunningChannelReason(managedChannels managedChannelRuntimeSummary) string {
-	if managedChannels.Configured > 0 {
-		return "configured channels failed to start"
-	}
+// orgSeeder seeds org settings on first login via auth.OrgSeeder.
+type orgSeeder struct {
+	store config.Store
+}
 
-	return "no channels configured"
+func (s *orgSeeder) SeedOrg(ctx context.Context, orgID string) error {
+	if err := s.store.SeedNewOrg(ctx, orgID); err != nil {
+		return fmt.Errorf("seed settings: %w", err)
+	}
+	return nil
+}
+
+// userSeeder initializes per-user resources after org seed.
+type userSeeder struct {
+	tokenSvc *auth.TokenService
+}
+
+func (u *userSeeder) SeedUser(ctx context.Context, userID, _ string) error {
+	return u.tokenSvc.EnsureAutoToken(ctx, userID)
 }

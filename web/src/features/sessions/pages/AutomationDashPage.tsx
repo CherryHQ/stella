@@ -50,6 +50,9 @@ export function AutomationDashPage() {
           params: { agentId, jobId: id },
         });
       }}
+      onCreateTask={() => {
+        void navigate({ to: "/agents/$agentId/tasks/new", params: { agentId } });
+      }}
       onCreateJob={() => {
         void navigate({ to: "/agents/$agentId/automations/new", params: { agentId } });
       }}

@@ -21,7 +21,9 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/pluginhost"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -515,10 +517,10 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	}
 
 	// Resolve user name from auth system.
-	if info.UserID != "" {
-		authUser, err := s.authStore.GetUser(r.Context(), info.UserID)
+	if info.UserID != "" && s.users != nil {
+		authUser, err := s.users.GetUser(r.Context(), info.UserID)
 		if err == nil {
-			resp.UserName = authUser.Username
+			resp.UserName = authUser.Email
 		}
 	}
 
@@ -851,12 +853,7 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeData(w, http.StatusOK, diskInfo)
+	writeNoContent(w)
 }
 
 func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -1105,26 +1102,39 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 			userRoot = userDir
 		}
 	}
+	projectRoot, err := s.projectRootForSession(memoryContext(r, agentID), agentID, &sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	homeDir, _ := os.UserHomeDir()
 	pluginView, err := s.pluginHost.SessionPluginView(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
+	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          config.StellaHome(),
 		HomeDir:             homeDir,
 		AgentRoot:           agentCfg.Workspace,
-		ProjectRoot:         "",
+		ProjectRoot:         projectRoot,
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
+		SkillStore:          pluginhost.NewSkillStoreAdapter(s.skillStore()),
 		RegisteredPluginIDs: pluginView.RegisteredPluginIDs,
 		EnabledPluginIDs:    pluginView.EnabledPluginIDs,
-	})
+	}
+	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), promptBuild)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if skillsSection, err := skillstool.BuildPromptSection(r.Context(), promptBuild); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if skillsSection.Title != "" && skillsSection.Content != "" {
+		promptSections = append(promptSections, skillsSection)
 	}
 	promptTools, err := s.pluginHost.PromptTools(r.Context(), mcpplugin.PluginID)
 	if err != nil {

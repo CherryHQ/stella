@@ -9,41 +9,30 @@ import (
 )
 
 func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-	if build.Platform == nil {
-		return pkgplugins.SystemPromptSection{}, nil
-	}
-	store := build.Platform.SkillStore()
-	if store == nil {
-		return pkgplugins.SystemPromptSection{}, nil
+	var store pkgplugins.SkillStore
+	if build.SkillStore != nil {
+		store = build.SkillStore
+	} else if build.Platform != nil {
+		store = build.Platform.SkillStore()
 	}
 
+	svc := NewService(store, build.StellaHome)
 	vc := pkgplugins.SkillViewContext{
 		UserID:  build.UserID,
 		AgentID: build.AgentID,
 	}
 
-	dbSkills, err := store.List(ctx, vc)
+	merged, err := svc.ListMerged(ctx, vc, build.ProjectRoot)
 	if err != nil {
 		return pkgplugins.SystemPromptSection{}, err
 	}
-	dbSkills = filterVisibleSkills(dbSkills, build)
 
-	// System-scope skills are always available to every agent. Agent/user/project
-	// skills keep their existing visibility rules.
-
-	// Merge project skills from filesystem (project > user > agent > system precedence).
-	projSkills, _, _ := ListProjectSkills(build.ProjectRoot)
-	projNames := make(map[string]bool, len(projSkills))
-	for _, s := range projSkills {
-		projNames[s.Name] = true
+	// Apply plugin visibility filtering.
+	all := make([]pkgplugins.Skill, 0, len(merged))
+	for _, rs := range merged {
+		all = append(all, rs.Skill)
 	}
-	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills))
-	all = append(all, projSkills...)
-	for _, s := range dbSkills {
-		if !projNames[s.Name] {
-			all = append(all, s)
-		}
-	}
+	all = filterVisibleSkills(all, build)
 
 	if len(all) == 0 {
 		return pkgplugins.SystemPromptSection{}, nil

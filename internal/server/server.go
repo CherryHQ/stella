@@ -12,6 +12,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -47,19 +48,41 @@ type Server struct {
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	tasksSvc       *tasks.Service       // optional; if nil, task endpoints return 503
 	startedAt      time.Time
+	// OIDC auth (optional; if nil, OIDC login is disabled)
+	authProviders []auth.AuthProvider
+	authSvc       *auth.AuthService
+	sessionMgr    *auth.SessionManager
+	stateMgr      *oidc.StateManager
+	// organizations provides access to auth_organization (optional).
+	organizations auth.OrganizationStore
+	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
+	baseURL string
+	// logins provides access to OIDC login identities (optional).
+	logins auth.LoginIdentityStore
+	// memberships provides access to auth_membership (optional).
+	memberships auth.MembershipStore
+	// users provides access to auth_user and plugin_channel_identity via the OIDC store (optional).
+	users interface {
+		auth.UserStore
+		auth.ChannelIdentityStore
+	}
+	// sessions provides access to auth_session (optional).
+	sessions auth.SessionStore
+	// credentials provides access to auth_credential (optional).
+	credentials auth.CredentialStore
 }
 
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
 // Web UI can be consumed by channel handlers.
-func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
+func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
 	if pluginHost == nil {
 		panic("admin: plugin host is required")
 	}
 
-	// Read CORS origin once at startup.
+	// Read CORS origin once at startup (uses org context for settings scoping).
 	corsOrigin := "http://localhost:8080"
-	if val, err := store.GetSetting(context.Background(), "admin.cors_origin"); err == nil && val != "" {
+	if val, err := store.GetSetting(ctx, "admin.cors_origin"); err == nil && val != "" {
 		corsOrigin = val
 	}
 
@@ -120,6 +143,60 @@ func (s *Server) SetTokenService(svc *auth.TokenService) {
 // If not set, those handlers write DB-only.
 func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
+}
+
+// SetOrganizationStore wires the organization store into the admin server.
+func (s *Server) SetOrganizationStore(store auth.OrganizationStore) {
+	s.organizations = store
+}
+
+// SetBaseURL sets the public base URL for invite links and similar.
+func (s *Server) SetBaseURL(url string) {
+	s.baseURL = url
+}
+
+// SetLoginIdentityStore wires the OIDC login identity store so the admin API
+// can list and link login identities. Call before serving requests.
+func (s *Server) SetLoginIdentityStore(store auth.LoginIdentityStore) {
+	s.logins = store
+}
+
+// SetMembershipStore wires the membership store so role and active writes
+// propagate to auth_membership. Call before serving requests.
+func (s *Server) SetMembershipStore(store auth.MembershipStore) {
+	s.memberships = store
+}
+
+// SetUserStore wires the OIDC user+identity store into the admin server.
+func (s *Server) SetUserStore(store interface {
+	auth.UserStore
+	auth.ChannelIdentityStore
+},
+) {
+	s.users = store
+}
+
+// SetSessionStore wires the session store into the admin server.
+func (s *Server) SetSessionStore(store auth.SessionStore) {
+	s.sessions = store
+}
+
+// SetCredentialStore wires the credential store into the admin server.
+func (s *Server) SetCredentialStore(store auth.CredentialStore) {
+	s.credentials = store
+}
+
+// SetOIDCAuth wires all OIDC authentication components into the server.
+// Call before serving requests. If not set, OIDC login is disabled and
+// ListAuthProviders returns an empty list.
+func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
+	s.authProviders = result.Providers
+	s.authSvc = result.AuthSvc
+	s.sessionMgr = result.SessionMgr
+	s.stateMgr = result.StateMgr
+	if result.RegisterRoutes != nil {
+		result.RegisterRoutes(s.mux)
+	}
 }
 
 // CredentialsService returns the shared credentials service.

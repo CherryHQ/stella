@@ -30,7 +30,7 @@ type tokenStore interface {
 	GetActiveAutoUserToken(ctx context.Context, userID string) (UserToken, error)
 	RotateUserToken(ctx context.Context, id string) (int64, error)
 	UpdateUserTokenLastUsed(ctx context.Context, id string) (int64, error)
-	GetUser(ctx context.Context, id string) (AuthUser, error)
+	GetUser(ctx context.Context, id string) (User, error)
 }
 
 // VaultWriter writes internal plaintext secrets to the per-user vault.
@@ -76,12 +76,6 @@ func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error
 		return fmt.Errorf("token service: get active auto token for user %s: %w", userID, err)
 	}
 
-	if plaintext, ok, err := s.loadVaultToken(ctx, userID); err != nil {
-		return err
-	} else if ok {
-		return s.createAutoTokenRecord(ctx, userID, plaintext)
-	}
-
 	plaintext, err := generateToken()
 	if err != nil {
 		return err
@@ -93,24 +87,21 @@ func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error
 }
 
 // Authenticate returns the active user identified by rawToken.
-func (s *TokenService) Authenticate(ctx context.Context, rawToken string) (AuthUser, error) {
+func (s *TokenService) Authenticate(ctx context.Context, rawToken string) (User, error) {
 	rawToken = strings.TrimSpace(rawToken)
 	if rawToken == "" {
-		return AuthUser{}, sql.ErrNoRows
+		return User{}, sql.ErrNoRows
 	}
 	token, err := s.store.GetActiveUserTokenByHash(ctx, hashToken(rawToken))
 	if err != nil {
-		return AuthUser{}, fmt.Errorf("token service: lookup token: %w", err)
+		return User{}, fmt.Errorf("token service: lookup token: %w", err)
 	}
 	user, err := s.store.GetUser(ctx, token.UserID)
 	if err != nil {
-		return AuthUser{}, fmt.Errorf("token service: get user %s: %w", token.UserID, err)
-	}
-	if !user.IsActive {
-		return AuthUser{}, sql.ErrNoRows
+		return User{}, fmt.Errorf("token service: get user %s: %w", token.UserID, err)
 	}
 	if _, err := s.store.UpdateUserTokenLastUsed(ctx, token.ID); err != nil {
-		return AuthUser{}, err
+		return User{}, err
 	}
 	return user, nil
 }
@@ -150,10 +141,9 @@ func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID string,
 	return nil
 }
 
-// loadVaultToken attempts to read an existing STELLA_TOKEN from the vault for
-// backfill migration. Returns ("", false, nil) when the vault does not
-// implement vaultLoader (e.g. write-only test stubs), which intentionally
-// skips backfill and falls through to token generation.
+// activeVaultTokenValid checks whether the active vault token is still valid.
+// Returns (true, nil) when the vault does not implement vaultLoader
+// (e.g. write-only test stubs).
 func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID string, token UserToken) (bool, error) {
 	if _, ok := s.vault.(vaultLoader); !ok {
 		return true, nil
@@ -172,7 +162,7 @@ func (s *TokenService) loadVaultToken(ctx context.Context, userID string) (strin
 	}
 	env, err := loader.LoadEnv(ctx, userID)
 	if err != nil {
-		return "", false, fmt.Errorf("token service: load vault token for backfill: %w", err)
+		return "", false, fmt.Errorf("token service: load vault token: %w", err)
 	}
 	plaintext, ok := env[StellaTokenName]
 	return plaintext, ok && plaintext != "", nil

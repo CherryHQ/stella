@@ -6,8 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
+	"maps"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -18,7 +17,7 @@ const dbTimeLayout = "2006-01-02 15:04:05"
 
 // loadJobs reads all persisted jobs from the database.
 func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
-	rows, err := s.q.ListSchedulerJobs(ctx)
+	rows, err := s.q.ListAllSchedulerJobs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list scheduler jobs: %w", err)
 	}
@@ -41,7 +40,7 @@ func (s *Service) updateJob(ctx context.Context, job Job) error {
 }
 
 // recordJobRun persists execution metadata for a job.
-func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, runErr error) error {
+func (s *Service) recordJobRun(ctx context.Context, id, orgID string, ranAt time.Time, runErr error) error {
 	lastError := ""
 	if runErr != nil {
 		lastError = runErr.Error()
@@ -51,89 +50,13 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 		LastError: lastError,
 		UpdatedAt: ranAt.UTC().Format(dbTimeLayout),
 		ID:        id,
+		OrgID:     orgID,
 	})
 }
 
 // deleteJob removes a job from the database.
-func (s *Service) deleteJob(ctx context.Context, id string) error {
-	return s.q.DeleteSchedulerJob(ctx, id)
-}
-
-// migrateJobsFile imports jobs from the legacy jobs.json file into the database
-// and removes the file. This is a one-time migration on first startup.
-func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
-	if dataPath == "" {
-		return nil
-	}
-	file := filepath.Join(dataPath, "jobs.json")
-	data, err := os.ReadFile(file)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read legacy jobs.json: %w", err)
-	}
-
-	var jobs []Job
-	if err := json.Unmarshal(data, &jobs); err != nil {
-		return fmt.Errorf("parse legacy jobs.json: %w", err)
-	}
-	if len(jobs) == 0 {
-		_ = os.Remove(file)
-		return nil
-	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin migration tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	qtx := s.q.WithTx(tx)
-	for _, job := range jobs {
-		if _, err := qtx.CreateSchedulerJob(ctx, createSchedulerJobParams(job)); err != nil {
-			return fmt.Errorf("migrate job %s: %w", job.ID, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit migration: %w", err)
-	}
-
-	_ = os.Remove(file)
-	s.log.Info("migrated legacy jobs.json to database", "count", len(jobs))
-	return nil
-}
-
-// migrateLegacyPluginJobs converts plugin-owned jobs that still use the old
-// reserved message envelope into first-class ownership columns.
-func (s *Service) migrateLegacyPluginJobs(ctx context.Context) error {
-	rows, err := s.q.ListSchedulerJobs(ctx)
-	if err != nil {
-		return fmt.Errorf("list scheduler jobs: %w", err)
-	}
-	for _, row := range rows {
-		if row.OwnerKind == JobOwnerPlugin {
-			continue
-		}
-		job := dbRowToJob(row)
-		pluginID, key, runtimeName, description, payload, ok := DecodePluginJob(job)
-		if !ok {
-			continue
-		}
-		job.OwnerKind = JobOwnerPlugin
-		job.PluginID = pluginID
-		job.JobKey = key
-		job.RuntimeName = runtimeName
-		job.Description = description
-		job.Payload = payload
-		job.Message = ""
-		job.UpdatedAt = time.Now().UTC()
-		if err := s.updateJob(ctx, job); err != nil {
-			return fmt.Errorf("migrate legacy plugin job %s: %w", job.ID, err)
-		}
-	}
-	return nil
+func (s *Service) deleteJob(ctx context.Context, id, orgID string) error {
+	return s.q.DeleteSchedulerJob(ctx, sqlc.DeleteSchedulerJobParams{ID: id, OrgID: orgID})
 }
 
 func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
@@ -167,6 +90,7 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
 		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
+		OrgID:         job.OrgID,
 		CreatedAt:     createdAt.UTC().Format(dbTimeLayout),
 		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
 		LastRunAt:     nullableTime(job.LastRunAt),
@@ -204,6 +128,7 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
 		ID:            job.ID,
+		OrgID:         job.OrgID,
 	}
 }
 
@@ -232,6 +157,7 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		UpdatedAt:   updatedAt,
 		LastError:   r.LastError,
 	}
+	j.OrgID = r.OrgID
 	if r.AgentID.Valid {
 		j.AgentID = r.AgentID.String
 	}
@@ -296,6 +222,15 @@ func decodePayload(raw string) map[string]any {
 	return payload
 }
 
+func clonePayload(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(src))
+	maps.Copy(out, src)
+	return out
+}
+
 func nullableTime(t *time.Time) sql.NullString {
 	if t == nil || t.IsZero() {
 		return sql.NullString{}
@@ -347,12 +282,13 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 	return tx.Commit()
 }
 
-func (s *Service) finishJobRun(ctx context.Context, id, status string, finishedAt time.Time, errStr string) error {
+func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, finishedAt time.Time, errStr string) error {
 	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
 		Status:     status,
 		FinishedAt: sql.NullString{String: finishedAt.UTC().Format(dbTimeLayout), Valid: true},
 		Error:      errStr,
 		ID:         id,
+		JobID:      jobID,
 	})
 }
 

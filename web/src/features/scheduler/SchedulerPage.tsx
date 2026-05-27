@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { useQuery } from "@tanstack/react-query";
+import {
+  createSchedulerJob,
+  deleteSchedulerJob,
+  listAgents,
+  listSchedulerJobRuns,
+  listSchedulerJobs,
+  triggerSchedulerJob,
+  updateSchedulerJob,
+} from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
-import { api } from "@/lib/api";
 import { formatTime } from "@/lib/time";
-import type { Agent, SchedulerJob, SchedulerJobList, SchedulerJobRun } from "@/lib/types";
+import type { ComponentsJobInput } from "@/lib/api-client/types.gen";
+import type { Agent, SchedulerJob, SchedulerJobRun } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,16 +94,21 @@ export function SchedulerPage() {
     try {
       let agentList = agentsRef.current;
       if (agentList.length === 0) {
-        agentList = (await api<Agent[]>("GET", "/api/agents")) || [];
+        const { data } = await listAgents({ throwOnError: true });
+        agentList = (data?.items ?? []) as Agent[];
         agentsRef.current = agentList;
         setAgents(agentList);
       }
       const lists = await Promise.all(
         agentList.map((agent) =>
-          api<SchedulerJobList>(
-            "GET",
-            `/api/agents/${encodeURIComponent(agent.id)}/scheduler/jobs`,
-          ).catch(() => ({ items: [] as SchedulerJob[] })),
+          listSchedulerJobs({ path: { agentID: agent.id }, throwOnError: true })
+            .then(({ data }) => ({
+              items: ((data?.items ?? []) as SchedulerJob[]).map((job) => ({
+                ...job,
+                agent_id: job.agent_id || agent.id,
+              })),
+            }))
+            .catch(() => ({ items: [] as SchedulerJob[] })),
         ),
       );
       setJobs(lists.flatMap((list) => list.items || []));
@@ -105,7 +119,8 @@ export function SchedulerPage() {
 
   const loadAgents = useCallback(async () => {
     try {
-      const list = (await api<Agent[]>("GET", "/api/agents")) || [];
+      const { data } = await listAgents({ throwOnError: true });
+      const list = (data?.items ?? []) as Agent[];
       agentsRef.current = list;
       setAgents(list);
     } catch (e) {
@@ -122,11 +137,11 @@ export function SchedulerPage() {
       try {
         const job = jobs.find((item) => item.id === jobId);
         if (!job?.agent_id) return;
-        const runs = await api<SchedulerJobRun[]>(
-          "GET",
-          `/api/agents/${encodeURIComponent(job.agent_id)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
-        );
-        setRunHistories((prev) => ({ ...prev, [jobId]: runs || [] }));
+        const { data } = await listSchedulerJobRuns({
+          path: { agentID: job.agent_id, jobID: jobId },
+          throwOnError: true,
+        });
+        setRunHistories((prev) => ({ ...prev, [jobId]: (data?.items ?? []) as SchedulerJobRun[] }));
       } catch (e) {
         console.error(e);
       }
@@ -176,7 +191,7 @@ export function SchedulerPage() {
   }, [resetForm]);
 
   const saveJob = useCallback(async () => {
-    const payload: Record<string, unknown> = {
+    const payload: ComponentsJobInput = {
       name: jobForm.name,
       message: jobForm.message,
       cron: jobForm.schedule_type === "cron" ? jobForm.cron : "",
@@ -185,20 +200,20 @@ export function SchedulerPage() {
       enabled: jobForm.enabled,
       agent_id: jobForm.agent_id,
     };
-    if (isAdmin && jobForm.system_job) payload.user_id = 0;
+    if (isAdmin && jobForm.system_job) payload.user_id = "";
     try {
       if (editingJobId !== null) {
-        await api(
-          "PUT",
-          `/api/agents/${encodeURIComponent(jobForm.agent_id)}/scheduler/jobs/${encodeURIComponent(editingJobId)}`,
-          payload,
-        );
+        await updateSchedulerJob({
+          path: { agentID: jobForm.agent_id, jobID: editingJobId },
+          body: payload,
+          throwOnError: true,
+        });
       } else {
-        await api(
-          "POST",
-          `/api/agents/${encodeURIComponent(jobForm.agent_id)}/scheduler/jobs`,
-          payload,
-        );
+        await createSchedulerJob({
+          path: { agentID: jobForm.agent_id },
+          body: payload,
+          throwOnError: true,
+        });
       }
       resetForm();
       setSelectedJobId(null);
@@ -215,10 +230,10 @@ export function SchedulerPage() {
       const job = jobs.find((item) => item.id === id);
       if (job?.owner_kind !== "user") return;
       try {
-        await api(
-          "DELETE",
-          `/api/agents/${encodeURIComponent(job.agent_id)}/scheduler/jobs/${encodeURIComponent(id)}`,
-        );
+        await deleteSchedulerJob({
+          path: { agentID: job.agent_id ?? "", jobID: id },
+          throwOnError: true,
+        });
         if (selectedJobId === id) {
           setSelectedJobId(null);
           resetForm();
@@ -236,10 +251,10 @@ export function SchedulerPage() {
     async (j: SchedulerJob) => {
       setTriggeringJobId(j.id);
       try {
-        await api(
-          "POST",
-          `/api/agents/${encodeURIComponent(j.agent_id)}/scheduler/jobs/${encodeURIComponent(j.id)}/run`,
-        );
+        await triggerSchedulerJob({
+          path: { agentID: j.agent_id ?? "", jobID: j.id },
+          throwOnError: true,
+        });
         showToast("Job triggered");
         if (selectedJobId === j.id) {
           void loadRuns(j.id);
@@ -277,7 +292,7 @@ export function SchedulerPage() {
         <div className="flex-1 overflow-y-auto">
           {jobs.map((j) => (
             <div
-              key={j.id}
+              key={`${j.agent_id ?? ""}:${j.id}`}
               onClick={() => selectJob(j)}
               className={`px-4 py-3 border-b border-border/50 cursor-pointer transition-colors border-l-2 ${
                 selectedJobId === j.id

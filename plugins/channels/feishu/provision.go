@@ -167,7 +167,6 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey
 		Platform:   pkgchannel.PlatformFeishu,
 		ExternalID: unionID,
 		Name:       profile.Name,
-		EmailHint:  profile.Email,
 	}); err != nil {
 		logger().Debug("auto-provision failed", "open_id", openID, "error", err)
 		return

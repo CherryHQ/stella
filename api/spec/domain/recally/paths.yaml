@@ -112,7 +112,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    put:
+    patch:
       tags: [articles]
       summary: Update article fields (partial)
       operationId: updateArticle
@@ -222,7 +222,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    put:
+    patch:
       tags: [feeds]
       summary: Update feed fields (partial)
       operationId: updateFeed
@@ -318,7 +318,7 @@ paths:
     parameters:
       - { name: feedId, in: path, required: true, schema: { type: string } }
       - { name: id, in: path, required: true, schema: { type: string } }
-    put:
+    patch:
       tags: [feed-entries]
       summary: Update an entry (status transition)
       operationId: updateFeedEntry

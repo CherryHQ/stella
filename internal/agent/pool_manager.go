@@ -11,10 +11,10 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -125,13 +125,6 @@ func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
 	}
 }
 
-// WithTokenService sets the auth token service for STELLA_TOKEN lifecycle.
-func WithTokenService(ts *auth.TokenService) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.tokenService = ts
-	}
-}
-
 // WithTokenManager sets the OAuth token manager for runtime token injection.
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) {
@@ -174,7 +167,6 @@ type PoolManager struct {
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	projectResolver          ProjectResolverFunc
 	projectEnsurer           ProjectEnsurerFunc
-	tokenService             *auth.TokenService
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	log                      *slog.Logger
@@ -231,21 +223,6 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 	}
 }
 
-// SetTokenService sets the token service and rebuilds all pool factories so new runners ensure STELLA_TOKEN.
-func (pm *PoolManager) SetTokenService(ctx context.Context, ts *auth.TokenService) {
-	pm.mu.Lock()
-	pm.tokenService = ts
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
-	pm.mu.Unlock()
-
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
-			pm.log.Error("failed to rebuild factory after token service set", "agent_id", agentID, "error", err)
-		}
-	}
-}
-
 // Get returns the Pool for the given agent ID, or nil if not found.
 func (pm *PoolManager) Get(agentID string) *Pool {
 	pm.mu.RLock()
@@ -273,10 +250,12 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 
 	agents, err := pm.store.ListEnabledAgents(ctx)
 	if err != nil {
-		return fmt.Errorf("list enabled agents: %w", err)
+		pm.log.Warn("could not list agents at startup (org context may not be available yet)", "error", err)
+		return nil
 	}
 	if len(agents) == 0 {
-		return fmt.Errorf("no enabled agents found")
+		pm.log.Info("no enabled agents found, pool manager started empty")
+		return nil
 	}
 
 	for _, ag := range agents {
@@ -291,7 +270,8 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	pm.mu.RUnlock()
 
 	if count == 0 {
-		return fmt.Errorf("no agents could be started")
+		pm.log.Warn("agents found but none could be started")
+		return nil
 	}
 
 	pm.log.Info("all agents started", "count", count)
@@ -312,6 +292,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 
 	poolOpts := []PoolOption{
 		WithAgentID(ag.ID),
+		WithOrgID(ag.OrgID),
 		WithIdleTimeout(pm.idleTimeout),
 		WithCompaction(pm.compaction.WithDefaults()),
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
@@ -492,11 +473,15 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			AgentRoot:           snap.Workspace,
 			UserID:              userID,
 			AgentID:             agentID,
+			SkillStore:          pm.skillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		}
 		var sections []pkgplugins.SystemPromptSection
 		if pm.promptSectionsBuilder != nil {
 			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+		}
+		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+			sections = append(sections, skillsSection)
 		}
 		params := prompt.DBPromptParams{
 			SystemPrompt:      snap.SystemPrompt,
@@ -552,10 +537,10 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		PromptToolsBuilder:       pm.promptToolsBuilder,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
+		SkillStore:               pm.skillStore,
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
-		TokenService:             pm.tokenService,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 	})

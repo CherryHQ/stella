@@ -168,6 +168,7 @@ components:
           type: string
         scope:
           type: string
+          enum: [project, user, agent, system]
         user_id:
           type: string
         agent_id:
@@ -196,12 +197,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Skill"
-    InstallSkillRequest:
+    CreateSkillRequest:
       type: object
-      required: [source]
+      required: [name, scope]
       properties:
-        source:
+        name:
           type: string
+        scope:
+          type: string
+          enum: [user, agent]
+        description:
+          type: string
+        status:
+          type: string
+        disable_model_invocation:
+          type: boolean
+        files:
+          type: object
+          additionalProperties:
+            type: string
     UpdateSkillRequest:
       type: object
       properties:
@@ -218,19 +232,21 @@ components:
           type: object
           additionalProperties:
             type: string
-    SkillUploadResult:
+    InstallSkillRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+        scope:
+          type: string
+          enum: [user, agent]
+    SkillFileResponse:
       type: object
       properties:
-        id:
+        path:
           type: string
-        name:
-          type: string
-    DuplicateSkillResult:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
+        content:
           type: string
     LoginRequest:
       type: object
@@ -268,6 +284,119 @@ components:
           type: string
         is_admin:
           type: boolean
+        email:
+          type: string
+        name:
+          type: string
+        avatar_url:
+          type: string
+        org_id:
+          type: string
+        org_name:
+          type: string
+        has_credentials:
+          type: boolean
+        needs_onboarding:
+          type: boolean
+    UpdateOrgRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    AuthSession:
+      type: object
+      required: [id, expires_at, created_at]
+      properties:
+        id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    AuthSessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuthSession"
+    OIDCProvider:
+      type: object
+      required: [name, login_url]
+      properties:
+        name:
+          type: string
+          description: Human-readable provider name (e.g. "Zitadel")
+        login_url:
+          type: string
+          description: URL to redirect the browser to for login
+        register_url:
+          type: string
+          description: URL to redirect the browser to for registration (local provider only)
+    OIDCProviderList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OIDCProvider"
+    OnboardingStatus:
+      type: object
+      required: [needs_onboarding]
+      properties:
+        needs_onboarding:
+          type: boolean
+        email:
+          type: string
+        name:
+          type: string
+        invite_token:
+          type: string
+        pending_invites:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingInvite"
+    PendingInvite:
+      type: object
+      required: [id, org_name, role, expires_at]
+      properties:
+        id:
+          type: string
+        org_name:
+          type: string
+        role:
+          type: string
+        email:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    CreateWorkspaceInput:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+    WorkspaceCreated:
+      type: object
+      required: [org_id, org_name]
+      properties:
+        org_id:
+          type: string
+        org_name:
+          type: string
+    RedeemInviteInput:
+      type: object
+      properties:
+        token:
+          type: string
+        invite_id:
+          type: string
     BuiltinResource:
       type: object
       required: [kind, id, name]
@@ -393,11 +522,97 @@ components:
           type: string
         baseurl:
           type: string
+    Invite:
+      type: object
+      required: [
+        id,
+        org_id,
+        role,
+        status,
+        max_uses,
+        use_count,
+        invited_by,
+        expires_at,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        org_id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, revoked]
+        max_uses:
+          type: integer
+        use_count:
+          type: integer
+        invited_by:
+          type: string
+        accepted_by:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    InviteList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invite"
+    CreateInviteRequest:
+      type: object
+      required: [role]
+      properties:
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, user]
+        max_uses:
+          type: integer
+          default: 1
+          minimum: 1
+        ttl_hours:
+          type: integer
+          default: 168
+          minimum: 1
+    CreateInviteResponse:
+      type: object
+      required: [invite, invite_url]
+      properties:
+        invite:
+          $ref: "#/components/schemas/Invite"
+        invite_url:
+          type: string
+    InviteInfo:
+      type: object
+      required: [invite, org_name]
+      properties:
+        invite:
+          $ref: "#/components/schemas/Invite"
+        org_name:
+          type: string
     CachedModel:
       type: object
       required: [provider, model]
       properties:
         provider:
+          type: string
+        provider_name:
           type: string
         model:
           type: string
@@ -1312,15 +1527,17 @@ components:
         duration:
           type: string
     JobRunList:
-      type: array
-      items:
-        $ref: "#/components/schemas/JobRun"
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobRun"
     TriggerJobResult:
       type: object
-      required: [status]
+      required: [run_id]
       properties:
-        status:
-          type: string
         run_id:
           type: string
     DeleteResult:
@@ -1521,6 +1738,8 @@ components:
         source:
           type: string
           enum: [artifact, article]
+        agent_id:
+          type: string
         session_id:
           type: string
         path:
@@ -1531,45 +1750,6 @@ components:
           type: string
           enum: [1h, 1d, 7d, never]
           default: 7d
-    CreateSkillRequest:
-      type: object
-      properties:
-        scope:
-          type: string
-        user_id:
-          type: string
-        agent_id:
-          type: string
-        name:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-        disable_model_invocation:
-          type: boolean
-        files:
-          type: object
-          additionalProperties:
-            type: string
-    GlobalInstallSkillRequest:
-      type: object
-      required: [source]
-      properties:
-        source:
-          type: string
-        scope:
-          type: string
-        user_id:
-          type: string
-        agent_id:
-          type: string
-    ProfileInstallSkillRequest:
-      type: object
-      required: [source]
-      properties:
-        source:
-          type: string
     SkillSearchResult:
       type: object
       properties:
@@ -1591,18 +1771,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SkillSearchResult"
-    SkillFileResponse:
-      type: object
-      properties:
-        path:
-          type: string
-        content:
-          type: string
-    DeleteFileResult:
-      type: object
-      properties:
-        path:
-          type: string
     StatusRuntime:
       type: object
       required: [goVersion, os, arch, goroutines, memory]
@@ -1992,3 +2160,75 @@ components:
       properties:
         is_active:
           type: boolean
+    LoginIdentity:
+      type: object
+      required: [
+        id,
+        user_id,
+        provider,
+        provider_subject,
+        email,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        provider:
+          type: string
+        provider_subject:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        avatar_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ChannelIdentity:
+      type: object
+      required: [
+        id,
+        user_id,
+        platform,
+        external_id,
+        name,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        platform:
+          type: string
+        external_id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LinkLoginIdentityRequest:
+      type: object
+      required: [provider, provider_subject, email]
+      properties:
+        provider:
+          type: string
+        provider_subject:
+          type: string
+        email:
+          type: string
+        name:
+          type: string

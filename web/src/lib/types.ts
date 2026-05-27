@@ -1,28 +1,94 @@
-export interface Session {
-  id: string;
-  title: string;
-  channel: string;
-  kind: "main" | "chat" | "scheduler" | "task";
-  project_id?: string;
-  agent_id: string;
-  agent_name: string;
-  user_id: number;
-  user_name: string;
-  last_active: string;
-  archived: boolean;
-}
+import type {
+  ComponentsAgent,
+  ComponentsAuthUser,
+  ComponentsBuiltinResourceDetail,
+  ComponentsChannel,
+  ComponentsIdentity,
+  ComponentsJob,
+  ComponentsOAuthFlowStatus,
+  ComponentsOAuthProviderConfig,
+  ComponentsOAuthProviderStatus,
+  ComponentsPluginView,
+  ComponentsProvider,
+  ComponentsProviderModelItem,
+  ComponentsProviderType,
+  ComponentsSkill,
+  ComponentsSkillSearchResult,
+  ComponentsTool,
+  ComponentsUserMemory,
+  ComponentsVaultEntry,
+  JobRun,
+  Project as SdkProject,
+  SessionWorkspace,
+} from "@/lib/api-client/types.gen";
 
-export interface Project {
+// ── SDK re-exports ────────────────────────────────────────────────────────────
+// Fields marked optional in OpenAPI (for create/update) but always present in
+// GET responses are overridden to required via intersection.
+
+export type Agent = ComponentsAgent & { id: string; name: string };
+export type Session = import("@/lib/api-client/types.gen").ComponentsSession;
+export type SessionDetail = import("@/lib/api-client/types.gen").ComponentsSessionDetail;
+export type Identity = ComponentsIdentity & { id: string };
+export type Skill = ComponentsSkill & {
   id: string;
-  agent_id: string;
-  user_id: string;
+  scope: string;
   name: string;
-  base_dir: string;
+  description: string;
+  status: string;
+  disable_model_invocation: boolean;
+};
+export type Tool = ComponentsTool;
+export type SchedulerJob = ComponentsJob;
+export type SchedulerJobRun = JobRun;
+export type BuiltinItem = ComponentsBuiltinResourceDetail;
+export type SkillSearchResult = ComponentsSkillSearchResult & {
   description?: string;
-  archived: boolean;
-  created_at: string;
-  updated_at: string;
-}
+};
+export type VaultEntry = ComponentsVaultEntry;
+export type OAuthProviderConfig = ComponentsOAuthProviderConfig;
+export type ProviderType = ComponentsProviderType;
+export type Provider = ComponentsProvider;
+export type ProviderModel = ComponentsProviderModelItem;
+export type Workspace = SessionWorkspace;
+export type Project = SdkProject;
+export type OAuthFlow = ComponentsOAuthFlowStatus;
+
+// ── SDK extensions (SDK type + UI-only fields) ────────────────────────────────
+
+export type AgentDetail = ComponentsAgent & {
+  id: string;
+  name: string;
+  sandbox: AgentSandbox;
+  template_id?: string;
+  _highlight?: boolean;
+};
+
+export type Channel = ComponentsChannel & {
+  _config?: Record<string, unknown>;
+};
+
+export type User = ComponentsAuthUser & {
+  notify_identity_id?: string | null;
+  default_agent_id?: string;
+};
+
+export type OAuthProvider = ComponentsOAuthProviderStatus & {
+  icon?: string;
+};
+
+export type Plugin = ComponentsPluginView & {
+  id: string;
+  kind: string;
+  name: string;
+  enabled: boolean;
+  capabilities: Array<string>;
+  has_config: boolean;
+  has_status: boolean;
+  supports_notifications?: boolean;
+};
+
+// ── Local types (no SDK equivalent) ───────────────────────────────────────────
 
 export interface ToolBlock {
   type: "tool_call";
@@ -62,24 +128,6 @@ export interface Message {
   model?: string;
 }
 
-export interface Agent {
-  id: string;
-  name: string;
-}
-
-export interface AgentDetail extends Agent {
-  model: string;
-  model_strong: string;
-  model_fast: string;
-  system_prompt: string;
-  soul: string;
-  scope: "system" | "restricted";
-  enabled: boolean;
-  creator_id: number;
-  sandbox: AgentSandbox;
-  template_id?: string;
-}
-
 export interface AgentSandbox {
   network: {
     mode: "disabled" | "allow_all" | "whitelist";
@@ -87,60 +135,11 @@ export interface AgentSandbox {
   };
 }
 
-export interface Identity {
-  id: number;
-  platform: string;
-  external_id: string;
-  name: string;
-  linked_at: string;
-}
-
-export interface User {
-  id: number;
-  username: string;
-  role: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  identities: Identity[];
-  notify_identity_id: number | null;
-  default_agent_id: string;
-}
-
-export interface UserMemory {
+export type UserMemory = ComponentsUserMemory & {
   agent_id: string;
   content: string;
   updated_at: string;
-}
-
-export interface BuiltinItem {
-  id: string;
-  name: string;
-  description: string;
-  content?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface Skill {
-  id: string;
-  name: string;
-  description: string;
-  status: "active" | "draft" | "deprecated";
-  scope: "system" | "user" | "agent";
-  user_id?: number;
-  agent_id?: string;
-  disable_model_invocation: boolean;
-  files?: string[];
-}
-
-export interface SkillSearchResult {
-  id: string;
-  skillId: string;
-  source: string;
-  name: string;
-  description: string;
-  installs: number;
-}
+};
 
 export interface Personalisation {
   soul: string;
@@ -148,72 +147,6 @@ export interface Personalisation {
   profile: string;
   profileDraft: string;
   loaded: boolean;
-}
-
-export interface Tool {
-  name: string;
-  description: string;
-  category: string;
-  input_schema: Record<string, unknown>;
-}
-
-export interface Workspace {
-  root: string;
-  paths: string[];
-  total_files: number;
-  total_dirs: number;
-  total_bytes: number;
-}
-
-export interface SchedulerJob {
-  id: string;
-  name: string;
-  cron: string;
-  every: string;
-  at: string;
-  message: string;
-  session_mode: string;
-  enabled: boolean;
-  agent_id: string;
-  user_id: number;
-  owner_kind: string;
-  plugin_id: string;
-  job_key: string;
-  runtime_name: string;
-  description: string;
-  payload: Record<string, unknown>;
-  last_run_at: string;
-  last_error: string;
-}
-
-export interface SchedulerJobRun {
-  id: string;
-  status: string;
-  started_at: string;
-  finished_at?: string;
-  duration: string;
-  session_id: string;
-  error: string;
-}
-
-export interface SchedulerJobList {
-  items: SchedulerJob[];
-}
-
-// Plugin types
-export interface Plugin {
-  id: string;
-  kind: string;
-  name: string;
-  display_name: string;
-  description: string;
-  enabled: boolean;
-  config: Record<string, unknown>;
-  capabilities: string[];
-  has_config: boolean;
-  has_status: boolean;
-  managed?: boolean;
-  supports_notifications?: boolean;
 }
 
 export interface ManifestBinary {
@@ -295,12 +228,6 @@ export interface PluginWithMeta extends Plugin {
   _manifestPlugin?: ManifestPlugin | null;
 }
 
-export interface ProviderType {
-  id: string;
-  name: string;
-  default_url: string;
-}
-
 export interface ModelCost {
   input: number;
   output: number;
@@ -320,23 +247,6 @@ export interface ModelConfig {
   cost?: ModelCost;
 }
 
-export interface Provider {
-  id: string;
-  type: string;
-  name: string;
-  enabled: boolean;
-  api_key: string;
-  base_url: string;
-  models: Record<string, ModelConfig>;
-}
-
-export interface ProviderModel {
-  id: string;
-  name: string;
-  enabled: boolean;
-  source: string;
-}
-
 export interface CustomModelForm {
   original_id: string;
   id: string;
@@ -351,44 +261,4 @@ export interface CustomModelForm {
   cost_output: string;
   cost_cache_read: string;
   cost_cache_write: string;
-}
-
-export interface VaultEntry {
-  name: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OAuthProvider {
-  provider: string;
-  icon?: string;
-  available: boolean;
-  configured: boolean;
-  connected: boolean;
-  username?: string;
-  unavailable?: string;
-}
-
-export interface OAuthProviderConfig {
-  provider_id: string;
-  client_id: string;
-  client_secret: string;
-  redirect_url?: string;
-}
-
-export interface OAuthFlow {
-  flow_id: string;
-  verification_uri: string;
-  user_code: string;
-}
-
-export interface Channel {
-  id: string;
-  type: string;
-  label: string;
-  agent_id: string;
-  agent_name: string;
-  enabled: boolean;
-  config: string;
-  _config?: Record<string, unknown>;
 }

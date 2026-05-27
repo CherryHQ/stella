@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"testing/fstest"
+
+	"github.com/CherryHQ/stella/internal/orgctx"
 )
 
 // testSkillMD builds a minimal SKILL.md with the given frontmatter description.
@@ -13,9 +15,15 @@ func testSkillMD(description string) string {
 	return "---\nname: foo\ndescription: " + description + "\nstatus: active\n---\n\n# Foo\n"
 }
 
-func TestSyncBuiltin(t *testing.T) {
-	ctx := context.Background()
+// newTestStoreWithOrg creates a test store and returns a context with org and the org ID.
+func newTestStoreWithOrg(t *testing.T) (*SQLiteStore, *sql.DB, context.Context, string) {
+	t.Helper()
+	store, db, ctx := newTestStore(t)
+	orgID := orgctx.OrgIDFromContext(ctx)
+	return store, db, ctx, orgID
+}
 
+func TestSyncBuiltin(t *testing.T) {
 	// Build a fake embedded FS with one skill and one non-skill directory.
 	baseFS := func(skillMDContent, refContent string) fstest.MapFS {
 		m := fstest.MapFS{
@@ -27,10 +35,10 @@ func TestSyncBuiltin(t *testing.T) {
 	}
 
 	t.Run("initial sync creates skill and files", func(t *testing.T) {
-		store, _ := newTestStore(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := baseFS(testSkillMD("test skill"), "reference content")
 
-		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
+		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
 			t.Fatalf("SyncBuiltin: %v", err)
 		}
 
@@ -75,17 +83,17 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("second sync with changed content updates file", func(t *testing.T) {
-		store, _ := newTestStore(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := baseFS(testSkillMD("test skill"), "original reference")
 
-		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
+		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
 			t.Fatalf("first SyncBuiltin: %v", err)
 		}
 
 		// Change the reference file content.
 		fakeFS["foo/references/a.md"] = &fstest.MapFile{Data: []byte("updated reference")}
 
-		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
+		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
 			t.Fatalf("second SyncBuiltin: %v", err)
 		}
 
@@ -100,10 +108,10 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("second sync with removed file deletes orphan", func(t *testing.T) {
-		store, _ := newTestStore(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := baseFS(testSkillMD("test skill"), "reference content")
 
-		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
+		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
 			t.Fatalf("first SyncBuiltin: %v", err)
 		}
 
@@ -113,7 +121,7 @@ func TestSyncBuiltin(t *testing.T) {
 			"agents/researcher.md": {Data: []byte("# Researcher\n")},
 		}
 
-		if err := SyncBuiltin(ctx, store, reducedFS); err != nil {
+		if err := SyncBuiltin(ctx, store, reducedFS, orgID); err != nil {
 			t.Fatalf("second SyncBuiltin: %v", err)
 		}
 
@@ -133,14 +141,14 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("agents dir without SKILL.md is not imported as skill", func(t *testing.T) {
-		store, _ := newTestStore(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := fstest.MapFS{
 			"foo/SKILL.md":         {Data: []byte(testSkillMD("test skill"))},
 			"agents/coder.md":      {Data: []byte("# Coder\n")},
 			"agents/researcher.md": {Data: []byte("# Researcher\n")},
 		}
 
-		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
+		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
 			t.Fatalf("SyncBuiltin: %v", err)
 		}
 
@@ -158,13 +166,13 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("nested skill roots sync by leaf name and relative files", func(t *testing.T) {
-		store, _ := newTestStore(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := fstest.MapFS{
 			"system/lark-cli/SKILL.md":        {Data: []byte("---\nname: lark-cli\ndescription: nested\nstatus: active\n---\n\n# Lark\n")},
 			"system/lark-cli/references/a.md": {Data: []byte("nested ref")},
 		}
 
-		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
+		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
 			t.Fatalf("SyncBuiltin: %v", err)
 		}
 
@@ -185,13 +193,13 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("removed system skills are deleted on full sync", func(t *testing.T) {
-		store, db := newTestStore(t)
-		userID, _ := seedFixtures(t, db)
+		store, db, ctx, orgID := newTestStoreWithOrg(t)
+		userID, _, _ := seedFixtures(t, db)
 		initialFS := fstest.MapFS{
 			"system/foo/SKILL.md": {Data: []byte(testSkillMD("foo skill"))},
 			"system/bar/SKILL.md": {Data: []byte("---\nname: bar\ndescription: bar skill\nstatus: active\n---\n\n# Bar\n")},
 		}
-		if err := SyncBuiltin(ctx, store, initialFS); err != nil {
+		if err := SyncBuiltin(ctx, store, initialFS, orgID); err != nil {
 			t.Fatalf("initial SyncBuiltin: %v", err)
 		}
 
@@ -208,7 +216,7 @@ func TestSyncBuiltin(t *testing.T) {
 		reducedFS := fstest.MapFS{
 			"system/foo/SKILL.md": {Data: []byte(testSkillMD("foo skill"))},
 		}
-		if err := SyncBuiltin(ctx, store, reducedFS); err != nil {
+		if err := SyncBuiltin(ctx, store, reducedFS, orgID); err != nil {
 			t.Fatalf("second SyncBuiltin: %v", err)
 		}
 

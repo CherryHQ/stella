@@ -3,20 +3,15 @@ package main
 import (
 	"context"
 	"database/sql"
-	"maps"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/providers"
-	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 func buildToolLifecycle(phost *pluginhost.Host) *coreagent.ToolLifecycle {
@@ -97,70 +92,4 @@ func buildProjectEnsurer(db *sql.DB, store config.Store) agent.ProjectEnsurerFun
 		}
 		return p.ID, nil
 	}
-}
-
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []pkgtools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerStreamBuilder agent.ProviderStreamBuilder, promptToolsFn prompt.ToolsBuilder, promptSectionsFn prompt.SectionsBuilder, sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
-	return func(provider, model string) error {
-		snap := *base
-		snap.Provider = provider
-		snap.Model = provider + "/" + model
-
-		if p, err := store.GetProvider(context.Background(), provider); err == nil {
-			providers := make(map[string]config.ProviderCreds, len(base.Providers)+1)
-			maps.Copy(providers, base.Providers)
-			providers[provider] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL}
-			snap.Providers = providers
-		}
-
-		factory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-			Snap:                     &snap,
-			BuiltinTools:             builtinTools,
-			PluginToolsBuilder:       pluginToolsBuilder,
-			ProviderStreamBuilder:    providerStreamBuilder,
-			PromptToolsBuilder:       promptToolsFn,
-			PromptSectionsBuilder:    promptSectionsFn,
-			SessionPluginViewBuilder: sessionPluginViewFn,
-			ToolLifecycle:            toolLifecycle,
-		})
-		if err != nil {
-			return err
-		}
-		pool.SetFactory(factory)
-		pool.SetDefaultModel(snap.Model)
-		return nil
-	}
-}
-
-func (s *setupResult) modelListFunc(snap *config.Snapshot) func() []pkgchannel.ModelOption {
-	return func() []pkgchannel.ModelOption {
-		return collectModelsFromStore(s.ctx, s.store, snap)
-	}
-}
-
-func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) func(string, string) error {
-	return modelSwitcher(
-		snap,
-		s.store,
-		pool,
-		s.builtinTools,
-		s.pluginToolsBuilder,
-		func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
-			provider, err := s.store.GetProvider(s.ctx, api)
-			if err != nil {
-				return nil, err
-			}
-			providerType := provider.Type
-			if providerType == "" {
-				providerType = provider.ID
-			}
-			return s.pluginHost.BuildStreamFunc(providerType, map[string]any{
-				"api_key":  apiKey,
-				"base_url": baseURL,
-			})
-		},
-		s.promptToolsBuilder,
-		s.promptSectionsBuilder,
-		s.sessionPluginViewBuilder,
-		s.toolLifecycle,
-	)
 }

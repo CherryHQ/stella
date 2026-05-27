@@ -8,6 +8,9 @@ import {
 } from "./client";
 import { client } from "./client.gen";
 import type {
+  AcceptInviteData,
+  AcceptInviteErrors,
+  AcceptInviteResponses,
   AddAgentTaskDepData,
   AddAgentTaskDepErrors,
   AddAgentTaskDepResponses,
@@ -26,9 +29,9 @@ import type {
   CreateAgentData,
   CreateAgentErrors,
   CreateAgentResponses,
-  CreateAgentScopedSkillData,
-  CreateAgentScopedSkillErrors,
-  CreateAgentScopedSkillResponses,
+  CreateAgentSkillData,
+  CreateAgentSkillErrors,
+  CreateAgentSkillResponses,
   CreateAgentTaskData,
   CreateAgentTaskErrors,
   CreateAgentTaskResponses,
@@ -38,6 +41,9 @@ import type {
   CreateFeedData,
   CreateFeedErrors,
   CreateFeedResponses,
+  CreateInviteData,
+  CreateInviteErrors,
+  CreateInviteResponses,
   CreateProjectData,
   CreateProjectErrors,
   CreateProjectResponses,
@@ -53,24 +59,30 @@ import type {
   CreateShareData,
   CreateShareErrors,
   CreateShareResponses,
+  CreateWorkspaceData,
+  CreateWorkspaceErrors,
   CreateWorkspaceFileData,
   CreateWorkspaceFileErrors,
   CreateWorkspaceFileResponses,
+  CreateWorkspaceResponses,
   DeleteAgentData,
   DeleteAgentErrors,
   DeleteAgentResponses,
-  DeleteAgentScopedSkillData,
-  DeleteAgentScopedSkillErrors,
-  DeleteAgentScopedSkillFileData,
-  DeleteAgentScopedSkillFileErrors,
-  DeleteAgentScopedSkillFileResponses,
-  DeleteAgentScopedSkillResponses,
+  DeleteAgentSkillData,
+  DeleteAgentSkillErrors,
+  DeleteAgentSkillFileData,
+  DeleteAgentSkillFileErrors,
+  DeleteAgentSkillFileResponses,
+  DeleteAgentSkillResponses,
   DeleteAgentTaskData,
   DeleteAgentTaskErrors,
   DeleteAgentTaskResponses,
   DeleteArticleData,
   DeleteArticleErrors,
   DeleteArticleResponses,
+  DeleteAuthSessionData,
+  DeleteAuthSessionErrors,
+  DeleteAuthSessionResponses,
   DeleteAuthUserIdentityData,
   DeleteAuthUserIdentityErrors,
   DeleteAuthUserIdentityResponses,
@@ -116,12 +128,12 @@ import type {
   GetAgentData,
   GetAgentErrors,
   GetAgentResponses,
-  GetAgentScopedSkillData,
-  GetAgentScopedSkillErrors,
-  GetAgentScopedSkillFileData,
-  GetAgentScopedSkillFileErrors,
-  GetAgentScopedSkillFileResponses,
-  GetAgentScopedSkillResponses,
+  GetAgentSkillData,
+  GetAgentSkillErrors,
+  GetAgentSkillFileData,
+  GetAgentSkillFileErrors,
+  GetAgentSkillFileResponses,
+  GetAgentSkillResponses,
   GetAgentTaskData,
   GetAgentTaskDepsData,
   GetAgentTaskDepsErrors,
@@ -146,6 +158,9 @@ import type {
   GetFeedData,
   GetFeedErrors,
   GetFeedResponses,
+  GetInviteInfoData,
+  GetInviteInfoErrors,
+  GetInviteInfoResponses,
   GetMeData,
   GetMeErrors,
   GetMeResponses,
@@ -155,6 +170,9 @@ import type {
   GetOAuthProviderConfigData,
   GetOAuthProviderConfigErrors,
   GetOAuthProviderConfigResponses,
+  GetOnboardingStatusData,
+  GetOnboardingStatusErrors,
+  GetOnboardingStatusResponses,
   GetPluginConfigData,
   GetPluginConfigErrors,
   GetPluginConfigResponses,
@@ -199,9 +217,12 @@ import type {
   GetWorkspaceFileContentData,
   GetWorkspaceFileContentErrors,
   GetWorkspaceFileContentResponses,
-  InstallAgentScopedSkillData,
-  InstallAgentScopedSkillErrors,
-  InstallAgentScopedSkillResponses,
+  InstallAgentSkillData,
+  InstallAgentSkillErrors,
+  InstallAgentSkillResponses,
+  LinkAuthUserLoginIdentityData,
+  LinkAuthUserLoginIdentityErrors,
+  LinkAuthUserLoginIdentityResponses,
   ListAgentsData,
   ListAgentsErrors,
   ListAgentSkillsData,
@@ -220,9 +241,20 @@ import type {
   ListArticlesData,
   ListArticlesErrors,
   ListArticlesResponses,
+  ListAuthProvidersData,
+  ListAuthProvidersResponses,
+  ListAuthSessionsData,
+  ListAuthSessionsErrors,
+  ListAuthSessionsResponses,
   ListAuthUserAgentsData,
   ListAuthUserAgentsErrors,
   ListAuthUserAgentsResponses,
+  ListAuthUserChannelIdentitiesData,
+  ListAuthUserChannelIdentitiesErrors,
+  ListAuthUserChannelIdentitiesResponses,
+  ListAuthUserLoginIdentitiesData,
+  ListAuthUserLoginIdentitiesErrors,
+  ListAuthUserLoginIdentitiesResponses,
   ListAuthUsersData,
   ListAuthUsersErrors,
   ListAuthUsersResponses,
@@ -238,6 +270,9 @@ import type {
   ListFeedsData,
   ListFeedsErrors,
   ListFeedsResponses,
+  ListInvitesData,
+  ListInvitesErrors,
+  ListInvitesResponses,
   ListManifestPluginsData,
   ListManifestPluginsErrors,
   ListManifestPluginsResponses,
@@ -298,9 +333,6 @@ import type {
   ListVaultEntriesData,
   ListVaultEntriesErrors,
   ListVaultEntriesResponses,
-  LoginData,
-  LoginErrors,
-  LoginResponses,
   LogoutData,
   LogoutErrors,
   LogoutResponses,
@@ -318,15 +350,18 @@ import type {
   PollWeixinQrStatusData,
   PollWeixinQrStatusErrors,
   PollWeixinQrStatusResponses,
-  RegisterData,
-  RegisterErrors,
-  RegisterResponses,
+  RedeemInviteOnboardingData,
+  RedeemInviteOnboardingErrors,
+  RedeemInviteOnboardingResponses,
   RemoveAgentTaskDepData,
   RemoveAgentTaskDepErrors,
   RemoveAgentTaskDepResponses,
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
+  RevokeInviteData,
+  RevokeInviteErrors,
+  RevokeInviteResponses,
   RevokeShareData,
   RevokeShareErrors,
   RevokeShareResponses,
@@ -382,9 +417,9 @@ import type {
   UpdateAgentData,
   UpdateAgentErrors,
   UpdateAgentResponses,
-  UpdateAgentScopedSkillData,
-  UpdateAgentScopedSkillErrors,
-  UpdateAgentScopedSkillResponses,
+  UpdateAgentSkillData,
+  UpdateAgentSkillErrors,
+  UpdateAgentSkillResponses,
   UpdateAgentTaskData,
   UpdateAgentTaskErrors,
   UpdateAgentTaskResponses,
@@ -409,6 +444,9 @@ import type {
   UpdateFeedEntryResponses,
   UpdateFeedErrors,
   UpdateFeedResponses,
+  UpdateOrgData,
+  UpdateOrgErrors,
+  UpdateOrgResponses,
   UpdatePluginConfigData,
   UpdatePluginConfigErrors,
   UpdatePluginConfigResponses,
@@ -430,9 +468,9 @@ import type {
   UpdateWorkspaceFileContentData,
   UpdateWorkspaceFileContentErrors,
   UpdateWorkspaceFileContentResponses,
-  UploadAgentScopedSkillData,
-  UploadAgentScopedSkillErrors,
-  UploadAgentScopedSkillResponses,
+  UploadAgentSkillData,
+  UploadAgentSkillErrors,
+  UploadAgentSkillResponses,
   UploadWorkspaceFileData,
   UploadWorkspaceFileErrors,
   UploadWorkspaceFileResponses,
@@ -468,40 +506,6 @@ export const getStatus = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Register a new user account
- */
-export const register = <ThrowOnError extends boolean = false>(
-  options: Options<RegisterData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<
-    RegisterResponses,
-    RegisterErrors,
-    ThrowOnError
-  >({
-    url: "/api/auth/register",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
- * Authenticate and start a session
- */
-export const login = <ThrowOnError extends boolean = false>(
-  options: Options<LoginData, ThrowOnError>,
-) =>
-  (options.client ?? client).post<LoginResponses, LoginErrors, ThrowOnError>({
-    url: "/api/auth/login",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-/**
  * End the current session
  */
 export const logout = <ThrowOnError extends boolean = false>(
@@ -524,6 +528,206 @@ export const getMe = <ThrowOnError extends boolean = false>(
   (options?.client ?? client).get<GetMeResponses, GetMeErrors, ThrowOnError>({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/me",
+    ...options,
+  });
+
+/**
+ * List available authentication providers
+ */
+export const listAuthProviders = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAuthProvidersData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListAuthProvidersResponses,
+    unknown,
+    ThrowOnError
+  >({ url: "/api/auth/providers", ...options });
+
+/**
+ * Update the current user's organization name
+ */
+export const updateOrg = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateOrgData, ThrowOnError>,
+) =>
+  (options.client ?? client).patch<
+    UpdateOrgResponses,
+    UpdateOrgErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/org",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Get onboarding status for the current user
+ */
+export const getOnboardingStatus = <ThrowOnError extends boolean = false>(
+  options?: Options<GetOnboardingStatusData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    GetOnboardingStatusResponses,
+    GetOnboardingStatusErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/onboarding",
+    ...options,
+  });
+
+/**
+ * Create a new workspace (org) for the current user
+ */
+export const createWorkspace = <ThrowOnError extends boolean = false>(
+  options: Options<CreateWorkspaceData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateWorkspaceResponses,
+    CreateWorkspaceErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/onboarding/create-workspace",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Redeem an invite token during onboarding
+ */
+export const redeemInviteOnboarding = <ThrowOnError extends boolean = false>(
+  options: Options<RedeemInviteOnboardingData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    RedeemInviteOnboardingResponses,
+    RedeemInviteOnboardingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/onboarding/redeem-invite",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List current user's active sessions
+ */
+export const listAuthSessions = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAuthSessionsData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListAuthSessionsResponses,
+    ListAuthSessionsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/sessions",
+    ...options,
+  });
+
+/**
+ * Revoke an auth session
+ */
+export const deleteAuthSession = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAuthSessionData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    DeleteAuthSessionResponses,
+    DeleteAuthSessionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/sessions/{id}",
+    ...options,
+  });
+
+/**
+ * List invites for the current user's org (admin only)
+ */
+export const listInvites = <ThrowOnError extends boolean = false>(
+  options?: Options<ListInvitesData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    ListInvitesResponses,
+    ListInvitesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites",
+    ...options,
+  });
+
+/**
+ * Create an invite for the current user's org (admin only)
+ */
+export const createInvite = <ThrowOnError extends boolean = false>(
+  options: Options<CreateInviteData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateInviteResponses,
+    CreateInviteErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Revoke a pending invite (admin only)
+ */
+export const revokeInvite = <ThrowOnError extends boolean = false>(
+  options: Options<RevokeInviteData, ThrowOnError>,
+) =>
+  (options.client ?? client).delete<
+    RevokeInviteResponses,
+    RevokeInviteErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites/{id}",
+    ...options,
+  });
+
+/**
+ * Get invite metadata (public, for accept page)
+ */
+export const getInviteInfo = <ThrowOnError extends boolean = false>(
+  options: Options<GetInviteInfoData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    GetInviteInfoResponses,
+    GetInviteInfoErrors,
+    ThrowOnError
+  >({ url: "/api/auth/invites/{token}/info", ...options });
+
+/**
+ * Accept an invite (authenticated users)
+ */
+export const acceptInvite = <ThrowOnError extends boolean = false>(
+  options: Options<AcceptInviteData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    AcceptInviteResponses,
+    AcceptInviteErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/invites/{token}/accept",
     ...options,
   });
 
@@ -601,7 +805,7 @@ export const getAgent = <ThrowOnError extends boolean = false>(
 export const updateAgent = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAgentResponses,
     UpdateAgentErrors,
     ThrowOnError
@@ -686,16 +890,16 @@ export const listAgentSkills = <ThrowOnError extends boolean = false>(
 /**
  * Create a skill in an agent or current-user scope
  */
-export const createAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<CreateAgentScopedSkillData, ThrowOnError>,
+export const createAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<CreateAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    CreateAgentScopedSkillResponses,
-    CreateAgentScopedSkillErrors,
+    CreateAgentSkillResponses,
+    CreateAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}",
+    url: "/api/agents/{id}/skills",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -704,18 +908,18 @@ export const createAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Install a skill in an agent or current-user scope
+ * Install a skill from a remote source
  */
-export const installAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<InstallAgentScopedSkillData, ThrowOnError>,
+export const installAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<InstallAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    InstallAgentScopedSkillResponses,
-    InstallAgentScopedSkillErrors,
+    InstallAgentSkillResponses,
+    InstallAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/install",
+    url: "/api/agents/{id}/skills:install",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -724,19 +928,19 @@ export const installAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Upload a skill zip in an agent or current-user scope
+ * Upload a skill zip
  */
-export const uploadAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UploadAgentScopedSkillData, ThrowOnError>,
+export const uploadAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<UploadAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    UploadAgentScopedSkillResponses,
-    UploadAgentScopedSkillErrors,
+    UploadAgentSkillResponses,
+    UploadAgentSkillErrors,
     ThrowOnError
   >({
     ...formDataBodySerializer,
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/upload",
+    url: "/api/agents/{id}/skills:upload",
     ...options,
     headers: {
       "Content-Type": null,
@@ -745,50 +949,50 @@ export const uploadAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Delete a skill in an agent or current-user scope
+ * Delete a skill
  */
-export const deleteAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteAgentScopedSkillData, ThrowOnError>,
+export const deleteAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).delete<
-    DeleteAgentScopedSkillResponses,
-    DeleteAgentScopedSkillErrors,
+    DeleteAgentSkillResponses,
+    DeleteAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}",
+    url: "/api/agents/{id}/skills/{skillId}",
     ...options,
   });
 
 /**
- * Get a skill in an agent context
+ * Get a skill by name (optionally scoped)
  */
-export const getAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<GetAgentScopedSkillData, ThrowOnError>,
+export const getAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).get<
-    GetAgentScopedSkillResponses,
-    GetAgentScopedSkillErrors,
+    GetAgentSkillResponses,
+    GetAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}",
+    url: "/api/agents/{id}/skills/{skillId}",
     ...options,
   });
 
 /**
- * Update a skill in an agent or current-user scope
+ * Update a skill
  */
-export const updateAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateAgentScopedSkillData, ThrowOnError>,
+export const updateAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAgentSkillData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
-    UpdateAgentScopedSkillResponses,
-    UpdateAgentScopedSkillErrors,
+  (options.client ?? client).patch<
+    UpdateAgentSkillResponses,
+    UpdateAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}",
+    url: "/api/agents/{id}/skills/{skillId}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -797,36 +1001,34 @@ export const updateAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Delete a skill file in an agent or current-user scope
+ * Delete a skill file
  */
-export const deleteAgentScopedSkillFile = <
-  ThrowOnError extends boolean = false,
->(
-  options: Options<DeleteAgentScopedSkillFileData, ThrowOnError>,
+export const deleteAgentSkillFile = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentSkillFileData, ThrowOnError>,
 ) =>
   (options.client ?? client).delete<
-    DeleteAgentScopedSkillFileResponses,
-    DeleteAgentScopedSkillFileErrors,
+    DeleteAgentSkillFileResponses,
+    DeleteAgentSkillFileErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}/file",
+    url: "/api/agents/{id}/skills/{skillId}/file",
     ...options,
   });
 
 /**
- * Get a skill file in an agent context
+ * Get a skill file by path
  */
-export const getAgentScopedSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<GetAgentScopedSkillFileData, ThrowOnError>,
+export const getAgentSkillFile = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentSkillFileData, ThrowOnError>,
 ) =>
   (options.client ?? client).get<
-    GetAgentScopedSkillFileResponses,
-    GetAgentScopedSkillFileErrors,
+    GetAgentSkillFileResponses,
+    GetAgentSkillFileErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}/file",
+    url: "/api/agents/{id}/skills/{skillId}/file",
     ...options,
   });
 
@@ -904,7 +1106,7 @@ export const getProject = <ThrowOnError extends boolean = false>(
 export const updateProject = <ThrowOnError extends boolean = false>(
   options: Options<UpdateProjectData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateProjectResponses,
     UpdateProjectErrors,
     ThrowOnError
@@ -1008,7 +1210,7 @@ export const getArticle = <ThrowOnError extends boolean = false>(
 export const updateArticle = <ThrowOnError extends boolean = false>(
   options: Options<UpdateArticleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateArticleResponses,
     UpdateArticleErrors,
     ThrowOnError
@@ -1094,7 +1296,7 @@ export const getFeed = <ThrowOnError extends boolean = false>(
 export const updateFeed = <ThrowOnError extends boolean = false>(
   options: Options<UpdateFeedData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateFeedResponses,
     UpdateFeedErrors,
     ThrowOnError
@@ -1146,7 +1348,7 @@ export const listFeedEntries = <ThrowOnError extends boolean = false>(
 export const updateFeedEntry = <ThrowOnError extends boolean = false>(
   options: Options<UpdateFeedEntryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateFeedEntryResponses,
     UpdateFeedEntryErrors,
     ThrowOnError
@@ -1382,7 +1584,7 @@ export const getChannel = <ThrowOnError extends boolean = false>(
 export const updateChannel = <ThrowOnError extends boolean = false>(
   options: Options<UpdateChannelData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateChannelResponses,
     UpdateChannelErrors,
     ThrowOnError
@@ -1502,7 +1704,7 @@ export const getProvider = <ThrowOnError extends boolean = false>(
 export const updateProvider = <ThrowOnError extends boolean = false>(
   options: Options<UpdateProviderData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateProviderResponses,
     UpdateProviderErrors,
     ThrowOnError
@@ -1760,7 +1962,7 @@ export const updateWorkspaceFileContent = <
 >(
   options: Options<UpdateWorkspaceFileContentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateWorkspaceFileContentResponses,
     UpdateWorkspaceFileContentErrors,
     ThrowOnError
@@ -1881,7 +2083,7 @@ export const getShareContent = <ThrowOnError extends boolean = false>(
 export const updateUserDefaultAgent = <ThrowOnError extends boolean = false>(
   options: Options<UpdateUserDefaultAgentData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateUserDefaultAgentResponses,
     UpdateUserDefaultAgentErrors,
     ThrowOnError
@@ -1901,7 +2103,7 @@ export const updateUserDefaultAgent = <ThrowOnError extends boolean = false>(
 export const updateUserNotifyIdentity = <ThrowOnError extends boolean = false>(
   options: Options<UpdateUserNotifyIdentityData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateUserNotifyIdentityResponses,
     UpdateUserNotifyIdentityErrors,
     ThrowOnError
@@ -1953,7 +2155,7 @@ export const deleteUserMemory = <ThrowOnError extends boolean = false>(
 export const setUserMemory = <ThrowOnError extends boolean = false>(
   options: Options<SetUserMemoryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SetUserMemoryResponses,
     SetUserMemoryErrors,
     ThrowOnError
@@ -2005,7 +2207,7 @@ export const getAuthUser = <ThrowOnError extends boolean = false>(
 export const updateAuthUserRole = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAuthUserRoleData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAuthUserRoleResponses,
     UpdateAuthUserRoleErrors,
     ThrowOnError
@@ -2041,7 +2243,7 @@ export const listAuthUserAgents = <ThrowOnError extends boolean = false>(
 export const updateAuthUserAgents = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAuthUserAgentsData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAuthUserAgentsResponses,
     UpdateAuthUserAgentsErrors,
     ThrowOnError
@@ -2053,6 +2255,62 @@ export const updateAuthUserAgents = <ThrowOnError extends boolean = false>(
       "Content-Type": "application/json",
       ...options.headers,
     },
+  });
+
+/**
+ * List OIDC login identities for an auth user (admin only)
+ */
+export const listAuthUserLoginIdentities = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<ListAuthUserLoginIdentitiesData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAuthUserLoginIdentitiesResponses,
+    ListAuthUserLoginIdentitiesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/users/{id}/identities/login",
+    ...options,
+  });
+
+/**
+ * Link an OIDC login identity to an auth user (admin only)
+ */
+export const linkAuthUserLoginIdentity = <ThrowOnError extends boolean = false>(
+  options: Options<LinkAuthUserLoginIdentityData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    LinkAuthUserLoginIdentityResponses,
+    LinkAuthUserLoginIdentityErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/users/{id}/identities/login",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List channel identities for an auth user (admin only)
+ */
+export const listAuthUserChannelIdentities = <
+  ThrowOnError extends boolean = false,
+>(
+  options: Options<ListAuthUserChannelIdentitiesData, ThrowOnError>,
+) =>
+  (options.client ?? client).get<
+    ListAuthUserChannelIdentitiesResponses,
+    ListAuthUserChannelIdentitiesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/users/{id}/identities/channel",
+    ...options,
   });
 
 /**
@@ -2077,7 +2335,7 @@ export const deleteAuthUserIdentity = <ThrowOnError extends boolean = false>(
 export const updateAuthUserActive = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAuthUserActiveData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAuthUserActiveResponses,
     UpdateAuthUserActiveErrors,
     ThrowOnError
@@ -2129,7 +2387,7 @@ export const unlinkProfileIdentity = <ThrowOnError extends boolean = false>(
 export const changePassword = <ThrowOnError extends boolean = false>(
   options: Options<ChangePasswordData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     ChangePasswordResponses,
     ChangePasswordErrors,
     ThrowOnError
@@ -2201,7 +2459,7 @@ export const deleteProfileMemory = <ThrowOnError extends boolean = false>(
 export const setProfileMemory = <ThrowOnError extends boolean = false>(
   options: Options<SetProfileMemoryData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SetProfileMemoryResponses,
     SetProfileMemoryErrors,
     ThrowOnError
@@ -2221,7 +2479,7 @@ export const setProfileMemory = <ThrowOnError extends boolean = false>(
 export const setProfileSoul = <ThrowOnError extends boolean = false>(
   options: Options<SetProfileSoulData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SetProfileSoulResponses,
     SetProfileSoulErrors,
     ThrowOnError
@@ -2520,7 +2778,7 @@ export const getSchedulerJob = <ThrowOnError extends boolean = false>(
 export const updateSchedulerJob = <ThrowOnError extends boolean = false>(
   options: Options<UpdateSchedulerJobData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateSchedulerJobResponses,
     UpdateSchedulerJobErrors,
     ThrowOnError
@@ -2676,7 +2934,7 @@ export const getAgentTask = <ThrowOnError extends boolean = false>(
 export const updateAgentTask = <ThrowOnError extends boolean = false>(
   options: Options<UpdateAgentTaskData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdateAgentTaskResponses,
     UpdateAgentTaskErrors,
     ThrowOnError
@@ -2852,7 +3110,7 @@ export const getPluginConfig = <ThrowOnError extends boolean = false>(
 export const updatePluginConfig = <ThrowOnError extends boolean = false>(
   options: Options<UpdatePluginConfigData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     UpdatePluginConfigResponses,
     UpdatePluginConfigErrors,
     ThrowOnError
@@ -2904,7 +3162,7 @@ export const listManifestPlugins = <ThrowOnError extends boolean = false>(
 export const saveManifestPlugins = <ThrowOnError extends boolean = false>(
   options: Options<SaveManifestPluginsData, ThrowOnError>,
 ) =>
-  (options.client ?? client).put<
+  (options.client ?? client).patch<
     SaveManifestPluginsResponses,
     SaveManifestPluginsErrors,
     ThrowOnError

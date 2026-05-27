@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body struct {
@@ -18,15 +18,15 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.authStore.UpdateUserDefaultAgent(r.Context(), id, body.DefaultAgentID); err != nil {
+	if err := s.users.UpdateUserDefaultAgent(r.Context(), id, body.DefaultAgentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeNoContent(w)
 }
 
 func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body struct {
@@ -36,15 +36,15 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.authStore.UpdateUserNotifyIdentity(r.Context(), id, body.NotifyIdentityID); err != nil {
+	if err := s.users.UpdateUserNotifyIdentity(r.Context(), id, body.NotifyIdentityID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeNoContent(w)
 }
 
 func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), id)
@@ -56,7 +56,7 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body struct {
@@ -71,11 +71,11 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+	writeNoContent(w)
 }
 
 func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
@@ -83,5 +83,5 @@ func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writeNoContent(w)
 }

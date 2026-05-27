@@ -50,10 +50,7 @@ func loadDelegatePresets(ctx context.Context, stellaHome, agentRoot, userRoot, p
 		}
 	}
 
-	// Each tier scans .agents/agents/ (legacy) then .agents/delegates/ (canonical).
-	// Later entries override earlier ones by name, so delegates/ wins over agents/.
 	scanTier := func(root, source string) {
-		addDir(filepath.Join(root, ".agents", "agents"), source)
 		addDir(filepath.Join(root, ".agents", "delegates"), source)
 	}
 

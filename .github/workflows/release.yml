@@ -31,13 +31,28 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.8
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Install pnpm
-        run: npm install -g pnpm@11.0.8 --ignore-scripts
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

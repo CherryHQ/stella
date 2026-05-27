@@ -2,12 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Agent, Session, Project } from "@/lib/types";
-import { api } from "@/lib/api";
-import type { AgentTaskList } from "@/lib/api-client/types.gen";
+import {
+  createProject,
+  createSession as sdkCreateSession,
+  deleteProject as sdkDeleteProject,
+  getSessionWorkspace,
+  listAgentTasks,
+} from "@/lib/api-client/sdk.gen";
 import { cn } from "@/lib/utils";
+import type { AgentTaskList, ComponentsSession } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
-import { agentSkillsOptions, agentMemoriesOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
 import { AppSidebar, SectionLabel } from "@/components/AppSidebar";
@@ -52,6 +57,13 @@ function sessionTitle(s: Session): string {
   return s.title || "Untitled";
 }
 
+function sessionKindLabel(s: Session): string {
+  if (s.kind === "main") return "main";
+  if (s.kind === "task") return "task";
+  if (s.kind === "scheduler") return "run";
+  return "chat";
+}
+
 // ── icons ────────────────────────────────────────────────────────────────────
 
 function ChevRight({ className }: { className?: string }) {
@@ -68,36 +80,10 @@ function ChevRight({ className }: { className?: string }) {
   );
 }
 
-function IconTask() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="m9 11 3 3L22 4" />
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-    </svg>
-  );
-}
-
 function IconAutomation() {
   return (
     <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M13 2 3 14h8l-1 8 11-13h-8l0-7z" />
-    </svg>
-  );
-}
-
-function IconSkills() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1" />
-    </svg>
-  );
-}
-
-function IconMemory() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 3a7 7 0 0 0-7 7c0 5 7 11 7 11s7-6 7-11a7 7 0 0 0-7-7z" />
-      <circle cx="12" cy="10" r="2" />
     </svg>
   );
 }
@@ -220,12 +206,12 @@ function FolderTree({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const enc = encodeURIComponent(sessionId);
-    api<{ root: string; paths: string[] }>(
-      "GET",
-      `/api/agents/${encodeURIComponent(agentId)}/sessions/${enc}/workspace?depth=4`,
-    ).then(
-      (ws) => {
+    getSessionWorkspace({
+      path: { agentID: agentId, sessionID: sessionId },
+      query: { depth: 4 },
+      throwOnError: true,
+    }).then(
+      ({ data: ws }) => {
         setDirs(parseDirs(ws.paths));
         if (ws.root) onRootResolved?.(ws.root);
         setLoading(false);
@@ -338,9 +324,10 @@ function CreateProjectDialog({
     setError("");
     try {
       const baseDir = `${userRoot}/${selectedDir}`;
-      await api("POST", `/api/agents/${agentId}/projects`, {
-        name: effectiveName,
-        base_dir: baseDir,
+      await createProject({
+        path: { agentID: agentId },
+        body: { name: effectiveName, base_dir: baseDir },
+        throwOnError: true,
       });
       onCreated();
     } catch (e) {
@@ -458,14 +445,19 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
-  const { data: _skills = [] } = useQuery(agentSkillsOptions(agentId));
-  const { data: _memories = [] } = useQuery(agentMemoriesOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
-    queryFn: () => api<AgentTaskList>("GET", `/api/agents/${encodeURIComponent(agentId)}/tasks`),
+    queryFn: async () => {
+      const { data } = await listAgentTasks({ path: { agentID: agentId }, throwOnError: true });
+      return data as AgentTaskList;
+    },
   });
-  const taskCount = taskList?.items?.length ?? 0;
+  const taskAttentionCount =
+    taskList?.items?.filter(
+      (task) =>
+        task.status === "blocked" || task.status === "review_requested" || task.status === "failed",
+    ).length ?? 0;
 
   // ── active route detection ───────────────────────────────────────────────
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
@@ -486,11 +478,11 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
-    const sess = await api<Session>(
-      "POST",
-      `/api/agents/${encodeURIComponent(agentId)}/sessions`,
-      {},
-    );
+    const { data } = await sdkCreateSession({
+      path: { agentID: agentId },
+      throwOnError: true,
+    });
+    const sess = data as ComponentsSession;
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
     closeMobile();
     void navigate({
@@ -521,7 +513,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const deleteProject = useCallback(
     async (projectId: string) => {
       if (!window.confirm("Delete this project? Sessions will be kept.")) return;
-      await api("DELETE", `/api/agents/${agentId}/projects/${projectId}`);
+      await sdkDeleteProject({
+        path: { agentID: agentId, projectId },
+        throwOnError: true,
+      });
       await queryClient.invalidateQueries({ queryKey: ["projects", agentId] });
     },
     [agentId, queryClient],
@@ -609,43 +604,15 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           <SectionLabel>Workspace</SectionLabel>
           <div className="grid gap-0.5">
             <NavItem
-              active={isActive(`/agents/${agentId}/tasks`)}
-              icon={<IconTask />}
-              label={t("sessions.sidebar.tasks")}
-              badge={taskCount}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/tasks", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={isActive(`/agents/${agentId}/automations`)}
+              active={
+                isActive(`/agents/${agentId}/automations`) || isActive(`/agents/${agentId}/tasks`)
+              }
               icon={<IconAutomation />}
-              label={t("sessions.sidebar.automations")}
+              label={t("sessions.sidebar.work")}
+              badge={taskAttentionCount}
               onClick={() => {
                 closeMobile();
                 void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={isActive(`/agents/${agentId}/skills`)}
-              icon={<IconSkills />}
-              label={t("sessions.sidebar.skills")}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={
-                isActive(`/agents/${agentId}/memories/soul`) ||
-                isActive(`/agents/${agentId}/memories/profile`)
-              }
-              icon={<IconMemory />}
-              label={t("sessions.sidebar.memory")}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId } });
               }}
             />
           </div>
@@ -727,7 +694,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           />
         )}
 
-        {/* ── Chats ──────────────────────────────────────────────────── */}
+        {/* ── Sessions ──────────────────────────────────────────────────── */}
         <section className="mt-3">
           <div className="flex h-[30px] items-center gap-1 pr-1">
             <button
@@ -735,7 +702,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
               onClick={() => setChatsOpen((v) => !v)}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60 hover:bg-foreground/[0.045] hover:text-muted-foreground"
             >
-              <span>Chats</span>
+              <span>Sessions</span>
               <ChevRight
                 className={cn(
                   "size-2.5 text-muted-foreground/40 transition-transform duration-150",
@@ -748,7 +715,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                 type="button"
                 onClick={() => void createSession()}
                 className="grid size-6 place-items-center rounded-lg text-muted-foreground/40 opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
-                title="New chat"
+                title="New temporary thread"
               >
                 <IconNewChat />
               </button>
@@ -768,13 +735,16 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
                     });
                   }}
                   className={cn(
-                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[10px] px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors",
+                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-[10px] px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors",
                     activeSessionId === s.id
                       ? "bg-foreground/[0.045] text-primary"
                       : "text-foreground hover:bg-foreground/[0.045]",
                   )}
                 >
                   <span className="truncate">{sessionTitle(s)}</span>
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground/70">
+                    {sessionKindLabel(s)}
+                  </span>
                   <time className="text-[12px] font-medium text-muted-foreground/60">
                     {relativeTime(s.last_active)}
                   </time>

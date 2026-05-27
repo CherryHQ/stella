@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,9 +64,8 @@ func TestLoadFSSkillsPreservesPerScopeDuplicates(t *testing.T) {
 // including the AgentID wiring (fix 1) and the per-scope dedupe (fix 2).
 // It also verifies idempotency: a second run reports Skipped, not Imported.
 func TestMigrateFilesystemRoundTrip(t *testing.T) {
-	store, db := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
-	ctx := context.Background()
+	store, db, ctx := newTestStore(t)
+	userID, agentID, _ := seedFixtures(t, db)
 
 	root := t.TempDir()
 	agentSkills := filepath.Join(root, "agent", ".agents", "skills")

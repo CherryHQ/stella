@@ -17,6 +17,13 @@ func WithAgentID(id string) PoolOption {
 	}
 }
 
+// WithOrgID sets the organization ID this pool belongs to.
+func WithOrgID(id string) PoolOption {
+	return func(p *Pool) {
+		p.orgID = id
+	}
+}
+
 // WithIdleTimeout sets the idle timeout for reaping runners.
 func WithIdleTimeout(d time.Duration) PoolOption {
 	return func(p *Pool) {

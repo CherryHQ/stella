@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
-import { api } from "@/lib/api";
+import { listAgentTasks, listSchedulerJobRuns } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -18,6 +20,7 @@ interface Props {
   onSelectJob: (jobId: string | null) => void;
   onSelectRun: (jobId: string, runId: string | null) => void;
   onEditJob: (jobId: string) => void;
+  onCreateTask: () => void;
   onCreateJob: () => void;
 }
 
@@ -27,6 +30,11 @@ type RunWithMeta = SchedulerJobRun & {
   job_agent_id?: string;
   job_session_mode?: string;
 };
+
+type BoardItem =
+  | { kind: "task"; task: ComponentsAgentTask }
+  | { kind: "run"; run: RunWithMeta }
+  | { kind: "schedule"; job: SchedulerJob };
 
 function schedulerRunSessionId(
   job: { id: string; agent_id?: string; session_mode?: string },
@@ -47,11 +55,14 @@ export function AutomationDashPanel({
   onSelectJob,
   onSelectRun,
   onEditJob,
+  onCreateTask,
   onCreateJob,
 }: Props) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const isDesktop = useMediaQuery("(min-width: 768px)");
-  const [tab, setTab] = useState<"schedules" | "runs">("schedules");
+  const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
   const [runs, setRuns] = useState<RunWithMeta[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [jobRuns, setJobRuns] = useState<SchedulerJobRun[]>([]);
@@ -71,13 +82,13 @@ export function AutomationDashPanel({
   const selectedRun: RunWithMeta | null =
     selectedRunFromRuns ??
     (selectedRunFromJobRuns
-      ? {
+      ? ({
           ...selectedRunFromJobRuns,
           job_name: selectedJob?.name,
           job_id: selectedJobId,
           job_agent_id: selectedJob?.agent_id,
           job_session_mode: selectedJob?.session_mode,
-        }
+        } as RunWithMeta)
       : null);
 
   const loadRuns = useCallback(async () => {
@@ -87,11 +98,11 @@ export function AutomationDashPanel({
       await Promise.all(
         schedulerJobs.slice(0, 10).map(async (job) => {
           try {
-            const res = await api<SchedulerJobRun[]>(
-              "GET",
-              `/api/agents/${encodeURIComponent(job.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(job.id)}/runs`,
-            );
-            for (const r of res ?? []) {
+            const { data } = await listSchedulerJobRuns({
+              path: { agentID: job.agent_id || agentId, jobID: job.id },
+              throwOnError: true,
+            });
+            for (const r of (data?.items ?? []) as SchedulerJobRun[]) {
               allRuns.push({
                 ...r,
                 job_name: job.name,
@@ -113,18 +124,38 @@ export function AutomationDashPanel({
   }, [agentId, schedulerJobs]);
 
   useEffect(() => {
-    if (tab === "runs" || selectedRunId) void loadRuns();
-  }, [tab, selectedRunId, loadRuns]);
+    void loadRuns();
+  }, [loadRuns]);
+
+  const loadTasks = useCallback(async () => {
+    setTasksLoading(true);
+    try {
+      const { data } = await listAgentTasks({
+        path: { agentID: agentId },
+        throwOnError: true,
+      });
+      setTasks(data?.items ?? []);
+    } catch (e) {
+      console.error(e);
+      setTasks([]);
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [agentId]);
+
+  useEffect(() => {
+    void loadTasks();
+  }, [loadTasks]);
 
   const loadJobRuns = useCallback(
     async (jobId: string) => {
       setJobRunsLoading(true);
       try {
-        const res = await api<SchedulerJobRun[]>(
-          "GET",
-          `/api/agents/${encodeURIComponent(selectedJob?.agent_id || agentId)}/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
-        );
-        setJobRuns(res ?? []);
+        const { data } = await listSchedulerJobRuns({
+          path: { agentID: selectedJob?.agent_id || agentId, jobID: jobId },
+          throwOnError: true,
+        });
+        setJobRuns((data?.items ?? []) as SchedulerJobRun[]);
       } catch {
         setJobRuns([]);
       } finally {
@@ -154,8 +185,69 @@ export function AutomationDashPanel({
     [selectedJob, onSelectRun],
   );
 
-  const userJobs = schedulerJobs.filter((j) => j.owner_kind !== "system");
-  const systemJobs = schedulerJobs.filter((j) => j.owner_kind === "system");
+  const boardColumns = useMemo(
+    () => [
+      {
+        id: "needs",
+        title: "Needs you",
+        detail: "Blocked, review, or failed",
+        items: [
+          ...tasks
+            .filter(
+              (task) =>
+                task.status === "blocked" ||
+                task.status === "review_requested" ||
+                task.status === "failed",
+            )
+            .map((task): BoardItem => ({ kind: "task", task })),
+          ...runs
+            .filter((run) => run.status === "failed")
+            .map((run): BoardItem => ({ kind: "run", run })),
+        ],
+      },
+      {
+        id: "running",
+        title: "Running",
+        detail: "Active tasks and runs",
+        items: [
+          ...tasks
+            .filter((task) => task.status === "running")
+            .map((task): BoardItem => ({ kind: "task", task })),
+          ...runs
+            .filter((run) => run.status === "running")
+            .map((run): BoardItem => ({ kind: "run", run })),
+        ],
+      },
+      {
+        id: "queued",
+        title: "Queued",
+        detail: "Ready but not started",
+        items: tasks
+          .filter((task) => task.status === "pending")
+          .map((task): BoardItem => ({ kind: "task", task })),
+      },
+      {
+        id: "scheduled",
+        title: "Scheduled",
+        detail: "Enabled recurring work",
+        items: schedulerJobs
+          .filter((job) => job.enabled)
+          .map((job): BoardItem => ({ kind: "schedule", job })),
+      },
+    ],
+    [runs, schedulerJobs, tasks],
+  );
+
+  const openTask = useCallback(
+    (task: ComponentsAgentTask) => {
+      if (!task.session_id) return;
+      void navigate({
+        to: "/agents/$agentId/sessions/$sessionId",
+        params: { agentId, sessionId: task.session_id },
+      });
+    },
+    [agentId, navigate],
+  );
 
   const hasSidePanel = !!(selectedRun || (selectedJob && !selectedRun));
   const sidePanelContent = selectedRun ? (
@@ -184,34 +276,18 @@ export function AutomationDashPanel({
         {/* Header */}
         <div className="flex-shrink-0 h-12 px-3 border-b border-border/60 bg-background flex items-center gap-2 sm:px-5 sm:gap-3">
           <h2 className="shrink-0 text-[15px] font-medium tracking-tight">
-            {t("sessions.sidebar.automations")}
+            {t("sessions.sidebar.work")}
           </h2>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setTab("schedules")}
-              className={cn(
-                "px-3 py-1 rounded-lg text-xs font-medium transition-colors duration-150",
-                tab === "schedules"
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+          <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+            Board
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={onCreateTask}
+              className="size-7 rounded-lg bg-background sm:hidden"
             >
-              Schedules
-            </button>
-            <button
-              onClick={() => setTab("runs")}
-              className={cn(
-                "px-3 py-1 rounded-lg text-xs font-medium transition-colors duration-150",
-                tab === "runs"
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Runs
-            </button>
-          </div>
-          <div className="ml-auto">
-            <Button size="icon" onClick={onCreateJob} className="size-7 rounded-lg sm:hidden">
               <svg
                 className="size-3.5"
                 viewBox="0 0 24 24"
@@ -224,8 +300,17 @@ export function AutomationDashPanel({
             </Button>
             <Button
               size="sm"
+              variant="ghost"
               onClick={onCreateJob}
-              className="hidden rounded-xl text-xs gap-1.5 sm:inline-flex"
+              className="hidden h-8 rounded-lg px-2.5 text-xs text-muted-foreground sm:inline-flex"
+            >
+              Schedule
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onCreateTask}
+              className="hidden h-8 rounded-lg border-border/80 bg-background px-2.5 text-xs font-medium shadow-none sm:inline-flex"
             >
               <svg
                 className="size-3"
@@ -236,118 +321,34 @@ export function AutomationDashPanel({
               >
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              New Schedule
+              New Task
             </Button>
           </div>
         </div>
 
-        {/* Body */}
-        {tab === "schedules" ? (
-          <div className="flex-1 overflow-y-auto p-4">
-            {userJobs.length === 0 && systemJobs.length === 0 ? (
-              <div className="text-center py-16">
-                <p className="text-sm text-muted-foreground/60">No automations yet</p>
-                <p className="text-[11px] text-muted-foreground/40 font-mono mt-1">
-                  Create a schedule to automate recurring tasks
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {userJobs.length > 0 && (
-                  <div>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                      {userJobs.map((job) => (
-                        <JobCard
-                          key={job.id}
-                          job={job}
-                          selected={selectedJob?.id === job.id}
-                          onClick={() => handleSelectJob(job)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {systemJobs.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground/50 mb-2 mt-4">
-                      System
-                    </p>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                      {systemJobs.map((job) => (
-                        <JobCard
-                          key={job.id}
-                          job={job}
-                          selected={selectedJob?.id === job.id}
-                          onClick={() => handleSelectJob(job)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto p-4">
-            {runsLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
-              </div>
-            ) : runs.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground/50 py-12 font-mono">
-                No runs recorded yet
-              </p>
-            ) : (
-              <div className="max-w-2xl space-y-2">
-                {runs.map((run) => (
-                  <div
-                    key={run.id}
-                    onClick={() => {
-                      onSelectRun(run.job_id ?? "", run.id);
-                    }}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-card hover:shadow-sm transition-all duration-150 cursor-pointer",
-                      selectedRun?.id === run.id
-                        ? "border-primary/40 shadow-sm"
-                        : "border-border/60",
-                    )}
-                  >
-                    <RunStatusDot status={run.status} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium truncate">
-                        {run.job_name || "Unknown job"}
-                      </p>
-                      {run.error && (
-                        <p className="text-[11px] text-destructive/70 truncate mt-0.5">
-                          {run.error}
-                        </p>
-                      )}
-                    </div>
-                    <span className="text-[10px] font-mono text-muted-foreground/50 shrink-0">
-                      {formatTime(run.started_at)}
-                    </span>
-                    {run.duration && (
-                      <span className="text-[10px] font-mono text-muted-foreground/40 shrink-0">
-                        {run.duration}
-                      </span>
-                    )}
-                    <span
-                      className={cn(
-                        "text-[9px] font-mono px-1.5 py-0.5 rounded-full shrink-0",
-                        run.status === "success" && "bg-emerald-500/10 text-emerald-600",
-                        run.status === "running" && "bg-blue-500/10 text-blue-600",
-                        run.status === "failed" && "bg-destructive/10 text-destructive",
-                        run.status === "skipped" && "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {run.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-3">
+          {tasksLoading || runsLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+            </div>
+          ) : (
+            <div className="grid h-full min-w-[980px] grid-cols-4 gap-3">
+              {boardColumns.map((column) => (
+                <KanbanColumn
+                  key={column.id}
+                  title={column.title}
+                  detail={column.detail}
+                  items={column.items}
+                  selectedJobId={selectedJob?.id}
+                  selectedRunId={selectedRun?.id}
+                  onOpenTask={openTask}
+                  onOpenJob={handleSelectJob}
+                  onOpenRun={(run) => onSelectRun(run.job_id ?? "", run.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Side panel: desktop inline */}
@@ -376,6 +377,198 @@ export function AutomationDashPanel({
   );
 }
 
+function KanbanColumn({
+  title,
+  detail,
+  items,
+  selectedJobId,
+  selectedRunId,
+  onOpenTask,
+  onOpenJob,
+  onOpenRun,
+}: {
+  title: string;
+  detail: string;
+  items: BoardItem[];
+  selectedJobId?: string;
+  selectedRunId?: string;
+  onOpenTask: (task: ComponentsAgentTask) => void;
+  onOpenJob: (job: SchedulerJob) => void;
+  onOpenRun: (run: RunWithMeta) => void;
+}) {
+  return (
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/55">
+      <div className="shrink-0 border-b border-border/60 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="truncate text-sm font-semibold tracking-[-0.01em]">{title}</h3>
+          <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+            {items.length}
+          </span>
+        </div>
+        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {items.length === 0 ? (
+          <div className="grid h-24 place-items-center rounded-xl border border-dashed border-border/70 text-[11px] text-muted-foreground/55">
+            Empty
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {items.map((item) => {
+              if (item.kind === "task") {
+                return (
+                  <TaskKanbanCard
+                    key={`task:${item.task.id}`}
+                    task={item.task}
+                    onClick={() => onOpenTask(item.task)}
+                  />
+                );
+              }
+              if (item.kind === "run") {
+                return (
+                  <RunKanbanCard
+                    key={`run:${item.run.id}`}
+                    run={item.run}
+                    selected={selectedRunId === item.run.id}
+                    onClick={() => onOpenRun(item.run)}
+                  />
+                );
+              }
+              return (
+                <ScheduleKanbanCard
+                  key={`schedule:${item.job.id}`}
+                  job={item.job}
+                  selected={selectedJobId === item.job.id}
+                  onClick={() => onOpenJob(item.job)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TaskKanbanCard({ task, onClick }: { task: ComponentsAgentTask; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!task.session_id}
+      className={cn(
+        "w-full rounded-xl border border-border/70 bg-background/70 p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm",
+        !task.session_id && "cursor-default opacity-75 hover:border-border/70 hover:shadow-none",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <StatusDot status={task.status} />
+          {formatStatus(task.status)}
+        </span>
+        {task.priority === "urgent" && (
+          <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[9px] font-medium text-destructive">
+            urgent
+          </span>
+        )}
+      </div>
+      <p className="line-clamp-2 text-sm font-medium leading-snug">{task.title}</p>
+      {task.description && (
+        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+          {task.description}
+        </p>
+      )}
+      <p className="mt-2 font-mono text-[10px] text-muted-foreground/55">
+        updated {formatTime(task.updated_at)}
+      </p>
+    </button>
+  );
+}
+
+function RunKanbanCard({
+  run,
+  selected,
+  onClick,
+}: {
+  run: RunWithMeta;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full rounded-xl border bg-background/70 p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm",
+        selected ? "border-primary/40 shadow-sm" : "border-border/70",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <RunStatusDot status={run.status} />
+          run
+        </span>
+        <span className="font-mono text-[10px] text-muted-foreground/55">
+          {formatTime(run.started_at)}
+        </span>
+      </div>
+      <p className="line-clamp-2 text-sm font-medium leading-snug">{run.job_name || "Run"}</p>
+      {run.error && (
+        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-destructive/75">
+          {run.error}
+        </p>
+      )}
+      {run.duration && (
+        <p className="mt-2 font-mono text-[10px] text-muted-foreground/55">{run.duration}</p>
+      )}
+    </button>
+  );
+}
+
+function ScheduleKanbanCard({
+  job,
+  selected,
+  onClick,
+}: {
+  job: SchedulerJob;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full rounded-xl border bg-background/70 p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm",
+        selected ? "border-primary/40 shadow-sm" : "border-border/70",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+          schedule
+        </span>
+        <span className="font-mono text-[10px] text-muted-foreground/55">
+          {job.owner_kind === "system" ? "system" : "user"}
+        </span>
+      </div>
+      <p className="line-clamp-2 text-sm font-medium leading-snug">{job.name}</p>
+      <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+        {scheduleLabel(job)}
+      </p>
+      {job.description && (
+        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+          {job.description}
+        </p>
+      )}
+      {job.last_run_at && (
+        <p className="mt-2 font-mono text-[10px] text-muted-foreground/55">
+          last {formatTime(job.last_run_at)}
+        </p>
+      )}
+    </button>
+  );
+}
+
 function JobDetailPanel({
   job,
   runs,
@@ -391,7 +584,7 @@ function JobDetailPanel({
   onSelectRun: (run: SchedulerJobRun) => void;
   onEditJob: () => void;
 }) {
-  const schedule = job.cron || (job.every ? `every ${job.every}` : job.at || "manual");
+  const schedule = scheduleLabel(job);
 
   return (
     <ResizableSidePanel>
@@ -594,54 +787,6 @@ function RunDetailPanel({
   );
 }
 
-function JobCard({
-  job,
-  selected,
-  onClick,
-}: {
-  job: SchedulerJob;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const schedule = job.cron || (job.every ? `every ${job.every}` : job.at || "manual");
-
-  return (
-    <div
-      onClick={onClick}
-      className={cn(
-        "rounded-xl border bg-card p-4 cursor-pointer hover:shadow-sm transition-all duration-150",
-        selected ? "border-primary/40 shadow-sm" : "border-border/60",
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[13px] font-medium truncate">{job.name}</p>
-          <p className="text-[11px] font-mono text-muted-foreground/50 mt-0.5">{schedule}</p>
-        </div>
-        <span
-          className={cn(
-            "text-[9px] font-mono px-2 py-0.5 rounded-full shrink-0",
-            job.enabled
-              ? "bg-emerald-500/10 text-emerald-600"
-              : "bg-muted text-muted-foreground/60",
-          )}
-        >
-          {job.enabled ? "on" : "off"}
-        </span>
-      </div>
-      {job.description && (
-        <p className="text-[11px] text-muted-foreground/60 mt-2 line-clamp-2">{job.description}</p>
-      )}
-      {job.last_run_at && (
-        <p className="text-[10px] font-mono text-muted-foreground/40 mt-2">
-          Last run: {formatTime(job.last_run_at)}
-          {job.last_error && <span className="text-destructive/60 ml-2">failed</span>}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function RunStatusDot({ status }: { status: string }) {
   return (
     <span
@@ -654,4 +799,29 @@ function RunStatusDot({ status }: { status: string }) {
       )}
     />
   );
+}
+
+function StatusDot({ status }: { status: string }) {
+  return (
+    <span
+      className={cn(
+        "size-2 rounded-full",
+        status === "done" && "bg-emerald-500",
+        status === "running" && "bg-blue-500",
+        status === "pending" && "bg-muted-foreground/30",
+        status === "failed" && "bg-destructive",
+        (status === "blocked" || status === "review_requested") && "bg-amber-500",
+        status === "cancelled" && "bg-muted-foreground/20",
+      )}
+    />
+  );
+}
+
+function formatStatus(status: string): string {
+  if (status === "review_requested") return "Review requested";
+  return status;
+}
+
+function scheduleLabel(job: SchedulerJob): string {
+  return job.cron || (job.every ? `every ${job.every}` : job.at || "manual");
 }

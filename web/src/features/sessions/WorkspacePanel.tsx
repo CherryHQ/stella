@@ -7,7 +7,16 @@ import {
 } from "@pierre/trees/react";
 import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
 import { FilePlus, FolderPlus, Trash2, RefreshCw, X, Copy } from "lucide-react";
-import { api } from "@/lib/api";
+import {
+  createShare as sdkCreateShare,
+  createWorkspaceFile,
+  deleteWorkspaceFile,
+  getSessionWorkspace,
+  getWorkspaceFileContent,
+  moveWorkspaceFile,
+  revokeShare as sdkRevokeShare,
+  updateWorkspaceFileContent,
+} from "@/lib/api-client/sdk.gen";
 import type { Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -112,9 +121,7 @@ export function WorkspacePanel({
   const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const enc = encodeURIComponent(sessionID);
-  const agentEnc = encodeURIComponent(agentID);
-
+  const [rootCopied, setRootCopied] = useState(false);
   const reload = useCallback(() => {
     onReload(sessionID, projectDir || undefined).catch(console.error);
   }, [sessionID, onReload, projectDir]);
@@ -129,13 +136,15 @@ export function WorkspacePanel({
         return;
       }
       try {
-        const data = await api<{ content: string; language: string }>(
-          "GET",
-          `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(path)}`,
-        );
+        const { data } = await getWorkspaceFileContent({
+          path: { agentID, sessionID },
+          query: { path },
+          throwOnError: true,
+        });
+        const file = data as { content?: string; language?: string };
         setViewer((v) =>
           v && v.path === path
-            ? { ...v, content: data.content ?? "", language: data.language ?? "", loading: false }
+            ? { ...v, content: file.content ?? "", language: file.language ?? "", loading: false }
             : v,
         );
       } catch (e) {
@@ -144,7 +153,7 @@ export function WorkspacePanel({
         setMode("tree");
       }
     },
-    [enc],
+    [agentID, sessionID],
   );
 
   const saveFile = useCallback(
@@ -152,9 +161,10 @@ export function WorkspacePanel({
       if (!viewer) return;
       setViewer((v) => (v ? { ...v, saving: true } : null));
       try {
-        await api("PUT", `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content`, {
-          path: viewer.path,
-          content,
+        await updateWorkspaceFileContent({
+          path: { agentID, sessionID },
+          body: { path: viewer.path, content },
+          throwOnError: true,
         });
         setViewer((v) => (v ? { ...v, content, saving: false } : null));
       } catch (e) {
@@ -162,26 +172,31 @@ export function WorkspacePanel({
         setViewer((v) => (v ? { ...v, saving: false } : null));
       }
     },
-    [viewer, enc],
+    [viewer, agentID, sessionID],
   );
 
   const createItem = useCallback(async () => {
     const name = newItemName.trim();
     if (!name) return;
     const fullPath = projectDir ? `${projectDir}/${name}` : name;
-    await api("POST", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, {
-      path: fullPath,
-      is_dir: newItemType === "dir",
+    await createWorkspaceFile({
+      path: { agentID, sessionID },
+      body: { path: fullPath, is_dir: newItemType === "dir" },
+      throwOnError: true,
     });
     reload();
     setNewItemType(null);
     setNewItemName("");
-  }, [enc, newItemName, newItemType, reload, projectDir]);
+  }, [agentID, sessionID, newItemName, newItemType, reload, projectDir]);
 
   const deleteItem = useCallback(
     async (path: string) => {
       if (!confirm(`Delete "${path}"?`)) return;
-      await api("DELETE", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, { path });
+      await deleteWorkspaceFile({
+        path: { agentID, sessionID },
+        body: { path },
+        throwOnError: true,
+      });
       reload();
       if (selectedPath === path) setSelectedPath(null);
       if (viewer?.path === path) {
@@ -189,7 +204,7 @@ export function WorkspacePanel({
         setMode("tree");
       }
     },
-    [enc, selectedPath, reload, viewer],
+    [agentID, sessionID, selectedPath, reload, viewer],
   );
 
   const goBack = useCallback(() => {
@@ -207,7 +222,18 @@ export function WorkspacePanel({
   const entryCount = workspace?.paths?.length ?? 0;
   const fileCount = workspace?.total_files ?? 0;
   const dirCount = workspace?.total_dirs ?? 0;
-  const workspaceStats = `${fileCount}F ${dirCount}D ${formatBytes(workspace?.total_bytes ?? 0)}`;
+  const rootLabel = workspace?.root ?? "";
+  const workspaceStats = `${fileCount.toLocaleString()} files · ${dirCount.toLocaleString()} folders · ${formatBytes(workspace?.total_bytes ?? 0)}`;
+  const copyRootPath = useCallback(() => {
+    if (!workspace?.root) return;
+    navigator.clipboard
+      .writeText(workspace.root)
+      .then(() => {
+        setRootCopied(true);
+        window.setTimeout(() => setRootCopied(false), 1400);
+      })
+      .catch(console.error);
+  }, [workspace?.root]);
 
   if (!sessionID) {
     return (
@@ -245,16 +271,37 @@ export function WorkspacePanel({
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
       {/* Header */}
-      <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 pl-8 pr-3">
-        <div className="min-w-0 pl-1">
-          <span className="block text-[11px] font-semibold tracking-[-0.01em] text-foreground">
-            Workspace
-          </span>
-          <span className="block truncate font-mono text-[10px] text-muted-foreground">
+      <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 border-b border-border/70 py-1.5 pl-8 pr-3">
+        <div className="min-w-0 flex-1 pl-1">
+          <span
+            className="block truncate font-mono text-[10px] font-medium text-muted-foreground"
+            title={
+              workspace?.root
+                ? `${workspace.root}\n${fileCount.toLocaleString()} files, ${dirCount.toLocaleString()} folders, ${formatBytes(workspace.total_bytes)}`
+                : undefined
+            }
+          >
             {workspaceStats}
           </span>
+          {rootLabel && (
+            <div className="flex min-w-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={copyRootPath}
+                className="block min-w-0 truncate rounded-sm font-mono text-[10px] text-muted-foreground/55 transition-colors hover:text-foreground"
+                title={workspace?.root}
+              >
+                in {rootLabel}
+              </button>
+              {rootCopied && (
+                <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                  Copied
+                </span>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-0">
+        <div className="flex shrink-0 items-center gap-0">
           <Button
             variant="ghost"
             size="xs"
@@ -298,21 +345,8 @@ export function WorkspacePanel({
           >
             <RefreshCw className={cn("w-3.5 h-3.5", workspaceLoading && "animate-spin")} />
           </Button>
-          <div className="w-px h-3 bg-border mx-0.5" />
-          {workspaceLoading ? (
+          {workspaceLoading && (
             <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mx-1" />
-          ) : (
-            <span className="text-[10px] font-mono text-muted-foreground/30 mx-1">
-              <span
-                title={
-                  workspace?.root
-                    ? `${workspace.root}\n${fileCount} files, ${dirCount} dirs, ${formatBytes(workspace.total_bytes)}`
-                    : undefined
-                }
-              >
-                {workspaceStats}
-              </span>
-            </span>
           )}
         </div>
       </div>
@@ -393,6 +427,7 @@ export function WorkspacePanel({
 
 interface ArtifactShareDialogProps {
   path: string | null;
+  agentID: string;
   sessionID: string;
   onClose: () => void;
 }
@@ -404,7 +439,7 @@ const expirationOptions = [
   { value: "never", label: "Never" },
 ];
 
-function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogProps) {
+function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShareDialogProps) {
   const [expiresIn, setExpiresIn] = useState("7d");
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -424,11 +459,15 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
     setCreating(true);
     setError(null);
     try {
-      const result = await api<{ id: string; url: string }>("POST", "/api/shares", {
-        source: "artifact",
-        session_id: sessionID,
-        path,
-        expires_in: expiresIn,
+      const { data: result } = await sdkCreateShare({
+        body: {
+          source: "artifact",
+          agent_id: agentID,
+          session_id: sessionID,
+          path,
+          expires_in: expiresIn as "1h" | "1d" | "7d" | "never",
+        },
+        throwOnError: true,
       });
       setShare({ id: result.id, url: result.url });
       await navigator.clipboard?.writeText(result.url).catch(() => undefined);
@@ -437,14 +476,14 @@ function ArtifactShareDialog({ path, sessionID, onClose }: ArtifactShareDialogPr
     } finally {
       setCreating(false);
     }
-  }, [expiresIn, path, sessionID]);
+  }, [agentID, expiresIn, path, sessionID]);
 
   const revokeShare = useCallback(async () => {
     if (!share) return;
     setRevoking(true);
     setError(null);
     try {
-      await api("DELETE", `/api/shares/${encodeURIComponent(share.id)}`);
+      await sdkRevokeShare({ path: { id: share.id }, throwOnError: true });
       setShare(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to revoke share");
@@ -604,9 +643,10 @@ function TreeWithSearch({
     renaming: {
       onRename: async ({ sourcePath, destinationPath }) => {
         try {
-          await api<Workspace>("PATCH", `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`, {
-            path: toApi(sourcePath),
-            new_path: toApi(destinationPath),
+          await moveWorkspaceFile({
+            path: { agentID, sessionID },
+            body: { path: toApi(sourcePath), new_path: toApi(destinationPath) },
+            throwOnError: true,
           });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Rename failed";
@@ -623,14 +663,11 @@ function TreeWithSearch({
             const filename = basename(src);
             const destDir = (target.directoryPath ?? "").replace(/\/$/, "");
             const newPath = destDir ? `${destDir}/${filename}` : filename;
-            await api<Workspace>(
-              "PATCH",
-              `/api/agents/${agentEnc}/sessions/${enc}/workspace/files`,
-              {
-                path: toApi(src),
-                new_path: toApi(newPath),
-              },
-            );
+            await moveWorkspaceFile({
+              path: { agentID, sessionID },
+              body: { path: toApi(src), new_path: toApi(newPath) },
+              throwOnError: true,
+            });
           }
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Move failed";
@@ -656,10 +693,11 @@ function TreeWithSearch({
       loadingDirSet.current.add(dir);
       try {
         const apiDir = toApi(dir);
-        const data = await api<Workspace>(
-          "GET",
-          `/api/agents/${agentEnc}/sessions/${enc}/workspace?show_hidden=true&depth=2&path=${encodeURIComponent(apiDir)}`,
-        );
+        const { data } = await getSessionWorkspace({
+          path: { agentID, sessionID },
+          query: { show_hidden: true, depth: 2, path: apiDir },
+          throwOnError: true,
+        });
         const added: string[] = [];
         for (const rawPath of data.paths ?? []) {
           const displayPath = toDisplay(rawPath);
@@ -690,6 +728,7 @@ function TreeWithSearch({
     <div className="flex flex-col h-full">
       <ArtifactShareDialog
         path={sharePath}
+        agentID={agentID}
         sessionID={sessionID}
         onClose={() => setSharePath(null)}
       />

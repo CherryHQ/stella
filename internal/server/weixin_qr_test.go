@@ -14,6 +14,7 @@ import (
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
@@ -49,13 +50,18 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+	orgCtx := config.WithOrgID(context.Background(), orgID)
+	store := cfgstore.NewDBStore(db)
+	if err := store.SeedNewOrg(orgCtx, orgID); err != nil {
+		t.Fatalf("SeedNewOrg: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)
-	engine, err := auth.NewEngine(context.Background(), as)
+	engine, err := auth.NewEngine(orgCtx, as)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -83,7 +89,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	srv := New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
+	srv := New(context.Background(), store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	status := &weixinplugin.QRCodeStatusResponse{
 		Status:      "confirmed",
@@ -92,11 +98,12 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		ILinkBotID:  "bot-1",
 		ILinkUserID: "user-1",
 	}
-	if err := srv.saveWeixinCredentials(context.Background(), status); err != nil {
+	octx := config.WithOrgID(context.Background(), orgID)
+	if err := srv.saveWeixinCredentials(octx, status); err != nil {
 		t.Fatalf("saveWeixinCredentials: %v", err)
 	}
 
-	plugin, err := store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
+	plugin, err := store.GetPlugin(octx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
@@ -104,7 +111,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("bot_token = %#v, want %q", plugin.Config["bot_token"], "wx-token")
 	}
 
-	runtimeStatus, err := phost.Status(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
+	runtimeStatus, err := phost.Status(octx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}

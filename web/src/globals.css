@@ -207,4 +207,26 @@
     border-color: transparent !important;
     background: transparent !important;
   }
+
+  .stella-transcript-scroll {
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 24%, transparent) transparent;
+    scrollbar-width: thin;
+  }
+
+  .stella-transcript-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .stella-transcript-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .stella-transcript-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--muted-foreground) 18%, transparent);
+    border-radius: 999px;
+  }
+
+  .stella-transcript-scroll:hover::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--muted-foreground) 32%, transparent);
+  }
 }

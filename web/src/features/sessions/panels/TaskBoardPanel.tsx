@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ComponentsAgentTask, ComponentsAgentTaskDepsInfo } from "@/lib/api-client/types.gen";
-import { api } from "@/lib/api";
+import { getAgentTaskDeps, listAgentTasks } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
@@ -57,11 +57,11 @@ export function TaskBoardPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api<{ items: ComponentsAgentTask[] }>(
-        "GET",
-        `/api/agents/${encodeURIComponent(agentId)}/tasks`,
-      );
-      setTasks(res.items ?? []);
+      const { data } = await listAgentTasks({
+        path: { agentID: agentId },
+        throwOnError: true,
+      });
+      setTasks(data?.items ?? []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -234,12 +234,11 @@ function TaskDetail({
 
   useEffect(() => {
     let cancelled = false;
-    api<ComponentsAgentTaskDepsInfo>(
-      "GET",
-      `/api/agents/${encodeURIComponent(agentId)}/tasks/${task.id}/deps`,
-    )
-      .then((info) => {
-        if (!cancelled) setDepsInfo(info);
+    getAgentTaskDeps({
+      path: { agentID: agentId, taskID: task.id! },
+    })
+      .then(({ data }) => {
+        if (!cancelled && data) setDepsInfo(data);
       })
       .catch(() => {});
     return () => {

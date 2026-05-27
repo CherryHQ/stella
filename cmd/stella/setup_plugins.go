@@ -32,13 +32,13 @@ type pluginSetup struct {
 }
 
 func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
-	authStore := appdb.NewAuthStore(db)
+	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
 	stateStore := pluginstate.New(db)
 
 	phost := pluginhost.New(store,
-		pluginhost.WithAuthService(pluginhost.NewAuthService(authStore)),
+		pluginhost.WithAuthService(pluginhost.NewAuthService(oidcStore)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithSkillStore(skillStore),
@@ -74,8 +74,10 @@ func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStor
 		oauthRegistry = buildOAuthRegistry(merged)
 	}
 
+	// MCP config is per-org; at startup there is no org context yet.
+	// The runtime will be applied when an admin saves MCP config via the API.
 	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
-		return nil, fmt.Errorf("apply mcp runtime: %w", err)
+		slog.Warn("mcp: deferred runtime start (no org context at boot)", "error", err)
 	}
 
 	return &pluginSetup{

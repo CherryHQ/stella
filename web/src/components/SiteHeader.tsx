@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, FileText, LogOut, Menu as MenuIcon, Monitor, Moon, Sun } from "lucide-react";
 import { siGithub } from "simple-icons";
 import { useEffect, useState } from "react";
+import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -28,8 +29,7 @@ import {
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const qc = useQueryClient();
-  const me = qc.getQueryData(meQueryOptions.queryKey);
+  const { data: me } = useQuery(meQueryOptions);
   const [sheetOpen, setSheetOpen] = useState(false);
   const { t } = useI18n();
 
@@ -308,10 +308,7 @@ export function UserMenu() {
   if (!me) return null;
 
   async function logout() {
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "same-origin",
-    });
+    await logoutRequest({ throwOnError: true });
     qc.clear();
     void navigate({ to: "/login" });
   }

@@ -84,6 +84,9 @@ type SystemPromptContext struct {
 	UserID      string
 	AgentID     string
 	UserRoot    string
+	// SkillStore is a direct shortcut for callers that have a SkillStore but no Platform.
+	// BuildPromptSection uses this when Platform is nil.
+	SkillStore SkillStore
 	// RegisteredPluginIDs and EnabledPluginIDs describe plugin visibility for
 	// prompt builders that need plugin-state-aware output such as skill catalogs.
 	RegisteredPluginIDs []string

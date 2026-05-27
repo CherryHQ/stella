@@ -16,6 +16,17 @@ import (
 // with Scope="project". The second return value maps skill name → skill directory path
 // so callers can read file content off disk for a given project skill.
 func ListProjectSkills(root string) ([]pkgplugins.Skill, map[string]string, error) {
+	return listFSSkills(root, "project")
+}
+
+// ListSystemSkills walks {stellaHome}/.agents/skills/ and returns skill metadata
+// structs with Scope="system". System skills are extracted from the embedded FS
+// at startup and live on disk — they are never stored in the DB.
+func ListSystemSkills(stellaHome string) ([]pkgplugins.Skill, map[string]string, error) {
+	return listFSSkills(stellaHome, "system")
+}
+
+func listFSSkills(root, scope string) ([]pkgplugins.Skill, map[string]string, error) {
 	if root == "" {
 		return nil, nil, nil
 	}
@@ -48,7 +59,7 @@ func ListProjectSkills(root string) ([]pkgplugins.Skill, map[string]string, erro
 
 		fm, err := parseFrontmatter(string(data))
 		if err != nil {
-			slog.Warn("fs_project: cannot parse frontmatter", "path", skillMD, "err", err)
+			slog.Warn("fs_skill: cannot parse frontmatter", "scope", scope, "path", skillMD, "err", err)
 			continue
 		}
 
@@ -60,15 +71,14 @@ func ListProjectSkills(root string) ([]pkgplugins.Skill, map[string]string, erro
 			continue
 		}
 		if skillName != name {
-			slog.Warn("fs_project: skill name does not match directory, skipping",
-				"name", skillName, "dir", name)
+			slog.Warn("fs_skill: skill name does not match directory, skipping",
+				"scope", scope, "name", skillName, "dir", name)
 			continue
 		}
 
 		sk := pkgplugins.Skill{
-			// Encode the directory path into the ID so load can decode it.
-			ID:                     "project:" + skillDir,
-			Scope:                  "project",
+			ID:                     scope + ":" + skillDir,
+			Scope:                  scope,
 			Name:                   skillName,
 			Description:            fm.Description,
 			Status:                 NormalizeSkillStatus(fm.Status),

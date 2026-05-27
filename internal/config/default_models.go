@@ -34,19 +34,15 @@ func DefaultModelRefForProviderType(providerType string) string {
 // DefaultModelRefForProvider returns the default provider/model ref for a
 // concrete provider instance.
 func DefaultModelRefForProvider(provider Provider) string {
-	providerID := provider.ID
-	if providerID == "" {
-		providerID = provider.Type
-	}
 	providerType := provider.Type
 	if providerType == "" {
-		providerType = providerID
+		providerType = provider.ID
 	}
 	modelID := DefaultModelIDForProviderType(providerType)
-	if providerID == "" || modelID == "" {
+	if providerType == "" || modelID == "" {
 		return ""
 	}
-	return providerID + "/" + modelID
+	return providerType + "/" + modelID
 }
 
 // DefaultAgentModelRef picks the preferred starter model ref from the

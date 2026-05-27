@@ -4,11 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 // contextKey is used for storing auth info in request context.
@@ -22,6 +23,12 @@ type AuthInfo struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
 	IsAdmin  bool   `json:"is_admin"`
+	// OIDC principal fields; empty for legacy (password-based) sessions.
+	Email           string `json:"email,omitempty"`
+	Name            string `json:"name,omitempty"`
+	AvatarURL       string `json:"avatar_url,omitempty"`
+	OrgID           string `json:"org_id,omitempty"`
+	NeedsOnboarding bool   `json:"needs_onboarding,omitempty"`
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -31,9 +38,13 @@ func UserFromContext(ctx context.Context) *AuthInfo {
 	return info
 }
 
-// withAuthInfo sets the AuthInfo in the request context.
+// withAuthInfo sets the AuthInfo and orgID in the request context.
 func withAuthInfo(ctx context.Context, info *AuthInfo) context.Context {
-	return context.WithValue(ctx, authInfoKey, info)
+	ctx = context.WithValue(ctx, authInfoKey, info)
+	if info.OrgID != "" {
+		ctx = config.WithOrgID(ctx, info.OrgID)
+	}
+	return ctx
 }
 
 // authMiddleware validates the session cookie, loads the user and roles,
@@ -49,36 +60,28 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			strings.HasPrefix(path, "/static/") ||
 			strings.HasPrefix(path, "/s/") ||
 			(r.Method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/")) ||
-			path == "/api/auth/login" ||
-			path == "/api/auth/register" ||
 			path == "/api/auth/logout" ||
-			(strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback")) {
+			path == "/api/auth/providers" ||
+			strings.HasPrefix(path, "/auth/login/") ||
+			strings.HasPrefix(path, "/auth/callback/") ||
+			(strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback")) ||
+			strings.HasPrefix(path, "/auth/invite/") ||
+			strings.HasSuffix(path, "/info") && strings.HasPrefix(path, "/api/auth/invites/") ||
+			strings.HasPrefix(path, "/oidc/local/") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		ctx := r.Context()
-		if info := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); info != nil {
-			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
-			return
+
+		var info *AuthInfo
+		if i := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); i != nil {
+			info = i
+		} else if i := s.authInfoFromOIDCSession(ctx, r); i != nil {
+			info = i
 		}
 
-		// Try to load session.
-		sessionID, err := auth.GetSessionCookie(r)
-		if err != nil {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			s.denyAccess(w, r)
-			return
-		}
-
-		// Clean up expired sessions lazily.
-		_ = s.authStore.DeleteExpiredSessions(ctx)
-
-		session, err := s.authStore.GetSession(ctx, sessionID)
-		if err != nil {
+		if info == nil {
 			if path == "/api/status" {
 				next.ServeHTTP(w, r)
 				return
@@ -88,54 +91,43 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check expiry.
-		if time.Now().After(session.ExpiresAt) {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
+		if info.NeedsOnboarding && !isOnboardingAllowed(path) {
+			if isAPIRoute(path) {
+				writeError(w, http.StatusForbidden, "onboarding_required")
+			} else {
+				http.Redirect(w, r, "/onboarding", http.StatusFound)
 			}
-			_ = s.authStore.DeleteSession(ctx, sessionID)
-			auth.ClearSessionCookie(w)
-			s.denyAccess(w, r)
 			return
 		}
 
-		// Extend session expiry on each authenticated request.
-		_ = s.authStore.UpdateSessionExpiry(ctx, sessionID, time.Now().Add(auth.SessionDuration))
-
-		// Load user.
-		user, err := s.authStore.GetUser(ctx, session.UserID)
-		if err != nil {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			_ = s.authStore.DeleteSession(ctx, sessionID)
-			auth.ClearSessionCookie(w)
-			s.denyAccess(w, r)
-			return
-		}
-
-		if !user.IsActive {
-			if path == "/api/status" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			_ = s.authStore.DeleteSession(ctx, sessionID)
-			auth.ClearSessionCookie(w)
-			s.denyAccess(w, r)
-			return
-		}
-
-		info := &AuthInfo{
-			UserID:   user.ID,
-			Username: user.Username,
-			Role:     user.Role,
-			IsAdmin:  user.IsAdmin(),
-		}
-
+		s.ensureOrgRuntime(ctx, info.OrgID)
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 	})
+}
+
+func (s *Server) authInfoFromOIDCSession(ctx context.Context, r *http.Request) *AuthInfo {
+	if s.sessionMgr == nil || s.authSvc == nil {
+		return nil
+	}
+	rawToken, err := s.sessionMgr.GetToken(r)
+	if err != nil {
+		return nil
+	}
+	principal, hasMembership, err := s.authSvc.PrincipalFromTokenPartial(ctx, rawToken)
+	if err != nil {
+		return nil
+	}
+	return &AuthInfo{
+		UserID:          principal.UserID,
+		Username:        principal.Email,
+		Role:            principal.Role,
+		IsAdmin:         principal.Role == "admin",
+		Email:           principal.Email,
+		Name:            principal.Name,
+		AvatarURL:       principal.AvatarURL,
+		OrgID:           principal.OrgID,
+		NeedsOnboarding: !hasMembership,
+	}
 }
 
 func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInfo {
@@ -153,24 +145,76 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 		}
 		return nil
 	}
+	if s.memberships == nil {
+		return nil
+	}
+	membership, err := s.memberships.GetUserMembership(ctx, user.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &AuthInfo{
+				UserID:          user.ID,
+				Username:        user.Email,
+				Email:           user.Email,
+				Name:            user.Name,
+				AvatarURL:       user.AvatarURL,
+				NeedsOnboarding: true,
+			}
+		}
+		return nil
+	}
+	if !membership.IsActive {
+		return nil
+	}
 	return &AuthInfo{
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
-		IsAdmin:  user.IsAdmin(),
+		UserID:    user.ID,
+		Username:  user.Email,
+		Email:     user.Email,
+		Name:      user.Name,
+		AvatarURL: user.AvatarURL,
+		Role:      membership.Role,
+		IsAdmin:   membership.Role == auth.RoleAdmin,
+		OrgID:     membership.OrganizationID,
 	}
 }
 
-// requireAdmin checks that the authenticated user has the admin role.
-// It writes a 403 JSON error and returns false when the caller is not admin.
-// Returns true when the caller is admin. Intended for inline use in API handlers.
-func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+// requireAuth extracts the authenticated user from the request context.
+// Returns nil and writes a 401 error if the user is not authenticated,
+// or a 403 if the user still needs onboarding.
+func requireAuth(w http.ResponseWriter, r *http.Request) *AuthInfo {
 	info := UserFromContext(r.Context())
-	if info == nil || !info.IsAdmin {
-		writeError(w, http.StatusForbidden, "admin access required")
-		return false
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil
 	}
-	return true
+	if info.NeedsOnboarding {
+		writeError(w, http.StatusForbidden, "onboarding_required")
+		return nil
+	}
+	return info
+}
+
+// requireAdmin checks that the authenticated user has the admin role.
+// Returns nil and writes a 403 error if the user is not admin.
+func requireAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
+	info := requireAuth(w, r)
+	if info == nil {
+		return nil
+	}
+	if !info.IsAdmin {
+		writeError(w, http.StatusForbidden, "admin access required")
+		return nil
+	}
+	return info
+}
+
+// ensureOrgRuntime triggers lazy OrgRuntime initialization for the user's org.
+func (s *Server) ensureOrgRuntime(ctx context.Context, orgID string) {
+	if s.authSvc == nil || orgID == "" {
+		return
+	}
+	if err := s.authSvc.InitOrg(ctx, orgID); err != nil {
+		slog.Warn("auth: org runtime init failed", "org_id", orgID, "error", err)
+	}
 }
 
 // denyAccess returns 401 for API routes or redirects to /login for page routes.
@@ -179,6 +223,27 @@ func (s *Server) denyAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 	} else {
 		http.Redirect(w, r, "/login", http.StatusFound)
+	}
+}
+
+// isOnboardingAllowed returns true for paths accessible to users who have a
+// session but no org membership yet (i.e. NeedsOnboarding is true).
+func isOnboardingAllowed(path string) bool {
+	switch {
+	case path == "/onboarding":
+		return true
+	case path == "/api/auth/me":
+		return true
+	case path == "/api/auth/logout":
+		return true
+	case path == "/api/status":
+		return true
+	case path == "/api/auth/onboarding" || strings.HasPrefix(path, "/api/auth/onboarding/"):
+		return true
+	case strings.HasSuffix(path, "/info") && strings.HasPrefix(path, "/api/auth/invites/"):
+		return true
+	default:
+		return false
 	}
 }
 

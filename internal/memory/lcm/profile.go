@@ -265,7 +265,7 @@ func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams 
 	return p
 }
 
-func changelogRowToEntry(r sqlc.MemoryChangelog) memory.ChangeEntry {
+func changelogRowToEntry(r sqlc.CtxAgentMemoryChangelog) memory.ChangeEntry {
 	e := memory.ChangeEntry{
 		ID:        r.ID,
 		UserID:    r.UserID,

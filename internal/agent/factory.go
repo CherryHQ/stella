@@ -8,7 +8,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -28,10 +27,10 @@ type RunnerFactoryConfig struct {
 	PromptToolsBuilder       prompt.ToolsBuilder
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
+	SkillStore               pkgplugins.SkillStore
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
-	TokenService             *auth.TokenService
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 }
@@ -116,6 +115,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				UserID:              params.UserID,
 				AgentID:             params.AgentID,
 				UserRoot:            userRoot,
+				SkillStore:          cfg.SkillStore,
 				RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 				EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
 			}
@@ -172,7 +172,6 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 					SessionID:       params.SessionID,
 					SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
 					VaultEnvLoader:  cfg.VaultEnvLoader,
-					TokenService:    cfg.TokenService,
 					TokenManager:    cfg.TokenManager,
 				},
 				System:          system,

@@ -74,6 +74,7 @@ var skillsInputSchema = func() map[string]any {
 }()
 
 type Tool struct {
+	svc           *Service
 	store         pkgplugins.SkillStore
 	stellaHome    string
 	agentRoot     string
@@ -83,6 +84,7 @@ type Tool struct {
 
 func NewTool(store pkgplugins.SkillStore, stellaHome, agentRoot, projectRoot, userSkillsDir string) *Tool {
 	return &Tool{
+		svc:           NewService(store, stellaHome),
 		store:         store,
 		stellaHome:    stellaHome,
 		agentRoot:     agentRoot,
@@ -224,49 +226,31 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	path, _ := args["path"].(string)
+	projectRoot := projectRootFromContext(ctx, t.projectRoot)
+	vc := t.viewContext(ctx)
+
+	data, skillDir, err := t.svc.LoadFile(ctx, name, path, vc, projectRoot)
+	if err != nil {
+		return "", err
+	}
+
 	if path == "" {
 		path = pkgplugins.SkillMainFile
 	}
 
-	// Check project skills (filesystem) first.
-	projectRoot := projectRootFromContext(ctx, t.projectRoot)
-	if projectRoot != "" {
-		_, dirs, err := ListProjectSkills(projectRoot)
-		if err == nil {
-			if skillDir, ok := dirs[name]; ok {
-				data, err := loadProjectSkillFile(skillDir, path)
-				if err != nil {
-					return "", fmt.Errorf("load project skill %q file %q: %w", name, path, err)
-				}
-				return fmt.Sprintf("<skill_dir>%s</skill_dir>\n<skill_content name=%q path=%q>\n%s\n</skill_content>", skillDir, name, path, data), nil
-			}
+	// For DB skills without a dir from the service, try to resolve the disk path.
+	if skillDir == "" {
+		rs, _ := t.svc.Resolve(ctx, name, vc, projectRoot)
+		if rs != nil {
+			skillDir = t.skillDirForScope(rs.Scope, rs.AgentID, rs.UserID, rs.Name)
 		}
 	}
 
-	if t.store == nil {
-		return "", fmt.Errorf("skills store unavailable")
-	}
-
-	vc := t.viewContext(ctx)
-	s, err := t.store.Resolve(ctx, name, vc)
-	if err != nil {
-		return "", fmt.Errorf("resolve skill %q: %w", name, err)
-	}
-	if s == nil {
-		return "", fmt.Errorf("skill %q not found", name)
-	}
-
-	data, err := t.store.LoadFile(ctx, s.ID, path)
-	if err != nil {
-		return "", fmt.Errorf("load skill %q file %q: %w", name, path, err)
-	}
-
-	skillDir := t.skillDirForScope(s.Scope, s.AgentID, s.UserID, s.Name)
 	prefix := ""
 	if skillDir != "" {
 		prefix = fmt.Sprintf("<skill_dir>%s</skill_dir>\n", skillDir)
 	}
-	return prefix + fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", s.Name, path, data), nil
+	return prefix + fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data), nil
 }
 
 type installedSkill struct {
@@ -278,54 +262,27 @@ type installedSkill struct {
 }
 
 func (t *Tool) list(ctx context.Context) (string, error) {
-	if t.store == nil {
-		return "", fmt.Errorf("skills store unavailable")
-	}
+	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	vc := t.viewContext(ctx)
-	dbSkills, err := t.store.List(ctx, vc)
+
+	merged, err := t.svc.ListMerged(ctx, vc, projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("list skills: %w", err)
 	}
 
-	// Collect project skills from filesystem (project > user > agent > system precedence in presentation).
-	projectRoot := projectRootFromContext(ctx, t.projectRoot)
-	projSkills, _, _ := ListProjectSkills(projectRoot)
-
-	// Deduplicate: project skills shadow same-named DB skills.
-	projNames := make(map[string]bool, len(projSkills))
-	for _, s := range projSkills {
-		projNames[s.Name] = true
-	}
-
-	results := make([]installedSkill, 0, len(projSkills)+len(dbSkills))
-
-	// Project skills first (highest precedence when presenting to agent).
-	for _, s := range projSkills {
-		results = append(results, installedSkill{
-			Name:        s.Name,
-			Description: s.Description,
-			Status:      s.Status,
-			Scope:       "project",
-			Removable:   false,
-		})
-	}
-
-	// DB skills, skipping names already covered by project skills.
-	for _, s := range dbSkills {
-		if projNames[s.Name] {
-			continue
-		}
-		results = append(results, installedSkill{
-			Name:        s.Name,
-			Description: s.Description,
-			Status:      s.Status,
-			Scope:       s.Scope,
-			Removable:   s.Scope == "user" || s.Scope == "agent",
-		})
-	}
-
-	if len(results) == 0 {
+	if len(merged) == 0 {
 		return "No skills installed.", nil
+	}
+
+	results := make([]installedSkill, 0, len(merged))
+	for _, rs := range merged {
+		results = append(results, installedSkill{
+			Name:        rs.Name,
+			Description: rs.Description,
+			Status:      rs.Status,
+			Scope:       rs.Scope,
+			Removable:   IsWritable(rs.Scope),
+		})
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")

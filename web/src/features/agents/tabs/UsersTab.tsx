@@ -8,7 +8,7 @@ interface Props {
   availableUsers: User[];
   onSetState: (patch: Partial<AgentsPageState>) => void;
   onAddUser: () => void;
-  onRemoveUser: (userId: number) => void;
+  onRemoveUser: (userId: string) => void;
 }
 
 export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemoveUser }: Props) {

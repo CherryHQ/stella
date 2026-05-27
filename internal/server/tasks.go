@@ -217,7 +217,7 @@ func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, apiserver.DeleteResult{Status: "deleted"})
+	writeNoContent(w)
 }
 
 func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, agentID string, taskID string) {
@@ -359,10 +359,6 @@ func toAPITaskEvent(e sqlc.AgentTaskEvent) apiserver.AgentTaskEvent {
 		var detail map[string]any
 		if err := json.Unmarshal([]byte(e.Detail), &detail); err == nil && len(detail) > 0 {
 			ae.Detail = &detail
-		} else if err != nil {
-			// Legacy plain-string detail: wrap for API compatibility.
-			wrapped := map[string]any{"message": e.Detail}
-			ae.Detail = &wrapped
 		}
 	}
 	return ae

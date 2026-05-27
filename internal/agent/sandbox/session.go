@@ -133,21 +133,22 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 	return paths, policy, nil
 }
 
-// ResolveSession creates a sandbox session from configuration.
-// The active backend is determined by SandboxBackendFn (global Plugins page
-// selection), defaulting to local when no backend is explicitly enabled.
-//
-// This dispatches directly rather than using pkg/sandbox.Registry because the
-// runtime path needs Config→Policy transformation that is per-backend, while
-// the pkg Registry operates on Policy alone (useful for contract tests and
-// external plugin registration).
-func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
+// resolveBackendName returns the active sandbox backend name from cfg,
+// defaulting to local when no override is set.
+func resolveBackendName(ctx context.Context, cfg Config) string {
 	name := config.SandboxBackendLocal
 	if cfg.SandboxBackendFn != nil {
 		if override := cfg.SandboxBackendFn(ctx); override != "" {
 			name = override
 		}
 	}
+	return name
+}
+
+// ResolveSession creates a sandbox session from configuration.
+// The active backend is determined by SandboxBackendFn, defaulting to local.
+func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
+	name := resolveBackendName(ctx, cfg)
 
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
@@ -159,21 +160,27 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	)
 	defer span.End()
 
-	var session pkgsandbox.Session
-	var err error
-	switch name {
-	case config.SandboxBackendDocker:
-		session, err = createDockerSession(ctx, cfg)
-	case config.SandboxBackendLocal:
-		session, err = createLocalSession(ctx, cfg)
-	case config.SandboxBackendNone:
-		session, err = createHostSession(ctx, cfg)
-	default:
-		err = fmt.Errorf("unknown sandbox backend: %q", name)
-	}
+	session, err := createSessionForBackend(ctx, cfg, name)
 	if err != nil {
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	return session, nil
+
+	return pkgsandbox.NewResilientSession(session, func(ctx context.Context) (pkgsandbox.Session, error) {
+		return createSessionForBackend(ctx, cfg, resolveBackendName(ctx, cfg))
+	}), nil
+}
+
+// createSessionForBackend creates a raw sandbox session for the given backend name.
+func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgsandbox.Session, error) {
+	switch name {
+	case config.SandboxBackendDocker:
+		return createDockerSession(ctx, cfg)
+	case config.SandboxBackendLocal:
+		return createLocalSession(ctx, cfg)
+	case config.SandboxBackendNone:
+		return createHostSession(ctx, cfg)
+	default:
+		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
+	}
 }

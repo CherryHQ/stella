@@ -6,9 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -23,17 +27,27 @@ func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, string, string, func()) 
 	q := sqlc.New(db)
 	ctx := context.Background()
 
+	orgID, err := appdb.EnsureDefaultOrg(ctx, db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+
 	// Create test user
-	authStore := appdb.NewAuthStore(db)
-	u, err := authStore.CreateUser(ctx, "testuser", "hash")
+	oidcStore := appdb.NewOIDCStore(db)
+	u, err := oidcStore.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "testuser@test.local",
+		Name:  "testuser",
+	})
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
 	// Create test agent (required for FK constraint)
 	agentID := "test-agent-1"
-	store := config.NewDBStore(db)
-	if err := store.CreateAgent(ctx, config.Agent{
+	store := cfgstore.NewDBStore(db)
+	orgCtx := config.WithOrgID(ctx, orgID)
+	if err := store.CreateAgent(orgCtx, config.Agent{
 		ID:      agentID,
 		Name:    "Test Agent",
 		Model:   "anthropic/claude",

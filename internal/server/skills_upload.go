@@ -3,9 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -43,14 +41,17 @@ type uploadedSkillFrontmatter struct {
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 }
 
-func (s *Server) UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string) {
-	agentID := id
-	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
+func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentID string) {
+	up, code, msg := parseUploadedSkill(r)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	up, code, msg := parseUploadedSkill(r)
+	scope := r.FormValue("scope")
+	if scope == "" {
+		scope = "agent"
+	}
+	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -73,74 +74,6 @@ func (s *Server) UploadAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeData(w, http.StatusCreated, map[string]string{"id": skillID, "name": up.name})
-}
-
-func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
-	agentID := id
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	agent, err := s.store.GetAgent(r.Context(), agentID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "agent not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if agent.CreatorID != info.UserID {
-		writeError(w, http.StatusForbidden, "only the creator can manage this agent")
-		return
-	}
-	up, code, msg := parseUploadedSkill(r)
-	if code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	skillID, err := s.skillStore().Create(r.Context(), skills.Skill{
-		Scope:                  "agent",
-		AgentID:                agentID,
-		Name:                   up.name,
-		Description:            up.description,
-		Status:                 up.status,
-		DisableModelInvocation: up.disableModelInvocation,
-		Metadata:               up.metadata,
-	}, up.files)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeData(w, http.StatusCreated, map[string]string{"id": skillID, "name": up.name})
-}
-
-func (s *Server) UploadProfileSkill(w http.ResponseWriter, r *http.Request) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	up, code, msg := parseUploadedSkill(r)
-	if code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	id, err := s.skillStore().Create(r.Context(), skills.Skill{
-		Scope:                  "user",
-		UserID:                 info.UserID,
-		Name:                   up.name,
-		Description:            up.description,
-		Status:                 up.status,
-		DisableModelInvocation: up.disableModelInvocation,
-		Metadata:               up.metadata,
-	}, up.files)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeData(w, http.StatusCreated, map[string]string{"id": id, "name": up.name})
 }
 
 func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string) {

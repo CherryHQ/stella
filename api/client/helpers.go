@@ -66,60 +66,8 @@ func DecodeJSON(resp *http.Response, out any) error {
 	return json.Unmarshal(body, out)
 }
 
-// DecodeDataJSON reads the response body and unmarshals the "data" field
-// from the {"data": ...} envelope used by most API endpoints.
-func DecodeDataJSON(resp *http.Response, out any) error {
-	body, err := ReadBody(resp)
-	if err != nil {
-		return err
-	}
-	if out == nil || resp.StatusCode == http.StatusNoContent {
-		return nil
-	}
-	var envelope struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-	return json.Unmarshal(envelope.Data, out)
-}
-
-// Call creates an API client, executes call, and decodes the {"data": ...} envelope into T.
+// Call creates an API client, executes call, and decodes the response JSON into T.
 func Call[T any](call func(*Client) (*http.Response, error)) (T, error) {
-	var zero T
-	api, err := NewAPIClient()
-	if err != nil {
-		return zero, err
-	}
-	resp, err := call(api)
-	if err != nil {
-		return zero, WrapServerErr(err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	var out T
-	if err := DecodeDataJSON(resp, &out); err != nil {
-		return zero, err
-	}
-	return out, nil
-}
-
-// Do is like Call but for endpoints where no response body is needed.
-func Do(call func(*Client) (*http.Response, error)) error {
-	api, err := NewAPIClient()
-	if err != nil {
-		return err
-	}
-	resp, err := call(api)
-	if err != nil {
-		return WrapServerErr(err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	return DecodeDataJSON(resp, nil)
-}
-
-// CallJSON is like Call but for endpoints that return bare JSON without the {"data": ...} envelope.
-func CallJSON[T any](call func(*Client) (*http.Response, error)) (T, error) {
 	var zero T
 	api, err := NewAPIClient()
 	if err != nil {
@@ -137,8 +85,8 @@ func CallJSON[T any](call func(*Client) (*http.Response, error)) (T, error) {
 	return out, nil
 }
 
-// DoJSON is like Do but for bare-JSON endpoints.
-func DoJSON(call func(*Client) (*http.Response, error)) error {
+// Do is like Call but for endpoints where no response body is needed.
+func Do(call func(*Client) (*http.Response, error)) error {
 	api, err := NewAPIClient()
 	if err != nil {
 		return err

@@ -90,14 +90,15 @@ components:
         duration: { type: string }
 
     JobRunList:
-      type: array
-      items: { $ref: "#/components/schemas/JobRun" }
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/JobRun" } }
 
     TriggerJobResult:
       type: object
-      required: [status]
+      required: [run_id]
       properties:
-        status: { type: string }
         run_id: { type: string }
 
     DeleteResult:

@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
+
+const testOrgID = "test-org-id"
 
 func setupSeedStore(t *testing.T) auth.AuthStore {
 	t.Helper()
@@ -17,28 +20,25 @@ func setupSeedStore(t *testing.T) auth.AuthStore {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
+	if err != nil {
+		t.Fatalf("create test org: %v", err)
+	}
 	return appdb.NewAuthStore(db)
 }
 
-func TestSeedPolicies(t *testing.T) {
-	store := setupSeedStore(t)
-	ctx := context.Background()
-
-	if err := auth.SeedPolicies(ctx, store); err != nil {
-		t.Fatalf("SeedPolicies: %v", err)
-	}
-
-	policies, err := store.ListEnabledPolicies(ctx)
-	if err != nil {
-		t.Fatalf("ListEnabledPolicies: %v", err)
-	}
+func TestBuiltinPolicies(t *testing.T) {
+	policies := auth.BuiltinPolicies()
 	if len(policies) != 9 {
-		t.Errorf("expected 9 policies, got %d", len(policies))
+		t.Errorf("expected 9 builtin policies, got %d", len(policies))
 	}
 
 	policyIDs := make(map[string]bool)
 	for _, p := range policies {
 		policyIDs[p.ID] = true
+		if !p.IsSystem {
+			t.Errorf("builtin policy %q should have IsSystem=true", p.ID)
+		}
 	}
 	expectedPolicies := []string{
 		"system:admin-full-access",
@@ -58,30 +58,22 @@ func TestSeedPolicies(t *testing.T) {
 	}
 }
 
-func TestSeedPolicies_Idempotent(t *testing.T) {
+func TestListEnabledPoliciesWithoutOrgID(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 
-	if err := auth.SeedPolicies(ctx, store); err != nil {
-		t.Fatalf("first seed: %v", err)
+	policies, err := store.ListEnabledPolicies(ctx)
+	if err != nil {
+		t.Fatalf("ListEnabledPolicies: %v", err)
 	}
-	if err := auth.SeedPolicies(ctx, store); err != nil {
-		t.Fatalf("second seed should be idempotent: %v", err)
-	}
-
-	policies, _ := store.ListEnabledPolicies(ctx)
 	if len(policies) != 9 {
-		t.Errorf("expected 9 policies after double seed, got %d", len(policies))
+		t.Errorf("expected 9 builtin policies without orgID, got %d", len(policies))
 	}
 }
 
-func TestNewEngine_WithSeededPolicies(t *testing.T) {
+func TestNewEngine_WithBuiltinPolicies(t *testing.T) {
 	store := setupSeedStore(t)
-	ctx := context.Background()
-
-	if err := auth.SeedPolicies(ctx, store); err != nil {
-		t.Fatalf("SeedPolicies: %v", err)
-	}
+	ctx := config.WithOrgID(context.Background(), testOrgID)
 
 	engine, err := auth.NewEngine(ctx, store)
 	if err != nil {
@@ -93,7 +85,7 @@ func TestNewEngine_WithSeededPolicies(t *testing.T) {
 		Action:   auth.ActionManage,
 		Resource: auth.Resource{Type: auth.ResourceSetting},
 	}) {
-		t.Error("admin should have full access from seeded policies")
+		t.Error("admin should have full access from builtin policies")
 	}
 
 	if engine.Can(ctx, auth.AccessRequest{

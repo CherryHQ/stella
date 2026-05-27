@@ -106,7 +106,7 @@ func (p *Provider) getScopedSummary(ctx context.Context, summaryID string) (sqlc
 	if err != nil {
 		return sqlc.CtxSummary{}, err
 	}
-	sum, err := p.q.GetSummary(ctx, summaryID)
+	sum, err := p.q.GetSummaryByID(ctx, summaryID)
 	if err != nil {
 		return sqlc.CtxSummary{}, fmt.Errorf("get summary: %w", err)
 	}

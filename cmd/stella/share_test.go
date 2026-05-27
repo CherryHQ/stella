@@ -13,6 +13,7 @@ import (
 )
 
 func TestShareArtifactRequiresSessionID(t *testing.T) {
+	t.Setenv("STELLA_AGENT_ID", "agent-1")
 	app := ucli.NewApp()
 	app.Commands = []*ucli.Command{shareCommand()}
 	var out bytes.Buffer
@@ -25,6 +26,7 @@ func TestShareArtifactRequiresSessionID(t *testing.T) {
 
 func TestShareArtifactPrintsURL(t *testing.T) {
 	t.Setenv("STELLA_TOKEN", "test-token")
+	t.Setenv("STELLA_AGENT_ID", "agent-1")
 	t.Setenv("STELLA_SESSION_ID", "session-1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/shares" {
@@ -35,6 +37,7 @@ func TestShareArtifactPrintsURL(t *testing.T) {
 		}
 		var body struct {
 			Source    string `json:"source"`
+			AgentID   string `json:"agent_id"`
 			SessionID string `json:"session_id"`
 			Path      string `json:"path"`
 			ExpiresIn string `json:"expires_in"`
@@ -42,11 +45,11 @@ func TestShareArtifactPrintsURL(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.Source != "artifact" || body.SessionID != "session-1" || body.Path != "report.html" || body.ExpiresIn != "1d" {
+		if body.Source != "artifact" || body.AgentID != "agent-1" || body.SessionID != "session-1" || body.Path != "report.html" || body.ExpiresIn != "1d" {
 			t.Fatalf("unexpected body: %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"id":"share-1","url":"https://example.com/s/token","title":"report.html","media_type":"text/html; charset=utf-8","created_at":"2026-05-19 00:00:00"}}`))
+		_, _ = w.Write([]byte(`{"id":"share-1","url":"https://example.com/s/token","title":"report.html","media_type":"text/html; charset=utf-8","created_at":"2026-05-19 00:00:00"}`))
 	}))
 	defer server.Close()
 	t.Setenv("STELLA_SERVER_URL", server.URL)
@@ -83,7 +86,7 @@ func TestShareArticlePrintsURL(t *testing.T) {
 			t.Fatalf("unexpected body: %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"id":"share-2","url":"https://example.com/s/abc","title":"My Article","media_type":"text/markdown; charset=utf-8","created_at":"2026-05-20 00:00:00"}}`))
+		_, _ = w.Write([]byte(`{"id":"share-2","url":"https://example.com/s/abc","title":"My Article","media_type":"text/markdown; charset=utf-8","created_at":"2026-05-20 00:00:00"}`))
 	}))
 	defer server.Close()
 	t.Setenv("STELLA_SERVER_URL", server.URL)

@@ -116,7 +116,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    put:
+    patch:
       tags: [tasks]
       summary: Update an agent task
       operationId: updateAgentTask
@@ -147,13 +147,8 @@ paths:
       summary: Delete an agent task
       operationId: deleteAgentTask
       responses:
-        "200":
+        "204":
           description: deleted
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sort"
 
@@ -11,7 +10,7 @@ import (
 )
 
 // channelView is the JSON shape the admin frontend expects for channel objects.
-// It matches the legacy settings_channels format: config is a JSON string.
+// Config is serialized as a JSON string for the admin frontend.
 type channelView struct {
 	ID      string `json:"id"`
 	Type    string `json:"type"`
@@ -61,13 +60,18 @@ func channelToView(ch config.Channel) channelView {
 }
 
 func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+
 	enabledTypes, err := s.enabledChannelTypes(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	agentNames, err := s.accessibleAgentNames(r)
+	agentNames, err := s.accessibleAgentNames(r, info)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -79,7 +83,7 @@ func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, buildPublicChannelViews(channels, enabledTypes, agentNames))
+	writeListData(w, http.StatusOK, buildPublicChannelViews(channels, enabledTypes, agentNames))
 }
 
 func (s *Server) enabledChannelTypes(r *http.Request) (map[string]bool, error) {
@@ -96,18 +100,17 @@ func (s *Server) enabledChannelTypes(r *http.Request) (map[string]bool, error) {
 	return enabled, nil
 }
 
-func (s *Server) accessibleAgentNames(r *http.Request) (map[string]string, error) {
-	agents, err := s.store.ListAgents(r.Context())
+func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[string]string, error) {
+	ctx := r.Context()
+	var agents []config.Agent
+	var err error
+	if info.IsAdmin {
+		agents, err = s.store.ListAgents(ctx)
+	} else {
+		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)
+	}
 	if err != nil {
 		return nil, err
-	}
-	info := UserFromContext(r.Context())
-	if info != nil && !info.IsAdmin {
-		agents, err = s.filterAccessibleAgents(r.Context(), info, agents)
-		if err != nil {
-			s.log.Error("filter accessible agents for public channels", "user_id", info.UserID, "error", err)
-			return nil, fmt.Errorf("failed to filter agents")
-		}
 	}
 	names := make(map[string]string, len(agents))
 	for _, agent := range agents {
@@ -122,10 +125,9 @@ func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]
 	views := make([]publicChannelView, 0, len(channels))
 	for _, ch := range channels {
 		channelType := effectiveChannelType(ch)
-		if !ch.Enabled || !enabledTypes[channelType] || ch.ID != channelType {
+		if !ch.Enabled || !enabledTypes[channelType] {
 			continue
 		}
-
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
@@ -134,7 +136,6 @@ func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]
 				continue
 			}
 		}
-
 		views = append(views, publicChannelView{
 			ID:        ch.ID,
 			Type:      channelType,
@@ -182,7 +183,8 @@ func sortPublicChannels(channels []publicChannelView) {
 }
 
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
 	channels, err := s.store.ListChannels(r.Context())
@@ -194,23 +196,29 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 	for i, ch := range channels {
 		views[i] = channelToView(ch)
 	}
-	writeData(w, http.StatusOK, views)
+	writeListData(w, http.StatusOK, views)
 }
 
 func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
-	ch, err := s.store.GetChannel(r.Context(), id)
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	ch, err := s.store.GetChannel(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
+		return
+	}
+	if info != nil && info.OrgID != "" && ch.OrgID != "" && ch.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "channel not found")
 		return
 	}
 	writeData(w, http.StatusOK, channelToView(ch))
 }
 
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var req channelWriteRequest
@@ -220,7 +228,13 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	}
 	req.ID = id
 
-	existing, existingErr := s.store.GetChannel(r.Context(), id)
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	existing, existingErr := s.store.GetChannel(ctx, id)
+	if existingErr == nil && info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "channel not found")
+		return
+	}
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
@@ -232,7 +246,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var req channelWriteRequest
@@ -258,7 +272,17 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		AgentID: requestAgentID(req),
 		Enabled: s.defaultChannelEnabled(r, channelType),
 	}
-	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
+	if !s.saveChannel(w, r, ch, cfgMap, http.StatusCreated) {
+		return
+	}
+	// Stamp org when the creating user belongs to one.
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	if info != nil && info.OrgID != "" {
+		if err := s.store.SetChannelOrg(ctx, ch.ID, info.OrgID); err != nil {
+			s.log.Error("stamp channel org", "channel_id", ch.ID, "org_id", info.OrgID, "error", err)
+		}
+	}
 }
 
 func requestChannelType(req channelWriteRequest) string {
@@ -361,21 +385,27 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 }
 
 func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
-	ch, err := s.store.GetChannel(r.Context(), id)
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+	ch, err := s.store.GetChannel(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
 		return
 	}
+	if info != nil && info.OrgID != "" && ch.OrgID != "" && ch.OrgID != info.OrgID {
+		writeError(w, http.StatusForbidden, "channel not found")
+		return
+	}
 	ch.Enabled = false
-	if err := s.pluginHost.ApplyChannel(r.Context(), ch); err != nil {
+	if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
 		s.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
 	}
-	if err := s.store.DeleteChannel(r.Context(), id); err != nil {
+	if err := s.store.DeleteChannel(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]bool{"deleted": true})
+	writeNoContent(w)
 }

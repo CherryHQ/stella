@@ -138,12 +138,11 @@ type AgentInfo struct {
 	Name string
 }
 
-// ProvisionRequest carries the information needed to auto-provision a channel user.
+// ProvisionRequest carries the information needed to look up a channel user.
 type ProvisionRequest struct {
 	Platform   string
 	ExternalID string
 	Name       string
-	EmailHint  string
 }
 
 // Provisioner is an optional capability that a Handler may implement.
