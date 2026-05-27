@@ -154,26 +154,6 @@ func TestTokenServiceEnsureAutoTokenCreatesAndReuses(t *testing.T) {
 	}
 }
 
-func TestTokenServiceEnsureAutoTokenBackfillsVaultToken(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)
-	store := newFakeTokenStore(func() time.Time { return now })
-	vault := newFakeVault()
-	vault.env["1"] = map[string]string{StellaTokenName: "stella_existing"}
-	svc := NewTokenService(store, vault)
-	svc.now = func() time.Time { return now }
-
-	if err := svc.EnsureAutoToken(ctx, "1"); err != nil {
-		t.Fatalf("EnsureAutoToken backfill: %v", err)
-	}
-	if vault.sets != 0 {
-		t.Fatalf("backfill wrote vault %d times, want 0", vault.sets)
-	}
-	if _, err := store.GetActiveUserTokenByHash(ctx, hashToken("stella_existing")); err != nil {
-		t.Fatalf("backfilled token lookup: %v", err)
-	}
-}
-
 func TestTokenServiceEnsureAutoTokenRotatesWhenVaultTokenMissing(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)

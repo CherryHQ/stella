@@ -3,8 +3,6 @@ package scheduler
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -447,73 +445,6 @@ func TestSessionModeInvalid(t *testing.T) {
 	_, err := svc.AddJobWithOwner("bad-mode", "msg", Schedule{Every: "1h"}, "invalid", "", "", orgID)
 	if err == nil {
 		t.Error("expected error for invalid session_mode")
-	}
-}
-
-func TestMigrateJobsFile(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-
-	// Need the org ID for the legacy job to satisfy FK constraint.
-	db0, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	orgID := ensureTestOrg(t, db0)
-	_ = db0.Close()
-
-	// Write a legacy jobs.json.
-	jobs := []Job{
-		{
-			ID:          "abc12345",
-			Name:        "legacy-job",
-			Schedule:    Schedule{Every: "1h"},
-			Message:     "do legacy things",
-			SessionMode: SessionReuse,
-			Enabled:     true,
-			OrgID:       orgID,
-			CreatedAt:   time.Now(),
-		},
-	}
-	data, err := json.MarshalIndent(jobs, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	legacyDir := filepath.Join(dir, "scheduler")
-	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(legacyDir, "jobs.json"), data, 0o644); err != nil {
-		t.Fatalf("write jobs.json: %v", err)
-	}
-
-	// Start a service with legacy data path.
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	svc, _ := newServiceWithOrg(t, db)
-	svc.SetLegacyDataPath(legacyDir)
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() {
-		_ = svc.Stop()
-		_ = db.Close()
-	}()
-
-	// Job should be loaded from DB.
-	listed := svc.ListJobs()
-	if len(listed) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(listed))
-	}
-	if listed[0].ID != "abc12345" {
-		t.Errorf("job ID = %q, want %q", listed[0].ID, "abc12345")
-	}
-
-	// Legacy file should be removed.
-	if _, err := os.Stat(filepath.Join(legacyDir, "jobs.json")); !os.IsNotExist(err) {
-		t.Error("expected jobs.json to be removed after migration")
 	}
 }
 

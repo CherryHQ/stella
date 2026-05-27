@@ -554,14 +554,7 @@ func (s *DBStore) GetChatAgent(ctx context.Context, channelID, platform, chatID 
 		OrgID:     orgID,
 	})
 	if err != nil {
-		r, err = s.q.GetLegacyChatAgent(ctx, sqlc.GetLegacyChatAgentParams{
-			Platform: platform,
-			ChatID:   chatID,
-			OrgID:    orgID,
-		})
-		if err != nil {
-			return "", fmt.Errorf("get chat agent: %w", err)
-		}
+		return "", fmt.Errorf("get chat agent: %w", err)
 	}
 	return r.AgentID, nil
 }

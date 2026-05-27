@@ -76,12 +76,6 @@ func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error
 		return fmt.Errorf("token service: get active auto token for user %s: %w", userID, err)
 	}
 
-	if plaintext, ok, err := s.loadVaultToken(ctx, userID); err != nil {
-		return err
-	} else if ok {
-		return s.createAutoTokenRecord(ctx, userID, plaintext)
-	}
-
 	plaintext, err := generateToken()
 	if err != nil {
 		return err
@@ -168,7 +162,7 @@ func (s *TokenService) loadVaultToken(ctx context.Context, userID string) (strin
 	}
 	env, err := loader.LoadEnv(ctx, userID)
 	if err != nil {
-		return "", false, fmt.Errorf("token service: load vault token for backfill: %w", err)
+		return "", false, fmt.Errorf("token service: load vault token: %w", err)
 	}
 	plaintext, ok := env[StellaTokenName]
 	return plaintext, ok && plaintext != "", nil

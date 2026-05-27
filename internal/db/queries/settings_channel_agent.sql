@@ -1,9 +1,6 @@
 -- name: GetChatAgent :one
 SELECT * FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ? AND org_id = ?;
 
--- name: GetLegacyChatAgent :one
-SELECT * FROM settings_channel_agent WHERE channel_id = '' AND platform = ? AND chat_id = ? AND org_id = ?;
-
 -- name: UpsertChatAgent :exec
 INSERT INTO settings_channel_agent (channel_id, platform, chat_id, agent_id, org_id, updated_at)
 VALUES (?, ?, ?, ?, ?, datetime('now'))

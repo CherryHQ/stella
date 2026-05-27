@@ -403,27 +403,3 @@ func TestLoadDelegatePresetsPathDedup(t *testing.T) {
 		t.Errorf("expected 1 preset (dedup), got %d", len(presets))
 	}
 }
-
-func TestLoadDelegatePresetsLegacyFallback(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-
-	// Put a preset in the legacy .agents/agents/ path.
-	mkdirAll(t, filepath.Join(dir, ".agents", "agents"), 0o755)
-	writeTestFile(t, filepath.Join(dir, ".agents", "agents", "legacy.md"),
-		[]byte("---\nname: legacy\ndescription: From legacy path\n---\nBody."), 0o644)
-
-	// Put an override in the new .agents/delegates/ path.
-	mkdirAll(t, filepath.Join(dir, ".agents", "delegates"), 0o755)
-	writeTestFile(t, filepath.Join(dir, ".agents", "delegates", "legacy.md"),
-		[]byte("---\nname: legacy\ndescription: From new path\n---\nBody."), 0o644)
-
-	presets := loadDelegatePresets(context.Background(), dir, "", "", "")
-	if len(presets) != 1 {
-		t.Fatalf("expected 1 preset, got %d", len(presets))
-	}
-	if presets[0].Description != "From new path" {
-		t.Errorf("delegates/ should override agents/, got Description = %q", presets[0].Description)
-	}
-}

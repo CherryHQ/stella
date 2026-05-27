@@ -268,7 +268,6 @@ func setupScheduler(db *sql.DB, phost *pluginhost.Host) (*scheduler.Service, err
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
-	svc.SetLegacyDataPath(config.StellaHome() + "/scheduler")
 	phost.SetSchedulerService(newSchedulerServiceAdapter(svc, phost.Runtime()))
 	return svc, nil
 }
@@ -278,7 +277,7 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		return
 	}
 	svc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
-		if scheduler.IsPluginJob(job) {
+		if job.OwnerKind == scheduler.JobOwnerPlugin {
 			return nil
 		}
 		pool := poolMgr.Get(job.AgentID)

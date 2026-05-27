@@ -111,7 +111,7 @@ func maybeCanonicalizeIdentity(ctx context.Context, store channelAuthStore, plat
 			if err := store.DeleteChannelIdentity(ctx, match.Identity.ID); err != nil {
 				return fmt.Errorf("delete duplicate identity after canonicalization: %w", err)
 			}
-			log.Info("deleted duplicate legacy identity after canonicalization", "kept_identity_id", preferred.ID)
+			log.Info("deleted duplicate identity after canonicalization", "kept_identity_id", preferred.ID)
 		}
 		return nil
 	}
