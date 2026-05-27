@@ -1234,6 +1234,7 @@ func (s *Service) dispatch(task sqlc.AgentTask, run sqlc.AgentTaskRun) {
 		}()
 
 		cfg := workerConfig{
+			svc:           s,
 			q:             s.q,
 			mem:           s.mem,
 			runnerFactory: s.runnerFactory,

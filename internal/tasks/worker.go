@@ -15,6 +15,7 @@ import (
 
 // workerConfig holds dependencies needed to run a task worker goroutine.
 type workerConfig struct {
+	svc           *Service
 	q             *sqlc.Queries
 	mem           memory.Provider
 	runnerFactory RunnerFactoryFn
@@ -71,7 +72,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	}
 
 	// Build the control tool with the worker's cancel func.
-	controlTool := newTaskControlTool(cfg.q, task.ID, task.UserID, cancel)
+	controlTool := newTaskControlTool(cfg.svc, cfg.q, task.ID, run.ID, task.UserID, cancel)
 
 	// Create a full runner (with sandbox tools) via the agent factory,
 	// injecting task_control as an extra tool.
@@ -166,15 +167,18 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 				UserID:     run.UserID,
 			})
 		} else {
-			log.Info("agent loop finished without explicit task_control call, marking done")
-			markDone(cleanupCtx, cfg.q, task.ID, task.UserID)
-			_ = cfg.q.CompleteRun(cleanupCtx, sqlc.CompleteRunParams{
-				ResultJson: "{}",
-				FinishedAt: sql.NullString{String: finNow, Valid: true},
-				UpdatedAt:  finNow,
-				ID:         run.ID,
-				UserID:     run.UserID,
-			})
+			log.Info("agent loop finished without explicit task_control call, submitting for review")
+			if _, err := cfg.svc.SubmitForReview(cleanupCtx, task.ID, task.UserID, run.ID, "completed without explicit submission"); err != nil {
+				log.Warn("auto-submit for review failed, marking done directly", "error", err)
+				markDone(cleanupCtx, cfg.q, task.ID, task.UserID)
+				_ = cfg.q.CompleteRun(cleanupCtx, sqlc.CompleteRunParams{
+					ResultJson: "{}",
+					FinishedAt: sql.NullString{String: finNow, Valid: true},
+					UpdatedAt:  finNow,
+					ID:         run.ID,
+					UserID:     run.UserID,
+				})
+			}
 		}
 	}
 }
@@ -184,7 +188,13 @@ func taskSystemPrompt(base string) string {
 
 # Async task mode
 
-Use task_control for task state: progress at checkpoints, block when user input is needed, request_review before risky/user-visible changes, done when complete, and failed when you cannot continue. Keep context compact and do not notify the user directly.`, base)
+Use task_control to manage your task:
+- **progress**: Report checkpoints. Include a context object to update stored metadata and optionally a notify_after duration.
+- **block**: When you need user input or clarification. Stops execution and notifies the user.
+- **submit_for_review**: When your work is complete. Provide a summary of what you did. This submits the task for review — you cannot mark it done directly.
+- **failed**: When you cannot continue due to an error.
+
+Keep context compact. Do not notify the user directly.`, base)
 }
 
 func taskStartMessage(task sqlc.AgentTask) string {
