@@ -161,7 +161,7 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	// GET: check for existing Stella OIDC session.
 	if is.sessionMgr != nil && is.authSvc != nil {
 		if rawToken, err := is.sessionMgr.GetToken(r); err == nil {
-			if principal, err := is.authSvc.PrincipalFromToken(ctx, rawToken); err == nil {
+			if principal, _, err := is.authSvc.PrincipalFromTokenPartial(ctx, rawToken); err == nil {
 				is.issueCodeAndRedirect(w, r, ctx, principal.UserID, principal.OrgID, params)
 				return
 			}
@@ -245,14 +245,16 @@ func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ct
 		return
 	}
 
-	// Check membership is active.
-	membership, err := is.memberships.GetUserMembership(ctx, user.ID)
-	if err != nil || !membership.IsActive {
-		is.renderLoginForm(w, params, "Account is disabled.")
-		return
+	var orgID string
+	if membership, err := is.memberships.GetUserMembership(ctx, user.ID); err == nil {
+		if !membership.IsActive {
+			is.renderLoginForm(w, params, "Account is disabled.")
+			return
+		}
+		orgID = membership.OrganizationID
 	}
 
-	is.issueCodeAndRedirect(w, r, ctx, user.ID, membership.OrganizationID, params)
+	is.issueCodeAndRedirect(w, r, ctx, user.ID, orgID, params)
 }
 
 func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
@@ -290,13 +292,7 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		return
 	}
 
-	membership, err := is.authSvc.EnsureMembership(ctx, newUser.ID)
-	if err != nil {
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
-		return
-	}
-
-	is.issueCodeAndRedirect(w, r, ctx, newUser.ID, membership.OrganizationID, params)
+	is.issueCodeAndRedirect(w, r, ctx, newUser.ID, "", params)
 }
 
 func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, ctx context.Context, userID, orgID string, params *authorizeParams) {
@@ -495,16 +491,19 @@ func (is *Issuer) HandleToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Load user and membership for claims.
+	// Load user and optional membership for claims.
 	user, err := is.users.GetUser(ctx, code.UserID)
 	if err != nil {
 		is.tokenError(w, "server_error", "could not load user")
 		return
 	}
-	membership, err := is.memberships.GetUserMembership(ctx, code.UserID)
-	if err != nil || !membership.IsActive {
-		is.tokenError(w, "access_denied", "account disabled")
-		return
+	var membership *auth.Membership
+	if m, mErr := is.memberships.GetUserMembership(ctx, code.UserID); mErr == nil {
+		if !m.IsActive {
+			is.tokenError(w, "access_denied", "account disabled")
+			return
+		}
+		membership = &m
 	}
 
 	// Issue opaque access token.
@@ -568,8 +567,7 @@ func (is *Issuer) HandleUserinfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server_error", http.StatusInternalServerError)
 		return
 	}
-	membership, err := is.memberships.GetUserMembership(ctx, tok.UserID)
-	if err != nil || !membership.IsActive {
+	if m, mErr := is.memberships.GetUserMembership(ctx, tok.UserID); mErr == nil && !m.IsActive {
 		http.Error(w, "access_denied", http.StatusForbidden)
 		return
 	}
@@ -592,7 +590,7 @@ func (is *Issuer) HandleUserinfo(w http.ResponseWriter, r *http.Request) {
 
 // --- JWT helpers ---
 
-func (is *Issuer) buildIDToken(user auth.User, membership auth.Membership, scopes []string, nonce, audience string, ttl time.Duration) (string, error) {
+func (is *Issuer) buildIDToken(user auth.User, membership *auth.Membership, scopes []string, nonce, audience string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := map[string]any{
 		"iss": is.cfg.IssuerURL,
@@ -614,9 +612,10 @@ func (is *Issuer) buildIDToken(user auth.User, membership auth.Membership, scope
 			claims["picture"] = user.AvatarURL
 		}
 	}
-	// Always include org and role in ID token for membership resolution.
-	claims["org_id"] = membership.OrganizationID
-	claims["role"] = membership.Role
+	if membership != nil {
+		claims["org_id"] = membership.OrganizationID
+		claims["role"] = membership.Role
+	}
 
 	return signES256(is.cfg.SigningKey, is.cfg.KeyID, claims)
 }
