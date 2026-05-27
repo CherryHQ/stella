@@ -183,7 +183,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
 	poolMgr = agent.NewPoolManager(store, memProvider,
-		agent.WithIdleTimeoutPM(0),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
@@ -215,6 +214,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		Store:    store,
 		Syncer:   poolMgr,
 		Channels: nil, // Channels wired later in runServer
+		Jobs:     schedulerSvc,
 	})
 
 	backgroundTasks := &sync.WaitGroup{}

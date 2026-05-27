@@ -116,7 +116,7 @@ func TestGetOrInit_ListAgentsError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	// After failure, cache should not retain the failed runtime.
+	// After failure, cache entry is removed so a fresh OrgRuntime is created on retry.
 	store.err = nil
 	store.agents = []config.Agent{{ID: "a1"}}
 	rt, err := mgr.GetOrInit(context.Background(), "org1")
@@ -194,10 +194,10 @@ func TestStart_Idempotent(t *testing.T) {
 	syncer := &fakeSyncer{}
 	rt := &OrgRuntime{orgID: "org1"}
 
-	if err := rt.Start(context.Background(), store, syncer, nil); err != nil {
+	if err := rt.Start(context.Background(), store, syncer, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.Start(context.Background(), store, syncer, nil); err != nil {
+	if err := rt.Start(context.Background(), store, syncer, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(syncer.synced) != 1 {

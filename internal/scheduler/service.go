@@ -748,10 +748,10 @@ func (s *Service) removeOneTimeJob(id string) {
 		_ = s.scheduler.RemoveJob(gid)
 		delete(s.gids, id)
 	}
-	delete(s.jobs, id)
 	if err := s.deleteJob(s.ctx, id); err != nil {
 		s.log.Warn("failed to remove one-time job after execution", "id", id, "error", err)
 	} else {
 		s.log.Info("one-time job auto-removed after execution", "id", id)
 	}
+	delete(s.jobs, id)
 }
