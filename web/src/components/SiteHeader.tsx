@@ -29,8 +29,7 @@ import {
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const qc = useQueryClient();
-  const me = qc.getQueryData(meQueryOptions.queryKey);
+  const { data: me } = useQuery(meQueryOptions);
   const [sheetOpen, setSheetOpen] = useState(false);
   const { t } = useI18n();
 

@@ -15,7 +15,6 @@ import {
   updateUserDefaultAgent,
   updateUserNotifyIdentity,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiData, unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import type { Agent, Identity, User, UserMemory } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,13 +22,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { InviteManagement } from "@/features/invites/InviteManagement";
 import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import {
-  SettingsListBody,
-  SettingsListHeader,
-  SettingsListItem,
-} from "@/features/settings/SettingsListPanel";
+import { SettingsListBody, SettingsListItem } from "@/features/settings/SettingsListPanel";
 
 interface LegacyUser extends User {
   _defaultAgent: string;
@@ -66,7 +62,7 @@ export function UsersPage() {
   const loadAuthUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      setAuthUsers(unwrapApiList<User>(data));
+      setAuthUsers(((data as { items?: User[] })?.items ?? []) as User[]);
     } catch (e) {
       console.error(e);
     }
@@ -78,7 +74,7 @@ export function UsersPage() {
         path: { id: userId },
         throwOnError: true,
       });
-      const ids = data ?? [];
+      const ids = (data as string[]) ?? [];
       setUserAgentIds(ids);
       setAddAgentId("");
     } catch {
@@ -93,7 +89,7 @@ export function UsersPage() {
           path: { id: u.id },
           throwOnError: true,
         });
-        setSelectedUser(unwrapApiData(detail));
+        setSelectedUser(detail);
         await loadUserAgents(u.id);
       } catch (e) {
         showToast((e as Error).message, "error");
@@ -115,7 +111,7 @@ export function UsersPage() {
           path: { id: selectedUser.id },
           throwOnError: true,
         });
-        setSelectedUser(unwrapApiData(updated));
+        setSelectedUser(updated);
         await loadAuthUsers();
         showToast(`Role updated to ${role}`);
       } catch (e) {
@@ -228,7 +224,7 @@ export function UsersPage() {
   const loadLegacyUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      const list = unwrapApiList<User>(data);
+      const list = ((data as { items?: User[] })?.items ?? []) as User[];
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
@@ -256,7 +252,7 @@ export function UsersPage() {
           path: { id: userId },
           throwOnError: true,
         });
-        const mems = unwrapApiList<UserMemory>(data);
+        const mems = (data as UserMemory[]) ?? [];
         setUserMemories((prev) => ({
           ...prev,
           [userId]: mems.map((m) => ({ ...m, _content: m.content })),
@@ -357,7 +353,7 @@ export function UsersPage() {
         .catch(() => {}),
       loadAuthUsers(),
       listAgents({ throwOnError: true })
-        .then(({ data }) => setAgents(unwrapApiItems<Agent>(data)))
+        .then(({ data }) => setAgents((data?.items ?? []) as Agent[]))
         .catch(() => {}),
     ]);
   }, [loadAuthUsers]);
@@ -379,30 +375,62 @@ export function UsersPage() {
     ? (legacyUsers.find((u) => u.id === selectedUser.id) ?? null)
     : null;
 
+  const [listTab, setListTab] = useState<"users" | "invites">("users");
+
   // ── Left panel ──────────────────────────────────────────────────────────────
 
-  const listHeader = <SettingsListHeader title="Users" />;
-
-  const list = (
-    <SettingsListBody>
-      {authUsers.map((u) => (
-        <SettingsListItem
-          key={u.id}
-          onClick={() => void selectUser(u)}
-          active={selectedUser?.id === u.id}
+  const listHeader = (
+    <div>
+      <div className="flex border-b border-border">
+        <button
+          onClick={() => setListTab("users")}
+          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
+            listTab === "users"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
         >
-          <div className="truncate text-sm font-medium">{u.username}</div>
-          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
-            {u.role === "admin" ? (
-              <span className="text-primary">{u.role}</span>
-            ) : (
-              <span>{u.role}</span>
-            )}
-          </div>
-        </SettingsListItem>
-      ))}
-    </SettingsListBody>
+          Users
+        </button>
+        <button
+          onClick={() => setListTab("invites")}
+          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
+            listTab === "invites"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Invites
+        </button>
+      </div>
+    </div>
   );
+
+  const list =
+    listTab === "users" ? (
+      <SettingsListBody>
+        {authUsers.map((u) => (
+          <SettingsListItem
+            key={u.id}
+            onClick={() => void selectUser(u)}
+            active={selectedUser?.id === u.id}
+          >
+            <div className="truncate text-sm font-medium">{u.username}</div>
+            <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+              {u.role === "admin" ? (
+                <span className="text-primary">{u.role}</span>
+              ) : (
+                <span>{u.role}</span>
+              )}
+            </div>
+          </SettingsListItem>
+        ))}
+      </SettingsListBody>
+    ) : (
+      <div className="flex-1 overflow-y-auto">
+        <InviteManagement />
+      </div>
+    );
 
   // ── Right panel — user detail ────────────────────────────────────────────────
 
@@ -844,9 +872,7 @@ export function UsersPage() {
         list={list}
         detail={detail}
         emptyState={
-          <p className="text-sm text-muted-foreground">
-            Select a user to manage their agents and memory.
-          </p>
+          <p className="text-sm text-muted-foreground">Select a user to manage their settings.</p>
         }
       />
 

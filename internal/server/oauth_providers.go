@@ -9,7 +9,7 @@ import (
 
 // GetOAuthProviderConfig handles GET /api/admin/oauth-providers/{id}/config.
 func (s *Server) GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	cfg, err := s.credSvc.GetOAuthProviderConfig(r.Context(), id)
@@ -22,7 +22,7 @@ func (s *Server) GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 
 // DeleteOAuthProviderConfig handles DELETE /api/admin/oauth-providers/{id}/config.
 func (s *Server) DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if err := s.credSvc.DeleteOAuthProviderConfig(r.Context(), id); err != nil {
@@ -34,7 +34,7 @@ func (s *Server) DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Reques
 
 // SetOAuthProviderConfig handles PUT /api/admin/oauth-providers/{id}/config.
 func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, id string) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body apiserver.SetOAuthProviderConfigJSONRequestBody

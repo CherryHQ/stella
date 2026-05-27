@@ -1,15 +1,40 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
 
 	"filippo.io/age"
 
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// oidcVaultDB wraps OIDCStore.GetVaultUser with sqlc.Queries for vault entry operations.
+// This bridges the gap: OIDCStore reads age keys from auth_user, sqlc handles vault_entry.
+type oidcVaultDB struct {
+	*appdb.OIDCStore
+	q *sqlc.Queries
+}
+
+func (d *oidcVaultDB) GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error) {
+	return d.q.GetVaultEntry(ctx, arg)
+}
+
+func (d *oidcVaultDB) ListVaultEntriesByUser(ctx context.Context, userID string) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesByUser(ctx, userID)
+}
+
+func (d *oidcVaultDB) UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error {
+	return d.q.UpsertVaultEntry(ctx, arg)
+}
+
+func (d *oidcVaultDB) DeleteVaultEntry(ctx context.Context, arg sqlc.DeleteVaultEntryParams) error {
+	return d.q.DeleteVaultEntry(ctx, arg)
+}
 
 func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	t.Helper()
@@ -20,7 +45,8 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
 
-	svc, err := vault.NewService(sqlc.New(env.db), masterID.String())
+	vaultDB := &oidcVaultDB{OIDCStore: env.oidcStore, q: sqlc.New(env.db)}
+	svc, err := vault.NewService(vaultDB, masterID.String())
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -31,12 +57,7 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	if err != nil {
 		t.Fatalf("GenerateUserKeys: %v", err)
 	}
-	q := sqlc.New(env.db)
-	if err := q.UpdateUserAgeKeys(t.Context(), sqlc.UpdateUserAgeKeysParams{
-		AgePublicKey:  pubKey,
-		AgePrivateKey: encPrivKey,
-		ID:            env.adminUser.ID,
-	}); err != nil {
+	if err := env.oidcStore.UpdateUserAgeKeys(t.Context(), env.adminUser.ID, pubKey, encPrivKey); err != nil {
 		t.Fatalf("UpdateUserAgeKeys: %v", err)
 	}
 
@@ -160,7 +181,7 @@ func TestVaultSetEmptyName(t *testing.T) {
 func TestVaultSetInvalidJSON(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
-	rr := doRequestWithSession(t, env.srv, env.sessionID, "PUT", "/api/auth/profile/vault/MY_KEY", nil)
+	rr := doRequestWithSession(t, env.srv, env.bearerToken, "PUT", "/api/auth/profile/vault/MY_KEY", nil)
 	// No body → JSON decode error or empty value
 	if rr.Code == http.StatusNoContent {
 		t.Fatal("expected error for nil body, got 204")

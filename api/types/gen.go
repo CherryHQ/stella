@@ -193,6 +193,24 @@ func (e ArticleStatus) Valid() bool {
 	}
 }
 
+// Defines values for CreateInviteRequestRole.
+const (
+	CreateInviteRequestRoleAdmin CreateInviteRequestRole = "admin"
+	CreateInviteRequestRoleUser  CreateInviteRequestRole = "user"
+)
+
+// Valid indicates whether the value is a known member of the CreateInviteRequestRole enum.
+func (e CreateInviteRequestRole) Valid() bool {
+	switch e {
+	case CreateInviteRequestRoleAdmin:
+		return true
+	case CreateInviteRequestRoleUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSessionRequestKind.
 const (
 	CreateSessionRequestKindChat      CreateSessionRequestKind = "chat"
@@ -259,6 +277,24 @@ func (e CreateShareRequestSource) Valid() bool {
 	}
 }
 
+// Defines values for CreateSkillRequestScope.
+const (
+	CreateSkillRequestScopeAgent CreateSkillRequestScope = "agent"
+	CreateSkillRequestScopeUser  CreateSkillRequestScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the CreateSkillRequestScope enum.
+func (e CreateSkillRequestScope) Valid() bool {
+	switch e {
+	case CreateSkillRequestScopeAgent:
+		return true
+	case CreateSkillRequestScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FeedEntryStatus.
 const (
 	FeedEntryStatusError   FeedEntryStatus = "error"
@@ -277,6 +313,45 @@ func (e FeedEntryStatus) Valid() bool {
 	case FeedEntryStatusSaved:
 		return true
 	case FeedEntryStatusSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InstallSkillRequestScope.
+const (
+	InstallSkillRequestScopeAgent InstallSkillRequestScope = "agent"
+	InstallSkillRequestScopeUser  InstallSkillRequestScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the InstallSkillRequestScope enum.
+func (e InstallSkillRequestScope) Valid() bool {
+	switch e {
+	case InstallSkillRequestScopeAgent:
+		return true
+	case InstallSkillRequestScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InviteStatus.
+const (
+	InviteStatusAccepted InviteStatus = "accepted"
+	InviteStatusPending  InviteStatus = "pending"
+	InviteStatusRevoked  InviteStatus = "revoked"
+)
+
+// Valid indicates whether the value is a known member of the InviteStatus enum.
+func (e InviteStatus) Valid() bool {
+	switch e {
+	case InviteStatusAccepted:
+		return true
+	case InviteStatusPending:
+		return true
+	case InviteStatusRevoked:
 		return true
 	default:
 		return false
@@ -346,6 +421,30 @@ func (e SessionDetailKind) Valid() bool {
 	case Scheduler:
 		return true
 	case Task:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SkillScope.
+const (
+	SkillScopeAgent   SkillScope = "agent"
+	SkillScopeProject SkillScope = "project"
+	SkillScopeSystem  SkillScope = "system"
+	SkillScopeUser    SkillScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the SkillScope enum.
+func (e SkillScope) Valid() bool {
+	switch e {
+	case SkillScopeAgent:
+		return true
+	case SkillScopeProject:
+		return true
+	case SkillScopeSystem:
+		return true
+	case SkillScopeUser:
 		return true
 	default:
 		return false
@@ -559,6 +658,18 @@ type AuthResponse struct {
 	Username string `json:"username"`
 }
 
+// AuthSession defines model for AuthSession.
+type AuthSession struct {
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Id        string    `json:"id"`
+}
+
+// AuthSessionList defines model for AuthSessionList.
+type AuthSessionList struct {
+	Items []AuthSession `json:"items"`
+}
+
 // AuthUser defines model for AuthUser.
 type AuthUser struct {
 	CreatedAt  string     `json:"created_at"`
@@ -600,8 +711,9 @@ type BuiltinResourceDetail struct {
 
 // CachedModel defines model for CachedModel.
 type CachedModel struct {
-	Model    string `json:"model"`
-	Provider string `json:"provider"`
+	Model        string  `json:"model"`
+	Provider     string  `json:"provider"`
+	ProviderName *string `json:"provider_name,omitempty"`
 }
 
 // ChangePasswordRequest defines model for ChangePasswordRequest.
@@ -619,6 +731,17 @@ type Channel struct {
 	Enabled bool   `json:"enabled"`
 	Id      string `json:"id"`
 	Type    string `json:"type"`
+}
+
+// ChannelIdentity defines model for ChannelIdentity.
+type ChannelIdentity struct {
+	CreatedAt  time.Time `json:"created_at"`
+	ExternalId string    `json:"external_id"`
+	Id         string    `json:"id"`
+	Name       string    `json:"name"`
+	Platform   string    `json:"platform"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	UserId     string    `json:"user_id"`
 }
 
 // ChannelList defines model for ChannelList.
@@ -662,6 +785,23 @@ type CreateFeedRequest struct {
 	Url   string  `json:"url"`
 }
 
+// CreateInviteRequest defines model for CreateInviteRequest.
+type CreateInviteRequest struct {
+	Email    *string                 `json:"email,omitempty"`
+	MaxUses  *int                    `json:"max_uses,omitempty"`
+	Role     CreateInviteRequestRole `json:"role"`
+	TtlHours *int                    `json:"ttl_hours,omitempty"`
+}
+
+// CreateInviteRequestRole defines model for CreateInviteRequest.Role.
+type CreateInviteRequestRole string
+
+// CreateInviteResponse defines model for CreateInviteResponse.
+type CreateInviteResponse struct {
+	Invite    Invite `json:"invite"`
+	InviteUrl string `json:"invite_url"`
+}
+
 // CreateProjectRequest defines model for CreateProjectRequest.
 type CreateProjectRequest struct {
 	BaseDir     string  `json:"base_dir"`
@@ -697,19 +837,20 @@ type CreateShareRequestSource string
 
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest struct {
-	AgentId                *string            `json:"agent_id,omitempty"`
-	Description            *string            `json:"description,omitempty"`
-	DisableModelInvocation *bool              `json:"disable_model_invocation,omitempty"`
-	Files                  *map[string]string `json:"files,omitempty"`
-	Name                   *string            `json:"name,omitempty"`
-	Scope                  *string            `json:"scope,omitempty"`
-	Status                 *string            `json:"status,omitempty"`
-	UserId                 *string            `json:"user_id,omitempty"`
+	Description            *string                 `json:"description,omitempty"`
+	DisableModelInvocation *bool                   `json:"disable_model_invocation,omitempty"`
+	Files                  *map[string]string      `json:"files,omitempty"`
+	Name                   string                  `json:"name"`
+	Scope                  CreateSkillRequestScope `json:"scope"`
+	Status                 *string                 `json:"status,omitempty"`
 }
 
-// DeleteFileResult defines model for DeleteFileResult.
-type DeleteFileResult struct {
-	Path *string `json:"path,omitempty"`
+// CreateSkillRequestScope defines model for CreateSkillRequest.Scope.
+type CreateSkillRequestScope string
+
+// CreateWorkspaceInput defines model for CreateWorkspaceInput.
+type CreateWorkspaceInput struct {
+	Name *string `json:"name,omitempty"`
 }
 
 // DeleteResult defines model for DeleteResult.
@@ -730,12 +871,6 @@ type Digest struct {
 	UnreadCount          int64      `json:"unread_count"`
 	WorthRevisiting      []Article  `json:"worth_revisiting"`
 	WorthRevisitingCount int        `json:"worth_revisiting_count"`
-}
-
-// DuplicateSkillResult defines model for DuplicateSkillResult.
-type DuplicateSkillResult struct {
-	Id   *string `json:"id,omitempty"`
-	Name *string `json:"name,omitempty"`
 }
 
 // Error defines model for Error.
@@ -806,14 +941,6 @@ type GenerateLinkCodeRequest struct {
 	Platform string `json:"platform"`
 }
 
-// GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
-type GlobalInstallSkillRequest struct {
-	AgentId *string `json:"agent_id,omitempty"`
-	Scope   *string `json:"scope,omitempty"`
-	Source  string  `json:"source"`
-	UserId  *string `json:"user_id,omitempty"`
-}
-
 // Identity defines model for Identity.
 type Identity struct {
 	ExternalId string    `json:"external_id"`
@@ -826,7 +953,41 @@ type Identity struct {
 
 // InstallSkillRequest defines model for InstallSkillRequest.
 type InstallSkillRequest struct {
-	Source string `json:"source"`
+	Scope  *InstallSkillRequestScope `json:"scope,omitempty"`
+	Source string                    `json:"source"`
+}
+
+// InstallSkillRequestScope defines model for InstallSkillRequest.Scope.
+type InstallSkillRequestScope string
+
+// Invite defines model for Invite.
+type Invite struct {
+	AcceptedBy *string      `json:"accepted_by,omitempty"`
+	CreatedAt  time.Time    `json:"created_at"`
+	Email      *string      `json:"email,omitempty"`
+	ExpiresAt  time.Time    `json:"expires_at"`
+	Id         string       `json:"id"`
+	InvitedBy  string       `json:"invited_by"`
+	MaxUses    int          `json:"max_uses"`
+	OrgId      string       `json:"org_id"`
+	Role       string       `json:"role"`
+	Status     InviteStatus `json:"status"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+	UseCount   int          `json:"use_count"`
+}
+
+// InviteStatus defines model for Invite.Status.
+type InviteStatus string
+
+// InviteInfo defines model for InviteInfo.
+type InviteInfo struct {
+	Invite  Invite `json:"invite"`
+	OrgName string `json:"org_name"`
+}
+
+// InviteList defines model for InviteList.
+type InviteList struct {
+	Items []Invite `json:"items"`
 }
 
 // Job defines model for Job.
@@ -902,12 +1063,35 @@ type JobRun struct {
 }
 
 // JobRunList defines model for JobRunList.
-type JobRunList = []JobRun
+type JobRunList struct {
+	Items []JobRun `json:"items"`
+}
 
 // LinkCodeResponse defines model for LinkCodeResponse.
 type LinkCodeResponse struct {
 	Code     string `json:"code"`
 	Platform string `json:"platform"`
+}
+
+// LinkLoginIdentityRequest defines model for LinkLoginIdentityRequest.
+type LinkLoginIdentityRequest struct {
+	Email           string  `json:"email"`
+	Name            *string `json:"name,omitempty"`
+	Provider        string  `json:"provider"`
+	ProviderSubject string  `json:"provider_subject"`
+}
+
+// LoginIdentity defines model for LoginIdentity.
+type LoginIdentity struct {
+	AvatarUrl       *string   `json:"avatar_url,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	Email           string    `json:"email"`
+	Id              string    `json:"id"`
+	Name            *string   `json:"name,omitempty"`
+	Provider        string    `json:"provider"`
+	ProviderSubject string    `json:"provider_subject"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	UserId          string    `json:"user_id"`
 }
 
 // LoginRequest defines model for LoginRequest.
@@ -935,10 +1119,17 @@ type ManifestPluginsResponse struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
-	Id       string `json:"id"`
-	IsAdmin  bool   `json:"is_admin"`
-	Role     string `json:"role"`
-	Username string `json:"username"`
+	AvatarUrl       *string `json:"avatar_url,omitempty"`
+	Email           *string `json:"email,omitempty"`
+	HasCredentials  *bool   `json:"has_credentials,omitempty"`
+	Id              string  `json:"id"`
+	IsAdmin         bool    `json:"is_admin"`
+	Name            *string `json:"name,omitempty"`
+	NeedsOnboarding *bool   `json:"needs_onboarding,omitempty"`
+	OrgId           *string `json:"org_id,omitempty"`
+	OrgName         *string `json:"org_name,omitempty"`
+	Role            string  `json:"role"`
+	Username        string  `json:"username"`
 }
 
 // MessagePart defines model for MessagePart.
@@ -1001,6 +1192,41 @@ type OAuthProviderStatus struct {
 	Username    *string `json:"username,omitempty"`
 }
 
+// OIDCProvider defines model for OIDCProvider.
+type OIDCProvider struct {
+	// LoginUrl URL to redirect the browser to for login
+	LoginUrl string `json:"login_url"`
+
+	// Name Human-readable provider name (e.g. "Zitadel")
+	Name string `json:"name"`
+
+	// RegisterUrl URL to redirect the browser to for registration (local provider only)
+	RegisterUrl *string `json:"register_url,omitempty"`
+}
+
+// OIDCProviderList defines model for OIDCProviderList.
+type OIDCProviderList struct {
+	Items []OIDCProvider `json:"items"`
+}
+
+// OnboardingStatus defines model for OnboardingStatus.
+type OnboardingStatus struct {
+	Email           *string          `json:"email,omitempty"`
+	InviteToken     *string          `json:"invite_token,omitempty"`
+	Name            *string          `json:"name,omitempty"`
+	NeedsOnboarding bool             `json:"needs_onboarding"`
+	PendingInvites  *[]PendingInvite `json:"pending_invites,omitempty"`
+}
+
+// PendingInvite defines model for PendingInvite.
+type PendingInvite struct {
+	Email     *string   `json:"email,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Id        string    `json:"id"`
+	OrgName   string    `json:"org_name"`
+	Role      string    `json:"role"`
+}
+
 // PluginView defines model for PluginView.
 type PluginView struct {
 	AdminVisible *bool                   `json:"admin_visible,omitempty"`
@@ -1017,11 +1243,6 @@ type PluginView struct {
 	Name         *string                 `json:"name,omitempty"`
 	Persisted    *bool                   `json:"persisted,omitempty"`
 	PersistedId  *string                 `json:"persisted_id,omitempty"`
-}
-
-// ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
-type ProfileInstallSkillRequest struct {
-	Source string `json:"source"`
 }
 
 // Project defines model for Project.
@@ -1098,6 +1319,12 @@ type PublicChannel struct {
 // PublicChannelList defines model for PublicChannelList.
 type PublicChannelList struct {
 	Items []PublicChannel `json:"items"`
+}
+
+// RedeemInviteInput defines model for RedeemInviteInput.
+type RedeemInviteInput struct {
+	InviteId *string `json:"invite_id,omitempty"`
+	Token    *string `json:"token,omitempty"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -1228,18 +1455,21 @@ type Share struct {
 
 // Skill defines model for Skill.
 type Skill struct {
-	AgentId                *string   `json:"agent_id,omitempty"`
-	CreatedAt              *string   `json:"created_at,omitempty"`
-	Description            *string   `json:"description,omitempty"`
-	DisableModelInvocation *bool     `json:"disable_model_invocation,omitempty"`
-	Files                  *[]string `json:"files,omitempty"`
-	Id                     *string   `json:"id,omitempty"`
-	Name                   *string   `json:"name,omitempty"`
-	Scope                  *string   `json:"scope,omitempty"`
-	Status                 *string   `json:"status,omitempty"`
-	UpdatedAt              *string   `json:"updated_at,omitempty"`
-	UserId                 *string   `json:"user_id,omitempty"`
+	AgentId                *string     `json:"agent_id,omitempty"`
+	CreatedAt              *string     `json:"created_at,omitempty"`
+	Description            *string     `json:"description,omitempty"`
+	DisableModelInvocation *bool       `json:"disable_model_invocation,omitempty"`
+	Files                  *[]string   `json:"files,omitempty"`
+	Id                     *string     `json:"id,omitempty"`
+	Name                   *string     `json:"name,omitempty"`
+	Scope                  *SkillScope `json:"scope,omitempty"`
+	Status                 *string     `json:"status,omitempty"`
+	UpdatedAt              *string     `json:"updated_at,omitempty"`
+	UserId                 *string     `json:"user_id,omitempty"`
 }
+
+// SkillScope defines model for Skill.Scope.
+type SkillScope string
 
 // SkillFileResponse defines model for SkillFileResponse.
 type SkillFileResponse struct {
@@ -1264,12 +1494,6 @@ type SkillSearchResult struct {
 // SkillSearchResultList defines model for SkillSearchResultList.
 type SkillSearchResultList struct {
 	Items []SkillSearchResult `json:"items"`
-}
-
-// SkillUploadResult defines model for SkillUploadResult.
-type SkillUploadResult struct {
-	Id   *string `json:"id,omitempty"`
-	Name *string `json:"name,omitempty"`
 }
 
 // SourceType defines model for SourceType.
@@ -1380,8 +1604,7 @@ type Tool struct {
 
 // TriggerJobResult defines model for TriggerJobResult.
 type TriggerJobResult struct {
-	RunId  *string `json:"run_id,omitempty"`
-	Status string  `json:"status"`
+	RunId string `json:"run_id"`
 }
 
 // UpdateActiveRequest defines model for UpdateActiveRequest.
@@ -1433,6 +1656,11 @@ type UpdateFeedRequest struct {
 // UpdateNotifyIdentityRequest defines model for UpdateNotifyIdentityRequest.
 type UpdateNotifyIdentityRequest struct {
 	NotifyIdentityId *string `json:"notify_identity_id,omitempty"`
+}
+
+// UpdateOrgRequest defines model for UpdateOrgRequest.
+type UpdateOrgRequest struct {
+	Name string `json:"name"`
 }
 
 // UpdatePluginConfigRequest defines model for UpdatePluginConfigRequest.
@@ -1501,6 +1729,12 @@ type WorkspaceCreateRequest struct {
 
 	// Path Relative path for the new file or directory
 	Path string `json:"path"`
+}
+
+// WorkspaceCreated defines model for WorkspaceCreated.
+type WorkspaceCreated struct {
+	OrgId   string `json:"org_id"`
+	OrgName string `json:"org_name"`
 }
 
 // WorkspaceDeleteRequest defines model for WorkspaceDeleteRequest.

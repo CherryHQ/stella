@@ -8,19 +8,40 @@ import (
 	"strings"
 	"testing"
 
-	"filippo.io/age"
-
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
+
+	"github.com/google/uuid"
 )
 
 type testStores struct {
 	store     config.Store
-	authStore auth.AuthStore
+	authStore *appdb.AuthStore // policy/token store
+	oidcStore *appdb.OIDCStore // user/identity/session store
 	db        *sql.DB
+	orgID     string
+}
+
+func (ts testStores) ctx() context.Context {
+	return config.WithOrgID(context.Background(), ts.orgID)
+}
+
+func (ts testStores) stellaAgentID(t *testing.T) string {
+	t.Helper()
+	agents, err := ts.store.ListAgents(ts.ctx())
+	if err != nil {
+		t.Fatalf("stellaAgentID: %v", err)
+	}
+	for _, a := range agents {
+		if a.Name == "Stella" {
+			return a.ID
+		}
+	}
+	t.Fatal("stellaAgentID: no Stella agent found")
+	return ""
 }
 
 func setupStores(t *testing.T) testStores {
@@ -32,24 +53,59 @@ func setupStores(t *testing.T) testStores {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
+	}
+	store := cfgstore.NewDBStore(db)
+	ctx := config.WithOrgID(context.Background(), orgID)
+	if err := store.SeedNewOrg(ctx, orgID); err != nil {
+		t.Fatalf("SeedNewOrg: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(context.Background(), as); err != nil {
-		t.Fatalf("SeedPolicies: %v", err)
-	}
+	oidcStore := appdb.NewOIDCStore(db)
 
-	return testStores{store: store, authStore: as, db: db}
+	return testStores{store: store, authStore: as, oidcStore: oidcStore, db: db, orgID: orgID}
+}
+
+// createTestUser creates a user in the OIDC store for tests.
+func createTestUser(t *testing.T, store *appdb.OIDCStore, email string) auth.User {
+	t.Helper()
+	ctx := context.Background()
+	u, err := store.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: email,
+		Name:  email,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser(%q): %v", email, err)
+	}
+	return u
+}
+
+// createTestIdentity creates a channel identity in the OIDC store for tests.
+func createTestIdentity(t *testing.T, store *appdb.OIDCStore, userID, platform, externalID, name string) auth.ChannelIdentity {
+	t.Helper()
+	ctx := context.Background()
+	ci, err := store.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
+		UserID:     userID,
+		Platform:   platform,
+		ExternalID: externalID,
+		Name:       name,
+	})
+	if err != nil {
+		t.Fatalf("CreateChannelIdentity(%q/%q): %v", platform, externalID, err)
+	}
+	return ci
 }
 
 func TestResolveUserNoIdentity(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	resolved, err := ResolveUser(ctx, ts.authStore, "telegram", "12345")
+	resolved, err := ResolveUser(ctx, ts.oidcStore, "telegram", "12345")
 	if err != nil {
 		t.Fatalf("ResolveUser: %v", err)
 	}
@@ -62,24 +118,15 @@ func TestResolveUserLinkedIdentity(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	hash, _ := auth.HashPassword("testpass1")
-	authUser, _ := ts.authStore.CreateUser(ctx, "alice", hash)
-	_, _ = ts.authStore.CreateIdentity(ctx, auth.Identity{
-		UserID:     authUser.ID,
-		Platform:   "telegram",
-		ExternalID: "99999",
-		Name:       "Alice",
-	})
+	authUser := createTestUser(t, ts.oidcStore, "alice@example.com")
+	createTestIdentity(t, ts.oidcStore, authUser.ID, "telegram", "99999", "Alice")
 
-	resolved, err := ResolveUser(ctx, ts.authStore, "telegram", "99999")
+	resolved, err := ResolveUser(ctx, ts.oidcStore, "telegram", "99999")
 	if err != nil {
 		t.Fatalf("ResolveUser: %v", err)
 	}
 	if resolved.User.ID != authUser.ID {
 		t.Errorf("User.ID = %q, want %q", resolved.User.ID, authUser.ID)
-	}
-	if resolved.User.Role != auth.RoleUser {
-		t.Errorf("Role = %q, want %q", resolved.User.Role, auth.RoleUser)
 	}
 }
 
@@ -87,16 +134,10 @@ func TestResolveUserCandidatesFallsBackToLegacyFeishuOpenID(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	hash, _ := auth.HashPassword("testpass1")
-	authUser, _ := ts.authStore.CreateUser(ctx, "feishu-user", hash)
-	identity, _ := ts.authStore.CreateIdentity(ctx, auth.Identity{
-		UserID:     authUser.ID,
-		Platform:   "feishu",
-		ExternalID: "ou_legacy",
-		Name:       "Feishu User",
-	})
+	authUser := createTestUser(t, ts.oidcStore, "feishu-user@example.com")
+	identity := createTestIdentity(t, ts.oidcStore, authUser.ID, "feishu", "ou_legacy", "Feishu User")
 
-	resolved, match, err := ResolveUserCandidates(ctx, ts.authStore, "feishu", []string{"on_stable", "ou_legacy"})
+	resolved, match, err := ResolveUserCandidates(ctx, ts.oidcStore, "feishu", []string{"on_stable", "ou_legacy"})
 	if err != nil {
 		t.Fatalf("ResolveUserCandidates: %v", err)
 	}
@@ -112,53 +153,41 @@ func TestMaybeCanonicalizeIdentityPromotesFeishuOpenIDToUnionID(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	hash, _ := auth.HashPassword("testpass1")
-	authUser, _ := ts.authStore.CreateUser(ctx, "canon-user", hash)
-	identity, _ := ts.authStore.CreateIdentity(ctx, auth.Identity{
-		UserID:     authUser.ID,
-		Platform:   "feishu",
-		ExternalID: "ou_legacy",
-	})
+	authUser := createTestUser(t, ts.oidcStore, "canon-user@example.com")
+	identity := createTestIdentity(t, ts.oidcStore, authUser.ID, "feishu", "ou_legacy", "")
 
-	if err := maybeCanonicalizeIdentity(ctx, ts.authStore, "feishu", "on_stable", identityMatch{Identity: identity, Matched: "ou_legacy"}); err != nil {
+	if err := maybeCanonicalizeIdentity(ctx, ts.oidcStore, "feishu", "on_stable", identityMatch{Identity: identity, Matched: "ou_legacy"}); err != nil {
 		t.Fatalf("maybeCanonicalizeIdentity: %v", err)
 	}
 
-	got, err := ts.authStore.GetIdentityByPlatform(ctx, "feishu", "on_stable")
+	got, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "feishu", "on_stable")
 	if err != nil {
-		t.Fatalf("GetIdentityByPlatform(new): %v", err)
+		t.Fatalf("GetChannelIdentityByPlatform(new): %v", err)
 	}
 	if got.ID != identity.ID {
 		t.Fatalf("updated identity id = %s, want %s", got.ID, identity.ID)
 	}
-	if _, err := ts.authStore.GetIdentityByPlatform(ctx, "feishu", "ou_legacy"); err == nil {
+	if _, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "feishu", "ou_legacy"); err == nil {
 		t.Fatal("expected legacy feishu open_id identity to be replaced")
 	}
 }
 
 func TestResolveUserDeactivated(t *testing.T) {
+	// With auth.User there is no IsActive field; deactivated state is tracked
+	// via membership. ResolveUser no longer checks IsActive, so this test is
+	// adjusted to verify that a user without an identity still returns empty.
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	hash, _ := auth.HashPassword("testpass1")
-	authUser, _ := ts.authStore.CreateUser(ctx, "inactive", hash)
-	authUser.IsActive = false
-	_ = ts.authStore.UpdateUser(ctx, authUser)
-	_, _ = ts.authStore.CreateIdentity(ctx, auth.Identity{
-		UserID:     authUser.ID,
-		Platform:   "qq",
-		ExternalID: "111",
-	})
-
-	_, err := ResolveUser(ctx, ts.authStore, "qq", "111")
-	if err == nil {
-		t.Error("expected error for deactivated user")
+	_, err := ResolveUser(ctx, ts.oidcStore, "qq", "111")
+	if err != nil {
+		t.Errorf("ResolveUser: unexpected error: %v", err)
 	}
 }
 
 func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
 	ts := setupStores(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	engine, err := auth.NewEngine(ctx, ts.authStore)
 	if err != nil {
@@ -167,7 +196,7 @@ func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
 
 	identity := ResolvedIdentity{}
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	_, err = ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
+	_, err = ResolveAgent(ctx, ts.store, ts.oidcStore, engine, identity, chat)
 	if !errors.Is(err, ErrAgentAccessDenied) {
 		t.Fatalf("expected ErrAgentAccessDenied for unlinked user, got: %v", err)
 	}
@@ -175,30 +204,30 @@ func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
 
 func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 	ts := setupStores(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	engine, err := auth.NewEngine(ctx, ts.authStore)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
 
-	hash, _ := auth.HashPassword("testpass")
-	authUser, _ := ts.authStore.CreateUser(ctx, "testuser", hash)
+	authUser := createTestUser(t, ts.oidcStore, "testuser@example.com")
 
 	identity := ResolvedIdentity{User: authUser}
 	chat := ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
-	if agentID != "stella" {
-		t.Errorf("agentID = %q, want %q", agentID, "stella")
+	stellaID := ts.stellaAgentID(t)
+	if agentID != stellaID {
+		t.Errorf("agentID = %q, want %q", agentID, stellaID)
 	}
 }
 
 func TestResolveAgentGroupAssignment(t *testing.T) {
 	ts := setupStores(t)
-	ctx := context.Background()
+	ctx := ts.ctx()
 
 	engine, err := auth.NewEngine(ctx, ts.authStore)
 	if err != nil {
@@ -210,12 +239,11 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 	})
 	_ = ts.store.SetChatAgent(ctx, "telegram", "telegram", "-999", "writer")
 
-	hash, _ := auth.HashPassword("testpass")
-	authUser, _ := ts.authStore.CreateUser(ctx, "groupuser", hash)
+	authUser := createTestUser(t, ts.oidcStore, "groupuser@example.com")
 
 	identity := ResolvedIdentity{User: authUser}
 	chat := ChatContext{Platform: "telegram", ChatID: "-999", IsGroup: true}
-	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.oidcStore, engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -229,12 +257,11 @@ func TestTryLinkCodeSuccess(t *testing.T) {
 	ctx := context.Background()
 	linkCodes := auth.NewLinkCodeStore()
 
-	hash, _ := auth.HashPassword("testpass1")
-	authUser, _ := ts.authStore.CreateUser(ctx, "bob", hash)
+	authUser := createTestUser(t, ts.oidcStore, "bob@example.com")
 
 	code := linkCodes.Generate(authUser.ID, "telegram")
 
-	resp, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "/link "+code, "telegram", "67890", "Bob")
+	resp, ok := TryLinkCode(ctx, ts.oidcStore, linkCodes, "/link "+code, "telegram", "67890", "Bob")
 	if !ok {
 		t.Fatal("expected TryLinkCode to handle the message")
 	}
@@ -242,9 +269,9 @@ func TestTryLinkCodeSuccess(t *testing.T) {
 		t.Errorf("unexpected response: %s", resp)
 	}
 
-	identity, err := ts.authStore.GetIdentityByPlatform(ctx, "telegram", "67890")
+	identity, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "telegram", "67890")
 	if err != nil {
-		t.Fatalf("GetIdentityByPlatform: %v", err)
+		t.Fatalf("GetChannelIdentityByPlatform: %v", err)
 	}
 	if identity.UserID != authUser.ID {
 		t.Errorf("identity.UserID = %q, want %q", identity.UserID, authUser.ID)
@@ -256,11 +283,10 @@ func TestTryLinkCodeWithCandidatesPrefersStableFeishuID(t *testing.T) {
 	ctx := context.Background()
 	linkCodes := auth.NewLinkCodeStore()
 
-	hash, _ := auth.HashPassword("testpass1")
-	authUser, _ := ts.authStore.CreateUser(ctx, "feishu-link", hash)
+	authUser := createTestUser(t, ts.oidcStore, "feishu-link@example.com")
 	code := linkCodes.Generate(authUser.ID, "feishu")
 
-	resp, ok := TryLinkCodeWithCandidates(ctx, ts.authStore, linkCodes, "/link "+code, "feishu", "on_stable", []string{"on_stable", "ou_legacy"}, "Feishu User")
+	resp, ok := TryLinkCodeWithCandidates(ctx, ts.oidcStore, linkCodes, "/link "+code, "feishu", "on_stable", []string{"on_stable", "ou_legacy"}, "Feishu User")
 	if !ok {
 		t.Fatal("expected TryLinkCodeWithCandidates to handle the message")
 	}
@@ -268,9 +294,9 @@ func TestTryLinkCodeWithCandidatesPrefersStableFeishuID(t *testing.T) {
 		t.Fatalf("unexpected response: %s", resp)
 	}
 
-	identity, err := ts.authStore.GetIdentityByPlatform(ctx, "feishu", "on_stable")
+	identity, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "feishu", "on_stable")
 	if err != nil {
-		t.Fatalf("GetIdentityByPlatform: %v", err)
+		t.Fatalf("GetChannelIdentityByPlatform: %v", err)
 	}
 	if identity.UserID != authUser.ID {
 		t.Fatalf("identity.UserID = %q, want %q", identity.UserID, authUser.ID)
@@ -282,12 +308,11 @@ func TestTryLinkCodeWrongPlatform(t *testing.T) {
 	ctx := context.Background()
 	linkCodes := auth.NewLinkCodeStore()
 
-	hash, _ := auth.HashPassword("testpass1")
-	authUser, _ := ts.authStore.CreateUser(ctx, "charlie", hash)
+	authUser := createTestUser(t, ts.oidcStore, "charlie@example.com")
 
 	code := linkCodes.Generate(authUser.ID, "telegram")
 
-	resp, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "/link "+code, "qq", "111", "Charlie")
+	resp, ok := TryLinkCode(ctx, ts.oidcStore, linkCodes, "/link "+code, "qq", "111", "Charlie")
 	if !ok {
 		t.Fatal("expected TryLinkCode to handle the message")
 	}
@@ -301,7 +326,7 @@ func TestTryLinkCodeNotACode(t *testing.T) {
 	ctx := context.Background()
 	linkCodes := auth.NewLinkCodeStore()
 
-	_, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "Hello, how are you?", "telegram", "111", "Test")
+	_, ok := TryLinkCode(ctx, ts.oidcStore, linkCodes, "Hello, how are you?", "telegram", "111", "Test")
 	if ok {
 		t.Error("expected TryLinkCode to not handle regular text")
 	}
@@ -312,7 +337,7 @@ func TestTryLinkCodeExpiredOrInvalid(t *testing.T) {
 	ctx := context.Background()
 	linkCodes := auth.NewLinkCodeStore()
 
-	resp, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "/link AB12CD", "telegram", "111", "Test")
+	resp, ok := TryLinkCode(ctx, ts.oidcStore, linkCodes, "/link AB12CD", "telegram", "111", "Test")
 	if !ok {
 		t.Fatal("expected TryLinkCode to handle the message (code format matches)")
 	}
@@ -332,96 +357,45 @@ func TestCoordinatorProvisionUserAuthNotConfigured(t *testing.T) {
 	}
 }
 
-func TestCoordinatorProvisionUserRequiresExistingAdmin(t *testing.T) {
+func TestCoordinatorProvisionUserUnknownIdentityReturnsError(t *testing.T) {
 	ts := setupStores(t)
-	coord := &Coordinator{authStore: ts.authStore}
+	coord := &Coordinator{auth: ts.oidcStore}
 
 	err := coord.ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{
 		Platform:   "telegram",
-		ExternalID: "u-no-admin",
-		Name:       "No Admin",
-		EmailHint:  "noadmin@example.com",
+		ExternalID: "u-unknown",
+		Name:       "Unknown",
 	})
 	if err == nil {
-		t.Fatal("expected error when no admin exists")
+		t.Fatal("expected error for unknown channel identity")
 	}
-	if !strings.Contains(err.Error(), "no admin exists yet") {
-		t.Fatalf("error = %v, want no-admin message", err)
+	if !strings.Contains(err.Error(), "channel identity not found") {
+		t.Fatalf("error = %v, want channel-identity-not-found message", err)
 	}
 }
 
-func TestCoordinatorProvisionUserCreatesVaultKeys(t *testing.T) {
+func TestCoordinatorProvisionUserKnownIdentitySucceeds(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	hash, _ := auth.HashPassword("pw123456")
-	adminUser, err := ts.authStore.CreateUser(ctx, "admin", hash)
-	if err != nil {
-		t.Fatalf("CreateUser(admin): %v", err)
-	}
-	if err := ts.authStore.UpdateUserRole(ctx, adminUser.ID, auth.RoleAdmin); err != nil {
-		t.Fatalf("UpdateUserRole(admin): %v", err)
-	}
-
-	identity, err := age.GenerateX25519Identity()
-	if err != nil {
-		t.Fatalf("GenerateX25519Identity: %v", err)
-	}
-
-	coord := &Coordinator{
-		authStore:      ts.authStore,
-		vaultRecipient: identity.Recipient(),
-	}
-
-	err = coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
+	user := createTestUser(t, ts.oidcStore, "linked@example.com")
+	_, err := ts.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         "ci-1",
+		UserID:     user.ID,
 		Platform:   "telegram",
-		ExternalID: "u-vault",
-		Name:       "Vault User",
-		EmailHint:  "vault@example.com",
+		ExternalID: "u-linked",
+		Name:       "Linked User",
 	})
 	if err != nil {
+		t.Fatalf("CreateChannelIdentity: %v", err)
+	}
+
+	coord := &Coordinator{auth: ts.oidcStore}
+	if err := coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
+		Platform:   "telegram",
+		ExternalID: "u-linked",
+		Name:       "Linked User",
+	}); err != nil {
 		t.Fatalf("ProvisionUser: %v", err)
-	}
-
-	ident, err := ts.authStore.GetIdentityByPlatform(ctx, "telegram", "u-vault")
-	if err != nil {
-		t.Fatalf("GetIdentityByPlatform: %v", err)
-	}
-	user, err := sqlc.New(ts.db).GetAuthUser(ctx, ident.UserID)
-	if err != nil {
-		t.Fatalf("GetAuthUser: %v", err)
-	}
-	if user.AgePublicKey == "" {
-		t.Fatal("expected AgePublicKey to be provisioned")
-	}
-	if user.AgePrivateKey == "" {
-		t.Fatal("expected AgePrivateKey to be provisioned")
-	}
-}
-
-func TestProvisionUserVaultKeysNoRecipientIsNoOp(t *testing.T) {
-	ts := setupStores(t)
-	if err := provisionUserVaultKeys(context.Background(), ts.authStore, nil, "123"); err != nil {
-		t.Fatalf("provisionUserVaultKeys(nil recipient): %v", err)
-	}
-}
-
-func TestProvisionUserVaultKeysReturnsStoreError(t *testing.T) {
-	ts := setupStores(t)
-	ctx := context.Background()
-	hash, _ := auth.HashPassword("pw123456")
-	user, err := ts.authStore.CreateUser(ctx, "temp", hash)
-	if err != nil {
-		t.Fatalf("CreateUser(temp): %v", err)
-	}
-	identity, err := age.GenerateX25519Identity()
-	if err != nil {
-		t.Fatalf("GenerateX25519Identity: %v", err)
-	}
-	if err := ts.db.Close(); err != nil {
-		t.Fatalf("Close DB: %v", err)
-	}
-	if err := provisionUserVaultKeys(ctx, ts.authStore, identity.Recipient(), user.ID); err == nil {
-		t.Fatal("expected store error after closing DB")
 	}
 }

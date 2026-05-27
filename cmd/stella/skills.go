@@ -125,8 +125,12 @@ func skillsInstallCommand() *ucli.Command {
 
 			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
 
+			scope := apitypes.InstallSkillRequestScope("user")
 			result, err := apiclient.Call[map[string]string](func(api *apiclient.Client) (*http.Response, error) {
-				return api.InstallAgentScopedSkill(c.Context, agentID, "user", apiclient.InstallAgentScopedSkillJSONRequestBody{Source: source})
+				return api.InstallAgentSkill(c.Context, agentID, apiclient.InstallAgentSkillJSONRequestBody{
+					Source: source,
+					Scope:  &scope,
+				})
 			})
 			if err != nil {
 				return err
@@ -157,6 +161,13 @@ func skillsListCommand() *ucli.Command {
 	}
 }
 
+func derefSkillScope(s *apitypes.SkillScope) string {
+	if s == nil {
+		return ""
+	}
+	return string(*s)
+}
+
 func skillsListAction(c *ucli.Context) error {
 	agentID, params, err := skillAgentContext(c)
 	if err != nil {
@@ -177,7 +188,7 @@ func skillsListAction(c *ucli.Context) error {
 	var scopeOrder []string
 	seen := map[string]bool{}
 	for _, s := range skills {
-		scope := derefStr(s.Scope)
+		scope := derefSkillScope(s.Scope)
 		if !seen[scope] {
 			seen[scope] = true
 			scopeOrder = append(scopeOrder, scope)
@@ -224,7 +235,7 @@ func skillsListJSON(c *ucli.Context) error {
 		entries[i] = entry{
 			Name:        derefStr(s.Name),
 			Description: derefStr(s.Description),
-			Scope:       derefStr(s.Scope),
+			Scope:       derefSkillScope(s.Scope),
 			Status:      derefStr(s.Status),
 		}
 	}
@@ -260,7 +271,7 @@ func skillsRemoveCommand() *ucli.Command {
 
 			var skill *apitypes.Skill
 			for i := range skills {
-				if derefStr(skills[i].Scope) == "user" && derefStr(skills[i].Name) == name {
+				if derefSkillScope(skills[i].Scope) == "user" && derefStr(skills[i].Name) == name {
 					skill = &skills[i]
 					break
 				}
@@ -270,7 +281,7 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteAgentScopedSkill(c.Context, agentID, "user", derefStr(skill.Id), &apiclient.DeleteAgentScopedSkillParams{SessionId: params.SessionId})
+				return api.DeleteAgentSkill(c.Context, agentID, derefStr(skill.Name), &apiclient.DeleteAgentSkillParams{SessionId: params.SessionId})
 			}); err != nil {
 				return err
 			}

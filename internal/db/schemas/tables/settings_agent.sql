@@ -1,0 +1,20 @@
+CREATE TABLE settings_agent (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    model         TEXT NOT NULL DEFAULT '',
+    model_strong  TEXT NOT NULL DEFAULT '',
+    model_fast    TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL DEFAULT '',
+    soul          TEXT NOT NULL DEFAULT '',
+    workspace     TEXT NOT NULL,
+    sandbox       TEXT NOT NULL DEFAULT '{}',
+    enabled_builtin_skills TEXT NOT NULL DEFAULT '[]',
+    scope         TEXT NOT NULL DEFAULT 'system',
+    creator_id    TEXT NOT NULL DEFAULT '',
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    org_id        TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_settings_agents_org_id ON settings_agent(org_id);

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -90,10 +89,10 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	if params.CanonicalUrl != nil && *params.CanonicalUrl != "" {
 		article, err := h.store.GetArticleByCanonicalURL(ctx, userID, *params.CanonicalUrl)
 		if err != nil {
-			writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{}})
+			writeData(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{}})
 			return
 		}
-		writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{toAPIArticle(article, "")}})
+		writeData(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{toAPIArticle(article, "")}})
 		return
 	}
 
@@ -103,7 +102,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
+		writeData(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
 		return
 	}
 
@@ -122,7 +121,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
+	writeData(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
 }
 
 func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +216,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 		w.Header().Set("Location", "/api/recally/articles/"+article.ID)
 	}
-	writeJSON(w, status, toAPIArticle(article, ""))
+	writeData(w, status, toAPIArticle(article, ""))
 }
 
 func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetArticleParams) {
@@ -235,10 +234,10 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 	}
 	if includesContent(include) {
 		body, _ := h.readArticleBody(article)
-		writeJSON(w, http.StatusOK, toAPIArticle(article, body))
+		writeData(w, http.StatusOK, toAPIArticle(article, body))
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIArticle(article, ""))
+	writeData(w, http.StatusOK, toAPIArticle(article, ""))
 }
 
 func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, id string) {
@@ -302,7 +301,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	writeJSON(w, http.StatusOK, toAPIArticle(updated, ""))
+	writeData(w, http.StatusOK, toAPIArticle(updated, ""))
 }
 
 func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, id string) {
@@ -338,10 +337,10 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 	if params.Url != nil && *params.Url != "" {
 		feed, err := h.store.GetFeedByURL(r.Context(), userID, *params.Url)
 		if err != nil {
-			writeJSON(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{}})
+			writeData(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{}})
 			return
 		}
-		writeJSON(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{toAPIFeed(feed)}})
+		writeData(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{toAPIFeed(feed)}})
 		return
 	}
 	feeds, err := h.store.ListFeeds(r.Context(), userID)
@@ -353,7 +352,7 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 	for i := range feeds {
 		items = append(items, toAPIFeed(&feeds[i]))
 	}
-	writeJSON(w, http.StatusOK, apiserver.FeedList{Items: items})
+	writeData(w, http.StatusOK, apiserver.FeedList{Items: items})
 }
 
 func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +393,7 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/api/recally/feeds/"+feed.ID)
-	writeJSON(w, http.StatusCreated, toAPIFeed(feed))
+	writeData(w, http.StatusCreated, toAPIFeed(feed))
 }
 
 func (h *recallyHandlers) GetFeed(w http.ResponseWriter, r *http.Request, id string) {
@@ -406,7 +405,7 @@ func (h *recallyHandlers) GetFeed(w http.ResponseWriter, r *http.Request, id str
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIFeed(feed))
+	writeData(w, http.StatusOK, toAPIFeed(feed))
 }
 
 func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id string) {
@@ -440,7 +439,7 @@ func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIFeed(updated))
+	writeData(w, http.StatusOK, toAPIFeed(updated))
 }
 
 func (h *recallyHandlers) DeleteFeed(w http.ResponseWriter, r *http.Request, id string) {
@@ -473,7 +472,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	}
 	result := apiserver.FeedPollResult{Feed: toAPIFeed(feed), NewEntries: []apiserver.FeedEntry{}}
 	if !feed.Enabled {
-		writeJSON(w, http.StatusOK, result)
+		writeData(w, http.StatusOK, result)
 		return
 	}
 
@@ -483,7 +482,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	if err != nil {
 		msg := err.Error()
 		result.Error = &msg
-		writeJSON(w, http.StatusOK, result)
+		writeData(w, http.StatusOK, result)
 		return
 	}
 
@@ -512,7 +511,7 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	} else {
 		slog.Warn("failed to update feed last_checked_at", "feed_id", feed.ID, "error", err)
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeData(w, http.StatusOK, result)
 }
 
 // ---------------------------- feed entries ----------------------------------
@@ -547,7 +546,7 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 	for i := range entries {
 		items = append(items, toAPIFeedEntry(&entries[i]))
 	}
-	writeJSON(w, http.StatusOK, apiserver.FeedEntryList{Items: items})
+	writeData(w, http.StatusOK, apiserver.FeedEntryList{Items: items})
 }
 
 func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
@@ -555,7 +554,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	entry, err := h.store.GetFeedEntry(r.Context(), id)
+	entry, err := h.store.GetFeedEntry(r.Context(), feedId, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -583,12 +582,12 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "article_id required when status=saved")
 		return
 	}
-	updated, err := h.store.MarkFeedEntry(r.Context(), id, status, body.ArticleId, strDeref(body.ErrorMsg))
+	updated, err := h.store.MarkFeedEntry(r.Context(), feedId, id, status, body.ArticleId, strDeref(body.ErrorMsg))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIFeedEntry(updated))
+	writeData(w, http.StatusOK, toAPIFeedEntry(updated))
 }
 
 // ------------------------------- digest -------------------------------------
@@ -603,7 +602,7 @@ func (h *recallyHandlers) GetDigest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIDigest(digest))
+	writeData(w, http.StatusOK, toAPIDigest(digest))
 }
 
 func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Request, params apiserver.ListStoredDigestsParams) {
@@ -636,7 +635,7 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 	for _, s := range summaries {
 		items = append(items, toAPIStoredDigestSummary(s))
 	}
-	writeJSON(w, http.StatusOK, apitypes.StoredDigestSummaryList{Items: items, Total: total})
+	writeData(w, http.StatusOK, apitypes.StoredDigestSummaryList{Items: items, Total: total})
 }
 
 func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
@@ -663,7 +662,7 @@ func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/api/recally/digests/"+stored.Date)
-	writeJSON(w, http.StatusCreated, toAPIStoredDigest(stored))
+	writeData(w, http.StatusCreated, toAPIStoredDigest(stored))
 }
 
 func (h *recallyHandlers) GetStoredDigest(w http.ResponseWriter, r *http.Request, date string) {
@@ -676,16 +675,10 @@ func (h *recallyHandlers) GetStoredDigest(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "digest not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIStoredDigest(stored))
+	writeData(w, http.StatusOK, toAPIStoredDigest(stored))
 }
 
 // ------------------------------ helpers -------------------------------------
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
-}
 
 func includesContent(include string) bool {
 	for part := range strings.SplitSeq(include, ",") {

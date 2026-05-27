@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSession, getSession, getSessionWorkspace } from "@/lib/api-client/sdk.gen";
-import { unwrapApiData } from "@/lib/api-data";
 import type { Session, Workspace } from "@/lib/types";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -71,7 +70,7 @@ export function SessionView() {
           path: { agentID: agentId, sessionID: sessionId },
           throwOnError: true,
         });
-        if (!cancelled) setSessionDetail(unwrapApiData<Session>(detail));
+        if (!cancelled) setSessionDetail(detail);
       } catch (e) {
         console.error(e);
       }
@@ -91,7 +90,7 @@ export function SessionView() {
           query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : {}) },
           throwOnError: true,
         });
-        const workspace = unwrapApiData<Workspace>(data);
+        const workspace = data;
         setWorkspace(workspace);
         if (
           !scopePath &&
@@ -153,7 +152,7 @@ export function SessionView() {
       body: { kind: "chat", ...(projectId ? { project_id: projectId } : {}) },
       throwOnError: true,
     });
-    const session = unwrapApiData<Session>(data);
+    const session = data;
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
     void navigate({
       to: "/agents/$agentId/sessions/$sessionId",

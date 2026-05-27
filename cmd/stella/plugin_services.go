@@ -58,7 +58,7 @@ func (a schedulerServiceAdapter) ReconcilePluginJobs(ctx context.Context, plugin
 		if err := a.service.RemoveJob(current.ID); err != nil {
 			return err
 		}
-		if _, err := a.createPluginJob(pluginID, spec); err != nil {
+		if _, err := a.createPluginJob(ctx, pluginID, spec); err != nil {
 			return err
 		}
 	}
@@ -70,7 +70,7 @@ func (a schedulerServiceAdapter) ReconcilePluginJobs(ctx context.Context, plugin
 		if _, exists := existingByKey[key]; exists {
 			continue
 		}
-		if _, err := a.createPluginJob(pluginID, spec); err != nil {
+		if _, err := a.createPluginJob(ctx, pluginID, spec); err != nil {
 			return err
 		}
 	}
@@ -117,8 +117,9 @@ func (a schedulerServiceAdapter) ListPluginJobs(ctx context.Context, pluginID st
 	return out, nil
 }
 
-func (a schedulerServiceAdapter) createPluginJob(pluginID string, spec pkgplugins.SchedulerJobSpec) (pkgplugins.SchedulerJob, error) {
+func (a schedulerServiceAdapter) createPluginJob(ctx context.Context, pluginID string, spec pkgplugins.SchedulerJobSpec) (pkgplugins.SchedulerJob, error) {
 	job, err := a.service.AddPluginJob(
+		ctx,
 		pluginID,
 		spec.Key,
 		spec.RuntimeName,

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AgentsPageState } from "../AgentsPage";
+import type { AgentsPageState, ModelOption } from "../AgentsPage";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
@@ -23,7 +23,7 @@ function ModelComboField({
   value: string;
   placeholder: string;
   optional?: boolean;
-  cachedModels: string[];
+  cachedModels: ModelOption[];
   onChange: (val: string) => void;
 }) {
   const { t } = useI18n();
@@ -31,8 +31,10 @@ function ModelComboField({
   const [search, setSearch] = useState("");
 
   const filtered = search
-    ? cachedModels.filter((m) => m.toLowerCase().includes(search.toLowerCase()))
+    ? cachedModels.filter((m) => m.label.toLowerCase().includes(search.toLowerCase()))
     : cachedModels;
+
+  const displayValue = cachedModels.find((m) => m.value === value)?.label ?? value;
 
   return (
     <div className="relative">
@@ -47,10 +49,11 @@ function ModelComboField({
       <Input
         nativeInput
         type="text"
-        value={value}
+        value={open ? search || displayValue : displayValue}
         onChange={(e) => {
-          onChange((e.target as HTMLInputElement).value);
-          setSearch((e.target as HTMLInputElement).value);
+          const v = (e.target as HTMLInputElement).value;
+          setSearch(v);
+          onChange(v);
           setOpen(cachedModels.length > 0);
         }}
         onFocus={() => {
@@ -67,17 +70,17 @@ function ModelComboField({
         <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-lg py-1">
           {filtered.map((m) => (
             <button
-              key={m}
+              key={m.value}
               onMouseDown={() => {
-                onChange(m);
+                onChange(m.value);
                 setOpen(false);
               }}
               type="button"
               className={`w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-muted cursor-pointer ${
-                value === m ? "text-primary" : "text-muted-foreground"
+                value === m.value ? "text-primary" : "text-muted-foreground"
               }`}
             >
-              {m}
+              {m.label}
             </button>
           ))}
         </div>
@@ -179,8 +182,7 @@ export function ConfigTab({ state, onSetState }: Props) {
                 className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 cursor-pointer"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-mono">{ch.id}</p>
-                  <p className="text-xs text-muted-foreground">{ch.type}</p>
+                  <p className="text-sm font-mono">{ch.type}</p>
                 </div>
                 <Switch
                   checked={selectedChannelIDs.includes(ch.id)}

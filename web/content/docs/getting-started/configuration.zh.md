@@ -38,6 +38,12 @@ title: 配置
 - [飞书](/docs/channels/feishu)
 - [微信](/docs/channels/weixin)
 
+## 认证
+
+默认情况下，你通过设置时创建的用户名和密码登录 Web UI。
+
+如需使用外部身份提供商（Zitadel、Keycloak、Auth0 或任何兼容 OIDC 的服务），可通过环境变量配置 OIDC。详见 [OIDC 认证指南](/docs/guides/oidc-authentication)。
+
 ## 用户
 
 当有人通过已连接的渠道发送消息时，用户会自动创建。每个用户获得独立的每代理记忆。你可以在Web UI的 **用户** 页面管理用户、角色和权限。

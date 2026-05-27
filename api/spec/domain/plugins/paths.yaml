@@ -88,7 +88,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-    put:
+    patch:
       tags: [plugins]
       summary: Update plugin config (admin only)
       operationId: updatePluginConfig
@@ -148,7 +148,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-    put:
+    patch:
       tags: [plugins]
       summary: Save manifest plugins (admin only)
       operationId: saveManifestPlugins

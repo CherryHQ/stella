@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"filippo.io/age"
@@ -16,15 +17,28 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
+// channelAuthStore is the subset of auth store interfaces needed by the channel coordinator.
+type channelAuthStore interface {
+	auth.UserStore
+	auth.ChannelIdentityStore
+	auth.MembershipStore
+	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
+}
+
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
 // management, command handling, account linking, and model/agent switching.
 // A per-session message queue ensures that only one chat turn runs at a time
 // per resolved Stella session; later messages are serialised in arrival order.
+// OrgRuntimeInitializer ensures per-org runtime is started before processing messages.
+type OrgRuntimeInitializer interface {
+	EnsureStarted(ctx context.Context, orgID string) error
+}
+
 type Coordinator struct {
 	poolManager      *agent.PoolManager
 	store            config.Store
-	authStore        auth.AuthStore
+	auth             channelAuthStore
 	engine           *auth.PolicyEngine
 	linkCodes        *auth.LinkCodeStore
 	vaultRecipient   *age.X25519Recipient
@@ -33,22 +47,23 @@ type Coordinator struct {
 	switchFn         func(provider, model string) error
 	queue            *sessionQueue
 	intentClassifier IntentClassifier
+	orgInit          OrgRuntimeInitializer
 }
 
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
 
 // WithCoordinatorAuth configures the coordinator with auth support.
-func WithCoordinatorAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) CoordinatorOption {
+func WithCoordinatorAuth(store channelAuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) CoordinatorOption {
 	return func(c *Coordinator) {
-		c.authStore = authStore
+		c.auth = store
 		c.engine = engine
 		c.linkCodes = linkCodes
 	}
 }
 
 // WithVaultRecipient sets the master age recipient so channel-provisioned users
-// get age keys immediately instead of waiting for the startup backfill.
+// get age keys at creation time.
 func WithVaultRecipient(r *age.X25519Recipient) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.vaultRecipient = r
@@ -89,13 +104,36 @@ func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
 	}
 }
 
+// WithOrgRuntimeInitializer sets the org runtime initializer for lazy per-org startup.
+func WithOrgRuntimeInitializer(init OrgRuntimeInitializer) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.orgInit = init
+	}
+}
+
 // resolve performs the full user -> agent -> pool -> session key resolution.
+// If an org runtime initializer is set, it ensures the user's org runtime is
+// started before resolving the agent pool (which requires synced agents).
+// The org init only fires for users with an existing membership — unregistered
+// senders are skipped.
 func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
 	channelID := msg.ChannelID
 	if channelID == "" {
 		channelID = msg.Platform
 	}
-	return ResolveWithChannel(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
+
+	if c.orgInit != nil && c.auth != nil {
+		resolved, _, err := ResolveUserCandidates(ctx, c.auth, msg.Platform, append([]string{msg.SenderID}, msg.SenderIDs...))
+		if err == nil && resolved.User.ID != "" {
+			if membership, err := c.auth.GetUserMembership(ctx, resolved.User.ID); err == nil {
+				if err := c.orgInit.EnsureStarted(ctx, membership.OrganizationID); err != nil {
+					slog.Warn("channel: org runtime init failed", "org_id", membership.OrganizationID, "error", err)
+				}
+			}
+		}
+	}
+
+	return ResolveWithChannel(ctx, c.poolManager, c.store, c.auth, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -103,12 +141,12 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	// Try link code first (before auth resolution, since it creates identity).
-	if c.authStore != nil && c.linkCodes != nil {
+	if c.auth != nil && c.linkCodes != nil {
 		fullText := command
 		if args != "" {
 			fullText = command + " " + args
 		}
-		if resp, ok := TryLinkCodeWithCandidates(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
+		if resp, ok := TryLinkCodeWithCandidates(ctx, c.auth, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
 			return resp, true, nil, nil
 		}
 	}
@@ -258,7 +296,7 @@ func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMes
 		return nil, "", err
 	}
 
-	ac := NewAgentCommander(c.store, c.authStore)
+	ac := NewAgentCommander(c.store, c.auth)
 	agents, err := ac.ListForChat(ctx, rc.ChatCtx)
 	if err != nil {
 		return nil, "", err
@@ -278,7 +316,7 @@ func (c *Coordinator) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMe
 		return err
 	}
 
-	ac := NewAgentCommander(c.store, c.authStore)
+	ac := NewAgentCommander(c.store, c.auth)
 	return ac.Switch(ctx, rc.User, rc.ChatCtx, agentSlug)
 }
 
@@ -320,43 +358,16 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	return out
 }
 
-// ProvisionUser creates or returns an existing user+identity for the given
-// channel sender. Returns an error if auth is not configured or the user
-// count is zero (no admin exists yet — provisioning is refused until the
-// first admin registers to avoid stranding a deployment with zero admins).
+// ProvisionUser checks whether a channel identity exists for the sender.
+// Returns an error if the identity is not found — the user must first log in
+// via OIDC and link their channel account.
 func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
-	if c.authStore == nil {
+	if c.auth == nil {
 		return errors.New("provision: auth not configured")
 	}
-	count, err := c.authStore.CountUsers(ctx)
+	_, err := c.auth.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID)
 	if err != nil {
-		return fmt.Errorf("provision: count users: %w", err)
-	}
-	if count == 0 {
-		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
-	}
-	_, err = auth.ProvisionIdentityUser(ctx, c.authStore, auth.ProvisionRequest{
-		Platform:   req.Platform,
-		ExternalID: req.ExternalID,
-		Name:       req.Name,
-		EmailHint:  req.EmailHint,
-		OnUserCreated: func(ctx context.Context, userID string) error {
-			return provisionUserVaultKeys(ctx, c.authStore, c.vaultRecipient, userID)
-		},
-	})
-	return err
-}
-
-func provisionUserVaultKeys(ctx context.Context, store auth.AuthStore, recipient *age.X25519Recipient, userID string) error {
-	if recipient == nil {
-		return nil
-	}
-	pubKey, encPrivKey, err := vault.GenerateUserKeys(recipient)
-	if err != nil {
-		return fmt.Errorf("generate age keys: %w", err)
-	}
-	if err := store.UpdateUserAgeKeys(ctx, userID, pubKey, encPrivKey); err != nil {
-		return fmt.Errorf("store age keys: %w", err)
+		return fmt.Errorf("provision: channel identity not found (user must link account via OIDC first): %w", err)
 	}
 	return nil
 }

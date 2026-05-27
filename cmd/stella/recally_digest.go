@@ -22,7 +22,7 @@ func recallyDigestCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON (default)", Value: true},
 		},
 		Action: func(c *ucli.Context) error {
-			digest, err := apiclient.CallJSON[apiclient.Digest](func(api *apiclient.Client) (*http.Response, error) {
+			digest, err := apiclient.Call[apiclient.Digest](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetDigest(c.Context)
 			})
 			if err != nil {
@@ -55,7 +55,7 @@ func recallyDigestSaveCommand() *ucli.Command {
 			if d := c.String("date"); d != "" {
 				body.Date = &d
 			}
-			stored, err := apiclient.CallJSON[apitypes.StoredDigest](func(api *apiclient.Client) (*http.Response, error) {
+			stored, err := apiclient.Call[apitypes.StoredDigest](func(api *apiclient.Client) (*http.Response, error) {
 				return api.SaveDigest(c.Context, body)
 			})
 			if err != nil {

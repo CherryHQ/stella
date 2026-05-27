@@ -154,7 +154,7 @@ func findMessageRuns(items []sqlc.CtxItem, minSize int) []messageRun {
 // formatMessageForSummarizer formats a CtxMessage for compaction summarization.
 // Tool results and tool calls are rendered compactly; all other messages keep
 // the original [role] content shape. On any JSON unmarshal error the original
-// format is returned as a safe fallback (handles legacy rows).
+// format is returned as a safe fallback on JSON parse errors.
 func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 	switch msg.EventType {
 	case eventTypeToolResult:
@@ -201,7 +201,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 		if !item.MessageID.Valid {
 			continue
 		}
-		msg, err := c.q.GetMessage(ctx, item.MessageID.String)
+		msg, err := c.q.GetMessage(ctx, sqlc.GetMessageParams{ID: item.MessageID.String, ConversationID: convID})
 		if err != nil {
 			return fmt.Errorf("get message %s: %w", item.MessageID.String, err)
 		}
@@ -310,7 +310,7 @@ func (c *compactionEngine) condensedPass(ctx context.Context, convID string, ite
 		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
 			continue
 		}
-		sum, err := c.q.GetSummary(ctx, item.SummaryID.String)
+		sum, err := c.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: item.SummaryID.String, ConversationID: convID})
 		if err != nil {
 			return fmt.Errorf("get summary depth %s: %w", item.SummaryID.String, err)
 		}

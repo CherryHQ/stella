@@ -3,16 +3,21 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -25,6 +30,7 @@ import (
 	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/skills"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	mcp "github.com/CherryHQ/stella/internal/tools/mcp"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -36,15 +42,76 @@ import (
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
+// templateDBOnce builds a fully-migrated and seeded SQLite template DB once.
+// Each test copies the file instead of re-running 48 migrations from scratch.
+var (
+	templateDBOnce sync.Once
+	templateDBPath string
+)
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
+
+func ensureTemplateDB() string {
+	templateDBOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "stella_srv_tmpl_*")
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: MkdirTemp: %v", err))
+		}
+		path := filepath.Join(dir, "template.db")
+		db, err := appdb.OpenDB(path)
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: OpenDB: %v", err))
+		}
+		ctx := context.Background()
+		orgID, err := appdb.EnsureDefaultOrg(ctx, db)
+		if err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: EnsureDefaultOrg: %v", err))
+		}
+		store := cfgstore.NewDBStore(db)
+		if err := store.SeedNewOrg(ctx, orgID); err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: SeedNewOrg: %v", err))
+		}
+		if err := db.Close(); err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: Close: %v", err))
+		}
+		templateDBPath = path
+	})
+	return templateDBPath
+}
+
+func copyTemplateDB(t *testing.T) string {
+	t.Helper()
+	src := ensureTemplateDB()
+	dst := filepath.Join(t.TempDir(), "test.db")
+	in, err := os.Open(src)
+	if err != nil {
+		t.Fatalf("copyTemplateDB: open src: %v", err)
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.Create(dst)
+	if err != nil {
+		t.Fatalf("copyTemplateDB: create dst: %v", err)
+	}
+	defer func() { _ = out.Close() }()
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatalf("copyTemplateDB: copy: %v", err)
+	}
+	return dst
+}
+
 type testEnv struct {
-	srv        *server.Server
-	db         *sql.DB
-	store      config.Store
-	pluginHost *pluginhost.Host
-	authStore  auth.AuthStore
-	mem        memory.Provider
-	adminUser  auth.AuthUser
-	sessionID  string
+	srv         *server.Server
+	db          *sql.DB
+	store       config.Store
+	pluginHost  *pluginhost.Host
+	authStore   *appdb.AuthStore
+	oidcStore   *appdb.OIDCStore
+	mem         memory.Provider
+	adminUser   auth.User
+	bearerToken string
+	orgID       string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
@@ -52,24 +119,23 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Setenv("STELLA_HOME", filepath.Join(t.TempDir(), "stella-home"))
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
+	dbPath := copyTemplateDB(t)
 	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
-		t.Fatalf("SeedDefaults: %v", err)
+	store := cfgstore.NewDBStore(db)
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
-
+	orgCtx := config.WithOrgID(context.Background(), orgID)
+	_ = store.SeedNewOrg(orgCtx, orgID)
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedPolicies(context.Background(), as); err != nil {
-		t.Fatalf("SeedPolicies: %v", err)
-	}
 
-	engine, err := auth.NewEngine(context.Background(), as)
+	engine, err := auth.NewEngine(orgCtx, as)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -140,44 +206,111 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	phost.SetSkillStore(skills.New(db))
-	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
+	skillStore := skills.New(db)
+	phost.SetSkillStore(skillStore)
+	if err := phost.ApplyPlugin(orgCtx, mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
-	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
-	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
+	if err := phost.ApplyPlugin(orgCtx, reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
-	srv := server.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
+	srv := server.New(orgCtx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
+
+	oidcStore := appdb.NewOIDCStore(db)
+	tokenSvc := auth.NewTokenService(as, nil)
+	srv.SetTokenService(tokenSvc)
+	srv.SetUserStore(oidcStore)
+	srv.SetMembershipStore(oidcStore)
+	srv.SetLoginIdentityStore(oidcStore)
+	srv.SetSessionStore(oidcStore)
+	srv.SetCredentialStore(oidcStore)
 
 	// Create an admin user for authenticated requests.
-	hash, _ := auth.HashPassword("testpassword")
-	user, err := as.CreateUser(context.Background(), "testadmin", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	_ = as.UpdateUserRole(context.Background(), user.ID, auth.RoleAdmin)
+	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin, orgID)
 
-	sessionID := auth.NewSessionID()
-	_, err = as.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
+	// Seed a password credential for the admin user so change-password tests work.
+	hash, err := auth.HashPassword("testpassword")
 	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
+		t.Fatalf("HashPassword: %v", err)
+	}
+	if _, err := oidcStore.CreateCredential(context.Background(), auth.Credential{
+		ID:           uuid.NewString(),
+		UserID:       adminUser.ID,
+		PasswordHash: hash,
+	}); err != nil {
+		t.Fatalf("CreateCredential: %v", err)
 	}
 
 	return &testEnv{
-		srv:        srv,
-		db:         db,
-		store:      store,
-		pluginHost: phost,
-		authStore:  as,
-		mem:        mem,
-		adminUser:  user,
-		sessionID:  sessionID,
+		srv:         srv,
+		db:          db,
+		store:       store,
+		pluginHost:  phost,
+		authStore:   as,
+		oidcStore:   oidcStore,
+		mem:         mem,
+		adminUser:   adminUser,
+		bearerToken: bearerToken,
+		orgID:       orgID,
 	}
+}
+
+// createTestUserWithToken creates a user, organization, membership, and bearer token for testing.
+func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string, orgIDs ...string) (auth.User, string) {
+	t.Helper()
+	ctx := context.Background()
+	user, err := oidcStore.CreateUser(ctx, auth.User{
+		ID:       uuid.NewString(),
+		Email:    name + "@test.local",
+		Name:     name,
+		IsActive: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser %q: %v", name, err)
+	}
+	orgID := ""
+	if len(orgIDs) > 0 && orgIDs[0] != "" {
+		orgID = orgIDs[0]
+	} else {
+		org, err := oidcStore.CreateOrganization(ctx, auth.Organization{
+			ID:         uuid.NewString(),
+			Name:       name + "-org",
+			Source:     "test",
+			ExternalID: uuid.NewString(),
+		})
+		if err != nil {
+			t.Fatalf("CreateOrganization %q: %v", name, err)
+		}
+		orgID = org.ID
+	}
+	_, err = oidcStore.CreateMembership(ctx, auth.Membership{
+		ID:             uuid.NewString(),
+		UserID:         user.ID,
+		OrganizationID: orgID,
+		Role:           role,
+		IsActive:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateMembership %q: %v", name, err)
+	}
+	rawToken := "stella_test_" + uuid.NewString()
+	sum := sha256.Sum256([]byte(rawToken))
+	tokenHash := hex.EncodeToString(sum[:])
+	prefix := rawToken
+	if len(prefix) > 15 {
+		prefix = prefix[:15]
+	}
+	_, err = as.CreateUserToken(ctx, auth.UserToken{
+		ID:          uuid.NewString(),
+		UserID:      user.ID,
+		Name:        "test",
+		TokenHash:   tokenHash,
+		TokenPrefix: prefix,
+	})
+	if err != nil {
+		t.Fatalf("CreateUserToken %q: %v", name, err)
+	}
+	return user, rawToken
 }
 
 func TestNewPanicsWithoutPluginHost(t *testing.T) {
@@ -187,15 +320,15 @@ func TestNewPanicsWithoutPluginHost(t *testing.T) {
 		}
 	}()
 
-	_ = server.New(nil, nil, nil, nil, nil, nil, nil, nil)
+	_ = server.New(context.Background(), nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
-	return doRequestWithSession(t, env.srv, env.sessionID, method, path, body)
+	return doRequestWithSession(t, env.srv, env.bearerToken, method, path, body)
 }
 
-func doRequestWithSession(t *testing.T, srv *server.Server, sessionID, method, path string, body any) *httptest.ResponseRecorder {
+func doRequestWithSession(t *testing.T, srv *server.Server, bearerToken, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -207,8 +340,8 @@ func doRequestWithSession(t *testing.T, srv *server.Server, sessionID, method, p
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if sessionID != "" {
-		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionID})
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, req)
@@ -249,17 +382,32 @@ func doBearerRequestWithSession(t *testing.T, srv *server.Server, sessionID, tok
 }
 
 type apiResponse struct {
-	Data  json.RawMessage `json:"data"`
-	Error string          `json:"error"`
+	Data  json.RawMessage
+	Error string
 }
 
 func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 	t.Helper()
-	var resp apiResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v (body: %s)", err, rr.Body.String())
+	body := rr.Body.Bytes()
+	var errResp struct {
+		Error string `json:"error"`
 	}
-	return resp
+	if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
+		return apiResponse{Error: errResp.Error}
+	}
+	return apiResponse{Data: json.RawMessage(body)}
+}
+
+func parseListItems(t *testing.T, rr *httptest.ResponseRecorder) json.RawMessage {
+	t.Helper()
+	resp := parseResponse(t, rr)
+	var wrapper struct {
+		Items json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
+		t.Fatalf("unmarshal list wrapper: %v", err)
+	}
+	return wrapper.Items
 }
 
 type testChannel struct {
@@ -307,8 +455,8 @@ func TestListProviders(t *testing.T) {
 	if len(providers) == 0 {
 		t.Fatal("expected at least one provider")
 	}
-	if providers[0].ID != "anthropic" {
-		t.Errorf("provider ID = %q, want %q", providers[0].ID, "anthropic")
+	if providers[0].Type != "anthropic" {
+		t.Errorf("provider Type = %q, want %q", providers[0].Type, "anthropic")
 	}
 }
 
@@ -351,16 +499,16 @@ func TestListAgents(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	resp := parseResponse(t, rr)
+	items := parseListItems(t, rr)
 	var agents []config.Agent
-	if err := json.Unmarshal(resp.Data, &agents); err != nil {
+	if err := json.Unmarshal(items, &agents); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(agents) == 0 {
 		t.Fatal("expected at least one agent")
 	}
-	if agents[0].ID != "stella" {
-		t.Errorf("agent ID = %q, want %q", agents[0].ID, "stella")
+	if agents[0].Name != "Stella" {
+		t.Errorf("agent Name = %q, want %q", agents[0].Name, "Stella")
 	}
 }
 
@@ -379,7 +527,7 @@ func TestUpdateMCPPluginConfig(t *testing.T) {
 			},
 		},
 	}
-	rr := doRequest(t, env, "PUT", "/api/plugin-config/tool/mcp", body)
+	rr := doRequest(t, env, "PATCH", "/api/plugin-config/tool/mcp", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -407,7 +555,7 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 			},
 		},
 	}
-	rr := doRequest(t, env, "PUT", "/api/plugin-config/tool/mcp", body)
+	rr := doRequest(t, env, "PATCH", "/api/plugin-config/tool/mcp", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -415,13 +563,14 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 
 func TestGetMCPPluginStatus(t *testing.T) {
 	env := setupAdmin(t)
-	if err := env.store.SetPluginEnabled(context.Background(), mcp.PluginID, true); err != nil {
+	octx := config.WithOrgID(context.Background(), env.orgID)
+	if err := env.store.SetPluginEnabled(octx, mcp.PluginID, true); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	if err := env.store.SetPluginConfig(context.Background(), mcp.PluginID, map[string]any{"servers": []any{}}); err != nil {
+	if err := env.store.SetPluginConfig(octx, mcp.PluginID, map[string]any{"servers": []any{}}); err != nil {
 		t.Fatalf("SetPluginConfig: %v", err)
 	}
-	if err := env.pluginHost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
+	if err := env.pluginHost.ApplyPlugin(octx, mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin: %v", err)
 	}
 	if _, ok := mcp.LookupRuntime(env.pluginHost.Runtime()); !ok {
@@ -528,7 +677,8 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), reflectplugin.PluginID, map[string]any{
+	octx := config.WithOrgID(context.Background(), env.orgID)
+	if err := env.store.SetPluginConfig(octx, reflectplugin.PluginID, map[string]any{
 		"interval": "30m",
 		"batch":    3,
 	}); err != nil {
@@ -597,7 +747,7 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "PUT", "/api/plugin-config/channel/telegram", map[string]any{
+	rr = doRequest(t, env, "PATCH", "/api/plugin-config/channel/telegram", map[string]any{
 		"config": map[string]any{"token": "telegram-secret"},
 	})
 	if rr.Code != http.StatusBadRequest {
@@ -608,7 +758,7 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 func TestReflectPluginConfigAndStatus(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/plugin-config/reflect/reflect", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/plugin-config/reflect/reflect", map[string]any{
 		"config": map[string]any{"interval": "30m", "batch": 3},
 	})
 	if rr.Code != http.StatusOK {
@@ -672,7 +822,7 @@ func TestReflectPluginConfigAndStatus(t *testing.T) {
 func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
 		"enabled": true,
 		"config":  `{"token":"tg-token","enable_notify":true,"group_mode":"mention"}`,
 	})
@@ -717,7 +867,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/qq", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/qq", map[string]any{
 		"enabled": true,
 		"config":  `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true,"group_mode":"mention"}`,
 	})
@@ -762,7 +912,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/feishu", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/feishu", map[string]any{
 		"enabled": true,
 		"config":  `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"group_mode":"mention","groups":{"oc_123":{"group_mode":"always","system_prompt":"be brief"}}}`,
 	})
@@ -811,7 +961,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "PUT", "/api/channels/weixin", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/weixin", map[string]any{
 		"enabled": true,
 		"config":  `{"bot_token":"wx-token","base_url":"https://wx.example","bot_id":"bot-1","user_id":"user-1","enable_notify":true}`,
 	})
@@ -859,8 +1009,10 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 
 func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	env := setupAdmin(t)
+	octx := config.WithOrgID(context.Background(), env.orgID)
+	stellaID := findStellaID(t, env)
 
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: true,
@@ -868,7 +1020,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel telegram: %v", err)
 	}
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformFeishu,
 		Type:    pkgchannel.PlatformFeishu,
 		Enabled: false,
@@ -876,16 +1028,16 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel feishu: %v", err)
 	}
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      "feishu-stella",
 		Type:    pkgchannel.PlatformFeishu,
-		AgentID: "stella",
+		AgentID: stellaID,
 		Enabled: true,
 		Config:  `{}`,
 	}); err != nil {
 		t.Fatalf("UpsertChannel feishu-stella: %v", err)
 	}
-	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
 		Kind:    config.PluginKindChannel,
 		Name:    pkgchannel.PlatformQQ,
@@ -899,7 +1051,6 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	resp := parseResponse(t, rr)
 	type publicChannelPayload struct {
 		ID        string `json:"id"`
 		Type      string `json:"type"`
@@ -909,7 +1060,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 		Enabled   bool   `json:"enabled"`
 	}
 	var channels []publicChannelPayload
-	if err := json.Unmarshal(resp.Data, &channels); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr), &channels); err != nil {
 		t.Fatalf("unmarshal public channels: %v", err)
 	}
 	byID := make(map[string]publicChannelPayload, len(channels))
@@ -923,20 +1074,21 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 		t.Fatalf("expected telegram public channel, got %#v", channels)
 	}
 	if _, ok := byID[pkgchannel.PlatformFeishu]; ok {
-		t.Fatalf("feishu disabled channel should not be public: %#v", channels)
+		t.Fatalf("feishu disabled default should not be public: %#v", channels)
+	}
+	if _, ok := byID["feishu-stella"]; !ok {
+		t.Fatalf("feishu-stella dedicated enabled channel should be public: %#v", channels)
 	}
 	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
 		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
-	}
-	if _, ok := byID["feishu-stella"]; ok {
-		t.Fatalf("dedicated instances should not appear in public channels: %#v", channels)
 	}
 }
 
 func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	env := setupAdmin(t)
+	octx := config.WithOrgID(context.Background(), env.orgID)
 
-	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
 		Type:    pkgchannel.PlatformTelegram,
 		Enabled: false,
@@ -944,7 +1096,7 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel telegram: %v", err)
 	}
-	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+	if err := env.store.UpsertPlugin(octx, config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram),
 		Kind:    config.PluginKindChannel,
 		Name:    pkgchannel.PlatformTelegram,
@@ -954,21 +1106,21 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 		t.Fatalf("UpsertPlugin telegram: %v", err)
 	}
 
-	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+	rr := doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
 		"enabled": true,
 		"config":  `{"token":"tg-token","enable_notify":true}`,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	ch, err := env.store.GetChannel(context.Background(), pkgchannel.PlatformTelegram)
+	ch, err := env.store.GetChannel(octx, pkgchannel.PlatformTelegram)
 	if err != nil {
 		t.Fatalf("GetChannel telegram: %v", err)
 	}
 	if ch.Enabled {
 		t.Fatal("channel config update should not enable channel")
 	}
-	plugin, err := env.store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram))
+	plugin, err := env.store.GetPlugin(octx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram))
 	if err != nil {
 		t.Fatalf("GetPlugin telegram: %v", err)
 	}
@@ -980,32 +1132,19 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
 	env := setupAdmin(t)
 
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(context.Background(), "regularuser", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	sessionID := auth.NewSessionID()
-	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser, env.orgID)
 
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/channels", nil)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/channels", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("channels page status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels/public", nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/channels/public", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("public channels status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels", nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/channels", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("channel config status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
 	}
@@ -1162,31 +1301,17 @@ func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
 	env := setupAdmin(t)
 
 	// Create a non-admin user.
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(context.Background(), "regularuser", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	sessionID := auth.NewSessionID()
-	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser, env.orgID)
 
 	// Admin-only API should return 403.
-	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/providers", nil)
+	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/providers", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
 	}
 
 	// All page routes serve the SPA shell regardless of admin status;
 	// access control is enforced client-side and via the API.
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/providers", nil)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/providers", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -1208,20 +1333,8 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 	}
 
 	// Authenticated non-admin with missing q → 400, proving search is no longer admin-only.
-	hash, _ := auth.HashPassword("userpassword")
-	user, err := env.authStore.CreateUser(context.Background(), "regularuser-search", hash)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	sessionID := auth.NewSessionID()
-	if _, err = env.authStore.CreateSession(context.Background(), auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	}); err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/skills/search", nil)
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser, env.orgID)
+	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/skills/search", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("user missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}

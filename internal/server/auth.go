@@ -1,202 +1,20 @@
 package server
 
 import (
-	"net"
 	"net/http"
-	"strings"
-	"time"
 
+	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/vault"
 )
-
-// Register handles POST /api/auth/register.
-func (s *Server) Register(w http.ResponseWriter, r *http.Request) {
-	// Rate limit registration by IP.
-	ip := clientIP(r)
-	if err := s.rateLimiter.CheckIP(ip); err != nil {
-		writeError(w, http.StatusTooManyRequests, err.Error())
-		return
-	}
-
-	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-
-	body.Username = strings.TrimSpace(body.Username)
-	if body.Username == "" {
-		writeError(w, http.StatusBadRequest, "username is required")
-		return
-	}
-	if len(body.Username) > 64 {
-		writeError(w, http.StatusBadRequest, "username must be at most 64 characters")
-		return
-	}
-	if len(body.Password) < 8 {
-		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
-		return
-	}
-	if len(body.Password) > 72 {
-		writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
-		return
-	}
-
-	ctx := r.Context()
-
-	// Check if this will be the first user BEFORE creating, to avoid race.
-	count, err := s.authStore.CountUsers(ctx)
-	if err != nil {
-		s.log.Error("count users", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	isFirstUser := count == 0
-
-	// Hash password.
-	hash, err := auth.HashPassword(body.Password)
-	if err != nil {
-		s.log.Error("hash password", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// Create user.
-	user, err := s.authStore.CreateUser(ctx, body.Username, hash)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint") {
-			s.rateLimiter.RecordIPAttempt(ip)
-			writeError(w, http.StatusConflict, "username already taken")
-			return
-		}
-		s.log.Error("create user", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// First user gets admin role.
-	if isFirstUser {
-		_ = s.authStore.UpdateUserRole(ctx, user.ID, auth.RoleAdmin)
-	}
-
-	// Generate vault keys if the master recipient is configured.
-	if s.vaultRecipient != nil {
-		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
-		if err != nil {
-			s.log.Warn("generate age keys failed", "user_id", user.ID, "error", err)
-		} else if err := s.authStore.UpdateUserAgeKeys(ctx, user.ID, pubKey, encPrivKey); err != nil {
-			s.log.Warn("store age keys failed", "user_id", user.ID, "error", err)
-		}
-	}
-
-	// Create session.
-	sessionID := auth.NewSessionID()
-	_, err = s.authStore.CreateSession(ctx, auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
-	if err != nil {
-		s.log.Error("create session", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	secure := !isLocalhost(r)
-	auth.SetSessionCookie(w, sessionID, secure)
-
-	writeData(w, http.StatusCreated, map[string]any{
-		"id":       user.ID,
-		"username": user.Username,
-	})
-}
-
-// Login handles POST /api/auth/login.
-func (s *Server) Login(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-
-	body.Username = strings.TrimSpace(body.Username)
-
-	// Rate limit by IP.
-	ip := clientIP(r)
-	if err := s.rateLimiter.CheckIP(ip); err != nil {
-		writeError(w, http.StatusTooManyRequests, err.Error())
-		return
-	}
-
-	// Rate limit by username.
-	if body.Username != "" {
-		if err := s.rateLimiter.CheckUsername(body.Username); err != nil {
-			writeError(w, http.StatusTooManyRequests, err.Error())
-			return
-		}
-	}
-
-	ctx := r.Context()
-
-	user, err := s.authStore.GetUserByUsername(ctx, body.Username)
-	if err != nil {
-		s.rateLimiter.RecordIPAttempt(ip)
-		s.rateLimiter.RecordLoginFailure(body.Username)
-		writeError(w, http.StatusUnauthorized, "invalid username or password")
-		return
-	}
-
-	if err := auth.CheckPassword(user.PasswordHash, body.Password); err != nil {
-		s.rateLimiter.RecordIPAttempt(ip)
-		s.rateLimiter.RecordLoginFailure(body.Username)
-		writeError(w, http.StatusUnauthorized, "invalid username or password")
-		return
-	}
-
-	if !user.IsActive {
-		writeError(w, http.StatusForbidden, "account is deactivated")
-		return
-	}
-
-	s.rateLimiter.RecordLoginSuccess(body.Username)
-
-	// Create session.
-	sessionID := auth.NewSessionID()
-	_, err = s.authStore.CreateSession(ctx, auth.Session{
-		ID:        sessionID,
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(auth.SessionDuration),
-	})
-	if err != nil {
-		s.log.Error("create session", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	secure := !isLocalhost(r)
-	auth.SetSessionCookie(w, sessionID, secure)
-
-	writeData(w, http.StatusOK, map[string]any{
-		"id":       user.ID,
-		"username": user.Username,
-	})
-}
 
 // Logout handles POST /api/auth/logout.
 func (s *Server) Logout(w http.ResponseWriter, r *http.Request) {
-	sessionID, err := auth.GetSessionCookie(r)
-	if err == nil {
-		_ = s.authStore.DeleteSession(r.Context(), sessionID)
+	rawToken, err := auth.GetSessionCookie(r)
+	if err == nil && s.authSvc != nil {
+		_ = s.authSvc.Logout(r.Context(), rawToken)
 	}
 	auth.ClearSessionCookie(w)
-	writeData(w, http.StatusOK, map[string]string{"status": "logged out"})
+	writeNoContent(w)
 }
 
 // GetMe handles GET /api/auth/me.
@@ -206,40 +24,243 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"id":       info.UserID,
 		"username": info.Username,
 		"role":     info.Role,
 		"is_admin": info.IsAdmin,
+	}
+	if info.Email != "" {
+		resp["email"] = info.Email
+	}
+	if info.Name != "" {
+		resp["name"] = info.Name
+	}
+	if info.AvatarURL != "" {
+		resp["avatar_url"] = info.AvatarURL
+	}
+	if info.OrgID != "" {
+		resp["org_id"] = info.OrgID
+		if s.organizations != nil {
+			if org, err := s.organizations.GetOrganization(r.Context(), info.OrgID); err == nil {
+				resp["org_name"] = org.Name
+			}
+		}
+	}
+	if info.NeedsOnboarding {
+		resp["needs_onboarding"] = true
+	}
+	if s.credentials != nil {
+		_, err := s.credentials.GetCredentialByUserID(r.Context(), info.UserID)
+		resp["has_credentials"] = err == nil
+	}
+	writeData(w, http.StatusOK, resp)
+}
+
+// UpdateOrg handles PATCH /api/auth/org. Returns the updated organization.
+func (s *Server) UpdateOrg(w http.ResponseWriter, r *http.Request) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return
+	}
+	if info.OrgID == "" {
+		writeError(w, http.StatusBadRequest, "no organization")
+		return
+	}
+	if s.organizations == nil {
+		writeError(w, http.StatusServiceUnavailable, "organization store unavailable")
+		return
+	}
+	var req apiserver.UpdateOrgJSONRequestBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if err := s.organizations.UpdateOrganizationName(r.Context(), info.OrgID, req.Name); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	org, err := s.organizations.GetOrganization(r.Context(), info.OrgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, org)
+}
+
+// ListAuthSessions handles GET /api/auth/sessions.
+func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if s.sessions == nil {
+		writeError(w, http.StatusServiceUnavailable, "session store unavailable")
+		return
+	}
+	sessions, err := s.sessions.ListSessionsByUser(r.Context(), info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items := make([]map[string]any, len(sessions))
+	for i, sess := range sessions {
+		items[i] = map[string]any{
+			"id":         sess.ID,
+			"expires_at": sess.ExpiresAt,
+			"created_at": sess.CreatedAt,
+		}
+	}
+	writeListData(w, http.StatusOK, items)
+}
+
+// GetOnboardingStatus handles GET /api/auth/onboarding.
+func (s *Server) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	resp := map[string]any{
+		"needs_onboarding": info.NeedsOnboarding,
+		"email":            info.Email,
+		"name":             info.Name,
+	}
+
+	if token := readInviteCookie(r); token != "" {
+		resp["invite_token"] = token
+	}
+
+	if info.Email != "" && s.authSvc != nil {
+		invites, err := s.authSvc.ListPendingInvitesForEmail(r.Context(), info.Email)
+		if err == nil && len(invites) > 0 {
+			pending := make([]map[string]any, len(invites))
+			for i, inv := range invites {
+				pending[i] = map[string]any{
+					"id":         inv.Invite.ID,
+					"org_name":   inv.OrgName,
+					"role":       inv.Invite.Role,
+					"email":      inv.Invite.Email,
+					"expires_at": inv.Invite.ExpiresAt,
+				}
+			}
+			resp["pending_invites"] = pending
+		}
+	}
+
+	writeData(w, http.StatusOK, resp)
+}
+
+// CreateWorkspace handles POST /api/auth/onboarding/create-workspace.
+func (s *Server) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if !info.NeedsOnboarding {
+		writeError(w, http.StatusConflict, "user already has a workspace")
+		return
+	}
+
+	var req apiserver.CreateWorkspaceJSONRequestBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	orgName := ""
+	if req.Name != nil {
+		orgName = *req.Name
+	}
+
+	membership, err := s.authSvc.CreateWorkspace(r.Context(), info.UserID, orgName)
+	if err != nil {
+		s.log.Warn("onboarding: create workspace failed", "user_id", info.UserID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create workspace")
+		return
+	}
+
+	clearInviteCookie(w)
+
+	if err := s.authSvc.InitOrg(r.Context(), membership.OrganizationID); err != nil {
+		s.log.Warn("onboarding: org runtime init failed", "org_id", membership.OrganizationID, "error", err)
+	}
+
+	org, _ := s.organizations.GetOrganization(r.Context(), membership.OrganizationID)
+	writeData(w, http.StatusCreated, map[string]any{
+		"org_id":   membership.OrganizationID,
+		"org_name": org.Name,
 	})
 }
 
-func isLocalhost(r *http.Request) bool {
-	host := r.Host
-	hostOnly, _, err := net.SplitHostPort(host)
-	if err != nil {
-		hostOnly = host
+// RedeemInviteOnboarding handles POST /api/auth/onboarding/redeem-invite.
+func (s *Server) RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
 	}
-	if ip := net.ParseIP(hostOnly); ip != nil {
-		return ip.IsLoopback() || ip.IsPrivate()
+	if !info.NeedsOnboarding {
+		writeError(w, http.StatusConflict, "user already has a workspace")
+		return
 	}
-	return strings.HasPrefix(hostOnly, "localhost")
+
+	var req apiserver.RedeemInviteOnboardingJSONRequestBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var redeemErr error
+	switch {
+	case req.Token != nil && *req.Token != "":
+		redeemErr = s.authSvc.RedeemInvite(r.Context(), *req.Token, info.UserID)
+	case req.InviteId != nil && *req.InviteId != "":
+		redeemErr = s.authSvc.RedeemInviteByID(r.Context(), *req.InviteId, info.UserID)
+	default:
+		writeError(w, http.StatusBadRequest, "token or invite_id is required")
+		return
+	}
+	if redeemErr != nil {
+		s.log.Warn("onboarding: redeem invite failed", "user_id", info.UserID, "error", redeemErr)
+		writeError(w, http.StatusBadRequest, "failed to redeem invite")
+		return
+	}
+
+	clearInviteCookie(w)
+	writeNoContent(w)
 }
 
-// clientIP extracts the client IP from the request, checking X-Forwarded-For
-// and X-Real-IP headers first.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.SplitN(xff, ",", 2)
-		return strings.TrimSpace(parts[0])
+// DeleteAuthSession handles DELETE /api/auth/sessions/{id}.
+func (s *Server) DeleteAuthSession(w http.ResponseWriter, r *http.Request, id string) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
+	if s.sessions == nil {
+		writeError(w, http.StatusServiceUnavailable, "session store unavailable")
+		return
 	}
-	// Strip port from RemoteAddr.
-	ip := r.RemoteAddr
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
+	sess, err := s.sessions.GetSession(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
 	}
-	return ip
+	if sess.UserID != info.UserID {
+		writeError(w, http.StatusForbidden, "not your session")
+		return
+	}
+	if err := s.sessions.DeleteSession(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeNoContent(w)
 }

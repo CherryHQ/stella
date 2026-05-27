@@ -32,11 +32,8 @@ paths:
       summary: Unlink an identity from the current user
       operationId: unlinkProfileIdentity
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: { type: object }
+        "204":
+          description: deleted
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -47,7 +44,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/auth/profile/password:
-    put:
+    patch:
       tags: [profile]
       summary: Change the current user's password
       operationId: changePassword
@@ -59,11 +56,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/ChangePasswordRequest",
             }
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: { type: object }
+        "204":
+          description: password changed
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -121,7 +115,7 @@ paths:
   /api/auth/profile/memories/{agentID}:
     parameters:
       - { name: agentID, in: path, required: true, schema: { type: string } }
-    put:
+    patch:
       tags: [profile]
       summary: Set the memory for a specific agent
       operationId: setProfileMemory
@@ -133,11 +127,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
             }
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: { type: object }
+        "204":
+          description: saved
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -149,11 +140,8 @@ paths:
       summary: Delete the memory for a specific agent
       operationId: deleteProfileMemory
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: { type: object }
+        "204":
+          description: deleted
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -162,7 +150,7 @@ paths:
   /api/auth/profile/soul/{agentID}:
     parameters:
       - { name: agentID, in: path, required: true, schema: { type: string } }
-    put:
+    patch:
       tags: [profile]
       summary: Set the soul for a specific agent
       operationId: setProfileSoul
@@ -174,11 +162,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetSoulRequest",
             }
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: { type: object }
+        "204":
+          description: saved
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

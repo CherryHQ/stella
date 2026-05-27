@@ -44,6 +44,9 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 			sess.Info.AgentID = p.agentID
 		}
 	}
+	if sess.Info.OrgID == "" {
+		sess.Info.OrgID = p.orgID
+	}
 	if sess.Info.UserID == "" {
 		p.mu.Unlock()
 		return nil, nil, fmt.Errorf("session %q missing user context", sessionID)
@@ -111,7 +114,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	p.mu.Unlock()
 
 	// Memory: bootstrap the conversation for this session.
-	memSession := memory.Session{ID: sessionID, AgentID: sess.Info.AgentID, UserID: sess.Info.UserID}
+	memSession := memory.Session{ID: sessionID, AgentID: sess.Info.AgentID, UserID: sess.Info.UserID, OrgID: sess.Info.OrgID}
 	if err := p.mem.Bootstrap(ctx, memSession); err != nil {
 		p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
 	}

@@ -11,6 +11,10 @@ import (
 // filtered to only include models whose provider instance is enabled.
 // No provider API calls — reads only from the DB and ~/.stella/cache/models.json.
 func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 	providers, err := s.store.ListProviders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list provider config: "+err.Error())
@@ -37,7 +41,7 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[key] = true
-		filtered = append(filtered, config.CachedModel{Provider: providerID, Model: modelID})
+		filtered = append(filtered, config.CachedModel{Provider: providerID, ProviderName: provider.Name, Model: modelID})
 	}
 	for _, provider := range providers {
 		providerByID[provider.ID] = provider

@@ -11,12 +11,12 @@ import (
 )
 
 type AgentCommander struct {
-	store     config.Store
-	authStore auth.AuthStore
+	store config.Store
+	users auth.UserStore
 }
 
-func NewAgentCommander(store config.Store, authStore auth.AuthStore) *AgentCommander {
-	return &AgentCommander{store: store, authStore: authStore}
+func NewAgentCommander(store config.Store, users auth.UserStore) *AgentCommander {
+	return &AgentCommander{store: store, users: users}
 }
 
 func (ac *AgentCommander) List(ctx context.Context) ([]config.Agent, error) {
@@ -31,7 +31,7 @@ func (ac *AgentCommander) ListForChat(ctx context.Context, chat ChatContext) ([]
 	return filterDedicatedAgents(ctx, ac.store, agents, chat)
 }
 
-func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat ChatContext, agentSlug string) error {
+func (ac *AgentCommander) Switch(ctx context.Context, user auth.User, chat ChatContext, agentSlug string) error {
 	agentSlug = strings.TrimSpace(agentSlug)
 	if agentSlug == "" {
 		return fmt.Errorf("agent slug is required")
@@ -66,7 +66,7 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat C
 	if user.ID == "" {
 		return fmt.Errorf("link your account first to set a default agent")
 	}
-	return ac.authStore.UpdateUserDefaultAgent(ctx, user.ID, ag.ID)
+	return ac.users.UpdateUserDefaultAgent(ctx, user.ID, ag.ID)
 }
 
 var ParseCommandArgs = pkgchannel.ParseCommandArgs

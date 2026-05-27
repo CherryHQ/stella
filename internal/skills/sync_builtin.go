@@ -94,7 +94,7 @@ func normalizeBuiltinStatus(status string) string {
 // TODO(orphan-cleanup): Skills that exist in the DB as scope='system' but are absent from
 // builtinFS are not deleted here. Phase 4+ should add an explicit tombstone pass once the
 // full lifecycle is understood.
-func SyncBuiltin(ctx context.Context, store Store, builtinFS fs.FS) error {
+func SyncBuiltin(ctx context.Context, store Store, builtinFS fs.FS, orgID string) error {
 	var skillRoots []string
 	err := fs.WalkDir(builtinFS, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -121,7 +121,7 @@ func SyncBuiltin(ctx context.Context, store Store, builtinFS fs.FS) error {
 	desired := make(map[string]struct{}, len(skillRoots))
 	for _, skillRoot := range skillRoots {
 		desired[path.Base(skillRoot)] = struct{}{}
-		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot, allSkills); err != nil {
+		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot, allSkills, orgID); err != nil {
 			slog.ErrorContext(ctx, "sync_builtin: failed to sync skill", "path", skillRoot, "err", err)
 			return fmt.Errorf("sync_builtin: skill %q: %w", skillRoot, err)
 		}
@@ -155,7 +155,7 @@ func deleteRemovedSystemSkills(ctx context.Context, store Store, rows []Skill, d
 }
 
 // syncBuiltinSkill upserts a single builtin skill directory into the DB.
-func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRoot string, allSkills []Skill) error {
+func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRoot string, allSkills []Skill, orgID string) error {
 	skillName := path.Base(skillRoot)
 	// 1. Read and parse SKILL.md.
 	skillMDPath := path.Join(skillRoot, MainFile)
@@ -222,6 +222,7 @@ func syncBuiltinSkill(ctx context.Context, store Store, builtinFS fs.FS, skillRo
 			Status:                 normalizeBuiltinStatus(fm.Status),
 			DisableModelInvocation: fm.DisableModelInvocation,
 			Metadata:               meta,
+			OrgID:                  orgID,
 		}
 		if _, err := store.Create(ctx, sk, files); err != nil {
 			return fmt.Errorf("create: %w", err)

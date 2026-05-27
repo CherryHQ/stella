@@ -38,6 +38,12 @@ See the channel guides for setup instructions:
 - [Feishu](/docs/channels/feishu)
 - [WeChat](/docs/channels/weixin)
 
+## Authentication
+
+By default, you sign in to the Web UI with the username and password you created during setup.
+
+To use an external identity provider (Zitadel, Keycloak, Auth0, or any OIDC-compatible service), configure OIDC via environment variables. See the [OIDC Authentication guide](/docs/guides/oidc-authentication) for setup instructions.
+
 ## Users
 
 Users are created automatically when someone messages a connected channel. Each user gets isolated per-agent memory. You can manage users, roles, and permissions from the **Users** page in the Web UI.

@@ -122,7 +122,7 @@ func recallyListCommand() *ucli.Command {
 			if c.IsSet("starred") {
 				params.Starred = apiclient.Ptr(c.Bool("starred"))
 			}
-			list, err := apiclient.CallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, params)
 			})
 			if err != nil {
@@ -158,7 +158,7 @@ func recallySearchCommand() *ucli.Command {
 			if query == "" {
 				return fmt.Errorf("usage: stella recally search <query>")
 			}
-			list, err := apiclient.CallJSON[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, &apiclient.ListArticlesParams{
 					Q:     &query,
 					Limit: apiclient.Ptr(c.Int("limit")),
@@ -194,7 +194,7 @@ func recallyReadCommand() *ucli.Command {
 				return fmt.Errorf("usage: stella recally read <article-id>")
 			}
 			include := "content"
-			article, err := apiclient.CallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
+			article, err := apiclient.Call[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetArticle(c.Context, articleID, &apiclient.GetArticleParams{Include: &include})
 			})
 			if err != nil {
@@ -246,7 +246,7 @@ func recallyUpdateCommand() *ucli.Command {
 			if body.Status == nil && body.Starred == nil && body.Summary == nil && body.Tags == nil {
 				return fmt.Errorf("no updates specified")
 			}
-			updated, err := apiclient.CallJSON[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
+			updated, err := apiclient.Call[apiclient.Article](func(api *apiclient.Client) (*http.Response, error) {
 				return api.UpdateArticle(c.Context, articleID, body)
 			})
 			if err != nil {
@@ -268,7 +268,7 @@ func recallyDeleteCommand() *ucli.Command {
 			if articleID == "" {
 				return fmt.Errorf("usage: stella recally delete <article-id>")
 			}
-			if err := apiclient.DoJSON(func(api *apiclient.Client) (*http.Response, error) {
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteArticle(c.Context, articleID)
 			}); err != nil {
 				return err

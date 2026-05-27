@@ -207,7 +207,7 @@ type Digest struct {
 }
 
 // FromSQLCArticle populates an Article from a sqlc Article.
-func (a *Article) FromSQLCArticle(sa sqlc.Article) {
+func (a *Article) FromSQLCArticle(sa sqlc.RecallyArticle) {
 	a.ID = sa.ID
 	a.UserID = sa.UserID
 	if sa.AgentID.Valid {
@@ -234,7 +234,7 @@ func (a *Article) FromSQLCArticle(sa sqlc.Article) {
 }
 
 // FromSQLCFeed populates a Feed from a sqlc RssFeed.
-func (f *Feed) FromSQLCFeed(sf sqlc.RssFeed) {
+func (f *Feed) FromSQLCFeed(sf sqlc.RecallyRssFeed) {
 	f.ID = sf.ID
 	f.UserID = sf.UserID
 	if sf.AgentID.Valid {

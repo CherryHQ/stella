@@ -80,7 +80,9 @@ components:
       type: object
       properties:
         id: { type: string }
-        scope: { type: string }
+        scope:
+          type: string
+          enum: [project, user, agent, system]
         user_id: { type: string }
         agent_id: { type: string }
         name: { type: string }
@@ -97,11 +99,20 @@ components:
       properties:
         items: { type: array, items: { $ref: "#/components/schemas/Skill" } }
 
-    InstallSkillRequest:
+    CreateSkillRequest:
       type: object
-      required: [source]
+      required: [name, scope]
       properties:
-        source: { type: string }
+        name: { type: string }
+        scope:
+          type: string
+          enum: [user, agent]
+        description: { type: string }
+        status: { type: string }
+        disable_model_invocation: { type: boolean }
+        files:
+          type: object
+          additionalProperties: { type: string }
 
     UpdateSkillRequest:
       type: object
@@ -113,14 +124,17 @@ components:
           type: object
           additionalProperties: { type: string }
 
-    SkillUploadResult:
+    InstallSkillRequest:
       type: object
+      required: [source]
       properties:
-        id: { type: string }
-        name: { type: string }
+        source: { type: string }
+        scope:
+          type: string
+          enum: [user, agent]
 
-    DuplicateSkillResult:
+    SkillFileResponse:
       type: object
       properties:
-        id: { type: string }
-        name: { type: string }
+        path: { type: string }
+        content: { type: string }

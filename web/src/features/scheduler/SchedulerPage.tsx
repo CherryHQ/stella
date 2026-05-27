@@ -10,7 +10,6 @@ import {
   triggerSchedulerJob,
   updateSchedulerJob,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import { meQueryOptions } from "@/lib/queries/me";
 import { formatTime } from "@/lib/time";
 import type { ComponentsJobInput } from "@/lib/api-client/types.gen";
@@ -96,7 +95,7 @@ export function SchedulerPage() {
       let agentList = agentsRef.current;
       if (agentList.length === 0) {
         const { data } = await listAgents({ throwOnError: true });
-        agentList = unwrapApiItems<Agent>(data);
+        agentList = (data?.items ?? []) as Agent[];
         agentsRef.current = agentList;
         setAgents(agentList);
       }
@@ -104,7 +103,7 @@ export function SchedulerPage() {
         agentList.map((agent) =>
           listSchedulerJobs({ path: { agentID: agent.id }, throwOnError: true })
             .then(({ data }) => ({
-              items: unwrapApiItems<SchedulerJob>(data).map((job) => ({
+              items: ((data?.items ?? []) as SchedulerJob[]).map((job) => ({
                 ...job,
                 agent_id: job.agent_id || agent.id,
               })),
@@ -121,7 +120,7 @@ export function SchedulerPage() {
   const loadAgents = useCallback(async () => {
     try {
       const { data } = await listAgents({ throwOnError: true });
-      const list = unwrapApiItems<Agent>(data);
+      const list = (data?.items ?? []) as Agent[];
       agentsRef.current = list;
       setAgents(list);
     } catch (e) {
@@ -142,7 +141,7 @@ export function SchedulerPage() {
           path: { agentID: job.agent_id, jobID: jobId },
           throwOnError: true,
         });
-        setRunHistories((prev) => ({ ...prev, [jobId]: unwrapApiList<SchedulerJobRun>(data) }));
+        setRunHistories((prev) => ({ ...prev, [jobId]: (data?.items ?? []) as SchedulerJobRun[] }));
       } catch (e) {
         console.error(e);
       }

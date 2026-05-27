@@ -12,7 +12,7 @@ import (
 
 type ResolvedChat struct {
 	Pool       *agent.Pool
-	User       auth.AuthUser
+	User       auth.User
 	AgentID    string
 	SessionKey string
 	ChatCtx    ChatContext
@@ -49,11 +49,11 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent, 
 	return rc.Pool.Chat(ctx, info.ID, message, opts...), info.ID, nil
 }
 
-func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
 	return ResolveWithChannel(ctx, pm, store, authStore, engine, platform, platform, senderID, nil, senderName, chatID, isGroup)
 }
 
-func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, platform, channelID, senderID string, senderIDs []string, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, channelID, senderID string, senderIDs []string, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
 	if channelID == "" {
 		channelID = platform
 	}

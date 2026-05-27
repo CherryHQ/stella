@@ -34,7 +34,7 @@ func loadMergedManifest() (*manifestplugins.Manifest, error) {
 }
 
 func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	merged, err := loadMergedManifest()
@@ -46,7 +46,7 @@ func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var req struct {
@@ -93,7 +93,7 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	merged, err := loadMergedManifest()

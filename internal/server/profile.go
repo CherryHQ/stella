@@ -19,7 +19,11 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	identities, err := s.authStore.ListIdentitiesByUser(r.Context(), info.UserID)
+	if s.users == nil {
+		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
+		return
+	}
+	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), info.UserID)
 	if err != nil {
 		s.log.Error("list identities", "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -29,7 +33,7 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, identities)
 }
 
-// ChangePassword handles PUT /api/auth/profile/password.
+// ChangePassword handles PATCH /api/auth/profile/password.
 func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -61,15 +65,20 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	if s.credentials == nil {
+		writeError(w, http.StatusServiceUnavailable, "credential store not configured")
+		return
+	}
+
 	// Verify current password.
-	user, err := s.authStore.GetUser(ctx, info.UserID)
+	cred, err := s.credentials.GetCredentialByUserID(ctx, info.UserID)
 	if err != nil {
-		s.log.Error("get user for password change", "user_id", info.UserID, "error", err)
+		s.log.Error("get credential for password change", "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	if err := auth.CheckPassword(user.PasswordHash, body.CurrentPassword); err != nil {
+	if err := auth.CheckPassword(cred.PasswordHash, body.CurrentPassword); err != nil {
 		writeError(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
@@ -82,14 +91,13 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.PasswordHash = hash
-	if err := s.authStore.UpdateUser(ctx, user); err != nil {
+	if err := s.credentials.UpdateCredentialHash(ctx, info.UserID, hash); err != nil {
 		s.log.Error("update password", "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "password changed"})
+	writeNoContent(w)
 }
 
 // GenerateLinkCode handles POST /api/auth/profile/link-code.
@@ -134,8 +142,13 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 
 	ctx := r.Context()
 
+	if s.users == nil {
+		writeError(w, http.StatusServiceUnavailable, "channel identity store not configured")
+		return
+	}
+
 	// Verify the identity belongs to the current user.
-	identity, err := s.authStore.GetIdentity(ctx, id)
+	identity, err := s.users.GetChannelIdentity(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "identity not found")
 		return
@@ -146,13 +159,13 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
-	if err := s.authStore.DeleteIdentity(ctx, id); err != nil {
+	if err := s.users.DeleteChannelIdentity(ctx, id); err != nil {
 		s.log.Error("delete identity", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]string{"status": "unlinked"})
+	writeNoContent(w)
 }
 
 // ListProfileMemories handles GET /api/auth/profile/memories.
@@ -177,7 +190,7 @@ func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, memories)
 }
 
-// SetProfileMemory handles PUT /api/auth/profile/memories/{agentID}.
+// SetProfileMemory handles PATCH /api/auth/profile/memories/{agentID}.
 func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -197,10 +210,10 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+	writeNoContent(w)
 }
 
-// SetProfileSoul handles PUT /api/auth/profile/soul/{agentID}.
+// SetProfileSoul handles PATCH /api/auth/profile/soul/{agentID}.
 func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -220,7 +233,7 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+	writeNoContent(w)
 }
 
 // DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentID}.
@@ -236,7 +249,7 @@ func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+	writeNoContent(w)
 }
 
 // OauthCallback handles GET /api/auth/profile/oauth/{provider}/callback.

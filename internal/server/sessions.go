@@ -517,10 +517,10 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	}
 
 	// Resolve user name from auth system.
-	if info.UserID != "" {
-		authUser, err := s.authStore.GetUser(r.Context(), info.UserID)
+	if info.UserID != "" && s.users != nil {
+		authUser, err := s.users.GetUser(r.Context(), info.UserID)
 		if err == nil {
-			resp.UserName = authUser.Username
+			resp.UserName = authUser.Email
 		}
 	}
 
@@ -853,12 +853,7 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeData(w, http.StatusOK, diskInfo)
+	writeNoContent(w)
 }
 
 func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {

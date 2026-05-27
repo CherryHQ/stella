@@ -10,8 +10,9 @@ import (
 
 // CachedModel is the on-disk representation of a model in models.json.
 type CachedModel struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
+	Provider     string `json:"provider"`
+	ProviderName string `json:"provider_name,omitempty"`
+	Model        string `json:"model"`
 }
 
 // ModelsCache is the top-level structure for models.json in the cache directory.

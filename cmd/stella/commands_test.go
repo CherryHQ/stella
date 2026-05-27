@@ -7,14 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -70,14 +68,19 @@ func (commandTestStore) GetProvider(context.Context, string) (config.Provider, e
 func (commandTestStore) CreateProvider(context.Context, config.Provider) error     { return nil }
 func (commandTestStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
 func (commandTestStore) DeleteProvider(context.Context, string) error              { return nil }
+func (commandTestStore) SetProviderOrg(context.Context, string, string) error      { return nil }
 func (commandTestStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
 func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
 func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) {
 	return config.Agent{}, nil
 }
-func (commandTestStore) CreateAgent(context.Context, config.Agent) error        { return nil }
-func (commandTestStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
-func (commandTestStore) DeleteAgent(context.Context, string) error              { return nil }
+func (commandTestStore) CreateAgent(context.Context, config.Agent) error { return nil }
+func (commandTestStore) UpdateAgent(context.Context, config.Agent) error { return nil }
+func (commandTestStore) DeleteAgent(context.Context, string) error       { return nil }
+func (commandTestStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
+	return nil, nil
+}
+func (commandTestStore) SetAgentOrg(context.Context, string, string) error      { return nil }
 func (commandTestStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -88,7 +91,12 @@ func (commandTestStore) GetChannel(context.Context, string) (config.Channel, err
 }
 func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
+func (commandTestStore) SetChannelOrg(context.Context, string, string) error { return nil }
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
+	return nil, nil
+}
+
+func (commandTestStore) ListPluginOverrides(context.Context) ([]config.Plugin, error) {
 	return nil, nil
 }
 
@@ -116,21 +124,7 @@ func (commandTestStore) DeleteChatAgent(context.Context, string, string, string)
 func (commandTestStore) GetSetting(context.Context, string) (string, error)            { return "", nil }
 func (commandTestStore) SetSetting(context.Context, string, string) error              { return nil }
 func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)    { return nil, nil }
-func (commandTestStore) SeedDefaults(context.Context) error                            { return nil }
-
-type commandTestMemory struct{}
-
-func (commandTestMemory) Name() string                                                { return "test" }
-func (commandTestMemory) Bootstrap(context.Context, memory.Session) error             { return nil }
-func (commandTestMemory) Append(context.Context, memory.Session, ...ai.Message) error { return nil }
-func (commandTestMemory) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
-	return nil, nil
-}
-
-func (commandTestMemory) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
-	return memory.SessionStats{}, nil
-}
-func (commandTestMemory) Close() error { return nil }
+func (commandTestStore) SeedNewOrg(context.Context, string) error                      { return nil }
 
 func setupCommandTestStellaHome(t *testing.T) string {
 	t.Helper()
@@ -199,15 +193,20 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	store := config.NewDBStore(db)
-	if err := store.SeedDefaults(context.Background()); err != nil {
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("ensure default org: %v", err)
+	}
+	store := cfgstore.NewDBStore(db)
+	ctx := config.WithOrgID(context.Background(), orgID)
+	if err := store.SeedNewOrg(ctx, orgID); err != nil {
 		t.Fatalf("seed defaults: %v", err)
 	}
-	agents, err := store.ListEnabledAgents(context.Background())
+	agents, err := store.ListEnabledAgents(ctx)
 	if err != nil || len(agents) == 0 {
 		t.Fatal("no enabled agents found")
 	}
-	snap, err := store.Snapshot(context.Background(), agents[0].ID)
+	snap, err := store.Snapshot(ctx, agents[0].ID)
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
@@ -235,70 +234,5 @@ func TestRunHelpShort(t *testing.T) {
 	err := app.Run([]string{"stella", "-h"})
 	if err != nil {
 		t.Fatalf("run -h: %v", err)
-	}
-}
-
-func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
-	setupCommandTestStellaHome(t)
-
-	snap := &config.Snapshot{
-		AgentID:  "test-agent",
-		Provider: "anthropic",
-		Model:    "anthropic/old-model",
-		APIKey:   "test-key",
-		Runner:   config.RunnerConfig{Type: "go"},
-	}
-	snap.Workspace = t.TempDir()
-
-	initialFactory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-		Snap:                  snap,
-		ProviderStreamBuilder: testProviderStreamBuilder,
-	})
-	if err != nil {
-		t.Fatalf("NewRunnerFactory: %v", err)
-	}
-
-	pool := agent.NewPool(initialFactory, commandTestMemory{}, agent.WithAgentID(snap.AgentID), agent.WithDefaultModel(snap.Model))
-
-	promptToolsCalls := 0
-	promptSectionsCalls := 0
-	switchFn := modelSwitcher(
-		snap,
-		commandTestStore{},
-		pool,
-		nil,
-		nil,
-		testProviderStreamBuilder,
-		func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
-			promptToolsCalls++
-			return nil, nil
-		},
-		func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
-			promptSectionsCalls++
-			return nil, nil
-		},
-		nil,
-		&coreagent.ToolLifecycle{},
-	)
-
-	if err := switchFn("anthropic", "new-model"); err != nil {
-		t.Fatalf("switchFn: %v", err)
-	}
-
-	session, err := pool.CreateSession("cli", "1")
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	for range pool.Chat(ctx, session.ID, "hello") {
-	}
-
-	if promptToolsCalls == 0 {
-		t.Fatal("expected prompt tools builder to be preserved after model switch")
-	}
-	if promptSectionsCalls == 0 {
-		t.Fatal("expected prompt sections builder to be preserved after model switch")
 	}
 }

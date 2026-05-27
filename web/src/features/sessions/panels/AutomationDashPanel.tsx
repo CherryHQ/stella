@@ -3,7 +3,6 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
 import { listAgentTasks, listSchedulerJobRuns } from "@/lib/api-client";
-import { unwrapApiItems, unwrapApiList } from "@/lib/api-data";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -103,7 +102,7 @@ export function AutomationDashPanel({
               path: { agentID: job.agent_id || agentId, jobID: job.id },
               throwOnError: true,
             });
-            for (const r of unwrapApiList<SchedulerJobRun>(data)) {
+            for (const r of (data?.items ?? []) as SchedulerJobRun[]) {
               allRuns.push({
                 ...r,
                 job_name: job.name,
@@ -135,7 +134,7 @@ export function AutomationDashPanel({
         path: { agentID: agentId },
         throwOnError: true,
       });
-      setTasks(unwrapApiItems<ComponentsAgentTask>(data));
+      setTasks(data?.items ?? []);
     } catch (e) {
       console.error(e);
       setTasks([]);
@@ -156,7 +155,7 @@ export function AutomationDashPanel({
           path: { agentID: selectedJob?.agent_id || agentId, jobID: jobId },
           throwOnError: true,
         });
-        setJobRuns(unwrapApiList<SchedulerJobRun>(data));
+        setJobRuns((data?.items ?? []) as SchedulerJobRun[]);
       } catch {
         setJobRuns([]);
       } finally {

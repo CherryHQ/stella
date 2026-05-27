@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  installAgentScopedSkill,
+  installAgentSkill,
   searchSkills as sdkSearchSkills,
-  uploadAgentScopedSkill,
+  uploadAgentSkill,
 } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { SkillSearchResult } from "@/lib/types";
@@ -73,9 +73,9 @@ export function SkillNewPage() {
     setInstallTarget(trimmedSource);
     setInstallError("");
     try {
-      const { data: res } = await installAgentScopedSkill({
-        path: { id: agentId, scope: installScope },
-        body: { source: trimmedSource },
+      const { data: res } = await installAgentSkill({
+        path: { id: agentId },
+        body: { source: trimmedSource, scope: installScope },
         throwOnError: true,
       });
       await openInstalledSkill(res, installScope);
@@ -93,9 +93,9 @@ export function SkillNewPage() {
     setUploading(true);
     setUploadError("");
     try {
-      const { data: res } = await uploadAgentScopedSkill({
-        path: { id: agentId, scope: uploadScope },
-        body: { file: uploadFile },
+      const { data: res } = await uploadAgentSkill({
+        path: { id: agentId },
+        body: { file: uploadFile, scope: uploadScope },
         throwOnError: true,
       });
       await openInstalledSkill(res, uploadScope);

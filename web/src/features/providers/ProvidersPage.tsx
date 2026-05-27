@@ -8,7 +8,6 @@ import {
   listProviderTypes,
   updateProvider,
 } from "@/lib/api-client/sdk.gen";
-import { unwrapApiList } from "@/lib/api-data";
 import type {
   CustomModelForm,
   ModelConfig,
@@ -331,12 +330,9 @@ function ProviderDetail({
       <DetailPanelHeader
         title={provider.name || provider.id}
         subtitle={
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-muted-foreground">{provider.id}</span>
-            <Badge variant="outline" size="sm">
-              {provider.type}
-            </Badge>
-          </div>
+          <Badge variant="outline" size="sm">
+            {provider.type}
+          </Badge>
         }
         action={
           <div className="flex items-center gap-2">
@@ -841,7 +837,7 @@ export function ProvidersPage() {
   const loadProviderTypes = useCallback(async () => {
     try {
       const { data } = await listProviderTypes({ throwOnError: true });
-      const types = unwrapApiList<ProviderType>(data);
+      const types = (data as ProviderType[]) ?? [];
       const defaults: Record<string, { base_url: string; name: string }> = {};
       for (const t of types) {
         defaults[t.id] = { base_url: t.default_url, name: t.name };
@@ -860,7 +856,7 @@ export function ProvidersPage() {
   const loadProviderModels = useCallback(async (providerID: string) => {
     try {
       const { data } = await listProviderModels({ path: { id: providerID }, throwOnError: true });
-      const models = unwrapApiList<ProviderModel>(data);
+      const models = (data as ProviderModel[]) ?? [];
       setProviderModels((prev) => ({ ...prev, [providerID]: models }));
     } catch {
       setProviderModels((prev) => ({ ...prev, [providerID]: [] }));
@@ -870,7 +866,7 @@ export function ProvidersPage() {
   const loadProviders = useCallback(async () => {
     try {
       const { data } = await listProviders({ throwOnError: true });
-      const list = unwrapApiList<Provider>(data);
+      const list = (data as Provider[]) ?? [];
       setProviders(
         list.map((p) => ({
           ...p,
@@ -964,7 +960,7 @@ export function ProvidersPage() {
         body: { api_key: p.api_key, base_url: p.base_url },
         throwOnError: true,
       });
-      const list = unwrapApiList<ProviderModel>(data);
+      const list = (data as ProviderModel[]) ?? [];
       setProviderModels((prev) => ({ ...prev, [p.id]: list }));
       showToast(`${list.length} models available`);
     } catch (e) {
@@ -1066,7 +1062,7 @@ export function ProvidersPage() {
             />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-tight truncate">{p.name || p.id}</p>
-              <p className="text-[11px] font-mono text-muted-foreground truncate">{p.id}</p>
+              <p className="text-[11px] font-mono text-muted-foreground truncate">{p.type}</p>
             </div>
             {modelCount > 0 && (
               <span className="shrink-0 text-xs text-muted-foreground">{modelCount}</span>

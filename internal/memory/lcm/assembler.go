@@ -191,7 +191,7 @@ func (a *assembler) resolveItem(ctx context.Context, item sqlc.CtxItem) ([]ai.Me
 		if !item.MessageID.Valid {
 			return nil, nil
 		}
-		msg, err := a.q.GetMessage(ctx, item.MessageID.String)
+		msg, err := a.q.GetMessage(ctx, sqlc.GetMessageParams{ID: item.MessageID.String, ConversationID: item.ConversationID})
 		if err != nil {
 			return nil, fmt.Errorf("get message %s: %w", item.MessageID.String, err)
 		}
@@ -202,7 +202,7 @@ func (a *assembler) resolveItem(ctx context.Context, item sqlc.CtxItem) ([]ai.Me
 		if !item.SummaryID.Valid {
 			return nil, nil
 		}
-		sum, err := a.q.GetSummary(ctx, item.SummaryID.String)
+		sum, err := a.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: item.SummaryID.String, ConversationID: item.ConversationID})
 		if err != nil {
 			return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, err)
 		}

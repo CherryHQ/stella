@@ -55,6 +55,7 @@ func (m *mockStore) GetProvider(_ context.Context, _ string) (config.Provider, e
 func (m *mockStore) CreateProvider(_ context.Context, _ config.Provider) error { return nil }
 func (m *mockStore) UpdateProvider(_ context.Context, _ config.Provider) error { return nil }
 func (m *mockStore) DeleteProvider(_ context.Context, _ string) error          { return nil }
+func (m *mockStore) SetProviderOrg(_ context.Context, _, _ string) error       { return nil }
 func (m *mockStore) ListAgents(_ context.Context) ([]config.Agent, error)      { return nil, nil }
 func (m *mockStore) GetAgent(_ context.Context, id string) (config.Agent, error) {
 	for _, a := range m.agents {
@@ -64,9 +65,13 @@ func (m *mockStore) GetAgent(_ context.Context, id string) (config.Agent, error)
 	}
 	return config.Agent{}, fmt.Errorf("agent %q not found", id)
 }
-func (m *mockStore) CreateAgent(_ context.Context, _ config.Agent) error      { return nil }
-func (m *mockStore) UpdateAgent(_ context.Context, _ config.Agent) error      { return nil }
-func (m *mockStore) DeleteAgent(_ context.Context, _ string) error            { return nil }
+func (m *mockStore) CreateAgent(_ context.Context, _ config.Agent) error { return nil }
+func (m *mockStore) UpdateAgent(_ context.Context, _ config.Agent) error { return nil }
+func (m *mockStore) DeleteAgent(_ context.Context, _ string) error       { return nil }
+func (m *mockStore) ListAccessibleAgents(_ context.Context, _ string) ([]config.Agent, error) {
+	return nil, nil
+}
+func (m *mockStore) SetAgentOrg(_ context.Context, _, _ string) error         { return nil }
 func (m *mockStore) ListChannels(_ context.Context) ([]config.Channel, error) { return nil, nil }
 func (m *mockStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -77,15 +82,17 @@ func (m *mockStore) GetChannel(_ context.Context, _ string) (config.Channel, err
 }
 func (m *mockStore) UpsertChannel(_ context.Context, _ config.Channel) error { return nil }
 func (m *mockStore) DeleteChannel(_ context.Context, _ string) error         { return nil }
+func (m *mockStore) SetChannelOrg(_ context.Context, _, _ string) error      { return nil }
 func (m *mockStore) GetChatAgent(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockStore) SetChatAgent(_ context.Context, _, _, _, _ string) error { return nil }
-func (m *mockStore) DeleteChatAgent(_ context.Context, _, _, _ string) error { return nil }
-func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)  { return "", nil }
-func (m *mockStore) SetSetting(_ context.Context, _, _ string) error         { return nil }
-func (m *mockStore) SeedDefaults(_ context.Context) error                    { return nil }
-func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)  { return nil, nil }
+func (m *mockStore) SetChatAgent(_ context.Context, _, _, _, _ string) error        { return nil }
+func (m *mockStore) DeleteChatAgent(_ context.Context, _, _, _ string) error        { return nil }
+func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)         { return "", nil }
+func (m *mockStore) SetSetting(_ context.Context, _, _ string) error                { return nil }
+func (m *mockStore) SeedNewOrg(_ context.Context, _ string) error                   { return nil }
+func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)         { return nil, nil }
+func (m *mockStore) ListPluginOverrides(_ context.Context) ([]config.Plugin, error) { return nil, nil }
 func (m *mockStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plugin, error) {
 	return nil, nil
 }
@@ -272,7 +279,10 @@ func TestPoolManagerStartAllNoAgents(t *testing.T) {
 	pm := NewPoolManager(store, mem)
 
 	err := pm.StartAll(context.Background())
-	if err == nil {
-		t.Fatal("expected error for no agents")
+	if err != nil {
+		t.Fatalf("StartAll with no agents should succeed, got: %v", err)
+	}
+	if pm.DefaultPool() != nil {
+		t.Fatal("expected no pools after starting with zero agents")
 	}
 }

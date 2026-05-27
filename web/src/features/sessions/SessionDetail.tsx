@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
-import { unwrapApiList } from "@/lib/api-data";
 import type { Message, Session } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -91,7 +90,7 @@ export function SessionDetail({
         query: { limit: 20, skip: pageParam },
         throwOnError: true,
       });
-      return unwrapApiList<Message>(data);
+      return (data as unknown as Message[]) ?? [];
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,

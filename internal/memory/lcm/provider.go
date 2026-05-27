@@ -48,7 +48,7 @@ type Provider struct {
 // New creates a new LCM provider.
 // summarizerFn provides LLM access for compaction; if nil, a deterministic
 // truncation fallback is used.
-// cfg is the plugin-specific configuration from the settings_plugins.config JSON.
+// cfg is the plugin-specific configuration from the settings_plugin.config JSON.
 func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (string, error), cfg map[string]any) (*Provider, error) {
 	q := sqlc.New(db)
 
@@ -241,7 +241,7 @@ func (p *Provider) hasCompactableRun(ctx context.Context, items []sqlc.CtxItem) 
 		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
 			continue
 		}
-		sum, err := p.q.GetSummary(ctx, item.SummaryID.String)
+		sum, err := p.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: item.SummaryID.String, ConversationID: item.ConversationID})
 		if err != nil {
 			return false
 		}

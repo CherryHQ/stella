@@ -7,7 +7,7 @@ paths:
           required: true,
           schema: { type: string },
         }
-    put:
+    patch:
       tags: [users]
       summary: Update the default agent for a user (admin only)
       operationId: updateUserDefaultAgent
@@ -19,13 +19,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateDefaultAgentRequest",
             }
       responses:
-        "200":
+        "204":
           description: updated
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -42,7 +37,7 @@ paths:
           required: true,
           schema: { type: string },
         }
-    put:
+    patch:
       tags: [users]
       summary: Update the notify identity for a user (admin only)
       operationId: updateUserNotifyIdentity
@@ -54,13 +49,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateNotifyIdentityRequest",
             }
       responses:
-        "200":
+        "204":
           description: updated
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -108,7 +98,7 @@ paths:
           schema: { type: string },
         }
       - { name: agentID, in: path, required: true, schema: { type: string } }
-    put:
+    patch:
       tags: [users]
       summary: Set memory for a user and agent (admin only)
       operationId: setUserMemory
@@ -120,13 +110,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
             }
       responses:
-        "200":
+        "204":
           description: saved
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -139,13 +124,8 @@ paths:
       summary: Delete memory for a user and agent (admin only)
       operationId: deleteUserMemory
       responses:
-        "200":
+        "204":
           description: deleted
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -205,7 +185,7 @@ paths:
           required: true,
           schema: { type: string },
         }
-    put:
+    patch:
       tags: [auth-users]
       summary: Update the role of an auth user (admin only)
       operationId: updateAuthUserRole
@@ -217,13 +197,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateRoleRequest",
             }
       responses:
-        "200":
+        "204":
           description: updated
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -256,7 +231,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-    put:
+    patch:
       tags: [auth-users]
       summary: Update agents assigned to an auth user (admin only)
       operationId: updateAuthUserAgents
@@ -268,12 +243,56 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateAgentsRequest",
             }
       responses:
-        "200":
+        "204":
           description: updated
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/auth/users/{id}/identities/login:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [auth-users]
+      summary: List OIDC login identities for an auth user (admin only)
+      operationId: listAuthUserLoginIdentities
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/LoginIdentity",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [auth-users]
+      summary: Link an OIDC login identity to an auth user (admin only)
+      operationId: linkAuthUserLoginIdentity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/LinkLoginIdentityRequest",
+            }
+      responses:
+        "200":
+          description: linked
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
+                $ref: "../../components.yaml#/components/schemas/LoginIdentity",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
@@ -282,6 +301,31 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/auth/users/{id}/identities/channel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [auth-users]
+      summary: List channel identities for an auth user (admin only)
+      operationId: listAuthUserChannelIdentities
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {
+                  $ref: "../../components.yaml#/components/schemas/ChannelIdentity",
+                }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/auth/users/{id}/identities/{identityId}:
     parameters:
@@ -302,13 +346,8 @@ paths:
       summary: Delete an identity linked to an auth user (admin only)
       operationId: deleteAuthUserIdentity
       responses:
-        "200":
-          description: unlinked
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
+        "204":
+          description: deleted
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -326,7 +365,7 @@ paths:
           required: true,
           schema: { type: string },
         }
-    put:
+    patch:
       tags: [auth-users]
       summary: Update the active status of an auth user (admin only)
       operationId: updateAuthUserActive
@@ -338,13 +377,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateActiveRequest",
             }
       responses:
-        "200":
+        "204":
           description: updated
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/DeleteResult",
-              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

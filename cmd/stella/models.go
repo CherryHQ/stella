@@ -9,9 +9,8 @@ import (
 
 // collectModelsFromStore builds the list of available provider/model pairs
 // using the Store and models cache.
-func collectModelsFromStore(ctx context.Context, store config.Store, snap *config.Snapshot) []pkgchannel.ModelOption {
+func collectModelsFromStore(ctx context.Context, store config.Store) []pkgchannel.ModelOption {
 	collector := newModelOptionCollector()
-	collector.Add(snap.Provider, snap.Model)
 
 	if cache, err := config.LoadModelsCache(); err == nil {
 		for _, model := range cache.Models {
@@ -23,7 +22,7 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 	providers, err := store.ListProviders(ctx)
 	if err == nil {
 		for _, provider := range providers {
-			collector.Add(provider.ID, snap.Model)
+			collector.Add(provider.ID, "")
 		}
 	}
 

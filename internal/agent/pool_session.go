@@ -45,6 +45,7 @@ func (p *Pool) createSessionLocked(channel, userID string) SessionInfo {
 		LastActive: now,
 		AgentID:    p.agentID,
 		UserID:     userID,
+		OrgID:      p.orgID,
 	}
 	p.sessions[info.ID] = &Session{Info: info}
 	return info

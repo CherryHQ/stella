@@ -8,15 +8,46 @@ import (
 	"filippo.io/age"
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+// vaultTestDB combines OIDCStore (for auth_user) with sqlc.Queries (for vault_entry).
+type vaultTestDB struct {
+	oidc *appdb.OIDCStore
+	q    *sqlc.Queries
+}
+
+func (d *vaultTestDB) GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser, error) {
+	u, err := d.oidc.GetUser(ctx, id)
+	if err != nil {
+		return sqlc.VaultUser{}, err
+	}
+	return sqlc.VaultUser{AgePublicKey: u.AgePublicKey, AgePrivateKey: u.AgePrivateKey}, nil
+}
+
+func (d *vaultTestDB) GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error) {
+	return d.q.GetVaultEntry(ctx, arg)
+}
+
+func (d *vaultTestDB) ListVaultEntriesByUser(ctx context.Context, userID string) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesByUser(ctx, userID)
+}
+
+func (d *vaultTestDB) UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error {
+	return d.q.UpsertVaultEntry(ctx, arg)
+}
+
+func (d *vaultTestDB) DeleteVaultEntry(ctx context.Context, arg sqlc.DeleteVaultEntryParams) error {
+	return d.q.DeleteVaultEntry(ctx, arg)
+}
+
 // testService sets up a vault Service backed by a real SQLite database. It
-// creates a user with age keys provisioned and returns the service, queries
-// object, and the created user ID.
-func testService(t *testing.T) (*vault.Service, *sqlc.Queries, string) {
+// creates a user with age keys provisioned and returns the service, oidcStore,
+// and the created user ID.
+func testService(t *testing.T) (*vault.Service, *appdb.OIDCStore, string) {
 	t.Helper()
 
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "vault_test.db"))
@@ -25,44 +56,39 @@ func testService(t *testing.T) (*vault.Service, *sqlc.Queries, string) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
+	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)
 	ctx := context.Background()
 
-	// Generate master key.
 	masterID, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity (master): %v", err)
 	}
 
-	svc, err := vault.NewService(q, masterID.String())
+	testDB := &vaultTestDB{oidc: oidc, q: q}
+	svc, err := vault.NewService(testDB, masterID.String())
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	// Create a user.
-	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
-		ID:           uuid.NewString(),
-		Username:     "testuser",
-		PasswordHash: "hash",
+	user, err := oidc.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "testuser@vault.test",
+		Name:  "Test User",
 	})
 	if err != nil {
-		t.Fatalf("CreateAuthUser: %v", err)
+		t.Fatalf("CreateUser: %v", err)
 	}
 
-	// Provision age keys for that user.
 	pubKey, encPrivKey, err := vault.GenerateUserKeys(svc.MasterRecipient())
 	if err != nil {
 		t.Fatalf("GenerateUserKeys: %v", err)
 	}
-	if err := q.UpdateUserAgeKeys(ctx, sqlc.UpdateUserAgeKeysParams{
-		AgePublicKey:  pubKey,
-		AgePrivateKey: encPrivKey,
-		ID:            user.ID,
-	}); err != nil {
+	if err := oidc.UpdateUserAgeKeys(ctx, user.ID, pubKey, encPrivKey); err != nil {
 		t.Fatalf("UpdateUserAgeKeys: %v", err)
 	}
 
-	return svc, q, user.ID
+	return svc, oidc, user.ID
 }
 
 func TestSetAndList(t *testing.T) {
@@ -160,7 +186,9 @@ func TestNewServiceInvalidKey(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	_, err = vault.NewService(sqlc.New(db), "not-a-valid-age-key")
+	oidc := appdb.NewOIDCStore(db)
+	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
+	_, err = vault.NewService(testDB, "not-a-valid-age-key")
 	if err == nil {
 		t.Fatal("NewService with invalid key should fail")
 	}
@@ -174,6 +202,7 @@ func TestSetNoAgeKeys(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
+	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)
 	ctx := context.Background()
 
@@ -182,22 +211,21 @@ func TestSetNoAgeKeys(t *testing.T) {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
 
-	svc, err := vault.NewService(q, masterID.String())
+	testDB := &vaultTestDB{oidc: oidc, q: q}
+	svc, err := vault.NewService(testDB, masterID.String())
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	// Create a user without age keys.
-	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
-		ID:           uuid.NewString(),
-		Username:     "nokeys",
-		PasswordHash: "hash",
+	user, err := oidc.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "nokeys@vault.test",
+		Name:  "No Keys",
 	})
 	if err != nil {
-		t.Fatalf("CreateAuthUser: %v", err)
+		t.Fatalf("CreateUser: %v", err)
 	}
 
-	// Set should fail because user has no age public key.
 	if err := svc.Set(ctx, user.ID, "MY_KEY", "value"); err == nil {
 		t.Fatal("Set should fail for user without age keys")
 	}
@@ -225,6 +253,7 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
+	oidc := appdb.NewOIDCStore(db)
 	q := sqlc.New(db)
 	ctx := context.Background()
 
@@ -233,21 +262,21 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
 
-	svc, err := vault.NewService(q, masterID.String())
+	testDB := &vaultTestDB{oidc: oidc, q: q}
+	svc, err := vault.NewService(testDB, masterID.String())
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
-		ID:           uuid.NewString(),
-		Username:     "nokeys",
-		PasswordHash: "hash",
+	user, err := oidc.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "nokeys2@vault.test",
+		Name:  "No Keys 2",
 	})
 	if err != nil {
-		t.Fatalf("CreateAuthUser: %v", err)
+		t.Fatalf("CreateUser: %v", err)
 	}
 
-	// LoadEnv should fail because user has no age private key.
 	if _, err := svc.LoadEnv(ctx, user.ID); err == nil {
 		t.Fatal("LoadEnv should fail for user without age keys")
 	}

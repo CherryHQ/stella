@@ -36,7 +36,7 @@ func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID st
 
 	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
 
-	var projects []sqlc.Project
+	var projects []sqlc.SettingsProject
 	var err error
 	if includeArchived {
 		projects, err = s.q.ListProjectsAll(r.Context(), sqlc.ListProjectsAllParams{
@@ -94,6 +94,7 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 		Name:        body.Name,
 		BaseDir:     body.BaseDir,
 		Description: sql.NullString{String: derefStr(body.Description), Valid: body.Description != nil},
+		OrgID:       auth.OrgID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -226,7 +227,7 @@ type projectResponse struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
-func toProjectResponse(p sqlc.Project) projectResponse {
+func toProjectResponse(p sqlc.SettingsProject) projectResponse {
 	r := projectResponse{
 		ID:        p.ID,
 		AgentID:   p.AgentID,

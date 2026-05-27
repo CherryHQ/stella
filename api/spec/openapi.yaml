@@ -49,6 +49,7 @@ tags:
   - name: auth-users
   - name: profile
   - name: auth
+  - name: invites
   - name: plugins
   - name: status
   - name: tasks
@@ -58,14 +59,33 @@ paths:
   /api/status:
     $ref: "./domain/status/paths.yaml#/paths/~1api~1status"
   # ── Auth ───────────────────────────────────────────────────────────────────
-  /api/auth/register:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1register"
-  /api/auth/login:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1login"
   /api/auth/logout:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1logout"
   /api/auth/me:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1me"
+  /api/auth/providers:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1providers"
+  /api/auth/org:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1org"
+  /api/auth/onboarding:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding"
+  /api/auth/onboarding/create-workspace:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding~1create-workspace"
+  /api/auth/onboarding/redeem-invite:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding~1redeem-invite"
+  /api/auth/sessions:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1sessions"
+  /api/auth/sessions/{id}:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1sessions~1{id}"
+  # ── Invites ────────────────────────────────────────────────────────────────
+  /api/auth/invites:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites"
+  /api/auth/invites/{id}:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{id}"
+  /api/auth/invites/{token}/info:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{token}~1info"
+  /api/auth/invites/{token}/accept:
+    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{token}~1accept"
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents"
@@ -77,16 +97,14 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}"
   /api/agents/{id}/skills:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills"
-  /api/agents/{id}/skills/{scope}:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}"
-  /api/agents/{id}/skills/{scope}/install:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1install"
-  /api/agents/{id}/skills/{scope}/upload:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1upload"
-  /api/agents/{id}/skills/{scope}/{skillId}:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1{skillId}"
-  /api/agents/{id}/skills/{scope}/{skillId}/file:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1{skillId}~1file"
+  /api/agents/{id}/skills:install:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills:install"
+  /api/agents/{id}/skills:upload:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills:upload"
+  /api/agents/{id}/skills/{skillId}:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
+  /api/agents/{id}/skills/{skillId}/file:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
   # ── Projects ───────────────────────────────────────────────────────────────
   /api/agents/{agentID}/projects:
     $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentID}~1projects"
@@ -189,6 +207,10 @@ paths:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1role"
   /api/auth/users/{id}/agents:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1agents"
+  /api/auth/users/{id}/identities/login:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1login"
+  /api/auth/users/{id}/identities/channel:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1channel"
   /api/auth/users/{id}/identities/{identityId}:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1{identityId}"
   /api/auth/users/{id}/active:
@@ -385,20 +407,8 @@ components:
     UpdateSkillRequest: {
       $ref: "./components.yaml#/components/schemas/UpdateSkillRequest",
     }
-    SkillUploadResult: {
-      $ref: "./components.yaml#/components/schemas/SkillUploadResult",
-    }
-    DuplicateSkillResult: {
-      $ref: "./components.yaml#/components/schemas/DuplicateSkillResult",
-    }
     CreateSkillRequest: {
       $ref: "./components.yaml#/components/schemas/CreateSkillRequest",
-    }
-    GlobalInstallSkillRequest: {
-      $ref: "./components.yaml#/components/schemas/GlobalInstallSkillRequest",
-    }
-    ProfileInstallSkillRequest: {
-      $ref: "./components.yaml#/components/schemas/ProfileInstallSkillRequest",
     }
     SkillSearchResult: {
       $ref: "./components.yaml#/components/schemas/SkillSearchResult",
@@ -408,9 +418,6 @@ components:
     }
     SkillFileResponse: {
       $ref: "./components.yaml#/components/schemas/SkillFileResponse",
-    }
-    DeleteFileResult: {
-      $ref: "./components.yaml#/components/schemas/DeleteFileResult",
     }
     Identity: { $ref: "./components.yaml#/components/schemas/Identity" }
     AuthUser: { $ref: "./components.yaml#/components/schemas/AuthUser" }
@@ -474,6 +481,28 @@ components:
     }
     AuthResponse: { $ref: "./components.yaml#/components/schemas/AuthResponse" }
     MeResponse: { $ref: "./components.yaml#/components/schemas/MeResponse" }
+    OnboardingStatus: {
+      $ref: "./components.yaml#/components/schemas/OnboardingStatus",
+    }
+    PendingInvite: {
+      $ref: "./components.yaml#/components/schemas/PendingInvite",
+    }
+    CreateWorkspaceInput: {
+      $ref: "./components.yaml#/components/schemas/CreateWorkspaceInput",
+    }
+    WorkspaceCreated: {
+      $ref: "./components.yaml#/components/schemas/WorkspaceCreated",
+    }
+    RedeemInviteInput: {
+      $ref: "./components.yaml#/components/schemas/RedeemInviteInput",
+    }
+    UpdateOrgRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateOrgRequest",
+    }
+    AuthSession: { $ref: "./components.yaml#/components/schemas/AuthSession" }
+    AuthSessionList: {
+      $ref: "./components.yaml#/components/schemas/AuthSessionList",
+    }
     StatusMemory: {
       $ref: "./components.yaml#/components/schemas/StatusMemory",
     }

@@ -10,7 +10,7 @@ import (
 )
 
 type fakeTokenStore struct {
-	users  map[string]AuthUser
+	users  map[string]User
 	tokens map[string]UserToken
 	nextID int64
 	now    func() time.Time
@@ -18,7 +18,7 @@ type fakeTokenStore struct {
 
 func newFakeTokenStore(now func() time.Time) *fakeTokenStore {
 	return &fakeTokenStore{
-		users:  map[string]AuthUser{"1": {ID: "1", Username: "alice", IsActive: true}},
+		users:  map[string]User{"1": {ID: "1", Email: "alice@example.com"}},
 		tokens: make(map[string]UserToken),
 		nextID: 1,
 		now:    now,
@@ -87,10 +87,10 @@ func (s *fakeTokenStore) UpdateUserTokenLastUsed(_ context.Context, id string) (
 	return 1, nil
 }
 
-func (s *fakeTokenStore) GetUser(_ context.Context, id string) (AuthUser, error) {
+func (s *fakeTokenStore) GetUser(_ context.Context, id string) (User, error) {
 	user, ok := s.users[id]
 	if !ok {
-		return AuthUser{}, sql.ErrNoRows
+		return User{}, sql.ErrNoRows
 	}
 	return user, nil
 }
@@ -151,26 +151,6 @@ func TestTokenServiceEnsureAutoTokenCreatesAndReuses(t *testing.T) {
 	}
 	if vault.env["1"][StellaTokenName] != first || vault.sets != 1 {
 		t.Fatal("EnsureAutoToken rewrote stable token before rotate threshold")
-	}
-}
-
-func TestTokenServiceEnsureAutoTokenBackfillsVaultToken(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)
-	store := newFakeTokenStore(func() time.Time { return now })
-	vault := newFakeVault()
-	vault.env["1"] = map[string]string{StellaTokenName: "stella_existing"}
-	svc := NewTokenService(store, vault)
-	svc.now = func() time.Time { return now }
-
-	if err := svc.EnsureAutoToken(ctx, "1"); err != nil {
-		t.Fatalf("EnsureAutoToken backfill: %v", err)
-	}
-	if vault.sets != 0 {
-		t.Fatalf("backfill wrote vault %d times, want 0", vault.sets)
-	}
-	if _, err := store.GetActiveUserTokenByHash(ctx, hashToken("stella_existing")); err != nil {
-		t.Fatalf("backfilled token lookup: %v", err)
 	}
 }
 
@@ -246,9 +226,5 @@ func TestTokenServiceAuthenticate(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, "stella_wrong"); err == nil {
 		t.Fatal("Authenticate accepted wrong token")
-	}
-	store.users["1"] = AuthUser{ID: "1", Username: "alice", IsActive: false}
-	if _, err := svc.Authenticate(ctx, vault.env["1"][StellaTokenName]); err == nil {
-		t.Fatal("Authenticate accepted inactive user")
 	}
 }

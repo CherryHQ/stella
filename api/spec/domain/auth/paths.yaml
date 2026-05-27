@@ -1,78 +1,12 @@
 paths:
-  /api/auth/register:
-    post:
-      tags: [auth]
-      summary: Register a new user account
-      operationId: register
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/RegisterRequest",
-            }
-      responses:
-        "201":
-          description: created
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AuthResponse",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "409":
-          description: username already taken
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/Error",
-              }
-
-  /api/auth/login:
-    post:
-      tags: [auth]
-      summary: Authenticate and start a session
-      operationId: login
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/LoginRequest",
-            }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AuthResponse",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-
   /api/auth/logout:
     post:
       tags: [auth]
       summary: End the current session
       operationId: logout
       responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string }
+        "204":
+          description: logged out
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -93,3 +27,154 @@ paths:
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+
+  /api/auth/org:
+    patch:
+      tags: [auth]
+      summary: Update the current user's organization name
+      operationId: updateOrg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateOrgRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name]
+                properties:
+                  id: { type: string }
+                  name: { type: string }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/auth/sessions:
+    get:
+      tags: [auth]
+      summary: List current user's active sessions
+      operationId: listAuthSessions
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthSessionList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/auth/sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [auth]
+      summary: Revoke an auth session
+      operationId: deleteAuthSession
+      responses:
+        "204":
+          description: deleted
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/auth/providers:
+    get:
+      tags: [auth]
+      summary: List available authentication providers
+      operationId: listAuthProviders
+      security: []
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OIDCProviderList",
+              }
+
+  /api/auth/onboarding:
+    get:
+      tags: [auth]
+      summary: Get onboarding status for the current user
+      operationId: getOnboardingStatus
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OnboardingStatus",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/auth/onboarding/create-workspace:
+    post:
+      tags: [auth]
+      summary: Create a new workspace (org) for the current user
+      operationId: createWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateWorkspaceInput",
+            }
+      responses:
+        "201":
+          description: workspace created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WorkspaceCreated",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "409":
+          description: user already has a workspace
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
+  /api/auth/onboarding/redeem-invite:
+    post:
+      tags: [auth]
+      summary: Redeem an invite token during onboarding
+      operationId: redeemInviteOnboarding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/RedeemInviteInput",
+            }
+      responses:
+        "204":
+          description: invite redeemed
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "400":
+          description: invalid or expired invite
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }

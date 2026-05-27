@@ -30,6 +30,7 @@ type Provider struct {
 	APIKey  string                   `json:"api_key"`
 	BaseURL string                   `json:"base_url"`
 	Models  map[string]ProviderModel `json:"models,omitempty"`
+	OrgID   string                   `json:"org_id,omitempty"`
 }
 
 // AgentScope constants define the access scope for an agent.
@@ -53,6 +54,7 @@ type Agent struct {
 	Scope        string        `json:"scope"`
 	CreatorID    string        `json:"creator_id"`
 	Enabled      bool          `json:"enabled"`
+	OrgID        string        `json:"org_id,omitempty"`
 }
 
 // Channel represents a platform channel configuration.
@@ -62,9 +64,11 @@ type Channel struct {
 	AgentID string `json:"agent_id,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
+	OrgID   string `json:"org_id,omitempty"`
 }
 
 // Store provides typed access to configuration stored in the database.
+// List methods read orgID from context via OrgIDFromContext.
 type Store interface {
 	// Providers
 	ListProviders(ctx context.Context) ([]Provider, error)
@@ -72,14 +76,17 @@ type Store interface {
 	CreateProvider(ctx context.Context, p Provider) error
 	UpdateProvider(ctx context.Context, p Provider) error
 	DeleteProvider(ctx context.Context, id string) error
+	SetProviderOrg(ctx context.Context, providerID, orgID string) error
 
 	// Agents
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListEnabledAgents(ctx context.Context) ([]Agent, error)
+	ListAccessibleAgents(ctx context.Context, userID string) ([]Agent, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	CreateAgent(ctx context.Context, a Agent) error
 	UpdateAgent(ctx context.Context, a Agent) error
 	DeleteAgent(ctx context.Context, id string) error
+	SetAgentOrg(ctx context.Context, agentID, orgID string) error
 
 	// Channels
 	ListChannels(ctx context.Context) ([]Channel, error)
@@ -87,9 +94,11 @@ type Store interface {
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
+	SetChannelOrg(ctx context.Context, channelID, orgID string) error
 
-	// Plugins
+	// Plugins — read paths merge BuiltinPlugins() with DB override rows.
 	ListPlugins(ctx context.Context) ([]Plugin, error)
+	ListPluginOverrides(ctx context.Context) ([]Plugin, error)
 	ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error)
 	ListEnabledPlugins(ctx context.Context) ([]Plugin, error)
 	GetPlugin(ctx context.Context, id string) (Plugin, error)
@@ -111,5 +120,5 @@ type Store interface {
 	Snapshot(ctx context.Context, agentID string) (*Snapshot, error)
 
 	// Bootstrap
-	SeedDefaults(ctx context.Context) error
+	SeedNewOrg(ctx context.Context, orgID string) error
 }

@@ -1,6 +1,7 @@
 package simple_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -19,9 +20,14 @@ func TestConformance(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
+	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
+	if err != nil {
+		t.Fatalf("ensure default org: %v", err)
+	}
+
 	// Seed test agent required by ctx_agent_memory FK constraint.
-	_, err = db.Exec(`INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
-		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1)`)
+	_, err = db.Exec(`INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, org_id)
+		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1, ?)`, orgID)
 	if err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
@@ -29,5 +35,5 @@ func TestConformance(t *testing.T) {
 	p := simple.New(db)
 	defer func() { _ = p.Close() }()
 
-	memorytest.RunConformance(t, p)
+	memorytest.RunConformance(t, p, orgID)
 }

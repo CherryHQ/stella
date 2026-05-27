@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { createSession } from "@/lib/api-client/sdk.gen";
-import { unwrapApiData } from "@/lib/api-data";
 import type { Session } from "@/lib/types";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 
@@ -39,7 +38,7 @@ export function ProjectHome() {
       throwOnError: true,
     })
       .then(async ({ data }) => {
-        const sess = unwrapApiData<Session>(data);
+        const sess = data as Session;
         await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
         void navigate({
           to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",

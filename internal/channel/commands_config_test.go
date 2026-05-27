@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"filippo.io/age"
+	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -35,8 +37,12 @@ func testVaultService(t *testing.T) (*vault.Service, string) {
 		t.Fatal(err)
 	}
 
-	authStore := appdb.NewAuthStore(db)
-	user, err := authStore.CreateUser(ctx, "testuser", "hash")
+	oidcStore := appdb.NewOIDCStore(db)
+	user, err := oidcStore.CreateUser(ctx, auth.User{
+		ID:    uuid.NewString(),
+		Email: "testuser@test.local",
+		Name:  "testuser",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,11 +51,7 @@ func testVaultService(t *testing.T) (*vault.Service, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := q.UpdateUserAgeKeys(ctx, sqlc.UpdateUserAgeKeysParams{
-		AgePublicKey:  pub,
-		AgePrivateKey: encPriv,
-		ID:            user.ID,
-	}); err != nil {
+	if err := oidcStore.UpdateUserAgeKeys(ctx, user.ID, pub, encPriv); err != nil {
 		t.Fatal(err)
 	}
 
