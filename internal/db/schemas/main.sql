@@ -42,5 +42,9 @@
 -- atlas:import tables/recally_digest.sql
 -- atlas:import tables/agent_task.sql
 -- atlas:import tables/agent_task_dep.sql
+-- atlas:import tables/agent_task_run.sql
+-- atlas:import tables/agent_task_acceptance_criterion.sql
+-- atlas:import tables/agent_task_review.sql
+-- atlas:import tables/agent_task_review_item.sql
 -- atlas:import tables/agent_task_event.sql
 -- atlas:import tables/settings_project.sql

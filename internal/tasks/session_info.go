@@ -16,7 +16,7 @@ func taskSession(task sqlc.AgentTask) memory.Session {
 	return memory.Session{
 		ID:      sessionID,
 		UserID:  task.UserID,
-		AgentID: task.AgentID.String,
+		AgentID: task.AssigneeAgentID.String,
 		Channel: "system",
 	}
 }

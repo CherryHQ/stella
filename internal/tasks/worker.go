@@ -24,14 +24,14 @@ type workerConfig struct {
 func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig, task sqlc.AgentTask) {
 	log := slog.With("component", "tasks.worker", "task_id", task.ID)
 
-	// Atomically claim the task: pending → running.
+	// Atomically claim the task: ready → running.
 	now := time.Now().Format(time.RFC3339)
 	if err := cfg.q.UpdateAgentTaskStatusFrom(ctx, sqlc.UpdateAgentTaskStatusFromParams{
 		Status:    "running",
 		UpdatedAt: now,
 		ID:        task.ID,
 		UserID:    task.UserID,
-		Status_2:  "pending",
+		Status_2:  "ready",
 	}); err != nil {
 		log.Error("failed to claim task", "error", err)
 		return
@@ -48,18 +48,10 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	}
 
 	// Log a "started" event.
-	startedAt := time.Now().Format(time.RFC3339)
-	_, _ = cfg.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        newID(),
-		TaskID:    task.ID,
-		EventType: "started",
-		Detail:    "{}",
-		CreatedAt: startedAt,
-		UpdatedAt: startedAt,
-	})
+	insertEvent(ctx, cfg.q, task.ID, "started", "{}")
 
 	// Resolve factory for this task's agent.
-	agentID := task.AgentID.String
+	agentID := task.AssigneeAgentID.String
 	factory, ok := cfg.runnerFactory(agentID)
 	if !ok {
 		log.Error("no runner factory for agent", "agent_id", agentID)
@@ -185,14 +177,7 @@ func markFailed(ctx context.Context, q *sqlc.Queries, taskID, userID, reason str
 		ID:        taskID,
 		UserID:    userID,
 	})
-	_, _ = q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        newID(),
-		TaskID:    taskID,
-		EventType: "failed",
-		Detail:    detailJSON(reason),
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	insertEvent(ctx, q, taskID, "failed", detailJSON(reason))
 }
 
 func markDone(ctx context.Context, q *sqlc.Queries, taskID, userID string) {
@@ -203,12 +188,5 @@ func markDone(ctx context.Context, q *sqlc.Queries, taskID, userID string) {
 		ID:        taskID,
 		UserID:    userID,
 	})
-	_, _ = q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        newID(),
-		TaskID:    taskID,
-		EventType: "done",
-		Detail:    "{}",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	insertEvent(ctx, q, taskID, "done", "{}")
 }

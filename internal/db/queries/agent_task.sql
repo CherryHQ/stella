@@ -1,22 +1,35 @@
 -- name: CreateAgentTask :one
 INSERT INTO agent_task (
-    id, title, description, status, priority, session_id, context,
-    review_request, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
+    id, parent_id, root_id, task_type, title, description, status, priority,
+    required, retry_count, max_retries, review_policy,
+    session_id, context, review_request,
+    scheduler_job_id, scheduler_run_id,
+    assignee_agent_id, created_by_agent_id, user_id,
+    created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTask :one
 SELECT * FROM agent_task WHERE id = ? AND user_id = ?;
 
+-- name: GetAgentTaskByID :one
+SELECT * FROM agent_task WHERE id = ?;
+
 -- name: ListAgentTasksByUser :many
 SELECT * FROM agent_task WHERE user_id = ? ORDER BY created_at DESC;
 
 -- name: ListAgentTasksByUserAndAgent :many
-SELECT * FROM agent_task WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC;
+SELECT * FROM agent_task WHERE user_id = ? AND assignee_agent_id = ? ORDER BY created_at DESC;
 
--- name: ListPendingAgentTasks :many
-SELECT * FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC;
+-- name: ListChildTasks :many
+SELECT * FROM agent_task WHERE parent_id = ? AND user_id = ? ORDER BY created_at ASC;
+
+-- name: ListTasksByRootID :many
+SELECT * FROM agent_task WHERE root_id = ? AND user_id = ? ORDER BY created_at ASC;
+
+-- name: ListReadyAgentTasks :many
+SELECT * FROM agent_task WHERE status = 'ready' ORDER BY created_at ASC;
 
 -- name: ListRunningAgentTasks :many
 SELECT * FROM agent_task WHERE status = 'running' ORDER BY created_at ASC;
@@ -31,7 +44,7 @@ ORDER BY notify_at ASC;
 
 -- name: UpdateAgentTask :exec
 UPDATE agent_task
-SET title = ?, description = ?, priority = ?, agent_id = ?, updated_at = ?
+SET title = ?, description = ?, priority = ?, assignee_agent_id = ?, updated_at = ?
 WHERE id = ? AND user_id = ?;
 
 -- name: UpdateAgentTaskStatus :exec
@@ -59,9 +72,24 @@ UPDATE agent_task
 SET notify_at = ?, updated_at = ?
 WHERE id = ? AND user_id = ?;
 
+-- name: UpdateAgentTaskRetryCount :exec
+UPDATE agent_task
+SET retry_count = ?, updated_at = ?
+WHERE id = ? AND user_id = ?;
+
+-- name: ActivateDraftChildren :exec
+UPDATE agent_task
+SET status = 'ready', updated_at = ?
+WHERE parent_id = ? AND user_id = ? AND status = 'draft'
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_task_dep d
+    JOIN agent_task dep ON dep.id = d.dep_id
+    WHERE d.task_id = agent_task.id AND dep.status != 'done'
+  );
+
 -- name: ListUnblockedAgentTasks :many
 SELECT t.* FROM agent_task t
-WHERE t.status = 'pending'
+WHERE t.status = 'ready'
   AND t.user_id = ?
   AND NOT EXISTS (
     SELECT 1 FROM agent_task_dep d

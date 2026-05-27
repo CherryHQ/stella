@@ -58,22 +58,22 @@ type Config struct {
 
 // CreateTaskParams holds parameters for creating a new task.
 type CreateTaskParams struct {
-	Title          string
-	Description    string
-	Priority       string
-	AgentID        string
-	UserID         string
-	Deps           []string
-	SchedulerJobID string
-	SchedulerRunID string
+	Title           string
+	Description     string
+	Priority        string
+	AssigneeAgentID string
+	UserID          string
+	Deps            []string
+	SchedulerJobID  string
+	SchedulerRunID  string
 }
 
 // UpdateTaskParams holds parameters for updating task metadata.
 type UpdateTaskParams struct {
-	Title       string
-	Description string
-	Priority    string
-	AgentID     string
+	Title           string
+	Description     string
+	Priority        string
+	AssigneeAgentID string
 }
 
 // ActionParams holds parameters for task action handling.
@@ -113,7 +113,7 @@ func (s *Service) Start(ctx context.Context) error {
 	now := time.Now().Format(time.RFC3339)
 	for _, t := range running {
 		if err := s.q.UpdateAgentTaskStatus(s.ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "pending",
+			Status:    "ready",
 			UpdatedAt: now,
 			ID:        t.ID,
 			UserID:    t.UserID,
@@ -182,7 +182,7 @@ func (s *Service) notifyMessage(ctx context.Context, t sqlc.AgentTask) string {
 	switch t.Status {
 	case "blocked":
 		return fmt.Sprintf("Task %q is blocked: %s%s", t.Title, detail, link)
-	case "review_requested":
+	case "reviewing":
 		return fmt.Sprintf("Task %q requests review: %s%s", t.Title, detail, link)
 	default:
 		return fmt.Sprintf("Task %q (%s): %s%s", t.Title, t.Status, detail, link)
@@ -191,7 +191,7 @@ func (s *Service) notifyMessage(ctx context.Context, t sqlc.AgentTask) string {
 
 // sweepDepFailures transitions pending tasks to blocked when any dep has failed/cancelled.
 func (s *Service) sweepDepFailures(ctx context.Context, now string) {
-	pending, err := s.q.ListPendingAgentTasks(ctx)
+	pending, err := s.q.ListReadyAgentTasks(ctx)
 	if err != nil {
 		s.log.Warn("dep failure sweep: list failed", "error", err)
 		return
@@ -219,14 +219,7 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 					ID:        t.ID,
 					UserID:    t.UserID,
 				})
-				_, _ = s.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-					ID:        newID(),
-					TaskID:    t.ID,
-					EventType: "blocked",
-					Detail:    detailJSON(fmt.Sprintf("dependency %q is %s", dep.Title, dep.Status)),
-					CreatedAt: now,
-					UpdatedAt: now,
-				})
+				insertEvent(ctx, s.q, t.ID, "blocked", detailJSON(fmt.Sprintf("dependency %q is %s", dep.Title, dep.Status)))
 				break
 			}
 		}
@@ -235,7 +228,7 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 
 // sweepDispatch dispatches eligible pending tasks.
 func (s *Service) sweepDispatch(ctx context.Context) {
-	pending, err := s.q.ListPendingAgentTasks(ctx)
+	pending, err := s.q.ListReadyAgentTasks(ctx)
 	if err != nil {
 		s.log.Warn("dispatch sweep: list failed", "error", err)
 		return
@@ -296,20 +289,22 @@ func (s *Service) CreateTask(ctx context.Context, params CreateTaskParams) (sqlc
 	id := newID()
 	now := time.Now().Format(time.RFC3339)
 	task, err := s.q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
-		ID:             id,
-		Title:          params.Title,
-		Description:    params.Description,
-		Status:         "pending",
-		Priority:       priority,
-		SessionID:      sql.NullString{String: "task:" + id, Valid: true},
-		Context:        "{}",
-		ReviewRequest:  "{}",
-		SchedulerJobID: sql.NullString{String: params.SchedulerJobID, Valid: params.SchedulerJobID != ""},
-		SchedulerRunID: sql.NullString{String: params.SchedulerRunID, Valid: params.SchedulerRunID != ""},
-		AgentID:        sql.NullString{String: params.AgentID, Valid: params.AgentID != ""},
-		UserID:         params.UserID,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:              id,
+		RootID:          id,
+		TaskType:        "task",
+		Title:           params.Title,
+		Description:     params.Description,
+		Status:          "ready",
+		Priority:        priority,
+		SessionID:       sql.NullString{String: "task:" + id, Valid: true},
+		Context:         "{}",
+		ReviewRequest:   "{}",
+		SchedulerJobID:  sql.NullString{String: params.SchedulerJobID, Valid: params.SchedulerJobID != ""},
+		SchedulerRunID:  sql.NullString{String: params.SchedulerRunID, Valid: params.SchedulerRunID != ""},
+		AssigneeAgentID: sql.NullString{String: params.AssigneeAgentID, Valid: params.AssigneeAgentID != ""},
+		UserID:          params.UserID,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	})
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: create: %w", err)
@@ -373,8 +368,8 @@ func (s *Service) GetTask(ctx context.Context, id string, userID string) (sqlc.A
 // ListTasks returns tasks for a specific agent, filtered by status.
 func (s *Service) ListTasks(ctx context.Context, userID, agentID, status string) ([]sqlc.AgentTask, error) {
 	tasks, err := s.q.ListAgentTasksByUserAndAgent(ctx, sqlc.ListAgentTasksByUserAndAgentParams{
-		UserID:  userID,
-		AgentID: sql.NullString{String: agentID, Valid: true},
+		UserID:          userID,
+		AssigneeAgentID: sql.NullString{String: agentID, Valid: true},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tasks: list: %w", err)
@@ -410,18 +405,18 @@ func (s *Service) UpdateTask(ctx context.Context, id string, userID string, upda
 	if priority == "" {
 		priority = task.Priority
 	}
-	agentID := update.AgentID
+	agentID := update.AssigneeAgentID
 	if agentID == "" {
-		agentID = task.AgentID.String
+		agentID = task.AssigneeAgentID.String
 	}
 	if err := s.q.UpdateAgentTask(ctx, sqlc.UpdateAgentTaskParams{
-		Title:       title,
-		Description: desc,
-		Priority:    priority,
-		AgentID:     sql.NullString{String: agentID, Valid: agentID != ""},
-		UpdatedAt:   time.Now().Format(time.RFC3339),
-		ID:          id,
-		UserID:      userID,
+		Title:           title,
+		Description:     desc,
+		Priority:        priority,
+		AssigneeAgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+		UpdatedAt:       time.Now().Format(time.RFC3339),
+		ID:              id,
+		UserID:          userID,
 	}); err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: update: %w", err)
 	}
@@ -455,7 +450,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 	switch action.Action {
 	case "cancel":
 		switch task.Status {
-		case "pending", "blocked", "review_requested":
+		case "ready", "blocked", "reviewing":
 			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 				Status:    "cancelled",
 				UpdatedAt: now,
@@ -484,8 +479,8 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 		}
 
 	case "approve":
-		if task.Status != "review_requested" {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve requires review_requested status, got %q", task.Status)
+		if task.Status != "reviewing" {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve requires reviewing status, got %q", task.Status)
 		}
 		if err := s.q.UpdateAgentTaskReviewRequest(ctx, sqlc.UpdateAgentTaskReviewRequestParams{
 			ReviewRequest: "{}",
@@ -496,17 +491,17 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: clear review_request: %w", err)
 		}
 		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "pending",
+			Status:    "ready",
 			UpdatedAt: now,
 			ID:        id,
 			UserID:    userID,
 		}); err != nil {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve set pending: %w", err)
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve set ready: %w", err)
 		}
 
 	case "reject":
-		if task.Status != "review_requested" {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: reject requires review_requested status, got %q", task.Status)
+		if task.Status != "reviewing" {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: reject requires reviewing status, got %q", task.Status)
 		}
 		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 			Status:    "failed",
@@ -516,14 +511,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: reject: %w", err)
 		}
-		_, _ = s.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-			ID:        newID(),
-			TaskID:    id,
-			EventType: "failed",
-			Detail:    detailJSON(action.Message),
-			CreatedAt: now,
-			UpdatedAt: now,
-		})
+		insertEvent(ctx, s.q, id, "failed", detailJSON(action.Message))
 
 	case "respond":
 		if task.Status != "blocked" {
@@ -532,7 +520,7 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 		session := taskSession(task)
 		memCtx := memory.WithSessionID(ctx, session.ID)
 		memCtx = memory.WithUserID(memCtx, task.UserID)
-		memCtx = memory.WithAgentID(memCtx, task.AgentID.String)
+		memCtx = memory.WithAgentID(memCtx, task.AssigneeAgentID.String)
 		if err := saveTaskSessionInfo(memCtx, s.mem, task, session); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond session info: %w", err)
 		}
@@ -551,12 +539,12 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond clear review_request: %w", err)
 		}
 		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "pending",
+			Status:    "ready",
 			UpdatedAt: now,
 			ID:        id,
 			UserID:    userID,
 		}); err != nil {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond set pending: %w", err)
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond set ready: %w", err)
 		}
 
 	default:
@@ -577,7 +565,7 @@ func (s *Service) AddDep(ctx context.Context, taskID, depID, userID string) erro
 	if err != nil {
 		return fmt.Errorf("tasks: task %q not found: %w", taskID, err)
 	}
-	if task.Status != "pending" && task.Status != "blocked" {
+	if task.Status != "ready" && task.Status != "blocked" {
 		return fmt.Errorf("tasks: cannot add dep to task in status %q", task.Status)
 	}
 	if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: userID}); err != nil {
@@ -626,7 +614,7 @@ func (s *Service) RemoveDep(ctx context.Context, taskID, depID, userID string) e
 	if task.Status == "blocked" && s.depsAllDone(ctx, task) {
 		now := time.Now().Format(time.RFC3339)
 		_ = s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status: "pending", UpdatedAt: now, ID: taskID, UserID: userID,
+			Status: "ready", UpdatedAt: now, ID: taskID, UserID: userID,
 		})
 	}
 	return nil
@@ -679,7 +667,7 @@ func (s *Service) ListUnblockedTasks(ctx context.Context, userID, agentID string
 	}
 	filtered := tasks[:0]
 	for _, t := range tasks {
-		if t.AgentID.Valid && t.AgentID.String == agentID {
+		if t.AssigneeAgentID.Valid && t.AssigneeAgentID.String == agentID {
 			filtered = append(filtered, t)
 		}
 	}
@@ -688,12 +676,12 @@ func (s *Service) ListUnblockedTasks(ctx context.Context, userID, agentID string
 
 // BatchTaskItem holds parameters for one task in a batch create.
 type BatchTaskItem struct {
-	Title       string
-	Description string
-	Priority    string
-	AgentID     string
-	DraftID     string
-	Deps        []string
+	Title           string
+	Description     string
+	Priority        string
+	AssigneeAgentID string
+	DraftID         string
+	Deps            []string
 }
 
 // BatchCreateParams holds parameters for batch task creation.
@@ -786,18 +774,20 @@ func (s *Service) BatchCreateTasks(ctx context.Context, params BatchCreateParams
 			priority = "routine"
 		}
 		task, err := qtx.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
-			ID:            realIDs[i],
-			Title:         t.Title,
-			Description:   t.Description,
-			Status:        "pending",
-			Priority:      priority,
-			SessionID:     sql.NullString{String: "task:" + realIDs[i], Valid: true},
-			Context:       "{}",
-			ReviewRequest: "{}",
-			AgentID:       sql.NullString{String: t.AgentID, Valid: t.AgentID != ""},
-			UserID:        params.UserID,
-			CreatedAt:     now,
-			UpdatedAt:     now,
+			ID:              realIDs[i],
+			RootID:          realIDs[i],
+			TaskType:        "task",
+			Title:           t.Title,
+			Description:     t.Description,
+			Status:          "ready",
+			Priority:        priority,
+			SessionID:       sql.NullString{String: "task:" + realIDs[i], Valid: true},
+			Context:         "{}",
+			ReviewRequest:   "{}",
+			AssigneeAgentID: sql.NullString{String: t.AssigneeAgentID, Valid: t.AssigneeAgentID != ""},
+			UserID:          params.UserID,
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("tasks: batch create task %q: %w", t.Title, err)
@@ -854,6 +844,19 @@ func detailJSON(msg string) string {
 	}
 	b, _ := json.Marshal(map[string]any{"message": msg})
 	return string(b)
+}
+
+// insertEvent is a convenience wrapper around InsertAgentTaskEvent with nil run/review IDs.
+func insertEvent(ctx context.Context, q *sqlc.Queries, taskID, eventType, detail string) {
+	now := time.Now().Format(time.RFC3339)
+	_, _ = q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
+		ID:        newID(),
+		TaskID:    taskID,
+		EventType: eventType,
+		Detail:    detail,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
 }
 
 // newID generates a new UUID string.

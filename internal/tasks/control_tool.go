@@ -141,12 +141,12 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 			reviewJSON = string(b)
 		}
 		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "review_requested",
+			Status:    "reviewing",
 			UpdatedAt: now,
 			ID:        t.taskID,
 			UserID:    t.userID,
 		}); err != nil {
-			return "", fmt.Errorf("task_control: set review_requested: %w", err)
+			return "", fmt.Errorf("task_control: set reviewing: %w", err)
 		}
 		if err := t.q.UpdateAgentTaskReviewRequest(ctx, sqlc.UpdateAgentTaskReviewRequestParams{
 			ReviewRequest: reviewJSON,
@@ -164,7 +164,7 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set notify_at: %w", err)
 		}
-		if err := t.logEvent(ctx, "review_requested", message); err != nil {
+		if err := t.logEvent(ctx, "reviewing", message); err != nil {
 			return "", err
 		}
 		t.cancel()

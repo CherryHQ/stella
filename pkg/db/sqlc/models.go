@@ -9,21 +9,39 @@ import (
 )
 
 type AgentTask struct {
-	ID             string         `json:"id"`
-	Title          string         `json:"title"`
-	Description    string         `json:"description"`
-	Status         string         `json:"status"`
-	Priority       string         `json:"priority"`
-	SessionID      sql.NullString `json:"session_id"`
-	Context        string         `json:"context"`
-	ReviewRequest  string         `json:"review_request"`
-	NotifyAt       sql.NullString `json:"notify_at"`
-	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
-	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
-	AgentID        sql.NullString `json:"agent_id"`
-	UserID         string         `json:"user_id"`
-	CreatedAt      string         `json:"created_at"`
-	UpdatedAt      string         `json:"updated_at"`
+	ID               string         `json:"id"`
+	ParentID         sql.NullString `json:"parent_id"`
+	RootID           string         `json:"root_id"`
+	TaskType         string         `json:"task_type"`
+	Title            string         `json:"title"`
+	Description      string         `json:"description"`
+	Status           string         `json:"status"`
+	Priority         string         `json:"priority"`
+	Required         bool           `json:"required"`
+	RetryCount       int64          `json:"retry_count"`
+	MaxRetries       int64          `json:"max_retries"`
+	ReviewPolicy     sql.NullString `json:"review_policy"`
+	SessionID        sql.NullString `json:"session_id"`
+	Context          string         `json:"context"`
+	ReviewRequest    string         `json:"review_request"`
+	NotifyAt         sql.NullString `json:"notify_at"`
+	SchedulerJobID   sql.NullString `json:"scheduler_job_id"`
+	SchedulerRunID   sql.NullString `json:"scheduler_run_id"`
+	AssigneeAgentID  sql.NullString `json:"assignee_agent_id"`
+	CreatedByAgentID sql.NullString `json:"created_by_agent_id"`
+	UserID           string         `json:"user_id"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
+}
+
+type AgentTaskAcceptanceCriterion struct {
+	ID          string `json:"id"`
+	UserID      string `json:"user_id"`
+	TaskID      string `json:"task_id"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+	Position    int64  `json:"position"`
+	CreatedAt   string `json:"created_at"`
 }
 
 type AgentTaskDep struct {
@@ -33,12 +51,57 @@ type AgentTaskDep struct {
 }
 
 type AgentTaskEvent struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"task_id"`
-	EventType string `json:"event_type"`
-	Detail    string `json:"detail"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string         `json:"id"`
+	TaskID    string         `json:"task_id"`
+	RunID     sql.NullString `json:"run_id"`
+	ReviewID  sql.NullString `json:"review_id"`
+	EventType string         `json:"event_type"`
+	Detail    string         `json:"detail"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
+type AgentTaskReview struct {
+	ID             string         `json:"id"`
+	UserID         string         `json:"user_id"`
+	TaskID         string         `json:"task_id"`
+	ReviewerType   string         `json:"reviewer_type"`
+	ReviewerID     string         `json:"reviewer_id"`
+	SubmittedRunID string         `json:"submitted_run_id"`
+	ReviewerRunID  sql.NullString `json:"reviewer_run_id"`
+	Status         string         `json:"status"`
+	Summary        string         `json:"summary"`
+	Feedback       string         `json:"feedback"`
+	CreatedAt      string         `json:"created_at"`
+	ResolvedAt     sql.NullString `json:"resolved_at"`
+}
+
+type AgentTaskReviewItem struct {
+	ID          string       `json:"id"`
+	UserID      string       `json:"user_id"`
+	ReviewID    string       `json:"review_id"`
+	CriterionID string       `json:"criterion_id"`
+	Passed      sql.NullBool `json:"passed"`
+	Evidence    string       `json:"evidence"`
+	CreatedAt   string       `json:"created_at"`
+}
+
+type AgentTaskRun struct {
+	ID         string         `json:"id"`
+	UserID     string         `json:"user_id"`
+	TaskID     string         `json:"task_id"`
+	AgentID    sql.NullString `json:"agent_id"`
+	Kind       string         `json:"kind"`
+	Purpose    string         `json:"purpose"`
+	Status     string         `json:"status"`
+	SessionID  sql.NullString `json:"session_id"`
+	ResultJson string         `json:"result_json"`
+	Error      string         `json:"error"`
+	DeadlineAt sql.NullString `json:"deadline_at"`
+	StartedAt  sql.NullString `json:"started_at"`
+	FinishedAt sql.NullString `json:"finished_at"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
 }
 
 type AuthCredential struct {

@@ -1,4 +1,4 @@
-h1:UDaDx5swQhmmjTuqKrS9mkDvNj/nxCAOxQHSDN1dknQ=
+h1:Cp8N69yyXRS9DjynPa4aBvnr3ZYG3bPFyGp5TaWsdbY=
 20260526015029_initial.sql h1:IdsYJSP22blICk/VYmJTxI05CKRZMUEPvyaHL4JGxIQ=
 20260526092724_org-scoped-resources.sql h1:vIMqCr8Dy4PSVx2t0a3DszZ0w6QIZi7MHbzIOrGEQvo=
 20260526103328_org-scope-queries.sql h1:I12GNIf4PBiFTePm8L380W78C7c9Mx0/p6fvUwEt290=
@@ -6,3 +6,5 @@ h1:UDaDx5swQhmmjTuqKrS9mkDvNj/nxCAOxQHSDN1dknQ=
 20260526125152_add_nullable_org_scope_to_orphan_tables.sql h1:7oNeBRKH7WIS+cFcdMazx0gcWWBrX5UFgQWuCQTFWZs=
 20260527065207_unique_user_membership.sql h1:HlC/e/JL2LEfldaG8k6pP/Wa78pVV9Xr/Cjk6RjhI2c=
 20260527104340_add-task-dep-table.sql h1:Q9uiX90/COvyDZ9NYlQdTHhSpKxG5AlzpP6uZGf+n80=
+20260527122706_extend-agent-task.sql h1:HL021UMJaahg4UMYKR/RVUD+7TMeIO10ynefEXOMaK4=
+20260527122832_add-run-review-tables.sql h1:6WzpljVnztha3kPydx1cYi1M4xO9G/JLqpQYi+k3Zv4=

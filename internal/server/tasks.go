@@ -91,12 +91,12 @@ func (s *Server) CreateAgentTask(w http.ResponseWriter, r *http.Request, agentID
 		deps = *body.Deps
 	}
 	task, err := s.tasksSvc.CreateTask(r.Context(), tasks.CreateTaskParams{
-		Title:       body.Title,
-		Description: description,
-		Priority:    priority,
-		AgentID:     agentID,
-		UserID:      userID,
-		Deps:        deps,
+		Title:           body.Title,
+		Description:     description,
+		Priority:        priority,
+		AssigneeAgentID: agentID,
+		UserID:          userID,
+		Deps:            deps,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -126,7 +126,7 @@ func (s *Server) GetAgentTask(w http.ResponseWriter, r *http.Request, agentID st
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
-	if !task.AgentID.Valid || task.AgentID.String != agentID {
+	if !task.AssigneeAgentID.Valid || task.AssigneeAgentID.String != agentID {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
@@ -167,7 +167,7 @@ func (s *Server) UpdateAgentTask(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+	if !existing.AssigneeAgentID.Valid || existing.AssigneeAgentID.String != agentID {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
@@ -204,7 +204,7 @@ func (s *Server) DeleteAgentTask(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if !task.AgentID.Valid || task.AgentID.String != agentID {
+	if !task.AssigneeAgentID.Valid || task.AssigneeAgentID.String != agentID {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
@@ -247,7 +247,7 @@ func (s *Server) AgentTaskAction(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+	if !existing.AssigneeAgentID.Valid || existing.AssigneeAgentID.String != agentID {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
@@ -287,7 +287,7 @@ func (s *Server) ListAgentTaskEvents(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
-	if !task.AgentID.Valid || task.AgentID.String != agentID {
+	if !task.AssigneeAgentID.Valid || task.AssigneeAgentID.String != agentID {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
@@ -318,8 +318,8 @@ func toAPITask(t sqlc.AgentTask) apiserver.AgentTask {
 	if t.Description != "" {
 		at.Description = &t.Description
 	}
-	if t.AgentID.Valid && t.AgentID.String != "" {
-		at.AgentId = &t.AgentID.String
+	if t.AssigneeAgentID.Valid && t.AssigneeAgentID.String != "" {
+		at.AgentId = &t.AssigneeAgentID.String
 	}
 	if t.SessionID.Valid && t.SessionID.String != "" {
 		at.SessionId = &t.SessionID.String
@@ -420,7 +420,7 @@ func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request, a
 			item.Priority = string(*t.Priority)
 		}
 		if t.AgentId != nil {
-			item.AgentID = *t.AgentId
+			item.AssigneeAgentID = *t.AgentId
 		}
 		if t.DraftId != nil {
 			item.DraftID = *t.DraftId

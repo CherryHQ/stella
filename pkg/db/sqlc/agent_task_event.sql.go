@@ -7,27 +7,32 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const insertAgentTaskEvent = `-- name: InsertAgentTaskEvent :one
-INSERT INTO agent_task_event (id, task_id, event_type, detail, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, task_id, event_type, detail, created_at, updated_at
+INSERT INTO agent_task_event (id, task_id, run_id, review_id, event_type, detail, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, task_id, run_id, review_id, event_type, detail, created_at, updated_at
 `
 
 type InsertAgentTaskEventParams struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"task_id"`
-	EventType string `json:"event_type"`
-	Detail    string `json:"detail"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string         `json:"id"`
+	TaskID    string         `json:"task_id"`
+	RunID     sql.NullString `json:"run_id"`
+	ReviewID  sql.NullString `json:"review_id"`
+	EventType string         `json:"event_type"`
+	Detail    string         `json:"detail"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskEventParams) (AgentTaskEvent, error) {
 	row := q.db.QueryRowContext(ctx, insertAgentTaskEvent,
 		arg.ID,
 		arg.TaskID,
+		arg.RunID,
+		arg.ReviewID,
 		arg.EventType,
 		arg.Detail,
 		arg.CreatedAt,
@@ -37,6 +42,8 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.RunID,
+		&i.ReviewID,
 		&i.EventType,
 		&i.Detail,
 		&i.CreatedAt,
@@ -46,7 +53,7 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 }
 
 const listAgentTaskEvents = `-- name: ListAgentTaskEvents :many
-SELECT id, task_id, event_type, detail, created_at, updated_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC
+SELECT id, task_id, run_id, review_id, event_type, detail, created_at, updated_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC
 `
 
 func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID string) ([]AgentTaskEvent, error) {
@@ -61,6 +68,8 @@ func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID string) ([]Age
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,
+			&i.RunID,
+			&i.ReviewID,
 			&i.EventType,
 			&i.Detail,
 			&i.CreatedAt,
