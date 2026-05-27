@@ -67,6 +67,12 @@ paths:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1providers"
   /api/auth/org:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1org"
+  /api/auth/onboarding:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding"
+  /api/auth/onboarding/create-workspace:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding~1create-workspace"
+  /api/auth/onboarding/redeem-invite:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding~1redeem-invite"
   /api/auth/sessions:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1sessions"
   /api/auth/sessions/{id}:
@@ -492,6 +498,21 @@ components:
     }
     AuthResponse: { $ref: "./components.yaml#/components/schemas/AuthResponse" }
     MeResponse: { $ref: "./components.yaml#/components/schemas/MeResponse" }
+    OnboardingStatus: {
+      $ref: "./components.yaml#/components/schemas/OnboardingStatus",
+    }
+    PendingInvite: {
+      $ref: "./components.yaml#/components/schemas/PendingInvite",
+    }
+    CreateWorkspaceInput: {
+      $ref: "./components.yaml#/components/schemas/CreateWorkspaceInput",
+    }
+    WorkspaceCreated: {
+      $ref: "./components.yaml#/components/schemas/WorkspaceCreated",
+    }
+    RedeemInviteInput: {
+      $ref: "./components.yaml#/components/schemas/RedeemInviteInput",
+    }
     UpdateOrgRequest: {
       $ref: "./components.yaml#/components/schemas/UpdateOrgRequest",
     }

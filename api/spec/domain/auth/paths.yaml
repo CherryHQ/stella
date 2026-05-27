@@ -104,3 +104,77 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/OIDCProviderList",
               }
+
+  /api/auth/onboarding:
+    get:
+      tags: [auth]
+      summary: Get onboarding status for the current user
+      operationId: getOnboardingStatus
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OnboardingStatus",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/auth/onboarding/create-workspace:
+    post:
+      tags: [auth]
+      summary: Create a new workspace (org) for the current user
+      operationId: createWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateWorkspaceInput",
+            }
+      responses:
+        "201":
+          description: workspace created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WorkspaceCreated",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "409":
+          description: user already has a workspace
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
+  /api/auth/onboarding/redeem-invite:
+    post:
+      tags: [auth]
+      summary: Redeem an invite token during onboarding
+      operationId: redeemInviteOnboarding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/RedeemInviteInput",
+            }
+      responses:
+        "204":
+          description: invite redeemed
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "400":
+          description: invalid or expired invite
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }

@@ -25,6 +25,7 @@ import {
   createSchedulerJob,
   createSession,
   createShare,
+  createWorkspace,
   createWorkspaceFile,
   deleteAgent,
   deleteAgentScopedSkill,
@@ -60,6 +61,7 @@ import {
   getMe,
   getOAuthConnected,
   getOAuthProviderConfig,
+  getOnboardingStatus,
   getPluginConfig,
   getPluginConfigSchema,
   getPluginStatus,
@@ -120,6 +122,7 @@ import {
   pollFeed,
   pollOAuthFlow,
   pollWeixinQrStatus,
+  redeemInviteOnboarding,
   removeAgentUser,
   revokeInvite,
   revokeShare,
@@ -205,9 +208,12 @@ import type {
   CreateShareData,
   CreateShareError,
   CreateShareResponse,
+  CreateWorkspaceData,
+  CreateWorkspaceError,
   CreateWorkspaceFileData,
   CreateWorkspaceFileError,
   CreateWorkspaceFileResponse,
+  CreateWorkspaceResponse,
   DeleteAgentData,
   DeleteAgentError,
   DeleteAgentResponse,
@@ -310,6 +316,9 @@ import type {
   GetOAuthProviderConfigData,
   GetOAuthProviderConfigError,
   GetOAuthProviderConfigResponse,
+  GetOnboardingStatusData,
+  GetOnboardingStatusError,
+  GetOnboardingStatusResponse,
   GetPluginConfigData,
   GetPluginConfigError,
   GetPluginConfigResponse,
@@ -483,6 +492,9 @@ import type {
   PollWeixinQrStatusData,
   PollWeixinQrStatusError,
   PollWeixinQrStatusResponse,
+  RedeemInviteOnboardingData,
+  RedeemInviteOnboardingError,
+  RedeemInviteOnboardingResponse,
   RemoveAgentUserData,
   RemoveAgentUserError,
   RemoveAgentUserResponse,
@@ -757,6 +769,88 @@ export const updateOrgMutation = (
   > = {
     mutationFn: async (fnOptions) => {
       const { data } = await updateOrg({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+export const getOnboardingStatusQueryKey = (
+  options?: Options<GetOnboardingStatusData>,
+) => createQueryKey("getOnboardingStatus", options);
+
+/**
+ * Get onboarding status for the current user
+ */
+export const getOnboardingStatusOptions = (
+  options?: Options<GetOnboardingStatusData>,
+) =>
+  queryOptions<
+    GetOnboardingStatusResponse,
+    GetOnboardingStatusError,
+    GetOnboardingStatusResponse,
+    ReturnType<typeof getOnboardingStatusQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getOnboardingStatus({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getOnboardingStatusQueryKey(options),
+  });
+
+/**
+ * Create a new workspace (org) for the current user
+ */
+export const createWorkspaceMutation = (
+  options?: Partial<Options<CreateWorkspaceData>>,
+): UseMutationOptions<
+  CreateWorkspaceResponse,
+  CreateWorkspaceError,
+  Options<CreateWorkspaceData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateWorkspaceResponse,
+    CreateWorkspaceError,
+    Options<CreateWorkspaceData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await createWorkspace({
+        ...options,
+        ...fnOptions,
+        throwOnError: true,
+      });
+      return data;
+    },
+  };
+  return mutationOptions;
+};
+
+/**
+ * Redeem an invite token during onboarding
+ */
+export const redeemInviteOnboardingMutation = (
+  options?: Partial<Options<RedeemInviteOnboardingData>>,
+): UseMutationOptions<
+  RedeemInviteOnboardingResponse,
+  RedeemInviteOnboardingError,
+  Options<RedeemInviteOnboardingData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RedeemInviteOnboardingResponse,
+    RedeemInviteOnboardingError,
+    Options<RedeemInviteOnboardingData>
+  > = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await redeemInviteOnboarding({
         ...options,
         ...fnOptions,
         throwOnError: true,

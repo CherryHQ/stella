@@ -787,6 +787,11 @@ type CreateSkillRequest struct {
 	UserId                 *string            `json:"user_id,omitempty"`
 }
 
+// CreateWorkspaceInput defines model for CreateWorkspaceInput.
+type CreateWorkspaceInput struct {
+	Name *string `json:"name,omitempty"`
+}
+
 // DeleteFileResult defines model for DeleteFileResult.
 type DeleteFileResult struct {
 	Path *string `json:"path,omitempty"`
@@ -1068,16 +1073,17 @@ type ManifestPluginsResponse struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
-	AvatarUrl      *string `json:"avatar_url,omitempty"`
-	Email          *string `json:"email,omitempty"`
-	HasCredentials *bool   `json:"has_credentials,omitempty"`
-	Id             string  `json:"id"`
-	IsAdmin        bool    `json:"is_admin"`
-	Name           *string `json:"name,omitempty"`
-	OrgId          *string `json:"org_id,omitempty"`
-	OrgName        *string `json:"org_name,omitempty"`
-	Role           string  `json:"role"`
-	Username       string  `json:"username"`
+	AvatarUrl       *string `json:"avatar_url,omitempty"`
+	Email           *string `json:"email,omitempty"`
+	HasCredentials  *bool   `json:"has_credentials,omitempty"`
+	Id              string  `json:"id"`
+	IsAdmin         bool    `json:"is_admin"`
+	Name            *string `json:"name,omitempty"`
+	NeedsOnboarding *bool   `json:"needs_onboarding,omitempty"`
+	OrgId           *string `json:"org_id,omitempty"`
+	OrgName         *string `json:"org_name,omitempty"`
+	Role            string  `json:"role"`
+	Username        string  `json:"username"`
 }
 
 // MessagePart defines model for MessagePart.
@@ -1155,6 +1161,24 @@ type OIDCProvider struct {
 // OIDCProviderList defines model for OIDCProviderList.
 type OIDCProviderList struct {
 	Items []OIDCProvider `json:"items"`
+}
+
+// OnboardingStatus defines model for OnboardingStatus.
+type OnboardingStatus struct {
+	Email           *string          `json:"email,omitempty"`
+	InviteToken     *string          `json:"invite_token,omitempty"`
+	Name            *string          `json:"name,omitempty"`
+	NeedsOnboarding bool             `json:"needs_onboarding"`
+	PendingInvites  *[]PendingInvite `json:"pending_invites,omitempty"`
+}
+
+// PendingInvite defines model for PendingInvite.
+type PendingInvite struct {
+	Email     *string   `json:"email,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Id        string    `json:"id"`
+	OrgName   string    `json:"org_name"`
+	Role      string    `json:"role"`
 }
 
 // PluginView defines model for PluginView.
@@ -1254,6 +1278,11 @@ type PublicChannel struct {
 // PublicChannelList defines model for PublicChannelList.
 type PublicChannelList struct {
 	Items []PublicChannel `json:"items"`
+}
+
+// RedeemInviteInput defines model for RedeemInviteInput.
+type RedeemInviteInput struct {
+	Token string `json:"token"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -1661,6 +1690,12 @@ type WorkspaceCreateRequest struct {
 
 	// Path Relative path for the new file or directory
 	Path string `json:"path"`
+}
+
+// WorkspaceCreated defines model for WorkspaceCreated.
+type WorkspaceCreated struct {
+	OrgId   string `json:"org_id"`
+	OrgName string `json:"org_name"`
 }
 
 // WorkspaceDeleteRequest defines model for WorkspaceDeleteRequest.
