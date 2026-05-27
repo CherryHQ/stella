@@ -114,6 +114,12 @@ func TestSeedDefaultsIdempotent(t *testing.T) {
 	if len(providers) != len(config.BuiltinProviderNames) {
 		t.Errorf("expected %d providers after double seed, got %d", len(config.BuiltinProviderNames), len(providers))
 	}
+
+	for _, p := range providers {
+		if p.ID != p.Type {
+			t.Errorf("provider %q should have deterministic ID equal to type, got ID=%q", p.Type, p.ID)
+		}
+	}
 }
 
 func TestProviderCRUD(t *testing.T) {

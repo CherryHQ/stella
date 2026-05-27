@@ -895,17 +895,9 @@ func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error 
 }
 
 func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
-	providers, err := s.q.ListProviders(ctx, orgID)
-	if err != nil {
-		return fmt.Errorf("seed: list providers: %w", err)
-	}
-	if len(providers) > 0 {
-		return nil
-	}
-
 	for _, name := range config.BuiltinProviderNames {
 		provider := config.Provider{
-			ID:      uuid.NewString(),
+			ID:      name,
 			Type:    name,
 			Name:    name,
 			Enabled: true,
