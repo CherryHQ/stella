@@ -16,7 +16,6 @@ api/server/gen.go
 api/client/gen.go
 internal/server/docs_spec.yaml
 web/src/lib/api-client/
-web/src/routeTree.gen.ts
 
 # Embedded tool binaries (downloaded via builddeps sync)
 resources/binaries/binaries/*/*.gz
