@@ -830,6 +830,13 @@ func (s *OIDCStore) CreateInvite(ctx context.Context, inv auth.Invite) (auth.Inv
 	return scanInvite(row)
 }
 
+func (s *OIDCStore) GetInvite(ctx context.Context, id string) (auth.Invite, error) {
+	const q = `SELECT id, token_hash, org_id, email, role, status, max_uses, use_count, invited_by, accepted_by, expires_at, created_at, updated_at
+	           FROM auth_invite WHERE id=?`
+	row := s.db.QueryRowContext(ctx, q, id)
+	return scanInvite(row)
+}
+
 func (s *OIDCStore) GetInviteByTokenHash(ctx context.Context, tokenHash string) (auth.Invite, error) {
 	const q = `SELECT id, token_hash, org_id, email, role, status, max_uses, use_count, invited_by, accepted_by, expires_at, created_at, updated_at
 	           FROM auth_invite WHERE token_hash=?`

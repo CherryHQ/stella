@@ -154,6 +154,9 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 			return &AuthInfo{
 				UserID:          user.ID,
 				Username:        user.Email,
+				Email:           user.Email,
+				Name:            user.Name,
+				AvatarURL:       user.AvatarURL,
 				NeedsOnboarding: true,
 			}
 		}
@@ -163,11 +166,14 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 		return nil
 	}
 	return &AuthInfo{
-		UserID:   user.ID,
-		Username: user.Email,
-		Role:     membership.Role,
-		IsAdmin:  membership.Role == auth.RoleAdmin,
-		OrgID:    membership.OrganizationID,
+		UserID:    user.ID,
+		Username:  user.Email,
+		Email:     user.Email,
+		Name:      user.Name,
+		AvatarURL: user.AvatarURL,
+		Role:      membership.Role,
+		IsAdmin:   membership.Role == auth.RoleAdmin,
+		OrgID:     membership.OrganizationID,
 	}
 }
 
@@ -230,7 +236,9 @@ func isOnboardingAllowed(path string) bool {
 		return true
 	case path == "/api/auth/logout":
 		return true
-	case strings.HasPrefix(path, "/api/auth/onboarding"):
+	case path == "/api/status":
+		return true
+	case path == "/api/auth/onboarding" || strings.HasPrefix(path, "/api/auth/onboarding/"):
 		return true
 	case strings.HasSuffix(path, "/info") && strings.HasPrefix(path, "/api/auth/invites/"):
 		return true

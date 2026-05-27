@@ -182,9 +182,12 @@ func (s *Server) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	membership, err := s.authSvc.CreateWorkspace(r.Context(), info.UserID, orgName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.log.Warn("onboarding: create workspace failed", "user_id", info.UserID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create workspace")
 		return
 	}
+
+	clearInviteCookie(w)
 
 	if err := s.authSvc.InitOrg(r.Context(), membership.OrganizationID); err != nil {
 		s.log.Warn("onboarding: org runtime init failed", "org_id", membership.OrganizationID, "error", err)
@@ -215,8 +218,19 @@ func (s *Server) RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.authSvc.RedeemInvite(r.Context(), req.Token, info.UserID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	var redeemErr error
+	switch {
+	case req.Token != nil && *req.Token != "":
+		redeemErr = s.authSvc.RedeemInvite(r.Context(), *req.Token, info.UserID)
+	case req.InviteId != nil && *req.InviteId != "":
+		redeemErr = s.authSvc.RedeemInviteByID(r.Context(), *req.InviteId, info.UserID)
+	default:
+		writeError(w, http.StatusBadRequest, "token or invite_id is required")
+		return
+	}
+	if redeemErr != nil {
+		s.log.Warn("onboarding: redeem invite failed", "user_id", info.UserID, "error", redeemErr)
+		writeError(w, http.StatusBadRequest, "failed to redeem invite")
 		return
 	}
 

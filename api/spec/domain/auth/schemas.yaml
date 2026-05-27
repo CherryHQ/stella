@@ -113,7 +113,7 @@ components:
     CreateWorkspaceInput:
       type: object
       properties:
-        name: { type: string }
+        name: { type: string, maxLength: 100 }
 
     WorkspaceCreated:
       type: object
@@ -124,6 +124,6 @@ components:
 
     RedeemInviteInput:
       type: object
-      required: [token]
       properties:
         token: { type: string }
+        invite_id: { type: string }

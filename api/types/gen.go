@@ -1282,7 +1282,8 @@ type PublicChannelList struct {
 
 // RedeemInviteInput defines model for RedeemInviteInput.
 type RedeemInviteInput struct {
-	Token string `json:"token"`
+	InviteId *string `json:"invite_id,omitempty"`
+	Token    *string `json:"token,omitempty"`
 }
 
 // RegisterRequest defines model for RegisterRequest.

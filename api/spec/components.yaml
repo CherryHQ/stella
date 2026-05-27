@@ -365,6 +365,7 @@ components:
       properties:
         name:
           type: string
+          maxLength: 100
     WorkspaceCreated:
       type: object
       required: [org_id, org_name]
@@ -375,9 +376,10 @@ components:
           type: string
     RedeemInviteInput:
       type: object
-      required: [token]
       properties:
         token:
+          type: string
+        invite_id:
           type: string
     BuiltinResource:
       type: object

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -247,8 +248,12 @@ func (s *AuthService) CreateWorkspace(ctx context.Context, userID, orgName strin
 		return Membership{}, fmt.Errorf("auth: check membership: %w", err)
 	}
 
+	orgName = strings.TrimSpace(orgName)
 	if orgName == "" {
 		orgName = DefaultOrgName
+	}
+	if len(orgName) > 100 {
+		return Membership{}, errors.New("auth: org name too long (max 100 characters)")
 	}
 	org, err := s.organizations.CreateOrganization(ctx, Organization{
 		ID:         uuid.NewString(),
@@ -387,8 +392,29 @@ func (s *AuthService) RedeemInvite(ctx context.Context, rawToken string, userID 
 	if err != nil {
 		return err
 	}
+	return s.redeemInvite(ctx, inv, userID)
+}
 
-	// Email restriction check.
+// RedeemInviteByID accepts an invite by its database ID. Used when redeeming
+// pending invites listed by email (where the raw token is unavailable).
+func (s *AuthService) RedeemInviteByID(ctx context.Context, inviteID string, userID string) error {
+	inv, err := s.invites.GetInvite(ctx, inviteID)
+	if err != nil {
+		return fmt.Errorf("auth: invite not found: %w", err)
+	}
+	if inv.Status != InviteStatusPending {
+		return fmt.Errorf("auth: invite is %s", inv.Status)
+	}
+	if time.Now().After(inv.ExpiresAt) {
+		return errors.New("auth: invite expired")
+	}
+	if inv.UseCount >= inv.MaxUses {
+		return errors.New("auth: invite fully consumed")
+	}
+	return s.redeemInvite(ctx, inv, userID)
+}
+
+func (s *AuthService) redeemInvite(ctx context.Context, inv Invite, userID string) error {
 	if inv.Email != "" {
 		user, err := s.users.GetUser(ctx, userID)
 		if err != nil {
@@ -399,7 +425,6 @@ func (s *AuthService) RedeemInvite(ctx context.Context, rawToken string, userID 
 		}
 	}
 
-	// One-user-one-org: reject invite if user already belongs to a different org.
 	existing, err := s.memberships.GetUserMembership(ctx, userID)
 	switch {
 	case err == nil:
