@@ -39,7 +39,10 @@ export function SiteHeader() {
     { label: t("nav.settings"), href: "/settings" },
   ];
 
-  const utilNavItems = [{ label: t("nav.docs"), href: "/docs" }];
+  const utilNavItems = [
+    { label: t("nav.docs"), href: "/docs" },
+    { label: t("nav.apiReferences"), href: "/api-references", external: true },
+  ];
 
   return (
     <header className="border-b border-border h-14 flex items-center px-6 bg-background shrink-0 relative z-30">
@@ -68,14 +71,26 @@ export function SiteHeader() {
         {!me && (
           <>
             <nav className="hidden sm:flex items-center h-full">
-              {utilNavItems.map((item) => (
-                <HeaderNavLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  pathname={pathname}
-                />
-              ))}
+              {utilNavItems.map((item) =>
+                item.external ? (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="relative px-3 h-full flex items-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {item.label}
+                  </a>
+                ) : (
+                  <HeaderNavLink
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    pathname={pathname}
+                  />
+                ),
+              )}
             </nav>
             <GithubLink />
             <LocaleSelector />
@@ -123,15 +138,28 @@ export function SiteHeader() {
                   />
                 ))}
               {me && <Separator className="my-2" />}
-              {utilNavItems.map((item) => (
-                <MobileNavLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  pathname={pathname}
-                  onNavigate={() => setSheetOpen(false)}
-                />
-              ))}
+              {utilNavItems.map((item) =>
+                item.external ? (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                    onClick={() => setSheetOpen(false)}
+                  >
+                    {item.label}
+                  </a>
+                ) : (
+                  <MobileNavLink
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    pathname={pathname}
+                    onNavigate={() => setSheetOpen(false)}
+                  />
+                ),
+              )}
             </nav>
           </SheetPopup>
         </Sheet>
@@ -342,6 +370,12 @@ export function UserMenu() {
           <DropdownMenuItem render={<Link to={"/docs" as never} />}>
             <FileText className="size-4" />
             {t("nav.docs")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            render={<a href="/api-references" target="_blank" rel="noopener noreferrer" />}
+          >
+            <FileText className="size-4" />
+            {t("nav.apiReferences")}
           </DropdownMenuItem>
           <DropdownMenuItem
             render={

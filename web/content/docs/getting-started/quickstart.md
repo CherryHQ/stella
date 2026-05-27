@@ -78,3 +78,4 @@ You have two options:
 - [Connect Telegram](/docs/channels/telegram), [QQ](/docs/channels/qq), [Feishu](/docs/channels/feishu), or [WeChat](/docs/channels/weixin) so you can chat from anywhere
 - [Set up reminders and scheduled tasks](/docs/guides/scheduling) to let Stella work on its own
 - [Browse and install skills](/docs/guides/skills) to extend what Stella can do
+- [Explore the API References](/api-references) for the full REST API documentation
