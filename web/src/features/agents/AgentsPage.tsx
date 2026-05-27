@@ -4,13 +4,13 @@ import {
   assignAgentUser,
   createAgent,
   deleteAgent,
-  deleteAgentScopedSkill,
-  deleteAgentScopedSkillFile,
-  getAgentScopedSkill,
-  getAgentScopedSkillFile,
+  deleteAgentSkill,
+  deleteAgentSkillFile,
+  getAgentSkill,
+  getAgentSkillFile,
   getBuiltinResource,
   getMe,
-  installAgentScopedSkill,
+  installAgentSkill,
   listAgents,
   listAgentSkills,
   listAgentUsers,
@@ -23,16 +23,16 @@ import {
   setProfileMemory,
   setProfileSoul,
   updateAgent,
-  updateAgentScopedSkill,
+  updateAgentSkill,
   updateChannel,
-  uploadAgentScopedSkill,
+  uploadAgentSkill,
 } from "@/lib/api-client/sdk.gen";
 import type {
   CreateAgentData,
   ComponentsCachedModel,
-  InstallAgentScopedSkillData,
+  InstallAgentSkillData,
   UpdateAgentData,
-  UpdateAgentScopedSkillData,
+  UpdateAgentSkillData,
 } from "@/lib/api-client/types.gen";
 import type {
   AgentDetail,
@@ -51,8 +51,6 @@ import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import { SettingsListHeader } from "@/features/settings/SettingsListPanel";
-
-type SkillScope = "system" | "agent" | "user" | "project";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -708,8 +706,8 @@ export function AgentsPage() {
       }
       setState((prev) => ({ ...prev, selectedSkillFileLoading: true }));
       try {
-        const { data: res } = await getAgentScopedSkillFile({
-          path: { id: editingId ?? "", scope: skill.scope as SkillScope, skillId: skill.id },
+        const { data: res } = await getAgentSkillFile({
+          path: { id: editingId ?? "", skillId: skill.name },
           query: { path },
           throwOnError: true,
         });
@@ -747,8 +745,8 @@ export function AgentsPage() {
         selectedSkillNewFileName: "",
       }));
       try {
-        const { data: raw } = await getAgentScopedSkill({
-          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
+        const { data: raw } = await getAgentSkill({
+          path: { id: currentState.editingId ?? "", skillId: sk.name },
           throwOnError: true,
         });
         const unwrapped = raw as Skill;
@@ -777,8 +775,8 @@ export function AgentsPage() {
       if (sk.scope === "system") return;
       const next = sk.status === "active" ? "draft" : "active";
       try {
-        await updateAgentScopedSkill({
-          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
+        await updateAgentSkill({
+          path: { id: currentState.editingId ?? "", skillId: sk.name },
           body: { status: next },
           throwOnError: true,
         });
@@ -808,18 +806,17 @@ export function AgentsPage() {
       if (!selectedSkill || selectedSkill.scope === "system") return;
       setState((prev) => ({ ...prev, selectedSkillSaving: true }));
       try {
-        await updateAgentScopedSkill({
+        await updateAgentSkill({
           path: {
             id: currentState.editingId ?? "",
-            scope: selectedSkill.scope as SkillScope,
-            skillId: selectedSkill.id,
+            skillId: selectedSkill.name,
           },
           body: {
             description: selectedSkill.description,
             status: selectedSkill.status,
             disable_model_invocation: !!selectedSkill.disable_model_invocation,
             files: { [selectedSkillActiveFile]: selectedSkillFileContent },
-          } as UpdateAgentScopedSkillData["body"],
+          } as UpdateAgentSkillData["body"],
           throwOnError: true,
         });
         setState((prev) => ({
@@ -830,11 +827,10 @@ export function AgentsPage() {
             [selectedSkillActiveFile]: selectedSkillFileContent,
           },
         }));
-        const { data: raw2 } = await getAgentScopedSkill({
+        const { data: raw2 } = await getAgentSkill({
           path: {
             id: currentState.editingId ?? "",
-            scope: selectedSkill.scope as SkillScope,
-            skillId: selectedSkill.id,
+            skillId: selectedSkill.name,
           },
           throwOnError: true,
         });
@@ -858,8 +854,8 @@ export function AgentsPage() {
       if (sk.scope === "system") return;
       if (!confirm(`Delete skill "${sk.name}"? This cannot be undone.`)) return;
       try {
-        await deleteAgentScopedSkill({
-          path: { id: currentState.editingId ?? "", scope: sk.scope as SkillScope, skillId: sk.id },
+        await deleteAgentSkill({
+          path: { id: currentState.editingId ?? "", skillId: sk.name },
           throwOnError: true,
         });
         setState((prev) => {
@@ -892,9 +888,9 @@ export function AgentsPage() {
           ({ ...prev, skillInstalling: true }) as AgentsPageState & { skillInstalling: boolean },
       );
       try {
-        const { data: res } = await installAgentScopedSkill({
-          path: { id: currentState.editingId, scope },
-          body: { source } as InstallAgentScopedSkillData["body"],
+        const { data: res } = await installAgentSkill({
+          path: { id: currentState.editingId },
+          body: { source, scope } as InstallAgentSkillData["body"],
           throwOnError: true,
         });
         showToast("Installed: " + (res?.name ?? "skill"));
@@ -928,9 +924,9 @@ export function AgentsPage() {
       }
       if (!currentState.editingId) return;
       try {
-        const { data: res } = await uploadAgentScopedSkill({
-          path: { id: currentState.editingId, scope },
-          body: { file },
+        const { data: res } = await uploadAgentSkill({
+          path: { id: currentState.editingId },
+          body: { file, scope },
           throwOnError: true,
         });
         showToast("Uploaded: " + (res?.name ?? "skill"));
@@ -956,11 +952,10 @@ export function AgentsPage() {
       if (!selectedSkill || selectedSkill.scope === "system") return;
       if (!confirm(`Delete file "${selectedSkillActiveFile}"?`)) return;
       try {
-        await deleteAgentScopedSkillFile({
+        await deleteAgentSkillFile({
           path: {
             id: editingId ?? "",
-            scope: selectedSkill.scope as SkillScope,
-            skillId: selectedSkill.id,
+            skillId: selectedSkill.name,
           },
           query: { path: selectedSkillActiveFile },
           throwOnError: true,

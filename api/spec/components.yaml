@@ -168,6 +168,7 @@ components:
           type: string
         scope:
           type: string
+          enum: [project, user, agent, system]
         user_id:
           type: string
         agent_id:
@@ -196,12 +197,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Skill"
-    InstallSkillRequest:
+    CreateSkillRequest:
       type: object
-      required: [source]
+      required: [name, scope]
       properties:
-        source:
+        name:
           type: string
+        scope:
+          type: string
+          enum: [user, agent]
+        description:
+          type: string
+        status:
+          type: string
+        disable_model_invocation:
+          type: boolean
+        files:
+          type: object
+          additionalProperties:
+            type: string
     UpdateSkillRequest:
       type: object
       properties:
@@ -218,19 +232,21 @@ components:
           type: object
           additionalProperties:
             type: string
-    SkillUploadResult:
+    InstallSkillRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+        scope:
+          type: string
+          enum: [user, agent]
+    SkillFileResponse:
       type: object
       properties:
-        id:
+        path:
           type: string
-        name:
-          type: string
-    DuplicateSkillResult:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
+        content:
           type: string
     LoginRequest:
       type: object
@@ -1734,45 +1750,6 @@ components:
           type: string
           enum: [1h, 1d, 7d, never]
           default: 7d
-    CreateSkillRequest:
-      type: object
-      properties:
-        scope:
-          type: string
-        user_id:
-          type: string
-        agent_id:
-          type: string
-        name:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-        disable_model_invocation:
-          type: boolean
-        files:
-          type: object
-          additionalProperties:
-            type: string
-    GlobalInstallSkillRequest:
-      type: object
-      required: [source]
-      properties:
-        source:
-          type: string
-        scope:
-          type: string
-        user_id:
-          type: string
-        agent_id:
-          type: string
-    ProfileInstallSkillRequest:
-      type: object
-      required: [source]
-      properties:
-        source:
-          type: string
     SkillSearchResult:
       type: object
       properties:
@@ -1794,18 +1771,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SkillSearchResult"
-    SkillFileResponse:
-      type: object
-      properties:
-        path:
-          type: string
-        content:
-          type: string
-    DeleteFileResult:
-      type: object
-      properties:
-        path:
-          type: string
     StatusRuntime:
       type: object
       required: [goVersion, os, arch, goroutines, memory]

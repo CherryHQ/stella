@@ -118,23 +118,13 @@ export type InstallSkillRequest = ComponentsInstallSkillRequest;
 
 export type UpdateSkillRequest = ComponentsUpdateSkillRequest;
 
-export type SkillUploadResult = ComponentsSkillUploadResult;
-
-export type DuplicateSkillResult = ComponentsDuplicateSkillResult;
-
 export type CreateSkillRequest = ComponentsCreateSkillRequest;
-
-export type GlobalInstallSkillRequest = ComponentsGlobalInstallSkillRequest;
-
-export type ProfileInstallSkillRequest = ComponentsProfileInstallSkillRequest;
 
 export type SkillSearchResult = ComponentsSkillSearchResult;
 
 export type SkillSearchResultList = ComponentsSkillSearchResultList;
 
 export type SkillFileResponse = ComponentsSkillFileResponse;
-
-export type DeleteFileResult = ComponentsDeleteFileResult;
 
 export type Identity = ComponentsIdentity;
 
@@ -568,10 +558,8 @@ export type CreateShareRequest = {
 };
 
 export type ComponentsCreateSkillRequest = {
-  scope?: string;
-  user_id?: string;
-  agent_id?: string;
-  name?: string;
+  name: string;
+  scope: "user" | "agent";
   description?: string;
   status?: string;
   disable_model_invocation?: boolean;
@@ -582,10 +570,6 @@ export type ComponentsCreateSkillRequest = {
 
 export type ComponentsCreateWorkspaceInput = {
   name?: string;
-};
-
-export type ComponentsDeleteFileResult = {
-  path?: string;
 };
 
 export type ComponentsDeleteResult = {
@@ -604,11 +588,6 @@ export type ComponentsDigest = {
   worth_revisiting_count: number;
   top_tags: Array<ComponentsTagCount>;
   total_articles: number;
-};
-
-export type ComponentsDuplicateSkillResult = {
-  id?: string;
-  name?: string;
 };
 
 export type ComponentsError = {
@@ -676,13 +655,6 @@ export type ComponentsGenerateLinkCodeRequest = {
   platform: string;
 };
 
-export type ComponentsGlobalInstallSkillRequest = {
-  source: string;
-  scope?: string;
-  user_id?: string;
-  agent_id?: string;
-};
-
 export type ComponentsIdentity = {
   id: string;
   user_id: string;
@@ -694,6 +666,7 @@ export type ComponentsIdentity = {
 
 export type ComponentsInstallSkillRequest = {
   source: string;
+  scope?: "user" | "agent";
 };
 
 export type Invite = {
@@ -974,10 +947,6 @@ export type ComponentsPluginView = {
   persisted_id?: string;
 };
 
-export type ComponentsProfileInstallSkillRequest = {
-  source: string;
-};
-
 export type Project = {
   id: string;
   agent_id: string;
@@ -1165,7 +1134,7 @@ export type Share = {
 
 export type ComponentsSkill = {
   id?: string;
-  scope?: string;
+  scope?: "project" | "user" | "agent" | "system";
   user_id?: string;
   agent_id?: string;
   name?: string;
@@ -1196,11 +1165,6 @@ export type ComponentsSkillSearchResult = {
 
 export type ComponentsSkillSearchResultList = {
   items: Array<ComponentsSkillSearchResult>;
-};
-
-export type ComponentsSkillUploadResult = {
-  id?: string;
-  name?: string;
 };
 
 export type ComponentsSourceType =
@@ -1497,15 +1461,13 @@ export type _1Api1Agents1Id = unknown;
 
 export type _1Api1Agents1Id1Skills = unknown;
 
-export type _1Api1Agents1Id1Skills1Scope = unknown;
+export type _1Api1Agents1Id1SkillsInstall = unknown;
 
-export type _1Api1Agents1Id1Skills1Scope1Install = unknown;
+export type _1Api1Agents1Id1SkillsUpload = unknown;
 
-export type _1Api1Agents1Id1Skills1Scope1Upload = unknown;
+export type _1Api1Agents1Id1Skills1SkillId = unknown;
 
-export type _1Api1Agents1Id1Skills1Scope1SkillId = unknown;
-
-export type _1Api1Agents1Id1Skills1Scope1SkillId1File = unknown;
+export type _1Api1Agents1Id1Skills1SkillId1File = unknown;
 
 export type _1Api1Agents1Id1Users = unknown;
 
@@ -2488,6 +2450,7 @@ export type ListAgentSkillsData = {
     id: string;
   };
   query?: {
+    scope?: "project" | "user" | "agent" | "system";
     session_id?: string;
   };
   url: "/api/agents/{id}/skills";
@@ -2521,17 +2484,16 @@ export type ListAgentSkillsResponses = {
 export type ListAgentSkillsResponse =
   ListAgentSkillsResponses[keyof ListAgentSkillsResponses];
 
-export type CreateAgentScopedSkillData = {
+export type CreateAgentSkillData = {
   body: ComponentsCreateSkillRequest;
   path: {
     id: string;
-    scope: "agent" | "user";
   };
   query?: never;
-  url: "/api/agents/{id}/skills/{scope}";
+  url: "/api/agents/{id}/skills";
 };
 
-export type CreateAgentScopedSkillErrors = {
+export type CreateAgentSkillErrors = {
   /**
    * malformed request
    */
@@ -2550,38 +2512,31 @@ export type CreateAgentScopedSkillErrors = {
   403: {
     error: string;
   };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
 };
 
-export type CreateAgentScopedSkillError =
-  CreateAgentScopedSkillErrors[keyof CreateAgentScopedSkillErrors];
+export type CreateAgentSkillError =
+  CreateAgentSkillErrors[keyof CreateAgentSkillErrors];
 
-export type CreateAgentScopedSkillResponses = {
+export type CreateAgentSkillResponses = {
   /**
    * created
    */
-  201: ComponentsSkillUploadResult;
+  201: ComponentsSkill;
 };
 
-export type CreateAgentScopedSkillResponse =
-  CreateAgentScopedSkillResponses[keyof CreateAgentScopedSkillResponses];
+export type CreateAgentSkillResponse =
+  CreateAgentSkillResponses[keyof CreateAgentSkillResponses];
 
-export type InstallAgentScopedSkillData = {
+export type InstallAgentSkillData = {
   body: ComponentsInstallSkillRequest;
   path: {
     id: string;
-    scope: "agent" | "user";
   };
   query?: never;
-  url: "/api/agents/{id}/skills/{scope}/install";
+  url: "/api/agents/{id}/skills:install";
 };
 
-export type InstallAgentScopedSkillErrors = {
+export type InstallAgentSkillErrors = {
   /**
    * malformed request
    */
@@ -2600,40 +2555,34 @@ export type InstallAgentScopedSkillErrors = {
   403: {
     error: string;
   };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
 };
 
-export type InstallAgentScopedSkillError =
-  InstallAgentScopedSkillErrors[keyof InstallAgentScopedSkillErrors];
+export type InstallAgentSkillError =
+  InstallAgentSkillErrors[keyof InstallAgentSkillErrors];
 
-export type InstallAgentScopedSkillResponses = {
+export type InstallAgentSkillResponses = {
   /**
    * installed
    */
-  201: ComponentsSkillUploadResult;
+  201: ComponentsSkill;
 };
 
-export type InstallAgentScopedSkillResponse =
-  InstallAgentScopedSkillResponses[keyof InstallAgentScopedSkillResponses];
+export type InstallAgentSkillResponse =
+  InstallAgentSkillResponses[keyof InstallAgentSkillResponses];
 
-export type UploadAgentScopedSkillData = {
+export type UploadAgentSkillData = {
   body: {
     file?: Blob | File;
+    scope?: "user" | "agent";
   };
   path: {
     id: string;
-    scope: "agent" | "user";
   };
   query?: never;
-  url: "/api/agents/{id}/skills/{scope}/upload";
+  url: "/api/agents/{id}/skills:upload";
 };
 
-export type UploadAgentScopedSkillErrors = {
+export type UploadAgentSkillErrors = {
   /**
    * malformed request
    */
@@ -2652,41 +2601,34 @@ export type UploadAgentScopedSkillErrors = {
   403: {
     error: string;
   };
-  /**
-   * resource not found
-   */
-  404: {
-    error: string;
-  };
 };
 
-export type UploadAgentScopedSkillError =
-  UploadAgentScopedSkillErrors[keyof UploadAgentScopedSkillErrors];
+export type UploadAgentSkillError =
+  UploadAgentSkillErrors[keyof UploadAgentSkillErrors];
 
-export type UploadAgentScopedSkillResponses = {
+export type UploadAgentSkillResponses = {
   /**
    * uploaded
    */
-  201: ComponentsSkillUploadResult;
+  201: ComponentsSkill;
 };
 
-export type UploadAgentScopedSkillResponse =
-  UploadAgentScopedSkillResponses[keyof UploadAgentScopedSkillResponses];
+export type UploadAgentSkillResponse =
+  UploadAgentSkillResponses[keyof UploadAgentSkillResponses];
 
-export type DeleteAgentScopedSkillData = {
+export type DeleteAgentSkillData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query?: {
     session_id?: string;
   };
-  url: "/api/agents/{id}/skills/{scope}/{skillId}";
+  url: "/api/agents/{id}/skills/{skillId}";
 };
 
-export type DeleteAgentScopedSkillErrors = {
+export type DeleteAgentSkillErrors = {
   /**
    * missing or invalid bearer token
    */
@@ -2707,33 +2649,32 @@ export type DeleteAgentScopedSkillErrors = {
   };
 };
 
-export type DeleteAgentScopedSkillError =
-  DeleteAgentScopedSkillErrors[keyof DeleteAgentScopedSkillErrors];
+export type DeleteAgentSkillError =
+  DeleteAgentSkillErrors[keyof DeleteAgentSkillErrors];
 
-export type DeleteAgentScopedSkillResponses = {
+export type DeleteAgentSkillResponses = {
   /**
    * deleted
    */
   204: void;
 };
 
-export type DeleteAgentScopedSkillResponse =
-  DeleteAgentScopedSkillResponses[keyof DeleteAgentScopedSkillResponses];
+export type DeleteAgentSkillResponse =
+  DeleteAgentSkillResponses[keyof DeleteAgentSkillResponses];
 
-export type GetAgentScopedSkillData = {
+export type GetAgentSkillData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query?: {
     session_id?: string;
   };
-  url: "/api/agents/{id}/skills/{scope}/{skillId}";
+  url: "/api/agents/{id}/skills/{skillId}";
 };
 
-export type GetAgentScopedSkillErrors = {
+export type GetAgentSkillErrors = {
   /**
    * missing or invalid bearer token
    */
@@ -2754,33 +2695,31 @@ export type GetAgentScopedSkillErrors = {
   };
 };
 
-export type GetAgentScopedSkillError =
-  GetAgentScopedSkillErrors[keyof GetAgentScopedSkillErrors];
+export type GetAgentSkillError = GetAgentSkillErrors[keyof GetAgentSkillErrors];
 
-export type GetAgentScopedSkillResponses = {
+export type GetAgentSkillResponses = {
   /**
    * ok
    */
   200: ComponentsSkill;
 };
 
-export type GetAgentScopedSkillResponse =
-  GetAgentScopedSkillResponses[keyof GetAgentScopedSkillResponses];
+export type GetAgentSkillResponse =
+  GetAgentSkillResponses[keyof GetAgentSkillResponses];
 
-export type UpdateAgentScopedSkillData = {
+export type UpdateAgentSkillData = {
   body: ComponentsUpdateSkillRequest;
   path: {
     id: string;
-    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query?: {
     session_id?: string;
   };
-  url: "/api/agents/{id}/skills/{scope}/{skillId}";
+  url: "/api/agents/{id}/skills/{skillId}";
 };
 
-export type UpdateAgentScopedSkillErrors = {
+export type UpdateAgentSkillErrors = {
   /**
    * malformed request
    */
@@ -2807,34 +2746,33 @@ export type UpdateAgentScopedSkillErrors = {
   };
 };
 
-export type UpdateAgentScopedSkillError =
-  UpdateAgentScopedSkillErrors[keyof UpdateAgentScopedSkillErrors];
+export type UpdateAgentSkillError =
+  UpdateAgentSkillErrors[keyof UpdateAgentSkillErrors];
 
-export type UpdateAgentScopedSkillResponses = {
+export type UpdateAgentSkillResponses = {
   /**
    * ok
    */
   200: ComponentsSkill;
 };
 
-export type UpdateAgentScopedSkillResponse =
-  UpdateAgentScopedSkillResponses[keyof UpdateAgentScopedSkillResponses];
+export type UpdateAgentSkillResponse =
+  UpdateAgentSkillResponses[keyof UpdateAgentSkillResponses];
 
-export type DeleteAgentScopedSkillFileData = {
+export type DeleteAgentSkillFileData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query: {
     path: string;
     session_id?: string;
   };
-  url: "/api/agents/{id}/skills/{scope}/{skillId}/file";
+  url: "/api/agents/{id}/skills/{skillId}/file";
 };
 
-export type DeleteAgentScopedSkillFileErrors = {
+export type DeleteAgentSkillFileErrors = {
   /**
    * missing or invalid bearer token
    */
@@ -2855,34 +2793,33 @@ export type DeleteAgentScopedSkillFileErrors = {
   };
 };
 
-export type DeleteAgentScopedSkillFileError =
-  DeleteAgentScopedSkillFileErrors[keyof DeleteAgentScopedSkillFileErrors];
+export type DeleteAgentSkillFileError =
+  DeleteAgentSkillFileErrors[keyof DeleteAgentSkillFileErrors];
 
-export type DeleteAgentScopedSkillFileResponses = {
+export type DeleteAgentSkillFileResponses = {
   /**
    * deleted
    */
   204: void;
 };
 
-export type DeleteAgentScopedSkillFileResponse =
-  DeleteAgentScopedSkillFileResponses[keyof DeleteAgentScopedSkillFileResponses];
+export type DeleteAgentSkillFileResponse =
+  DeleteAgentSkillFileResponses[keyof DeleteAgentSkillFileResponses];
 
-export type GetAgentScopedSkillFileData = {
+export type GetAgentSkillFileData = {
   body?: never;
   path: {
     id: string;
-    scope: "system" | "agent" | "user" | "project";
     skillId: string;
   };
   query: {
     path: string;
     session_id?: string;
   };
-  url: "/api/agents/{id}/skills/{scope}/{skillId}/file";
+  url: "/api/agents/{id}/skills/{skillId}/file";
 };
 
-export type GetAgentScopedSkillFileErrors = {
+export type GetAgentSkillFileErrors = {
   /**
    * malformed request
    */
@@ -2909,18 +2846,18 @@ export type GetAgentScopedSkillFileErrors = {
   };
 };
 
-export type GetAgentScopedSkillFileError =
-  GetAgentScopedSkillFileErrors[keyof GetAgentScopedSkillFileErrors];
+export type GetAgentSkillFileError =
+  GetAgentSkillFileErrors[keyof GetAgentSkillFileErrors];
 
-export type GetAgentScopedSkillFileResponses = {
+export type GetAgentSkillFileResponses = {
   /**
    * ok
    */
   200: ComponentsSkillFileResponse;
 };
 
-export type GetAgentScopedSkillFileResponse =
-  GetAgentScopedSkillFileResponses[keyof GetAgentScopedSkillFileResponses];
+export type GetAgentSkillFileResponse =
+  GetAgentSkillFileResponses[keyof GetAgentSkillFileResponses];
 
 export type ListProjectsData = {
   body?: never;

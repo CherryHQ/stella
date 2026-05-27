@@ -5,35 +5,6 @@ info:
 paths: {}
 components:
   schemas:
-    CreateSkillRequest:
-      type: object
-      properties:
-        scope: { type: string }
-        user_id: { type: string }
-        agent_id: { type: string }
-        name: { type: string }
-        description: { type: string }
-        status: { type: string }
-        disable_model_invocation: { type: boolean }
-        files:
-          type: object
-          additionalProperties: { type: string }
-
-    GlobalInstallSkillRequest:
-      type: object
-      required: [source]
-      properties:
-        source: { type: string }
-        scope: { type: string }
-        user_id: { type: string }
-        agent_id: { type: string }
-
-    ProfileInstallSkillRequest:
-      type: object
-      required: [source]
-      properties:
-        source: { type: string }
-
     SkillSearchResult:
       type: object
       properties:
@@ -51,14 +22,3 @@ components:
           type: array,
           items: { $ref: "#/components/schemas/SkillSearchResult" },
         }
-
-    SkillFileResponse:
-      type: object
-      properties:
-        path: { type: string }
-        content: { type: string }
-
-    DeleteFileResult:
-      type: object
-      properties:
-        path: { type: string }

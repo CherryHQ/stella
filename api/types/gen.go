@@ -195,16 +195,16 @@ func (e ArticleStatus) Valid() bool {
 
 // Defines values for CreateInviteRequestRole.
 const (
-	Admin CreateInviteRequestRole = "admin"
-	User  CreateInviteRequestRole = "user"
+	CreateInviteRequestRoleAdmin CreateInviteRequestRole = "admin"
+	CreateInviteRequestRoleUser  CreateInviteRequestRole = "user"
 )
 
 // Valid indicates whether the value is a known member of the CreateInviteRequestRole enum.
 func (e CreateInviteRequestRole) Valid() bool {
 	switch e {
-	case Admin:
+	case CreateInviteRequestRoleAdmin:
 		return true
-	case User:
+	case CreateInviteRequestRoleUser:
 		return true
 	default:
 		return false
@@ -277,6 +277,24 @@ func (e CreateShareRequestSource) Valid() bool {
 	}
 }
 
+// Defines values for CreateSkillRequestScope.
+const (
+	CreateSkillRequestScopeAgent CreateSkillRequestScope = "agent"
+	CreateSkillRequestScopeUser  CreateSkillRequestScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the CreateSkillRequestScope enum.
+func (e CreateSkillRequestScope) Valid() bool {
+	switch e {
+	case CreateSkillRequestScopeAgent:
+		return true
+	case CreateSkillRequestScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FeedEntryStatus.
 const (
 	FeedEntryStatusError   FeedEntryStatus = "error"
@@ -295,6 +313,24 @@ func (e FeedEntryStatus) Valid() bool {
 	case FeedEntryStatusSaved:
 		return true
 	case FeedEntryStatusSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InstallSkillRequestScope.
+const (
+	InstallSkillRequestScopeAgent InstallSkillRequestScope = "agent"
+	InstallSkillRequestScopeUser  InstallSkillRequestScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the InstallSkillRequestScope enum.
+func (e InstallSkillRequestScope) Valid() bool {
+	switch e {
+	case InstallSkillRequestScopeAgent:
+		return true
+	case InstallSkillRequestScopeUser:
 		return true
 	default:
 		return false
@@ -385,6 +421,30 @@ func (e SessionDetailKind) Valid() bool {
 	case Scheduler:
 		return true
 	case Task:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SkillScope.
+const (
+	SkillScopeAgent   SkillScope = "agent"
+	SkillScopeProject SkillScope = "project"
+	SkillScopeSystem  SkillScope = "system"
+	SkillScopeUser    SkillScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the SkillScope enum.
+func (e SkillScope) Valid() bool {
+	switch e {
+	case SkillScopeAgent:
+		return true
+	case SkillScopeProject:
+		return true
+	case SkillScopeSystem:
+		return true
+	case SkillScopeUser:
 		return true
 	default:
 		return false
@@ -777,24 +837,20 @@ type CreateShareRequestSource string
 
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest struct {
-	AgentId                *string            `json:"agent_id,omitempty"`
-	Description            *string            `json:"description,omitempty"`
-	DisableModelInvocation *bool              `json:"disable_model_invocation,omitempty"`
-	Files                  *map[string]string `json:"files,omitempty"`
-	Name                   *string            `json:"name,omitempty"`
-	Scope                  *string            `json:"scope,omitempty"`
-	Status                 *string            `json:"status,omitempty"`
-	UserId                 *string            `json:"user_id,omitempty"`
+	Description            *string                 `json:"description,omitempty"`
+	DisableModelInvocation *bool                   `json:"disable_model_invocation,omitempty"`
+	Files                  *map[string]string      `json:"files,omitempty"`
+	Name                   string                  `json:"name"`
+	Scope                  CreateSkillRequestScope `json:"scope"`
+	Status                 *string                 `json:"status,omitempty"`
 }
+
+// CreateSkillRequestScope defines model for CreateSkillRequest.Scope.
+type CreateSkillRequestScope string
 
 // CreateWorkspaceInput defines model for CreateWorkspaceInput.
 type CreateWorkspaceInput struct {
 	Name *string `json:"name,omitempty"`
-}
-
-// DeleteFileResult defines model for DeleteFileResult.
-type DeleteFileResult struct {
-	Path *string `json:"path,omitempty"`
 }
 
 // DeleteResult defines model for DeleteResult.
@@ -815,12 +871,6 @@ type Digest struct {
 	UnreadCount          int64      `json:"unread_count"`
 	WorthRevisiting      []Article  `json:"worth_revisiting"`
 	WorthRevisitingCount int        `json:"worth_revisiting_count"`
-}
-
-// DuplicateSkillResult defines model for DuplicateSkillResult.
-type DuplicateSkillResult struct {
-	Id   *string `json:"id,omitempty"`
-	Name *string `json:"name,omitempty"`
 }
 
 // Error defines model for Error.
@@ -891,14 +941,6 @@ type GenerateLinkCodeRequest struct {
 	Platform string `json:"platform"`
 }
 
-// GlobalInstallSkillRequest defines model for GlobalInstallSkillRequest.
-type GlobalInstallSkillRequest struct {
-	AgentId *string `json:"agent_id,omitempty"`
-	Scope   *string `json:"scope,omitempty"`
-	Source  string  `json:"source"`
-	UserId  *string `json:"user_id,omitempty"`
-}
-
 // Identity defines model for Identity.
 type Identity struct {
 	ExternalId string    `json:"external_id"`
@@ -911,8 +953,12 @@ type Identity struct {
 
 // InstallSkillRequest defines model for InstallSkillRequest.
 type InstallSkillRequest struct {
-	Source string `json:"source"`
+	Scope  *InstallSkillRequestScope `json:"scope,omitempty"`
+	Source string                    `json:"source"`
 }
+
+// InstallSkillRequestScope defines model for InstallSkillRequest.Scope.
+type InstallSkillRequestScope string
 
 // Invite defines model for Invite.
 type Invite struct {
@@ -1199,11 +1245,6 @@ type PluginView struct {
 	PersistedId  *string                 `json:"persisted_id,omitempty"`
 }
 
-// ProfileInstallSkillRequest defines model for ProfileInstallSkillRequest.
-type ProfileInstallSkillRequest struct {
-	Source string `json:"source"`
-}
-
 // Project defines model for Project.
 type Project struct {
 	AgentId     string  `json:"agent_id"`
@@ -1414,18 +1455,21 @@ type Share struct {
 
 // Skill defines model for Skill.
 type Skill struct {
-	AgentId                *string   `json:"agent_id,omitempty"`
-	CreatedAt              *string   `json:"created_at,omitempty"`
-	Description            *string   `json:"description,omitempty"`
-	DisableModelInvocation *bool     `json:"disable_model_invocation,omitempty"`
-	Files                  *[]string `json:"files,omitempty"`
-	Id                     *string   `json:"id,omitempty"`
-	Name                   *string   `json:"name,omitempty"`
-	Scope                  *string   `json:"scope,omitempty"`
-	Status                 *string   `json:"status,omitempty"`
-	UpdatedAt              *string   `json:"updated_at,omitempty"`
-	UserId                 *string   `json:"user_id,omitempty"`
+	AgentId                *string     `json:"agent_id,omitempty"`
+	CreatedAt              *string     `json:"created_at,omitempty"`
+	Description            *string     `json:"description,omitempty"`
+	DisableModelInvocation *bool       `json:"disable_model_invocation,omitempty"`
+	Files                  *[]string   `json:"files,omitempty"`
+	Id                     *string     `json:"id,omitempty"`
+	Name                   *string     `json:"name,omitempty"`
+	Scope                  *SkillScope `json:"scope,omitempty"`
+	Status                 *string     `json:"status,omitempty"`
+	UpdatedAt              *string     `json:"updated_at,omitempty"`
+	UserId                 *string     `json:"user_id,omitempty"`
 }
+
+// SkillScope defines model for Skill.Scope.
+type SkillScope string
 
 // SkillFileResponse defines model for SkillFileResponse.
 type SkillFileResponse struct {
@@ -1450,12 +1494,6 @@ type SkillSearchResult struct {
 // SkillSearchResultList defines model for SkillSearchResultList.
 type SkillSearchResultList struct {
 	Items []SkillSearchResult `json:"items"`
-}
-
-// SkillUploadResult defines model for SkillUploadResult.
-type SkillUploadResult struct {
-	Id   *string `json:"id,omitempty"`
-	Name *string `json:"name,omitempty"`
 }
 
 // SourceType defines model for SourceType.

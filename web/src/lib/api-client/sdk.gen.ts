@@ -23,9 +23,9 @@ import type {
   CreateAgentData,
   CreateAgentErrors,
   CreateAgentResponses,
-  CreateAgentScopedSkillData,
-  CreateAgentScopedSkillErrors,
-  CreateAgentScopedSkillResponses,
+  CreateAgentSkillData,
+  CreateAgentSkillErrors,
+  CreateAgentSkillResponses,
   CreateAgentTaskData,
   CreateAgentTaskErrors,
   CreateAgentTaskResponses,
@@ -62,12 +62,12 @@ import type {
   DeleteAgentData,
   DeleteAgentErrors,
   DeleteAgentResponses,
-  DeleteAgentScopedSkillData,
-  DeleteAgentScopedSkillErrors,
-  DeleteAgentScopedSkillFileData,
-  DeleteAgentScopedSkillFileErrors,
-  DeleteAgentScopedSkillFileResponses,
-  DeleteAgentScopedSkillResponses,
+  DeleteAgentSkillData,
+  DeleteAgentSkillErrors,
+  DeleteAgentSkillFileData,
+  DeleteAgentSkillFileErrors,
+  DeleteAgentSkillFileResponses,
+  DeleteAgentSkillResponses,
   DeleteAgentTaskData,
   DeleteAgentTaskErrors,
   DeleteAgentTaskResponses,
@@ -122,12 +122,12 @@ import type {
   GetAgentData,
   GetAgentErrors,
   GetAgentResponses,
-  GetAgentScopedSkillData,
-  GetAgentScopedSkillErrors,
-  GetAgentScopedSkillFileData,
-  GetAgentScopedSkillFileErrors,
-  GetAgentScopedSkillFileResponses,
-  GetAgentScopedSkillResponses,
+  GetAgentSkillData,
+  GetAgentSkillErrors,
+  GetAgentSkillFileData,
+  GetAgentSkillFileErrors,
+  GetAgentSkillFileResponses,
+  GetAgentSkillResponses,
   GetAgentTaskData,
   GetAgentTaskErrors,
   GetAgentTaskResponses,
@@ -208,9 +208,9 @@ import type {
   GetWorkspaceFileContentData,
   GetWorkspaceFileContentErrors,
   GetWorkspaceFileContentResponses,
-  InstallAgentScopedSkillData,
-  InstallAgentScopedSkillErrors,
-  InstallAgentScopedSkillResponses,
+  InstallAgentSkillData,
+  InstallAgentSkillErrors,
+  InstallAgentSkillResponses,
   LinkAuthUserLoginIdentityData,
   LinkAuthUserLoginIdentityErrors,
   LinkAuthUserLoginIdentityResponses,
@@ -402,9 +402,9 @@ import type {
   UpdateAgentData,
   UpdateAgentErrors,
   UpdateAgentResponses,
-  UpdateAgentScopedSkillData,
-  UpdateAgentScopedSkillErrors,
-  UpdateAgentScopedSkillResponses,
+  UpdateAgentSkillData,
+  UpdateAgentSkillErrors,
+  UpdateAgentSkillResponses,
   UpdateAgentTaskData,
   UpdateAgentTaskErrors,
   UpdateAgentTaskResponses,
@@ -453,9 +453,9 @@ import type {
   UpdateWorkspaceFileContentData,
   UpdateWorkspaceFileContentErrors,
   UpdateWorkspaceFileContentResponses,
-  UploadAgentScopedSkillData,
-  UploadAgentScopedSkillErrors,
-  UploadAgentScopedSkillResponses,
+  UploadAgentSkillData,
+  UploadAgentSkillErrors,
+  UploadAgentSkillResponses,
   UploadWorkspaceFileData,
   UploadWorkspaceFileErrors,
   UploadWorkspaceFileResponses,
@@ -875,16 +875,16 @@ export const listAgentSkills = <ThrowOnError extends boolean = false>(
 /**
  * Create a skill in an agent or current-user scope
  */
-export const createAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<CreateAgentScopedSkillData, ThrowOnError>,
+export const createAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<CreateAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    CreateAgentScopedSkillResponses,
-    CreateAgentScopedSkillErrors,
+    CreateAgentSkillResponses,
+    CreateAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}",
+    url: "/api/agents/{id}/skills",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -893,18 +893,18 @@ export const createAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Install a skill in an agent or current-user scope
+ * Install a skill from a remote source
  */
-export const installAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<InstallAgentScopedSkillData, ThrowOnError>,
+export const installAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<InstallAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    InstallAgentScopedSkillResponses,
-    InstallAgentScopedSkillErrors,
+    InstallAgentSkillResponses,
+    InstallAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/install",
+    url: "/api/agents/{id}/skills:install",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -913,19 +913,19 @@ export const installAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Upload a skill zip in an agent or current-user scope
+ * Upload a skill zip
  */
-export const uploadAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UploadAgentScopedSkillData, ThrowOnError>,
+export const uploadAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<UploadAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).post<
-    UploadAgentScopedSkillResponses,
-    UploadAgentScopedSkillErrors,
+    UploadAgentSkillResponses,
+    UploadAgentSkillErrors,
     ThrowOnError
   >({
     ...formDataBodySerializer,
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/upload",
+    url: "/api/agents/{id}/skills:upload",
     ...options,
     headers: {
       "Content-Type": null,
@@ -934,50 +934,50 @@ export const uploadAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Delete a skill in an agent or current-user scope
+ * Delete a skill
  */
-export const deleteAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteAgentScopedSkillData, ThrowOnError>,
+export const deleteAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).delete<
-    DeleteAgentScopedSkillResponses,
-    DeleteAgentScopedSkillErrors,
+    DeleteAgentSkillResponses,
+    DeleteAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}",
+    url: "/api/agents/{id}/skills/{skillId}",
     ...options,
   });
 
 /**
- * Get a skill in an agent context
+ * Get a skill by name
  */
-export const getAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<GetAgentScopedSkillData, ThrowOnError>,
+export const getAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).get<
-    GetAgentScopedSkillResponses,
-    GetAgentScopedSkillErrors,
+    GetAgentSkillResponses,
+    GetAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}",
+    url: "/api/agents/{id}/skills/{skillId}",
     ...options,
   });
 
 /**
- * Update a skill in an agent or current-user scope
+ * Update a skill
  */
-export const updateAgentScopedSkill = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateAgentScopedSkillData, ThrowOnError>,
+export const updateAgentSkill = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAgentSkillData, ThrowOnError>,
 ) =>
   (options.client ?? client).patch<
-    UpdateAgentScopedSkillResponses,
-    UpdateAgentScopedSkillErrors,
+    UpdateAgentSkillResponses,
+    UpdateAgentSkillErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}",
+    url: "/api/agents/{id}/skills/{skillId}",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -986,36 +986,34 @@ export const updateAgentScopedSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Delete a skill file in an agent or current-user scope
+ * Delete a skill file
  */
-export const deleteAgentScopedSkillFile = <
-  ThrowOnError extends boolean = false,
->(
-  options: Options<DeleteAgentScopedSkillFileData, ThrowOnError>,
+export const deleteAgentSkillFile = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentSkillFileData, ThrowOnError>,
 ) =>
   (options.client ?? client).delete<
-    DeleteAgentScopedSkillFileResponses,
-    DeleteAgentScopedSkillFileErrors,
+    DeleteAgentSkillFileResponses,
+    DeleteAgentSkillFileErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}/file",
+    url: "/api/agents/{id}/skills/{skillId}/file",
     ...options,
   });
 
 /**
- * Get a skill file in an agent context
+ * Get a skill file by path
  */
-export const getAgentScopedSkillFile = <ThrowOnError extends boolean = false>(
-  options: Options<GetAgentScopedSkillFileData, ThrowOnError>,
+export const getAgentSkillFile = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentSkillFileData, ThrowOnError>,
 ) =>
   (options.client ?? client).get<
-    GetAgentScopedSkillFileResponses,
-    GetAgentScopedSkillFileErrors,
+    GetAgentSkillFileResponses,
+    GetAgentSkillFileErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/api/agents/{id}/skills/{scope}/{skillId}/file",
+    url: "/api/agents/{id}/skills/{skillId}/file",
     ...options,
   });
 

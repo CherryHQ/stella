@@ -87,10 +87,15 @@ func createSkillZip(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-func doMultipartRequestWithSession(t *testing.T, srv http.Handler, bearerToken, method, path, fieldName, fileName string, fileData []byte) *httptest.ResponseRecorder {
+func doMultipartRequestWithSession(t *testing.T, srv http.Handler, bearerToken, method, path, fieldName, fileName string, fileData []byte, extraFields ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
+	for i := 0; i+1 < len(extraFields); i += 2 {
+		if err := mw.WriteField(extraFields[i], extraFields[i+1]); err != nil {
+			t.Fatalf("write field %q: %v", extraFields[i], err)
+		}
+	}
 	part, err := mw.CreateFormFile(fieldName, fileName)
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
@@ -239,9 +244,10 @@ func TestAgentSkills_CrossAgentScope(t *testing.T) {
 	a1 := createAgentAsUser(t, env, sid, "cross-a1")
 	a2 := createAgentAsUser(t, env, sid, "cross-a2")
 
-	skID := createTestSkill(t, env, "agent", "", a1, "skill-on-agent1")
+	createTestSkill(t, env, "agent", "", a1, "skill-on-agent1")
 
-	rr := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+a2+"/skills/agent/"+skID, nil)
+	// skill-on-agent1 belongs to a1, so fetching via a2 should 404
+	rr := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+a2+"/skills/skill-on-agent1", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("cross-agent get status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -254,22 +260,28 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	_, otherSID := newNonAdmin(t, env, "other-ud")
 	agentID := createAgentAsUser(t, env, sid, "ud-agent")
 
-	rr := doRequestWithSession(t, env.srv, otherSID, "POST", "/api/agents/"+agentID+"/skills/agent", map[string]any{
-		"name": "other-agent-skill",
+	// Non-creator cannot create agent-scoped skills
+	rr := doRequestWithSession(t, env.srv, otherSID, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
+		"name":  "other-agent-skill",
+		"scope": "agent",
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("other create status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "POST", "/api/agents/"+agentID+"/skills/system", map[string]any{
-		"name": "system-skill",
+	// Cannot create system-scoped skills
+	rr = doRequestWithSession(t, env.srv, sid, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
+		"name":  "system-skill",
+		"scope": "system",
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("system create status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "POST", "/api/agents/"+agentID+"/skills/user", map[string]any{
+	// Creator can create user-scoped skill
+	rr = doRequestWithSession(t, env.srv, sid, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
 		"name":        "user-skill",
+		"scope":       "user",
 		"description": "personal",
 	})
 	if rr.Code != http.StatusCreated {
@@ -281,9 +293,10 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 		t.Fatalf("created user skill = %#v, want user scoped to creator and agent", userSkill)
 	}
 
-	skID := createTestSkill(t, env, "agent", "", agentID, "skill-ud")
+	// Create an agent-scoped skill for update/delete tests
+	createTestSkill(t, env, "agent", "", agentID, "skill-ud")
 
-	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/agent/"+skID, map[string]any{
+	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud", map[string]any{
 		"description": "updated",
 		"files":       map[string]string{"SKILL.md": "# updated body"},
 	})
@@ -291,12 +304,12 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 		t.Fatalf("update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/agent/"+skID+"/file?path=reference.md", nil)
+	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?path=reference.md", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/agent/"+skID+"/file?path=SKILL.md", nil)
+	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?path=SKILL.md", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("delete SKILL.md status = %d, want 400", rr.Code)
 	}
@@ -312,15 +325,19 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 		t.Fatalf("abs path: %v", err)
 	}
 
-	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/agent/install", map[string]any{
+	// Install as agent scope (default)
+	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills:install", map[string]any{
 		"source": source,
+		"scope":  "agent",
 	})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("creator install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/system/install", map[string]any{
+	// Cannot install as system scope
+	rr = doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills:install", map[string]any{
 		"source": source,
+		"scope":  "system",
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("system install status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
@@ -337,7 +354,7 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 		"bundle/uploaded-skill/reference.md": "notes",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills/user/upload", "file", "uploaded-skill.zip", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.zip", archive, "scope", "user")
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -371,7 +388,7 @@ func TestAgentUserSkills_SelfOnly(t *testing.T) {
 		t.Fatalf("assign user2 to agent: %v", err)
 	}
 
-	skID1 := createTestSkill(t, env, "user", u1.ID, agentID, "u1-skill")
+	createTestSkill(t, env, "user", u1.ID, agentID, "u1-skill")
 	createTestSkill(t, env, "user", u2.ID, agentID, "u2-skill")
 
 	rr := doRequestWithSession(t, env.srv, sid1, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -386,12 +403,13 @@ func TestAgentUserSkills_SelfOnly(t *testing.T) {
 		t.Fatalf("u1 list included u2 skill: %#v", list)
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid2, "GET", "/api/agents/"+agentID+"/skills/user/"+skID1, nil)
+	// u2 cannot access u1's skill by name
+	rr = doRequestWithSession(t, env.srv, sid2, "GET", "/api/agents/"+agentID+"/skills/u1-skill", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("u2 cross status = %d, want 404", rr.Code)
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid2, "DELETE", "/api/agents/"+agentID+"/skills/user/"+skID1, nil)
+	rr = doRequestWithSession(t, env.srv, sid2, "DELETE", "/api/agents/"+agentID+"/skills/u1-skill", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("u2 cross delete status = %d, want 404", rr.Code)
 	}
@@ -405,7 +423,7 @@ func TestAgentSkills_UploadZipRejectsInvalidExtension(t *testing.T) {
 		"wrapper/uploaded-skill/SKILL.md": "---\nname: uploaded-skill\ndescription: Uploaded profile skill\n---\n# Uploaded\n",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/user/upload", "file", "uploaded-skill.tar", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.tar", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -419,7 +437,7 @@ func TestAgentSkills_UploadZipRejectsMissingSkillMD(t *testing.T) {
 		"wrapper/uploaded-skill/reference.md": "reference",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/user/upload", "file", "uploaded-skill.zip", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.zip", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -434,7 +452,7 @@ func TestAgentSkills_UploadZipRejectsMultipleSkillRoots(t *testing.T) {
 		"wrapper/skill-two/SKILL.md": "---\nname: skill-two\ndescription: two\n---\n# Two\n",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/user/upload", "file", "multi.zip", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "multi.zip", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -448,7 +466,7 @@ func TestAgentSkills_UploadZipRejectsPathTraversal(t *testing.T) {
 		"../uploaded-skill/SKILL.md": "---\nname: uploaded-skill\ndescription: Uploaded profile skill\n---\n# Uploaded\n",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/user/upload", "file", "uploaded-skill.zip", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.zip", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}

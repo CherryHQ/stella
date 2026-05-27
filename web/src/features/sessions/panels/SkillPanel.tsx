@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  createAgentScopedSkill,
-  deleteAgentScopedSkill,
-  getAgentScopedSkill,
-  getAgentScopedSkillFile,
-  updateAgentScopedSkill,
+  createAgentSkill,
+  deleteAgentSkill,
+  getAgentSkill,
+  getAgentSkillFile,
+  updateAgentSkill,
 } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import type { Skill } from "@/lib/types";
@@ -69,21 +69,13 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
-      const { data: skRaw } = await getAgentScopedSkill({
-        path: {
-          id: agentId,
-          scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
-          skillId,
-        },
+      const { data: skRaw } = await getAgentSkill({
+        path: { id: agentId, skillId },
         throwOnError: true,
       });
       const sk = skRaw as Skill;
-      const res = await getAgentScopedSkillFile({
-        path: {
-          id: agentId,
-          scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
-          skillId,
-        },
+      const res = await getAgentSkillFile({
+        path: { id: agentId, skillId },
         query: { path: "SKILL.md" },
         throwOnError: true,
       }).catch(() => null);
@@ -121,10 +113,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     setSaving(true);
     try {
       if (isNew) {
-        await createAgentScopedSkill({
-          path: { id: agentId, scope: "user" },
+        await createAgentSkill({
+          path: { id: agentId },
           body: {
             name: form.name,
+            scope: "user",
             description: form.description,
             status: form.status,
             disable_model_invocation: form.disable_model_invocation,
@@ -133,12 +126,8 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           throwOnError: true,
         });
       } else if (skillId) {
-        await updateAgentScopedSkill({
-          path: {
-            id: agentId,
-            scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
-            skillId,
-          },
+        await updateAgentSkill({
+          path: { id: agentId, skillId },
           body: {
             description: form.description,
             status: form.status,
@@ -162,12 +151,8 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId) return;
     setDeleting(true);
     try {
-      await deleteAgentScopedSkill({
-        path: {
-          id: agentId,
-          scope: (scope ?? "user") as "agent" | "project" | "system" | "user",
-          skillId,
-        },
+      await deleteAgentSkill({
+        path: { id: agentId, skillId },
         throwOnError: true,
       });
       onDeleted();

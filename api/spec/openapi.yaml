@@ -97,16 +97,14 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}"
   /api/agents/{id}/skills:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills"
-  /api/agents/{id}/skills/{scope}:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}"
-  /api/agents/{id}/skills/{scope}/install:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1install"
-  /api/agents/{id}/skills/{scope}/upload:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1upload"
-  /api/agents/{id}/skills/{scope}/{skillId}:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1{skillId}"
-  /api/agents/{id}/skills/{scope}/{skillId}/file:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{scope}~1{skillId}~1file"
+  /api/agents/{id}/skills:install:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills:install"
+  /api/agents/{id}/skills:upload:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills:upload"
+  /api/agents/{id}/skills/{skillId}:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
+  /api/agents/{id}/skills/{skillId}/file:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
   # ── Projects ───────────────────────────────────────────────────────────────
   /api/agents/{agentID}/projects:
     $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentID}~1projects"
@@ -409,20 +407,8 @@ components:
     UpdateSkillRequest: {
       $ref: "./components.yaml#/components/schemas/UpdateSkillRequest",
     }
-    SkillUploadResult: {
-      $ref: "./components.yaml#/components/schemas/SkillUploadResult",
-    }
-    DuplicateSkillResult: {
-      $ref: "./components.yaml#/components/schemas/DuplicateSkillResult",
-    }
     CreateSkillRequest: {
       $ref: "./components.yaml#/components/schemas/CreateSkillRequest",
-    }
-    GlobalInstallSkillRequest: {
-      $ref: "./components.yaml#/components/schemas/GlobalInstallSkillRequest",
-    }
-    ProfileInstallSkillRequest: {
-      $ref: "./components.yaml#/components/schemas/ProfileInstallSkillRequest",
     }
     SkillSearchResult: {
       $ref: "./components.yaml#/components/schemas/SkillSearchResult",
@@ -432,9 +418,6 @@ components:
     }
     SkillFileResponse: {
       $ref: "./components.yaml#/components/schemas/SkillFileResponse",
-    }
-    DeleteFileResult: {
-      $ref: "./components.yaml#/components/schemas/DeleteFileResult",
     }
     Identity: { $ref: "./components.yaml#/components/schemas/Identity" }
     AuthUser: { $ref: "./components.yaml#/components/schemas/AuthUser" }

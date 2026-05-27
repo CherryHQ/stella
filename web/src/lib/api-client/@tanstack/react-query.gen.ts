@@ -15,7 +15,7 @@ import {
   assignAgentUser,
   changePassword,
   createAgent,
-  createAgentScopedSkill,
+  createAgentSkill,
   createAgentTask,
   createChannel,
   createFeed,
@@ -28,8 +28,8 @@ import {
   createWorkspace,
   createWorkspaceFile,
   deleteAgent,
-  deleteAgentScopedSkill,
-  deleteAgentScopedSkillFile,
+  deleteAgentSkill,
+  deleteAgentSkillFile,
   deleteAgentTask,
   deleteArticle,
   deleteAuthSession,
@@ -48,8 +48,8 @@ import {
   fetchProviderModels,
   generateLinkCode,
   getAgent,
-  getAgentScopedSkill,
-  getAgentScopedSkillFile,
+  getAgentSkill,
+  getAgentSkillFile,
   getAgentTask,
   getArticle,
   getAuthUser,
@@ -77,7 +77,7 @@ import {
   getStoredDigest,
   getVaultEntry,
   getWorkspaceFileContent,
-  installAgentScopedSkill,
+  installAgentSkill,
   linkAuthUserLoginIdentity,
   listAgents,
   listAgentSkills,
@@ -142,7 +142,7 @@ import {
   triggerSchedulerJob,
   unlinkProfileIdentity,
   updateAgent,
-  updateAgentScopedSkill,
+  updateAgentSkill,
   updateAgentTask,
   updateArticle,
   updateAuthUserActive,
@@ -159,7 +159,7 @@ import {
   updateUserDefaultAgent,
   updateUserNotifyIdentity,
   updateWorkspaceFileContent,
-  uploadAgentScopedSkill,
+  uploadAgentSkill,
   uploadWorkspaceFile,
 } from "../sdk.gen";
 import type {
@@ -178,9 +178,9 @@ import type {
   CreateAgentData,
   CreateAgentError,
   CreateAgentResponse,
-  CreateAgentScopedSkillData,
-  CreateAgentScopedSkillError,
-  CreateAgentScopedSkillResponse,
+  CreateAgentSkillData,
+  CreateAgentSkillError,
+  CreateAgentSkillResponse,
   CreateAgentTaskData,
   CreateAgentTaskError,
   CreateAgentTaskResponse,
@@ -217,12 +217,12 @@ import type {
   DeleteAgentData,
   DeleteAgentError,
   DeleteAgentResponse,
-  DeleteAgentScopedSkillData,
-  DeleteAgentScopedSkillError,
-  DeleteAgentScopedSkillFileData,
-  DeleteAgentScopedSkillFileError,
-  DeleteAgentScopedSkillFileResponse,
-  DeleteAgentScopedSkillResponse,
+  DeleteAgentSkillData,
+  DeleteAgentSkillError,
+  DeleteAgentSkillFileData,
+  DeleteAgentSkillFileError,
+  DeleteAgentSkillFileResponse,
+  DeleteAgentSkillResponse,
   DeleteAgentTaskData,
   DeleteAgentTaskError,
   DeleteAgentTaskResponse,
@@ -277,12 +277,12 @@ import type {
   GetAgentData,
   GetAgentError,
   GetAgentResponse,
-  GetAgentScopedSkillData,
-  GetAgentScopedSkillError,
-  GetAgentScopedSkillFileData,
-  GetAgentScopedSkillFileError,
-  GetAgentScopedSkillFileResponse,
-  GetAgentScopedSkillResponse,
+  GetAgentSkillData,
+  GetAgentSkillError,
+  GetAgentSkillFileData,
+  GetAgentSkillFileError,
+  GetAgentSkillFileResponse,
+  GetAgentSkillResponse,
   GetAgentTaskData,
   GetAgentTaskError,
   GetAgentTaskResponse,
@@ -363,9 +363,9 @@ import type {
   GetWorkspaceFileContentData,
   GetWorkspaceFileContentError,
   GetWorkspaceFileContentResponse,
-  InstallAgentScopedSkillData,
-  InstallAgentScopedSkillError,
-  InstallAgentScopedSkillResponse,
+  InstallAgentSkillData,
+  InstallAgentSkillError,
+  InstallAgentSkillResponse,
   LinkAuthUserLoginIdentityData,
   LinkAuthUserLoginIdentityError,
   LinkAuthUserLoginIdentityResponse,
@@ -552,9 +552,9 @@ import type {
   UpdateAgentData,
   UpdateAgentError,
   UpdateAgentResponse,
-  UpdateAgentScopedSkillData,
-  UpdateAgentScopedSkillError,
-  UpdateAgentScopedSkillResponse,
+  UpdateAgentSkillData,
+  UpdateAgentSkillError,
+  UpdateAgentSkillResponse,
   UpdateAgentTaskData,
   UpdateAgentTaskError,
   UpdateAgentTaskResponse,
@@ -603,9 +603,9 @@ import type {
   UpdateWorkspaceFileContentData,
   UpdateWorkspaceFileContentError,
   UpdateWorkspaceFileContentResponse,
-  UploadAgentScopedSkillData,
-  UploadAgentScopedSkillError,
-  UploadAgentScopedSkillResponse,
+  UploadAgentSkillData,
+  UploadAgentSkillError,
+  UploadAgentSkillResponse,
   UploadWorkspaceFileData,
   UploadWorkspaceFileError,
   UploadWorkspaceFileResponse,
@@ -1286,20 +1286,20 @@ export const listAgentSkillsOptions = (options: Options<ListAgentSkillsData>) =>
 /**
  * Create a skill in an agent or current-user scope
  */
-export const createAgentScopedSkillMutation = (
-  options?: Partial<Options<CreateAgentScopedSkillData>>,
+export const createAgentSkillMutation = (
+  options?: Partial<Options<CreateAgentSkillData>>,
 ): UseMutationOptions<
-  CreateAgentScopedSkillResponse,
-  CreateAgentScopedSkillError,
-  Options<CreateAgentScopedSkillData>
+  CreateAgentSkillResponse,
+  CreateAgentSkillError,
+  Options<CreateAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    CreateAgentScopedSkillResponse,
-    CreateAgentScopedSkillError,
-    Options<CreateAgentScopedSkillData>
+    CreateAgentSkillResponse,
+    CreateAgentSkillError,
+    Options<CreateAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await createAgentScopedSkill({
+      const { data } = await createAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1311,22 +1311,22 @@ export const createAgentScopedSkillMutation = (
 };
 
 /**
- * Install a skill in an agent or current-user scope
+ * Install a skill from a remote source
  */
-export const installAgentScopedSkillMutation = (
-  options?: Partial<Options<InstallAgentScopedSkillData>>,
+export const installAgentSkillMutation = (
+  options?: Partial<Options<InstallAgentSkillData>>,
 ): UseMutationOptions<
-  InstallAgentScopedSkillResponse,
-  InstallAgentScopedSkillError,
-  Options<InstallAgentScopedSkillData>
+  InstallAgentSkillResponse,
+  InstallAgentSkillError,
+  Options<InstallAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    InstallAgentScopedSkillResponse,
-    InstallAgentScopedSkillError,
-    Options<InstallAgentScopedSkillData>
+    InstallAgentSkillResponse,
+    InstallAgentSkillError,
+    Options<InstallAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await installAgentScopedSkill({
+      const { data } = await installAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1338,22 +1338,22 @@ export const installAgentScopedSkillMutation = (
 };
 
 /**
- * Upload a skill zip in an agent or current-user scope
+ * Upload a skill zip
  */
-export const uploadAgentScopedSkillMutation = (
-  options?: Partial<Options<UploadAgentScopedSkillData>>,
+export const uploadAgentSkillMutation = (
+  options?: Partial<Options<UploadAgentSkillData>>,
 ): UseMutationOptions<
-  UploadAgentScopedSkillResponse,
-  UploadAgentScopedSkillError,
-  Options<UploadAgentScopedSkillData>
+  UploadAgentSkillResponse,
+  UploadAgentSkillError,
+  Options<UploadAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    UploadAgentScopedSkillResponse,
-    UploadAgentScopedSkillError,
-    Options<UploadAgentScopedSkillData>
+    UploadAgentSkillResponse,
+    UploadAgentSkillError,
+    Options<UploadAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await uploadAgentScopedSkill({
+      const { data } = await uploadAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1365,22 +1365,22 @@ export const uploadAgentScopedSkillMutation = (
 };
 
 /**
- * Delete a skill in an agent or current-user scope
+ * Delete a skill
  */
-export const deleteAgentScopedSkillMutation = (
-  options?: Partial<Options<DeleteAgentScopedSkillData>>,
+export const deleteAgentSkillMutation = (
+  options?: Partial<Options<DeleteAgentSkillData>>,
 ): UseMutationOptions<
-  DeleteAgentScopedSkillResponse,
-  DeleteAgentScopedSkillError,
-  Options<DeleteAgentScopedSkillData>
+  DeleteAgentSkillResponse,
+  DeleteAgentSkillError,
+  Options<DeleteAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    DeleteAgentScopedSkillResponse,
-    DeleteAgentScopedSkillError,
-    Options<DeleteAgentScopedSkillData>
+    DeleteAgentSkillResponse,
+    DeleteAgentSkillError,
+    Options<DeleteAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await deleteAgentScopedSkill({
+      const { data } = await deleteAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1391,24 +1391,21 @@ export const deleteAgentScopedSkillMutation = (
   return mutationOptions;
 };
 
-export const getAgentScopedSkillQueryKey = (
-  options: Options<GetAgentScopedSkillData>,
-) => createQueryKey("getAgentScopedSkill", options);
+export const getAgentSkillQueryKey = (options: Options<GetAgentSkillData>) =>
+  createQueryKey("getAgentSkill", options);
 
 /**
- * Get a skill in an agent context
+ * Get a skill by name
  */
-export const getAgentScopedSkillOptions = (
-  options: Options<GetAgentScopedSkillData>,
-) =>
+export const getAgentSkillOptions = (options: Options<GetAgentSkillData>) =>
   queryOptions<
-    GetAgentScopedSkillResponse,
-    GetAgentScopedSkillError,
-    GetAgentScopedSkillResponse,
-    ReturnType<typeof getAgentScopedSkillQueryKey>
+    GetAgentSkillResponse,
+    GetAgentSkillError,
+    GetAgentSkillResponse,
+    ReturnType<typeof getAgentSkillQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getAgentScopedSkill({
+      const { data } = await getAgentSkill({
         ...options,
         ...queryKey[0],
         signal,
@@ -1416,26 +1413,26 @@ export const getAgentScopedSkillOptions = (
       });
       return data;
     },
-    queryKey: getAgentScopedSkillQueryKey(options),
+    queryKey: getAgentSkillQueryKey(options),
   });
 
 /**
- * Update a skill in an agent or current-user scope
+ * Update a skill
  */
-export const updateAgentScopedSkillMutation = (
-  options?: Partial<Options<UpdateAgentScopedSkillData>>,
+export const updateAgentSkillMutation = (
+  options?: Partial<Options<UpdateAgentSkillData>>,
 ): UseMutationOptions<
-  UpdateAgentScopedSkillResponse,
-  UpdateAgentScopedSkillError,
-  Options<UpdateAgentScopedSkillData>
+  UpdateAgentSkillResponse,
+  UpdateAgentSkillError,
+  Options<UpdateAgentSkillData>
 > => {
   const mutationOptions: UseMutationOptions<
-    UpdateAgentScopedSkillResponse,
-    UpdateAgentScopedSkillError,
-    Options<UpdateAgentScopedSkillData>
+    UpdateAgentSkillResponse,
+    UpdateAgentSkillError,
+    Options<UpdateAgentSkillData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await updateAgentScopedSkill({
+      const { data } = await updateAgentSkill({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1447,22 +1444,22 @@ export const updateAgentScopedSkillMutation = (
 };
 
 /**
- * Delete a skill file in an agent or current-user scope
+ * Delete a skill file
  */
-export const deleteAgentScopedSkillFileMutation = (
-  options?: Partial<Options<DeleteAgentScopedSkillFileData>>,
+export const deleteAgentSkillFileMutation = (
+  options?: Partial<Options<DeleteAgentSkillFileData>>,
 ): UseMutationOptions<
-  DeleteAgentScopedSkillFileResponse,
-  DeleteAgentScopedSkillFileError,
-  Options<DeleteAgentScopedSkillFileData>
+  DeleteAgentSkillFileResponse,
+  DeleteAgentSkillFileError,
+  Options<DeleteAgentSkillFileData>
 > => {
   const mutationOptions: UseMutationOptions<
-    DeleteAgentScopedSkillFileResponse,
-    DeleteAgentScopedSkillFileError,
-    Options<DeleteAgentScopedSkillFileData>
+    DeleteAgentSkillFileResponse,
+    DeleteAgentSkillFileError,
+    Options<DeleteAgentSkillFileData>
   > = {
     mutationFn: async (fnOptions) => {
-      const { data } = await deleteAgentScopedSkillFile({
+      const { data } = await deleteAgentSkillFile({
         ...options,
         ...fnOptions,
         throwOnError: true,
@@ -1473,24 +1470,24 @@ export const deleteAgentScopedSkillFileMutation = (
   return mutationOptions;
 };
 
-export const getAgentScopedSkillFileQueryKey = (
-  options: Options<GetAgentScopedSkillFileData>,
-) => createQueryKey("getAgentScopedSkillFile", options);
+export const getAgentSkillFileQueryKey = (
+  options: Options<GetAgentSkillFileData>,
+) => createQueryKey("getAgentSkillFile", options);
 
 /**
- * Get a skill file in an agent context
+ * Get a skill file by path
  */
-export const getAgentScopedSkillFileOptions = (
-  options: Options<GetAgentScopedSkillFileData>,
+export const getAgentSkillFileOptions = (
+  options: Options<GetAgentSkillFileData>,
 ) =>
   queryOptions<
-    GetAgentScopedSkillFileResponse,
-    GetAgentScopedSkillFileError,
-    GetAgentScopedSkillFileResponse,
-    ReturnType<typeof getAgentScopedSkillFileQueryKey>
+    GetAgentSkillFileResponse,
+    GetAgentSkillFileError,
+    GetAgentSkillFileResponse,
+    ReturnType<typeof getAgentSkillFileQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getAgentScopedSkillFile({
+      const { data } = await getAgentSkillFile({
         ...options,
         ...queryKey[0],
         signal,
@@ -1498,7 +1495,7 @@ export const getAgentScopedSkillFileOptions = (
       });
       return data;
     },
-    queryKey: getAgentScopedSkillFileQueryKey(options),
+    queryKey: getAgentSkillFileQueryKey(options),
   });
 
 export const listProjectsQueryKey = (options: Options<ListProjectsData>) =>
