@@ -192,6 +192,14 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
+	// Wire channel startup into OrgRuntime so channels start per-org.
+	if s.orgRuntimeManager != nil {
+		s.orgRuntimeManager.SetChannels(channelStarterFunc(func(ctx context.Context) error {
+			applyManagedChannelPlugins(ctx, s.pluginHost)
+			return nil
+		}))
+	}
+
 	// Start Web UI server.
 	listenAddr := adminListenAddress(adminHost, adminPort)
 	ln, err := net.Listen("tcp", listenAddr)
@@ -255,6 +263,11 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	slog.Info("gateway stopped")
 	return waitErr
 }
+
+// channelStarterFunc adapts a plain function to orgruntime.ChannelStarter.
+type channelStarterFunc func(ctx context.Context) error
+
+func (f channelStarterFunc) StartChannels(ctx context.Context) error { return f(ctx) }
 
 func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
 	if job.UserID != "" {

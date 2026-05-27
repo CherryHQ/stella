@@ -417,7 +417,8 @@ func (s *Service) RemoveJob(id string) error {
 		delete(s.gids, id)
 	}
 
-	if err := s.deleteJob(s.ctx, id); err != nil {
+	orgID := s.jobs[id].OrgID
+	if err := s.deleteJob(s.ctx, id, orgID); err != nil {
 		return fmt.Errorf("persist after remove: %w", err)
 	}
 
@@ -625,7 +626,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 	s.mu.Unlock()
 
-	if err := s.recordJobRun(ctx, job.ID, finishedAt, runErr); err != nil {
+	if err := s.recordJobRun(ctx, job.ID, job.OrgID, finishedAt, runErr); err != nil {
 		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", err)
 	}
 
@@ -699,7 +700,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		if err := s.finishJobRun(svcCtx, runID, jobID, status, finishedAt, errStr); err != nil {
 			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 		}
-		if err := s.recordJobRun(svcCtx, jobID, finishedAt, runErr); err != nil {
+		if err := s.recordJobRun(svcCtx, jobID, job.OrgID, finishedAt, runErr); err != nil {
 			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", err)
 		}
 
@@ -748,7 +749,11 @@ func (s *Service) removeOneTimeJob(id string) {
 		_ = s.scheduler.RemoveJob(gid)
 		delete(s.gids, id)
 	}
-	if err := s.deleteJob(s.ctx, id); err != nil {
+	orgID := ""
+	if j, ok := s.jobs[id]; ok {
+		orgID = j.OrgID
+	}
+	if err := s.deleteJob(s.ctx, id, orgID); err != nil {
 		s.log.Warn("failed to remove one-time job after execution", "id", id, "error", err)
 	} else {
 		s.log.Info("one-time job auto-removed after execution", "id", id)

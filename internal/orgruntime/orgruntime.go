@@ -124,6 +124,14 @@ func (m *Manager) GetOrInit(ctx context.Context, orgID string) (*OrgRuntime, err
 	return rt, nil
 }
 
+// SetChannels wires the ChannelStarter after construction (the coordinator
+// is created after the Manager and implements this interface).
+func (m *Manager) SetChannels(ch ChannelStarter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.channels = ch
+}
+
 // EnsureStarted satisfies auth.OrgInitializer — starts the org runtime,
 // discarding the *OrgRuntime value.
 func (m *Manager) EnsureStarted(ctx context.Context, orgID string) error {

@@ -113,7 +113,9 @@ func WithOrgRuntimeInitializer(init OrgRuntimeInitializer) CoordinatorOption {
 
 // resolve performs the full user -> agent -> pool -> session key resolution.
 // If an org runtime initializer is set, it ensures the user's org runtime is
-// started before resolving the agent pool.
+// started before resolving the agent pool (which requires synced agents).
+// The org init only fires for users with an existing membership — unregistered
+// senders are skipped.
 func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
 	channelID := msg.ChannelID
 	if channelID == "" {
