@@ -14,7 +14,6 @@ api/types/gen.go
 api/server/gen.go
 api/client/gen.go
 api/spec/components.yaml
-api/spec/openapi.yaml
 internal/server/docs_spec.yaml
 web/src/lib/api-client/
 
