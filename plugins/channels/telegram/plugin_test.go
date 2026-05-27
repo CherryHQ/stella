@@ -127,6 +127,10 @@ func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return plugins, nil
 }
 
+func (s *stubStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, error) {
+	return s.ListPlugins(ctx)
+}
+
 func (s *stubStore) ListPluginsByKind(context.Context, string) ([]config.Plugin, error) {
 	return nil, nil
 }

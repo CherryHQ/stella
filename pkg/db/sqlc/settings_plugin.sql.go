@@ -84,6 +84,42 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context, orgID string) ([]Setti
 	return items, nil
 }
 
+const listPluginOverrides = `-- name: ListPluginOverrides :many
+SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE org_id = ? ORDER BY kind, name
+`
+
+func (q *Queries) ListPluginOverrides(ctx context.Context, orgID string) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listPluginOverrides, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SettingsPlugin{}
+	for rows.Next() {
+		var i SettingsPlugin
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Name,
+			&i.Enabled,
+			&i.Config,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPlugins = `-- name: ListPlugins :many
 SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE org_id = ? ORDER BY kind, name
 `
@@ -161,64 +197,6 @@ func (q *Queries) ListPluginsByKind(ctx context.Context, arg ListPluginsByKindPa
 	return items, nil
 }
 
-const seedPlugin = `-- name: SeedPlugin :exec
-INSERT OR IGNORE INTO settings_plugin (id, kind, name, enabled, config, org_id)
-VALUES (?, ?, ?, ?, ?, ?)
-`
-
-type SeedPluginParams struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Enabled int64  `json:"enabled"`
-	Config  string `json:"config"`
-	OrgID   string `json:"org_id"`
-}
-
-func (q *Queries) SeedPlugin(ctx context.Context, arg SeedPluginParams) error {
-	_, err := q.db.ExecContext(ctx, seedPlugin,
-		arg.ID,
-		arg.Kind,
-		arg.Name,
-		arg.Enabled,
-		arg.Config,
-		arg.OrgID,
-	)
-	return err
-}
-
-const updatePluginConfig = `-- name: UpdatePluginConfig :exec
-UPDATE settings_plugin SET config = ?, updated_at = datetime('now')
-WHERE id = ? AND org_id = ?
-`
-
-type UpdatePluginConfigParams struct {
-	Config string `json:"config"`
-	ID     string `json:"id"`
-	OrgID  string `json:"org_id"`
-}
-
-func (q *Queries) UpdatePluginConfig(ctx context.Context, arg UpdatePluginConfigParams) error {
-	_, err := q.db.ExecContext(ctx, updatePluginConfig, arg.Config, arg.ID, arg.OrgID)
-	return err
-}
-
-const updatePluginEnabled = `-- name: UpdatePluginEnabled :exec
-UPDATE settings_plugin SET enabled = ?, updated_at = datetime('now')
-WHERE id = ? AND org_id = ?
-`
-
-type UpdatePluginEnabledParams struct {
-	Enabled int64  `json:"enabled"`
-	ID      string `json:"id"`
-	OrgID   string `json:"org_id"`
-}
-
-func (q *Queries) UpdatePluginEnabled(ctx context.Context, arg UpdatePluginEnabledParams) error {
-	_, err := q.db.ExecContext(ctx, updatePluginEnabled, arg.Enabled, arg.ID, arg.OrgID)
-	return err
-}
-
 const upsertPlugin = `-- name: UpsertPlugin :exec
 INSERT INTO settings_plugin (id, kind, name, enabled, config, org_id, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
@@ -246,6 +224,60 @@ func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) erro
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
+		arg.OrgID,
+	)
+	return err
+}
+
+const upsertPluginConfig = `-- name: UpsertPluginConfig :exec
+INSERT INTO settings_plugin (id, kind, name, enabled, config, org_id, updated_at)
+VALUES (?, ?, ?, 0, ?, ?, datetime('now'))
+ON CONFLICT(id, org_id) DO UPDATE SET
+    config = excluded.config,
+    updated_at = datetime('now')
+`
+
+type UpsertPluginConfigParams struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Config string `json:"config"`
+	OrgID  string `json:"org_id"`
+}
+
+func (q *Queries) UpsertPluginConfig(ctx context.Context, arg UpsertPluginConfigParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPluginConfig,
+		arg.ID,
+		arg.Kind,
+		arg.Name,
+		arg.Config,
+		arg.OrgID,
+	)
+	return err
+}
+
+const upsertPluginEnabled = `-- name: UpsertPluginEnabled :exec
+INSERT INTO settings_plugin (id, kind, name, enabled, config, org_id, updated_at)
+VALUES (?, ?, ?, ?, '{}', ?, datetime('now'))
+ON CONFLICT(id, org_id) DO UPDATE SET
+    enabled = excluded.enabled,
+    updated_at = datetime('now')
+`
+
+type UpsertPluginEnabledParams struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+	Enabled int64  `json:"enabled"`
+	OrgID   string `json:"org_id"`
+}
+
+func (q *Queries) UpsertPluginEnabled(ctx context.Context, arg UpsertPluginEnabledParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPluginEnabled,
+		arg.ID,
+		arg.Kind,
+		arg.Name,
+		arg.Enabled,
 		arg.OrgID,
 	)
 	return err

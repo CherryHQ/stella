@@ -416,9 +416,17 @@ func (s *DBStore) ListPlugins(ctx context.Context) ([]config.Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListPlugins(ctx, orgID)
+	return s.mergedPlugins(ctx, orgID, nil)
+}
+
+func (s *DBStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, error) {
+	orgID, err := requireOrgID(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list plugins: %w", err)
+		return nil, err
+	}
+	rows, err := s.q.ListPluginOverrides(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list plugin overrides: %w", err)
 	}
 	out := make([]config.Plugin, len(rows))
 	for i, r := range rows {
@@ -432,18 +440,8 @@ func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]config.
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListPluginsByKind(ctx, sqlc.ListPluginsByKindParams{
-		Kind:  kind,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list plugins by kind %q: %w", kind, err)
-	}
-	out := make([]config.Plugin, len(rows))
-	for i, r := range rows {
-		out[i] = pluginFromDB(r)
-	}
-	return out, nil
+	filter := func(p config.Plugin) bool { return p.Kind == kind }
+	return s.mergedPlugins(ctx, orgID, filter)
 }
 
 func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]config.Plugin, error) {
@@ -451,15 +449,8 @@ func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]config.Plugin, erro
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListEnabledPlugins(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("list enabled plugins: %w", err)
-	}
-	out := make([]config.Plugin, len(rows))
-	for i, r := range rows {
-		out[i] = pluginFromDB(r)
-	}
-	return out, nil
+	filter := func(p config.Plugin) bool { return p.Enabled }
+	return s.mergedPlugins(ctx, orgID, filter)
 }
 
 func (s *DBStore) GetPlugin(ctx context.Context, id string) (config.Plugin, error) {
@@ -467,11 +458,27 @@ func (s *DBStore) GetPlugin(ctx context.Context, id string) (config.Plugin, erro
 	if err != nil {
 		return config.Plugin{}, err
 	}
-	r, err := s.q.GetPlugin(ctx, sqlc.GetPluginParams{ID: id, OrgID: orgID})
-	if err != nil {
-		return config.Plugin{}, fmt.Errorf("get plugin %q: %w", id, err)
+	builtin, isBuiltin := config.BuiltinPluginByID(id)
+	r, dbErr := s.q.GetPlugin(ctx, sqlc.GetPluginParams{ID: id, OrgID: orgID})
+	if dbErr == nil {
+		p := pluginFromDB(r)
+		if isBuiltin {
+			p.Kind = builtin.Kind
+			p.Name = builtin.Name
+		}
+		return p, nil
 	}
-	return pluginFromDB(r), nil
+	if isBuiltin {
+		return config.Plugin{
+			ID:      builtin.ID,
+			Kind:    builtin.Kind,
+			Name:    builtin.Name,
+			Enabled: builtin.DefaultEnabled,
+			Config:  map[string]any{},
+			OrgID:   orgID,
+		}, nil
+	}
+	return config.Plugin{}, fmt.Errorf("get plugin %q: %w", id, dbErr)
 }
 
 func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
@@ -506,9 +513,12 @@ func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool)
 	if enabled {
 		v = 1
 	}
-	return s.q.UpdatePluginEnabled(ctx, sqlc.UpdatePluginEnabledParams{
-		Enabled: v,
+	kind, name := pluginKindName(id)
+	return s.q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{
 		ID:      id,
+		Kind:    kind,
+		Name:    name,
+		Enabled: v,
 		OrgID:   orgID,
 	})
 }
@@ -522,9 +532,12 @@ func (s *DBStore) SetPluginConfig(ctx context.Context, id string, cfg map[string
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", id, err)
 	}
-	return s.q.UpdatePluginConfig(ctx, sqlc.UpdatePluginConfigParams{
-		Config: string(configJSON),
+	kind, name := pluginKindName(id)
+	return s.q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
 		ID:     id,
+		Kind:   kind,
+		Name:   name,
+		Config: string(configJSON),
 		OrgID:  orgID,
 	})
 }
@@ -535,6 +548,72 @@ func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
 		return err
 	}
 	return s.q.DeletePlugin(ctx, sqlc.DeletePluginParams{ID: id, OrgID: orgID})
+}
+
+// mergedPlugins returns builtins merged with DB overrides, optionally filtered.
+func (s *DBStore) mergedPlugins(ctx context.Context, orgID string, filter func(config.Plugin) bool) ([]config.Plugin, error) {
+	rows, err := s.q.ListPluginOverrides(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list plugin overrides: %w", err)
+	}
+	overrides := make(map[string]sqlc.SettingsPlugin, len(rows))
+	for _, r := range rows {
+		overrides[r.ID] = r
+	}
+
+	var out []config.Plugin
+	seen := make(map[string]bool)
+
+	for _, b := range config.BuiltinPlugins() {
+		p := config.Plugin{
+			ID:      b.ID,
+			Kind:    b.Kind,
+			Name:    b.Name,
+			Enabled: b.DefaultEnabled,
+			Config:  map[string]any{},
+			OrgID:   orgID,
+		}
+		if ov, ok := overrides[b.ID]; ok {
+			p.Enabled = ov.Enabled == 1
+			var cfg map[string]any
+			if ov.Config != "" && ov.Config != "{}" {
+				_ = json.Unmarshal([]byte(ov.Config), &cfg)
+			}
+			if cfg != nil {
+				p.Config = cfg
+			}
+		}
+		if filter == nil || filter(p) {
+			out = append(out, p)
+		}
+		seen[b.ID] = true
+	}
+
+	for _, r := range rows {
+		if seen[r.ID] {
+			continue
+		}
+		p := pluginFromDB(r)
+		if filter == nil || filter(p) {
+			out = append(out, p)
+		}
+	}
+
+	return out, nil
+}
+
+// pluginKindName derives kind and name for a plugin ID.
+// For builtins, returns the authoritative values. For others, parses "kind/name".
+func pluginKindName(id string) (kind, name string) {
+	if b, ok := config.BuiltinPluginByID(id); ok {
+		return b.Kind, b.Name
+	}
+	for i, c := range id {
+		if c == '/' {
+			return id[:i], id[i+1:]
+		}
+	}
+	return id, id
 }
 
 // --- Chat Agents ---
@@ -633,13 +712,9 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
 
-	pluginRows, err := s.q.ListPlugins(ctx, orgID)
+	plugins, err := s.mergedPlugins(ctx, orgID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
-	}
-	plugins := make([]config.Plugin, len(pluginRows))
-	for i, r := range pluginRows {
-		plugins[i] = pluginFromDB(r)
 	}
 
 	providers, defaultCreds, err := s.resolveProviders(ctx, orgID, ag.Model, ag.ModelStrong, ag.ModelFast)
@@ -747,9 +822,6 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 
 func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 	ctx = config.WithOrgID(ctx, orgID)
-	if err := s.seedPlugins(ctx, orgID); err != nil {
-		return err
-	}
 	if err := s.seedChannelInstances(ctx, orgID); err != nil {
 		return err
 	}
@@ -792,53 +864,6 @@ func (s *DBStore) SeedDefaults(ctx context.Context, orgID string) error {
 	return nil
 }
 
-func (s *DBStore) seedPlugins(ctx context.Context, orgID string) error {
-	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindTool, config.BuiltinToolNames, func(name string) int64 {
-		switch name {
-		case "mcp", "webfetch":
-			return 0
-		default:
-			return 1
-		}
-	}); err != nil {
-		return err
-	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindChannel, config.BuiltinChannelNames, nil); err != nil {
-		return err
-	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindHook, config.BuiltinHookNames, nil); err != nil {
-		return err
-	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindMemory, config.BuiltinMemoryNames, func(name string) int64 {
-		if name == "simple" {
-			return 0
-		}
-		return 1
-	}); err != nil {
-		return err
-	}
-	if err := s.seedBuiltinPlugins(ctx, orgID, config.PluginKindSandbox, config.BuiltinSandboxNames, func(name string) int64 {
-		if name == config.SandboxBackendLocal {
-			return 1
-		}
-		return 0
-	}); err != nil {
-		return err
-	}
-	if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-		ID:      "reflect",
-		Kind:    "reflect",
-		Name:    "reflect",
-		Enabled: 0,
-		Config:  `{}`,
-		OrgID:   orgID,
-	}); err != nil {
-		return fmt.Errorf("seed: plugin reflect: %w", err)
-	}
-
-	return nil
-}
-
 func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error {
 	rows, err := s.q.ListChannels(ctx, orgID)
 	if err != nil {
@@ -864,26 +889,6 @@ func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error 
 			OrgID:   orgID,
 		}); err != nil {
 			return fmt.Errorf("seed: default channel instance %q: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func (s *DBStore) seedBuiltinPlugins(ctx context.Context, orgID string, kind string, names []string, enabledFor func(string) int64) error {
-	for _, name := range names {
-		enabled := int64(1)
-		if enabledFor != nil {
-			enabled = enabledFor(name)
-		}
-		if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-			ID:      config.PluginID(kind, name),
-			Kind:    kind,
-			Name:    name,
-			Enabled: enabled,
-			Config:  "{}",
-			OrgID:   orgID,
-		}); err != nil {
-			return fmt.Errorf("seed: plugin %s/%s: %w", kind, name, err)
 		}
 	}
 	return nil

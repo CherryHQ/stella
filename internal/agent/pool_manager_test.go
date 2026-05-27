@@ -86,12 +86,13 @@ func (m *mockStore) SetChannelOrg(_ context.Context, _, _ string) error      { r
 func (m *mockStore) GetChatAgent(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockStore) SetChatAgent(_ context.Context, _, _, _, _ string) error { return nil }
-func (m *mockStore) DeleteChatAgent(_ context.Context, _, _, _ string) error { return nil }
-func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)  { return "", nil }
-func (m *mockStore) SetSetting(_ context.Context, _, _ string) error         { return nil }
-func (m *mockStore) SeedDefaults(_ context.Context, _ string) error          { return nil }
-func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)  { return nil, nil }
+func (m *mockStore) SetChatAgent(_ context.Context, _, _, _, _ string) error        { return nil }
+func (m *mockStore) DeleteChatAgent(_ context.Context, _, _, _ string) error        { return nil }
+func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)         { return "", nil }
+func (m *mockStore) SetSetting(_ context.Context, _, _ string) error                { return nil }
+func (m *mockStore) SeedDefaults(_ context.Context, _ string) error                 { return nil }
+func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)         { return nil, nil }
+func (m *mockStore) ListPluginOverrides(_ context.Context) ([]config.Plugin, error) { return nil, nil }
 func (m *mockStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plugin, error) {
 	return nil, nil
 }

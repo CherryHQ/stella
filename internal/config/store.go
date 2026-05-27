@@ -96,8 +96,9 @@ type Store interface {
 	DeleteChannel(ctx context.Context, id string) error
 	SetChannelOrg(ctx context.Context, channelID, orgID string) error
 
-	// Plugins
+	// Plugins — read paths merge BuiltinPlugins() with DB override rows.
 	ListPlugins(ctx context.Context) ([]Plugin, error)
+	ListPluginOverrides(ctx context.Context) ([]Plugin, error)
 	ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error)
 	ListEnabledPlugins(ctx context.Context) ([]Plugin, error)
 	GetPlugin(ctx context.Context, id string) (Plugin, error)

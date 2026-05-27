@@ -59,6 +59,10 @@ func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return plugins, nil
 }
 
+func (s *stubStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, error) {
+	return s.ListPlugins(ctx)
+}
+
 func (s *stubStore) ListPluginsByKind(_ context.Context, kind string) ([]config.Plugin, error) {
 	plugins := make([]config.Plugin, 0, len(s.plugins))
 	for _, plugin := range s.plugins {

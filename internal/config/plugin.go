@@ -47,27 +47,71 @@ var BuiltinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, Sa
 // BuiltinStandalonePlugins lists plugins that don't follow the kind/name pattern.
 var BuiltinStandalonePlugins = []string{"reflect"}
 
+// BuiltinPlugin describes a code-defined plugin with its default enabled state.
+type BuiltinPlugin struct {
+	ID             string
+	Kind           string
+	Name           string
+	DefaultEnabled bool
+}
+
+// BuiltinPlugins returns the authoritative list of code-defined plugins.
+// DB rows in settings_plugin are optional overrides of enabled/config.
+func BuiltinPlugins() []BuiltinPlugin {
+	var out []BuiltinPlugin
+
+	for _, n := range BuiltinToolNames {
+		enabled := n != "mcp" && n != "webfetch"
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindTool, n), Kind: PluginKindTool, Name: n, DefaultEnabled: enabled})
+	}
+	for _, n := range BuiltinChannelNames {
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, n), Kind: PluginKindChannel, Name: n, DefaultEnabled: true})
+	}
+	for _, n := range BuiltinHookNames {
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindHook, n), Kind: PluginKindHook, Name: n, DefaultEnabled: true})
+	}
+	for _, n := range BuiltinMemoryNames {
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindMemory, n), Kind: PluginKindMemory, Name: n, DefaultEnabled: n != "simple"})
+	}
+	for _, n := range BuiltinSandboxNames {
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindSandbox, n), Kind: PluginKindSandbox, Name: n, DefaultEnabled: n == SandboxBackendLocal})
+	}
+	out = append(out, BuiltinPlugin{ID: "reflect", Kind: "reflect", Name: "reflect", DefaultEnabled: false})
+
+	return out
+}
+
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
 // Provider instances are stored separately in settings_provider.
 func BuiltinPluginIDs() []string {
-	ids := make([]string, 0, len(BuiltinToolNames)+len(BuiltinChannelNames)+len(BuiltinHookNames)+len(BuiltinMemoryNames)+len(BuiltinSandboxNames)+len(BuiltinStandalonePlugins))
-	for _, n := range BuiltinToolNames {
-		ids = append(ids, PluginID(PluginKindTool, n))
+	builtins := BuiltinPlugins()
+	ids := make([]string, len(builtins))
+	for i, b := range builtins {
+		ids[i] = b.ID
 	}
-	for _, n := range BuiltinChannelNames {
-		ids = append(ids, PluginID(PluginKindChannel, n))
-	}
-	for _, n := range BuiltinHookNames {
-		ids = append(ids, PluginID(PluginKindHook, n))
-	}
-	for _, n := range BuiltinMemoryNames {
-		ids = append(ids, PluginID(PluginKindMemory, n))
-	}
-	for _, n := range BuiltinSandboxNames {
-		ids = append(ids, PluginID(PluginKindSandbox, n))
-	}
-	ids = append(ids, BuiltinStandalonePlugins...)
 	return ids
+}
+
+// builtinPluginIndex builds a lookup map keyed by plugin ID.
+func builtinPluginIndex() map[string]BuiltinPlugin {
+	builtins := BuiltinPlugins()
+	m := make(map[string]BuiltinPlugin, len(builtins))
+	for _, b := range builtins {
+		m[b.ID] = b
+	}
+	return m
+}
+
+// IsBuiltinPlugin reports whether the given ID is a code-defined builtin.
+func IsBuiltinPlugin(id string) bool {
+	_, ok := builtinPluginIndex()[id]
+	return ok
+}
+
+// BuiltinPluginByID returns the builtin definition for the given ID.
+func BuiltinPluginByID(id string) (BuiltinPlugin, bool) {
+	b, ok := builtinPluginIndex()[id]
+	return b, ok
 }
 
 // ActiveSandboxBackend returns the name of the enabled sandbox backend plugin,

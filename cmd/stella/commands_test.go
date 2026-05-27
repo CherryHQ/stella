@@ -96,6 +96,10 @@ func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return nil, nil
 }
 
+func (commandTestStore) ListPluginOverrides(context.Context) ([]config.Plugin, error) {
+	return nil, nil
+}
+
 func (commandTestStore) ListPluginsByKind(context.Context, string) ([]config.Plugin, error) {
 	return nil, nil
 }
