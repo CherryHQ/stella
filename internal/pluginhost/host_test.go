@@ -100,7 +100,7 @@ func (s *stubStore) DeleteChatAgent(context.Context, string, string, string) err
 func (s *stubStore) GetSetting(context.Context, string) (string, error)                 { return "", nil }
 func (s *stubStore) SetSetting(context.Context, string, string) error                   { return nil }
 func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)         { return nil, nil }
-func (s *stubStore) SeedDefaults(context.Context, string) error                         { return nil }
+func (s *stubStore) SeedNewOrg(context.Context, string) error                           { return nil }
 
 func TestConfigServiceUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true, Config: map[string]any{"x": 1}}}}

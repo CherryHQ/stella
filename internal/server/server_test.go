@@ -70,8 +70,8 @@ func ensureTemplateDB() string {
 			panic(fmt.Sprintf("ensureTemplateDB: EnsureDefaultOrg: %v", err))
 		}
 		store := cfgstore.NewDBStore(db)
-		if err := store.SeedDefaults(ctx, orgID); err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: SeedDefaults: %v", err))
+		if err := store.SeedNewOrg(ctx, orgID); err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: SeedNewOrg: %v", err))
 		}
 		if err := db.Close(); err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: Close: %v", err))
@@ -132,7 +132,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
 	orgCtx := config.WithOrgID(context.Background(), orgID)
-	_ = store.SeedDefaults(orgCtx, orgID)
+	_ = store.SeedNewOrg(orgCtx, orgID)
 	as := appdb.NewAuthStore(db)
 
 	engine, err := auth.NewEngine(orgCtx, as)
