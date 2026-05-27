@@ -13,6 +13,7 @@ const en = {
   "nav.settings": "Settings",
   "nav.recally": "Recally",
   "nav.docs": "Docs",
+  "nav.apiReferences": "API References",
 
   // Common actions
   "common.cancel": "Cancel",
@@ -564,6 +565,7 @@ const zh: Record<MessageKey, string> = {
   "nav.settings": "设置",
   "nav.recally": "忆读",
   "nav.docs": "文档",
+  "nav.apiReferences": "API 文档",
 
   // Common actions
   "common.cancel": "取消",
