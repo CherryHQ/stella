@@ -235,7 +235,7 @@ func (s *AuthService) EnsureMembership(ctx context.Context, userID string) (Memb
 			return Membership{}, fmt.Errorf("auth: seed new org: %w", err)
 		}
 	}
-	if s.userSeeder != nil {
+	if needsSeedOrgID != "" && s.userSeeder != nil {
 		if err := s.userSeeder.SeedUser(ctx, userID, m.OrganizationID); err != nil {
 			return Membership{}, fmt.Errorf("auth: seed user: %w", err)
 		}

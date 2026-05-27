@@ -468,7 +468,7 @@ func (s *DBStore) GetPlugin(ctx context.Context, id string) (config.Plugin, erro
 		}
 		return p, nil
 	}
-	if isBuiltin {
+	if isBuiltin && errors.Is(dbErr, sql.ErrNoRows) {
 		return config.Plugin{
 			ID:      builtin.ID,
 			Kind:    builtin.Kind,
@@ -505,41 +505,21 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
 }
 
 func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool) error {
-	orgID, err := requireOrgID(ctx)
+	p, err := s.GetPlugin(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("set plugin enabled: %w", err)
 	}
-	v := int64(0)
-	if enabled {
-		v = 1
-	}
-	kind, name := pluginKindName(id)
-	return s.q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{
-		ID:      id,
-		Kind:    kind,
-		Name:    name,
-		Enabled: v,
-		OrgID:   orgID,
-	})
+	p.Enabled = enabled
+	return s.UpsertPlugin(ctx, p)
 }
 
 func (s *DBStore) SetPluginConfig(ctx context.Context, id string, cfg map[string]any) error {
-	orgID, err := requireOrgID(ctx)
+	p, err := s.GetPlugin(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("set plugin config: %w", err)
 	}
-	configJSON, err := json.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshal plugin config %q: %w", id, err)
-	}
-	kind, name := pluginKindName(id)
-	return s.q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
-		ID:     id,
-		Kind:   kind,
-		Name:   name,
-		Config: string(configJSON),
-		OrgID:  orgID,
-	})
+	p.Config = cfg
+	return s.UpsertPlugin(ctx, p)
 }
 
 func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
@@ -600,20 +580,6 @@ func (s *DBStore) mergedPlugins(ctx context.Context, orgID string, filter func(c
 	}
 
 	return out, nil
-}
-
-// pluginKindName derives kind and name for a plugin ID.
-// For builtins, returns the authoritative values. For others, parses "kind/name".
-func pluginKindName(id string) (kind, name string) {
-	if b, ok := config.BuiltinPluginByID(id); ok {
-		return b.Kind, b.Name
-	}
-	for i, c := range id {
-		if c == '/' {
-			return id[:i], id[i+1:]
-		}
-	}
-	return id, id
 }
 
 // --- Chat Agents ---
@@ -895,7 +861,18 @@ func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error 
 }
 
 func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
+	existing, err := s.q.ListProviders(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("seed: list providers: %w", err)
+	}
+	existingTypes := make(map[string]bool, len(existing))
+	for _, r := range existing {
+		existingTypes[r.Type] = true
+	}
 	for _, name := range config.BuiltinProviderNames {
+		if existingTypes[name] {
+			continue
+		}
 		provider := config.Provider{
 			ID:      name,
 			Type:    name,
