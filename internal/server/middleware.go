@@ -24,10 +24,11 @@ type AuthInfo struct {
 	Role     string `json:"role"`
 	IsAdmin  bool   `json:"is_admin"`
 	// OIDC principal fields; empty for legacy (password-based) sessions.
-	Email     string `json:"email,omitempty"`
-	Name      string `json:"name,omitempty"`
-	AvatarURL string `json:"avatar_url,omitempty"`
-	OrgID     string `json:"org_id,omitempty"`
+	Email           string `json:"email,omitempty"`
+	Name            string `json:"name,omitempty"`
+	AvatarURL       string `json:"avatar_url,omitempty"`
+	OrgID           string `json:"org_id,omitempty"`
+	NeedsOnboarding bool   `json:"needs_onboarding,omitempty"`
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -72,24 +73,35 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
-		if info := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); info != nil {
-			s.ensureOrgRuntime(ctx, info.OrgID)
-			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
+
+		var info *AuthInfo
+		if i := s.authInfoFromBearer(ctx, r.Header.Get("Authorization")); i != nil {
+			info = i
+		} else if i := s.authInfoFromOIDCSession(ctx, r); i != nil {
+			info = i
+		}
+
+		if info == nil {
+			if path == "/api/status" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			auth.ClearSessionCookie(w)
+			s.denyAccess(w, r)
 			return
 		}
 
-		if info := s.authInfoFromOIDCSession(ctx, r); info != nil {
-			s.ensureOrgRuntime(ctx, info.OrgID)
-			next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
+		if info.NeedsOnboarding && !isOnboardingAllowed(path) {
+			if isAPIRoute(path) {
+				writeError(w, http.StatusForbidden, "onboarding_required")
+			} else {
+				http.Redirect(w, r, "/onboarding", http.StatusFound)
+			}
 			return
 		}
 
-		if path == "/api/status" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		auth.ClearSessionCookie(w)
-		s.denyAccess(w, r)
+		s.ensureOrgRuntime(ctx, info.OrgID)
+		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 	})
 }
 
@@ -101,19 +113,20 @@ func (s *Server) authInfoFromOIDCSession(ctx context.Context, r *http.Request) *
 	if err != nil {
 		return nil
 	}
-	principal, err := s.authSvc.PrincipalFromToken(ctx, rawToken)
+	principal, hasMembership, err := s.authSvc.PrincipalFromTokenPartial(ctx, rawToken)
 	if err != nil {
 		return nil
 	}
 	return &AuthInfo{
-		UserID:    principal.UserID,
-		Username:  principal.Email,
-		Role:      principal.Role,
-		IsAdmin:   principal.Role == "admin",
-		Email:     principal.Email,
-		Name:      principal.Name,
-		AvatarURL: principal.AvatarURL,
-		OrgID:     principal.OrgID,
+		UserID:          principal.UserID,
+		Username:        principal.Email,
+		Role:            principal.Role,
+		IsAdmin:         principal.Role == "admin",
+		Email:           principal.Email,
+		Name:            principal.Name,
+		AvatarURL:       principal.AvatarURL,
+		OrgID:           principal.OrgID,
+		NeedsOnboarding: !hasMembership,
 	}
 }
 
@@ -136,7 +149,17 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 		return nil
 	}
 	membership, err := s.memberships.GetUserMembership(ctx, user.ID)
-	if err != nil || !membership.IsActive {
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &AuthInfo{
+				UserID:          user.ID,
+				Username:        user.Email,
+				NeedsOnboarding: true,
+			}
+		}
+		return nil
+	}
+	if !membership.IsActive {
 		return nil
 	}
 	return &AuthInfo{
@@ -149,11 +172,16 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 }
 
 // requireAuth extracts the authenticated user from the request context.
-// Returns nil and writes a 401 error if the user is not authenticated.
+// Returns nil and writes a 401 error if the user is not authenticated,
+// or a 403 if the user still needs onboarding.
 func requireAuth(w http.ResponseWriter, r *http.Request) *AuthInfo {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil
+	}
+	if info.NeedsOnboarding {
+		writeError(w, http.StatusForbidden, "onboarding_required")
 		return nil
 	}
 	return info
@@ -189,6 +217,25 @@ func (s *Server) denyAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 	} else {
 		http.Redirect(w, r, "/login", http.StatusFound)
+	}
+}
+
+// isOnboardingAllowed returns true for paths accessible to users who have a
+// session but no org membership yet (i.e. NeedsOnboarding is true).
+func isOnboardingAllowed(path string) bool {
+	switch {
+	case path == "/onboarding":
+		return true
+	case path == "/api/auth/me":
+		return true
+	case path == "/api/auth/logout":
+		return true
+	case strings.HasPrefix(path, "/api/auth/onboarding"):
+		return true
+	case strings.HasSuffix(path, "/info") && strings.HasPrefix(path, "/api/auth/invites/"):
+		return true
+	default:
+		return false
 	}
 }
 
