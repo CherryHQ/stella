@@ -40,6 +40,7 @@ components:
         org_id: { type: string }
         org_name: { type: string }
         has_credentials: { type: boolean }
+        needs_onboarding: { type: boolean }
 
     UpdateOrgRequest:
       type: object
@@ -85,3 +86,44 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OIDCProvider"
+
+    OnboardingStatus:
+      type: object
+      required: [needs_onboarding]
+      properties:
+        needs_onboarding: { type: boolean }
+        email: { type: string }
+        name: { type: string }
+        invite_token: { type: string }
+        pending_invites:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingInvite"
+
+    PendingInvite:
+      type: object
+      required: [id, org_name, role, expires_at]
+      properties:
+        id: { type: string }
+        org_name: { type: string }
+        role: { type: string }
+        email: { type: string }
+        expires_at: { type: string, format: date-time }
+
+    CreateWorkspaceInput:
+      type: object
+      properties:
+        name: { type: string }
+
+    WorkspaceCreated:
+      type: object
+      required: [org_id, org_name]
+      properties:
+        org_id: { type: string }
+        org_name: { type: string }
+
+    RedeemInviteInput:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }

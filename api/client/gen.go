@@ -142,6 +142,9 @@ type CreateSessionRequest = externalRef0.CreateSessionRequest
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest = externalRef0.CreateSkillRequest
 
+// CreateWorkspaceInput defines model for CreateWorkspaceInput.
+type CreateWorkspaceInput = externalRef0.CreateWorkspaceInput
+
 // DeleteFileResult defines model for DeleteFileResult.
 type DeleteFileResult = externalRef0.DeleteFileResult
 
@@ -226,6 +229,12 @@ type OAuthProviderConfigInput = externalRef0.OAuthProviderConfigInput
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus = externalRef0.OAuthProviderStatus
 
+// OnboardingStatus defines model for OnboardingStatus.
+type OnboardingStatus = externalRef0.OnboardingStatus
+
+// PendingInvite defines model for PendingInvite.
+type PendingInvite = externalRef0.PendingInvite
+
 // PluginView defines model for PluginView.
 type PluginView = externalRef0.PluginView
 
@@ -252,6 +261,9 @@ type PublicChannel = externalRef0.PublicChannel
 
 // PublicChannelList defines model for PublicChannelList.
 type PublicChannelList = externalRef0.PublicChannelList
+
+// RedeemInviteInput defines model for RedeemInviteInput.
+type RedeemInviteInput = externalRef0.RedeemInviteInput
 
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest = externalRef0.RegisterRequest
@@ -378,6 +390,9 @@ type WeixinQRCode = externalRef0.WeixinQRCode
 
 // WeixinQRStatus defines model for WeixinQRStatus.
 type WeixinQRStatus = externalRef0.WeixinQRStatus
+
+// WorkspaceCreated defines model for WorkspaceCreated.
+type WorkspaceCreated = externalRef0.WorkspaceCreated
 
 // WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
 type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
@@ -627,6 +642,12 @@ type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody = externalRef0.CreateInviteRequest
+
+// CreateWorkspaceJSONRequestBody defines body for CreateWorkspace for application/json ContentType.
+type CreateWorkspaceJSONRequestBody = externalRef0.CreateWorkspaceInput
+
+// RedeemInviteOnboardingJSONRequestBody defines body for RedeemInviteOnboarding for application/json ContentType.
+type RedeemInviteOnboardingJSONRequestBody = externalRef0.RedeemInviteInput
 
 // UpdateOrgJSONRequestBody defines body for UpdateOrg for application/json ContentType.
 type UpdateOrgJSONRequestBody = externalRef0.UpdateOrgRequest
@@ -1003,6 +1024,19 @@ type ClientInterface interface {
 
 	// GetMe request
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetOnboardingStatus request
+	GetOnboardingStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateWorkspaceWithBody request with any body
+	CreateWorkspaceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateWorkspace(ctx context.Context, body CreateWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RedeemInviteOnboardingWithBody request with any body
+	RedeemInviteOnboardingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RedeemInviteOnboarding(ctx context.Context, body RedeemInviteOnboardingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateOrgWithBody request with any body
 	UpdateOrgWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2278,6 +2312,66 @@ func (c *Client) Logout(ctx context.Context, reqEditors ...RequestEditorFn) (*ht
 
 func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetOnboardingStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetOnboardingStatusRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateWorkspaceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkspaceRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateWorkspace(ctx context.Context, body CreateWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkspaceRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RedeemInviteOnboardingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRedeemInviteOnboardingRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RedeemInviteOnboarding(ctx context.Context, body RedeemInviteOnboardingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRedeemInviteOnboardingRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6643,6 +6737,113 @@ func NewGetMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetOnboardingStatusRequest generates requests for GetOnboardingStatus
+func NewGetOnboardingStatusRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/onboarding")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateWorkspaceRequest calls the generic CreateWorkspace builder with application/json body
+func NewCreateWorkspaceRequest(server string, body CreateWorkspaceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateWorkspaceRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateWorkspaceRequestWithBody generates requests for CreateWorkspace with any type of body
+func NewCreateWorkspaceRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/onboarding/create-workspace")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRedeemInviteOnboardingRequest calls the generic RedeemInviteOnboarding builder with application/json body
+func NewRedeemInviteOnboardingRequest(server string, body RedeemInviteOnboardingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRedeemInviteOnboardingRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRedeemInviteOnboardingRequestWithBody generates requests for RedeemInviteOnboarding with any type of body
+func NewRedeemInviteOnboardingRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/onboarding/redeem-invite")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewUpdateOrgRequest calls the generic UpdateOrg builder with application/json body
 func NewUpdateOrgRequest(server string, body UpdateOrgJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -10462,6 +10663,19 @@ type ClientWithResponsesInterface interface {
 	// GetMeWithResponse request
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
 
+	// GetOnboardingStatusWithResponse request
+	GetOnboardingStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetOnboardingStatusResponse, error)
+
+	// CreateWorkspaceWithBodyWithResponse request with any body
+	CreateWorkspaceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkspaceResponse, error)
+
+	CreateWorkspaceWithResponse(ctx context.Context, body CreateWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkspaceResponse, error)
+
+	// RedeemInviteOnboardingWithBodyWithResponse request with any body
+	RedeemInviteOnboardingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RedeemInviteOnboardingResponse, error)
+
+	RedeemInviteOnboardingWithResponse(ctx context.Context, body RedeemInviteOnboardingJSONRequestBody, reqEditors ...RequestEditorFn) (*RedeemInviteOnboardingResponse, error)
+
 	// UpdateOrgWithBodyWithResponse request with any body
 	UpdateOrgWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateOrgResponse, error)
 
@@ -12696,6 +12910,100 @@ func (r GetMeResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetMeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetOnboardingStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *externalRef0.OnboardingStatus
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r GetOnboardingStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetOnboardingStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetOnboardingStatusResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateWorkspaceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *externalRef0.WorkspaceCreated
+	JSON401      *externalRef0.Unauthorized
+	JSON409      *externalRef0.Error
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateWorkspaceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateWorkspaceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateWorkspaceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RedeemInviteOnboardingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *externalRef0.Error
+	JSON401      *externalRef0.Unauthorized
+}
+
+// Status returns HTTPResponse.Status
+func (r RedeemInviteOnboardingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RedeemInviteOnboardingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RedeemInviteOnboardingResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -16244,6 +16552,49 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 		return nil, err
 	}
 	return ParseGetMeResponse(rsp)
+}
+
+// GetOnboardingStatusWithResponse request returning *GetOnboardingStatusResponse
+func (c *ClientWithResponses) GetOnboardingStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetOnboardingStatusResponse, error) {
+	rsp, err := c.GetOnboardingStatus(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetOnboardingStatusResponse(rsp)
+}
+
+// CreateWorkspaceWithBodyWithResponse request with arbitrary body returning *CreateWorkspaceResponse
+func (c *ClientWithResponses) CreateWorkspaceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkspaceResponse, error) {
+	rsp, err := c.CreateWorkspaceWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkspaceResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateWorkspaceWithResponse(ctx context.Context, body CreateWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkspaceResponse, error) {
+	rsp, err := c.CreateWorkspace(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkspaceResponse(rsp)
+}
+
+// RedeemInviteOnboardingWithBodyWithResponse request with arbitrary body returning *RedeemInviteOnboardingResponse
+func (c *ClientWithResponses) RedeemInviteOnboardingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RedeemInviteOnboardingResponse, error) {
+	rsp, err := c.RedeemInviteOnboardingWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRedeemInviteOnboardingResponse(rsp)
+}
+
+func (c *ClientWithResponses) RedeemInviteOnboardingWithResponse(ctx context.Context, body RedeemInviteOnboardingJSONRequestBody, reqEditors ...RequestEditorFn) (*RedeemInviteOnboardingResponse, error) {
+	rsp, err := c.RedeemInviteOnboarding(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRedeemInviteOnboardingResponse(rsp)
 }
 
 // UpdateOrgWithBodyWithResponse request with arbitrary body returning *UpdateOrgResponse
@@ -19817,6 +20168,112 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetOnboardingStatusResponse parses an HTTP response from a GetOnboardingStatusWithResponse call
+func ParseGetOnboardingStatusResponse(rsp *http.Response) (*GetOnboardingStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetOnboardingStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest externalRef0.OnboardingStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateWorkspaceResponse parses an HTTP response from a CreateWorkspaceWithResponse call
+func ParseCreateWorkspaceResponse(rsp *http.Response) (*CreateWorkspaceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateWorkspaceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest externalRef0.WorkspaceCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest externalRef0.Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRedeemInviteOnboardingResponse parses an HTTP response from a RedeemInviteOnboardingWithResponse call
+func ParseRedeemInviteOnboardingResponse(rsp *http.Response) (*RedeemInviteOnboardingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RedeemInviteOnboardingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Unauthorized

@@ -140,6 +140,9 @@ type CreateSessionRequest = externalRef0.CreateSessionRequest
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest = externalRef0.CreateSkillRequest
 
+// CreateWorkspaceInput defines model for CreateWorkspaceInput.
+type CreateWorkspaceInput = externalRef0.CreateWorkspaceInput
+
 // DeleteFileResult defines model for DeleteFileResult.
 type DeleteFileResult = externalRef0.DeleteFileResult
 
@@ -224,6 +227,12 @@ type OAuthProviderConfigInput = externalRef0.OAuthProviderConfigInput
 // OAuthProviderStatus defines model for OAuthProviderStatus.
 type OAuthProviderStatus = externalRef0.OAuthProviderStatus
 
+// OnboardingStatus defines model for OnboardingStatus.
+type OnboardingStatus = externalRef0.OnboardingStatus
+
+// PendingInvite defines model for PendingInvite.
+type PendingInvite = externalRef0.PendingInvite
+
 // PluginView defines model for PluginView.
 type PluginView = externalRef0.PluginView
 
@@ -250,6 +259,9 @@ type PublicChannel = externalRef0.PublicChannel
 
 // PublicChannelList defines model for PublicChannelList.
 type PublicChannelList = externalRef0.PublicChannelList
+
+// RedeemInviteInput defines model for RedeemInviteInput.
+type RedeemInviteInput = externalRef0.RedeemInviteInput
 
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest = externalRef0.RegisterRequest
@@ -376,6 +388,9 @@ type WeixinQRCode = externalRef0.WeixinQRCode
 
 // WeixinQRStatus defines model for WeixinQRStatus.
 type WeixinQRStatus = externalRef0.WeixinQRStatus
+
+// WorkspaceCreated defines model for WorkspaceCreated.
+type WorkspaceCreated = externalRef0.WorkspaceCreated
 
 // WorkspaceUploadResponse defines model for WorkspaceUploadResponse.
 type WorkspaceUploadResponse = externalRef0.WorkspaceUploadResponse
@@ -625,6 +640,12 @@ type AssignAgentUserJSONRequestBody = externalRef0.AssignAgentUserRequest
 
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody = externalRef0.CreateInviteRequest
+
+// CreateWorkspaceJSONRequestBody defines body for CreateWorkspace for application/json ContentType.
+type CreateWorkspaceJSONRequestBody = externalRef0.CreateWorkspaceInput
+
+// RedeemInviteOnboardingJSONRequestBody defines body for RedeemInviteOnboarding for application/json ContentType.
+type RedeemInviteOnboardingJSONRequestBody = externalRef0.RedeemInviteInput
 
 // UpdateOrgJSONRequestBody defines body for UpdateOrg for application/json ContentType.
 type UpdateOrgJSONRequestBody = externalRef0.UpdateOrgRequest
@@ -889,6 +910,15 @@ type ServerInterface interface {
 	// Get the currently authenticated user
 	// (GET /api/auth/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// Get onboarding status for the current user
+	// (GET /api/auth/onboarding)
+	GetOnboardingStatus(w http.ResponseWriter, r *http.Request)
+	// Create a new workspace (org) for the current user
+	// (POST /api/auth/onboarding/create-workspace)
+	CreateWorkspace(w http.ResponseWriter, r *http.Request)
+	// Redeem an invite token during onboarding
+	// (POST /api/auth/onboarding/redeem-invite)
+	RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request)
 	// Update the current user's organization name
 	// (PATCH /api/auth/org)
 	UpdateOrg(w http.ResponseWriter, r *http.Request)
@@ -3645,6 +3675,66 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOnboardingStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOnboardingStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWorkspace(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RedeemInviteOnboarding operation middleware
+func (siw *ServerInterfaceWrapper) RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RedeemInviteOnboarding(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6612,6 +6702,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/invites/{token}/info", wrapper.GetInviteInfo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/onboarding", wrapper.GetOnboardingStatus)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/onboarding/create-workspace", wrapper.CreateWorkspace)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/onboarding/redeem-invite", wrapper.RedeemInviteOnboarding)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/auth/org", wrapper.UpdateOrg)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/profile/identities", wrapper.ListProfileIdentities)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/profile/identities/{id}", wrapper.UnlinkProfileIdentity)

@@ -188,6 +188,16 @@ export type AuthResponse = ComponentsAuthResponse;
 
 export type MeResponse = ComponentsMeResponse;
 
+export type OnboardingStatus = ComponentsOnboardingStatus;
+
+export type PendingInvite = ComponentsPendingInvite;
+
+export type CreateWorkspaceInput = ComponentsCreateWorkspaceInput;
+
+export type WorkspaceCreated = ComponentsWorkspaceCreated;
+
+export type RedeemInviteInput = ComponentsRedeemInviteInput;
+
 export type UpdateOrgRequest = ComponentsUpdateOrgRequest;
 
 export type AuthSession = ComponentsAuthSession;
@@ -570,6 +580,10 @@ export type ComponentsCreateSkillRequest = {
   };
 };
 
+export type ComponentsCreateWorkspaceInput = {
+  name?: string;
+};
+
 export type ComponentsDeleteFileResult = {
   path?: string;
 };
@@ -847,6 +861,7 @@ export type ComponentsMeResponse = {
   org_id?: string;
   org_name?: string;
   has_credentials?: boolean;
+  needs_onboarding?: boolean;
 };
 
 export type MessagePart = {
@@ -922,6 +937,22 @@ export type OidcProvider = {
 
 export type OidcProviderList = {
   items: Array<OidcProvider>;
+};
+
+export type ComponentsOnboardingStatus = {
+  needs_onboarding: boolean;
+  email?: string;
+  name?: string;
+  invite_token?: string;
+  pending_invites?: Array<ComponentsPendingInvite>;
+};
+
+export type ComponentsPendingInvite = {
+  id: string;
+  org_name: string;
+  role: string;
+  email?: string;
+  expires_at: string;
 };
 
 export type ComponentsPluginView = {
@@ -1015,6 +1046,10 @@ export type ComponentsPublicChannel = {
 
 export type ComponentsPublicChannelList = {
   items: Array<ComponentsPublicChannel>;
+};
+
+export type ComponentsRedeemInviteInput = {
+  token: string;
 };
 
 export type ComponentsRegisterRequest = {
@@ -1394,6 +1429,11 @@ export type WorkspaceCreateRequest = {
   content?: string;
 };
 
+export type ComponentsWorkspaceCreated = {
+  org_id: string;
+  org_name: string;
+};
+
 export type WorkspaceDeleteRequest = {
   /**
    * Relative path of the file or directory to delete
@@ -1473,6 +1513,12 @@ export type _1Api1Agents1Id1Users1UserId = unknown;
 export type _1Api1Auth1Logout = unknown;
 
 export type _1Api1Auth1Me = unknown;
+
+export type _1Api1Auth1Onboarding = unknown;
+
+export type _1Api1Auth1Onboarding1CreateWorkspace = unknown;
+
+export type _1Api1Auth1Onboarding1RedeemInvite = unknown;
 
 export type _1Api1Auth1Org = unknown;
 
@@ -1775,6 +1821,101 @@ export type UpdateOrgResponses = {
 };
 
 export type UpdateOrgResponse = UpdateOrgResponses[keyof UpdateOrgResponses];
+
+export type GetOnboardingStatusData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/api/auth/onboarding";
+};
+
+export type GetOnboardingStatusErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type GetOnboardingStatusError =
+  GetOnboardingStatusErrors[keyof GetOnboardingStatusErrors];
+
+export type GetOnboardingStatusResponses = {
+  /**
+   * ok
+   */
+  200: ComponentsOnboardingStatus;
+};
+
+export type GetOnboardingStatusResponse =
+  GetOnboardingStatusResponses[keyof GetOnboardingStatusResponses];
+
+export type CreateWorkspaceData = {
+  body: ComponentsCreateWorkspaceInput;
+  path?: never;
+  query?: never;
+  url: "/api/auth/onboarding/create-workspace";
+};
+
+export type CreateWorkspaceErrors = {
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+  /**
+   * user already has a workspace
+   */
+  409: ComponentsError;
+};
+
+export type CreateWorkspaceError =
+  CreateWorkspaceErrors[keyof CreateWorkspaceErrors];
+
+export type CreateWorkspaceResponses = {
+  /**
+   * workspace created
+   */
+  201: ComponentsWorkspaceCreated;
+};
+
+export type CreateWorkspaceResponse =
+  CreateWorkspaceResponses[keyof CreateWorkspaceResponses];
+
+export type RedeemInviteOnboardingData = {
+  body: ComponentsRedeemInviteInput;
+  path?: never;
+  query?: never;
+  url: "/api/auth/onboarding/redeem-invite";
+};
+
+export type RedeemInviteOnboardingErrors = {
+  /**
+   * invalid or expired invite
+   */
+  400: ComponentsError;
+  /**
+   * missing or invalid bearer token
+   */
+  401: {
+    error: string;
+  };
+};
+
+export type RedeemInviteOnboardingError =
+  RedeemInviteOnboardingErrors[keyof RedeemInviteOnboardingErrors];
+
+export type RedeemInviteOnboardingResponses = {
+  /**
+   * invite redeemed
+   */
+  204: void;
+};
+
+export type RedeemInviteOnboardingResponse =
+  RedeemInviteOnboardingResponses[keyof RedeemInviteOnboardingResponses];
 
 export type ListAuthSessionsData = {
   body?: never;

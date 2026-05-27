@@ -47,6 +47,9 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if info.NeedsOnboarding {
+		resp["needs_onboarding"] = true
+	}
 	if s.credentials != nil {
 		_, err := s.credentials.GetCredentialByUserID(r.Context(), info.UserID)
 		resp["has_credentials"] = err == nil
@@ -114,6 +117,111 @@ func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeListData(w, http.StatusOK, items)
+}
+
+// GetOnboardingStatus handles GET /api/auth/onboarding.
+func (s *Server) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	resp := map[string]any{
+		"needs_onboarding": info.NeedsOnboarding,
+		"email":            info.Email,
+		"name":             info.Name,
+	}
+
+	if token := readInviteCookie(r); token != "" {
+		resp["invite_token"] = token
+	}
+
+	if info.Email != "" && s.authSvc != nil {
+		invites, err := s.authSvc.ListPendingInvitesForEmail(r.Context(), info.Email)
+		if err == nil && len(invites) > 0 {
+			pending := make([]map[string]any, len(invites))
+			for i, inv := range invites {
+				pending[i] = map[string]any{
+					"id":         inv.Invite.ID,
+					"org_name":   inv.OrgName,
+					"role":       inv.Invite.Role,
+					"email":      inv.Invite.Email,
+					"expires_at": inv.Invite.ExpiresAt,
+				}
+			}
+			resp["pending_invites"] = pending
+		}
+	}
+
+	writeData(w, http.StatusOK, resp)
+}
+
+// CreateWorkspace handles POST /api/auth/onboarding/create-workspace.
+func (s *Server) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if !info.NeedsOnboarding {
+		writeError(w, http.StatusConflict, "user already has a workspace")
+		return
+	}
+
+	var req apiserver.CreateWorkspaceJSONRequestBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	orgName := ""
+	if req.Name != nil {
+		orgName = *req.Name
+	}
+
+	membership, err := s.authSvc.CreateWorkspace(r.Context(), info.UserID, orgName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := s.authSvc.InitOrg(r.Context(), membership.OrganizationID); err != nil {
+		s.log.Warn("onboarding: org runtime init failed", "org_id", membership.OrganizationID, "error", err)
+	}
+
+	org, _ := s.organizations.GetOrganization(r.Context(), membership.OrganizationID)
+	writeData(w, http.StatusCreated, map[string]any{
+		"org_id":   membership.OrganizationID,
+		"org_name": org.Name,
+	})
+}
+
+// RedeemInviteOnboarding handles POST /api/auth/onboarding/redeem-invite.
+func (s *Server) RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if !info.NeedsOnboarding {
+		writeError(w, http.StatusConflict, "user already has a workspace")
+		return
+	}
+
+	var req apiserver.RedeemInviteOnboardingJSONRequestBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := s.authSvc.RedeemInvite(r.Context(), req.Token, info.UserID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	clearInviteCookie(w)
+	writeNoContent(w)
 }
 
 // DeleteAuthSession handles DELETE /api/auth/sessions/{id}.

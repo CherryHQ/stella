@@ -53,9 +53,12 @@ import type {
   CreateShareData,
   CreateShareErrors,
   CreateShareResponses,
+  CreateWorkspaceData,
+  CreateWorkspaceErrors,
   CreateWorkspaceFileData,
   CreateWorkspaceFileErrors,
   CreateWorkspaceFileResponses,
+  CreateWorkspaceResponses,
   DeleteAgentData,
   DeleteAgentErrors,
   DeleteAgentResponses,
@@ -158,6 +161,9 @@ import type {
   GetOAuthProviderConfigData,
   GetOAuthProviderConfigErrors,
   GetOAuthProviderConfigResponses,
+  GetOnboardingStatusData,
+  GetOnboardingStatusErrors,
+  GetOnboardingStatusResponses,
   GetPluginConfigData,
   GetPluginConfigErrors,
   GetPluginConfigResponses,
@@ -332,6 +338,9 @@ import type {
   PollWeixinQrStatusData,
   PollWeixinQrStatusErrors,
   PollWeixinQrStatusResponses,
+  RedeemInviteOnboardingData,
+  RedeemInviteOnboardingErrors,
+  RedeemInviteOnboardingResponses,
   RemoveAgentUserData,
   RemoveAgentUserErrors,
   RemoveAgentUserResponses,
@@ -532,6 +541,62 @@ export const updateOrg = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/api/auth/org",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Get onboarding status for the current user
+ */
+export const getOnboardingStatus = <ThrowOnError extends boolean = false>(
+  options?: Options<GetOnboardingStatusData, ThrowOnError>,
+) =>
+  (options?.client ?? client).get<
+    GetOnboardingStatusResponses,
+    GetOnboardingStatusErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/onboarding",
+    ...options,
+  });
+
+/**
+ * Create a new workspace (org) for the current user
+ */
+export const createWorkspace = <ThrowOnError extends boolean = false>(
+  options: Options<CreateWorkspaceData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    CreateWorkspaceResponses,
+    CreateWorkspaceErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/onboarding/create-workspace",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Redeem an invite token during onboarding
+ */
+export const redeemInviteOnboarding = <ThrowOnError extends boolean = false>(
+  options: Options<RedeemInviteOnboardingData, ThrowOnError>,
+) =>
+  (options.client ?? client).post<
+    RedeemInviteOnboardingResponses,
+    RedeemInviteOnboardingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/api/auth/onboarding/redeem-invite",
     ...options,
     headers: {
       "Content-Type": "application/json",
