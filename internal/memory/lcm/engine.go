@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -317,7 +318,7 @@ func decodeToolCall(content string) (ai.ToolCall, bool) {
 func rowToToolResult(msg sqlc.CtxMessage) ai.ToolResultMessage {
 	var env toolResultEnvelope
 	if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
-		// Legacy fallback: plain text tool result.
+		slog.Warn("corrupt tool result row: content is not valid JSON", "msg_id", msg.ID, "error", err)
 		return ai.ToolResultMessage{
 			Content: []ai.ContentBlock{ai.TextContent{Text: msg.Content}},
 		}

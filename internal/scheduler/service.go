@@ -45,7 +45,6 @@ type Service struct {
 	db              *sql.DB
 	q               *sqlc.Queries
 	ownsDB          bool            // true when Service opened the DB itself
-	dataPath        string          // legacy data dir for jobs.json migration
 	ctx             context.Context // lifecycle context from Start
 	mu              sync.Mutex
 	jobs            map[string]Job
@@ -97,12 +96,6 @@ func NewFromPath(dbPath string) (*Service, error) {
 	return svc, nil
 }
 
-// SetLegacyDataPath sets the directory where the legacy jobs.json file may
-// exist. If set, Start will attempt a one-time migration from file to DB.
-func (s *Service) SetLegacyDataPath(path string) {
-	s.dataPath = path
-}
-
 // SetUserJobsEnabled controls whether persisted user-owned and all_users scheduler jobs are loaded.
 func (s *Service) SetUserJobsEnabled(enabled bool) {
 	s.mu.Lock()
@@ -147,17 +140,6 @@ func (s *Service) StartEphemeral(ctx context.Context) error {
 }
 
 func (s *Service) start(ctx context.Context, loadPersisted bool) error {
-	if loadPersisted && s.dataPath != "" {
-		if err := s.migrateJobsFile(ctx, s.dataPath); err != nil {
-			s.log.Warn("failed to migrate legacy jobs.json", "error", err)
-		}
-	}
-	if loadPersisted {
-		if err := s.migrateLegacyPluginJobs(ctx); err != nil {
-			return fmt.Errorf("migrate legacy plugin jobs: %w", err)
-		}
-	}
-
 	var jobs []Job
 	var err error
 	if loadPersisted {

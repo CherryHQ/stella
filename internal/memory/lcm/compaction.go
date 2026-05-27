@@ -154,7 +154,7 @@ func findMessageRuns(items []sqlc.CtxItem, minSize int) []messageRun {
 // formatMessageForSummarizer formats a CtxMessage for compaction summarization.
 // Tool results and tool calls are rendered compactly; all other messages keep
 // the original [role] content shape. On any JSON unmarshal error the original
-// format is returned as a safe fallback (handles legacy rows).
+// format is returned as a safe fallback on JSON parse errors.
 func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 	switch msg.EventType {
 	case eventTypeToolResult:
