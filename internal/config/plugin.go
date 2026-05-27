@@ -1,5 +1,7 @@
 package config
 
+import "sync"
+
 // Plugin kind constants.
 const (
 	PluginKindTool     = "tool"
@@ -92,15 +94,15 @@ func BuiltinPluginIDs() []string {
 	return ids
 }
 
-// builtinPluginIndex builds a lookup map keyed by plugin ID.
-func builtinPluginIndex() map[string]BuiltinPlugin {
+// builtinPluginIndex returns a lookup map keyed by plugin ID, computed once.
+var builtinPluginIndex = sync.OnceValue(func() map[string]BuiltinPlugin {
 	builtins := BuiltinPlugins()
 	m := make(map[string]BuiltinPlugin, len(builtins))
 	for _, b := range builtins {
 		m[b.ID] = b
 	}
 	return m
-}
+})
 
 // IsBuiltinPlugin reports whether the given ID is a code-defined builtin.
 func IsBuiltinPlugin(id string) bool {
@@ -110,7 +112,8 @@ func IsBuiltinPlugin(id string) bool {
 
 // BuiltinPluginByID returns the builtin definition for the given ID.
 func BuiltinPluginByID(id string) (BuiltinPlugin, bool) {
-	b, ok := builtinPluginIndex()[id]
+	idx := builtinPluginIndex()
+	b, ok := idx[id]
 	return b, ok
 }
 
