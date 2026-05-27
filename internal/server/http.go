@@ -1,9 +1,6 @@
 package server
 
-import (
-	"net/http"
-	"strings"
-)
+import "net/http"
 
 // redirectRoot sends unauthenticated users to /login, admins to /providers,
 // and regular users to /agents.
@@ -45,7 +42,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 // jsonMiddleware sets JSON content-type for /api/ routes.
 func (s *Server) jsonMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" && !strings.HasPrefix(r.URL.Path, "/api/docs") {
+		if len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" {
 			w.Header().Set("Content-Type", "application/json")
 		}
 		next.ServeHTTP(w, r)
