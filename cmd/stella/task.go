@@ -19,9 +19,9 @@ func taskCommand() *ucli.Command {
 		Name:     "task",
 		Usage:    "Manage durable background tasks with lifecycle tracking and human-in-the-loop actions",
 		Category: "Feature",
-		Description: `Create, track, and act on tasks assigned to the agent. Tasks go through
-a lifecycle (pending → running → review → done) and support dependencies,
-priorities, and human-in-the-loop actions like approve, reject, and respond.`,
+		Description: `Create, track, and act on tasks and goals assigned to the agent. Goals
+are parent containers that split into child tasks with dependencies, acceptance
+criteria, and review gates.`,
 		Subcommands: []*ucli.Command{
 			taskListCommand(),
 			taskGetCommand(),
@@ -33,6 +33,12 @@ priorities, and human-in-the-loop actions like approve, reject, and respond.`,
 			taskDepsCommand(),
 			taskUnblockedCommand(),
 			taskBatchCreateCommand(),
+			taskRunsCommand(),
+			taskReviewsCommand(),
+			taskCriteriaCommand(),
+			taskSplitCommand(),
+			taskPlanReadyCommand(),
+			taskReopenCommand(),
 		},
 	}
 }
@@ -78,10 +84,11 @@ func taskListCommand() *ucli.Command {
 				fmt.Println("No tasks.")
 				return nil
 			}
-			fmt.Printf("%-10s  %-30s  %-10s  %-8s  %s\n", "ID", "TITLE", "STATUS", "PRIORITY", "UPDATED")
+			fmt.Printf("%-10s  %-5s  %-30s  %-18s  %-8s  %s\n", "ID", "TYPE", "TITLE", "STATUS", "PRIORITY", "UPDATED")
 			for _, t := range list.Items {
-				fmt.Printf("%-10s  %-30s  %-10s  %-8s  %s\n",
+				fmt.Printf("%-10s  %-5s  %-30s  %-18s  %-8s  %s\n",
 					shortID(t.Id),
+					string(t.TaskType),
 					truncate(t.Title, 30),
 					string(t.Status),
 					string(t.Priority),
@@ -492,6 +499,231 @@ func taskBatchCreateCommand() *ucli.Command {
 				return err
 			}
 			return printJSON(list.Items)
+		},
+	}
+}
+
+func taskRunsCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "runs",
+		Usage:     "List runs for a task",
+		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+		},
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("usage: stella task runs <task-id>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			list, err := apiclient.Call[apitypes.AgentTaskRunList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListAgentTaskRuns(c.Context, agentID, id)
+			})
+			if err != nil {
+				return err
+			}
+			if c.Bool("json") {
+				return printJSON(list.Items)
+			}
+			if len(list.Items) == 0 {
+				fmt.Println("No runs.")
+				return nil
+			}
+			fmt.Printf("%-10s  %-12s  %-12s  %-10s  %s\n", "ID", "KIND", "PURPOSE", "STATUS", "CREATED")
+			for _, r := range list.Items {
+				fmt.Printf("%-10s  %-12s  %-12s  %-10s  %s\n",
+					shortID(r.Id),
+					string(r.Kind),
+					string(r.Purpose),
+					string(r.Status),
+					r.CreatedAt.Format(time.DateTime))
+			}
+			return nil
+		},
+	}
+}
+
+func taskReviewsCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "reviews",
+		Usage:     "List reviews for a task",
+		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+		},
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("usage: stella task reviews <task-id>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			list, err := apiclient.Call[apitypes.AgentTaskReviewList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListAgentTaskReviews(c.Context, agentID, id)
+			})
+			if err != nil {
+				return err
+			}
+			if c.Bool("json") {
+				return printJSON(list.Items)
+			}
+			if len(list.Items) == 0 {
+				fmt.Println("No reviews.")
+				return nil
+			}
+			fmt.Printf("%-10s  %-10s  %-18s  %s\n", "ID", "TYPE", "STATUS", "CREATED")
+			for _, r := range list.Items {
+				fmt.Printf("%-10s  %-10s  %-18s  %s\n",
+					shortID(r.Id),
+					string(r.ReviewerType),
+					string(r.Status),
+					r.CreatedAt.Format(time.DateTime))
+			}
+			return nil
+		},
+	}
+}
+
+func taskCriteriaCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "criteria",
+		Usage:     "List acceptance criteria for a task",
+		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+		},
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("usage: stella task criteria <task-id>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			list, err := apiclient.Call[apitypes.AgentTaskAcceptanceCriterionList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListAgentTaskCriteria(c.Context, agentID, id)
+			})
+			if err != nil {
+				return err
+			}
+			if c.Bool("json") {
+				return printJSON(list.Items)
+			}
+			if len(list.Items) == 0 {
+				fmt.Println("No acceptance criteria.")
+				return nil
+			}
+			for _, cr := range list.Items {
+				reqStr := ""
+				if cr.Required {
+					reqStr = " [required]"
+				}
+				fmt.Printf("  %d. %s%s\n", cr.Position, cr.Description, reqStr)
+			}
+			return nil
+		},
+	}
+}
+
+func taskSplitCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "split",
+		Usage:     "Split a goal into child tasks from a JSON file",
+		ArgsUsage: "<goal-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.StringFlag{Name: "file", Aliases: []string{"f"}, Usage: "JSON file with children (required)", Required: true},
+		},
+		Action: func(c *ucli.Context) error {
+			goalID := c.Args().First()
+			if goalID == "" {
+				return fmt.Errorf("usage: stella task split <goal-id> --file <json>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(c.String("file"))
+			if err != nil {
+				return fmt.Errorf("read file: %w", err)
+			}
+			var body apiclient.SplitGoalIntoTasksJSONRequestBody
+			if err := json.Unmarshal(data, &body); err != nil {
+				return fmt.Errorf("parse JSON: %w", err)
+			}
+			list, err := apiclient.Call[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.SplitGoalIntoTasks(c.Context, agentID, goalID, body)
+			})
+			if err != nil {
+				return err
+			}
+			return printJSON(list.Items)
+		},
+	}
+}
+
+func taskPlanReadyCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "plan-ready",
+		Usage:     "Activate a goal and its draft children",
+		ArgsUsage: "<goal-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+		},
+		Action: func(c *ucli.Context) error {
+			goalID := c.Args().First()
+			if goalID == "" {
+				return fmt.Errorf("usage: stella task plan-ready <goal-id>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.PlanReady(c.Context, agentID, goalID)
+			})
+			if err != nil {
+				return err
+			}
+			return printJSON(task)
+		},
+	}
+}
+
+func taskReopenCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "reopen",
+		Usage:     "Reopen a completed or failed task",
+		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+		},
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("usage: stella task reopen <task-id>")
+			}
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ReopenAgentTask(c.Context, agentID, id)
+			})
+			if err != nil {
+				return err
+			}
+			return printJSON(task)
 		},
 	}
 }
