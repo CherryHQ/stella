@@ -24,7 +24,7 @@ func (s *Scheduler) EligibleForWorker(ctx context.Context, task sqlc.AgentTask) 
 	if task.Status != "ready" {
 		return false
 	}
-	if !s.depsAllDone(ctx, task) {
+	if !s.DepsAllDone(ctx, task) {
 		return false
 	}
 	if s.hasActiveRun(ctx, task.ID, "worker_run") {
@@ -152,7 +152,7 @@ func (s *Scheduler) RollupParentStatus(ctx context.Context, goal sqlc.AgentTask)
 	return ""
 }
 
-func (s *Scheduler) depsAllDone(ctx context.Context, task sqlc.AgentTask) bool {
+func (s *Scheduler) DepsAllDone(ctx context.Context, task sqlc.AgentTask) bool {
 	depIDs, err := s.q.ListAgentTaskDeps(ctx, task.ID)
 	if err != nil {
 		return false

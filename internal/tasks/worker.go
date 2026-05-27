@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
@@ -19,10 +20,10 @@ type workerConfig struct {
 	runnerFactory RunnerFactoryFn
 }
 
-// runWorker executes a single task session. It claims the task (pending→running),
-// runs the agent loop, and ensures the task ends in a terminal state.
-func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig, task sqlc.AgentTask) {
-	log := slog.With("component", "tasks.worker", "task_id", task.ID)
+// runWorker executes a single task session. It claims the task (ready→running),
+// tracks the run lifecycle, and ensures the task ends in a terminal state.
+func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig, task sqlc.AgentTask, run sqlc.AgentTaskRun) {
+	log := slog.With("component", "tasks.worker", "task_id", task.ID, "run_id", run.ID)
 
 	// Atomically claim the task: ready → running.
 	now := time.Now().Format(time.RFC3339)
@@ -45,6 +46,16 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	if claimed.Status != "running" {
 		log.Info("task already claimed by another worker, skipping")
 		return
+	}
+
+	// Transition run: queued → running.
+	if err := cfg.q.StartRun(ctx, sqlc.StartRunParams{
+		StartedAt: sql.NullString{String: now, Valid: true},
+		UpdatedAt: now,
+		ID:        run.ID,
+		UserID:    run.UserID,
+	}); err != nil {
+		log.Warn("failed to start run", "error", err)
 	}
 
 	// Log a "started" event.
@@ -143,12 +154,27 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	}
 
 	if final.Status == "running" {
+		finNow := time.Now().Format(time.RFC3339)
 		if runErr != nil {
 			log.Error("agent loop failed", "error", runErr)
 			markFailed(cleanupCtx, cfg.q, task.ID, task.UserID, runErr.Error())
+			_ = cfg.q.FailRun(cleanupCtx, sqlc.FailRunParams{
+				Error:      runErr.Error(),
+				FinishedAt: sql.NullString{String: finNow, Valid: true},
+				UpdatedAt:  finNow,
+				ID:         run.ID,
+				UserID:     run.UserID,
+			})
 		} else {
-			log.Info("agent loop finished without explicit task_control done call, marking done")
+			log.Info("agent loop finished without explicit task_control call, marking done")
 			markDone(cleanupCtx, cfg.q, task.ID, task.UserID)
+			_ = cfg.q.CompleteRun(cleanupCtx, sqlc.CompleteRunParams{
+				ResultJson: "{}",
+				FinishedAt: sql.NullString{String: finNow, Valid: true},
+				UpdatedAt:  finNow,
+				ID:         run.ID,
+				UserID:     run.UserID,
+			})
 		}
 	}
 }

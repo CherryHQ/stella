@@ -34,6 +34,7 @@ type Service struct {
 	notifier      notify.Notifier
 	mem           memory.Provider
 	runnerFactory RunnerFactoryFn
+	scheduler     *Scheduler
 
 	maxConcurrency int
 	wg             sync.WaitGroup
@@ -66,6 +67,43 @@ type CreateTaskParams struct {
 	Deps            []string
 	SchedulerJobID  string
 	SchedulerRunID  string
+	ReviewPolicy    string // auto, agent, human; empty defaults to auto
+}
+
+// CreateGoalParams holds parameters for creating a goal (parent task).
+type CreateGoalParams struct {
+	Title           string
+	Description     string
+	Priority        string
+	AssigneeAgentID string
+	UserID          string
+}
+
+// ChildTaskInput describes one child task in a SplitTask call.
+type ChildTaskInput struct {
+	Title           string
+	Description     string
+	Priority        string
+	AssigneeAgentID string
+	Required        bool
+	ReviewPolicy    string
+	Deps            []string // draft IDs of other children in the same batch
+	Criteria        []string // acceptance criterion descriptions
+}
+
+// ReviewDecision holds parameters for HandleReviewDecision.
+type ReviewDecision struct {
+	Status   string // approved, changes_requested, rejected
+	Summary  string
+	Feedback string
+	Items    []ReviewItemInput
+}
+
+// ReviewItemInput holds per-criterion evidence in a review decision.
+type ReviewItemInput struct {
+	CriterionID string
+	Passed      bool
+	Evidence    string
 }
 
 // UpdateTaskParams holds parameters for updating task metadata.
@@ -94,23 +132,32 @@ func New(cfg Config) *Service {
 		notifier:       cfg.Notifier,
 		mem:            cfg.Memory,
 		runnerFactory:  cfg.RunnerFactory,
+		scheduler:      NewScheduler(cfg.Queries, concurrency),
 		maxConcurrency: concurrency,
 		workers:        make(map[string]context.CancelFunc),
 		log:            slog.With("component", "tasks.service"),
 	}
 }
 
-// Start initialises the service: resets stale running tasks to pending on startup.
+// Start initialises the service: interrupts stale runs and resets orphaned tasks on startup.
 // The caller is responsible for scheduling Tick on a recurring interval.
 func (s *Service) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
+	now := time.Now().Format(time.RFC3339)
+
+	// Interrupt any runs that were in-flight when the process died.
+	if err := s.q.InterruptStaleRuns(s.ctx, sqlc.InterruptStaleRunsParams{
+		UpdatedAt: now,
+		StartedAt: sql.NullString{String: now, Valid: true},
+	}); err != nil {
+		s.log.Warn("failed to interrupt stale runs", "error", err)
+	}
 
 	// Reset tasks that were "running" when the process died so they can retry.
 	running, err := s.q.ListRunningAgentTasks(s.ctx)
 	if err != nil {
 		return fmt.Errorf("tasks: list running: %w", err)
 	}
-	now := time.Now().Format(time.RFC3339)
 	for _, t := range running {
 		if err := s.q.UpdateAgentTaskStatus(s.ctx, sqlc.UpdateAgentTaskStatusParams{
 			Status:    "ready",
@@ -226,9 +273,9 @@ func (s *Service) sweepDepFailures(ctx context.Context, now string) {
 	}
 }
 
-// sweepDispatch dispatches eligible pending tasks.
+// sweepDispatch dispatches eligible ready tasks via the scheduler.
 func (s *Service) sweepDispatch(ctx context.Context) {
-	pending, err := s.q.ListReadyAgentTasks(ctx)
+	ready, err := s.q.ListReadyAgentTasks(ctx)
 	if err != nil {
 		s.log.Warn("dispatch sweep: list failed", "error", err)
 		return
@@ -241,37 +288,21 @@ func (s *Service) sweepDispatch(ctx context.Context) {
 	}
 	s.mu.Unlock()
 
-	for _, t := range pending {
+	for _, t := range ready {
 		if alreadyRunning[t.ID] {
 			continue
 		}
-		// Per-user concurrency check from DB.
-		count, err := s.q.CountRunningAgentTasksByUser(ctx, t.UserID)
-		if err != nil || count >= int64(s.maxConcurrency) {
+		if !s.scheduler.EligibleForWorker(ctx, t) {
 			continue
 		}
-		// Deps must all be done.
-		if !s.depsAllDone(ctx, t) {
+		run, err := s.createRun(ctx, t, "worker_run", "execution")
+		if err != nil {
+			s.log.Warn("dispatch: create run failed", "task_id", t.ID, "error", err)
 			continue
 		}
-		s.dispatch(t)
+		s.dispatch(t, run)
 		alreadyRunning[t.ID] = true
 	}
-}
-
-// depsAllDone returns true if all dep tasks are in "done" status.
-func (s *Service) depsAllDone(ctx context.Context, t sqlc.AgentTask) bool {
-	depIDs, err := s.q.ListAgentTaskDeps(ctx, t.ID)
-	if err != nil {
-		return false
-	}
-	for _, depID := range depIDs {
-		dep, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: depID, UserID: t.UserID})
-		if err != nil || dep.Status != "done" {
-			return false
-		}
-	}
-	return true
 }
 
 // CreateTask inserts a new task. The scheduler Tick dispatches it.
@@ -611,7 +642,7 @@ func (s *Service) RemoveDep(ctx context.Context, taskID, depID, userID string) e
 	if err := s.q.DeleteAgentTaskDep(ctx, sqlc.DeleteAgentTaskDepParams{TaskID: taskID, DepID: depID}); err != nil {
 		return fmt.Errorf("tasks: remove dep: %w", err)
 	}
-	if task.Status == "blocked" && s.depsAllDone(ctx, task) {
+	if task.Status == "blocked" && s.scheduler.DepsAllDone(ctx, task) {
 		now := time.Now().Format(time.RFC3339)
 		_ = s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 			Status: "ready", UpdatedAt: now, ID: taskID, UserID: userID,
@@ -806,13 +837,388 @@ func (s *Service) BatchCreateTasks(ctx context.Context, params BatchCreateParams
 	return results, nil
 }
 
+// CreateGoal creates a goal (parent container for child tasks).
+func (s *Service) CreateGoal(ctx context.Context, params CreateGoalParams) (sqlc.AgentTask, error) {
+	id := newID()
+	now := time.Now().Format(time.RFC3339)
+	goal, err := s.q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
+		ID:              id,
+		RootID:          id,
+		TaskType:        "goal",
+		Title:           params.Title,
+		Description:     params.Description,
+		Status:          "draft",
+		Priority:        orDefault(params.Priority, "routine"),
+		SessionID:       sql.NullString{String: "goal:" + id, Valid: true},
+		Context:         "{}",
+		ReviewRequest:   "{}",
+		AssigneeAgentID: sql.NullString{String: params.AssigneeAgentID, Valid: params.AssigneeAgentID != ""},
+		UserID:          params.UserID,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: create goal: %w", err)
+	}
+	return goal, nil
+}
+
+// SplitTask creates draft children under a goal with deps and acceptance criteria.
+func (s *Service) SplitTask(ctx context.Context, goalID, userID string, children []ChildTaskInput) ([]sqlc.AgentTask, error) {
+	goal, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: goalID, UserID: userID})
+	if err != nil {
+		return nil, fmt.Errorf("tasks: goal %q not found: %w", goalID, err)
+	}
+	if goal.TaskType != "goal" {
+		return nil, fmt.Errorf("tasks: %q is not a goal", goalID)
+	}
+	if goal.Status != "draft" && goal.Status != "running" {
+		return nil, fmt.Errorf("tasks: cannot split goal in status %q", goal.Status)
+	}
+	if len(children) == 0 {
+		return nil, fmt.Errorf("tasks: at least one child required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.q.WithTx(tx)
+
+	// Assign IDs and build index→realID map for intra-batch deps.
+	realIDs := make([]string, len(children))
+	for i := range children {
+		realIDs[i] = newID()
+	}
+
+	// Resolve intra-batch deps (by index string) and validate.
+	resolvedDeps := make([][]string, len(children))
+	for i, c := range children {
+		for _, dep := range c.Deps {
+			found := false
+			for j, rid := range realIDs {
+				if dep == fmt.Sprintf("%d", j) || dep == rid {
+					resolvedDeps[i] = append(resolvedDeps[i], rid)
+					found = true
+					break
+				}
+			}
+			if !found {
+				// External dep — must exist.
+				if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: dep, UserID: userID}); err != nil {
+					return nil, fmt.Errorf("tasks: dep %q not found", dep)
+				}
+				resolvedDeps[i] = append(resolvedDeps[i], dep)
+			}
+		}
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	results := make([]sqlc.AgentTask, 0, len(children))
+	for i, c := range children {
+		task, err := qtx.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
+			ID:              realIDs[i],
+			ParentID:        sql.NullString{String: goalID, Valid: true},
+			RootID:          goal.RootID,
+			TaskType:        "task",
+			Title:           c.Title,
+			Description:     c.Description,
+			Status:          "draft",
+			Priority:        orDefault(c.Priority, goal.Priority),
+			Required:        c.Required,
+			ReviewPolicy:    sql.NullString{String: c.ReviewPolicy, Valid: c.ReviewPolicy != ""},
+			SessionID:       sql.NullString{String: "task:" + realIDs[i], Valid: true},
+			Context:         "{}",
+			ReviewRequest:   "{}",
+			AssigneeAgentID: sql.NullString{String: c.AssigneeAgentID, Valid: c.AssigneeAgentID != ""},
+			CreatedByAgentID: sql.NullString{
+				String: goal.AssigneeAgentID.String,
+				Valid:  goal.AssigneeAgentID.Valid,
+			},
+			UserID:    userID,
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("tasks: create child %q: %w", c.Title, err)
+		}
+		for _, depID := range resolvedDeps[i] {
+			if err := qtx.InsertAgentTaskDep(ctx, sqlc.InsertAgentTaskDepParams{TaskID: realIDs[i], DepID: depID}); err != nil {
+				return nil, fmt.Errorf("tasks: insert dep: %w", err)
+			}
+		}
+		// Create acceptance criteria.
+		for pos, desc := range c.Criteria {
+			_, err := qtx.CreateAcceptanceCriterion(ctx, sqlc.CreateAcceptanceCriterionParams{
+				ID:          newID(),
+				UserID:      userID,
+				TaskID:      realIDs[i],
+				Description: desc,
+				Required:    true,
+				Position:    int64(pos),
+				CreatedAt:   now,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("tasks: create criterion: %w", err)
+			}
+		}
+		results = append(results, task)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("tasks: commit split: %w", err)
+	}
+	return results, nil
+}
+
+// PlanReady atomically activates a goal and its unblocked draft children.
+func (s *Service) PlanReady(ctx context.Context, goalID, userID string) (sqlc.AgentTask, error) {
+	goal, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: goalID, UserID: userID})
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: goal %q not found: %w", goalID, err)
+	}
+	if goal.TaskType != "goal" {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: %q is not a goal", goalID)
+	}
+	if goal.Status != "draft" {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: goal must be in draft status, got %q", goal.Status)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+
+	// Activate goal: draft → ready.
+	if err := ValidateTaskTransition("goal", goal.Status, "ready", RoleManager); err != nil {
+		return sqlc.AgentTask{}, err
+	}
+	if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+		Status: "ready", UpdatedAt: now, ID: goalID, UserID: userID,
+	}); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: activate goal: %w", err)
+	}
+
+	// Activate unblocked draft children.
+	if err := s.q.ActivateDraftChildren(ctx, sqlc.ActivateDraftChildrenParams{
+		UpdatedAt: now,
+		ParentID:  sql.NullString{String: goalID, Valid: true},
+		UserID:    userID,
+	}); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: activate children: %w", err)
+	}
+
+	insertEvent(ctx, s.q, goalID, "plan_ready", "{}")
+	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: goalID, UserID: userID})
+}
+
+// SubmitForReview transitions a task to reviewing and creates a review record.
+func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, summary string) (sqlc.AgentTaskReview, error) {
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
+	if err != nil {
+		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+	}
+	if err := ValidateTaskTransition(task.TaskType, task.Status, "reviewing", RoleWorker); err != nil {
+		return sqlc.AgentTaskReview{}, err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+
+	// Complete the worker run.
+	if runID != "" {
+		_ = s.q.CompleteRun(ctx, sqlc.CompleteRunParams{
+			ResultJson: detailJSON(summary),
+			FinishedAt: sql.NullString{String: now, Valid: true},
+			UpdatedAt:  now,
+			ID:         runID,
+			UserID:     userID,
+		})
+	}
+
+	// Transition task to reviewing.
+	if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+		Status: "reviewing", UpdatedAt: now, ID: taskID, UserID: userID,
+	}); err != nil {
+		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: set reviewing: %w", err)
+	}
+
+	// Auto-approval path.
+	if task.ReviewPolicy.String == "auto" || !task.ReviewPolicy.Valid {
+		review, err := s.q.CreateAgentTaskReview(ctx, sqlc.CreateAgentTaskReviewParams{
+			ID:             newID(),
+			UserID:         userID,
+			TaskID:         taskID,
+			ReviewerType:   "system",
+			ReviewerID:     "auto",
+			SubmittedRunID: runID,
+			Status:         "approved",
+			Summary:        summary,
+			CreatedAt:      now,
+			ResolvedAt:     sql.NullString{String: now, Valid: true},
+		})
+		if err != nil {
+			return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: create auto-review: %w", err)
+		}
+		// Auto-approve: reviewing → done.
+		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+			Status: "done", UpdatedAt: now, ID: taskID, UserID: userID,
+		}); err != nil {
+			return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: auto-approve done: %w", err)
+		}
+		insertEvent(ctx, s.q, taskID, "done", detailJSON("auto-approved"))
+		return review, nil
+	}
+
+	// Create a pending review record.
+	review, err := s.q.CreateAgentTaskReview(ctx, sqlc.CreateAgentTaskReviewParams{
+		ID:             newID(),
+		UserID:         userID,
+		TaskID:         taskID,
+		ReviewerType:   task.ReviewPolicy.String,
+		SubmittedRunID: runID,
+		Status:         "requested",
+		Summary:        summary,
+		CreatedAt:      now,
+	})
+	if err != nil {
+		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: create review: %w", err)
+	}
+	insertEvent(ctx, s.q, taskID, "reviewing", detailJSON(summary))
+	return review, nil
+}
+
+// HandleReviewDecision resolves a review and transitions the task accordingly.
+func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID string, decision ReviewDecision) (sqlc.AgentTask, error) {
+	review, err := s.q.GetAgentTaskReview(ctx, sqlc.GetAgentTaskReviewParams{ID: reviewID, UserID: userID})
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: review %q not found: %w", reviewID, err)
+	}
+	if review.Status != "requested" {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: review already resolved (%s)", review.Status)
+	}
+
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: review.TaskID, UserID: userID})
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: task not found: %w", err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+
+	// Resolve the review record.
+	if err := s.q.ResolveReview(ctx, sqlc.ResolveReviewParams{
+		Status:        decision.Status,
+		Summary:       decision.Summary,
+		Feedback:      decision.Feedback,
+		ReviewerRunID: sql.NullString{},
+		ResolvedAt:    sql.NullString{String: now, Valid: true},
+		ID:            reviewID,
+		UserID:        userID,
+	}); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: resolve review: %w", err)
+	}
+
+	// Create review items.
+	for _, item := range decision.Items {
+		_, err := s.q.UpsertReviewItem(ctx, sqlc.UpsertReviewItemParams{
+			ID:          newID(),
+			UserID:      userID,
+			ReviewID:    reviewID,
+			CriterionID: item.CriterionID,
+			Passed:      sql.NullBool{Bool: item.Passed, Valid: true},
+			Evidence:    item.Evidence,
+			CreatedAt:   now,
+		})
+		if err != nil {
+			s.log.Warn("failed to upsert review item", "criterion_id", item.CriterionID, "error", err)
+		}
+	}
+
+	// Transition task based on decision.
+	var newStatus string
+	switch decision.Status {
+	case "approved":
+		newStatus = "done"
+	case "changes_requested":
+		newStatus = "changes_requested"
+	case "rejected":
+		newStatus = "failed"
+	default:
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: unknown review decision %q", decision.Status)
+	}
+
+	if err := ValidateTaskTransition(task.TaskType, task.Status, newStatus, RoleReviewer); err != nil {
+		return sqlc.AgentTask{}, err
+	}
+	if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+		Status: newStatus, UpdatedAt: now, ID: task.ID, UserID: userID,
+	}); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: update task status: %w", err)
+	}
+
+	// If changes_requested and retry budget remains, auto-transition to ready.
+	if newStatus == "changes_requested" && task.RetryCount < task.MaxRetries {
+		if err := s.q.UpdateAgentTaskRetryCount(ctx, sqlc.UpdateAgentTaskRetryCountParams{
+			RetryCount: task.RetryCount + 1,
+			UpdatedAt:  now,
+			ID:         task.ID,
+			UserID:     userID,
+		}); err != nil {
+			s.log.Warn("failed to increment retry count", "task_id", task.ID, "error", err)
+		}
+		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+			Status: "ready", UpdatedAt: now, ID: task.ID, UserID: userID,
+		}); err != nil {
+			s.log.Warn("failed to auto-transition to ready", "task_id", task.ID, "error", err)
+		}
+	}
+
+	insertEvent(ctx, s.q, task.ID, newStatus, detailJSON(decision.Feedback))
+	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: task.ID, UserID: userID})
+}
+
+// ReopenTask transitions a terminal task back to ready for another attempt.
+func (s *Service) ReopenTask(ctx context.Context, taskID, userID string) (sqlc.AgentTask, error) {
+	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: task %q not found: %w", taskID, err)
+	}
+	if err := ValidateTaskTransition(task.TaskType, task.Status, "ready", RoleManager); err != nil {
+		return sqlc.AgentTask{}, err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+		Status: "ready", UpdatedAt: now, ID: taskID, UserID: userID,
+	}); err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("tasks: reopen: %w", err)
+	}
+	insertEvent(ctx, s.q, taskID, "reopened", "{}")
+	return s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
+}
+
 // ListTaskDeps returns the dep IDs for a task (used by API layer to populate deps field).
 func (s *Service) ListTaskDeps(ctx context.Context, taskID string) ([]string, error) {
 	return s.q.ListAgentTaskDeps(ctx, taskID)
 }
 
-// dispatch launches a worker goroutine for task. It returns immediately.
-func (s *Service) dispatch(task sqlc.AgentTask) {
+// createRun inserts a new run record for a task.
+func (s *Service) createRun(ctx context.Context, task sqlc.AgentTask, kind, purpose string) (sqlc.AgentTaskRun, error) {
+	now := time.Now().Format(time.RFC3339)
+	return s.q.CreateAgentTaskRun(ctx, sqlc.CreateAgentTaskRunParams{
+		ID:         newID(),
+		UserID:     task.UserID,
+		TaskID:     task.ID,
+		AgentID:    task.AssigneeAgentID,
+		Kind:       kind,
+		Purpose:    purpose,
+		Status:     "queued",
+		SessionID:  sql.NullString{String: "run:" + task.ID, Valid: true},
+		ResultJson: "{}",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	})
+}
+
+// dispatch launches a worker goroutine for task with an associated run. It returns immediately.
+func (s *Service) dispatch(task sqlc.AgentTask, run sqlc.AgentTaskRun) {
 	workerCtx, workerCancel := context.WithCancel(s.ctx)
 
 	s.mu.Lock()
@@ -832,7 +1238,7 @@ func (s *Service) dispatch(task sqlc.AgentTask) {
 			mem:           s.mem,
 			runnerFactory: s.runnerFactory,
 		}
-		runWorker(workerCtx, workerCancel, cfg, task)
+		runWorker(workerCtx, workerCancel, cfg, task, run)
 	})
 }
 
@@ -862,4 +1268,11 @@ func insertEvent(ctx context.Context, q *sqlc.Queries, taskID, eventType, detail
 // newID generates a new UUID string.
 func newID() string {
 	return uuid.New().String()
+}
+
+func orDefault(val, def string) string {
+	if val == "" {
+		return def
+	}
+	return val
 }
