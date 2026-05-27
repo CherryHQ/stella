@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -25,6 +24,5 @@ type Config struct {
 	SessionID        string
 	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	VaultEnvLoader   VaultEnvLoader
-	TokenService     *auth.TokenService
 	TokenManager     *oauth.TokenManager
 }

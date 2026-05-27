@@ -15,6 +15,11 @@ type OrgSeeder interface {
 	SeedOrg(ctx context.Context, orgID string) error
 }
 
+// UserSeeder initializes per-user resources after org seed is complete.
+type UserSeeder interface {
+	SeedUser(ctx context.Context, userID, orgID string) error
+}
+
 // AuthService composes the auth stores and owns business-level transactions
 // such as ProcessOIDCLogin. It is the only place that coordinates cross-store
 // writes inside a single DB transaction.
@@ -26,6 +31,7 @@ type AuthService struct {
 	memberships   MembershipStore
 	invites       InviteStore
 	seeder        OrgSeeder
+	userSeeder    UserSeeder
 	orgInit       OrgInitializer
 	db            *sql.DB
 }
@@ -53,6 +59,9 @@ func NewAuthService(
 
 // SetOrgSeeder registers a seeder that populates default resources when a new org is created.
 func (s *AuthService) SetOrgSeeder(seeder OrgSeeder) { s.seeder = seeder }
+
+// SetUserSeeder registers a seeder for per-user resources (auto-token, default agent).
+func (s *AuthService) SetUserSeeder(seeder UserSeeder) { s.userSeeder = seeder }
 
 // OrgInitializer is called after successful login to ensure per-org runtime is started.
 type OrgInitializer interface {
@@ -132,6 +141,12 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 	if result.NeedsSeedOrgID != "" && s.seeder != nil {
 		if err := s.seeder.SeedOrg(ctx, result.NeedsSeedOrgID); err != nil {
 			return OIDCLoginResult{}, fmt.Errorf("auth: seed new org: %w", err)
+		}
+	}
+
+	if result.IsNewUser && s.userSeeder != nil {
+		if err := s.userSeeder.SeedUser(ctx, result.User.ID, result.Membership.OrganizationID); err != nil {
+			return OIDCLoginResult{}, fmt.Errorf("auth: seed new user: %w", err)
 		}
 	}
 
@@ -218,6 +233,11 @@ func (s *AuthService) EnsureMembership(ctx context.Context, userID string) (Memb
 	if needsSeedOrgID != "" && s.seeder != nil {
 		if err := s.seeder.SeedOrg(ctx, needsSeedOrgID); err != nil {
 			return Membership{}, fmt.Errorf("auth: seed new org: %w", err)
+		}
+	}
+	if s.userSeeder != nil {
+		if err := s.userSeeder.SeedUser(ctx, userID, m.OrganizationID); err != nil {
+			return Membership{}, fmt.Errorf("auth: seed user: %w", err)
 		}
 	}
 	return m, nil
@@ -316,7 +336,7 @@ func (s *AuthService) RedeemInvite(ctx context.Context, rawToken string, userID 
 		}
 	}
 
-	// Check current membership.
+	// One-user-one-org: reject invite if user already belongs to a different org.
 	existing, err := s.memberships.GetUserMembership(ctx, userID)
 	switch {
 	case err == nil:
@@ -327,18 +347,7 @@ func (s *AuthService) RedeemInvite(ctx context.Context, rawToken string, userID 
 				}
 			}
 		} else {
-			if err := s.memberships.DeleteMembership(ctx, existing.ID); err != nil {
-				return fmt.Errorf("auth: delete old membership: %w", err)
-			}
-			if _, err := s.memberships.CreateMembership(ctx, Membership{
-				ID:             uuid.NewString(),
-				UserID:         userID,
-				OrganizationID: inv.OrgID,
-				Role:           inv.Role,
-				IsActive:       true,
-			}); err != nil {
-				return fmt.Errorf("auth: create membership for invite: %w", err)
-			}
+			return errors.New("auth: user already belongs to a different organization")
 		}
 	case errors.Is(err, sql.ErrNoRows):
 		if _, err := s.memberships.CreateMembership(ctx, Membership{

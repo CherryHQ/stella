@@ -11,7 +11,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -126,13 +125,6 @@ func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
 	}
 }
 
-// WithTokenService sets the auth token service for STELLA_TOKEN lifecycle.
-func WithTokenService(ts *auth.TokenService) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.tokenService = ts
-	}
-}
-
 // WithTokenManager sets the OAuth token manager for runtime token injection.
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) {
@@ -175,7 +167,6 @@ type PoolManager struct {
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	projectResolver          ProjectResolverFunc
 	projectEnsurer           ProjectEnsurerFunc
-	tokenService             *auth.TokenService
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	log                      *slog.Logger
@@ -228,21 +219,6 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 	for agentID, pool := range pools {
 		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
 			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
-		}
-	}
-}
-
-// SetTokenService sets the token service and rebuilds all pool factories so new runners ensure STELLA_TOKEN.
-func (pm *PoolManager) SetTokenService(ctx context.Context, ts *auth.TokenService) {
-	pm.mu.Lock()
-	pm.tokenService = ts
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
-	pm.mu.Unlock()
-
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
-			pm.log.Error("failed to rebuild factory after token service set", "agent_id", agentID, "error", err)
 		}
 	}
 }
@@ -564,7 +540,6 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
-		TokenService:             pm.tokenService,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 	})
