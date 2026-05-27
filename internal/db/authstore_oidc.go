@@ -856,6 +856,27 @@ func (s *OIDCStore) ListInvitesByOrg(ctx context.Context, orgID string) ([]auth.
 	return out, rows.Err()
 }
 
+func (s *OIDCStore) ListPendingInvitesByEmail(ctx context.Context, email string) ([]auth.Invite, error) {
+	const q = `SELECT id, token_hash, org_id, email, role, status, max_uses, use_count, invited_by, accepted_by, expires_at, created_at, updated_at
+	           FROM auth_invite
+	           WHERE email=? AND status='pending' AND expires_at > datetime('now') AND use_count < max_uses
+	           ORDER BY created_at DESC`
+	rows, err := s.db.QueryContext(ctx, q, email)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []auth.Invite
+	for rows.Next() {
+		inv, err := scanInvite(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
 func (s *OIDCStore) ConsumeInvite(ctx context.Context, id string, acceptedBy string) error {
 	const q = `UPDATE auth_invite
 	           SET use_count = use_count + 1,

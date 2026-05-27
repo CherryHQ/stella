@@ -155,24 +155,6 @@ func setInviteCookie(w http.ResponseWriter, token string, secure bool) {
 	})
 }
 
-func readInviteCookie(r *http.Request) string {
-	c, err := r.Cookie(inviteCookieName)
-	if err != nil {
-		return ""
-	}
-	return c.Value
-}
-
-func clearInviteCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     inviteCookieName,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-	})
-}
-
 func requestBaseURL(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {

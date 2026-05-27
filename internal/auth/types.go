@@ -245,6 +245,12 @@ type Invite struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// InviteWithOrg pairs an invite with its organization name for display.
+type InviteWithOrg struct {
+	Invite  Invite `json:"invite"`
+	OrgName string `json:"org_name"`
+}
+
 // Invite status constants.
 const (
 	InviteStatusPending  = "pending"

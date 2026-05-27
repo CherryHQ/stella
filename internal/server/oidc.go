@@ -122,9 +122,11 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize per-org runtime (lazy; idempotent for returning users).
-	if err := s.authSvc.InitOrg(r.Context(), result.Membership.OrganizationID); err != nil {
-		slog.Warn("oidc: org runtime init failed", "org_id", result.Membership.OrganizationID, "error", err)
+	// Initialize per-org runtime for returning users with an existing membership.
+	if result.Membership != nil {
+		if err := s.authSvc.InitOrg(r.Context(), result.Membership.OrganizationID); err != nil {
+			slog.Warn("oidc: org runtime init failed", "org_id", result.Membership.OrganizationID, "error", err)
+		}
 	}
 
 	// Provision vault age keys when the user doesn't have them yet.
@@ -137,16 +139,17 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if inviteToken := readInviteCookie(r); inviteToken != "" {
-		if err := s.authSvc.RedeemInvite(r.Context(), inviteToken, result.User.ID); err != nil {
-			slog.Warn("oidc: redeem invite failed", "error", err)
-		}
-		clearInviteCookie(w)
-	}
+	// Invite cookie is preserved for the onboarding page to read — don't
+	// auto-redeem here. The user will confirm on the onboarding page.
 
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	s.sessionMgr.SetCookie(w, result.SessionToken, secure)
-	http.Redirect(w, r, "/", http.StatusFound)
+
+	if result.Membership != nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+	} else {
+		http.Redirect(w, r, "/onboarding", http.StatusFound)
+	}
 }
 
 func (s *Server) findProvider(name string) auth.AuthProvider {
