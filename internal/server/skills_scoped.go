@@ -263,10 +263,12 @@ func (s *Server) requireAgentSkillWrite(ctx context.Context, agentID, scope stri
 			return "", skills.ViewContext{}, code, msg
 		}
 		return info.UserID, skills.ViewContext{UserID: info.UserID, AgentID: agentID}, 0, ""
+	case "project":
+		return "", skills.ViewContext{}, http.StatusBadRequest, "project skills are managed via the CLI or filesystem"
 	case "system":
 		return "", skills.ViewContext{}, http.StatusForbidden, "system skills are read-only"
 	default:
-		return "", skills.ViewContext{}, http.StatusBadRequest, "scope must be one of: system, agent, user"
+		return "", skills.ViewContext{}, http.StatusBadRequest, "scope must be one of: project, system, agent, user"
 	}
 }
 
@@ -382,6 +384,10 @@ func (s *Server) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request,
 
 func (s *Server) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.UpdateAgentScopedSkillParams) {
 	if scope == "project" {
+		if _, code, msg := s.requireAgentAccess(r.Context(), id); code != 0 {
+			writeError(w, code, msg)
+			return
+		}
 		projectRoot, _ := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		rs, err := s.skillService().Resolve(r.Context(), skillId, pkgplugins.SkillViewContext{}, projectRoot)
 		if err != nil || rs == nil || rs.Scope != "project" {
@@ -425,6 +431,10 @@ func (s *Server) UpdateAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillParams) {
 	if scope == "project" {
+		if _, code, msg := s.requireAgentAccess(r.Context(), id); code != 0 {
+			writeError(w, code, msg)
+			return
+		}
 		projectRoot, _ := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		rs, err := s.skillService().Resolve(r.Context(), skillId, pkgplugins.SkillViewContext{}, projectRoot)
 		if err != nil || rs == nil || rs.Scope != "project" {
@@ -452,6 +462,10 @@ func (s *Server) DeleteAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) DeleteAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.DeleteAgentScopedSkillFileParams) {
 	if scope == "project" {
+		if _, code, msg := s.requireAgentAccess(r.Context(), id); code != 0 {
+			writeError(w, code, msg)
+			return
+		}
 		projectRoot, _ := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
 		rs, err := s.skillService().Resolve(r.Context(), skillId, pkgplugins.SkillViewContext{}, projectRoot)
 		if err != nil || rs == nil || rs.Scope != "project" {
