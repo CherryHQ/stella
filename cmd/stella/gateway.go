@@ -258,7 +258,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	if err := s.pluginHost.ApplyPlugin(gctx, reflectplugin.PluginID); err != nil {
-		return fmt.Errorf("apply reflect runtime: %w", err)
+		slog.Warn("reflect: deferred runtime start (no org context at boot)", "error", err)
 	}
 
 	waitErr := g.Wait()

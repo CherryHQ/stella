@@ -74,8 +74,10 @@ func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStor
 		oauthRegistry = buildOAuthRegistry(merged)
 	}
 
+	// MCP config is per-org; at startup there is no org context yet.
+	// The runtime will be applied when an admin saves MCP config via the API.
 	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
-		return nil, fmt.Errorf("apply mcp runtime: %w", err)
+		slog.Warn("mcp: deferred runtime start (no org context at boot)", "error", err)
 	}
 
 	return &pluginSetup{

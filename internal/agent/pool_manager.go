@@ -250,7 +250,8 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 
 	agents, err := pm.store.ListEnabledAgents(ctx)
 	if err != nil {
-		return fmt.Errorf("list enabled agents: %w", err)
+		pm.log.Warn("could not list agents at startup (org context may not be available yet)", "error", err)
+		return nil
 	}
 	if len(agents) == 0 {
 		pm.log.Info("no enabled agents found, pool manager started empty")
