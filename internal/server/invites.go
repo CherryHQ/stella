@@ -133,12 +133,18 @@ func (s *Server) handleInviteRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+
 	if info := s.authInfoFromOIDCSession(r.Context(), r); info != nil {
+		if info.NeedsOnboarding {
+			setInviteCookie(w, token, secure)
+			http.Redirect(w, r, "/onboarding", http.StatusFound)
+			return
+		}
 		http.Redirect(w, r, fmt.Sprintf("/auth/invite/%s/accept", token), http.StatusFound)
 		return
 	}
 
-	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	setInviteCookie(w, token, secure)
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
