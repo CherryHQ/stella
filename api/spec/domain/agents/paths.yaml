@@ -292,12 +292,22 @@ paths:
   /api/agents/{id}/skills/{skillId}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: skillId, in: path, required: true, schema: { type: string } }
+      - {
+          name: skillId,
+          in: path,
+          required: true,
+          schema: { type: string },
+          description: "Skill name",
+        }
     get:
       tags: [skills]
-      summary: Get a skill by name
+      summary: Get a skill by name (optionally scoped)
       operationId: getAgentSkill
       parameters:
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string, enum: [project, user, agent, system] }
         - name: session_id
           in: query
           required: false
@@ -320,6 +330,10 @@ paths:
       summary: Update a skill
       operationId: updateAgentSkill
       parameters:
+        - name: scope
+          in: query
+          required: true
+          schema: { type: string, enum: [project, user, agent, system] }
         - name: session_id
           in: query
           required: false
@@ -352,6 +366,10 @@ paths:
       summary: Delete a skill
       operationId: deleteAgentSkill
       parameters:
+        - name: scope
+          in: query
+          required: true
+          schema: { type: string, enum: [project, user, agent, system] }
         - name: session_id
           in: query
           required: false
@@ -368,13 +386,23 @@ paths:
   /api/agents/{id}/skills/{skillId}/file:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
-      - { name: skillId, in: path, required: true, schema: { type: string } }
+      - {
+          name: skillId,
+          in: path,
+          required: true,
+          schema: { type: string },
+          description: "Skill name",
+        }
     get:
       tags: [skills]
       summary: Get a skill file by path
       operationId: getAgentSkillFile
       parameters:
         - { name: path, in: query, required: true, schema: { type: string } }
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string, enum: [project, user, agent, system] }
         - name: session_id
           in: query
           required: false
@@ -401,6 +429,10 @@ paths:
       operationId: deleteAgentSkillFile
       parameters:
         - { name: path, in: query, required: true, schema: { type: string } }
+        - name: scope
+          in: query
+          required: true
+          schema: { type: string, enum: [project, user, agent, system] }
         - name: session_id
           in: query
           required: false

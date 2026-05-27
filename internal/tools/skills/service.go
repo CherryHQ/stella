@@ -113,6 +113,55 @@ func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillV
 	return &ResolvedSkill{Skill: *sk}, nil
 }
 
+// ResolveScoped finds a skill by name in a specific scope.
+// Unlike Resolve, it does not fall through to other scopes — the scope must match exactly.
+func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
+	switch scope {
+	case "project":
+		if projectRoot == "" {
+			return nil, nil
+		}
+		skills, dirs, err := listFSSkills(projectRoot, "project")
+		if err != nil {
+			return nil, err
+		}
+		for _, sk := range skills {
+			if sk.Name == name {
+				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
+			}
+		}
+		return nil, nil
+	case "system":
+		if s.stellaHome == "" {
+			return nil, nil
+		}
+		skills, dirs, err := listFSSkills(s.stellaHome, "system")
+		if err != nil {
+			return nil, err
+		}
+		for _, sk := range skills {
+			if sk.Name == name {
+				return &ResolvedSkill{Skill: sk, Dir: dirs[name]}, nil
+			}
+		}
+		return nil, nil
+	case "agent", "user":
+		if s.store == nil {
+			return nil, nil
+		}
+		sk, err := s.store.Resolve(ctx, name, vc)
+		if err != nil {
+			return nil, err
+		}
+		if sk == nil || sk.Scope != scope {
+			return nil, nil
+		}
+		return &ResolvedSkill{Skill: *sk}, nil
+	default:
+		return nil, nil
+	}
+}
+
 // LoadFile loads a file from a skill resolved by name.
 // Returns the file content and the skill's directory path (if on disk).
 func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins.SkillViewContext, projectRoot string) (content string, skillDir string, err error) {

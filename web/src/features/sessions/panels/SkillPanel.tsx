@@ -6,6 +6,7 @@ import {
   getAgentSkillFile,
   updateAgentSkill,
 } from "@/lib/api-client";
+import type { UpdateAgentSkillData } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import type { Skill } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       } else if (skillId) {
         await updateAgentSkill({
           path: { id: agentId, skillId },
+          query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
             description: form.description,
             status: form.status,
@@ -153,6 +155,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     try {
       await deleteAgentSkill({
         path: { id: agentId, skillId },
+        query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
         throwOnError: true,
       });
       onDeleted();

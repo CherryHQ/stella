@@ -777,6 +777,7 @@ export function AgentsPage() {
       try {
         await updateAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
+          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
           body: { status: next },
           throwOnError: true,
         });
@@ -811,6 +812,7 @@ export function AgentsPage() {
             id: currentState.editingId ?? "",
             skillId: selectedSkill.name,
           },
+          query: { scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
             description: selectedSkill.description,
             status: selectedSkill.status,
@@ -856,6 +858,7 @@ export function AgentsPage() {
       try {
         await deleteAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
+          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
         setState((prev) => {
@@ -957,7 +960,10 @@ export function AgentsPage() {
             id: editingId ?? "",
             skillId: selectedSkill.name,
           },
-          query: { path: selectedSkillActiveFile },
+          query: {
+            path: selectedSkillActiveFile,
+            scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"],
+          },
           throwOnError: true,
         });
         const newFiles = (selectedSkill.files ?? ["SKILL.md"]).filter(

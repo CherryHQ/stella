@@ -1395,7 +1395,7 @@ export const getAgentSkillQueryKey = (options: Options<GetAgentSkillData>) =>
   createQueryKey("getAgentSkill", options);
 
 /**
- * Get a skill by name
+ * Get a skill by name (optionally scoped)
  */
 export const getAgentSkillOptions = (options: Options<GetAgentSkillData>) =>
   queryOptions<

@@ -2620,9 +2620,13 @@ export type DeleteAgentSkillData = {
   body?: never;
   path: {
     id: string;
+    /**
+     * Skill name
+     */
     skillId: string;
   };
-  query?: {
+  query: {
+    scope: "project" | "user" | "agent" | "system";
     session_id?: string;
   };
   url: "/api/agents/{id}/skills/{skillId}";
@@ -2666,9 +2670,13 @@ export type GetAgentSkillData = {
   body?: never;
   path: {
     id: string;
+    /**
+     * Skill name
+     */
     skillId: string;
   };
   query?: {
+    scope?: "project" | "user" | "agent" | "system";
     session_id?: string;
   };
   url: "/api/agents/{id}/skills/{skillId}";
@@ -2711,9 +2719,13 @@ export type UpdateAgentSkillData = {
   body: ComponentsUpdateSkillRequest;
   path: {
     id: string;
+    /**
+     * Skill name
+     */
     skillId: string;
   };
-  query?: {
+  query: {
+    scope: "project" | "user" | "agent" | "system";
     session_id?: string;
   };
   url: "/api/agents/{id}/skills/{skillId}";
@@ -2763,10 +2775,14 @@ export type DeleteAgentSkillFileData = {
   body?: never;
   path: {
     id: string;
+    /**
+     * Skill name
+     */
     skillId: string;
   };
   query: {
     path: string;
+    scope: "project" | "user" | "agent" | "system";
     session_id?: string;
   };
   url: "/api/agents/{id}/skills/{skillId}/file";
@@ -2810,10 +2826,14 @@ export type GetAgentSkillFileData = {
   body?: never;
   path: {
     id: string;
+    /**
+     * Skill name
+     */
     skillId: string;
   };
   query: {
     path: string;
+    scope?: "project" | "user" | "agent" | "system";
     session_id?: string;
   };
   url: "/api/agents/{id}/skills/{skillId}/file";

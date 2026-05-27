@@ -68,6 +68,126 @@ func (e ListAgentSkillsParamsScope) Valid() bool {
 	}
 }
 
+// Defines values for DeleteAgentSkillParamsScope.
+const (
+	DeleteAgentSkillParamsScopeAgent   DeleteAgentSkillParamsScope = "agent"
+	DeleteAgentSkillParamsScopeProject DeleteAgentSkillParamsScope = "project"
+	DeleteAgentSkillParamsScopeSystem  DeleteAgentSkillParamsScope = "system"
+	DeleteAgentSkillParamsScopeUser    DeleteAgentSkillParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the DeleteAgentSkillParamsScope enum.
+func (e DeleteAgentSkillParamsScope) Valid() bool {
+	switch e {
+	case DeleteAgentSkillParamsScopeAgent:
+		return true
+	case DeleteAgentSkillParamsScopeProject:
+		return true
+	case DeleteAgentSkillParamsScopeSystem:
+		return true
+	case DeleteAgentSkillParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetAgentSkillParamsScope.
+const (
+	GetAgentSkillParamsScopeAgent   GetAgentSkillParamsScope = "agent"
+	GetAgentSkillParamsScopeProject GetAgentSkillParamsScope = "project"
+	GetAgentSkillParamsScopeSystem  GetAgentSkillParamsScope = "system"
+	GetAgentSkillParamsScopeUser    GetAgentSkillParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the GetAgentSkillParamsScope enum.
+func (e GetAgentSkillParamsScope) Valid() bool {
+	switch e {
+	case GetAgentSkillParamsScopeAgent:
+		return true
+	case GetAgentSkillParamsScopeProject:
+		return true
+	case GetAgentSkillParamsScopeSystem:
+		return true
+	case GetAgentSkillParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateAgentSkillParamsScope.
+const (
+	UpdateAgentSkillParamsScopeAgent   UpdateAgentSkillParamsScope = "agent"
+	UpdateAgentSkillParamsScopeProject UpdateAgentSkillParamsScope = "project"
+	UpdateAgentSkillParamsScopeSystem  UpdateAgentSkillParamsScope = "system"
+	UpdateAgentSkillParamsScopeUser    UpdateAgentSkillParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the UpdateAgentSkillParamsScope enum.
+func (e UpdateAgentSkillParamsScope) Valid() bool {
+	switch e {
+	case UpdateAgentSkillParamsScopeAgent:
+		return true
+	case UpdateAgentSkillParamsScopeProject:
+		return true
+	case UpdateAgentSkillParamsScopeSystem:
+		return true
+	case UpdateAgentSkillParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteAgentSkillFileParamsScope.
+const (
+	DeleteAgentSkillFileParamsScopeAgent   DeleteAgentSkillFileParamsScope = "agent"
+	DeleteAgentSkillFileParamsScopeProject DeleteAgentSkillFileParamsScope = "project"
+	DeleteAgentSkillFileParamsScopeSystem  DeleteAgentSkillFileParamsScope = "system"
+	DeleteAgentSkillFileParamsScopeUser    DeleteAgentSkillFileParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the DeleteAgentSkillFileParamsScope enum.
+func (e DeleteAgentSkillFileParamsScope) Valid() bool {
+	switch e {
+	case DeleteAgentSkillFileParamsScopeAgent:
+		return true
+	case DeleteAgentSkillFileParamsScopeProject:
+		return true
+	case DeleteAgentSkillFileParamsScopeSystem:
+		return true
+	case DeleteAgentSkillFileParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetAgentSkillFileParamsScope.
+const (
+	GetAgentSkillFileParamsScopeAgent   GetAgentSkillFileParamsScope = "agent"
+	GetAgentSkillFileParamsScopeProject GetAgentSkillFileParamsScope = "project"
+	GetAgentSkillFileParamsScopeSystem  GetAgentSkillFileParamsScope = "system"
+	GetAgentSkillFileParamsScopeUser    GetAgentSkillFileParamsScope = "user"
+)
+
+// Valid indicates whether the value is a known member of the GetAgentSkillFileParamsScope enum.
+func (e GetAgentSkillFileParamsScope) Valid() bool {
+	switch e {
+	case GetAgentSkillFileParamsScopeAgent:
+		return true
+	case GetAgentSkillFileParamsScopeProject:
+		return true
+	case GetAgentSkillFileParamsScopeSystem:
+		return true
+	case GetAgentSkillFileParamsScopeUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UploadAgentSkillMultipartBodyScope.
 const (
 	UploadAgentSkillMultipartBodyScopeAgent UploadAgentSkillMultipartBodyScope = "agent"
@@ -507,30 +627,50 @@ type ListAgentSkillsParamsScope string
 
 // DeleteAgentSkillParams defines parameters for DeleteAgentSkill.
 type DeleteAgentSkillParams struct {
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+	Scope     DeleteAgentSkillParamsScope `form:"scope" json:"scope"`
+	SessionId *string                     `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
+
+// DeleteAgentSkillParamsScope defines parameters for DeleteAgentSkill.
+type DeleteAgentSkillParamsScope string
 
 // GetAgentSkillParams defines parameters for GetAgentSkill.
 type GetAgentSkillParams struct {
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+	Scope     *GetAgentSkillParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+	SessionId *string                   `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
+
+// GetAgentSkillParamsScope defines parameters for GetAgentSkill.
+type GetAgentSkillParamsScope string
 
 // UpdateAgentSkillParams defines parameters for UpdateAgentSkill.
 type UpdateAgentSkillParams struct {
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+	Scope     UpdateAgentSkillParamsScope `form:"scope" json:"scope"`
+	SessionId *string                     `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
+
+// UpdateAgentSkillParamsScope defines parameters for UpdateAgentSkill.
+type UpdateAgentSkillParamsScope string
 
 // DeleteAgentSkillFileParams defines parameters for DeleteAgentSkillFile.
 type DeleteAgentSkillFileParams struct {
-	Path      string  `form:"path" json:"path"`
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+	Path      string                          `form:"path" json:"path"`
+	Scope     DeleteAgentSkillFileParamsScope `form:"scope" json:"scope"`
+	SessionId *string                         `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
+
+// DeleteAgentSkillFileParamsScope defines parameters for DeleteAgentSkillFile.
+type DeleteAgentSkillFileParamsScope string
 
 // GetAgentSkillFileParams defines parameters for GetAgentSkillFile.
 type GetAgentSkillFileParams struct {
-	Path      string  `form:"path" json:"path"`
-	SessionId *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+	Path      string                        `form:"path" json:"path"`
+	Scope     *GetAgentSkillFileParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+	SessionId *string                       `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
+
+// GetAgentSkillFileParamsScope defines parameters for GetAgentSkillFile.
+type GetAgentSkillFileParamsScope string
 
 // UploadAgentSkillMultipartBody defines parameters for UploadAgentSkill.
 type UploadAgentSkillMultipartBody struct {
@@ -897,7 +1037,7 @@ type ServerInterface interface {
 	// Delete a skill
 	// (DELETE /api/agents/{id}/skills/{skillId})
 	DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params DeleteAgentSkillParams)
-	// Get a skill by name
+	// Get a skill by name (optionally scoped)
 	// (GET /api/agents/{id}/skills/{skillId})
 	GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params GetAgentSkillParams)
 	// Update a skill
@@ -3043,6 +3183,19 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkill(w http.ResponseWriter, r *ht
 	// Parameter object where we will unmarshal all parameters from the context
 	var params DeleteAgentSkillParams
 
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "session_id" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3100,6 +3253,19 @@ func (siw *ServerInterfaceWrapper) GetAgentSkill(w http.ResponseWriter, r *http.
 	// Parameter object where we will unmarshal all parameters from the context
 	var params GetAgentSkillParams
 
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "session_id" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3156,6 +3322,19 @@ func (siw *ServerInterfaceWrapper) UpdateAgentSkill(w http.ResponseWriter, r *ht
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params UpdateAgentSkillParams
+
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
 
 	// ------------- Optional query parameter "session_id" -------------
 
@@ -3227,6 +3406,19 @@ func (siw *ServerInterfaceWrapper) DeleteAgentSkillFile(w http.ResponseWriter, r
 		return
 	}
 
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "session_id" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -3293,6 +3485,19 @@ func (siw *ServerInterfaceWrapper) GetAgentSkillFile(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		}
 		return
 	}

@@ -950,7 +950,7 @@ export const deleteAgentSkill = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Get a skill by name
+ * Get a skill by name (optionally scoped)
  */
 export const getAgentSkill = <ThrowOnError extends boolean = false>(
   options: Options<GetAgentSkillData, ThrowOnError>,

@@ -296,7 +296,7 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	// Create an agent-scoped skill for update/delete tests
 	createTestSkill(t, env, "agent", "", agentID, "skill-ud")
 
-	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud", map[string]any{
+	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=agent", map[string]any{
 		"description": "updated",
 		"files":       map[string]string{"SKILL.md": "# updated body"},
 	})
@@ -304,12 +304,12 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 		t.Fatalf("update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?path=reference.md", nil)
+	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=agent&path=reference.md", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?path=SKILL.md", nil)
+	rr = doRequestWithSession(t, env.srv, sid, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=agent&path=SKILL.md", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("delete SKILL.md status = %d, want 400", rr.Code)
 	}
@@ -403,13 +403,13 @@ func TestAgentUserSkills_SelfOnly(t *testing.T) {
 		t.Fatalf("u1 list included u2 skill: %#v", list)
 	}
 
-	// u2 cannot access u1's skill by name
-	rr = doRequestWithSession(t, env.srv, sid2, "GET", "/api/agents/"+agentID+"/skills/u1-skill", nil)
+	// u2 cannot access u1's skill by name even with scope
+	rr = doRequestWithSession(t, env.srv, sid2, "GET", "/api/agents/"+agentID+"/skills/u1-skill?scope=user", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("u2 cross status = %d, want 404", rr.Code)
 	}
 
-	rr = doRequestWithSession(t, env.srv, sid2, "DELETE", "/api/agents/"+agentID+"/skills/u1-skill", nil)
+	rr = doRequestWithSession(t, env.srv, sid2, "DELETE", "/api/agents/"+agentID+"/skills/u1-skill?scope=user", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("u2 cross delete status = %d, want 404", rr.Code)
 	}

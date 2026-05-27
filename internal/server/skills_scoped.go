@@ -200,8 +200,8 @@ func safeSkillFilePath(skillDir, filePath string) (string, error) {
 	return filepath.Join(skillDir, clean), nil
 }
 
-// resolveSkill finds a skill by name across all scopes for the given agent.
-func (s *Server) resolveSkill(ctx context.Context, agentID, skillName string, sessionID *string) (*skillstool.ResolvedSkill, string, int, string) {
+// resolveSkillAny finds a skill by name across all scopes (highest priority wins).
+func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string, sessionID *string) (*skillstool.ResolvedSkill, string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return nil, "", http.StatusUnauthorized, "unauthorized"
@@ -221,9 +221,50 @@ func (s *Server) resolveSkill(ctx context.Context, agentID, skillName string, se
 	return rs, projectRoot, 0, ""
 }
 
+// resolveSkill finds a skill by name in a specific scope for the given agent.
+func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope string, sessionID *string) (*skillstool.ResolvedSkill, string, int, string) {
+	info := UserFromContext(ctx)
+	if info == nil {
+		return nil, "", http.StatusUnauthorized, "unauthorized"
+	}
+	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
+		return nil, "", code, msg
+	}
+	projectRoot, _ := s.projectRootForSession(memoryContext2(ctx), agentID, sessionID)
+	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
+	rs, err := s.skillService().ResolveScoped(ctx, skillName, scope, vc, projectRoot)
+	if err != nil {
+		return nil, "", http.StatusInternalServerError, err.Error()
+	}
+	if rs == nil {
+		return nil, "", http.StatusNotFound, "skill not found"
+	}
+	return rs, projectRoot, 0, ""
+}
+
 // memoryContext2 builds memory context from just ctx (no *http.Request).
 func memoryContext2(ctx context.Context) context.Context {
 	return ctx
+}
+
+// loadSkillFile loads a file from an already-resolved skill.
+func (s *Server) loadSkillFile(ctx context.Context, rs *skillstool.ResolvedSkill, path string) (string, error) {
+	if rs.Dir != "" {
+		fp, err := safeSkillFilePath(rs.Dir, path)
+		if err != nil {
+			return "", err
+		}
+		data, err := os.ReadFile(fp)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
+	store := s.skillStore()
+	if store == nil {
+		return "", errors.New("skills store not available")
+	}
+	return store.LoadFile(ctx, rs.ID, path)
 }
 
 // ---- Agent skills: /api/agents/{id}/skills* ---------------------------------
@@ -308,7 +349,14 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, params.SessionId)
+	var rs *skillstool.ResolvedSkill
+	var code int
+	var msg string
+	if params.Scope != nil {
+		rs, _, code, msg = s.resolveSkill(r.Context(), id, skillId, string(*params.Scope), params.SessionId)
+	} else {
+		rs, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, params.SessionId)
+	}
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -324,7 +372,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.UpdateAgentSkillParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, params.SessionId)
+	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -374,7 +422,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, params.SessionId)
+	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -406,18 +454,19 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
+	var rs *skillstool.ResolvedSkill
+	var code int
+	var msg string
+	if params.Scope != nil {
+		rs, _, code, msg = s.resolveSkill(r.Context(), id, skillId, string(*params.Scope), params.SessionId)
+	} else {
+		rs, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, params.SessionId)
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), id); code != 0 {
+	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	projectRoot, _ := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
-	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: id}
-	content, _, err := s.skillService().LoadFile(r.Context(), skillId, params.Path, vc, projectRoot)
+	content, err := s.loadSkillFile(r.Context(), rs, params.Path)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -426,7 +475,7 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, params.SessionId)
+	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
