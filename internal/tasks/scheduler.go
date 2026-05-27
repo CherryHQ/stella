@@ -141,7 +141,7 @@ func (s *Scheduler) RollupParentStatus(ctx context.Context, goal sqlc.AgentTask)
 	}
 
 	if allRequiredDone {
-		return "synthesis_ready"
+		return "done"
 	}
 	if anyRequiredFailed {
 		return "blocked"

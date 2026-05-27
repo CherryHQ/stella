@@ -387,6 +387,40 @@ func (s *Service) validateDeps(ctx context.Context, userID string, deps []string
 	return nil
 }
 
+// detectIntraBatchCycle checks for cycles in an intra-batch dependency graph using DFS.
+func detectIntraBatchCycle(n int, edges map[int][]int) error {
+	const (
+		white = 0 // unvisited
+		gray  = 1 // in current path
+		black = 2 // fully explored
+	)
+	color := make([]int, n)
+	var dfs func(i int) error
+	dfs = func(i int) error {
+		color[i] = gray
+		for _, j := range edges[i] {
+			if color[j] == gray {
+				return fmt.Errorf("tasks: cycle detected in split children (index %d → %d)", i, j)
+			}
+			if color[j] == white {
+				if err := dfs(j); err != nil {
+					return err
+				}
+			}
+		}
+		color[i] = black
+		return nil
+	}
+	for i := range n {
+		if color[i] == white {
+			if err := dfs(i); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // GetTask returns a single task by ID.
 func (s *Service) GetTask(ctx context.Context, id string, userID string) (sqlc.AgentTask, error) {
 	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: id, UserID: userID})
@@ -480,38 +514,36 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 
 	switch action.Action {
 	case "cancel":
-		switch task.Status {
-		case "ready", "blocked", "reviewing":
-			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-				Status:    "cancelled",
-				UpdatedAt: now,
-				ID:        id,
-				UserID:    userID,
-			}); err != nil {
-				return sqlc.AgentTask{}, fmt.Errorf("tasks: cancel: %w", err)
-			}
-		case "running":
+		if err := ValidateTaskTransition(task.TaskType, task.Status, "cancelled", RoleUser); err != nil {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: %w", err)
+		}
+		if task.Status == "running" {
 			s.mu.Lock()
 			cancel, ok := s.workers[id]
 			s.mu.Unlock()
 			if ok {
 				cancel()
 			}
-			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-				Status:    "cancelled",
-				UpdatedAt: now,
-				ID:        id,
-				UserID:    userID,
-			}); err != nil {
-				return sqlc.AgentTask{}, fmt.Errorf("tasks: cancel running: %w", err)
-			}
-		default:
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: cannot cancel task in status %q", task.Status)
 		}
+		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+			Status:    "cancelled",
+			UpdatedAt: now,
+			ID:        id,
+			UserID:    userID,
+		}); err != nil {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: cancel: %w", err)
+		}
+		// Cancel pending reviews.
+		_ = s.q.CancelReviewsByTask(ctx, sqlc.CancelReviewsByTaskParams{
+			TaskID:     id,
+			UserID:     userID,
+			ResolvedAt: sql.NullString{String: now, Valid: true},
+		})
+		insertEvent(ctx, s.q, id, "cancelled", detailJSON(action.Message))
 
 	case "approve":
-		if task.Status != "reviewing" {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve requires reviewing status, got %q", task.Status)
+		if err := ValidateTaskTransition(task.TaskType, task.Status, "done", RoleUser); err != nil {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: %w", err)
 		}
 		if err := s.q.UpdateAgentTaskReviewRequest(ctx, sqlc.UpdateAgentTaskReviewRequestParams{
 			ReviewRequest: "{}",
@@ -521,18 +553,27 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: clear review_request: %w", err)
 		}
+		// Cancel any pending reviews for this task.
+		if err := s.q.CancelReviewsByTask(ctx, sqlc.CancelReviewsByTaskParams{
+			TaskID:     id,
+			UserID:     userID,
+			ResolvedAt: sql.NullString{String: now, Valid: true},
+		}); err != nil {
+			s.log.Warn("failed to cancel pending reviews on approve", "task_id", id, "error", err)
+		}
 		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "ready",
+			Status:    "done",
 			UpdatedAt: now,
 			ID:        id,
 			UserID:    userID,
 		}); err != nil {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve set ready: %w", err)
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: approve set done: %w", err)
 		}
+		insertEvent(ctx, s.q, id, "done", detailJSON("approved by user"))
 
 	case "reject":
-		if task.Status != "reviewing" {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: reject requires reviewing status, got %q", task.Status)
+		if err := ValidateTaskTransition(task.TaskType, task.Status, "failed", RoleUser); err != nil {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: %w", err)
 		}
 		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
 			Status:    "failed",
@@ -542,11 +583,17 @@ func (s *Service) HandleAction(ctx context.Context, id string, userID string, ac
 		}); err != nil {
 			return sqlc.AgentTask{}, fmt.Errorf("tasks: reject: %w", err)
 		}
+		// Cancel pending reviews.
+		_ = s.q.CancelReviewsByTask(ctx, sqlc.CancelReviewsByTaskParams{
+			TaskID:     id,
+			UserID:     userID,
+			ResolvedAt: sql.NullString{String: now, Valid: true},
+		})
 		insertEvent(ctx, s.q, id, "failed", detailJSON(action.Message))
 
 	case "respond":
-		if task.Status != "blocked" {
-			return sqlc.AgentTask{}, fmt.Errorf("tasks: respond requires blocked status, got %q", task.Status)
+		if err := ValidateTaskTransition(task.TaskType, task.Status, "ready", RoleUser); err != nil {
+			return sqlc.AgentTask{}, fmt.Errorf("tasks: %w", err)
 		}
 		session := taskSession(task)
 		memCtx := memory.WithSessionID(ctx, session.ID)
@@ -894,24 +941,29 @@ func (s *Service) SplitTask(ctx context.Context, goalID, userID string, children
 
 	// Resolve intra-batch deps (by index string) and validate.
 	resolvedDeps := make([][]string, len(children))
+	intraBatchEdges := make(map[int][]int) // adjacency list for cycle detection
 	for i, c := range children {
 		for _, dep := range c.Deps {
 			found := false
 			for j, rid := range realIDs {
 				if dep == fmt.Sprintf("%d", j) || dep == rid {
 					resolvedDeps[i] = append(resolvedDeps[i], rid)
+					intraBatchEdges[i] = append(intraBatchEdges[i], j)
 					found = true
 					break
 				}
 			}
 			if !found {
-				// External dep — must exist.
 				if _, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: dep, UserID: userID}); err != nil {
 					return nil, fmt.Errorf("tasks: dep %q not found", dep)
 				}
 				resolvedDeps[i] = append(resolvedDeps[i], dep)
 			}
 		}
+	}
+	// Detect cycles in intra-batch dependency graph.
+	if err := detectIntraBatchCycle(len(children), intraBatchEdges); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().Format(time.RFC3339)
@@ -1012,6 +1064,9 @@ func (s *Service) PlanReady(ctx context.Context, goalID, userID string) (sqlc.Ag
 
 // SubmitForReview transitions a task to reviewing and creates a review record.
 func (s *Service) SubmitForReview(ctx context.Context, taskID, userID, runID, summary string) (sqlc.AgentTaskReview, error) {
+	if runID == "" {
+		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: runID is required for review submission")
+	}
 	task, err := s.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: taskID, UserID: userID})
 	if err != nil {
 		return sqlc.AgentTaskReview{}, fmt.Errorf("tasks: task %q not found: %w", taskID, err)
@@ -1153,20 +1208,29 @@ func (s *Service) HandleReviewDecision(ctx context.Context, reviewID, userID str
 		return sqlc.AgentTask{}, fmt.Errorf("tasks: update task status: %w", err)
 	}
 
-	// If changes_requested and retry budget remains, auto-transition to ready.
-	if newStatus == "changes_requested" && task.RetryCount < task.MaxRetries {
-		if err := s.q.UpdateAgentTaskRetryCount(ctx, sqlc.UpdateAgentTaskRetryCountParams{
-			RetryCount: task.RetryCount + 1,
-			UpdatedAt:  now,
-			ID:         task.ID,
-			UserID:     userID,
-		}); err != nil {
-			s.log.Warn("failed to increment retry count", "task_id", task.ID, "error", err)
-		}
-		if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status: "ready", UpdatedAt: now, ID: task.ID, UserID: userID,
-		}); err != nil {
-			s.log.Warn("failed to auto-transition to ready", "task_id", task.ID, "error", err)
+	// If changes_requested: auto-retry if budget remains, otherwise fail.
+	if newStatus == "changes_requested" {
+		if task.RetryCount < task.MaxRetries {
+			if err := s.q.UpdateAgentTaskRetryCount(ctx, sqlc.UpdateAgentTaskRetryCountParams{
+				RetryCount: task.RetryCount + 1,
+				UpdatedAt:  now,
+				ID:         task.ID,
+				UserID:     userID,
+			}); err != nil {
+				s.log.Warn("failed to increment retry count", "task_id", task.ID, "error", err)
+			}
+			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+				Status: "ready", UpdatedAt: now, ID: task.ID, UserID: userID,
+			}); err != nil {
+				s.log.Warn("failed to auto-transition to ready", "task_id", task.ID, "error", err)
+			}
+		} else {
+			if err := s.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
+				Status: "failed", UpdatedAt: now, ID: task.ID, UserID: userID,
+			}); err != nil {
+				s.log.Warn("failed to transition exhausted retries to failed", "task_id", task.ID, "error", err)
+			}
+			insertEvent(ctx, s.q, task.ID, "failed", detailJSON("retry budget exhausted"))
 		}
 	}
 

@@ -45,7 +45,15 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 		return
 	}
 	if claimed.Status != "running" {
-		log.Info("task already claimed by another worker, skipping")
+		log.Info("task already claimed by another worker, cancelling orphaned run")
+		cancelNow := time.Now().Format(time.RFC3339)
+		_ = cfg.q.FailRun(ctx, sqlc.FailRunParams{
+			Error:      "claim lost to another worker",
+			FinishedAt: sql.NullString{String: cancelNow, Valid: true},
+			UpdatedAt:  cancelNow,
+			ID:         run.ID,
+			UserID:     run.UserID,
+		})
 		return
 	}
 
@@ -62,12 +70,25 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	// Log a "started" event.
 	insertEvent(ctx, cfg.q, task.ID, "started", "{}")
 
+	// failAndAbortRun marks both the task and run as failed for early-return paths.
+	failAndAbortRun := func(reason string) {
+		markFailed(ctx, cfg.q, task.ID, task.UserID, reason)
+		finNow := time.Now().Format(time.RFC3339)
+		_ = cfg.q.FailRun(ctx, sqlc.FailRunParams{
+			Error:      reason,
+			FinishedAt: sql.NullString{String: finNow, Valid: true},
+			UpdatedAt:  finNow,
+			ID:         run.ID,
+			UserID:     run.UserID,
+		})
+	}
+
 	// Resolve factory for this task's agent.
 	agentID := task.AssigneeAgentID.String
 	factory, ok := cfg.runnerFactory(agentID)
 	if !ok {
 		log.Error("no runner factory for agent", "agent_id", agentID)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("no runner available for agent %q", agentID))
+		failAndAbortRun(fmt.Sprintf("no runner available for agent %q", agentID))
 		return
 	}
 
@@ -84,7 +105,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	})
 	if err != nil {
 		log.Error("create runner failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("create runner: %v", err))
+		failAndAbortRun(fmt.Sprintf("create runner: %v", err))
 		return
 	}
 	defer func() { _ = runner.Close() }()
@@ -97,12 +118,12 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 
 	if err := saveTaskSessionInfo(memCtx, cfg.mem, task, session); err != nil {
 		log.Error("memory session info failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("memory session info failed: %v", err))
+		failAndAbortRun(fmt.Sprintf("memory session info failed: %v", err))
 		return
 	}
 	if err := cfg.mem.Bootstrap(memCtx, session); err != nil {
 		log.Error("memory bootstrap failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("memory bootstrap failed: %v", err))
+		failAndAbortRun(fmt.Sprintf("memory bootstrap failed: %v", err))
 		return
 	}
 
@@ -110,7 +131,7 @@ func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig,
 	history, err := cfg.mem.Assemble(memCtx, session, 100_000, 20)
 	if err != nil {
 		log.Error("assemble history failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("assemble history: %v", err))
+		failAndAbortRun(fmt.Sprintf("assemble history: %v", err))
 		return
 	}
 

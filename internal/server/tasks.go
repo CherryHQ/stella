@@ -399,7 +399,10 @@ func (s *Server) ListUnblockedAgentTasks(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 	list, err := s.tasksSvc.ListUnblockedTasks(r.Context(), info.UserID, agentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -417,7 +420,10 @@ func (s *Server) BatchCreateAgentTasks(w http.ResponseWriter, r *http.Request, a
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	var body apiserver.AgentTaskBatchInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -475,7 +481,10 @@ func (s *Server) GetAgentTaskDeps(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	deps, err := s.tasksSvc.GetTaskDeps(r.Context(), taskID, info.UserID)
 	if err != nil {
@@ -506,7 +515,10 @@ func (s *Server) AddAgentTaskDep(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	var body apiserver.AgentTaskDepsInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -536,7 +548,10 @@ func (s *Server) RemoveAgentTaskDep(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	if err := s.tasksSvc.RemoveDep(r.Context(), taskID, depID, info.UserID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -560,7 +575,10 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request, agentID stri
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	var body apitypes.GoalInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -604,7 +622,10 @@ func (s *Server) SplitGoalIntoTasks(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	var body apitypes.SplitTaskInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -664,7 +685,10 @@ func (s *Server) PlanReady(w http.ResponseWriter, r *http.Request, agentID strin
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	goal, err := s.tasksSvc.PlanReady(r.Context(), taskID, info.UserID)
 	if err != nil {
@@ -683,7 +707,10 @@ func (s *Server) ReopenAgentTask(w http.ResponseWriter, r *http.Request, agentID
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	task, err := s.tasksSvc.ReopenTask(r.Context(), taskID, info.UserID)
 	if err != nil {
@@ -702,7 +729,10 @@ func (s *Server) ListAgentTaskRuns(w http.ResponseWriter, r *http.Request, agent
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	runs, err := s.tasksSvc.ListRuns(r.Context(), taskID, info.UserID)
 	if err != nil {
@@ -722,7 +752,10 @@ func (s *Server) ListAgentTaskReviews(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	reviews, err := s.tasksSvc.ListReviews(r.Context(), taskID, info.UserID)
 	if err != nil {
@@ -742,7 +775,10 @@ func (s *Server) SubmitReviewDecision(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	var body apitypes.ReviewDecisionInput
 	if err := decodeJSON(r, &body); err != nil {
@@ -785,7 +821,10 @@ func (s *Server) ListAgentTaskCriteria(w http.ResponseWriter, r *http.Request, a
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	criteria, err := s.tasksSvc.ListCriteria(r.Context(), taskID, info.UserID)
 	if err != nil {
@@ -805,7 +844,10 @@ func (s *Server) CreateAgentTaskCriterion(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "tasks service not available")
 		return
 	}
-	info := UserFromContext(r.Context())
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	var body apitypes.AgentTaskAcceptanceCriterionInput
 	if err := decodeJSON(r, &body); err != nil {

@@ -115,6 +115,15 @@ func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (str
 		}); err != nil {
 			return "", fmt.Errorf("task_control: set blocked: %w", err)
 		}
+		if t.runID != "" {
+			_ = t.q.FailRun(ctx, sqlc.FailRunParams{
+				Error:      "blocked: " + message,
+				FinishedAt: sql.NullString{String: now, Valid: true},
+				UpdatedAt:  now,
+				ID:         t.runID,
+				UserID:     t.userID,
+			})
+		}
 		if err := t.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
 			NotifyAt:  sql.NullString{String: now, Valid: true},
 			UpdatedAt: now,

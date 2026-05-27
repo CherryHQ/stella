@@ -31,7 +31,7 @@ var taskTransitions = map[string][]string{
 	"ready":             {"running", "blocked", "cancelled"},
 	"running":           {"reviewing", "blocked", "failed", "cancelled"},
 	"blocked":           {"ready", "failed", "cancelled"},
-	"reviewing":         {"done", "changes_requested", "failed"},
+	"reviewing":         {"done", "changes_requested", "failed", "cancelled"},
 	"changes_requested": {"ready", "failed", "cancelled"},
 	"done":              {"ready"}, // reopen
 	"failed":            {"ready", "cancelled"},
