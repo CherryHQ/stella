@@ -20,6 +20,11 @@ func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.Provi
 	return func(ctx context.Context, prompt string) (string, error) {
 		agentID := memory.AgentIDFromContext(ctx)
 		if agentID == "" {
+			if agents, err := store.ListEnabledAgents(ctx); err == nil && len(agents) > 0 {
+				agentID = agents[0].ID
+			}
+		}
+		if agentID == "" {
 			return "", fmt.Errorf("no agent ID in context for memory summarizer")
 		}
 		currentSnap, err := store.Snapshot(ctx, agentID)

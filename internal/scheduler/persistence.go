@@ -41,31 +41,23 @@ func (s *Service) updateJob(ctx context.Context, job Job) error {
 }
 
 // recordJobRun persists execution metadata for a job.
-func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, runErr error) error {
+func (s *Service) recordJobRun(ctx context.Context, id, orgID string, ranAt time.Time, runErr error) error {
 	lastError := ""
 	if runErr != nil {
 		lastError = runErr.Error()
-	}
-	job, ok := s.jobs[id]
-	if !ok {
-		return fmt.Errorf("job %q not found in memory", id)
 	}
 	return s.q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
 		LastRunAt: sql.NullString{String: ranAt.UTC().Format(dbTimeLayout), Valid: true},
 		LastError: lastError,
 		UpdatedAt: ranAt.UTC().Format(dbTimeLayout),
 		ID:        id,
-		OrgID:     job.OrgID,
+		OrgID:     orgID,
 	})
 }
 
 // deleteJob removes a job from the database.
-func (s *Service) deleteJob(ctx context.Context, id string) error {
-	job, ok := s.jobs[id]
-	if !ok {
-		return fmt.Errorf("job %q not found in memory", id)
-	}
-	return s.q.DeleteSchedulerJob(ctx, sqlc.DeleteSchedulerJobParams{ID: id, OrgID: job.OrgID})
+func (s *Service) deleteJob(ctx context.Context, id, orgID string) error {
+	return s.q.DeleteSchedulerJob(ctx, sqlc.DeleteSchedulerJobParams{ID: id, OrgID: orgID})
 }
 
 // migrateJobsFile imports jobs from the legacy jobs.json file into the database
@@ -92,6 +84,11 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 		return nil
 	}
 
+	// Legacy jobs may lack OrgID. Look up the first existing org before
+	// starting the transaction to avoid SQLite lock contention.
+	var fallbackOrgID string
+	_ = s.db.QueryRowContext(ctx, `SELECT id FROM auth_organization ORDER BY created_at ASC LIMIT 1`).Scan(&fallbackOrgID)
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration tx: %w", err)
@@ -100,6 +97,13 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 
 	qtx := s.q.WithTx(tx)
 	for _, job := range jobs {
+		if job.OrgID == "" {
+			if fallbackOrgID == "" {
+				s.log.Warn("skipping legacy job with no org_id (no orgs exist)", "job_id", job.ID)
+				continue
+			}
+			job.OrgID = fallbackOrgID
+		}
 		if _, err := qtx.CreateSchedulerJob(ctx, createSchedulerJobParams(job)); err != nil {
 			return fmt.Errorf("migrate job %s: %w", job.ID, err)
 		}
