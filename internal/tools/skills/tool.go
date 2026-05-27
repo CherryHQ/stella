@@ -228,15 +228,24 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		path = pkgplugins.SkillMainFile
 	}
 
-	// Check project skills (filesystem) first.
+	// Check filesystem skills first: project > system.
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
-	if projectRoot != "" {
-		_, dirs, err := ListProjectSkills(projectRoot)
+	for _, lookup := range []struct {
+		scope string
+		root  string
+	}{
+		{"project", projectRoot},
+		{"system", t.stellaHome},
+	} {
+		if lookup.root == "" {
+			continue
+		}
+		_, dirs, err := listFSSkills(lookup.root, lookup.scope)
 		if err == nil {
 			if skillDir, ok := dirs[name]; ok {
 				data, err := loadProjectSkillFile(skillDir, path)
 				if err != nil {
-					return "", fmt.Errorf("load project skill %q file %q: %w", name, path, err)
+					return "", fmt.Errorf("load %s skill %q file %q: %w", lookup.scope, name, path, err)
 				}
 				return fmt.Sprintf("<skill_dir>%s</skill_dir>\n<skill_content name=%q path=%q>\n%s\n</skill_content>", skillDir, name, path, data), nil
 			}
@@ -287,20 +296,16 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("list skills: %w", err)
 	}
 
-	// Collect project skills from filesystem (project > user > agent > system precedence in presentation).
+	// Collect filesystem skills: project > DB (user/agent) > system.
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	projSkills, _, _ := ListProjectSkills(projectRoot)
+	sysSkills, _, _ := ListSystemSkills(t.stellaHome)
 
-	// Deduplicate: project skills shadow same-named DB skills.
-	projNames := make(map[string]bool, len(projSkills))
+	seen := make(map[string]bool, len(projSkills)+len(sysSkills))
+	results := make([]installedSkill, 0, len(projSkills)+len(dbSkills)+len(sysSkills))
+
 	for _, s := range projSkills {
-		projNames[s.Name] = true
-	}
-
-	results := make([]installedSkill, 0, len(projSkills)+len(dbSkills))
-
-	// Project skills first (highest precedence when presenting to agent).
-	for _, s := range projSkills {
+		seen[s.Name] = true
 		results = append(results, installedSkill{
 			Name:        s.Name,
 			Description: s.Description,
@@ -310,17 +315,30 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 		})
 	}
 
-	// DB skills, skipping names already covered by project skills.
 	for _, s := range dbSkills {
-		if projNames[s.Name] {
+		if seen[s.Name] {
 			continue
 		}
+		seen[s.Name] = true
 		results = append(results, installedSkill{
 			Name:        s.Name,
 			Description: s.Description,
 			Status:      s.Status,
 			Scope:       s.Scope,
 			Removable:   s.Scope == "user" || s.Scope == "agent",
+		})
+	}
+
+	for _, s := range sysSkills {
+		if seen[s.Name] {
+			continue
+		}
+		results = append(results, installedSkill{
+			Name:        s.Name,
+			Description: s.Description,
+			Status:      s.Status,
+			Scope:       "system",
+			Removable:   false,
 		})
 	}
 

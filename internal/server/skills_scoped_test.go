@@ -57,7 +57,8 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, ag
 		Description: "test",
 		Status:      "active",
 	}
-	id, err := env.pluginHost.SkillStore().Create(context.Background(), sk, map[string]string{
+	ctx := config.WithOrgID(context.Background(), env.orgID)
+	id, err := env.pluginHost.SkillStore().Create(ctx, sk, map[string]string{
 		skills.MainFile: "# " + name,
 		"reference.md":  "reference content",
 	})
@@ -180,13 +181,14 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user", creator.ID, agentID, "creator-user-skill")
 	draftID := createTestSkill(t, env, "user", creator.ID, agentID, "draft-skill")
+	orgCtx := config.WithOrgID(context.Background(), env.orgID)
 	draftStatus := "draft"
-	if err := env.pluginHost.SkillStore().Update(context.Background(), draftID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &draftStatus}); err != nil {
+	if err := env.pluginHost.SkillStore().Update(orgCtx, draftID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &draftStatus}); err != nil {
 		t.Fatalf("mark skill draft: %v", err)
 	}
 	deprecatedID := createTestSkill(t, env, "user", creator.ID, agentID, "deprecated-skill")
 	deprecatedStatus := "deprecated"
-	if err := env.pluginHost.SkillStore().Update(context.Background(), deprecatedID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &deprecatedStatus}); err != nil {
+	if err := env.pluginHost.SkillStore().Update(orgCtx, deprecatedID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &deprecatedStatus}); err != nil {
 		t.Fatalf("mark skill deprecated: %v", err)
 	}
 

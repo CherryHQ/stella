@@ -207,7 +207,6 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
 	skillStore := skills.New(db)
-	skillStore.SetDefaultOrgID(orgID)
 	phost.SetSkillStore(skillStore)
 	if err := phost.ApplyPlugin(orgCtx, mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)

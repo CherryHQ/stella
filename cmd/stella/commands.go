@@ -119,10 +119,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, err
 	}
 
-	ss, err := setupSkillStores(parent, db, "")
-	if err != nil {
-		return nil, err
-	}
+	ss := setupSkillStores(db)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)

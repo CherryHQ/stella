@@ -33,16 +33,26 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	// System-scope skills are always available to every agent. Agent/user/project
 	// skills keep their existing visibility rules.
 
-	// Merge project skills from filesystem (project > user > agent > system precedence).
+	// Merge filesystem skills: project > user > agent > system precedence.
 	projSkills, _, _ := ListProjectSkills(build.ProjectRoot)
-	projNames := make(map[string]bool, len(projSkills))
+	sysSkills, _, _ := ListSystemSkills(build.StellaHome)
+	sysSkills = filterVisibleSkills(sysSkills, build)
+
+	seen := make(map[string]bool, len(projSkills)+len(sysSkills))
+	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills)+len(sysSkills))
+
 	for _, s := range projSkills {
-		projNames[s.Name] = true
+		seen[s.Name] = true
+		all = append(all, s)
 	}
-	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills))
-	all = append(all, projSkills...)
 	for _, s := range dbSkills {
-		if !projNames[s.Name] {
+		if !seen[s.Name] {
+			seen[s.Name] = true
+			all = append(all, s)
+		}
+	}
+	for _, s := range sysSkills {
+		if !seen[s.Name] {
 			all = append(all, s)
 		}
 	}

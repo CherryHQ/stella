@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/skills"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -178,18 +179,33 @@ func (s *Server) projectRootForSession(ctx context.Context, agentID string, sess
 }
 
 func listProjectSkillViews(root string) ([]skillView, error) {
-	projectSkills, _, err := skillstool.ListProjectSkills(root)
+	return listFSSkillViews(root, "project")
+}
+
+func listSystemSkillViews() ([]skillView, error) {
+	return listFSSkillViews(config.StellaHome(), "system")
+}
+
+func listFSSkillViews(root, scope string) ([]skillView, error) {
+	var fsSkills []pkgplugins.Skill
+	var err error
+	switch scope {
+	case "project":
+		fsSkills, _, err = skillstool.ListProjectSkills(root)
+	case "system":
+		fsSkills, _, err = skillstool.ListSystemSkills(root)
+	}
 	if err != nil {
 		return nil, err
 	}
-	out := make([]skillView, 0, len(projectSkills))
-	for _, sk := range projectSkills {
+	out := make([]skillView, 0, len(fsSkills))
+	for _, sk := range fsSkills {
 		if sk.Status == "deprecated" || sk.DisableModelInvocation {
 			continue
 		}
 		out = append(out, skillView{
 			ID:                     sk.Name,
-			Scope:                  "project",
+			Scope:                  scope,
 			Name:                   sk.Name,
 			Description:            sk.Description,
 			Status:                 sk.Status,
@@ -231,6 +247,12 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	out = append(out, projectViews...)
+	sysViews, err := listSystemSkillViews()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out = append(out, sysViews...)
 	writeListData(w, http.StatusOK, out)
 }
 
@@ -272,11 +294,47 @@ func (s *Server) requireAgentSkillRead(ctx context.Context, agentID, scope, skil
 	return s.requireSkillScope(ctx, skillID, scope, userID, agentID)
 }
 
+func (s *Server) resolveFSSkill(r *http.Request, agentID, scope, skillID string, sessionID *string) (string, []skillView, error) {
+	var dir string
+	var views []skillView
+	var err error
+	switch scope {
+	case "project":
+		var projectRoot string
+		projectRoot, err = s.projectRootForSession(memoryContext(r, agentID), agentID, sessionID)
+		if err != nil {
+			return "", nil, err
+		}
+		dir, err = projectSkillDir(projectRoot, skillID)
+		if err != nil {
+			return "", nil, err
+		}
+		views, err = listProjectSkillViews(projectRoot)
+	case "system":
+		dir, err = systemSkillDir(skillID)
+		if err != nil {
+			return "", nil, err
+		}
+		views, err = listSystemSkillViews()
+	default:
+		return "", nil, fs.ErrNotExist
+	}
+	return dir, views, err
+}
+
 func projectSkillDir(root, skillID string) (string, error) {
+	return fsSkillDir(skillstool.ListProjectSkills, root, skillID)
+}
+
+func systemSkillDir(skillID string) (string, error) {
+	return fsSkillDir(skillstool.ListSystemSkills, config.StellaHome(), skillID)
+}
+
+func fsSkillDir(listFn func(string) ([]pkgplugins.Skill, map[string]string, error), root, skillID string) (string, error) {
 	if root == "" || skillID == "" || strings.ContainsAny(skillID, `/\\`) || skillID == "." || skillID == ".." {
 		return "", fs.ErrNotExist
 	}
-	_, dirs, err := skillstool.ListProjectSkills(root)
+	_, dirs, err := listFn(root)
 	if err != nil {
 		return "", err
 	}
@@ -358,22 +416,12 @@ func (s *Server) CreateAgentScopedSkill(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.GetAgentScopedSkillParams) {
-	if scope == "project" {
-		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		dir, err := projectSkillDir(projectRoot, skillId)
+	if scope == "project" || scope == "system" {
+		dir, views, err := s.resolveFSSkill(r, id, scope, skillId, params.SessionId)
 		if errors.Is(err, fs.ErrNotExist) {
 			writeError(w, http.StatusNotFound, "skill not found")
 			return
 		}
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		views, err := listProjectSkillViews(projectRoot)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -402,13 +450,8 @@ func (s *Server) GetAgentScopedSkill(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (s *Server) GetAgentScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, scope string, skillId string, params apiserver.GetAgentScopedSkillFileParams) {
-	if scope == "project" {
-		projectRoot, err := s.projectRootForSession(memoryContext(r, id), id, params.SessionId)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		dir, err := projectSkillDir(projectRoot, skillId)
+	if scope == "project" || scope == "system" {
+		dir, _, err := s.resolveFSSkill(r, id, scope, skillId, params.SessionId)
 		if errors.Is(err, fs.ErrNotExist) {
 			writeError(w, http.StatusNotFound, "skill not found")
 			return

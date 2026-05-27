@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"testing/fstest"
+
+	"github.com/CherryHQ/stella/internal/orgctx"
 )
 
 // testSkillMD builds a minimal SKILL.md with the given frontmatter description.
@@ -13,16 +15,15 @@ func testSkillMD(description string) string {
 	return "---\nname: foo\ndescription: " + description + "\nstatus: active\n---\n\n# Foo\n"
 }
 
-// newTestStoreWithOrg creates a test store and returns its default org ID.
-func newTestStoreWithOrg(t *testing.T) (*SQLiteStore, *sql.DB, string) {
+// newTestStoreWithOrg creates a test store and returns a context with org and the org ID.
+func newTestStoreWithOrg(t *testing.T) (*SQLiteStore, *sql.DB, context.Context, string) {
 	t.Helper()
-	store, db := newTestStore(t)
-	return store, db, store.defaultOrgID
+	store, db, ctx := newTestStore(t)
+	orgID := orgctx.OrgIDFromContext(ctx)
+	return store, db, ctx, orgID
 }
 
 func TestSyncBuiltin(t *testing.T) {
-	ctx := context.Background()
-
 	// Build a fake embedded FS with one skill and one non-skill directory.
 	baseFS := func(skillMDContent, refContent string) fstest.MapFS {
 		m := fstest.MapFS{
@@ -34,7 +35,7 @@ func TestSyncBuiltin(t *testing.T) {
 	}
 
 	t.Run("initial sync creates skill and files", func(t *testing.T) {
-		store, _, orgID := newTestStoreWithOrg(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := baseFS(testSkillMD("test skill"), "reference content")
 
 		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
@@ -82,7 +83,7 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("second sync with changed content updates file", func(t *testing.T) {
-		store, _, orgID := newTestStoreWithOrg(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := baseFS(testSkillMD("test skill"), "original reference")
 
 		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
@@ -107,7 +108,7 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("second sync with removed file deletes orphan", func(t *testing.T) {
-		store, _, orgID := newTestStoreWithOrg(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := baseFS(testSkillMD("test skill"), "reference content")
 
 		if err := SyncBuiltin(ctx, store, fakeFS, orgID); err != nil {
@@ -140,7 +141,7 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("agents dir without SKILL.md is not imported as skill", func(t *testing.T) {
-		store, _, orgID := newTestStoreWithOrg(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := fstest.MapFS{
 			"foo/SKILL.md":         {Data: []byte(testSkillMD("test skill"))},
 			"agents/coder.md":      {Data: []byte("# Coder\n")},
@@ -165,7 +166,7 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("nested skill roots sync by leaf name and relative files", func(t *testing.T) {
-		store, _, orgID := newTestStoreWithOrg(t)
+		store, _, ctx, orgID := newTestStoreWithOrg(t)
 		fakeFS := fstest.MapFS{
 			"system/lark-cli/SKILL.md":        {Data: []byte("---\nname: lark-cli\ndescription: nested\nstatus: active\n---\n\n# Lark\n")},
 			"system/lark-cli/references/a.md": {Data: []byte("nested ref")},
@@ -192,7 +193,7 @@ func TestSyncBuiltin(t *testing.T) {
 	})
 
 	t.Run("removed system skills are deleted on full sync", func(t *testing.T) {
-		store, db, orgID := newTestStoreWithOrg(t)
+		store, db, ctx, orgID := newTestStoreWithOrg(t)
 		userID, _, _ := seedFixtures(t, db)
 		initialFS := fstest.MapFS{
 			"system/foo/SKILL.md": {Data: []byte(testSkillMD("foo skill"))},

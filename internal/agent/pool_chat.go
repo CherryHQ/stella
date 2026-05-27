@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -49,6 +50,9 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 	}
 	if agentID != "" {
 		ctx = memory.WithAgentID(ctx, agentID)
+	}
+	if sess.Info.OrgID != "" {
+		ctx = config.WithOrgID(ctx, sess.Info.OrgID)
 	}
 	if sess.Info.Channel != "" {
 		ctx = WithChannel(ctx, sess.Info.Channel)

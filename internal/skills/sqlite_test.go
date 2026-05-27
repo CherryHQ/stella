@@ -12,11 +12,13 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/orgctx"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
-// newTestStore opens a fresh in-tmpdir SQLite DB, ensures a default org, and returns a Store.
-func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB) {
+// newTestStore opens a fresh in-tmpdir SQLite DB, ensures a default org, and returns a Store
+// plus a context with the org ID set.
+func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB, context.Context) {
 	t.Helper()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -27,9 +29,8 @@ func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB) {
 	if err != nil {
 		t.Fatalf("EnsureDefaultOrg: %v", err)
 	}
-	s := New(db)
-	s.SetDefaultOrgID(orgID)
-	return s, db
+	ctx := orgctx.WithOrgID(context.Background(), orgID)
+	return New(db), db, ctx
 }
 
 // seedFixtures inserts the auth_organization, auth_users and settings_agent rows needed by FK constraints.
@@ -66,10 +67,8 @@ func seedFixtures(t *testing.T, db *sql.DB) (string, string, string) {
 }
 
 func TestCreateAndLoadFile(t *testing.T) {
-	store, db := newTestStore(t)
-	_, _ = db, db // suppress unused
+	store, db, ctx := newTestStore(t)
 	userID, agentID, _ := seedFixtures(t, db)
-	ctx := context.Background()
 
 	sk := Skill{
 		Scope:       "user",
@@ -124,9 +123,8 @@ func TestCreateAndLoadFile(t *testing.T) {
 }
 
 func TestCreateMissingSkillMD(t *testing.T) {
-	store, db := newTestStore(t)
+	store, db, ctx := newTestStore(t)
 	userID, _, _ := seedFixtures(t, db)
-	ctx := context.Background()
 
 	_, err := store.Create(ctx, Skill{
 		Scope: "user", UserID: userID, Name: "bad", Description: "missing main",
@@ -147,22 +145,21 @@ func TestCreateMissingSkillMD(t *testing.T) {
 }
 
 func TestCreateSystemSkillSameNameAcrossOrgs(t *testing.T) {
-	store1, db := newTestStore(t)
+	store1, db, ctx1 := newTestStore(t)
 	_, _, org1 := seedFixtures(t, db)
 	org2 := "org-2"
 	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, org2, "Org 2", org2, "test"); err != nil {
 		t.Fatalf("create org 2: %v", err)
 	}
 	store2 := New(db)
-	store2.SetDefaultOrgID(org2)
-	ctx := context.Background()
+	ctx2 := orgctx.WithOrgID(context.Background(), org2)
 	files := map[string]string{MainFile: "body"}
 
-	id1, err := store1.Create(ctx, Skill{Scope: "system", Name: "shared", Description: "org1"}, files)
+	id1, err := store1.Create(ctx1, Skill{Scope: "system", Name: "shared", Description: "org1"}, files)
 	if err != nil {
 		t.Fatalf("create org1 skill: %v", err)
 	}
-	id2, err := store2.Create(ctx, Skill{Scope: "system", Name: "shared", Description: "org2"}, files)
+	id2, err := store2.Create(ctx2, Skill{Scope: "system", Name: "shared", Description: "org2"}, files)
 	if err != nil {
 		t.Fatalf("create org2 skill: %v", err)
 	}
@@ -170,11 +167,11 @@ func TestCreateSystemSkillSameNameAcrossOrgs(t *testing.T) {
 		t.Fatalf("expected distinct skill IDs, got %q", id1)
 	}
 
-	got1, err := store1.Resolve(ctx, "shared", ViewContext{})
+	got1, err := store1.Resolve(ctx1, "shared", ViewContext{})
 	if err != nil || got1 == nil {
 		t.Fatalf("resolve org1: %v skill=%v", err, got1)
 	}
-	got2, err := store2.Resolve(ctx, "shared", ViewContext{})
+	got2, err := store2.Resolve(ctx2, "shared", ViewContext{})
 	if err != nil || got2 == nil {
 		t.Fatalf("resolve org2: %v skill=%v", err, got2)
 	}
@@ -184,9 +181,8 @@ func TestCreateSystemSkillSameNameAcrossOrgs(t *testing.T) {
 }
 
 func TestResolvePrecedence(t *testing.T) {
-	store, db := newTestStore(t)
+	store, db, ctx := newTestStore(t)
 	userID, agentID, _ := seedFixtures(t, db)
-	ctx := context.Background()
 
 	mainFile := map[string]string{MainFile: "body"}
 
@@ -244,9 +240,8 @@ func TestResolvePrecedence(t *testing.T) {
 }
 
 func TestVisibilityFiltering(t *testing.T) {
-	store, db := newTestStore(t)
+	store, db, ctx := newTestStore(t)
 	userID, agentID, orgID := seedFixtures(t, db)
-	ctx := context.Background()
 
 	// Seed a second user and agent.
 	oidcStore2 := appdb.NewOIDCStore(db)
@@ -311,9 +306,8 @@ func TestVisibilityFiltering(t *testing.T) {
 }
 
 func TestDeprecatedAndDisabled(t *testing.T) {
-	store, db := newTestStore(t)
+	store, db, ctx := newTestStore(t)
 	userID, _, _ := seedFixtures(t, db)
-	ctx := context.Background()
 
 	mainFile := map[string]string{MainFile: "body"}
 
@@ -389,9 +383,8 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 }
 
 func TestUpsertFileAndDeleteFile(t *testing.T) {
-	store, db := newTestStore(t)
+	store, db, ctx := newTestStore(t)
 	userID, _, _ := seedFixtures(t, db)
-	ctx := context.Background()
 
 	id, err := store.Create(ctx, Skill{
 		Scope: "user", UserID: userID, Name: "multi-file", Description: "d",
@@ -433,9 +426,8 @@ func TestUpsertFileAndDeleteFile(t *testing.T) {
 }
 
 func TestDeleteCascadesSkillFiles(t *testing.T) {
-	store, db := newTestStore(t)
+	store, db, ctx := newTestStore(t)
 	userID, _, _ := seedFixtures(t, db)
-	ctx := context.Background()
 
 	id, err := store.Create(ctx, Skill{
 		Scope: "user", UserID: userID, Name: "cascade-test", Description: "d",
