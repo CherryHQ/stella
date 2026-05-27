@@ -56,6 +56,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Exempt paths: login page, static assets, public shares, auth endpoints, OAuth callbacks.
 		if path == "/login" ||
+			strings.HasPrefix(path, "/api/docs") ||
 			strings.HasPrefix(path, "/assets/") ||
 			strings.HasPrefix(path, "/static/") ||
 			strings.HasPrefix(path, "/s/") ||
