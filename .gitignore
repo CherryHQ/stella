@@ -9,6 +9,13 @@ web/node_modules/
 handoff.md
 plan.md
 
+# Generated code (produced by mise run generate)
+api/types/gen.go
+api/server/gen.go
+api/client/gen.go
+internal/server/docs_spec.yaml
+web/src/lib/api-client/
+
 # Embedded tool binaries (downloaded via builddeps sync)
 resources/binaries/binaries/*/*.gz
 
