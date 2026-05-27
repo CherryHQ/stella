@@ -2,11 +2,10 @@
 
 FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:latest AS web-builder
 RUN pnpm runtime set node 24 -g
-WORKDIR /app
-COPY api/spec/ ./api/spec/
-COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./web/
 WORKDIR /app/web
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
+COPY api/spec/ /app/api/spec/
 COPY web/ ./
 RUN pnpm openapi-ts && CI=true pnpm build
 
