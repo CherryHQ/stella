@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
+	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 )
 
@@ -24,15 +24,15 @@ const (
 // for development via the STELLA_REFLECT_INTERVAL env var (Go duration
 // string). The override is intentionally undocumented in user-facing docs
 // — it exists so verifying reflect's wiring doesn't require a code rebuild.
-func registerReflectBuiltin(svc *scheduler.Service, cfg reflectplugin.Config) error {
+func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config) error {
 	every := resolveReflectInterval()
 
-	handler, err := reflectplugin.NewBuiltinHandler(cfg)
+	handler, err := reflect.NewBuiltinHandler(cfg)
 	if err != nil {
 		return fmt.Errorf("build reflect handler: %w", err)
 	}
 	if err := svc.RegisterBuiltin(scheduler.BuiltinJob{
-		Name:      reflectplugin.BuiltinJobName,
+		Name:      reflect.BuiltinJobName,
 		Schedule:  scheduler.Schedule{Every: every.String()},
 		ExecScope: scheduler.ExecScopeSystem,
 		Handler:   handler,

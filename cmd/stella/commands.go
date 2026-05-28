@@ -21,7 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/orgruntime"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
+	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tasks"
@@ -163,7 +163,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
-	if err := registerReflectBuiltin(schedulerSvc, reflectplugin.Config{
+	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:     memProvider,
 		Store:      store,
 		SkillStore: skillStoreAdapter,
