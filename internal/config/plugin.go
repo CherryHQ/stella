@@ -8,7 +8,6 @@ const (
 	PluginKindChannel  = "channel"
 	PluginKindHook     = "hook"
 	PluginKindProvider = "provider"
-	PluginKindMemory   = "memory"
 	PluginKindSandbox  = "sandbox"
 	PluginKindAuth     = "auth"
 )
@@ -40,9 +39,6 @@ var BuiltinHookNames = []string{"rtk", "trace"}
 // BuiltinProviderNames lists the built-in provider types.
 var BuiltinProviderNames = []string{"anthropic", "openai", "openai-response"}
 
-// BuiltinMemoryNames lists the built-in memory plugins.
-var BuiltinMemoryNames = []string{"lcm", "simple"}
-
 // BuiltinSandboxNames lists the built-in sandbox backend plugins.
 var BuiltinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone}
 
@@ -71,9 +67,6 @@ func BuiltinPlugins() []BuiltinPlugin {
 	}
 	for _, n := range BuiltinHookNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindHook, n), Kind: PluginKindHook, Name: n, DefaultEnabled: true})
-	}
-	for _, n := range BuiltinMemoryNames {
-		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindMemory, n), Kind: PluginKindMemory, Name: n, DefaultEnabled: n != "simple"})
 	}
 	for _, n := range BuiltinSandboxNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindSandbox, n), Kind: PluginKindSandbox, Name: n, DefaultEnabled: n == SandboxBackendLocal})
