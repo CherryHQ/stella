@@ -14,18 +14,20 @@ const (
 	// defaultDraftMaxAge is the maximum age of a draft skill before it is
 	// automatically deprecated.
 	defaultDraftMaxAge = 30 * 24 * time.Hour
+
+	// defaultReviewBatch caps how many candidate sessions a single review
+	// cycle processes per agent.
+	defaultReviewBatch = 5
 )
 
 // Config holds dependencies for the reflect service.
 type Config struct {
 	StateStore pkgplugins.StateStore
 	Memory     memory.Provider
-	Store      pkgplugins.ReflectStore
+	Store      Store
 	SkillStore pkgplugins.SkillStore
 	Notifier   pkgplugins.Notifier
 	Workspace  string
-	Interval   time.Duration
-	Batch      int
 	Log        *slog.Logger
 	Providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 }
@@ -39,12 +41,11 @@ type watermarker interface {
 // Service runs background conversation review.
 type Service struct {
 	memory     memory.Provider
-	store      pkgplugins.ReflectStore
+	store      Store
 	skillStore pkgplugins.SkillStore
 	notifier   pkgplugins.Notifier
 	wm         watermarker
 	workspace  string
-	interval   time.Duration
 	batch      int
 	log        *slog.Logger
 	providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
@@ -52,7 +53,9 @@ type Service struct {
 
 // New creates a new reflect service.
 func New(cfg Config) *Service {
-	cfg = normalizeConfig(cfg)
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
 	return &Service{
 		memory:     cfg.Memory,
 		store:      cfg.Store,
@@ -60,22 +63,8 @@ func New(cfg Config) *Service {
 		notifier:   cfg.Notifier,
 		wm:         newWatermarkStore(cfg.StateStore),
 		workspace:  cfg.Workspace,
-		interval:   cfg.Interval,
-		batch:      cfg.Batch,
+		batch:      defaultReviewBatch,
 		log:        cfg.Log,
 		providers:  cfg.Providers,
 	}
-}
-
-func normalizeConfig(cfg Config) Config {
-	if cfg.Log == nil {
-		cfg.Log = slog.Default()
-	}
-	if cfg.Interval <= 0 {
-		cfg.Interval = time.Hour
-	}
-	if cfg.Batch <= 0 {
-		cfg.Batch = 5
-	}
-	return cfg
 }

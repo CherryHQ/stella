@@ -165,6 +165,10 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 	if req.Config == nil {
 		req.Config = map[string]any{}
 	}
+	if !s.pluginHost.IsConfigurable(id) {
+		writeError(w, http.StatusNotFound, "plugin not registered: "+id)
+		return
+	}
 	if err := s.pluginHost.ValidateConfig(id, req.Config); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
