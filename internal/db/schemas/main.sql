@@ -40,6 +40,12 @@
 -- atlas:import tables/recally_article.sql
 -- atlas:import tables/recally_rss_feed.sql
 -- atlas:import tables/recally_digest.sql
+-- agent_task and agent_task_run reference each other (active_run_id  task_id).
+-- Order here is a readability hint; atlas resolves declaration order itself.
+-- atlas:import tables/agent_task_run.sql
+-- atlas:import tables/agent_task_blocker.sql
 -- atlas:import tables/agent_task.sql
+-- atlas:import tables/agent_task_dep.sql
+-- atlas:import tables/agent_task_dispatch_hint.sql
 -- atlas:import tables/agent_task_event.sql
 -- atlas:import tables/settings_project.sql

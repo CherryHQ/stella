@@ -1,7 +1,8 @@
-h1:bPHt1rGqQW9GqAvjO6jBFocMFz0QyA1/DM+s2SyyW9Y=
+h1:pxb6qZUUJ5fy9OxkeOUtqZanD1V2kkKAsJ1Ri/nVPCk=
 20260526015029_initial.sql h1:IdsYJSP22blICk/VYmJTxI05CKRZMUEPvyaHL4JGxIQ=
 20260526092724_org-scoped-resources.sql h1:vIMqCr8Dy4PSVx2t0a3DszZ0w6QIZi7MHbzIOrGEQvo=
 20260526103328_org-scope-queries.sql h1:I12GNIf4PBiFTePm8L380W78C7c9Mx0/p6fvUwEt290=
 20260526112520_fix_org_scoped_unique_keys.sql h1:fx35/TEiaN5CiewAIo2UArFx4SlTCrvPHsOEp1NISnU=
 20260526125152_add_nullable_org_scope_to_orphan_tables.sql h1:7oNeBRKH7WIS+cFcdMazx0gcWWBrX5UFgQWuCQTFWZs=
 20260527065207_unique_user_membership.sql h1:HlC/e/JL2LEfldaG8k6pP/Wa78pVV9Xr/Cjk6RjhI2c=
+20260528065227_task_system_v2.sql h1:XvCdzC2Zt3AsZGHllsq1PaqSuCmUmlKE8M2FjMzUfpk=

@@ -9,31 +9,98 @@ import (
 )
 
 type AgentTask struct {
+	ID              string         `json:"id"`
+	OrgID           string         `json:"org_id"`
+	UserID          string         `json:"user_id"`
+	AgentID         sql.NullString `json:"agent_id"`
+	Title           string         `json:"title"`
+	Description     string         `json:"description"`
+	Status          string         `json:"status"`
+	Priority        string         `json:"priority"`
+	Required        int64          `json:"required"`
+	RetryCount      int64          `json:"retry_count"`
+	MaxRetries      int64          `json:"max_retries"`
+	NotBefore       sql.NullString `json:"not_before"`
+	DeadlineAt      sql.NullString `json:"deadline_at"`
+	SessionID       sql.NullString `json:"session_id"`
+	ActiveRunID     sql.NullString `json:"active_run_id"`
+	ActiveBlockerID sql.NullString `json:"active_blocker_id"`
+	Context         string         `json:"context"`
+	Output          string         `json:"output"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
+	CompletedAt     sql.NullString `json:"completed_at"`
+	CancelledAt     sql.NullString `json:"cancelled_at"`
+}
+
+type AgentTaskBlocker struct {
 	ID             string         `json:"id"`
-	Title          string         `json:"title"`
-	Description    string         `json:"description"`
+	TaskID         string         `json:"task_id"`
+	Kind           string         `json:"kind"`
 	Status         string         `json:"status"`
-	Priority       string         `json:"priority"`
-	SessionID      sql.NullString `json:"session_id"`
-	Context        string         `json:"context"`
-	ReviewRequest  string         `json:"review_request"`
-	Deps           string         `json:"deps"`
-	NotifyAt       sql.NullString `json:"notify_at"`
-	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
-	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
-	AgentID        sql.NullString `json:"agent_id"`
-	UserID         string         `json:"user_id"`
+	Question       string         `json:"question"`
+	Detail         string         `json:"detail"`
+	Resolution     string         `json:"resolution"`
+	CreatedByRunID sql.NullString `json:"created_by_run_id"`
 	CreatedAt      string         `json:"created_at"`
-	UpdatedAt      string         `json:"updated_at"`
+	ResolvedAt     sql.NullString `json:"resolved_at"`
+}
+
+type AgentTaskDep struct {
+	TaskID       string         `json:"task_id"`
+	DepTaskID    string         `json:"dep_task_id"`
+	DepKind      string         `json:"dep_kind"`
+	OnFailure    string         `json:"on_failure"`
+	WaivedAt     sql.NullString `json:"waived_at"`
+	WaivedByUser sql.NullString `json:"waived_by_user"`
+	WaiverReason string         `json:"waiver_reason"`
+	CreatedAt    string         `json:"created_at"`
+}
+
+type AgentTaskDispatchHint struct {
+	ID              string         `json:"id"`
+	TaskID          string         `json:"task_id"`
+	Kind            string         `json:"kind"`
+	ExecutorAgentID string         `json:"executor_agent_id"`
+	ConsumedAt      sql.NullString `json:"consumed_at"`
+	CreatedAt       string         `json:"created_at"`
 }
 
 type AgentTaskEvent struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"task_id"`
-	EventType string `json:"event_type"`
-	Detail    string `json:"detail"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID         string         `json:"id"`
+	TaskID     sql.NullString `json:"task_id"`
+	RunID      sql.NullString `json:"run_id"`
+	BlockerID  sql.NullString `json:"blocker_id"`
+	EventType  string         `json:"event_type"`
+	FromStatus sql.NullString `json:"from_status"`
+	ToStatus   sql.NullString `json:"to_status"`
+	ActorType  string         `json:"actor_type"`
+	ActorID    sql.NullString `json:"actor_id"`
+	Detail     string         `json:"detail"`
+	CreatedAt  string         `json:"created_at"`
+}
+
+type AgentTaskRun struct {
+	ID              string         `json:"id"`
+	TaskID          sql.NullString `json:"task_id"`
+	OrgID           string         `json:"org_id"`
+	UserID          string         `json:"user_id"`
+	AgentID         sql.NullString `json:"agent_id"`
+	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
+	Kind            string         `json:"kind"`
+	AttemptNo       int64          `json:"attempt_no"`
+	Status          string         `json:"status"`
+	SessionID       string         `json:"session_id"`
+	Input           string         `json:"input"`
+	Result          string         `json:"result"`
+	Error           string         `json:"error"`
+	HeartbeatAt     sql.NullString `json:"heartbeat_at"`
+	LeaseExpiresAt  sql.NullString `json:"lease_expires_at"`
+	WorkerID        string         `json:"worker_id"`
+	StartedAt       sql.NullString `json:"started_at"`
+	FinishedAt      sql.NullString `json:"finished_at"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
 }
 
 type AuthCredential struct {
