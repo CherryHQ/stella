@@ -50,17 +50,25 @@ const (
 	OnFailureIgnore = "ignore"
 )
 
-// Actor types written to agent_task_event.
+// Actor types written to agent_task_event. Schema CHECK mirrors run kinds for
+// the non-human originators.
 const (
-	ActorSystem = "system"
-	ActorUser   = "user"
-	ActorAgent  = "agent"
-	ActorWorker = "worker"
+	ActorSystem      = "system"
+	ActorUser        = "user"
+	ActorAgent       = "agent"
+	ActorWorker      = "worker"
+	ActorReviewer    = "reviewer"
+	ActorPlanner     = "planner"
+	ActorSynthesizer = "synthesizer"
 )
 
-// Run kinds (Slice 1 ships worker only; Slice 2+ widen).
+// Run kinds. Schema CHECK already permits all four; dispatchers for reviewer /
+// planner / synthesizer are introduced in later slices.
 const (
-	RunKindWorker = "worker"
+	RunKindWorker      = "worker"
+	RunKindReviewer    = "reviewer"
+	RunKindPlanner     = "planner"
+	RunKindSynthesizer = "synthesizer"
 )
 
 // Actor describes who initiated a transition. Slotted into agent_task_event.

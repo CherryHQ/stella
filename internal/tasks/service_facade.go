@@ -41,7 +41,7 @@ type CreateTaskInput struct {
 	Priority         string // routine | urgent; "" => routine
 	AgentID          string // creator agent (D12); optional
 	ExecutorAgentID  string // explicit override (D13); optional, written as dispatch hint
-	Required         bool   // defaults to true if zero-value at insert
+	Required         *bool  // nil => true (default); explicit false => optional task
 	MaxRetries       int64
 	NotBefore        time.Time // zero => null
 	DeadlineAt       time.Time // zero => null
@@ -79,11 +79,8 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	id := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	required := int64(1)
-	if !in.Required {
-		// Default behavior: required=true when caller omits. To create a
-		// non-required task explicitly pass Required=true; the field's name
-		// reads naturally but the legacy default is preserved.
-		required = 1
+	if in.Required != nil && !*in.Required {
+		required = 0
 	}
 
 	var task sqlc.AgentTask

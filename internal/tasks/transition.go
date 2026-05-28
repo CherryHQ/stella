@@ -168,6 +168,11 @@ type ClaimParams struct {
 	LeaseDuration   time.Duration // 0 => no lease
 	NewSessionID    string        // used when task.session_id is null
 	Actor           Actor
+	// HintID, when set, identifies the live dispatch hint the dispatcher used
+	// to resolve ExecutorAgentID. Claim consumes that exact hint inside its
+	// tx so the resolved executor and the consumed hint can't diverge under
+	// concurrent hint replacement. Empty => no hint to consume.
+	HintID string
 }
 
 // Claim atomically moves StatusReady → StatusRunning AND inserts a new
@@ -228,9 +233,11 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 			Input:           "{}",
 			LeaseExpiresAt:  leaseExpires,
 			WorkerID:        p.WorkerID,
-			StartedAt:       sql.NullString{String: now, Valid: true},
-			CreatedAt:       now,
-			UpdatedAt:       now,
+			// Queued runs have no start time; worker PromoteAgentTaskRun
+			// stamps started_at on the queued->running transition.
+			StartedAt: sql.NullString{},
+			CreatedAt: now,
+			UpdatedAt: now,
 		})
 		if err != nil {
 			return fmt.Errorf("create run: %w", err)
@@ -250,13 +257,12 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 			// Another tick beat us. Rolling back the tx unwinds the run insert too.
 			return ErrInvalidTransition
 		}
-		// Consume any live dispatch hint (B1). Best-effort — if no hint was
-		// live, there's nothing to consume.
-		if hint, err := q.GetLiveDispatchHintForTask(ctx, sqlc.GetLiveDispatchHintForTaskParams{
-			TaskID: nullable(p.TaskID), Kind: RunKindWorker,
-		}); err == nil {
+		// Consume the dispatch hint the dispatcher resolved against (B1). The
+		// ConsumeDispatchHint query guards on consumed_at IS NULL, so a hint
+		// replaced underfoot leaves the new hint untouched.
+		if p.HintID != "" {
 			_, _ = q.ConsumeDispatchHint(ctx, sqlc.ConsumeDispatchHintParams{
-				ConsumedAt: sql.NullString{String: now, Valid: true}, ID: hint.ID,
+				ConsumedAt: sql.NullString{String: now, Valid: true}, ID: p.HintID,
 			})
 		}
 		if err := s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{

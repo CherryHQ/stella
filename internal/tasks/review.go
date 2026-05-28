@@ -84,6 +84,14 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 			}); err != nil {
 				return err
 			}
+			if err := s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+				TaskID: nullable(taskID), RunID: nullable(runID), ReviewID: nullable(reviewID),
+				EventType: "review_approved",
+				ActorType: ActorSystem,
+				Detail:    detailJSON(map[string]any{"auto": true, "summary": "auto-approved"}),
+			}); err != nil {
+				return err
+			}
 			return s.completeTaskInline(ctx, q, taskID, runID, output, actor, now)
 		}
 

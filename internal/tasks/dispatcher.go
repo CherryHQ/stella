@@ -242,7 +242,7 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 		if !r.Dispatchable {
 			continue
 		}
-		execID, ok := d.resolveExecutor(ctx, task)
+		execID, hintID, ok := d.resolveExecutor(ctx, task)
 		if !ok {
 			d.emitProtocolError(ctx, task.ID, "no executor resolved")
 			continue
@@ -256,6 +256,7 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 			TaskID: task.ID, ExecutorAgentID: execID,
 			WorkerID: "", LeaseDuration: d.cfg.LeaseTTL,
 			NewSessionID: sessionID, Actor: SystemActor(),
+			HintID: hintID,
 		})
 		if errors.Is(err, ErrInvalidTransition) {
 			continue // lost the race
@@ -286,25 +287,29 @@ func (d *Dispatcher) loadDepViews(ctx context.Context, taskID string) ([]DepEdge
 	return out, nil
 }
 
-func (d *Dispatcher) resolveExecutor(ctx context.Context, task sqlc.AgentTask) (string, bool) {
+// resolveExecutor returns the executor agent ID for a dispatchable task plus
+// the hint ID that produced it (empty when not resolved via hint). Claim
+// consumes the exact hint ID inside its tx so a concurrent hint replacement
+// can't make the resolved executor and the consumed hint diverge.
+func (d *Dispatcher) resolveExecutor(ctx context.Context, task sqlc.AgentTask) (string, string, bool) {
 	// 1) Live dispatch hint.
 	hint, err := d.cfg.Queries.GetLiveDispatchHintForTask(ctx, sqlc.GetLiveDispatchHintForTaskParams{
 		TaskID: nullable(task.ID), Kind: RunKindWorker,
 	})
 	if err == nil && hint.ExecutorAgentID != "" {
-		return hint.ExecutorAgentID, true
+		return hint.ExecutorAgentID, hint.ID, true
 	}
 	// 2) Caller-supplied resolver (session/creator chain).
 	if d.cfg.Resolver != nil {
 		if a, ok := d.cfg.Resolver(ctx, task); ok {
-			return a, true
+			return a, "", true
 		}
 	}
 	// 3) Creator fallback.
 	if task.AgentID.Valid && task.AgentID.String != "" {
-		return task.AgentID.String, true
+		return task.AgentID.String, "", true
 	}
-	return "", false
+	return "", "", false
 }
 
 func (d *Dispatcher) emitProtocolError(ctx context.Context, taskID, reason string) {
