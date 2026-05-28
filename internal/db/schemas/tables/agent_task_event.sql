@@ -7,11 +7,12 @@ CREATE TABLE agent_task_event (
     task_id         TEXT REFERENCES agent_task(id) ON DELETE CASCADE,
     run_id          TEXT REFERENCES agent_task_run(id) ON DELETE SET NULL,
     blocker_id      TEXT REFERENCES agent_task_blocker(id) ON DELETE SET NULL,
+    review_id       TEXT REFERENCES agent_review(id) ON DELETE SET NULL,
     event_type      TEXT NOT NULL,
     from_status     TEXT,
     to_status       TEXT,
-    -- Slice 2 widens to add 'reviewer'; Slice 3 adds 'planner','synthesizer'.
-    actor_type      TEXT NOT NULL CHECK (actor_type IN ('system','user','agent','worker')),
+    -- Slice 3 will add 'planner','synthesizer'.
+    actor_type      TEXT NOT NULL CHECK (actor_type IN ('system','user','agent','worker','reviewer')),
     actor_id        TEXT,
     detail          TEXT NOT NULL DEFAULT '{}',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))

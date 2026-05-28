@@ -8,6 +8,32 @@ import (
 	"database/sql"
 )
 
+type AgentReview struct {
+	ID                    string         `json:"id"`
+	TaskID                sql.NullString `json:"task_id"`
+	GoalID                sql.NullString `json:"goal_id"`
+	SubmittedRunID        sql.NullString `json:"submitted_run_id"`
+	ReviewerRunID         sql.NullString `json:"reviewer_run_id"`
+	ReviewerType          string         `json:"reviewer_type"`
+	ReviewerUserID        sql.NullString `json:"reviewer_user_id"`
+	EscalatedFromReviewID sql.NullString `json:"escalated_from_review_id"`
+	Status                string         `json:"status"`
+	Summary               string         `json:"summary"`
+	Feedback              string         `json:"feedback"`
+	CreatedAt             string         `json:"created_at"`
+	UpdatedAt             string         `json:"updated_at"`
+	ResolvedAt            sql.NullString `json:"resolved_at"`
+}
+
+type AgentReviewItem struct {
+	ID          string         `json:"id"`
+	ReviewID    string         `json:"review_id"`
+	CriterionID sql.NullString `json:"criterion_id"`
+	Passed      sql.NullInt64  `json:"passed"`
+	Evidence    string         `json:"evidence"`
+	CreatedAt   string         `json:"created_at"`
+}
+
 type AgentTask struct {
 	ID              string         `json:"id"`
 	OrgID           string         `json:"org_id"`
@@ -17,6 +43,8 @@ type AgentTask struct {
 	Description     string         `json:"description"`
 	Status          string         `json:"status"`
 	Priority        string         `json:"priority"`
+	ReviewPolicy    string         `json:"review_policy"`
+	ActiveReviewID  sql.NullString `json:"active_review_id"`
 	Required        int64          `json:"required"`
 	RetryCount      int64          `json:"retry_count"`
 	MaxRetries      int64          `json:"max_retries"`
@@ -46,6 +74,15 @@ type AgentTaskBlocker struct {
 	ResolvedAt     sql.NullString `json:"resolved_at"`
 }
 
+type AgentTaskCriterion struct {
+	ID           string `json:"id"`
+	TaskID       string `json:"task_id"`
+	Description  string `json:"description"`
+	RequiredFlag int64  `json:"required_flag"`
+	Position     int64  `json:"position"`
+	CreatedAt    string `json:"created_at"`
+}
+
 type AgentTaskDep struct {
 	TaskID       string         `json:"task_id"`
 	DepTaskID    string         `json:"dep_task_id"`
@@ -71,6 +108,7 @@ type AgentTaskEvent struct {
 	TaskID     sql.NullString `json:"task_id"`
 	RunID      sql.NullString `json:"run_id"`
 	BlockerID  sql.NullString `json:"blocker_id"`
+	ReviewID   sql.NullString `json:"review_id"`
 	EventType  string         `json:"event_type"`
 	FromStatus sql.NullString `json:"from_status"`
 	ToStatus   sql.NullString `json:"to_status"`

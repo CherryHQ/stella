@@ -44,6 +44,9 @@
 -- Order here is a readability hint; atlas resolves declaration order itself.
 -- atlas:import tables/agent_task_run.sql
 -- atlas:import tables/agent_task_blocker.sql
+-- atlas:import tables/agent_task_criterion.sql
+-- atlas:import tables/agent_review.sql
+-- atlas:import tables/agent_review_item.sql
 -- atlas:import tables/agent_task.sql
 -- atlas:import tables/agent_task_dep.sql
 -- atlas:import tables/agent_task_dispatch_hint.sql

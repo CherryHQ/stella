@@ -2,10 +2,10 @@
 
 -- name: InsertAgentTaskEvent :one
 INSERT INTO agent_task_event (
-    id, task_id, run_id, blocker_id, event_type, from_status, to_status,
+    id, task_id, run_id, blocker_id, review_id, event_type, from_status, to_status,
     actor_type, actor_id, detail, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListAgentTaskEvents :many

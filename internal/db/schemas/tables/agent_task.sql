@@ -9,9 +9,10 @@ CREATE TABLE agent_task (
     agent_id            TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,  -- D12: creator, NOT assignee
     title               TEXT NOT NULL,
     description         TEXT NOT NULL DEFAULT '',
-    -- status: Slice 2 widens CHECK to include 'reviewing'.
-    status              TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','running','blocked','done','failed','cancelled')),
+    status              TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','running','blocked','reviewing','done','failed','cancelled')),
     priority            TEXT NOT NULL DEFAULT 'routine' CHECK (priority IN ('routine','urgent')),
+    review_policy       TEXT NOT NULL DEFAULT 'none' CHECK (review_policy IN ('none','auto','agent','human')),
+    active_review_id    TEXT REFERENCES agent_review(id) ON DELETE RESTRICT,
     required            INTEGER NOT NULL DEFAULT 1,
     retry_count         INTEGER NOT NULL DEFAULT 0,
     max_retries         INTEGER NOT NULL DEFAULT 3,

@@ -10,7 +10,7 @@
 CREATE TABLE agent_task_dispatch_hint (
     id                  TEXT NOT NULL PRIMARY KEY,
     task_id             TEXT NOT NULL REFERENCES agent_task(id) ON DELETE CASCADE,
-    kind                TEXT NOT NULL CHECK (kind IN ('worker')),
+    kind                TEXT NOT NULL CHECK (kind IN ('worker','reviewer')),
     executor_agent_id   TEXT NOT NULL REFERENCES settings_agent(id) ON DELETE CASCADE,
     consumed_at         TEXT,
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))

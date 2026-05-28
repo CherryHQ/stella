@@ -12,7 +12,7 @@ CREATE TABLE agent_task_run (
     user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id            TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,   -- delegator (creator of this run)
     executor_agent_id   TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,   -- D13: resolved at claim
-    kind                TEXT NOT NULL DEFAULT 'worker' CHECK (kind IN ('worker')),
+    kind                TEXT NOT NULL DEFAULT 'worker' CHECK (kind IN ('worker','reviewer')),
     attempt_no          INTEGER NOT NULL DEFAULT 1,
     status              TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','failed','cancelled','interrupted','timed_out')),
     session_id          TEXT NOT NULL,
@@ -38,6 +38,10 @@ CREATE INDEX idx_agent_task_run_lease   ON agent_task_run(lease_expires_at) WHER
 -- Invariant: 1 active worker run per task (HP2).
 CREATE UNIQUE INDEX uniq_active_worker_run
     ON agent_task_run(task_id) WHERE task_id IS NOT NULL AND kind = 'worker' AND status IN ('queued','running');
+
+-- Slice 2: 1 active reviewer run per task (HP2).
+CREATE UNIQUE INDEX uniq_active_reviewer_run
+    ON agent_task_run(task_id) WHERE task_id IS NOT NULL AND kind = 'reviewer' AND status IN ('queued','running');
 
 -- Invariant: attempt_no unique within (task_id, kind) (HP3).
 CREATE UNIQUE INDEX uniq_task_run_attempt
