@@ -13,6 +13,7 @@ plan.md
 api/types/gen.go
 api/server/gen.go
 api/client/gen.go
+api/spec/components.yaml
 internal/server/docs_spec.yaml
 web/src/lib/api-client/
 
