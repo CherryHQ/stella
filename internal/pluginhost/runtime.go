@@ -4,19 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/orgctx"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
+// runtimeKey identifies a managed runtime within a single org's bucket.
+// Pair (RuntimeID, RuntimeName) — RuntimeID is the channel.ID for managed
+// channel runtimes and the plugin ID for other plugin-scoped runtimes.
+type runtimeKey struct {
+	RuntimeID   string
+	RuntimeName string
+}
+
+type runtimeEntry struct {
+	reg     pkgplugins.RuntimeSpec
+	managed pkgplugins.Runtime
+}
+
+// RuntimeHost owns the per-org map of managed runtime instances. All read /
+// write operations resolve the org from ctx; missing orgID is an error on
+// write paths and returns (nil,false) on read paths.
 type RuntimeHost struct {
 	host *Host
 	mu   sync.RWMutex
-	rt   map[string]*runtimeEntry
+	rt   map[string]map[runtimeKey]*runtimeEntry // orgID -> key -> entry
+}
+
+func NewRuntimeHost(host *Host) *RuntimeHost {
+	return &RuntimeHost{host: host, rt: map[string]map[runtimeKey]*runtimeEntry{}}
 }
 
 func configMapFromJSON(raw string) map[string]any {
@@ -30,41 +52,54 @@ func configMapFromJSON(raw string) map[string]any {
 	return out
 }
 
-type runtimeEntry struct {
-	reg     pkgplugins.RuntimeSpec
-	managed pkgplugins.Runtime
+// requireOrgID resolves the orgID from ctx; returns "" with an error when missing.
+func requireOrgID(ctx context.Context) (string, error) {
+	orgID := orgctx.OrgIDFromContext(ctx)
+	if orgID == "" {
+		return "", fmt.Errorf("pluginhost: orgID missing from context")
+	}
+	return orgID, nil
 }
 
-func NewRuntimeHost(host *Host) *RuntimeHost {
-	return &RuntimeHost{host: host, rt: map[string]*runtimeEntry{}}
-}
-
-func (h *RuntimeHost) Get(pluginID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
+// Get resolves a managed runtime for the current org. orgID comes from ctx;
+// when absent, returns (nil, false) and logs at debug — callers naturally 404.
+func (h *RuntimeHost) Get(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
+	orgID := orgctx.OrgIDFromContext(ctx)
+	if orgID == "" {
+		slog.Debug("pluginhost.RuntimeHost.Get: missing orgID in ctx", "runtime_id", runtimeID, "runtime_name", runtimeName)
+		return nil, false
+	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	entry, ok := h.rt[runtimeKey(pluginID, runtimeName)]
-	if ok && entry.managed != nil {
+	bucket := h.rt[orgID]
+	if bucket == nil {
+		return nil, false
+	}
+	if entry := bucket[runtimeKey{RuntimeID: runtimeID, RuntimeName: runtimeName}]; entry != nil && entry.managed != nil {
 		return runtimeHandle{entry: entry}, true
 	}
-	if channelType, ok := strings.CutPrefix(pluginID, config.PluginKindChannel+"/"); ok {
-		entry, ok := h.rt[runtimeKey(channelType, runtimeName)]
-		if ok && entry.managed != nil {
-			return runtimeHandle{entry: entry}, true
-		}
-	}
-	for _, entry := range h.rt {
-		if entry.reg.PluginID == pluginID && entry.reg.Name == runtimeName && entry.managed != nil {
-			return runtimeHandle{entry: entry}, true
+	// channel plugin lookups: caller passed "channel/<type>"; runtime was registered
+	// under the channel instance ID. Fall back to matching reg.PluginID + reg.Name
+	// within the same org.
+	if _, ok := strings.CutPrefix(runtimeID, config.PluginKindChannel+"/"); ok {
+		for _, entry := range bucket {
+			if entry.reg.PluginID == runtimeID && entry.reg.Name == runtimeName && entry.managed != nil {
+				return runtimeHandle{entry: entry}, true
+			}
 		}
 	}
 	return nil, false
 }
 
-func (h *RuntimeHost) Lookup(pluginID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
-	return h.Get(pluginID, runtimeName)
+// Lookup is an alias for Get to match the pkgplugins.RuntimeLookup interface.
+func (h *RuntimeHost) Lookup(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
+	return h.Get(ctx, runtimeID, runtimeName)
 }
 
 func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
+	if _, err := requireOrgID(ctx); err != nil {
+		return err
+	}
 	desired, err := h.host.DesiredState(ctx, pluginID)
 	if err != nil {
 		return err
@@ -93,6 +128,13 @@ func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
 }
 
 func (h *RuntimeHost) ApplyChannel(ctx context.Context, channel config.Channel) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	if channel.OrgID != "" && channel.OrgID != orgID {
+		return fmt.Errorf("pluginhost.ApplyChannel: channel org mismatch ctx=%s channel=%s", orgID, channel.OrgID)
+	}
 	if channel.Type == "" {
 		channel.Type = channel.ID
 	}
@@ -132,23 +174,32 @@ func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeSpec, 
 }
 
 func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.RuntimeSpec, runtimeID string, desired pkgplugins.PluginState) error {
-	key := runtimeKey(runtimeID, reg.Name)
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	key := runtimeKey{RuntimeID: runtimeID, RuntimeName: reg.Name}
 	h.mu.Lock()
-	entry := h.rt[key]
+	bucket := h.rt[orgID]
+	if bucket == nil {
+		bucket = map[runtimeKey]*runtimeEntry{}
+		h.rt[orgID] = bucket
+	}
+	entry := bucket[key]
 	if entry == nil {
 		entry = &runtimeEntry{reg: reg}
-		h.rt[key] = entry
+		bucket[key] = entry
 	}
 	managed := entry.managed
 	h.mu.Unlock()
 	if managed == nil {
 		build := reg.Build
 		if build == nil {
-			return fmt.Errorf("runtime %s has no builder", key)
+			return fmt.Errorf("runtime %s/%s has no builder", runtimeID, reg.Name)
 		}
 		created, err := build(pkgplugins.RuntimeContext{Platform: h.host.platform(reg.PluginID), State: desired.Clone()})
 		if err != nil {
-			return fmt.Errorf("create runtime %s: %w", key, err)
+			return fmt.Errorf("create runtime %s/%s: %w", runtimeID, reg.Name, err)
 		}
 		managed = created
 		h.mu.Lock()
@@ -156,20 +207,26 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 		h.mu.Unlock()
 	}
 	if err := managed.Apply(ctx, desired.Clone()); err != nil {
-		return fmt.Errorf("apply runtime %s: %w", key, err)
+		return fmt.Errorf("apply runtime %s/%s: %w", runtimeID, reg.Name, err)
 	}
 	return nil
 }
 
-func (h *RuntimeHost) Stop(ctx context.Context) error {
-	h.mu.Lock()
-	entries := make([]*runtimeEntry, 0, len(h.rt))
-	for _, entry := range h.rt {
-		entries = append(entries, entry)
+// Shutdown tears down every managed runtime owned by the org resolved from
+// ctx. Entries are removed from the map before Stop() is called so the lock
+// isn't held while runtime teardown executes.
+func (h *RuntimeHost) Shutdown(ctx context.Context) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
 	}
+	h.mu.Lock()
+	bucket := h.rt[orgID]
+	delete(h.rt, orgID)
 	h.mu.Unlock()
+
 	var lastErr error
-	for _, entry := range entries {
+	for _, entry := range bucket {
 		if entry.managed == nil {
 			continue
 		}
@@ -180,8 +237,28 @@ func (h *RuntimeHost) Stop(ctx context.Context) error {
 	return lastErr
 }
 
-func (h *RuntimeHost) Snapshot(ctx context.Context, pluginID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {
-	handle, ok := h.Get(pluginID, runtimeName)
+// Stop tears down all managed runtimes across every org. Used at process exit.
+func (h *RuntimeHost) Stop(ctx context.Context) error {
+	h.mu.Lock()
+	all := h.rt
+	h.rt = map[string]map[runtimeKey]*runtimeEntry{}
+	h.mu.Unlock()
+	var lastErr error
+	for _, bucket := range all {
+		for _, entry := range bucket {
+			if entry.managed == nil {
+				continue
+			}
+			if err := entry.managed.Stop(ctx); err != nil {
+				lastErr = err
+			}
+		}
+	}
+	return lastErr
+}
+
+func (h *RuntimeHost) Snapshot(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {
+	handle, ok := h.Get(ctx, runtimeID, runtimeName)
 	if !ok {
 		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
 	}

@@ -285,7 +285,7 @@ func (h *Host) AddAfterToolResult(reg pkgplugins.AfterToolResultSpec) {
 func (h *Host) AddRuntime(reg pkgplugins.RuntimeSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	registerUnique(h.runtimeRegs, runtimeKey(reg.PluginID, reg.Name), reg, "runtime")
+	registerUnique(h.runtimeRegs, runtimeRegKey(reg.PluginID, reg.Name), reg, "runtime")
 }
 
 func (h *Host) AddPromptInventory(reg pkgplugins.PromptInventorySpec) {
@@ -354,8 +354,8 @@ func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 	m[key] = reg
 }
 
-func runtimeKey(pluginID, name string) string { return pluginID + "/" + name }
-func promptKey(pluginID, name string) string  { return pluginID + "/" + name }
+func runtimeRegKey(pluginID, name string) string { return pluginID + "/" + name }
+func promptKey(pluginID, name string) string     { return pluginID + "/" + name }
 
 func (h *Host) SetEnabled(ctx context.Context, pluginID string, enabled bool) error {
 	return h.config.SetEnabled(ctx, pluginID, enabled)
@@ -429,6 +429,9 @@ func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
 }
 
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
+
+// Shutdown tears down every managed runtime for the org resolved from ctx.
+func (h *Host) Shutdown(ctx context.Context) error { return h.runtimes.Shutdown(ctx) }
 
 func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {
 	h.mu.RLock()

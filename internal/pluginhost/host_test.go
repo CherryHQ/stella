@@ -424,7 +424,7 @@ func TestRuntimeApplyCreatesAndApplies(t *testing.T) {
 			return nil
 		}}, nil
 	}})
-	if err := host.ApplyPlugin(context.Background(), "tool/test"); err != nil {
+	if err := host.ApplyPlugin(ctxWithOrg(testOrg), "tool/test"); err != nil {
 		t.Fatal(err)
 	}
 	if called != 1 {
