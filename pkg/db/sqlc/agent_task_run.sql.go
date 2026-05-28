@@ -333,3 +333,33 @@ func (q *Queries) NextAttemptNoForTask(ctx context.Context, arg NextAttemptNoFor
 	err := row.Scan(&next_attempt)
 	return next_attempt, err
 }
+
+const promoteAgentTaskRun = `-- name: PromoteAgentTaskRun :execrows
+UPDATE agent_task_run
+SET status = 'running', started_at = ?, heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
+WHERE id = ? AND status = 'queued'
+`
+
+type PromoteAgentTaskRunParams struct {
+	StartedAt      sql.NullString `json:"started_at"`
+	HeartbeatAt    sql.NullString `json:"heartbeat_at"`
+	LeaseExpiresAt sql.NullString `json:"lease_expires_at"`
+	UpdatedAt      string         `json:"updated_at"`
+	ID             string         `json:"id"`
+}
+
+// Flip a queued run to running. Returns affected-rows so callers can detect
+// losing a race (e.g. another tick already promoted the run).
+func (q *Queries) PromoteAgentTaskRun(ctx context.Context, arg PromoteAgentTaskRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, promoteAgentTaskRun,
+		arg.StartedAt,
+		arg.HeartbeatAt,
+		arg.LeaseExpiresAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

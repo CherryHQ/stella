@@ -31,6 +31,13 @@ UPDATE agent_task_run
 SET heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
 WHERE id = ? AND status = 'running';
 
+-- Flip a queued run to running. Returns affected-rows so callers can detect
+-- losing a race (e.g. another tick already promoted the run).
+-- name: PromoteAgentTaskRun :execrows
+UPDATE agent_task_run
+SET status = 'running', started_at = ?, heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
+WHERE id = ? AND status = 'queued';
+
 -- name: FinishAgentTaskRun :exec
 UPDATE agent_task_run
 SET status = ?, result = ?, error = ?, finished_at = ?, updated_at = ?
