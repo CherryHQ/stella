@@ -61,6 +61,10 @@ Stella ships built-in plugins across several areas:
 | memory   | `lcm`, `simple`                          |
 | runtime  | `reflect`                                |
 
+## Per-Org Isolation
+
+Stella is multi-tenant. Every plugin runtime, manifest override, OAuth provider configuration, and channel callback resolves to a single org via `context.Context`. See [Plugin Org Isolation](/docs/development/plugin-org-isolation) for the contracts and tables.
+
 ## Read The Plugin Docs
 
 The feature overview is intentionally short. For the actual plugin API and authoring model, use the dedicated plugin docs:

@@ -61,6 +61,10 @@ Stella 在多个领域提供内置插件：
 | memory   | `lcm`、`simple`                          |
 | runtime  | `reflect`                                |
 
+## 按 Org 隔离
+
+Stella 是多租户系统。每个插件运行时、manifest override、OAuth provider 配置、channel 回调都通过 `context.Context` 归属到单个 org。详见[插件按 Org 隔离](/docs/development/plugin-org-isolation)。
+
 ## 阅读插件文档
 
 功能概述有意保持简短。要了解实际的插件 API 和开发模型，请使用专门的插件文档：
