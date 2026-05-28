@@ -46,19 +46,18 @@ const (
 // Slice 2 widens task status with this value.
 const StatusReviewing = "reviewing"
 
-// SubmitWithReview is the Slice 2 extension of Submit. Routes per the task's
-// review_policy:
+// Submit handles a worker's submit action, routing on the task's review_policy:
 //
-//   - none:  task -> done immediately (no review row, no event), as Slice 1
+//   - none:  task -> done immediately (no review row, no event)
 //   - auto:  insert a system-approved agent_review for audit, task -> done
 //   - agent: insert a 'requested' agent_review (reviewer_type=agent),
 //     task -> reviewing; dispatcher picks up reviewer run
 //   - human: insert a 'requested' agent_review (reviewer_type=human),
 //     task -> reviewing; awaits human decision via API
 //
-// Callers (control_tool.Submit / worker) invoke this when the worker says
-// "submit". Phase 9 of the plan.
-func (s *TransitionService) SubmitWithReview(ctx context.Context, taskID, runID, output string, actor Actor) error {
+// Single source of truth for submit semantics; worker / control tool / API
+// callers all go through here.
+func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		task, err := expect(ctx, q, taskID, StatusRunning)
 		if err != nil {
@@ -358,7 +357,7 @@ func (s *TransitionService) decideReview(ctx context.Context, reviewID, decision
 	})
 }
 
-// insertReview is the shared helper used by SubmitWithReview's branches.
+// insertReview is the shared helper used by Submit's review branches.
 func insertReview(ctx context.Context, q *sqlc.Queries, taskID, submittedRunID, reviewerType, summary, now string) (string, error) {
 	id := uuid.NewString()
 	_, err := q.CreateAgentReview(ctx, sqlc.CreateAgentReviewParams{

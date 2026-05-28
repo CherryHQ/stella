@@ -272,57 +272,6 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 	return out, err
 }
 
-// Submit handles a worker's submit action. Slice 1 short-circuits straight to
-// StatusDone (no review pipeline). Slice 2 will branch on review_policy.
-func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output string, actor Actor) error {
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		task, err := expect(ctx, q, taskID, StatusRunning)
-		if err != nil {
-			return err
-		}
-		_ = task
-		now := s.now()
-		n, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
-			Status: StatusDone, UpdatedAt: now, ID: taskID, Status_2: StatusRunning,
-		})
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrInvalidTransition
-		}
-		if output != "" {
-			if err := q.SetAgentTaskOutput(ctx, sqlc.SetAgentTaskOutputParams{
-				Output: output, CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID,
-			}); err != nil {
-				return err
-			}
-		}
-		// Finalize the run row.
-		if runID != "" {
-			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
-				Status: RunCompleted, Result: output, Error: "",
-				FinishedAt: sql.NullString{String: now, Valid: true},
-				UpdatedAt:  now, ID: runID,
-			}); err != nil {
-				return err
-			}
-		}
-		// Clear active_run_id now that the worker has finalised.
-		if err := q.SetAgentTaskActiveRun(ctx, sqlc.SetAgentTaskActiveRunParams{
-			ActiveRunID: sql.NullString{}, UpdatedAt: now, ID: taskID,
-		}); err != nil {
-			return err
-		}
-		return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID: nullable(taskID), RunID: nullable(runID),
-			EventType:  "submit",
-			FromStatus: nullable(StatusRunning), ToStatus: nullable(StatusDone),
-			ActorType: actorTypeOrSystem(actor), ActorID: nullable(actor.ID),
-		})
-	})
-}
-
 // BlockParams captures the fields needed to record a new blocker.
 type BlockParams struct {
 	TaskID   string

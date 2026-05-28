@@ -16,12 +16,13 @@ import (
 // All four methods are idempotent within reason: a second Submit returns
 // ErrInvalidTransition cleanly, callers can branch on it.
 type TaskControlTool struct {
-	svc      *TransitionService
-	q        *sqlc.Queries
-	taskID   string
-	runID    string
-	actor    Actor
-	finished bool // worker may inspect this to know if it called a terminal action
+	svc         *TransitionService
+	q           *sqlc.Queries
+	taskID      string
+	runID       string
+	actor       Actor
+	finished    bool   // worker may inspect this to know if it called a terminal action
+	finalStatus string // task status after the terminal action (e.g. "done" or "reviewing")
 }
 
 // NewTaskControlTool wires a control tool for one claimed run.
@@ -33,6 +34,11 @@ func NewTaskControlTool(svc *TransitionService, q *sqlc.Queries, taskID, runID s
 // fail). The worker uses this to decide whether to apply the protocol-error
 // fallback when the agent loop exits.
 func (t *TaskControlTool) Finished() bool { return t.finished }
+
+// FinalStatus returns the task status observed right after the terminal
+// action. Empty before any terminal call. Worker-facing callers use this to
+// report the real outcome (e.g. "reviewing" vs "done") instead of assuming.
+func (t *TaskControlTool) FinalStatus() string { return t.finalStatus }
 
 // Progress merges patch into agent_task.context as a shallow JSON merge
 // (HP6 / D14). Existing keys not in patch are preserved.
@@ -82,8 +88,9 @@ func (t *TaskControlTool) Block(ctx context.Context, kind, question string, deta
 	return nil
 }
 
-// Submit completes the task. In Slice 1 this short-circuits straight to
-// StatusDone (no review pipeline). Output is stored on agent_task.output.
+// Submit completes the worker run. Per review_policy on the task, the final
+// status may be "done" (none / auto) or "reviewing" (agent / human). Output is
+// stored on agent_task.output. FinalStatus() exposes the resulting status.
 func (t *TaskControlTool) Submit(ctx context.Context, output any) error {
 	if t.finished {
 		return fmt.Errorf("task_control: submit after terminal action")
@@ -93,6 +100,9 @@ func (t *TaskControlTool) Submit(ctx context.Context, output any) error {
 		return err
 	}
 	t.finished = true
+	if task, err := t.q.GetAgentTask(ctx, t.taskID); err == nil {
+		t.finalStatus = task.Status
+	}
 	return nil
 }
 

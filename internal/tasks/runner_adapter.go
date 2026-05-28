@@ -200,7 +200,11 @@ func (t *taskControlExternalTool) Execute(ctx context.Context, args map[string]a
 		if err := t.tool.Submit(ctx, output); err != nil {
 			return "", err
 		}
-		return `{"ok":true,"status":"done"}`, nil
+		status := t.tool.FinalStatus()
+		if status == "" {
+			status = "submitted"
+		}
+		return fmt.Sprintf(`{"ok":true,"status":%q}`, status), nil
 	case "block":
 		kind, _ := args["kind"].(string)
 		question, _ := args["question"].(string)

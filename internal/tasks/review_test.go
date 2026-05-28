@@ -18,8 +18,8 @@ func TestReview_NonePolicy_BehavesLikeSubmit(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	if err := h.svc.SubmitWithReview(context.Background(), id, res.RunID, "{}", SystemActor()); err != nil {
-		t.Fatalf("SubmitWithReview: %v", err)
+	if err := h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor()); err != nil {
+		t.Fatalf("Submit: %v", err)
 	}
 	if got := h.getTask(t, id).Status; got != StatusDone {
 		t.Errorf("status=%q want done (none)", got)
@@ -31,8 +31,8 @@ func TestReview_AutoPolicy_LogsReview_ThenDone(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 	setReviewPolicy(t, h, id, ReviewPolicyAuto)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	if err := h.svc.SubmitWithReview(context.Background(), id, res.RunID, "{}", SystemActor()); err != nil {
-		t.Fatalf("SubmitWithReview: %v", err)
+	if err := h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor()); err != nil {
+		t.Fatalf("Submit: %v", err)
 	}
 	if got := h.getTask(t, id).Status; got != StatusDone {
 		t.Errorf("status=%q want done (auto)", got)
@@ -48,8 +48,8 @@ func TestReview_HumanPolicy_TaskGoesToReviewing(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 	setReviewPolicy(t, h, id, ReviewPolicyHuman)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	if err := h.svc.SubmitWithReview(context.Background(), id, res.RunID, `{"draft":true}`, SystemActor()); err != nil {
-		t.Fatalf("SubmitWithReview: %v", err)
+	if err := h.svc.Submit(context.Background(), id, res.RunID, `{"draft":true}`, SystemActor()); err != nil {
+		t.Fatalf("Submit: %v", err)
 	}
 	task := h.getTask(t, id)
 	if task.Status != StatusReviewing {
@@ -72,7 +72,7 @@ func TestReview_RequestChanges_WithBudget_ReturnsToReady(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 	setReviewPolicy(t, h, id, ReviewPolicyHuman)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	_ = h.svc.SubmitWithReview(context.Background(), id, res.RunID, "{}", SystemActor())
+	_ = h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor())
 	task := h.getTask(t, id)
 	if err := h.svc.RequestChanges(context.Background(), task.ActiveReviewID.String, "tighten it", "please", SystemActor()); err != nil {
 		t.Fatalf("RequestChanges: %v", err)
@@ -91,7 +91,7 @@ func TestReview_RejectReview_TaskFails(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 	setReviewPolicy(t, h, id, ReviewPolicyHuman)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	_ = h.svc.SubmitWithReview(context.Background(), id, res.RunID, "{}", SystemActor())
+	_ = h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor())
 	task := h.getTask(t, id)
 	if err := h.svc.RejectReview(context.Background(), task.ActiveReviewID.String, "no", "doesn't fit", SystemActor()); err != nil {
 		t.Fatalf("RejectReview: %v", err)
@@ -106,7 +106,7 @@ func TestReview_EscalateFromAgent_CreatesHumanReview(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 	setReviewPolicy(t, h, id, ReviewPolicyAgent)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	_ = h.svc.SubmitWithReview(context.Background(), id, res.RunID, "{}", SystemActor())
+	_ = h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor())
 	task := h.getTask(t, id)
 	agentReviewID := task.ActiveReviewID.String
 	if err := h.svc.EscalateReview(context.Background(), agentReviewID, "out of scope", SystemActor()); err != nil {
@@ -139,7 +139,7 @@ func TestReview_Escalate_OnHumanReview_Rejected(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 	setReviewPolicy(t, h, id, ReviewPolicyHuman)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	_ = h.svc.SubmitWithReview(context.Background(), id, res.RunID, "{}", SystemActor())
+	_ = h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor())
 	task := h.getTask(t, id)
 	err := h.svc.EscalateReview(context.Background(), task.ActiveReviewID.String, "nope", SystemActor())
 	if err == nil {
@@ -152,7 +152,7 @@ func TestReview_DoubleDecide_Rejected(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 	setReviewPolicy(t, h, id, ReviewPolicyHuman)
 	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
-	_ = h.svc.SubmitWithReview(context.Background(), id, res.RunID, "{}", SystemActor())
+	_ = h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor())
 	task := h.getTask(t, id)
 	rev := task.ActiveReviewID.String
 	if err := h.svc.ApproveReview(context.Background(), rev, "", SystemActor()); err != nil {
