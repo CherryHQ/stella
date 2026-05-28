@@ -1,159 +1,416 @@
 paths:
-  /api/agents/{agentID}/tasks:
-    parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+  /api/tasks:
     get:
       tags: [tasks]
-      summary: List agent tasks
-      operationId: listAgentTasks
+      summary: List tasks in the resolved org
+      operationId: listTasks
       parameters:
-        - name: status
-          in: query
-          required: false
-          schema: { type: string }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - {
+            name: agent_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - {
+            name: limit,
+            in: query,
+            required: false,
+            schema: { type: integer, format: int64 },
+          }
+        - {
+            name: cursor,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AgentTaskList",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/TaskList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
     post:
       tags: [tasks]
-      summary: Create an agent task
-      operationId: createAgentTask
+      summary: Create a task
+      operationId: createTask
       requestBody:
         required: true
         content:
           application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/AgentTaskInput",
-            }
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CreateTaskRequest",
+              }
       responses:
         "201":
           description: created
           content:
             application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AgentTask",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Task" }
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/agents/{agentID}/tasks/{taskID}:
+  /api/tasks/{taskID}:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: taskID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
-      summary: Get an agent task
-      operationId: getAgentTask
+      summary: Get a task
+      operationId: getTask
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AgentTask",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    patch:
-      tags: [tasks]
-      summary: Update an agent task
-      operationId: updateAgentTask
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/AgentTaskUpdate",
-            }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AgentTask",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    delete:
-      tags: [tasks]
-      summary: Delete an agent task
-      operationId: deleteAgentTask
-      responses:
-        "204":
-          description: deleted
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Task" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{agentID}/tasks/{taskID}/action:
+  /api/tasks/{taskID}/cancel:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: taskID, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
-      summary: Take an action on an agent task
-      operationId: agentTaskAction
+      summary: Cancel a task
+      operationId: cancelTask
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/CancelRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Task" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskID}/reopen:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Reopen a done/failed task; optionally cascade-reset downstream
+      operationId: reopenTask
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ReopenRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Task" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskID}/readiness:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [tasks]
+      summary: Compute task readiness
+      operationId: getTaskReadiness
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Readiness" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/tasks/{taskID}/events:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [tasks]
+      summary: List task events
+      operationId: listTaskEvents
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/EventList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/tasks/{taskID}/runs:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [tasks]
+      summary: List task runs
+      operationId: listTaskRuns
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/RunList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/tasks/{taskID}/deps:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [tasks]
+      summary: List task deps
+      operationId: listTaskDeps
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/DepList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [tasks]
+      summary: Add a dependency edge
+      operationId: addTaskDep
       requestBody:
         required: true
         content:
           application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/AgentTaskAction",
-            }
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/AddDepRequest",
+              }
+      responses:
+        "201":
+          description: created
+        "400":
+          { $ref: "../../components.yaml#/components/responses/BadRequest" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskID}/deps/{depTaskID}/waive:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: depTaskID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Waive a hard-dep failure
+      operationId: waiveTaskDep
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/WaiveDepRequest",
+              }
+      responses:
+        "200":
+          description: ok
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskID}/blockers/{blockerID}/resolve:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: blockerID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Resolve a blocker
+      operationId: resolveTaskBlocker
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ResolveBlockerRequest",
+              }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AgentTask",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Task" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/agents/{agentID}/tasks/{taskID}/events:
+  /api/tasks/{taskID}/reviews:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
       - { name: taskID, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
-      summary: List agent task events
-      operationId: listAgentTaskEvents
+      summary: List reviews for a task
+      operationId: listTaskReviews
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/AgentTaskEventList",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/ReviewList" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/tasks/{taskID}/reviews/{reviewID}/approve:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: reviewID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Approve a review
+      operationId: approveTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskID}/reviews/{reviewID}/reject:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: reviewID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Reject a review
+      operationId: rejectTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskID}/reviews/{reviewID}/request-changes:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: reviewID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Request changes on a review
+      operationId: requestChangesTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/ReviewDecisionRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/tasks/{taskID}/reviews/{reviewID}/escalate:
+    parameters:
+      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: reviewID, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [tasks]
+      summary: Escalate an agent review to human
+      operationId: escalateTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              {
+                $ref: "../../components.yaml#/components/schemas/EscalateReviewRequest",
+              }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Review" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          { $ref: "../../components.yaml#/components/responses/Conflict" }

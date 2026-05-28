@@ -7,10 +7,10 @@ import {
   createSession as sdkCreateSession,
   deleteProject as sdkDeleteProject,
   getSessionWorkspace,
-  listAgentTasks,
+  listTasks,
 } from "@/lib/api-client/sdk.gen";
 import { cn } from "@/lib/utils";
-import type { AgentTaskList, ComponentsSession } from "@/lib/api-client/types.gen";
+import type { ComponentsSession, TaskList } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
@@ -449,14 +449,14 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
     queryFn: async () => {
-      const { data } = await listAgentTasks({ path: { agentID: agentId }, throwOnError: true });
-      return data as AgentTaskList;
+      const { data } = await listTasks({ query: { agent_id: agentId }, throwOnError: true });
+      return data as TaskList;
     },
   });
   const taskAttentionCount =
     taskList?.items?.filter(
       (task) =>
-        task.status === "blocked" || task.status === "review_requested" || task.status === "failed",
+        task.status === "blocked" || task.status === "reviewing" || task.status === "failed",
     ).length ?? 0;
 
   // ── active route detection ───────────────────────────────────────────────

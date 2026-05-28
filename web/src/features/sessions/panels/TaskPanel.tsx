@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { createAgentTask } from "@/lib/api-client";
-import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
+import { createTask } from "@/lib/api-client";
+import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
   agentId: string;
-  onCreated: (task: ComponentsAgentTask) => void;
+  onCreated: (task: ComponentsTask) => void;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -33,8 +33,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
     if (!title.trim()) return;
     setSaving(true);
     try {
-      const { data: task } = await createAgentTask({
-        path: { agentID: agentId },
+      const { data: task } = await createTask({
         body: {
           title: title.trim(),
           description: description.trim() || undefined,

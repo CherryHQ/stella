@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
+import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
-import { listAgentTasks, listSchedulerJobRuns } from "@/lib/api-client";
+import { listSchedulerJobRuns, listTasks } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -32,7 +32,7 @@ type RunWithMeta = SchedulerJobRun & {
 };
 
 type BoardItem =
-  | { kind: "task"; task: ComponentsAgentTask }
+  | { kind: "task"; task: ComponentsTask }
   | { kind: "run"; run: RunWithMeta }
   | { kind: "schedule"; job: SchedulerJob };
 
@@ -61,7 +61,7 @@ export function AutomationDashPanel({
   const { t } = useI18n();
   const navigate = useNavigate();
   const isDesktop = useMediaQuery("(min-width: 768px)");
-  const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
+  const [tasks, setTasks] = useState<ComponentsTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [runs, setRuns] = useState<RunWithMeta[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -130,8 +130,8 @@ export function AutomationDashPanel({
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
-      const { data } = await listAgentTasks({
-        path: { agentID: agentId },
+      const { data } = await listTasks({
+        query: { agent_id: agentId },
         throwOnError: true,
       });
       setTasks(data?.items ?? []);
@@ -196,7 +196,7 @@ export function AutomationDashPanel({
             .filter(
               (task) =>
                 task.status === "blocked" ||
-                task.status === "review_requested" ||
+                task.status === "reviewing" ||
                 task.status === "failed",
             )
             .map((task): BoardItem => ({ kind: "task", task })),
@@ -223,7 +223,7 @@ export function AutomationDashPanel({
         title: "Queued",
         detail: "Ready but not started",
         items: tasks
-          .filter((task) => task.status === "pending")
+          .filter((task) => task.status === "draft" || task.status === "ready")
           .map((task): BoardItem => ({ kind: "task", task })),
       },
       {
@@ -239,7 +239,7 @@ export function AutomationDashPanel({
   );
 
   const openTask = useCallback(
-    (task: ComponentsAgentTask) => {
+    (task: ComponentsTask) => {
       if (!task.session_id) return;
       void navigate({
         to: "/agents/$agentId/sessions/$sessionId",
@@ -392,7 +392,7 @@ function KanbanColumn({
   items: BoardItem[];
   selectedJobId?: string;
   selectedRunId?: string;
-  onOpenTask: (task: ComponentsAgentTask) => void;
+  onOpenTask: (task: ComponentsTask) => void;
   onOpenJob: (job: SchedulerJob) => void;
   onOpenRun: (run: RunWithMeta) => void;
 }) {
@@ -450,7 +450,7 @@ function KanbanColumn({
   );
 }
 
-function TaskKanbanCard({ task, onClick }: { task: ComponentsAgentTask; onClick: () => void }) {
+function TaskKanbanCard({ task, onClick }: { task: ComponentsTask; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -808,9 +808,9 @@ function StatusDot({ status }: { status: string }) {
         "size-2 rounded-full",
         status === "done" && "bg-emerald-500",
         status === "running" && "bg-blue-500",
-        status === "pending" && "bg-muted-foreground/30",
+        (status === "draft" || status === "ready") && "bg-muted-foreground/30",
         status === "failed" && "bg-destructive",
-        (status === "blocked" || status === "review_requested") && "bg-amber-500",
+        (status === "blocked" || status === "reviewing") && "bg-amber-500",
         status === "cancelled" && "bg-muted-foreground/20",
       )}
     />
@@ -818,7 +818,7 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function formatStatus(status: string): string {
-  if (status === "review_requested") return "Review requested";
+  if (status === "reviewing") return "Reviewing";
   return status;
 }
 
