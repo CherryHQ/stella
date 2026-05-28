@@ -111,6 +111,13 @@ func (s *TransitionService) ReopenTask(ctx context.Context, taskID string, casca
 					target = StatusDraft
 				}
 			}
+			// Clear active run/blocker/review and finalize their owning rows
+			// before resetting status; otherwise the reset task would still
+			// carry stale active_*_id pointers and leave the underlying
+			// run/blocker/review in an open/in-progress state.
+			if err := s.clearActiveForReopen(ctx, q, d, now); err != nil {
+				return fmt.Errorf("clear active %s: %w", d.ID, err)
+			}
 			if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
 				Status: target, UpdatedAt: now, ID: d.ID, Status_2: d.Status,
 			}); err != nil {
@@ -130,4 +137,58 @@ func (s *TransitionService) ReopenTask(ctx context.Context, taskID string, casca
 		}
 		return nil
 	})
+}
+
+// clearActiveForReopen finalizes any open run/blocker/review attached to a
+// downstream task and clears the matching active_*_id pointer. Called inside
+// the reopen tx, before the status transition.
+func (s *TransitionService) clearActiveForReopen(ctx context.Context, q *sqlc.Queries, d sqlc.AgentTask, now string) error {
+	if d.ActiveRunID.Valid {
+		if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
+			Status:     RunInterrupted,
+			Result:     "",
+			Error:      "reopen cascade",
+			FinishedAt: sql.NullString{String: now, Valid: true},
+			UpdatedAt:  now,
+			ID:         d.ActiveRunID.String,
+		}); err != nil {
+			return fmt.Errorf("finish run: %w", err)
+		}
+		if err := q.SetAgentTaskActiveRun(ctx, sqlc.SetAgentTaskActiveRunParams{
+			ActiveRunID: sql.NullString{}, UpdatedAt: now, ID: d.ID,
+		}); err != nil {
+			return fmt.Errorf("clear active run: %w", err)
+		}
+	}
+	if d.ActiveBlockerID.Valid {
+		if _, err := q.CancelAgentTaskBlocker(ctx, sqlc.CancelAgentTaskBlockerParams{
+			ResolvedAt: sql.NullString{String: now, Valid: true},
+			ID:         d.ActiveBlockerID.String,
+		}); err != nil {
+			return fmt.Errorf("cancel blocker: %w", err)
+		}
+		if err := q.SetAgentTaskActiveBlocker(ctx, sqlc.SetAgentTaskActiveBlockerParams{
+			ActiveBlockerID: sql.NullString{}, UpdatedAt: now, ID: d.ID,
+		}); err != nil {
+			return fmt.Errorf("clear active blocker: %w", err)
+		}
+	}
+	if d.ActiveReviewID.Valid {
+		if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
+			Status:     ReviewCancelled,
+			Summary:    "reopen cascade",
+			Feedback:   "",
+			ResolvedAt: sql.NullString{String: now, Valid: true},
+			UpdatedAt:  now,
+			ID:         d.ActiveReviewID.String,
+		}); err != nil {
+			return fmt.Errorf("cancel review: %w", err)
+		}
+		if err := q.SetAgentTaskActiveReview(ctx, sqlc.SetAgentTaskActiveReviewParams{
+			ActiveReviewID: sql.NullString{}, UpdatedAt: now, ID: d.ID,
+		}); err != nil {
+			return fmt.Errorf("clear active review: %w", err)
+		}
+	}
+	return nil
 }
