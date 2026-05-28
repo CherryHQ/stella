@@ -8,6 +8,25 @@ import (
 	"database/sql"
 )
 
+type AgentGoal struct {
+	ID             string         `json:"id"`
+	OrgID          string         `json:"org_id"`
+	UserID         string         `json:"user_id"`
+	AgentID        sql.NullString `json:"agent_id"`
+	Title          string         `json:"title"`
+	Description    string         `json:"description"`
+	Status         string         `json:"status"`
+	Priority       string         `json:"priority"`
+	ReviewPolicy   string         `json:"review_policy"`
+	ActiveReviewID sql.NullString `json:"active_review_id"`
+	Context        string         `json:"context"`
+	Output         string         `json:"output"`
+	CreatedAt      string         `json:"created_at"`
+	UpdatedAt      string         `json:"updated_at"`
+	CompletedAt    sql.NullString `json:"completed_at"`
+	CancelledAt    sql.NullString `json:"cancelled_at"`
+}
+
 type AgentReview struct {
 	ID                    string         `json:"id"`
 	TaskID                sql.NullString `json:"task_id"`
@@ -39,6 +58,7 @@ type AgentTask struct {
 	OrgID           string         `json:"org_id"`
 	UserID          string         `json:"user_id"`
 	AgentID         sql.NullString `json:"agent_id"`
+	GoalID          sql.NullString `json:"goal_id"`
 	Title           string         `json:"title"`
 	Description     string         `json:"description"`
 	Status          string         `json:"status"`
@@ -96,7 +116,8 @@ type AgentTaskDep struct {
 
 type AgentTaskDispatchHint struct {
 	ID              string         `json:"id"`
-	TaskID          string         `json:"task_id"`
+	TaskID          sql.NullString `json:"task_id"`
+	GoalID          sql.NullString `json:"goal_id"`
 	Kind            string         `json:"kind"`
 	ExecutorAgentID string         `json:"executor_agent_id"`
 	ConsumedAt      sql.NullString `json:"consumed_at"`
@@ -106,6 +127,7 @@ type AgentTaskDispatchHint struct {
 type AgentTaskEvent struct {
 	ID         string         `json:"id"`
 	TaskID     sql.NullString `json:"task_id"`
+	GoalID     sql.NullString `json:"goal_id"`
 	RunID      sql.NullString `json:"run_id"`
 	BlockerID  sql.NullString `json:"blocker_id"`
 	ReviewID   sql.NullString `json:"review_id"`
@@ -121,6 +143,7 @@ type AgentTaskEvent struct {
 type AgentTaskRun struct {
 	ID              string         `json:"id"`
 	TaskID          sql.NullString `json:"task_id"`
+	GoalID          sql.NullString `json:"goal_id"`
 	OrgID           string         `json:"org_id"`
 	UserID          string         `json:"user_id"`
 	AgentID         sql.NullString `json:"agent_id"`

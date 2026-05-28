@@ -18,7 +18,7 @@ INSERT INTO agent_task_run (
     started_at, created_at, updated_at
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, task_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at
+RETURNING id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at
 `
 
 type CreateAgentTaskRunParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) CreateAgentTaskRun(ctx context.Context, arg CreateAgentTaskRun
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.GoalID,
 		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
@@ -114,7 +115,7 @@ func (q *Queries) FinishAgentTaskRun(ctx context.Context, arg FinishAgentTaskRun
 }
 
 const getAgentTaskRun = `-- name: GetAgentTaskRun :one
-SELECT id, task_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE id = ?
+SELECT id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE id = ?
 `
 
 func (q *Queries) GetAgentTaskRun(ctx context.Context, id string) (AgentTaskRun, error) {
@@ -123,6 +124,7 @@ func (q *Queries) GetAgentTaskRun(ctx context.Context, id string) (AgentTaskRun,
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.GoalID,
 		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
@@ -172,7 +174,7 @@ func (q *Queries) HeartbeatAgentTaskRun(ctx context.Context, arg HeartbeatAgentT
 }
 
 const latestAgentTaskRunForTask = `-- name: LatestAgentTaskRunForTask :one
-SELECT id, task_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
+SELECT id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
 WHERE task_id = ? AND kind = ?
 ORDER BY attempt_no DESC
 LIMIT 1
@@ -189,6 +191,7 @@ func (q *Queries) LatestAgentTaskRunForTask(ctx context.Context, arg LatestAgent
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.GoalID,
 		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
@@ -212,7 +215,7 @@ func (q *Queries) LatestAgentTaskRunForTask(ctx context.Context, arg LatestAgent
 }
 
 const listAgentTaskRunsByTask = `-- name: ListAgentTaskRunsByTask :many
-SELECT id, task_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE task_id = ? ORDER BY attempt_no DESC
+SELECT id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE task_id = ? ORDER BY attempt_no DESC
 `
 
 func (q *Queries) ListAgentTaskRunsByTask(ctx context.Context, taskID sql.NullString) ([]AgentTaskRun, error) {
@@ -227,6 +230,7 @@ func (q *Queries) ListAgentTaskRunsByTask(ctx context.Context, taskID sql.NullSt
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,
+			&i.GoalID,
 			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
@@ -260,7 +264,7 @@ func (q *Queries) ListAgentTaskRunsByTask(ctx context.Context, taskID sql.NullSt
 }
 
 const listStaleAgentTaskRuns = `-- name: ListStaleAgentTaskRuns :many
-SELECT id, task_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
+SELECT id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
 WHERE status IN ('queued','running')
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < ?
@@ -284,6 +288,7 @@ func (q *Queries) ListStaleAgentTaskRuns(ctx context.Context, arg ListStaleAgent
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,
+			&i.GoalID,
 			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,

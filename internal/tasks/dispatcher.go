@@ -289,7 +289,7 @@ func (d *Dispatcher) loadDepViews(ctx context.Context, taskID string) ([]DepEdge
 func (d *Dispatcher) resolveExecutor(ctx context.Context, task sqlc.AgentTask) (string, bool) {
 	// 1) Live dispatch hint.
 	hint, err := d.cfg.Queries.GetLiveDispatchHintForTask(ctx, sqlc.GetLiveDispatchHintForTaskParams{
-		TaskID: task.ID, Kind: RunKindWorker,
+		TaskID: nullable(task.ID), Kind: RunKindWorker,
 	})
 	if err == nil && hint.ExecutorAgentID != "" {
 		return hint.ExecutorAgentID, true

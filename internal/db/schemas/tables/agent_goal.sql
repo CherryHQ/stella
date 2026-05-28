@@ -1,0 +1,25 @@
+-- Slice 3: high-level objective container.
+-- A goal is a row, not a conversation (D12). Planning + synthesis happen as
+-- runs in agent_task_run with kind='planner'/'synthesizer'; their sessions
+-- live on the runs themselves.
+
+CREATE TABLE agent_goal (
+    id              TEXT NOT NULL PRIMARY KEY,
+    org_id          TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
+    user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    agent_id        TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,
+    title           TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','planning','running','blocked','reviewing','done','failed','cancelled')),
+    priority        TEXT NOT NULL DEFAULT 'routine' CHECK (priority IN ('routine','urgent')),
+    review_policy   TEXT NOT NULL DEFAULT 'none' CHECK (review_policy IN ('none','auto','agent','human')),
+    active_review_id TEXT REFERENCES agent_review(id) ON DELETE RESTRICT,
+    context         TEXT NOT NULL DEFAULT '{}',
+    output          TEXT NOT NULL DEFAULT '{}',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at    TEXT,
+    cancelled_at    TEXT
+);
+
+CREATE INDEX idx_agent_goal_org_status ON agent_goal(org_id, status);

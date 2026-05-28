@@ -117,7 +117,7 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	if in.ExecutorAgentID != "" {
 		if _, err := f.q.CreateAgentTaskDispatchHint(ctx, sqlc.CreateAgentTaskDispatchHintParams{
 			ID:              uuid.NewString(),
-			TaskID:          id,
+			TaskID:          nullable(id),
 			Kind:            RunKindWorker,
 			ExecutorAgentID: in.ExecutorAgentID,
 			CreatedAt:       now,

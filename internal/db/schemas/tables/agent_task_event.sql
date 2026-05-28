@@ -5,18 +5,19 @@
 CREATE TABLE agent_task_event (
     id              TEXT NOT NULL PRIMARY KEY,
     task_id         TEXT REFERENCES agent_task(id) ON DELETE CASCADE,
+    goal_id         TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,
     run_id          TEXT REFERENCES agent_task_run(id) ON DELETE SET NULL,
     blocker_id      TEXT REFERENCES agent_task_blocker(id) ON DELETE SET NULL,
     review_id       TEXT REFERENCES agent_review(id) ON DELETE SET NULL,
     event_type      TEXT NOT NULL,
     from_status     TEXT,
     to_status       TEXT,
-    -- Slice 3 will add 'planner','synthesizer'.
-    actor_type      TEXT NOT NULL CHECK (actor_type IN ('system','user','agent','worker','reviewer')),
+    actor_type      TEXT NOT NULL CHECK (actor_type IN ('system','user','agent','worker','reviewer','planner','synthesizer')),
     actor_id        TEXT,
     detail          TEXT NOT NULL DEFAULT '{}',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX idx_agent_task_event_task ON agent_task_event(task_id, created_at DESC);
+CREATE INDEX idx_agent_task_event_goal ON agent_task_event(goal_id, created_at DESC);
 CREATE INDEX idx_agent_task_event_run  ON agent_task_event(run_id);
