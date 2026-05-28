@@ -249,6 +249,14 @@ type scopedStateStore struct {
 	pluginID string
 }
 
+// NewScopedStateStore wraps a StateStoreBackend as a pkgplugins.StateStore
+// whose calls are namespaced to the given pluginID. Used by gateway wiring
+// for built-in subsystems (e.g. reflect) that need a state store but don't
+// run inside the plugin runtime.
+func NewScopedStateStore(store StateStoreBackend, pluginID string) pkgplugins.StateStore {
+	return scopedStateStore{store: store, pluginID: pluginID}
+}
+
 func (s scopedStateStore) Get(ctx context.Context, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {
 	if s.store == nil {
 		return nil, false, nil

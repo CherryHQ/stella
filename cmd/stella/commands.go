@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/orgruntime"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tasks"
@@ -163,6 +164,19 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 	ps.reflectRuntimeServices.Set(parent, memProvider, store, config.StellaHome(), providerStreamBuilder)
 
+	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
+	if err := registerReflectBuiltin(schedulerSvc, reflectplugin.DispatcherDeps{
+		Memory:     memProvider,
+		Store:      ps.reflectRuntimeServices.Store(),
+		SkillStore: skillStoreAdapter,
+		Notifier:   dispatcher,
+		StateStore: pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
+		Workspace:  config.StellaHome(),
+		Providers:  providerStreamBuilder,
+	}); err != nil {
+		return nil, err
+	}
+
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
 		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
 	}
@@ -178,7 +192,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 
 	tasksSvc := buildTasksService(db, dispatcher, memProvider, &poolMgr)
 
-	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithBuiltinTools(builtinTools),
