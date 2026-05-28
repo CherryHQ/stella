@@ -530,6 +530,82 @@ func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
 	return s.q.DeletePlugin(ctx, sqlc.DeletePluginParams{ID: id, OrgID: orgID})
 }
 
+// --- Manifest plugin overrides ---
+
+func (s *DBStore) GetManifestPluginOverride(ctx context.Context, pluginID string) (config.ManifestPluginOverride, bool, error) {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return config.ManifestPluginOverride{}, false, err
+	}
+	row, err := s.q.GetManifestPluginOverride(ctx, sqlc.GetManifestPluginOverrideParams{PluginID: pluginID, OrgID: orgID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return config.ManifestPluginOverride{}, false, nil
+	}
+	if err != nil {
+		return config.ManifestPluginOverride{}, false, fmt.Errorf("get manifest override %q: %w", pluginID, err)
+	}
+	return manifestOverrideFromDB(row), true, nil
+}
+
+func (s *DBStore) ListManifestPluginOverrides(ctx context.Context) ([]config.ManifestPluginOverride, error) {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListManifestPluginOverrides(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list manifest overrides: %w", err)
+	}
+	out := make([]config.ManifestPluginOverride, len(rows))
+	for i, r := range rows {
+		out[i] = manifestOverrideFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) UpsertManifestPluginOverride(ctx context.Context, ov config.ManifestPluginOverride) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	var enabled sql.NullInt64
+	if ov.Enabled != nil {
+		v := int64(0)
+		if *ov.Enabled {
+			v = 1
+		}
+		enabled = sql.NullInt64{Int64: v, Valid: true}
+	}
+	return s.q.UpsertManifestPluginOverride(ctx, sqlc.UpsertManifestPluginOverrideParams{
+		PluginID:           ov.PluginID,
+		OrgID:              orgID,
+		Enabled:            enabled,
+		SessionEnvVaultKey: ov.SessionEnvVaultKey,
+	})
+}
+
+func (s *DBStore) DeleteManifestPluginOverride(ctx context.Context, pluginID string) error {
+	orgID, err := requireOrgID(ctx)
+	if err != nil {
+		return err
+	}
+	return s.q.DeleteManifestPluginOverride(ctx, sqlc.DeleteManifestPluginOverrideParams{PluginID: pluginID, OrgID: orgID})
+}
+
+func manifestOverrideFromDB(r sqlc.SettingsManifestPluginOverride) config.ManifestPluginOverride {
+	out := config.ManifestPluginOverride{
+		PluginID:           r.PluginID,
+		OrgID:              r.OrgID,
+		SessionEnvVaultKey: r.SessionEnvVaultKey,
+		UpdatedAt:          r.UpdatedAt,
+	}
+	if r.Enabled.Valid {
+		enabled := r.Enabled.Int64 != 0
+		out.Enabled = &enabled
+	}
+	return out
+}
+
 // mergedPlugins returns builtins merged with DB overrides, optionally filtered.
 func (s *DBStore) mergedPlugins(ctx context.Context, orgID string, filter func(config.Plugin) bool) ([]config.Plugin, error) {
 	rows, err := s.q.ListPluginOverrides(ctx, orgID)

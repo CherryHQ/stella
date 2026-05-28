@@ -113,6 +113,18 @@ func (commandTestStore) SetPluginConfig(context.Context, string, map[string]any)
 	return nil
 }
 func (commandTestStore) DeletePlugin(context.Context, string) error { return nil }
+func (commandTestStore) GetManifestPluginOverride(context.Context, string) (config.ManifestPluginOverride, bool, error) {
+	return config.ManifestPluginOverride{}, false, nil
+}
+
+func (commandTestStore) ListManifestPluginOverrides(context.Context) ([]config.ManifestPluginOverride, error) {
+	return nil, nil
+}
+
+func (commandTestStore) UpsertManifestPluginOverride(context.Context, config.ManifestPluginOverride) error {
+	return nil
+}
+func (commandTestStore) DeleteManifestPluginOverride(context.Context, string) error { return nil }
 func (commandTestStore) GetChatAgent(context.Context, string, string, string) (string, error) {
 	return "", nil
 }

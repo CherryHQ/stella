@@ -1,31 +1,16 @@
 package manifestplugins
 
 import (
-	"errors"
-	"os"
-
 	"gopkg.in/yaml.v3"
 
 	"github.com/CherryHQ/stella/resources"
 )
 
+// LoadBuiltin returns the manifest baked into the binary at build time. This is
+// the single source of truth for plugin defaults; per-org overrides live in the
+// settings_manifest_plugin_override DB table.
 func LoadBuiltin() (*Manifest, error) {
 	rm, err := parseRawYAML(resources.BuiltinPluginsYAML())
-	if err != nil {
-		return nil, err
-	}
-	return rawToManifest(rm), nil
-}
-
-func LoadUser(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return &Manifest{}, nil
-		}
-		return nil, err
-	}
-	rm, err := parseRawYAML(data)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +34,7 @@ func rawToManifest(rm rawManifest) *Manifest {
 		m.OAuthProviders = append(m.OAuthProviders, resolveOAuthProvider(ro))
 	}
 	for _, rp := range rm.Plugins {
-		m.Plugins = append(m.Plugins, resolvePlugin(rp, nil))
+		m.Plugins = append(m.Plugins, resolvePlugin(rp))
 	}
 	return m
 }
@@ -70,12 +55,10 @@ func resolveOAuthProvider(ro rawManifestOAuthProvider) ManifestOAuthProvider {
 	}
 }
 
-func resolvePlugin(rp rawManifestPlugin, fallbackEnabled *bool) ManifestPlugin {
+func resolvePlugin(rp rawManifestPlugin) ManifestPlugin {
 	enabled := false
 	if rp.Enabled != nil {
 		enabled = *rp.Enabled
-	} else if fallbackEnabled != nil {
-		enabled = *fallbackEnabled
 	}
 	return ManifestPlugin{
 		ID:            rp.ID,
@@ -90,90 +73,4 @@ func resolvePlugin(rp rawManifestPlugin, fallbackEnabled *bool) ManifestPlugin {
 		SessionEnvs:   rp.SessionEnvs,
 		OAuthProvider: rp.OAuthProvider,
 	}
-}
-
-// MergeRaw merges parsed raw manifests, preserving nil Enabled for correct inheritance.
-func MergeRaw(builtin, user rawManifest) *Manifest {
-	userIndex := make(map[string]rawManifestPlugin, len(user.Plugins))
-	for _, rp := range user.Plugins {
-		userIndex[rp.ID] = rp
-	}
-
-	seenIDs := make(map[string]struct{}, len(builtin.Plugins)+len(user.Plugins))
-	out := &Manifest{
-		OAuthProviders: make([]ManifestOAuthProvider, 0, len(builtin.OAuthProviders)),
-		Plugins:        make([]ManifestPlugin, 0, len(builtin.Plugins)+len(user.Plugins)),
-	}
-
-	// OAuth providers are not user-overridable; always take builtin.
-	for _, ro := range builtin.OAuthProviders {
-		out.OAuthProviders = append(out.OAuthProviders, resolveOAuthProvider(ro))
-	}
-
-	for _, bp := range builtin.Plugins {
-		seenIDs[bp.ID] = struct{}{}
-		if up, ok := userIndex[bp.ID]; ok {
-			// Inherit builtin's Enabled when user doesn't specify.
-			out.Plugins = append(out.Plugins, resolvePlugin(up, bp.Enabled))
-		} else {
-			out.Plugins = append(out.Plugins, resolvePlugin(bp, nil))
-		}
-	}
-
-	for _, up := range user.Plugins {
-		if _, seen := seenIDs[up.ID]; !seen {
-			out.Plugins = append(out.Plugins, resolvePlugin(up, nil))
-		}
-	}
-
-	return out
-}
-
-// Merge merges two Manifest values. Because Manifest.Enabled is bool (not *bool),
-// user entries that omit enabled are treated as enabled=false. To preserve nil
-// semantics, parse user YAML with LoadUserRaw and use MergeRaw.
-func Merge(builtin, user *Manifest) *Manifest {
-	builtinRaw := manifestToRaw(builtin)
-	// For user plugins converted from Manifest, enabled is always explicit.
-	userRaw := manifestToRaw(user)
-	return MergeRaw(builtinRaw, userRaw)
-}
-
-func manifestToRaw(m *Manifest) rawManifest {
-	rm := rawManifest{
-		OAuthProviders: make([]rawManifestOAuthProvider, 0, len(m.OAuthProviders)),
-		Plugins:        make([]rawManifestPlugin, 0, len(m.Plugins)),
-	}
-	for _, o := range m.OAuthProviders {
-		flows := make([]rawManifestOAuthFlow, 0, len(o.Flows))
-		for _, f := range o.Flows {
-			flows = append(flows, rawManifestOAuthFlow(f))
-		}
-		rm.OAuthProviders = append(rm.OAuthProviders, rawManifestOAuthProvider{
-			ID:           o.ID,
-			Icon:         o.Icon,
-			Scopes:       o.Scopes,
-			VaultKey:     o.VaultKey,
-			Flows:        flows,
-			ClientID:     o.ClientID,
-			ClientSecret: o.ClientSecret,
-		})
-	}
-	for _, p := range m.Plugins {
-		enabled := p.Enabled
-		rm.Plugins = append(rm.Plugins, rawManifestPlugin{
-			ID:            p.ID,
-			Kind:          p.Kind,
-			Name:          p.Name,
-			DisplayName:   p.DisplayName,
-			Description:   p.Description,
-			Enabled:       &enabled,
-			Prompt:        p.Prompt,
-			Binaries:      p.Binaries,
-			Skills:        p.Skills,
-			SessionEnvs:   p.SessionEnvs,
-			OAuthProvider: p.OAuthProvider,
-		})
-	}
-	return rm
 }
