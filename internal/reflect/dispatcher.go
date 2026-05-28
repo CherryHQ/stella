@@ -2,6 +2,7 @@ package reflect
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -32,20 +33,37 @@ type Dispatcher struct {
 	deps DispatcherDeps
 }
 
-// NewDispatcher wires a Dispatcher with the given shared deps.
-func NewDispatcher(deps DispatcherDeps) *Dispatcher {
+// NewDispatcher wires a Dispatcher with the given shared deps. Returns an
+// error if any required dep is missing — fail fast at boot rather than
+// nil-deref on the first tick.
+func NewDispatcher(deps DispatcherDeps) (*Dispatcher, error) {
+	if deps.Memory == nil {
+		return nil, fmt.Errorf("reflect: Memory provider is required")
+	}
+	if deps.Store == nil {
+		return nil, fmt.Errorf("reflect: Store is required")
+	}
+	if deps.StateStore == nil {
+		return nil, fmt.Errorf("reflect: StateStore is required")
+	}
+	if deps.Providers == nil {
+		return nil, fmt.Errorf("reflect: Providers builder is required")
+	}
 	if deps.Log == nil {
 		deps.Log = slog.Default()
 	}
-	return &Dispatcher{deps: deps}
+	return &Dispatcher{deps: deps}, nil
 }
 
 // Handle implements scheduler.OnJobFunc. It derives an org-scoped context
 // from job.OrgID, builds a Service backed by the dispatcher's shared deps,
-// and runs one review cycle. Errors are logged inside the service; we
-// always return nil so the scheduler doesn't mark builtin runs as errored
-// when a single agent's review fails.
+// and runs one review cycle. Cycle-level failures (missing org, store
+// errors) propagate so the scheduler records the run as errored. Per-agent
+// failures are still logged inside the service and do not fail the run.
 func (d *Dispatcher) Handle(ctx context.Context, job scheduler.Job) error {
+	if job.OrgID == "" {
+		return fmt.Errorf("reflect: scheduler job %q has no OrgID", job.Name)
+	}
 	orgCtx := config.WithOrgID(ctx, job.OrgID)
 
 	svc := New(Config{
@@ -58,6 +76,5 @@ func (d *Dispatcher) Handle(ctx context.Context, job scheduler.Job) error {
 		Log:        d.deps.Log.With("org_id", job.OrgID),
 		Providers:  d.deps.Providers,
 	})
-	svc.RunOnce(orgCtx)
-	return nil
+	return svc.RunOnce(orgCtx)
 }

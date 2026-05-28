@@ -51,6 +51,11 @@ func RegisterBuiltin(job BuiltinJob) {
 	if job.ExecScope == "" {
 		job.ExecScope = ExecScopeSystem
 	}
+	for _, existing := range builtinJobs {
+		if existing.Name == job.Name {
+			panic(fmt.Sprintf("scheduler.RegisterBuiltin: duplicate builtin %q", job.Name))
+		}
+	}
 	builtinJobs = append(builtinJobs, job)
 }
 
@@ -60,6 +65,10 @@ func RegisterBuiltin(job BuiltinJob) {
 // available at package init() time (e.g. a Handler that closes over a
 // configured dispatcher). Returns an error on a malformed spec so the
 // gateway can fail startup cleanly rather than panic.
+//
+// Must be called BEFORE (*Service).Start — handler-mode dispatch is keyed on
+// Name, so persisted jobs loaded by Start can only be routed correctly if
+// the handler is already registered.
 func (s *Service) RegisterBuiltin(job BuiltinJob) error {
 	if err := validateBuiltin(job); err != nil {
 		return err
@@ -69,13 +78,30 @@ func (s *Service) RegisterBuiltin(job BuiltinJob) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.started {
+		return fmt.Errorf("scheduler: RegisterBuiltin(%q) called after Start", job.Name)
+	}
+	builtinMu.Lock()
+	for _, existing := range builtinJobs {
+		if existing.Name == job.Name {
+			builtinMu.Unlock()
+			return fmt.Errorf("scheduler: builtin %q already registered globally", job.Name)
+		}
+	}
+	builtinMu.Unlock()
+	if s.runtimeBuiltins == nil {
+		s.runtimeBuiltins = make(map[string]BuiltinJob)
+	}
+	if _, dup := s.runtimeBuiltins[job.Name]; dup {
+		return fmt.Errorf("scheduler: runtime builtin %q already registered", job.Name)
+	}
 	if job.Handler != nil {
 		if s.builtinHandlers == nil {
 			s.builtinHandlers = make(map[string]OnJobFunc)
 		}
 		s.builtinHandlers[job.Name] = job.Handler
 	}
-	s.runtimeBuiltins = append(s.runtimeBuiltins, job)
+	s.runtimeBuiltins[job.Name] = job
 	return nil
 }
 
@@ -95,24 +121,20 @@ func validateBuiltin(job BuiltinJob) error {
 // For ExecScopeAllUsers jobs the scheduler fans out to all active users at execution time.
 func (s *Service) EnsureBuiltinJobs(orgID string) {
 	builtinMu.Lock()
-	jobs := append([]BuiltinJob(nil), builtinJobs...)
+	globalJobs := append([]BuiltinJob(nil), builtinJobs...)
 	builtinMu.Unlock()
 
 	s.mu.Lock()
-	runtimeJobs := append([]BuiltinJob(nil), s.runtimeBuiltins...)
+	runtimeJobs := make([]BuiltinJob, 0, len(s.runtimeBuiltins))
+	for _, j := range s.runtimeBuiltins {
+		runtimeJobs = append(runtimeJobs, j)
+	}
 	s.mu.Unlock()
 
-	seen := make(map[string]struct{}, len(jobs)+len(runtimeJobs))
-	for _, j := range jobs {
-		seen[j.Name] = struct{}{}
+	for _, j := range globalJobs {
 		s.ensureOneBuiltin(j, orgID)
 	}
 	for _, j := range runtimeJobs {
-		if _, dup := seen[j.Name]; dup {
-			s.log.Warn("runtime builtin shadowed by package-registered job", "name", j.Name, "org_id", orgID)
-			continue
-		}
-		seen[j.Name] = struct{}{}
 		s.ensureOneBuiltin(j, orgID)
 	}
 }

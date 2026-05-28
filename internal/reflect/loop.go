@@ -10,8 +10,11 @@ import (
 )
 
 // RunOnce executes a single review cycle across all enabled agents.
-func (s *Service) RunOnce(ctx context.Context) {
-	s.runCycle(ctx)
+// Returns the first cycle-level error (e.g. listing agents failed, ctx
+// cancelled) so the scheduler can record the run as errored. Per-agent
+// failures are logged inside runCycle and do not surface here.
+func (s *Service) RunOnce(ctx context.Context) error {
+	return s.runCycle(ctx)
 }
 
 // ReviewNow triggers an immediate review cycle for a single agent.
@@ -24,11 +27,15 @@ func (s *Service) ReviewNow(ctx context.Context, agentID string) (int, error) {
 	return s.reviewAgent(ctx, snap)
 }
 
-func (s *Service) runCycle(ctx context.Context) {
+func (s *Service) runCycle(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	agents, err := s.store.ListEnabledAgents(ctx)
 	if err != nil {
 		s.log.Error("reflect: list agents", "error", err)
-		return
+		return fmt.Errorf("list enabled agents: %w", err)
 	}
 
 	ctx, span := startCycleSpan(ctx, len(agents))
@@ -50,6 +57,7 @@ func (s *Service) runCycle(ctx context.Context) {
 
 	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", totalReviewed))
 	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
+	return nil
 }
 
 func (s *Service) reviewAgent(ctx context.Context, snap *Snapshot) (int, error) {

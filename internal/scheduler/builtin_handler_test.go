@@ -9,7 +9,8 @@ import (
 )
 
 func TestBuiltinHandlerDispatch(t *testing.T) {
-	svc, orgID := testService(t)
+	db := testDB(t)
+	svc, orgID := newServiceWithOrg(t, db)
 
 	var handlerCalls int32
 	var fallbackCalls int32
@@ -19,6 +20,8 @@ func TestBuiltinHandlerDispatch(t *testing.T) {
 		return nil
 	})
 
+	// Handler-mode builtins must be registered BEFORE Start so persisted
+	// rows loaded during Start can find their handler.
 	if err := svc.RegisterBuiltin(BuiltinJob{
 		Name:     "reflect-review-test",
 		Schedule: Schedule{Every: "1h"},
@@ -29,6 +32,11 @@ func TestBuiltinHandlerDispatch(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RegisterBuiltin: %v", err)
 	}
+
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = svc.Stop() })
 
 	svc.EnsureBuiltinJobs(orgID)
 
@@ -116,4 +124,33 @@ func TestRegisterBuiltinPanicsOnBadSpec(t *testing.T) {
 		}
 	}()
 	RegisterBuiltin(BuiltinJob{Name: "panic-case", Schedule: Schedule{Every: "1h"}})
+}
+
+func TestServiceRegisterBuiltinRejectsAfterStart(t *testing.T) {
+	svc, _ := testService(t)
+	err := svc.RegisterBuiltin(BuiltinJob{
+		Name:     "post-start",
+		Schedule: Schedule{Every: "1h"},
+		Handler:  func(context.Context, Job) error { return nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "called after Start") {
+		t.Fatalf("expected post-Start rejection, got: %v", err)
+	}
+}
+
+func TestServiceRegisterBuiltinRejectsDuplicate(t *testing.T) {
+	db := testDB(t)
+	svc, _ := newServiceWithOrg(t, db)
+	spec := BuiltinJob{
+		Name:     "duplicate-runtime",
+		Schedule: Schedule{Every: "1h"},
+		Handler:  func(context.Context, Job) error { return nil },
+	}
+	if err := svc.RegisterBuiltin(spec); err != nil {
+		t.Fatalf("first RegisterBuiltin: %v", err)
+	}
+	if err := svc.RegisterBuiltin(spec); err == nil ||
+		!strings.Contains(err.Error(), "already registered") {
+		t.Fatalf("expected duplicate rejection, got: %v", err)
+	}
 }

@@ -55,9 +55,15 @@ type Service struct {
 
 	// Runtime-registered builtin specs and their handler-mode dispatch table.
 	// Populated via (*Service).RegisterBuiltin, distinct from the package-global
-	// builtinJobs registry that init() functions write to.
-	runtimeBuiltins []BuiltinJob
+	// builtinJobs registry that init() functions write to. Keyed by Name so
+	// duplicate registrations are rejected at the API.
+	runtimeBuiltins map[string]BuiltinJob
 	builtinHandlers map[string]OnJobFunc
+
+	// started flips to true inside start(); RegisterBuiltin rejects further
+	// runtime registrations after that point to avoid persisted handler-mode
+	// jobs firing before their handler exists.
+	started bool
 
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
@@ -157,6 +163,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 
 	s.mu.Lock()
 	s.ctx = ctx
+	s.started = true
 	if loadPersisted {
 		for _, j := range jobs {
 			s.jobs[j.ID] = j
@@ -582,13 +589,20 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	s.mu.Unlock()
 
 	var runErr error
-	if hasHandler {
+	switch {
+	case hasHandler:
 		// Handler-mode builtin: bypass the default agent dispatch so the Go
 		// callback owns the run entirely.
 		if err := handler(runCtx, jobRun); err != nil {
 			runErr = err
 		}
-	} else if fn != nil {
+	case job.OwnerKind == JobOwnerSystem && job.Message == "":
+		// Orphan: persisted system job with no message and no live handler
+		// (e.g. a handler-mode builtin whose RegisterBuiltin call was removed
+		// in a later build). Don't dispatch an empty prompt to the agent pool.
+		runErr = fmt.Errorf("scheduler: system job %q has no handler registered and no message", job.Name)
+		s.log.Error("scheduler: dropping orphan system job run", "job_id", job.ID, "name", job.Name)
+	case fn != nil:
 		if err := fn(runCtx, jobRun); err != nil {
 			runErr = err
 		}
@@ -677,11 +691,15 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		s.mu.Unlock()
 
 		var runErr error
-		if hasHandler {
+		switch {
+		case hasHandler:
 			if err := handler(runCtx, job); err != nil {
 				runErr = err
 			}
-		} else if fn != nil {
+		case job.OwnerKind == JobOwnerSystem && job.Message == "":
+			runErr = fmt.Errorf("scheduler: system job %q has no handler registered and no message", job.Name)
+			s.log.Error("scheduler: dropping orphan system job run", "job_id", job.ID, "name", job.Name)
+		case fn != nil:
 			if err := fn(runCtx, job); err != nil {
 				runErr = err
 			}
