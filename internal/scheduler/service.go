@@ -193,6 +193,11 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 }
 
 // Stop shuts down the scheduler and closes the database if owned.
+//
+// Service is single-shot: Start after Stop is not supported. gocron's
+// Shutdown is terminal, and s.started is not reset, so any subsequent
+// RegisterBuiltin will reject with "called after Start". Construct a new
+// Service if you need a fresh lifecycle.
 func (s *Service) Stop() error {
 	err := s.scheduler.Shutdown()
 	if s.ownsDB && s.db != nil {

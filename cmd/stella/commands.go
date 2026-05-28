@@ -135,6 +135,11 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, spec := range []scheduler.BuiltinJob{scheduler.RecallyDigestBuiltin, scheduler.RecallyRSSBuiltin} {
+		if err := schedulerSvc.RegisterBuiltin(spec); err != nil {
+			return nil, fmt.Errorf("register builtin %q: %w", spec.Name, err)
+		}
+	}
 
 	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 		return phost.BuildStreamFunc(api, map[string]any{

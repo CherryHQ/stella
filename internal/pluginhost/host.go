@@ -385,6 +385,17 @@ func (h *Host) ValidateConfig(pluginID string, raw map[string]any) error {
 	return reg.Validate(raw)
 }
 
+// IsConfigurable reports whether the plugin has an admin config schema
+// registered. Used by the admin API to reject writes to plugin IDs that
+// no longer exist in code (orphan settings_plugin rows from old installs)
+// or to typo'd IDs, instead of silently accepting them.
+func (h *Host) IsConfigurable(pluginID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.configRegs[pluginID]
+	return ok
+}
+
 func (h *Host) RedactConfig(pluginID string, raw map[string]any) map[string]any {
 	h.mu.RLock()
 	reg, ok := h.configRegs[pluginID]

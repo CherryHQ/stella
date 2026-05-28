@@ -117,15 +117,6 @@ func TestBuiltinMessageHandlerXOR(t *testing.T) {
 	}
 }
 
-func TestRegisterBuiltinPanicsOnBadSpec(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("RegisterBuiltin did not panic on a malformed spec")
-		}
-	}()
-	RegisterBuiltin(BuiltinJob{Name: "panic-case", Schedule: Schedule{Every: "1h"}})
-}
-
 func TestServiceRegisterBuiltinRejectsAfterStart(t *testing.T) {
 	svc, _ := testService(t)
 	err := svc.RegisterBuiltin(BuiltinJob{
