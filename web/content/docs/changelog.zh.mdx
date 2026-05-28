@@ -11,6 +11,21 @@ icon: History
 
 ## [Unreleased]
 
+### ✨ 功能
+
+- **任务**：扁平化 `/api/tasks` HTTP 接口。任务在解析后的组织（`X-Stella-Org-ID`
+  请求头，回退到会话默认组织）下管理，不再嵌套于 agent 路径下。子资源 POST 取代
+  旧的 action 信封：`/api/tasks/{id}/cancel`、`/reopen`、`/deps`、
+  `/deps/{depTaskID}/waive`、`/blockers/{blockerID}/resolve`，以及评审决策
+  `/reviews/{reviewID}/approve|reject|request-changes|escalate`。原有的
+  `/api/agents/{agentID}/tasks/...` 路由已删除。
+
+### ♻️ 重构
+
+- **CLI**：`stella task` 已基于扁平化接口重写；原先的 `agent-id` 位置参数已移除，
+  创建者 agent 从配置或 `--agent` 标志获取。
+- **Web**：任务面板迁移到重新生成的客户端与 v2 状态值（`draft` / `ready` / `reviewing`）。
+
 ## [0.37.0] - 2026-05-23
 
 ### ✨ 功能

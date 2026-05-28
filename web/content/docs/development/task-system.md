@@ -195,10 +195,43 @@ Slice 1 (MVP) ships:
 
 - Real agent.Pool ↔ RunnerFunc adapter (right now the runner is a noop
   that explicitly fails so the path is observable in logs)
-- OpenAPI rewrite to flat `/api/tasks/...` routes + handler regen + web
-  client update (Phase 5/6/6.5 of the plan)
-- Slice 2: review pipeline (`agent_review` + decisions + escalation)
-- Slice 3: goal entity (`agent_goal` + planner/synthesizer + rollup)
-- Slice 4: reopen with cascade
-- Slice 5: soft dep semantics (already implemented in readiness; needs
-  docs + API entry point)
+- Reviewer dispatcher — `review_policy='agent'` currently parks the
+  task in `reviewing` correctly but no reviewer run is spawned yet.
+- Goal entity (`agent_goal` + planner / synthesizer + rollup).
+
+## HTTP surface
+
+All routes are flat under `/api/tasks/...` and org-scoped via the
+`X-Stella-Org-ID` request header (session default if absent). Cross-org
+access returns 404 (not 403) so existence isn't leaked.
+
+| Method | Path                                                 | Purpose                                    |
+| ------ | ---------------------------------------------------- | ------------------------------------------ |
+| POST   | `/api/tasks`                                         | Create a task                              |
+| GET    | `/api/tasks`                                         | List tasks (optional `agent_id`, `status`) |
+| GET    | `/api/tasks/{id}`                                    | Fetch a task                               |
+| POST   | `/api/tasks/{id}/cancel`                             | Cancel a task                              |
+| POST   | `/api/tasks/{id}/reopen`                             | Reopen done/failed (`cascade` body)        |
+| GET    | `/api/tasks/{id}/readiness`                          | Computed readiness view                    |
+| GET    | `/api/tasks/{id}/events`                             | Audit log                                  |
+| GET    | `/api/tasks/{id}/runs`                               | Run attempts                               |
+| GET    | `/api/tasks/{id}/deps` / POST same                   | Dep edges + add                            |
+| POST   | `/api/tasks/{id}/deps/{depTaskID}/waive`             | Waive a hard dep failure                   |
+| POST   | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | Resolve a blocker                          |
+| GET    | `/api/tasks/{id}/reviews`                            | List reviews                               |
+| POST   | `/api/tasks/{id}/reviews/{reviewID}/approve`         | Human-approve a review                     |
+| POST   | `/api/tasks/{id}/reviews/{reviewID}/reject`          | Reject                                     |
+| POST   | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | Request changes                            |
+| POST   | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | Escalate agent review to human             |
+
+Typed error codes:
+
+| Condition                        | HTTP | Code                                            |
+| -------------------------------- | ---- | ----------------------------------------------- |
+| Unknown task / blocker / review  | 404  | `not_found`                                     |
+| Invalid lifecycle transition     | 409  | `invalid_transition`                            |
+| Dep edge would close a cycle     | 409  | `dep_cycle`                                     |
+| Review already resolved          | 409  | `review_closed`                                 |
+| Dep-failure blocker (use waiver) | 409  | `dep_failure_requires_waiver`                   |
+| Blocker not open                 | 409  | `blocker_already_closed`                        |
+| Reopen would orphan downstream   | 409  | `reopen_conflict` (body lists `downstream_ids`) |

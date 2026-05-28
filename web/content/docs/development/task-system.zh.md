@@ -177,9 +177,43 @@ Slice 1(MVP)已落地:
 
 - 真正的 agent.Pool ↔ RunnerFunc 适配器(目前 runner 是 noop,显式失
   败,以便日志里能看到)
-- OpenAPI 改写到扁平 `/api/tasks/...`,重新生成 handler 和 web 客户端
-  (plan 的 Phase 5/6/6.5)
-- Slice 2:review pipeline(`agent_review` + 决策 + 升级)
-- Slice 3:goal 实体(`agent_goal` + planner/synthesizer + rollup)
-- Slice 4:reopen with cascade
-- Slice 5:soft dep 语义(可调度性已经实现,差文档和 API 入口)
+- Reviewer dispatcher — `review_policy='agent'` 当前能正确把任务停在
+  `reviewing`,但还没有 reviewer run 被派发。
+- Goal 实体(`agent_goal` + planner / synthesizer + rollup)。
+
+## HTTP 接口
+
+所有路由都是扁平的 `/api/tasks/...`,通过 `X-Stella-Org-ID` 请求头(缺
+失时回退到会话默认组织)进行组织作用域。跨组织访问返回 404(而不是
+403),避免泄露资源存在性。
+
+| 方法 | 路径                                                 | 用途                             |
+| ---- | ---------------------------------------------------- | -------------------------------- |
+| POST | `/api/tasks`                                         | 创建任务                         |
+| GET  | `/api/tasks`                                         | 列表(支持 `agent_id` / `status`) |
+| GET  | `/api/tasks/{id}`                                    | 获取单个任务                     |
+| POST | `/api/tasks/{id}/cancel`                             | 取消                             |
+| POST | `/api/tasks/{id}/reopen`                             | 重开(可带 `cascade`)             |
+| GET  | `/api/tasks/{id}/readiness`                          | 调度性视图                       |
+| GET  | `/api/tasks/{id}/events`                             | 审计日志                         |
+| GET  | `/api/tasks/{id}/runs`                               | 运行尝试列表                     |
+| GET  | `/api/tasks/{id}/deps` / POST 同路径                 | 依赖边列表 / 添加                |
+| POST | `/api/tasks/{id}/deps/{depTaskID}/waive`             | 豁免硬依赖失败                   |
+| POST | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | 解除阻塞                         |
+| GET  | `/api/tasks/{id}/reviews`                            | 列出评审                         |
+| POST | `/api/tasks/{id}/reviews/{reviewID}/approve`         | 通过                             |
+| POST | `/api/tasks/{id}/reviews/{reviewID}/reject`          | 拒绝                             |
+| POST | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | 请求修改                         |
+| POST | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | 升级 agent 评审到人工            |
+
+典型错误编码:
+
+| 条件                               | HTTP | code                                        |
+| ---------------------------------- | ---- | ------------------------------------------- |
+| 任务 / blocker / 评审不存在        | 404  | `not_found`                                 |
+| 非法状态迁移                       | 409  | `invalid_transition`                        |
+| 依赖边会形成环                     | 409  | `dep_cycle`                                 |
+| 评审已结束                         | 409  | `review_closed`                             |
+| dep_failure 类型 blocker(需要豁免) | 409  | `dep_failure_requires_waiver`               |
+| blocker 已关闭                     | 409  | `blocker_already_closed`                    |
+| reopen 会使下游孤立                | 409  | `reopen_conflict`(body 含 `downstream_ids`) |

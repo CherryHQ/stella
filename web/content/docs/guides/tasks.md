@@ -10,13 +10,16 @@ A task is a piece of work that Stella handles independently, outside your curren
 
 Every task has a lifecycle:
 
-- **Pending** -- queued and waiting to start
+- **Draft** -- created but not yet activated
+- **Ready** -- queued and waiting to start
 - **Running** -- Stella is actively working on it
 - **Blocked** -- Stella paused to ask you a question
-- **Review requested** -- Stella finished a phase and wants your approval before continuing
+- **Reviewing** -- Stella finished a phase and wants your approval before continuing
 - **Done** -- completed successfully
 - **Failed** -- something went wrong, or you rejected a review
 - **Cancelled** -- you stopped the task
+
+When a task is waiting on another task to finish (a dependency), the Tasks panel surfaces a **Readiness** view that explains _why_ it isn't running yet — useful to tell "blocked because Stella needs your input" apart from "waiting for an upstream task to finish."
 
 ## Creating a task
 

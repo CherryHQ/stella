@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **Tasks**: Flat `/api/tasks` HTTP surface. Tasks now live under the resolved
+  org (header `X-Stella-Org-ID`, session fallback) instead of an agent path.
+  Sub-resource POSTs replace the old action envelope:
+  `/api/tasks/{id}/cancel`, `/reopen`, `/deps`, `/deps/{depTaskID}/waive`,
+  `/blockers/{blockerID}/resolve`, and the review decisions
+  `/reviews/{reviewID}/approve|reject|request-changes|escalate`. The previous
+  `/api/agents/{agentID}/tasks/...` routes are removed.
+
+### ♻️ Refactoring
+
+- **CLI**: `stella task` rewritten against the flat API; the old `agent-id`
+  positional is gone (creator agent comes from the configured profile or the
+  `--agent` flag).
+- **Web**: Task panels migrated to the regenerated client and the v2 status
+  values (`draft` / `ready` / `reviewing`).
+
 ## [0.37.0] - 2026-05-23
 
 ### ✨ Features
