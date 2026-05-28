@@ -42,9 +42,6 @@ var BuiltinProviderNames = []string{"anthropic", "openai", "openai-response"}
 // BuiltinSandboxNames lists the built-in sandbox backend plugins.
 var BuiltinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone}
 
-// BuiltinStandalonePlugins lists plugins that don't follow the kind/name pattern.
-var BuiltinStandalonePlugins = []string{"reflect"}
-
 // BuiltinPlugin describes a code-defined plugin with its default enabled state.
 type BuiltinPlugin struct {
 	ID             string
@@ -71,7 +68,6 @@ func BuiltinPlugins() []BuiltinPlugin {
 	for _, n := range BuiltinSandboxNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindSandbox, n), Kind: PluginKindSandbox, Name: n, DefaultEnabled: n == SandboxBackendLocal})
 	}
-	out = append(out, BuiltinPlugin{ID: "reflect", Kind: "reflect", Name: "reflect", DefaultEnabled: false})
 
 	return out
 }

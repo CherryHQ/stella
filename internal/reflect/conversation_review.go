@@ -17,12 +17,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.ReflectSnapshot, c candidate) error {
+func (s *Service) reviewConversation(ctx context.Context, snap *Snapshot, c candidate) error {
 	ctx, span := startConversationSpan(ctx, c)
 	defer span.End()
 
 	userID := c.session.UserID
-	model := snap.ResolveModelTier(pkgplugins.ReflectModelTierFast)
+	model := snap.ResolveModelTier(ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
 	span.SetAttributes(
@@ -86,7 +86,7 @@ func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.Stream
 	return s.providers(api, apiKey, baseURL)
 }
 
-func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, userID string, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
+func (s *Service) newConversationReviewer(snap *Snapshot, userID string, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
 	return newReviewer(reviewerConfig{
 		Stream:         stream,
 		Model:          model,

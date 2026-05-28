@@ -6,19 +6,18 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/scheduler"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type fakeReflectStore struct {
 	sawOrg string
 }
 
-func (f *fakeReflectStore) ListEnabledAgents(ctx context.Context) ([]pkgplugins.ReflectAgent, error) {
+func (f *fakeReflectStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 	f.sawOrg = config.OrgIDFromContext(ctx)
 	return nil, nil
 }
 
-func (f *fakeReflectStore) Snapshot(ctx context.Context, _ string) (*pkgplugins.ReflectSnapshot, error) {
+func (f *fakeReflectStore) Snapshot(ctx context.Context, _ string) (*Snapshot, error) {
 	_ = config.OrgIDFromContext(ctx)
 	return nil, nil
 }

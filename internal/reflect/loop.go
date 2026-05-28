@@ -3,39 +3,18 @@ package reflect
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// Start runs the review loop. Blocks until ctx is cancelled.
-func (s *Service) Start(ctx context.Context) error {
-	s.log.Info("reflect: starting review loop", "interval", s.interval)
-
-	s.RunOnce(ctx)
-
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			s.runCycle(ctx)
-		}
-	}
-}
-
-// RunOnce executes a single review cycle.
+// RunOnce executes a single review cycle across all enabled agents.
 func (s *Service) RunOnce(ctx context.Context) {
 	s.runCycle(ctx)
 }
 
-// ReviewNow triggers an immediate review cycle for an agent.
+// ReviewNow triggers an immediate review cycle for a single agent.
 // Returns the number of sessions reviewed.
 func (s *Service) ReviewNow(ctx context.Context, agentID string) (int, error) {
 	snap, err := s.store.Snapshot(ctx, agentID)
@@ -73,7 +52,7 @@ func (s *Service) runCycle(ctx context.Context) {
 	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
 }
 
-func (s *Service) reviewAgent(ctx context.Context, snap *pkgplugins.ReflectSnapshot) (int, error) {
+func (s *Service) reviewAgent(ctx context.Context, snap *Snapshot) (int, error) {
 	sm, ok := s.memory.(memory.SessionManager)
 	if !ok {
 		return 0, nil

@@ -16,7 +16,7 @@ import (
 // shared across every per-fire Service instance.
 type DispatcherDeps struct {
 	Memory     memory.Provider
-	Store      pkgplugins.ReflectStore
+	Store      Store
 	SkillStore pkgplugins.SkillStore
 	Notifier   pkgplugins.Notifier
 	StateStore pkgplugins.StateStore

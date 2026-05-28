@@ -162,12 +162,10 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
-	ps.reflectRuntimeServices.Set(parent, memProvider, store, config.StellaHome(), providerStreamBuilder)
-
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
 	if err := registerReflectBuiltin(schedulerSvc, reflectplugin.DispatcherDeps{
 		Memory:     memProvider,
-		Store:      ps.reflectRuntimeServices.Store(),
+		Store:      reflectplugin.NewConfigStore(store),
 		SkillStore: skillStoreAdapter,
 		Notifier:   dispatcher,
 		StateStore: pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),

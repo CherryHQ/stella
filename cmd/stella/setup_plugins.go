@@ -26,7 +26,6 @@ type pluginSetup struct {
 	host                   *pluginhost.Host
 	mcpManager             *mcpplugin.Manager
 	channelRuntimeServices *pluginhost.ChannelPlatform
-	reflectRuntimeServices *pluginhost.ReflectPlatform
 	oauthRegistry          *oauth.ProviderRegistry
 	manifestToReconcile    *manifestplugins.Manifest
 }
@@ -34,7 +33,6 @@ type pluginSetup struct {
 func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
-	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
 	stateStore := pluginstate.New(db)
 
 	phost := pluginhost.New(store,
@@ -43,7 +41,6 @@ func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStor
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithSkillStore(skillStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
-		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
 
 	mcpManager := mcpplugin.NewManager()
@@ -84,7 +81,6 @@ func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStor
 		host:                   phost,
 		mcpManager:             mcpManager,
 		channelRuntimeServices: channelRuntimeServices,
-		reflectRuntimeServices: reflectRuntimeServices,
 		oauthRegistry:          oauthRegistry,
 		manifestToReconcile:    manifestToReconcile,
 	}, nil

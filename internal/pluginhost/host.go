@@ -32,7 +32,6 @@ type Host struct {
 	skillStore         skills.Store
 	authService        pkgplugins.Auth
 	channelRuntime     pkgplugins.ChannelPlatform
-	reflectRuntime     pkgplugins.ReflectPlatform
 	toolRegs           map[string]pkgplugins.ToolSpec
 	providerRegs       map[string]pkgplugins.ProviderSpec
 	hookRegs           map[string]pkgplugins.HookSpec

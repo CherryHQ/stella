@@ -219,10 +219,6 @@ func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
 	return p.host.ChannelRuntime()
 }
 
-func (p pluginPlatform) ReflectPlatform() pkgplugins.ReflectPlatform {
-	return p.host.ReflectRuntime()
-}
-
 func (p pluginPlatform) SkillStore() pkgplugins.SkillStore {
 	s := p.host.SkillStore()
 	if s == nil {
