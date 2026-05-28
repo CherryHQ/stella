@@ -138,6 +138,54 @@ func TestServiceRegisterBuiltinRejectsAfterStart(t *testing.T) {
 	}
 }
 
+func TestUserJobCannotHijackBuiltinHandler(t *testing.T) {
+	db := testDB(t)
+	svc, orgID := newServiceWithOrg(t, db)
+
+	var handlerCalls int32
+	if err := svc.RegisterBuiltin(BuiltinJob{
+		Name:     "reflect-review",
+		Schedule: Schedule{Every: "1h"},
+		Handler: func(context.Context, Job) error {
+			atomic.AddInt32(&handlerCalls, 1)
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterBuiltin: %v", err)
+	}
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = svc.Stop() })
+
+	// User-owned job with a colliding Name must be rejected at creation so
+	// the handler-mode dispatch path can never see it.
+	_, err := svc.AddJobWithOwner("reflect-review", "hi", Schedule{Every: "1h"}, "", "", "user-1", orgID)
+	if err == nil {
+		t.Fatal("expected AddJobWithOwner to reject the reserved name, got nil")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Errorf("error = %v, want substring %q", err, "reserved")
+	}
+
+	// Even if a colliding row were to be inserted bypassing addJobInternal,
+	// dispatchJob must not invoke the handler for non-system jobs.
+	userJob := Job{
+		ID:        "abc",
+		Name:      "reflect-review",
+		OwnerKind: JobOwnerUser,
+		Message:   "hi",
+		OrgID:     orgID,
+		UserID:    "user-1",
+	}
+	if err := svc.dispatchJob(context.Background(), userJob); err != nil {
+		t.Logf("dispatchJob returned %v (expected — no onJob wired in test)", err)
+	}
+	if got := atomic.LoadInt32(&handlerCalls); got != 0 {
+		t.Errorf("handler fired %d times for a user-owned job; want 0", got)
+	}
+}
+
 func TestServiceRegisterBuiltinRejectsDuplicate(t *testing.T) {
 	db := testDB(t)
 	svc, _ := newServiceWithOrg(t, db)

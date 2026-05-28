@@ -262,6 +262,12 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 	if err := validateSchedule(sched); err != nil {
 		return Job{}, err
 	}
+	// Reject non-system jobs whose name collides with a registered builtin.
+	// Otherwise the user's prompt would be silently dropped at dispatch time
+	// — the handler-mode router keys on Name alone.
+	if ownerKind != JobOwnerSystem && s.nameIsReservedBuiltin(name) {
+		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", name)
+	}
 
 	if sessionMode == "" {
 		sessionMode = SessionReuse
@@ -739,8 +745,10 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 
 	var runErr error
 	switch {
-	case handler != nil:
-		// Handler-mode builtin: bypass the default agent dispatch.
+	case handler != nil && job.OwnerKind == JobOwnerSystem:
+		// Handler-mode builtin: bypass the default agent dispatch. Gated on
+		// system ownership so a user- or plugin-owned job that happens to
+		// share a name with a registered builtin cannot hijack the handler.
 		runErr = handler(ctx, job)
 	case job.OwnerKind == JobOwnerSystem && job.Message == "":
 		// Orphan: persisted system job with no message and no live handler

@@ -138,3 +138,23 @@ func (s *Service) ensureOneBuiltin(j BuiltinJob, orgID string) {
 		s.log.Warn("failed to ensure builtin job", "name", j.Name, "org_id", orgID, "error", err)
 	}
 }
+
+// nameIsReservedBuiltin reports whether name matches any registered builtin
+// (global or runtime). Used to reject user- or plugin-owned jobs that would
+// otherwise hijack a builtin's handler dispatch.
+func (s *Service) nameIsReservedBuiltin(name string) bool {
+	s.mu.Lock()
+	_, runtimeHit := s.runtimeBuiltins[name]
+	s.mu.Unlock()
+	if runtimeHit {
+		return true
+	}
+	builtinMu.Lock()
+	defer builtinMu.Unlock()
+	for _, j := range builtinJobs {
+		if j.Name == name {
+			return true
+		}
+	}
+	return false
+}
