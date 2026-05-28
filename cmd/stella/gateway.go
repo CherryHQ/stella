@@ -25,7 +25,6 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -251,10 +250,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			return fmt.Errorf("schedule tasks dispatcher tick: %w", err)
 		}
 		defer s.tasksSvc.Stop()
-	}
-
-	if err := s.pluginHost.ApplyPlugin(gctx, reflectplugin.PluginID); err != nil {
-		slog.Warn("reflect: deferred runtime start (no org context at boot)", "error", err)
 	}
 
 	waitErr := g.Wait()

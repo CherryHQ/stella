@@ -1,0 +1,48 @@
+package reflect
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/scheduler"
+)
+
+// BuiltinJobName is the scheduler builtin name reflect registers under.
+// Exported so gateway wiring and operational tooling refer to one source.
+const BuiltinJobName = "reflect-review"
+
+// NewBuiltinHandler returns a scheduler.OnJobFunc that runs one reflect
+// review cycle per fire, scoped to the job's OrgID. The supplied Config
+// holds the process-global deps; org context is the only thing that
+// varies per fire.
+//
+// Cycle-level failures (missing OrgID, store errors, ctx cancellation)
+// surface as errors so the scheduler marks the run errored. Per-agent
+// failures are still logged inside the service and do not fail the run.
+func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
+	if cfg.Memory == nil {
+		return nil, fmt.Errorf("reflect: Memory provider is required")
+	}
+	if cfg.Store == nil {
+		return nil, fmt.Errorf("reflect: Store is required")
+	}
+	if cfg.StateStore == nil {
+		return nil, fmt.Errorf("reflect: StateStore is required")
+	}
+	if cfg.Providers == nil {
+		return nil, fmt.Errorf("reflect: Providers builder is required")
+	}
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
+	return func(ctx context.Context, job scheduler.Job) error {
+		if job.OrgID == "" {
+			return fmt.Errorf("reflect: scheduler job %q has no OrgID", job.Name)
+		}
+		perFire := cfg
+		perFire.Log = cfg.Log.With("org_id", job.OrgID)
+		return New(perFire).RunOnce(config.WithOrgID(ctx, job.OrgID))
+	}, nil
+}

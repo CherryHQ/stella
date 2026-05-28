@@ -10,7 +10,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	memorylcm "github.com/CherryHQ/stella/internal/memory/lcm"
-	memorysimple "github.com/CherryHQ/stella/internal/memory/simple"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -66,21 +65,13 @@ func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.Provi
 	}
 }
 
-func setupMemoryProvider(ctx context.Context, db *sql.DB, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
+func setupMemoryProvider(_ context.Context, db *sql.DB, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
 	summarizer := buildMemorySummarizer(store, providerStreamBuilder)
-
-	name := "lcm"
-	cfg := map[string]any{}
-	if plugins, err := store.ListPluginsByKind(ctx, config.PluginKindMemory); err == nil {
-		for _, plugin := range plugins {
-			if plugin.Enabled {
-				name = plugin.Name
-				cfg = plugin.Config
-				break
-			}
-		}
+	mem, err := memorylcm.New(db, summarizer, nil)
+	if err != nil {
+		return nil, fmt.Errorf("init lcm memory: %w", err)
 	}
-	return buildMemory(name, db, cfg, summarizer)
+	return mem, nil
 }
 
 func wrapMemoryWithTracing(mem memory.Provider, poolMgr **agent.PoolManager) memory.Provider {
@@ -90,15 +81,4 @@ func wrapMemoryWithTracing(mem memory.Provider, poolMgr **agent.PoolManager) mem
 		}
 		return hooks.NewHookSet((*poolMgr).HookPlugins())
 	})
-}
-
-func buildMemory(name string, db *sql.DB, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
-	switch name {
-	case "lcm":
-		return memorylcm.New(db, summarizerFn, cfg)
-	case "simple":
-		return memorysimple.New(db), nil
-	default:
-		return nil, fmt.Errorf("unknown memory provider: %q", name)
-	}
 }

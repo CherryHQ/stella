@@ -25,7 +25,6 @@ func (p *skillStorePlatform) Notifier() pkgplugins.Notifier               { retu
 func (p *skillStorePlatform) Auth() pkgplugins.Auth                       { return nil }
 func (p *skillStorePlatform) RuntimeLookup() pkgplugins.RuntimeLookup     { return nil }
 func (p *skillStorePlatform) ChannelPlatform() pkgplugins.ChannelPlatform { return nil }
-func (p *skillStorePlatform) ReflectPlatform() pkgplugins.ReflectPlatform { return nil }
 func (p *skillStorePlatform) SkillStore() pkgplugins.SkillStore           { return p.store }
 
 func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {

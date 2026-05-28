@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/orgruntime"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tasks"
@@ -134,6 +135,11 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, spec := range []scheduler.BuiltinJob{scheduler.RecallyDigestBuiltin, scheduler.RecallyRSSBuiltin} {
+		if err := schedulerSvc.RegisterBuiltin(spec); err != nil {
+			return nil, fmt.Errorf("register builtin %q: %w", spec.Name, err)
+		}
+	}
 
 	providerStreamBuilder := func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 		return phost.BuildStreamFunc(api, map[string]any{
@@ -161,7 +167,18 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
-	ps.reflectRuntimeServices.Set(parent, memProvider, store, config.StellaHome(), providerStreamBuilder)
+	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
+	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
+		Memory:     memProvider,
+		Store:      store,
+		SkillStore: skillStoreAdapter,
+		Notifier:   dispatcher,
+		StateStore: pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
+		Workspace:  config.StellaHome(),
+		Providers:  providerStreamBuilder,
+	}); err != nil {
+		return nil, err
+	}
 
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
 		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
@@ -185,7 +202,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		DB: db,
 	})
 
-	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithBuiltinTools(builtinTools),
