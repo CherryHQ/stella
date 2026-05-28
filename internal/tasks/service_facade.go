@@ -85,51 +85,58 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 		// reads naturally but the legacy default is preserved.
 		required = 1
 	}
-	task, err := f.q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
-		ID:          id,
-		OrgID:       in.OrgID,
-		UserID:      in.UserID,
-		AgentID:     nullable(in.AgentID),
-		Title:       in.Title,
-		Description: in.Description,
-		Status:      StatusDraft,
-		Priority:    priority,
-		Required:    required,
-		RetryCount:  0,
-		MaxRetries:  in.MaxRetries,
-		NotBefore:   timeOrNull(in.NotBefore),
-		DeadlineAt:  timeOrNull(in.DeadlineAt),
-		Context:     in.Context,
-		Output:      "{}",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+
+	var task sqlc.AgentTask
+	err := f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+		var err error
+		task, err = q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
+			ID:          id,
+			OrgID:       in.OrgID,
+			UserID:      in.UserID,
+			AgentID:     nullable(in.AgentID),
+			Title:       in.Title,
+			Description: in.Description,
+			Status:      StatusDraft,
+			Priority:    priority,
+			Required:    required,
+			RetryCount:  0,
+			MaxRetries:  in.MaxRetries,
+			NotBefore:   timeOrNull(in.NotBefore),
+			DeadlineAt:  timeOrNull(in.DeadlineAt),
+			Context:     in.Context,
+			Output:      "{}",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		})
+		if err != nil {
+			return err
+		}
+		for _, d := range in.Deps {
+			if err := f.svc.AddDepInTx(ctx, q, id, d.DepTaskID, d.Kind, d.OnFailure); err != nil {
+				return fmt.Errorf("dep %s: %w", d.DepTaskID, err)
+			}
+		}
+		if in.ExecutorAgentID != "" {
+			if _, err := q.CreateAgentTaskDispatchHint(ctx, sqlc.CreateAgentTaskDispatchHintParams{
+				ID:              uuid.NewString(),
+				TaskID:          nullable(id),
+				Kind:            RunKindWorker,
+				ExecutorAgentID: in.ExecutorAgentID,
+				CreatedAt:       now,
+			}); err != nil {
+				return fmt.Errorf("dispatch hint: %w", err)
+			}
+		}
+		if in.ActivateOnCreate {
+			if err := f.svc.ActivateInTx(ctx, q, id, Actor{Type: ActorUser, ID: in.UserID}); err != nil {
+				return fmt.Errorf("activate: %w", err)
+			}
+			task.Status = StatusReady
+		}
+		return nil
 	})
 	if err != nil {
 		return sqlc.AgentTask{}, fmt.Errorf("CreateTask: %w", err)
-	}
-	// Add deps (cycle-checked).
-	for _, d := range in.Deps {
-		if err := f.svc.AddDep(ctx, id, d.DepTaskID, d.Kind, d.OnFailure); err != nil {
-			return sqlc.AgentTask{}, fmt.Errorf("CreateTask: dep %s: %w", d.DepTaskID, err)
-		}
-	}
-	// Write the dispatch hint if requested.
-	if in.ExecutorAgentID != "" {
-		if _, err := f.q.CreateAgentTaskDispatchHint(ctx, sqlc.CreateAgentTaskDispatchHintParams{
-			ID:              uuid.NewString(),
-			TaskID:          nullable(id),
-			Kind:            RunKindWorker,
-			ExecutorAgentID: in.ExecutorAgentID,
-			CreatedAt:       now,
-		}); err != nil {
-			return sqlc.AgentTask{}, fmt.Errorf("CreateTask: dispatch hint: %w", err)
-		}
-	}
-	if in.ActivateOnCreate {
-		if err := f.svc.Activate(ctx, id, Actor{Type: ActorUser, ID: in.UserID}); err != nil {
-			return sqlc.AgentTask{}, fmt.Errorf("CreateTask: activate: %w", err)
-		}
-		task.Status = StatusReady
 	}
 	return task, nil
 }

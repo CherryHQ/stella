@@ -122,27 +122,32 @@ func expect(ctx context.Context, q *sqlc.Queries, taskID string, from ...string)
 // Activate moves StatusDraft → StatusReady.
 func (s *TransitionService) Activate(ctx context.Context, taskID string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		if _, err := expect(ctx, q, taskID, StatusDraft); err != nil {
-			return err
-		}
-		now := s.now()
-		n, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
-			Status: StatusReady, UpdatedAt: now, ID: taskID, Status_2: StatusDraft,
-		})
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrInvalidTransition
-		}
-		return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID:     nullable(taskID),
-			EventType:  "activate",
-			FromStatus: nullable(StatusDraft),
-			ToStatus:   nullable(StatusReady),
-			ActorType:  actor.Type,
-			ActorID:    nullable(actor.ID),
-		})
+		return s.activateInTx(ctx, q, taskID, actor)
+	})
+}
+
+// activateInTx runs Activate's body against an existing tx-scoped Queries.
+func (s *TransitionService) activateInTx(ctx context.Context, q *sqlc.Queries, taskID string, actor Actor) error {
+	if _, err := expect(ctx, q, taskID, StatusDraft); err != nil {
+		return err
+	}
+	now := s.now()
+	n, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
+		Status: StatusReady, UpdatedAt: now, ID: taskID, Status_2: StatusDraft,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrInvalidTransition
+	}
+	return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+		TaskID:     nullable(taskID),
+		EventType:  "activate",
+		FromStatus: nullable(StatusDraft),
+		ToStatus:   nullable(StatusReady),
+		ActorType:  actor.Type,
+		ActorID:    nullable(actor.ID),
 	})
 }
 
@@ -693,6 +698,13 @@ func (s *TransitionService) Cancel(ctx context.Context, taskID, reason string, a
 // AddDep inserts a dep edge after a DFS cycle check. depKind and onFailure
 // default to "hard" / "block" when blank.
 func (s *TransitionService) AddDep(ctx context.Context, taskID, depTaskID, depKind, onFailure string) error {
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		return s.addDepInTx(ctx, q, taskID, depTaskID, depKind, onFailure)
+	})
+}
+
+// addDepInTx runs AddDep's body against an existing tx-scoped Queries.
+func (s *TransitionService) addDepInTx(ctx context.Context, q *sqlc.Queries, taskID, depTaskID, depKind, onFailure string) error {
 	if taskID == "" || depTaskID == "" {
 		return fmt.Errorf("AddDep: task and dep ids required")
 	}
@@ -705,23 +717,36 @@ func (s *TransitionService) AddDep(ctx context.Context, taskID, depTaskID, depKi
 	if onFailure == "" {
 		onFailure = OnFailureBlock
 	}
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		// Cycle check: walk forward from depTaskID; if we reach taskID, a
-		// cycle would form.
-		if reaches, err := reachable(ctx, q, depTaskID, taskID); err != nil {
-			return err
-		} else if reaches {
-			return ErrCycle
-		}
-		_, err := q.CreateAgentTaskDep(ctx, sqlc.CreateAgentTaskDepParams{
-			TaskID:    taskID,
-			DepTaskID: depTaskID,
-			DepKind:   depKind,
-			OnFailure: onFailure,
-			CreatedAt: s.now(),
-		})
+	if reaches, err := reachable(ctx, q, depTaskID, taskID); err != nil {
 		return err
+	} else if reaches {
+		return ErrCycle
+	}
+	_, err := q.CreateAgentTaskDep(ctx, sqlc.CreateAgentTaskDepParams{
+		TaskID:    taskID,
+		DepTaskID: depTaskID,
+		DepKind:   depKind,
+		OnFailure: onFailure,
+		CreatedAt: s.now(),
 	})
+	return err
+}
+
+// WithTx exposes the transition service's transaction helper so higher-level
+// composers (e.g. ServiceFacade.CreateTask) can group several mutations into
+// one atomic unit while still routing status writes through tx-aware helpers.
+func (s *TransitionService) WithTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
+	return s.withTx(ctx, fn)
+}
+
+// AddDepInTx is the exported form of addDepInTx for use inside WithTx.
+func (s *TransitionService) AddDepInTx(ctx context.Context, q *sqlc.Queries, taskID, depTaskID, depKind, onFailure string) error {
+	return s.addDepInTx(ctx, q, taskID, depTaskID, depKind, onFailure)
+}
+
+// ActivateInTx is the exported form of activateInTx for use inside WithTx.
+func (s *TransitionService) ActivateInTx(ctx context.Context, q *sqlc.Queries, taskID string, actor Actor) error {
+	return s.activateInTx(ctx, q, taskID, actor)
 }
 
 // reachable reports whether `from` can reach `target` by following dep edges
