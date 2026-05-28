@@ -213,7 +213,6 @@ const en = {
   "plugins.tab.tools": "Tools",
   "plugins.tab.channels": "Channels",
   "plugins.tab.hooks": "Hooks",
-  "plugins.tab.memory": "Memory",
   "plugins.tab.sandbox": "Sandbox",
   "plugins.tab.others": "Others",
 
@@ -765,7 +764,6 @@ const zh: Record<MessageKey, string> = {
   "plugins.tab.tools": "工具",
   "plugins.tab.channels": "频道",
   "plugins.tab.hooks": "钩子",
-  "plugins.tab.memory": "内存",
   "plugins.tab.sandbox": "沙盒",
   "plugins.tab.others": "其他",
 

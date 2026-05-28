@@ -1,9 +1,10 @@
 package scheduler
 
-func init() {
-	RegisterBuiltin(BuiltinJob{
-		Name: "recally-digest",
-		Message: `Load the recally skill. Then generate and send a daily reading digest:
+// RecallyDigestBuiltin is the spec for the daily recally reading digest
+// builtin job. Registered from gateway wiring via (*Service).RegisterBuiltin.
+var RecallyDigestBuiltin = BuiltinJob{
+	Name: "recally-digest",
+	Message: `Load the recally skill. Then generate and send a daily reading digest:
 1. Run "stella recally digest" to get today's digest data.
 2. If saved_yesterday_count is 0 AND worth_revisiting_count is 0, stop — do NOT notify and do NOT save.
 3. Check the user's language preference in memory. If no language preference is found, write the digest in English.
@@ -15,8 +16,7 @@ func init() {
    Keep the tone warm, curious, and concise — aim for 150–300 words total. No bullet points, no emoji, no section headers.
 5. Call notify once with a short 1-sentence preview of the narrative (the opening sentence).
 6. Save the full narrative through a private temporary file: tmpfile="$(mktemp -t stella_digest.XXXXXX)"; chmod 600 "$tmpfile"; write the narrative to "$tmpfile"; run stella recally digest-save --narrative "$(cat "$tmpfile")"; then rm -f "$tmpfile".`,
-		Schedule:    Schedule{Every: "24h"},
-		SessionMode: SessionNew,
-		ExecScope:   ExecScopeAllUsers,
-	})
+	Schedule:    Schedule{Every: "24h"},
+	SessionMode: SessionNew,
+	ExecScope:   ExecScopeAllUsers,
 }
