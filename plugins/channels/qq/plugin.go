@@ -12,7 +12,8 @@ const (
 	RuntimeName = "bot"
 )
 
-var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
+var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+	platform := rc.Platform
 	channelRuntime := platform.ChannelPlatform()
 	if channelRuntime == nil {
 		return nil, fmt.Errorf("qq: channel runtime services unavailable")
@@ -25,6 +26,7 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 	if handler == nil {
 		return nil, fmt.Errorf("qq: missing channel handler")
 	}
+	handler = pkgchannel.HandlerWithOrgID(rc.OrgID, handler)
 	return NewQQManagedRuntime(QQRuntimeDeps{
 		Parent:        parent,
 		Handler:       handler,
