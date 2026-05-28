@@ -91,91 +91,38 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	if in.Optional {
 		required = 0
 	}
-	var out sqlc.AgentTask
-	err := f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
-		// H2: both agent fields must belong to the task's org. GetAgent's
-		// WHERE clause is `id = ? AND org_id = ?`, so a wrong-org id surfaces
-		// as ErrNoRows.
-		if in.AgentID != "" {
-			if _, err := q.GetAgent(ctx, sqlc.GetAgentParams{ID: in.AgentID, OrgID: in.OrgID}); err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					return fmt.Errorf("CreateTask: agent_id: %w", ErrCrossOrg)
-				}
-				return fmt.Errorf("CreateTask: lookup agent: %w", err)
-			}
+	deps := make([]CreateTaskAtomicDep, 0, len(in.Deps))
+	for _, d := range in.Deps {
+		kind := d.Kind
+		if kind == "" {
+			kind = DepKindHard
 		}
-		if in.ExecutorAgentID != "" {
-			if _, err := q.GetAgent(ctx, sqlc.GetAgentParams{ID: in.ExecutorAgentID, OrgID: in.OrgID}); err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					return fmt.Errorf("CreateTask: executor_agent_id: %w", ErrCrossOrg)
-				}
-				return fmt.Errorf("CreateTask: lookup executor agent: %w", err)
-			}
+		of := d.OnFailure
+		if of == "" {
+			of = OnFailureBlock
 		}
-		task, err := q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
-			ID:          id,
-			OrgID:       in.OrgID,
-			UserID:      in.UserID,
-			AgentID:     nullable(in.AgentID),
-			Title:       in.Title,
-			Description: in.Description,
-			Status:      StatusDraft,
-			Priority:    priority,
-			Required:    required,
-			RetryCount:  0,
-			MaxRetries:  in.MaxRetries,
-			NotBefore:   timeOrNull(in.NotBefore),
-			DeadlineAt:  timeOrNull(in.DeadlineAt),
-			Context:     in.Context,
-			Output:      "{}",
-			CreatedAt:   now,
-			UpdatedAt:   now,
+		deps = append(deps, CreateTaskAtomicDep{
+			DepTaskID: d.DepTaskID, Kind: kind, OnFailure: of,
 		})
-		if err != nil {
-			return fmt.Errorf("CreateTask: %w", err)
-		}
-		// Deps inside the same tx via the addDepTx helper (cross-org + cycle
-		// checks included).
-		for _, d := range in.Deps {
-			kind := d.Kind
-			if kind == "" {
-				kind = DepKindHard
-			}
-			of := d.OnFailure
-			if of == "" {
-				of = OnFailureBlock
-			}
-			if id == d.DepTaskID {
-				return ErrCycle
-			}
-			if err := f.svc.addDepTx(ctx, q, id, d.DepTaskID, kind, of); err != nil {
-				return fmt.Errorf("CreateTask: dep %s: %w", d.DepTaskID, err)
-			}
-		}
-		if in.ExecutorAgentID != "" {
-			if _, err := q.CreateAgentTaskDispatchHint(ctx, sqlc.CreateAgentTaskDispatchHintParams{
-				ID:              uuid.NewString(),
-				TaskID:          id,
-				Kind:            RunKindWorker,
-				ExecutorAgentID: in.ExecutorAgentID,
-				CreatedAt:       now,
-			}); err != nil {
-				return fmt.Errorf("CreateTask: dispatch hint: %w", err)
-			}
-		}
-		if in.ActivateOnCreate {
-			if err := f.svc.activateTx(ctx, q, id, Actor{Type: ActorUser, ID: in.UserID}); err != nil {
-				return fmt.Errorf("CreateTask: activate: %w", err)
-			}
-			task.Status = StatusReady
-		}
-		out = task
-		return nil
-	})
-	if err != nil {
-		return sqlc.AgentTask{}, err
 	}
-	return out, nil
+	return f.svc.CreateTaskAtomic(ctx, CreateTaskAtomicParams{
+		ID:               id,
+		OrgID:            in.OrgID,
+		UserID:           in.UserID,
+		AgentID:          in.AgentID,
+		ExecutorAgentID:  in.ExecutorAgentID,
+		Title:            in.Title,
+		Description:      in.Description,
+		Priority:         priority,
+		Required:         required,
+		MaxRetries:       in.MaxRetries,
+		NotBefore:        timeOrNull(in.NotBefore),
+		DeadlineAt:       timeOrNull(in.DeadlineAt),
+		Context:          in.Context,
+		Now:              now,
+		Deps:             deps,
+		ActivateOnCreate: in.ActivateOnCreate,
+	})
 }
 
 // GetTask returns a task by id within an org.

@@ -182,8 +182,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	// wiring is omitted from BootConfig deliberately — adding it before the
 	// adapter exists would silently drop the caller-supplied closure.
 	tasksSvc := tasks.New(tasks.BootConfig{
-		DB:     db,
-		Memory: memProvider,
+		DB: db,
 	})
 
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)

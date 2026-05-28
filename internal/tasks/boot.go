@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -46,14 +45,14 @@ func (s *Service) Stop() { s.dispatcher.Stop() }
 
 // BootConfig is the minimal wiring needed at server start.
 //
-// Pools is intentionally absent: until the agent.Pool → RunnerFunc adapter
-// exists (Phase 6 follow-up) the dispatcher uses a noop runner that fails
-// with a clear "not wired" message. Adding the field before the adapter
-// would silently drop caller-supplied wiring — a real bug surfaced by the
-// PR-1 review.
+// Pools and Memory are deliberately absent: until the agent.Pool → RunnerFunc
+// adapter exists (Phase 6 follow-up) the dispatcher uses a noop runner that
+// fails with a clear "not wired" message and the session minter just produces
+// a UUID. Adding either field before the adapter is wired would silently drop
+// caller-supplied dependencies — the exact bug pattern the PR-1 review
+// surfaced. Re-introduce them as part of the adapter PR.
 type BootConfig struct {
-	DB     *sql.DB
-	Memory memory.Provider // used to mint sessions
+	DB *sql.DB
 	// MaxPerOrg, TickEvery, LeaseTTL override defaults; zero values use the
 	// dispatcher's defaults.
 	MaxPerOrg int
@@ -84,8 +83,8 @@ func New(cfg BootConfig) *Service {
 		Service:    svc,
 		Queries:    q,
 		Runner:     noopRunner(logger),
-		Resolver:   sessionAndCreatorResolver(q, cfg.Memory, logger),
-		NewSession: sessionMinterFor(cfg.Memory, logger),
+		Resolver:   sessionAndCreatorResolver(logger),
+		NewSession: sessionMinterFor(logger),
 		MaxPerOrg:  cfg.MaxPerOrg,
 		TickEvery:  cfg.TickEvery,
 		LeaseTTL:   cfg.LeaseTTL,
@@ -120,7 +119,7 @@ func noopRunner(log *slog.Logger) RunnerFunc {
 //  2. session-derived agent: if task.session_id is set, load the session and
 //     return its owning agent_id.
 //  3. creator fallback: task.agent_id.
-func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, log *slog.Logger) ExecutorResolver {
+func sessionAndCreatorResolver(log *slog.Logger) ExecutorResolver {
 	return func(_ context.Context, task sqlc.AgentTask) (string, bool) {
 		// Session-derived resolution is wired alongside the real runner; for
 		// the noop boot we just use the creator fallback. The dispatcher
@@ -137,7 +136,7 @@ func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, log *slog.Log
 // Slice 1 boot we just supply a unique identifier so the run row's
 // session_id has a value. The agent adapter (Phase 6 follow-up) replaces
 // this with one that hooks into memory.Provider's session creation.
-func sessionMinterFor(_ memory.Provider, _ *slog.Logger) SessionMinter {
+func sessionMinterFor(_ *slog.Logger) SessionMinter {
 	return func(_ context.Context, task sqlc.AgentTask) (string, error) {
 		if task.UserID == "" {
 			return "", fmt.Errorf("task has no user_id; cannot mint session")

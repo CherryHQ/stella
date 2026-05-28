@@ -35,7 +35,7 @@ type TransitionService struct {
 
 // NewTransitionService constructs a transition service from a *sql.DB and a
 // pre-built *sqlc.Queries. The Queries is used only for non-transactional
-// reads; mutating methods open their own txns and call WithTx.
+// reads; mutating methods open their own txns via withTx.
 func NewTransitionService(db *sql.DB, q *sqlc.Queries) *TransitionService {
 	return &TransitionService{db: db, q: q, clock: time.Now}
 }
@@ -52,14 +52,6 @@ func nullable(v string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: v, Valid: true}
-}
-
-// WithTx runs fn inside a transaction using the transition service's *sql.DB
-// and *sqlc.Queries. Exposed so the facade can do multi-step composite
-// operations (e.g. CreateTask's task+deps+hint+activate sequence) inside a
-// single tx without bypassing the transition service.
-func (s *TransitionService) WithTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
-	return s.withTx(ctx, fn)
 }
 
 // withTx runs fn inside a transaction. On error it rolls back; on success it
@@ -166,6 +158,117 @@ func (s *TransitionService) activateTx(ctx context.Context, q *sqlc.Queries, tas
 		ActorType:  actor.Type,
 		ActorID:    nullable(actor.ID),
 	})
+}
+
+// CreateTaskAtomicParams carries the fully-validated inputs to
+// CreateTaskAtomic. The facade is responsible for defaulting, normalising,
+// and minting the ID + timestamp; this method is the boundary that owns
+// "draft row + cross-org agent checks + deps + dispatch hint + optional
+// activate" as one transaction. Exposing only this verb keeps callers from
+// reaching the raw *sqlc.Queries through a generic WithTx (D14).
+type CreateTaskAtomicParams struct {
+	ID               string
+	OrgID            string
+	UserID           string
+	AgentID          string
+	ExecutorAgentID  string
+	Title            string
+	Description      string
+	Priority         string
+	Required         int64
+	MaxRetries       int64
+	NotBefore        sql.NullString
+	DeadlineAt       sql.NullString
+	Context          string
+	Now              string
+	Deps             []CreateTaskAtomicDep
+	ActivateOnCreate bool
+}
+
+// CreateTaskAtomicDep mirrors a single dep edge to insert with the task.
+type CreateTaskAtomicDep struct {
+	DepTaskID string
+	Kind      string
+	OnFailure string
+}
+
+// CreateTaskAtomic creates the task row, validates that AgentID /
+// ExecutorAgentID belong to OrgID (H2), inserts dep edges with cycle checks
+// (H1), writes a dispatch hint if ExecutorAgentID is set, and optionally
+// promotes draft → ready — all in one transaction.
+func (s *TransitionService) CreateTaskAtomic(ctx context.Context, p CreateTaskAtomicParams) (sqlc.AgentTask, error) {
+	var out sqlc.AgentTask
+	err := s.withTx(ctx, func(q *sqlc.Queries) error {
+		if p.AgentID != "" {
+			if _, err := q.GetAgent(ctx, sqlc.GetAgentParams{ID: p.AgentID, OrgID: p.OrgID}); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("CreateTask: agent_id: %w", ErrCrossOrg)
+				}
+				return fmt.Errorf("CreateTask: lookup agent: %w", err)
+			}
+		}
+		if p.ExecutorAgentID != "" {
+			if _, err := q.GetAgent(ctx, sqlc.GetAgentParams{ID: p.ExecutorAgentID, OrgID: p.OrgID}); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("CreateTask: executor_agent_id: %w", ErrCrossOrg)
+				}
+				return fmt.Errorf("CreateTask: lookup executor agent: %w", err)
+			}
+		}
+		task, err := q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
+			ID:          p.ID,
+			OrgID:       p.OrgID,
+			UserID:      p.UserID,
+			AgentID:     nullable(p.AgentID),
+			Title:       p.Title,
+			Description: p.Description,
+			Status:      StatusDraft,
+			Priority:    p.Priority,
+			Required:    p.Required,
+			RetryCount:  0,
+			MaxRetries:  p.MaxRetries,
+			NotBefore:   p.NotBefore,
+			DeadlineAt:  p.DeadlineAt,
+			Context:     p.Context,
+			Output:      "{}",
+			CreatedAt:   p.Now,
+			UpdatedAt:   p.Now,
+		})
+		if err != nil {
+			return fmt.Errorf("CreateTask: %w", err)
+		}
+		for _, d := range p.Deps {
+			if p.ID == d.DepTaskID {
+				return ErrCycle
+			}
+			if err := s.addDepTx(ctx, q, p.ID, d.DepTaskID, d.Kind, d.OnFailure); err != nil {
+				return fmt.Errorf("CreateTask: dep %s: %w", d.DepTaskID, err)
+			}
+		}
+		if p.ExecutorAgentID != "" {
+			if _, err := q.CreateAgentTaskDispatchHint(ctx, sqlc.CreateAgentTaskDispatchHintParams{
+				ID:              uuid.NewString(),
+				TaskID:          p.ID,
+				Kind:            RunKindWorker,
+				ExecutorAgentID: p.ExecutorAgentID,
+				CreatedAt:       p.Now,
+			}); err != nil {
+				return fmt.Errorf("CreateTask: dispatch hint: %w", err)
+			}
+		}
+		if p.ActivateOnCreate {
+			if err := s.activateTx(ctx, q, p.ID, Actor{Type: ActorUser, ID: p.UserID}); err != nil {
+				return fmt.Errorf("CreateTask: activate: %w", err)
+			}
+			task.Status = StatusReady
+		}
+		out = task
+		return nil
+	})
+	if err != nil {
+		return sqlc.AgentTask{}, err
+	}
+	return out, nil
 }
 
 // ClaimResult describes the run that was minted by Claim. SessionID is the
@@ -309,7 +412,15 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 		if err != nil {
 			return err
 		}
-		_ = task
+		// Stale-worker guard: the task must still be pointing at this run.
+		// After lease expiry the sweep can interrupt R1, return the task to
+		// ready, and the dispatcher claims R2. A late Submit from R1's
+		// worker would otherwise pass the StatusRunning check (R2 is
+		// running) and overwrite R2's output. Reject when the pointer has
+		// moved.
+		if runID != "" && (!task.ActiveRunID.Valid || task.ActiveRunID.String != runID) {
+			return ErrInvalidTransition
+		}
 		now := s.now()
 		n, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
 			Status: StatusDone, UpdatedAt: now, ID: taskID, Status_2: StatusRunning,
@@ -409,6 +520,13 @@ func (s *TransitionService) Block(ctx context.Context, p BlockParams) error {
 		case StatusReady, StatusRunning:
 			// ok
 		default:
+			return ErrInvalidTransition
+		}
+		// Stale-worker guard: if the caller is a worker (p.RunID set), the
+		// task's active run must still be theirs. Prevents a lease-expired
+		// worker from blocking a task that the dispatcher has re-claimed
+		// under a new run.
+		if p.RunID != "" && (!task.ActiveRunID.Valid || task.ActiveRunID.String != p.RunID) {
 			return ErrInvalidTransition
 		}
 
@@ -710,6 +828,13 @@ func (s *TransitionService) failTx(ctx context.Context, p FailParams, runStatus,
 			return err
 		}
 		if task.Status != StatusRunning && task.Status != StatusReady {
+			return ErrInvalidTransition
+		}
+		// Stale-worker / stale-sweep guard: the task must still be pointing
+		// at p.RunID. Without this a worker whose lease expired could call
+		// Fail and demote a freshly-claimed run, and the sweep could
+		// finalise a run that Submit already cleared.
+		if p.RunID != "" && (!task.ActiveRunID.Valid || task.ActiveRunID.String != p.RunID) {
 			return ErrInvalidTransition
 		}
 		now := s.now()
