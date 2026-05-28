@@ -13,17 +13,18 @@ import (
 const createAgentTaskRun = `-- name: CreateAgentTaskRun :one
 
 INSERT INTO agent_task_run (
-    id, task_id, org_id, user_id, agent_id, executor_agent_id,
+    id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id,
     kind, attempt_no, status, session_id, input, lease_expires_at, worker_id,
     started_at, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at
 `
 
 type CreateAgentTaskRunParams struct {
 	ID              string         `json:"id"`
 	TaskID          sql.NullString `json:"task_id"`
+	GoalID          sql.NullString `json:"goal_id"`
 	OrgID           string         `json:"org_id"`
 	UserID          string         `json:"user_id"`
 	AgentID         sql.NullString `json:"agent_id"`
@@ -45,6 +46,7 @@ func (q *Queries) CreateAgentTaskRun(ctx context.Context, arg CreateAgentTaskRun
 	row := q.db.QueryRowContext(ctx, createAgentTaskRun,
 		arg.ID,
 		arg.TaskID,
+		arg.GoalID,
 		arg.OrgID,
 		arg.UserID,
 		arg.AgentID,
@@ -171,6 +173,47 @@ func (q *Queries) HeartbeatAgentTaskRun(ctx context.Context, arg HeartbeatAgentT
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const latestAgentTaskRunForGoal = `-- name: LatestAgentTaskRunForGoal :one
+SELECT id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
+WHERE goal_id = ? AND kind = ?
+ORDER BY attempt_no DESC
+LIMIT 1
+`
+
+type LatestAgentTaskRunForGoalParams struct {
+	GoalID sql.NullString `json:"goal_id"`
+	Kind   string         `json:"kind"`
+}
+
+func (q *Queries) LatestAgentTaskRunForGoal(ctx context.Context, arg LatestAgentTaskRunForGoalParams) (AgentTaskRun, error) {
+	row := q.db.QueryRowContext(ctx, latestAgentTaskRunForGoal, arg.GoalID, arg.Kind)
+	var i AgentTaskRun
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.GoalID,
+		&i.OrgID,
+		&i.UserID,
+		&i.AgentID,
+		&i.ExecutorAgentID,
+		&i.Kind,
+		&i.AttemptNo,
+		&i.Status,
+		&i.SessionID,
+		&i.Input,
+		&i.Result,
+		&i.Error,
+		&i.HeartbeatAt,
+		&i.LeaseExpiresAt,
+		&i.WorkerID,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const latestAgentTaskRunForTask = `-- name: LatestAgentTaskRunForTask :one
@@ -319,6 +362,24 @@ func (q *Queries) ListStaleAgentTaskRuns(ctx context.Context, arg ListStaleAgent
 		return nil, err
 	}
 	return items, nil
+}
+
+const nextAttemptNoForGoal = `-- name: NextAttemptNoForGoal :one
+SELECT COALESCE(MAX(attempt_no), 0) + 1 AS next_attempt
+FROM agent_task_run
+WHERE goal_id = ? AND kind = ?
+`
+
+type NextAttemptNoForGoalParams struct {
+	GoalID sql.NullString `json:"goal_id"`
+	Kind   string         `json:"kind"`
+}
+
+func (q *Queries) NextAttemptNoForGoal(ctx context.Context, arg NextAttemptNoForGoalParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextAttemptNoForGoal, arg.GoalID, arg.Kind)
+	var next_attempt int64
+	err := row.Scan(&next_attempt)
+	return next_attempt, err
 }
 
 const nextAttemptNoForTask = `-- name: NextAttemptNoForTask :one
