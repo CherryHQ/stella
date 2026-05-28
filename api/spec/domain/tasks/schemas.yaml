@@ -1,24 +1,37 @@
 openapi: 3.0.3
 info:
-  title: Agent Tasks Components
-  version: "1"
+  title: Task System Components
+  version: "2"
 paths: {}
 components:
   schemas:
     AgentTask:
       type: object
-      required: [id, title, status, priority, created_at, updated_at]
+      required: [
+        id,
+        org_id,
+        user_id,
+        title,
+        status,
+        priority,
+        created_at,
+        updated_at,
+      ]
       properties:
         id: { type: string }
+        org_id: { type: string }
+        user_id: { type: string }
+        agent_id: { type: string }
         title: { type: string }
         description: { type: string }
         status:
           type: string
           enum: [
-            pending,
+            draft,
+            ready,
             running,
             blocked,
-            review_requested,
+            reviewing,
             done,
             failed,
             cancelled,
@@ -26,26 +39,24 @@ components:
         priority:
           type: string
           enum: [routine, urgent]
+        required_flag: { type: boolean }
+        retry_count: { type: integer }
+        max_retries: { type: integer }
+        not_before: { type: string, format: date-time }
+        deadline_at: { type: string, format: date-time }
         session_id: { type: string }
+        active_run_id: { type: string }
+        active_blocker_id: { type: string }
         context:
           type: object
-          additionalProperties: {}
-          description: "Task-level metadata checkpoint (phase, decisions, blockers)"
-        review_request:
-          $ref: "#/components/schemas/AgentTaskReviewRequest"
-        deps:
-          type: array
-          items: { type: string }
-          description: "IDs of tasks that must be done before this task can run"
-        notify_at: {
-          type: string,
-          format: date-time,
-          description: "When to next notify the user; null means no pending notification",
-        }
-        agent_id: { type: string }
-        user_id: { type: string }
+          additionalProperties: true
+        output:
+          type: object
+          additionalProperties: true
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        cancelled_at: { type: string, format: date-time }
 
     AgentTaskList:
       type: object
@@ -57,84 +68,63 @@ components:
 
     AgentTaskInput:
       type: object
-      required: [title, agent_id]
-      description: "Fields for creating an agent task"
+      required: [title]
       properties:
         title: { type: string }
         description: { type: string }
         priority:
           type: string
           enum: [routine, urgent]
-        agent_id: { type: string }
+        executor_agent_id: { type: string }
+        max_retries: { type: integer }
+        not_before: { type: string, format: date-time }
+        deadline_at: { type: string, format: date-time }
+        context:
+          type: object
+          additionalProperties: true
         deps:
           type: array
-          items: { type: string }
-          description: "IDs of tasks that must be done before this task can run"
+          items: { $ref: "#/components/schemas/AgentTaskDepInput" }
+        activate:
+          type: boolean
 
-    AgentTaskUpdate:
+    AgentTaskDepInput:
       type: object
-      description: "Fields for updating an agent task (all optional)"
+      required: [dep_task_id]
       properties:
-        title: { type: string }
-        description: { type: string }
-        priority:
+        dep_task_id: { type: string }
+        kind:
           type: string
-          enum: [routine, urgent]
-        agent_id: { type: string }
-
-    AgentTaskAction:
-      type: object
-      required: [type]
-      description: "An action taken on a task (approve/reject review, respond to block, cancel)"
-      properties:
-        type:
+          enum: [hard, soft]
+        on_failure:
           type: string
-          enum: [approve, reject, respond, cancel]
-        message: {
-          type: string,
-          description: "Optional message for respond/reject actions",
-        }
+          enum: [block, fail, ignore]
 
-    AgentTaskReviewRequest:
+    AgentTaskReadiness:
       type: object
-      description: "Structured review request set by the task agent"
+      required: [state, dispatchable]
       properties:
-        question: { type: string }
-        options:
-          type: array
-          items: { type: string }
-        recommendation: { type: string }
-        risk:
-          type: string
-          enum: [low, medium, high]
-        details: { type: string }
-
-    AgentTaskEvent:
-      type: object
-      required: [id, task_id, event_type, created_at]
-      properties:
-        id: { type: string }
-        task_id: { type: string }
-        event_type:
+        state:
           type: string
           enum: [
-            started,
-            progress,
+            dispatchable,
+            waiting_deps,
+            deferred,
+            throttled,
             blocked,
-            review_requested,
-            done,
-            failed,
-            cancelled,
+            running,
+            terminal,
+            draft,
           ]
-        detail:
-          type: object
-          additionalProperties: {}
-        created_at: { type: string, format: date-time }
-
-    AgentTaskEventList:
-      type: object
-      required: [items]
-      properties:
-        items:
+        dispatchable: { type: boolean }
+        reasons:
           type: array
-          items: { $ref: "#/components/schemas/AgentTaskEvent" }
+          items: { $ref: "#/components/schemas/AgentTaskReadinessReason" }
+
+    AgentTaskReadinessReason:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string }
+        upstream_id: { type: string }
+        detail: { type: string }

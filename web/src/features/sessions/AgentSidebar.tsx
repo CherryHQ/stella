@@ -7,10 +7,9 @@ import {
   createSession as sdkCreateSession,
   deleteProject as sdkDeleteProject,
   getSessionWorkspace,
-  listAgentTasks,
 } from "@/lib/api-client/sdk.gen";
 import { cn } from "@/lib/utils";
-import type { AgentTaskList, ComponentsSession } from "@/lib/api-client/types.gen";
+import type { ComponentsSession } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
@@ -446,18 +445,10 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const sessions = sessionsQuery.data?.pages.flat() ?? [];
 
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
-  const { data: taskList } = useQuery({
-    queryKey: ["tasks", agentId],
-    queryFn: async () => {
-      const { data } = await listAgentTasks({ path: { agentID: agentId }, throwOnError: true });
-      return data as AgentTaskList;
-    },
-  });
-  const taskAttentionCount =
-    taskList?.items?.filter(
-      (task) =>
-        task.status === "blocked" || task.status === "review_requested" || task.status === "failed",
-    ).length ?? 0;
+  // PR 3 task system v2 migration: the v1 listAgentTasks endpoint is gone.
+  // The sidebar's task-attention badge will be reattached when the v2 list
+  // endpoint surfaces blocked/reviewing/failed counts via /api/tasks.
+  const taskAttentionCount = 0;
 
   // ── active route detection ───────────────────────────────────────────────
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");

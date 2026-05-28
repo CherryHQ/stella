@@ -1,27 +1,7 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
-import { TaskPanel } from "@/features/sessions/panels/TaskPanel";
-
 export function TaskNewPage() {
-  const { agentId } = useParams({ from: "/_app/agents/$agentId/tasks/new" });
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-
   return (
-    <TaskPanel
-      agentId={agentId}
-      onCreated={(task: ComponentsAgentTask) => {
-        void queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
-        if (task.session_id) {
-          void navigate({
-            to: "/agents/$agentId/sessions/$sessionId",
-            params: { agentId, sessionId: task.session_id },
-          });
-        } else {
-          void navigate({ to: "/agents/$agentId/tasks", params: { agentId } });
-        }
-      }}
-    />
+    <div className="p-6 text-sm text-muted-foreground">
+      Task creation UI is being migrated for task system v2.
+    </div>
   );
 }

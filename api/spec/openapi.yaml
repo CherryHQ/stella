@@ -259,14 +259,14 @@ paths:
   /api/agents/{agentID}/scheduler/jobs/{jobID}/runs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentID}~1scheduler~1jobs~1{jobID}~1runs"
   # ── Tasks ──────────────────────────────────────────────────────────────────
-  /api/agents/{agentID}/tasks:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks"
-  /api/agents/{agentID}/tasks/{taskID}:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}"
-  /api/agents/{agentID}/tasks/{taskID}/action:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1action"
-  /api/agents/{agentID}/tasks/{taskID}/events:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1events"
+  /api/tasks:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
+  /api/tasks/{taskID}:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}"
+  /api/tasks/{taskID}/cancel:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1cancel"
+  /api/tasks/{taskID}/readiness:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1readiness"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
@@ -535,18 +535,12 @@ components:
     AgentTaskInput: {
       $ref: "./components.yaml#/components/schemas/AgentTaskInput",
     }
-    AgentTaskUpdate: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskUpdate",
+    AgentTaskDepInput: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskDepInput",
     }
-    AgentTaskAction: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskAction",
+    AgentTaskReadiness: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskReadiness",
     }
-    AgentTaskReviewRequest: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskReviewRequest",
-    }
-    AgentTaskEvent: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskEvent",
-    }
-    AgentTaskEventList: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskEventList",
+    AgentTaskReadinessReason: {
+      $ref: "./components.yaml#/components/schemas/AgentTaskReadinessReason",
     }

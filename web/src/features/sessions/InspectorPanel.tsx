@@ -7,7 +7,6 @@ import {
   getSessionMessages,
   getSessionSystemPrompt,
   listAgentSkills,
-  listAgentTasks,
   listTools,
 } from "@/lib/api-client";
 import {
@@ -738,44 +737,15 @@ function ContextEmpty({ children }: { children: React.ReactNode }) {
 }
 
 function useWorkData(agentID: string) {
-  const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(true);
+  // PR 3 task system v2 migration: the v1 listAgentTasks endpoint is gone.
+  // Tasks rejoin the inspector once the v2 /api/tasks list endpoint is wired
+  // through this view. Scheduler jobs continue to work.
   const { data: jobs = [], isLoading: jobsLoading } = useQuery(agentSchedulerJobsOptions(agentID));
-
-  const loadTasks = useCallback(async () => {
-    setTasksLoading(true);
-    try {
-      const { data } = await listAgentTasks({
-        path: { agentID },
-        throwOnError: true,
-      });
-      setTasks(data?.items ?? []);
-    } catch (e) {
-      console.error(e);
-      setTasks([]);
-    } finally {
-      setTasksLoading(false);
-    }
-  }, [agentID]);
-
-  useEffect(() => {
-    void loadTasks();
-  }, [loadTasks]);
-
-  const needsTasks = tasks.filter(
-    (task) => task.status === "blocked" || task.status === "review_requested",
-  );
-  const runningTasks = tasks.filter((task) => task.status === "running");
+  const tasks: ComponentsAgentTask[] = [];
+  const needsTasks: ComponentsAgentTask[] = [];
+  const runningTasks: ComponentsAgentTask[] = [];
   const scheduledJobs = jobs.filter((job) => job.enabled);
-
-  return {
-    tasks,
-    jobs,
-    needsTasks,
-    runningTasks,
-    scheduledJobs,
-    loading: tasksLoading || jobsLoading,
-  };
+  return { tasks, jobs, needsTasks, runningTasks, scheduledJobs, loading: jobsLoading };
 }
 
 function workTaskItem(task: ComponentsAgentTask) {

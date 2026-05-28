@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,26 +14,9 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 )
 
-func taskCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:     "task",
-		Usage:    "Manage durable background tasks with lifecycle tracking and human-in-the-loop actions",
-		Category: "Feature",
-		Description: `Create, track, and act on tasks assigned to the agent. Tasks go through
-a lifecycle (pending → running → review → done) and support dependencies,
-priorities, and human-in-the-loop actions like approve, reject, and respond.`,
-		Subcommands: []*ucli.Command{
-			taskListCommand(),
-			taskGetCommand(),
-			taskCreateCommand(),
-			taskUpdateCommand(),
-			taskDeleteCommand(),
-			taskActionCommand(),
-			taskEventsCommand(),
-		},
-	}
-}
-
+// taskAgentID resolves an agent ID from --agent-id or $STELLA_AGENT_ID. Kept
+// here because sibling CLI commands (e.g. scheduler) still need an agent-
+// scoped flag even though the v2 task API is org-scoped.
 func taskAgentID(c *ucli.Context) (string, error) {
 	if a := c.String("agent-id"); a != "" {
 		return a, nil
@@ -43,45 +27,83 @@ func taskAgentID(c *ucli.Context) (string, error) {
 	return "", fmt.Errorf("agent ID is required (pass --agent-id or set STELLA_AGENT_ID)")
 }
 
+func printTaskJSON(v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+// taskCommand is the CLI surface for the v2 task system. Slice 1 (PR 3) ships
+// list / get / create / cancel / readiness — matching the API. The old action
+// / update / delete / events subcommands belonged to the v1 API and will be
+// reintroduced as endpoints land in later PRs (review decision, blocker
+// resolve, etc.).
+func taskCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:     "task",
+		Usage:    "Manage durable background tasks (task system v2)",
+		Category: "Feature",
+		Description: `Tasks go through a lifecycle (draft → ready → running → done|failed|cancelled).
+The dispatcher claims ready tasks, runs them via the assigned agent, and records
+each attempt as a run. Use the readiness subcommand to see why a task is or isn't
+currently dispatchable.`,
+		Subcommands: []*ucli.Command{
+			taskListCommand(),
+			taskGetCommand(),
+			taskCreateCommand(),
+			taskCancelCommand(),
+			taskReadinessCommand(),
+		},
+	}
+}
+
+func resolveOrgID(c *ucli.Context) (string, error) {
+	if v := c.String("org-id"); v != "" {
+		return v, nil
+	}
+	if v := os.Getenv("STELLA_ORG_ID"); v != "" {
+		return v, nil
+	}
+	return "", fmt.Errorf("org ID required (--org-id or STELLA_ORG_ID)")
+}
+
 func taskListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
-		Usage: "List tasks",
+		Usage: "List tasks for the caller's org",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-			&ucli.StringFlag{Name: "status", Usage: "Filter by status (pending, running, blocked, review, done, cancelled, failed)"},
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			&ucli.StringFlag{Name: "org-id", Usage: "Org ID (defaults to STELLA_ORG_ID)"},
+			&ucli.IntFlag{Name: "limit", Value: 50},
+			&ucli.IntFlag{Name: "offset", Value: 0},
+			&ucli.BoolFlag{Name: "json"},
 		},
 		Action: func(c *ucli.Context) error {
-			agentID, err := taskAgentID(c)
+			_, err := resolveOrgID(c)
 			if err != nil {
 				return err
 			}
-			params := &apiclient.ListAgentTasksParams{}
-			if s := c.String("status"); s != "" {
-				params.Status = &s
-			}
-			list, err := apiclient.Call[apiclient.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListAgentTasks(c.Context, agentID, params)
+			limit := c.Int("limit")
+			offset := c.Int("offset")
+			params := &apiclient.ListTasksParams{Limit: &limit, Offset: &offset}
+			list, err := apiclient.Call[apitypes.AgentTaskList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListTasks(c.Context, params)
 			})
 			if err != nil {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Items)
+				return printTaskJSON(list)
 			}
 			if len(list.Items) == 0 {
-				fmt.Println("No tasks.")
+				fmt.Println("(no tasks)")
 				return nil
 			}
-			fmt.Printf("%-10s  %-30s  %-10s  %-8s  %s\n", "ID", "TITLE", "STATUS", "PRIORITY", "UPDATED")
+			fmt.Printf("%-36s  %-10s  %-8s  %s\n", "ID", "STATUS", "PRIORITY", "TITLE")
 			for _, t := range list.Items {
-				fmt.Printf("%-10s  %-30s  %-10s  %-8s  %s\n",
-					shortID(t.Id),
-					truncate(t.Title, 30),
-					string(t.Status),
-					string(t.Priority),
-					t.UpdatedAt.Format(time.DateTime))
+				fmt.Printf("%-36s  %-10s  %-8s  %s\n", t.Id, t.Status, t.Priority, t.Title)
 			}
 			return nil
 		},
@@ -91,27 +113,32 @@ func taskListCommand() *ucli.Command {
 func taskGetCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "get",
-		Usage:     "Get task details",
+		Usage:     "Get a task by ID",
 		ArgsUsage: "<task-id>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.StringFlag{Name: "org-id"},
+			&ucli.BoolFlag{Name: "json"},
 		},
 		Action: func(c *ucli.Context) error {
-			id := c.Args().First()
-			if id == "" {
-				return fmt.Errorf("usage: stella task get <task-id>")
+			if c.NArg() != 1 {
+				return fmt.Errorf("task ID required")
 			}
-			agentID, err := taskAgentID(c)
+			id := c.Args().First()
+			_, err := resolveOrgID(c)
 			if err != nil {
 				return err
 			}
-			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
-				return api.GetAgentTask(c.Context, agentID, id)
+			task, err := apiclient.Call[apitypes.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetTask(c.Context, id)
 			})
 			if err != nil {
 				return err
 			}
-			return printJSON(task)
+			if c.Bool("json") {
+				return printTaskJSON(task)
+			}
+			printTask(task)
+			return nil
 		},
 	}
 }
@@ -119,194 +146,146 @@ func taskGetCommand() *ucli.Command {
 func taskCreateCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "create",
-		Usage: "Create a new task",
+		Usage: "Create a task",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "title", Usage: "Task title (required)", Required: true},
-			&ucli.StringFlag{Name: "description", Usage: "Task description"},
-			&ucli.StringFlag{Name: "priority", Usage: "Priority: low, medium, high (default: medium)"},
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency task ID (can be repeated)"},
+			&ucli.StringFlag{Name: "org-id"},
+			&ucli.StringFlag{Name: "title", Required: true},
+			&ucli.StringFlag{Name: "description"},
+			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
+			&ucli.StringFlag{Name: "executor-agent-id"},
+			&ucli.BoolFlag{Name: "activate", Usage: "Move directly to ready instead of staying in draft"},
+			&ucli.BoolFlag{Name: "json"},
 		},
 		Action: func(c *ucli.Context) error {
-			agentID, err := taskAgentID(c)
+			_, err := resolveOrgID(c)
 			if err != nil {
 				return err
 			}
-			body := apiclient.CreateAgentTaskJSONRequestBody{
-				Title:   c.String("title"),
-				AgentId: agentID,
+			body := apiclient.CreateTaskJSONRequestBody{
+				Title: c.String("title"),
 			}
 			if d := c.String("description"); d != "" {
 				body.Description = &d
 			}
 			if p := c.String("priority"); p != "" {
-				prio := apitypes.AgentTaskInputPriority(p)
-				body.Priority = &prio
+				pp := apitypes.AgentTaskInputPriority(p)
+				body.Priority = &pp
 			}
-			if deps := c.StringSlice("dep"); len(deps) > 0 {
-				body.Deps = &deps
+			if e := c.String("executor-agent-id"); e != "" {
+				body.ExecutorAgentId = &e
 			}
-			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
-				return api.CreateAgentTask(c.Context, agentID, body)
-			})
-			if err != nil {
-				return err
+			if c.Bool("activate") {
+				a := true
+				body.Activate = &a
 			}
-			return printJSON(task)
-		},
-	}
-}
-
-func taskUpdateCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:      "update",
-		Usage:     "Update a task",
-		ArgsUsage: "<task-id>",
-		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-			&ucli.StringFlag{Name: "title", Usage: "New title"},
-			&ucli.StringFlag{Name: "description", Usage: "New description"},
-			&ucli.StringFlag{Name: "priority", Usage: "New priority: low, medium, high"},
-		},
-		Action: func(c *ucli.Context) error {
-			id := c.Args().First()
-			if id == "" {
-				return fmt.Errorf("usage: stella task update <task-id>")
-			}
-			agentID, err := taskAgentID(c)
-			if err != nil {
-				return err
-			}
-			body := apiclient.UpdateAgentTaskJSONRequestBody{}
-			if t := c.String("title"); t != "" {
-				body.Title = &t
-			}
-			if d := c.String("description"); d != "" {
-				body.Description = &d
-			}
-			if p := c.String("priority"); p != "" {
-				prio := apitypes.AgentTaskUpdatePriority(p)
-				body.Priority = &prio
-			}
-			task, err := apiclient.Call[apiclient.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
-				return api.UpdateAgentTask(c.Context, agentID, id, body)
-			})
-			if err != nil {
-				return err
-			}
-			return printJSON(task)
-		},
-	}
-}
-
-func taskDeleteCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:      "delete",
-		Usage:     "Delete a task",
-		ArgsUsage: "<task-id>",
-		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-		},
-		Action: func(c *ucli.Context) error {
-			id := c.Args().First()
-			if id == "" {
-				return fmt.Errorf("usage: stella task delete <task-id>")
-			}
-			agentID, err := taskAgentID(c)
-			if err != nil {
-				return err
-			}
-			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteAgentTask(c.Context, agentID, id)
-			}); err != nil {
-				return err
-			}
-			fmt.Printf("Task %q deleted.\n", id)
-			return nil
-		},
-	}
-}
-
-func taskActionCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:      "action",
-		Usage:     "Take an action on a task (approve, reject, respond, cancel)",
-		ArgsUsage: "<task-id>",
-		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-			&ucli.StringFlag{Name: "type", Usage: "Action type: approve, reject, respond, cancel (required)", Required: true},
-			&ucli.StringFlag{Name: "message", Usage: "Message for respond/reject actions"},
-		},
-		Action: func(c *ucli.Context) error {
-			id := c.Args().First()
-			if id == "" {
-				return fmt.Errorf("usage: stella task action <task-id> --type <type>")
-			}
-			agentID, err := taskAgentID(c)
-			if err != nil {
-				return err
-			}
-			actionType := c.String("type")
-			valid := map[string]bool{"approve": true, "reject": true, "respond": true, "cancel": true}
-			if !valid[actionType] {
-				return fmt.Errorf("invalid action type %q; must be one of: %s", actionType, strings.Join([]string{"approve", "reject", "respond", "cancel"}, ", "))
-			}
-			body := apiclient.AgentTaskActionJSONRequestBody{
-				Type: apitypes.AgentTaskActionType(actionType),
-			}
-			if m := c.String("message"); m != "" {
-				body.Message = &m
-			}
-			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.AgentTaskAction(c.Context, agentID, id, body)
-			}); err != nil {
-				return err
-			}
-			fmt.Printf("Action %q applied to task %s.\n", actionType, shortID(id))
-			return nil
-		},
-	}
-}
-
-func taskEventsCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:      "events",
-		Usage:     "List events for a task",
-		ArgsUsage: "<task-id>",
-		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
-		},
-		Action: func(c *ucli.Context) error {
-			id := c.Args().First()
-			if id == "" {
-				return fmt.Errorf("usage: stella task events <task-id>")
-			}
-			agentID, err := taskAgentID(c)
-			if err != nil {
-				return err
-			}
-			list, err := apiclient.Call[apiclient.AgentTaskEventList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListAgentTaskEvents(c.Context, agentID, id)
+			task, err := apiclient.Call[apitypes.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CreateTask(c.Context, body)
 			})
 			if err != nil {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Items)
+				return printTaskJSON(task)
 			}
-			if len(list.Items) == 0 {
-				fmt.Println("No events.")
-				return nil
+			printTask(task)
+			return nil
+		},
+	}
+}
+
+func taskCancelCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "cancel",
+		Usage:     "Cancel a task",
+		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "org-id"},
+			&ucli.StringFlag{Name: "reason"},
+		},
+		Action: func(c *ucli.Context) error {
+			if c.NArg() != 1 {
+				return fmt.Errorf("task ID required")
 			}
-			fmt.Printf("%-10s  %-20s  %s\n", "ID", "TYPE", "CREATED")
-			for _, e := range list.Items {
-				fmt.Printf("%-10s  %-20s  %s\n",
-					shortID(e.Id),
-					string(e.EventType),
-					e.CreatedAt.Format(time.DateTime))
+			id := c.Args().First()
+			_, err := resolveOrgID(c)
+			if err != nil {
+				return err
+			}
+			body := apiclient.CancelTaskJSONRequestBody{}
+			if r := c.String("reason"); r != "" {
+				body.Reason = &r
+			}
+			task, err := apiclient.Call[apitypes.AgentTask](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CancelTask(c.Context, id, body)
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Cancelled task %s (status=%s)\n", task.Id, task.Status)
+			return nil
+		},
+	}
+}
+
+func taskReadinessCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "readiness",
+		Usage:     "Inspect why a task is or isn't dispatchable",
+		ArgsUsage: "<task-id>",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "org-id"},
+			&ucli.BoolFlag{Name: "json"},
+		},
+		Action: func(c *ucli.Context) error {
+			if c.NArg() != 1 {
+				return fmt.Errorf("task ID required")
+			}
+			id := c.Args().First()
+			_, err := resolveOrgID(c)
+			if err != nil {
+				return err
+			}
+			rd, err := apiclient.Call[apitypes.AgentTaskReadiness](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetTaskReadiness(c.Context, id)
+			})
+			if err != nil {
+				return err
+			}
+			if c.Bool("json") {
+				return printTaskJSON(rd)
+			}
+			fmt.Printf("state=%s dispatchable=%v\n", rd.State, rd.Dispatchable)
+			if rd.Reasons != nil {
+				for _, r := range *rd.Reasons {
+					reason := r.Type
+					if r.UpstreamId != nil {
+						reason += " upstream=" + *r.UpstreamId
+					}
+					if r.Detail != nil {
+						reason += " " + *r.Detail
+					}
+					fmt.Println("  -", reason)
+				}
 			}
 			return nil
 		},
 	}
+}
+
+func printTask(t apitypes.AgentTask) {
+	fmt.Printf("ID:        %s\n", t.Id)
+	fmt.Printf("Title:     %s\n", t.Title)
+	fmt.Printf("Status:    %s\n", t.Status)
+	fmt.Printf("Priority:  %s\n", t.Priority)
+	if t.Description != nil && *t.Description != "" {
+		fmt.Printf("Desc:      %s\n", strings.TrimSpace(*t.Description))
+	}
+	if t.AgentId != nil {
+		fmt.Printf("Agent:     %s\n", *t.AgentId)
+	}
+	if t.RetryCount != nil && t.MaxRetries != nil {
+		fmt.Printf("Retries:   %d/%d\n", *t.RetryCount, *t.MaxRetries)
+	}
+	fmt.Printf("Created:   %s\n", t.CreatedAt.Format(time.RFC3339))
+	fmt.Printf("Updated:   %s\n", t.UpdatedAt.Format(time.RFC3339))
 }
