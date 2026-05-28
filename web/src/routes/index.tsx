@@ -167,8 +167,8 @@ const copy = {
           },
           {
             icon: "plug",
-            title: "Plugins & MCP",
-            desc: "Extend with custom code or connect any Model Context Protocol server. Zero custom wiring.",
+            title: "Plugins",
+            desc: "Extend Stella with custom code through the plugin system.",
           },
         ],
       },
@@ -289,8 +289,8 @@ const copy = {
           },
           {
             icon: "plug",
-            title: "插件与 MCP",
-            desc: "用自定义代码扩展或连接任何 Model Context Protocol 服务器。",
+            title: "插件系统",
+            desc: "用自定义代码扩展 Stella。",
           },
         ],
       },

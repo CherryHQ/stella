@@ -34,7 +34,6 @@ Built-in plugins can register capabilities for:
 Examples in the current tree:
 
 - `tool/notify` is a simple tool plugin
-- `tool/mcp` owns config, runtime, status, tool exposure, and prompt inventory
 - `channel/telegram` owns config, status, channel registration, and runtime lifecycle
 - `reflect` owns config, status, and a managed runtime
 
@@ -55,7 +54,7 @@ Stella ships built-in plugins across several areas:
 
 | Kind     | Examples                                 |
 | -------- | ---------------------------------------- |
-| tool     | `mcp`, `webfetch`, `notify`              |
+| tool     | `webfetch`, `notify`                     |
 | channel  | `telegram`, `qq`, `feishu`, `weixin`     |
 | hook     | `trace`, `rtk`                           |
 | provider | `anthropic`, `openai`, `openai-response` |

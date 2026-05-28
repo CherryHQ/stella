@@ -8,7 +8,7 @@ import (
 
 func TestPluginStateCloneCopiesConfig(t *testing.T) {
 	state := PluginState{
-		ID:      "mcp",
+		ID:      "demo",
 		Enabled: true,
 		Config: map[string]any{
 			"token": "secret",
@@ -47,7 +47,7 @@ func TestRuntimeSnapshotCloneCopiesMetadata(t *testing.T) {
 
 func TestPromptToolInfoCloneCopiesMetadata(t *testing.T) {
 	info := PromptToolInfo{
-		Name: "mcp.exec",
+		Name: "demo.exec",
 		Metadata: map[string]any{
 			"server": "docs",
 		},
@@ -63,7 +63,7 @@ func TestPromptToolInfoCloneCopiesMetadata(t *testing.T) {
 
 func TestConfigRegistrationHelpers(t *testing.T) {
 	reg := AdminSpec{
-		PluginID: "mcp",
+		PluginID: "demo",
 		DefaultConfig: func() map[string]any {
 			return map[string]any{"token": "secret"}
 		},

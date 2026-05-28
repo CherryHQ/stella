@@ -22,7 +22,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -1136,12 +1135,6 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	} else if skillsSection.Title != "" && skillsSection.Content != "" {
 		promptSections = append(promptSections, skillsSection)
 	}
-	promptTools, err := s.pluginHost.PromptTools(r.Context(), mcpplugin.PluginID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
 	systemPrompt := prompt.BuildSystemPromptFromDB(r.Context(), prompt.DBPromptParams{
 		SystemPrompt: agentCfg.SystemPrompt,
 		Memory:       s.mem,
@@ -1150,7 +1143,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		StellaHome:   config.StellaHome(),
 		AgentRoot:    agentCfg.Workspace,
 		UserRoot:     userRoot,
-		PromptTools:  promptTools,
+		PromptTools:  nil,
 		Sections:     append(promptSections, s.pluginHost.ManifestPluginPrompts()...),
 	})
 

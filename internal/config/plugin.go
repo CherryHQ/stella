@@ -28,7 +28,7 @@ func PluginID(kind, name string) string { return kind + "/" + name }
 
 // BuiltinToolNames lists the built-in tool plugins.
 // Core tools (read, bash, edit, write) are always-on and no longer managed as plugins.
-var BuiltinToolNames = []string{"gh", "lark-cli", "mcp", "mise", "tap-web", "webfetch"}
+var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web", "webfetch"}
 
 // BuiltinChannelNames lists the 4 built-in channel plugins.
 var BuiltinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
@@ -56,7 +56,7 @@ func BuiltinPlugins() []BuiltinPlugin {
 	var out []BuiltinPlugin
 
 	for _, n := range BuiltinToolNames {
-		enabled := n != "mcp" && n != "webfetch"
+		enabled := n != "webfetch"
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindTool, n), Kind: PluginKindTool, Name: n, DefaultEnabled: enabled})
 	}
 	for _, n := range BuiltinChannelNames {

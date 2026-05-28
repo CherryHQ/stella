@@ -62,16 +62,9 @@ type promptData struct {
 	UserProfile    string // per-user profile from ProfileStore
 	Constraints    []memory.ConstraintEntry
 	Knowledge      []pkgplugins.KnowledgeEntry // active fact/context knowledge entries
-	MCPTools       []promptToolEntry           // prompt inventory for MCP-discovered tools
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
-}
-
-type promptToolEntry struct {
-	ID          string
-	Description string
-	ServerName  string
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -173,15 +166,6 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 			}
 			data.Knowledge = entries
 		}
-	}
-
-	// MCP prompt inventory.
-	for _, tool := range p.PromptTools {
-		entry := promptToolEntry{ID: tool.Name, Description: tool.Description}
-		if serverName, _ := tool.Metadata["server_name"].(string); serverName != "" {
-			entry.ServerName = serverName
-		}
-		data.MCPTools = append(data.MCPTools, entry)
 	}
 
 	for _, s := range p.Sections {

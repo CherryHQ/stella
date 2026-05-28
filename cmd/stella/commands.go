@@ -26,7 +26,6 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/internal/tools"
-	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -158,7 +157,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 
 	builtinTools := []pkgtools.Tool{
 		memory.BuildTool(memProvider),
-		mcpplugin.New(ps.mcpManager),
 	}
 	if notifyTool := tools.NewNotifyTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, notifyTool)
@@ -185,7 +183,9 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 
 	toolLifecycle := buildToolLifecycle(phost)
-	promptToolsBuilder := buildPromptToolsBuilder(ps.mcpManager)
+	promptToolsBuilder := func(_ context.Context) ([]pkgplugins.PromptToolInfo, error) {
+		return nil, nil
+	}
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 		return phost.SystemPromptSections(ctx, build)
 	}

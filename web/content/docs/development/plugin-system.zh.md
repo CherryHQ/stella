@@ -34,7 +34,6 @@ Stella 采用编译内置的插件系统。插件内置于 `stella` 二进制文
 当前代码库中的示例：
 
 - `tool/notify` 是一个简单的工具插件
-- `tool/mcp` 拥有配置、运行时、状态、工具暴露和提示词库
 - `channel/telegram` 拥有配置、状态、通道注册和运行时生命周期
 - `reflect` 拥有配置、状态和一个托管运行时
 
@@ -55,7 +54,7 @@ Stella 在多个领域提供内置插件：
 
 | 类型     | 示例                                     |
 | -------- | ---------------------------------------- |
-| tool     | `mcp`、`webfetch`、`notify`              |
+| tool     | `webfetch`、`notify`                     |
 | channel  | `telegram`、`qq`、`feishu`、`weixin`     |
 | hook     | `trace`、`rtk`                           |
 | provider | `anthropic`、`openai`、`openai-response` |

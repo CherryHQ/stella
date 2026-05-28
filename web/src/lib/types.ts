@@ -183,30 +183,6 @@ export interface ManifestOAuthProvider {
   client_id?: string;
 }
 
-export interface McpServer {
-  id: number;
-  expanded: boolean;
-  name: string;
-  enabled: boolean;
-  transport: string;
-  command: string;
-  url: string;
-  timeout_seconds: number;
-  args: { id: number; value: string }[];
-  env: { id: number; key: string; value: string }[];
-  headers: { id: number; key: string; value: string }[];
-}
-
-export interface McpStatus {
-  name: string;
-  state: string;
-  suppressed: boolean;
-  discovered_tool_count: number;
-  failures: number;
-  last_connected_at: string;
-  last_error?: string;
-}
-
 export interface PluginSchema {
   properties?: Record<string, PluginSchemaProperty>;
 }

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   getPluginConfig,
   getPluginConfigSchema,
-  getPluginStatus,
   listManifestPlugins,
   listPlugins,
   saveManifestPlugins,
@@ -15,8 +14,6 @@ import type {
   ManifestBinary,
   ManifestOAuthProvider,
   ManifestPlugin,
-  McpServer,
-  McpStatus,
   Plugin,
   PluginSchemaProperty,
   PluginWithMeta,
@@ -28,19 +25,16 @@ import {
   buildPluginConfigPayload,
   hasGenericConfigEditor,
   manifestInstallSummary,
-  normalizeMcpServers,
   otherPlugins,
   pluginDescription,
   pluginLabel,
   pluginMetaBadges,
   sandboxMeta,
   semanticPlugins,
-  snapshotMcpConfig,
 } from "./pluginUtils";
 import type { ManifestInstallDraft } from "./pluginUtils";
 import { GenericConfigEditor } from "./GenericConfigEditor";
 import { ManifestInstallEditor } from "./ManifestInstallEditor";
-import { McpTab } from "./McpTab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +48,7 @@ import {
   SettingsListItem,
 } from "@/features/settings/SettingsListPanel";
 
-type Tab = "tools" | "mcp" | "channels" | "hooks" | "sandbox" | "standalone";
+type Tab = "tools" | "channels" | "hooks" | "sandbox" | "standalone";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
   return { plugins: plugins.map((plugin) => ({ ...plugin })) };
@@ -102,19 +96,10 @@ export function PluginsPage() {
     bin: "",
   });
 
-  // MCP state
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [mcpStatuses, setMcpStatuses] = useState<McpStatus[]>([]);
-  const [mcpSaving, setMcpSaving] = useState(false);
-  const [mcpSavedSignature, setMcpSavedSignature] = useState('{"servers":[]}');
-  const [mcpLastSavedAt, setMcpLastSavedAt] = useState("");
-
   const { toasts, showToast } = useToast(4000);
 
   // Derived plugin lists
-  const toolPlugins = semanticPlugins("tool", plugins, manifestPlugins).filter(
-    (p) => p.id !== "tool/mcp",
-  );
+  const toolPlugins = semanticPlugins("tool", plugins, manifestPlugins);
   const hookPlugins = semanticPlugins("hook", plugins, manifestPlugins);
   const validSandboxBackends = new Set(["sandbox/docker", "sandbox/local", "sandbox/none"]);
   const sandboxPlugins = plugins.filter(
@@ -123,11 +108,6 @@ export function PluginsPage() {
   const standalonePlugins = otherPlugins(plugins, manifestPlugins);
 
   const channelPlugins = plugins.filter((p) => p.kind === "channel");
-
-  const mcpPlugin = plugins.find((p) => p.id === "tool/mcp") || null;
-  const mcpPluginEnabled = !!mcpPlugin?.enabled;
-
-  const mcpIsDirty = JSON.stringify(snapshotMcpConfig(mcpServers)) !== mcpSavedSignature;
 
   // Load plugins
   const loadPlugins = useCallback(async () => {
@@ -166,25 +146,6 @@ export function PluginsPage() {
         ),
       );
       setSchemas(newSchemas);
-
-      // Init MCP servers from plugin config
-      const mcp = pluginList.find((p) => p.id === "tool/mcp");
-      const servers = normalizeMcpServers(
-        (mcp?.config?.servers as Record<string, unknown>[]) || [],
-      );
-      setMcpServers(servers);
-      setMcpSavedSignature(JSON.stringify(snapshotMcpConfig(servers)));
-
-      // Load MCP status
-      try {
-        const { data: statusResp } = await getPluginStatus({
-          path: { kind: "tool", name: "mcp" },
-          throwOnError: true,
-        });
-        setMcpStatuses(Array.isArray(statusResp?.servers) ? statusResp.servers : []);
-      } catch {
-        setMcpStatuses([]);
-      }
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -418,27 +379,6 @@ export function PluginsPage() {
     }));
   }
 
-  // MCP
-  async function saveMcpConfig() {
-    try {
-      setMcpSaving(true);
-      const config = snapshotMcpConfig(mcpServers);
-      await updatePluginConfig({
-        path: { kind: "tool", name: "mcp" },
-        body: { config },
-        throwOnError: true,
-      });
-      setMcpSavedSignature(JSON.stringify(config));
-      setMcpLastSavedAt(new Date().toISOString());
-      await loadPlugins();
-      showToast("tool/mcp config saved");
-    } catch (e) {
-      showToast((e as Error).message, "error");
-    } finally {
-      setMcpSaving(false);
-    }
-  }
-
   // Add manifest tool
   function fillNewManifestToolDefaults() {
     const binary = newManifestTool.binary_name.trim();
@@ -504,7 +444,6 @@ export function PluginsPage() {
 
   const sections: { id: Tab; label: string }[] = [
     { id: "tools", label: t("plugins.tab.tools") },
-    { id: "mcp", label: t("plugins.mcp.title") },
     { id: "channels", label: t("plugins.tab.channels") },
     { id: "hooks", label: t("plugins.tab.hooks") },
     { id: "sandbox", label: t("plugins.tab.sandbox") },
@@ -763,22 +702,6 @@ export function PluginsPage() {
           onResetManifest={resetManifestInstallDraft}
           emptyMessage="No tool plugins registered."
           showManifestEditor
-        />
-      </div>
-    );
-  } else if (tab === "mcp") {
-    detail = (
-      <div className="p-6">
-        <McpTab
-          mcpServers={mcpServers}
-          mcpStatuses={mcpStatuses}
-          mcpPluginEnabled={mcpPluginEnabled}
-          mcpSaving={mcpSaving}
-          mcpLastSavedAt={mcpLastSavedAt}
-          mcpIsDirty={mcpIsDirty}
-          onServersChange={setMcpServers}
-          onToggleMcpPlugin={(enabled) => togglePlugin("tool/mcp", enabled)}
-          onSave={saveMcpConfig}
         />
       </div>
     );
