@@ -183,6 +183,71 @@ func (q *Queries) ListAgentTaskDepsWithUpstream(ctx context.Context, taskID stri
 	return items, nil
 }
 
+const listReachableDownstream = `-- name: ListReachableDownstream :many
+WITH RECURSIVE downstream(id, depth) AS (
+    SELECT atd.task_id, 1 FROM agent_task_dep atd WHERE atd.dep_task_id = ?
+    UNION
+    SELECT atd.task_id, ds.depth + 1
+    FROM agent_task_dep atd
+    JOIN downstream ds ON atd.dep_task_id = ds.id
+    WHERE ds.depth < 1000
+)
+SELECT t.id, t.org_id, t.user_id, t.agent_id, t.goal_id, t.title, t.description, t.status, t.priority, t.review_policy, t.active_review_id, t.required, t.retry_count, t.max_retries, t.not_before, t.deadline_at, t.session_id, t.active_run_id, t.active_blocker_id, t.context, t.output, t.created_at, t.updated_at, t.completed_at, t.cancelled_at FROM agent_task t JOIN downstream ds ON t.id = ds.id
+`
+
+// Reachable downstream tasks of a given task (Slice 4 reopen cascade).
+// Bounded by SQLite's default recursive limit; we additionally cap depth at 1000
+// in the CTE to prevent runaway cycles (cycles are forbidden by AddDep but the
+// CTE is defensive).
+func (q *Queries) ListReachableDownstream(ctx context.Context, depTaskID string) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listReachableDownstream, depTaskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.UserID,
+			&i.AgentID,
+			&i.GoalID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
+			&i.Required,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.NotBefore,
+			&i.DeadlineAt,
+			&i.SessionID,
+			&i.ActiveRunID,
+			&i.ActiveBlockerID,
+			&i.Context,
+			&i.Output,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const waiveAgentTaskDep = `-- name: WaiveAgentTaskDep :execrows
 UPDATE agent_task_dep
 SET waived_at = ?, waived_by_user = ?, waiver_reason = ?
