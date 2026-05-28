@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ComponentsTask } from "@/lib/api-client/types.gen";
-import { listTasks } from "@/lib/api-client";
+import type { ComponentsReadiness, ComponentsTask } from "@/lib/api-client/types.gen";
+import { getTaskReadiness, listTasks } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
@@ -226,6 +226,21 @@ function TaskDetail({
   onBack: () => void;
   onOpenSession: () => void;
 }) {
+  const [readiness, setReadiness] = useState<ComponentsReadiness | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await getTaskReadiness({ path: { taskID: task.id }, throwOnError: true });
+        if (!cancelled) setReadiness(data ?? null);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, task.updated_at]);
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Mobile back + Open Session header */}
@@ -283,6 +298,7 @@ function TaskDetail({
             value={task.priority}
             highlight={task.priority === "urgent"}
           />
+          {readiness && <PropertyRow label="Readiness" value={readiness.state} />}
           <PropertyRow label="Updated" value={formatTime(task.updated_at)} />
           <PropertyRow label="Created" value={formatTime(task.created_at)} />
         </div>
