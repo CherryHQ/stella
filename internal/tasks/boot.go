@@ -14,10 +14,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Service bundles the v2 task system components for boot wiring. The legacy
-// stub Service in service.go is kept for back-compat with the existing
-// HTTP handlers (which still return 503); cmd/stella holds both side-by-side
-// until Phase 6 of the API rewrite swaps them.
+// Service bundles the v2 task system components for boot wiring.
 type Service struct {
 	Queries    *sqlc.Queries
 	Transition *TransitionService
@@ -38,17 +35,13 @@ type BootConfig struct {
 	Logger    *slog.Logger
 }
 
-// BuildService constructs every v2 component. The dispatcher is constructed
-// but not started; the caller registers it on a scheduler via
-// dispatcher.Start(ctx, sched).
+// New constructs the task system. The dispatcher is constructed but not
+// started; the caller registers it on a scheduler via dispatcher.Start.
 //
-// PHASE 6 STATUS: this wires the dispatcher to a noop RunnerFunc that fails
-// with a "worker integration not wired" message. Replacing the noop with a
-// real agent.Pool/Runner adapter (which would translate Runner.Chat events
-// into TaskControlTool calls, register task_control as a tool, and pump the
-// event channel until completion) is the remaining engineering work for
-// Slice 1's end-to-end story. Tracked as a follow-up — see plan.md Phase 6
-// handoff.
+// If BootConfig.Pools is non-nil, the dispatcher uses PoolAdapter to drive
+// real agent.Runner instances. Otherwise it falls back to a noop runner
+// that fails with a clear message — used by tests and by boots that
+// intentionally skip agent wiring.
 func New(cfg BootConfig) *Service {
 	q := sqlc.New(cfg.DB)
 	svc := NewTransitionService(cfg.DB, q)
@@ -58,7 +51,12 @@ func New(cfg BootConfig) *Service {
 		logger = slog.Default().With("component", "tasks")
 	}
 
-	runner := noopRunner(logger)
+	var runner RunnerFunc
+	if cfg.Pools != nil {
+		runner = NewPoolAdapter(cfg.Pools, cfg.Memory, logger).AsRunnerFunc(q)
+	} else {
+		runner = noopRunner(logger)
+	}
 
 	disp := NewDispatcher(DispatcherConfig{
 		Service:    svc,
@@ -95,19 +93,16 @@ func noopRunner(log *slog.Logger) RunnerFunc {
 
 // sessionAndCreatorResolver covers steps 2 and 3 of D13's executor
 // resolution. The dispatcher consults the dispatch_hint table itself before
-// invoking the resolver.
+// invoking this resolver, and applies the creator fallback (task.agent_id)
+// when this returns (false), so this implementation only needs to handle
+// the session-derived case.
 //
-//  2. session-derived agent: if task.session_id is set, load the session and
-//     return its owning agent_id.
-//  3. creator fallback: task.agent_id.
-func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, log *slog.Logger) ExecutorResolver {
-	return func(_ context.Context, task sqlc.AgentTask) (string, bool) {
-		// Session-derived resolution is wired alongside the real runner; for
-		// the noop boot we just use the creator fallback. The dispatcher
-		// applies the creator fallback when this returns (false), so this
-		// implementation deliberately punts.
-		_ = log
-		_ = task
+// Session-derived resolution: we'd need to load the session row, find its
+// agent. For Slice 1 we don't have that lookup wired (memory.Provider
+// doesn't expose session→agent today). The dispatcher's creator-fallback
+// branch covers the common case; this returning (false) just defers there.
+func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, _ *slog.Logger) ExecutorResolver {
+	return func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 		return "", false
 	}
 }
