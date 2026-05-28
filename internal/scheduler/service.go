@@ -53,6 +53,17 @@ type Service struct {
 	userJobsEnabled bool
 	listActiveUsers ListActiveUsersFunc
 
+	// Runtime-registered builtin specs, keyed by Name. Populated via
+	// (*Service).RegisterBuiltin and distinct from the package-global
+	// builtinJobs registry that init() functions write to. Handler-mode
+	// dispatch reads the Handler off this map at fire time.
+	runtimeBuiltins map[string]BuiltinJob
+
+	// started flips to true inside start(); RegisterBuiltin rejects further
+	// runtime registrations after that point to avoid persisted handler-mode
+	// jobs firing before their handler exists.
+	started bool
+
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
 	heartbeatChat     ChatFunc
@@ -151,6 +162,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 
 	s.mu.Lock()
 	s.ctx = ctx
+	s.started = true
 	if loadPersisted {
 		for _, j := range jobs {
 			s.jobs[j.ID] = j
@@ -181,6 +193,11 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 }
 
 // Stop shuts down the scheduler and closes the database if owned.
+//
+// Service is single-shot: Start after Stop is not supported. gocron's
+// Shutdown is terminal, and s.started is not reset, so any subsequent
+// RegisterBuiltin will reject with "called after Start". Construct a new
+// Service if you need a fresh lifecycle.
 func (s *Service) Stop() error {
 	err := s.scheduler.Shutdown()
 	if s.ownsDB && s.db != nil {
@@ -241,11 +258,20 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
-	if message == "" {
+	// Handler-mode system builtins (e.g. reflect-review) carry no agent
+	// message; they invoke a Go callback directly. Only require a message
+	// for jobs that actually dispatch through the agent pool.
+	if message == "" && ownerKind != JobOwnerSystem {
 		return Job{}, fmt.Errorf("message is required")
 	}
 	if err := validateSchedule(sched); err != nil {
 		return Job{}, err
+	}
+	// Reject non-system jobs whose name collides with a registered builtin.
+	// Otherwise the user's prompt would be silently dropped at dispatch time
+	// — the handler-mode router keys on Name alone.
+	if ownerKind != JobOwnerSystem && s.nameIsReservedBuiltin(name) {
+		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", name)
 	}
 
 	if sessionMode == "" {
@@ -566,22 +592,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	jobRun := job
 	jobRun.UserID = userID
 
-	s.mu.Lock()
-	fn := s.onJob
-	listeners := append([]OnJobFunc(nil), s.listeners...)
-	s.mu.Unlock()
-
-	var runErr error
-	if fn != nil {
-		if err := fn(runCtx, jobRun); err != nil {
-			runErr = err
-		}
-	}
-	for _, listener := range listeners {
-		if err := listener(runCtx, jobRun); err != nil && runErr == nil {
-			runErr = err
-		}
-	}
+	runErr := s.dispatchJob(runCtx, jobRun)
 
 	finishedAt := time.Now().UTC()
 	status := RunStatusSuccess
@@ -653,23 +664,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	go func() {
 		runCtx := WithRunSessionID(svcCtx, sessionID)
-
-		s.mu.Lock()
-		fn := s.onJob
-		listeners := append([]OnJobFunc(nil), s.listeners...)
-		s.mu.Unlock()
-
-		var runErr error
-		if fn != nil {
-			if err := fn(runCtx, job); err != nil {
-				runErr = err
-			}
-		}
-		for _, listener := range listeners {
-			if err := listener(runCtx, job); err != nil && runErr == nil {
-				runErr = err
-			}
-		}
+		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
 		status := RunStatusSuccess
@@ -741,4 +736,38 @@ func (s *Service) removeOneTimeJob(id string) {
 		s.log.Info("one-time job auto-removed after execution", "id", id)
 	}
 	delete(s.jobs, id)
+}
+
+// dispatchJob routes a fired job to its handler-mode callback, the default
+// agent OnJob, or an orphan error; then runs every listener. Returns the
+// first error seen across primary + listeners.
+func (s *Service) dispatchJob(ctx context.Context, job Job) error {
+	s.mu.Lock()
+	handler := s.runtimeBuiltins[job.Name].Handler
+	fn := s.onJob
+	listeners := append([]OnJobFunc(nil), s.listeners...)
+	s.mu.Unlock()
+
+	var runErr error
+	switch {
+	case handler != nil && job.OwnerKind == JobOwnerSystem:
+		// Handler-mode builtin: bypass the default agent dispatch. Gated on
+		// system ownership so a user- or plugin-owned job that happens to
+		// share a name with a registered builtin cannot hijack the handler.
+		runErr = handler(ctx, job)
+	case job.OwnerKind == JobOwnerSystem && job.Message == "":
+		// Orphan: persisted system job with no message and no live handler
+		// (handler-mode builtin whose RegisterBuiltin call was removed in a
+		// later build). Don't dispatch an empty prompt to the agent pool.
+		runErr = fmt.Errorf("scheduler: system job %q has no handler registered and no message", job.Name)
+		s.log.Error("scheduler: dropping orphan system job run", "job_id", job.ID, "name", job.Name)
+	case fn != nil:
+		runErr = fn(ctx, job)
+	}
+	for _, listener := range listeners {
+		if err := listener(ctx, job); err != nil && runErr == nil {
+			runErr = err
+		}
+	}
+	return runErr
 }

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
-	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -261,12 +260,6 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	}
 	host.RegisterPluginID(weixinplugin.PluginID)
 	weixinPlugin.Register(host)
-	reflectPlugin, ok := pkgplugins.Get(reflectplugin.PluginID)
-	if !ok {
-		t.Fatalf("missing plugin %q", reflectplugin.PluginID)
-	}
-	host.RegisterPluginID(reflectplugin.PluginID)
-	reflectPlugin.Register(host)
 
 	plugins, err := host.ListAdminVisiblePlugins(context.Background())
 	if err != nil {
@@ -281,7 +274,6 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 		qqplugin.PluginID,
 		feishuplugin.PluginID,
 		weixinplugin.PluginID,
-		reflectplugin.PluginID,
 	} {
 		entry, ok := seen[pluginID]
 		if !ok {
@@ -290,11 +282,7 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 		if !entry.Info.Managed || !entry.HasStatus {
 			t.Fatalf("unexpected metadata for %q: %#v", pluginID, entry)
 		}
-		if pluginID == reflectplugin.PluginID {
-			if !entry.HasConfig {
-				t.Fatalf("expected reflect plugin config metadata for %q: %#v", pluginID, entry)
-			}
-		} else if entry.HasConfig {
+		if entry.HasConfig {
 			t.Fatalf("expected channel plugin config to be hidden for %q: %#v", pluginID, entry)
 		}
 		if len(host.ConfigSchema(pluginID)) == 0 {
