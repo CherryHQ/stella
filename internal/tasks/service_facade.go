@@ -223,6 +223,50 @@ func (f *ServiceFacade) WaiveDep(ctx context.Context, taskID, depTaskID, userID,
 	return f.svc.WaiveDep(ctx, taskID, depTaskID, userID, reason, actor)
 }
 
+// ReopenTask exposes TransitionService.ReopenTask. Cascade applies the
+// downstream reset rules in D10.
+func (f *ServiceFacade) ReopenTask(ctx context.Context, taskID string, cascade bool, actor Actor) error {
+	return f.svc.ReopenTask(ctx, taskID, cascade, actor)
+}
+
+// ListReviews returns the review history for a task, newest first.
+func (f *ServiceFacade) ListReviews(ctx context.Context, taskID string) ([]sqlc.AgentReview, error) {
+	return f.q.ListAgentReviewsByTask(ctx, nullable(taskID))
+}
+
+// ApproveReview exposes TransitionService.ApproveReview.
+func (f *ServiceFacade) ApproveReview(ctx context.Context, reviewID, summary string, actor Actor) error {
+	return f.svc.ApproveReview(ctx, reviewID, summary, actor)
+}
+
+// RejectReview exposes TransitionService.RejectReview.
+func (f *ServiceFacade) RejectReview(ctx context.Context, reviewID, summary, feedback string, actor Actor) error {
+	return f.svc.RejectReview(ctx, reviewID, summary, feedback, actor)
+}
+
+// RequestChanges exposes TransitionService.RequestChanges.
+func (f *ServiceFacade) RequestChanges(ctx context.Context, reviewID, summary, feedback string, actor Actor) error {
+	return f.svc.RequestChanges(ctx, reviewID, summary, feedback, actor)
+}
+
+// EscalateReview exposes TransitionService.EscalateReview.
+func (f *ServiceFacade) EscalateReview(ctx context.Context, reviewID, reason string, actor Actor) error {
+	return f.svc.EscalateReview(ctx, reviewID, reason, actor)
+}
+
+// ListBlockerForTask returns the open blocker (if any) for a task. Phase-2
+// handlers use this to translate {blockerID} path params into the underlying
+// blocker row before resolving.
+func (f *ServiceFacade) GetBlocker(ctx context.Context, blockerID string) (sqlc.AgentTaskBlocker, error) {
+	return f.q.GetAgentTaskBlocker(ctx, blockerID)
+}
+
+// GetReview returns a review by id. Phase-2 handlers use this to enforce
+// task<->review parentage before applying a decision.
+func (f *ServiceFacade) GetReview(ctx context.Context, reviewID string) (sqlc.AgentReview, error) {
+	return f.q.GetAgentReview(ctx, reviewID)
+}
+
 func timeOrNull(t time.Time) sql.NullString {
 	if t.IsZero() {
 		return sql.NullString{}
