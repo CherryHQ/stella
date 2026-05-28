@@ -53,6 +53,12 @@ type Service struct {
 	userJobsEnabled bool
 	listActiveUsers ListActiveUsersFunc
 
+	// Runtime-registered builtin specs and their handler-mode dispatch table.
+	// Populated via (*Service).RegisterBuiltin, distinct from the package-global
+	// builtinJobs registry that init() functions write to.
+	runtimeBuiltins []BuiltinJob
+	builtinHandlers map[string]OnJobFunc
+
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
 	heartbeatChat     ChatFunc
@@ -241,7 +247,10 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
-	if message == "" {
+	// Handler-mode system builtins (e.g. reflect-review) carry no agent
+	// message; they invoke a Go callback directly. Only require a message
+	// for jobs that actually dispatch through the agent pool.
+	if message == "" && ownerKind != JobOwnerSystem {
 		return Job{}, fmt.Errorf("message is required")
 	}
 	if err := validateSchedule(sched); err != nil {
@@ -567,12 +576,19 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	jobRun.UserID = userID
 
 	s.mu.Lock()
+	handler, hasHandler := s.builtinHandlers[job.Name]
 	fn := s.onJob
 	listeners := append([]OnJobFunc(nil), s.listeners...)
 	s.mu.Unlock()
 
 	var runErr error
-	if fn != nil {
+	if hasHandler {
+		// Handler-mode builtin: bypass the default agent dispatch so the Go
+		// callback owns the run entirely.
+		if err := handler(runCtx, jobRun); err != nil {
+			runErr = err
+		}
+	} else if fn != nil {
 		if err := fn(runCtx, jobRun); err != nil {
 			runErr = err
 		}
@@ -655,12 +671,17 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		runCtx := WithRunSessionID(svcCtx, sessionID)
 
 		s.mu.Lock()
+		handler, hasHandler := s.builtinHandlers[job.Name]
 		fn := s.onJob
 		listeners := append([]OnJobFunc(nil), s.listeners...)
 		s.mu.Unlock()
 
 		var runErr error
-		if fn != nil {
+		if hasHandler {
+			if err := handler(runCtx, job); err != nil {
+				runErr = err
+			}
+		} else if fn != nil {
 			if err := fn(runCtx, job); err != nil {
 				runErr = err
 			}
