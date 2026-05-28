@@ -17,7 +17,8 @@ const (
 	ReadinessBlocked      = "blocked"
 	ReadinessTerminal     = "terminal"
 	ReadinessDraft        = "draft"
-	// Slice 2 will introduce "reviewing" for tasks in StatusReviewing.
+	ReadinessReviewing    = "reviewing"
+	ReadinessUnknown      = "unknown"
 )
 
 // Reason describes why a task is in a given readiness state. Surfaced via
@@ -63,8 +64,21 @@ func Compute(task sqlc.AgentTask, deps []DepEdgeView, now time.Time) Readiness {
 		return Readiness{State: ReadinessBlocked, Dispatchable: false}
 	case StatusDone, StatusFailed, StatusCancelled:
 		return Readiness{State: ReadinessTerminal, Dispatchable: false}
+	case StatusReviewing:
+		return Readiness{
+			State:        ReadinessReviewing,
+			Dispatchable: false,
+			Reasons:      []Reason{{Type: "awaiting_review"}},
+		}
+	case StatusReady:
+		// fall through
+	default:
+		return Readiness{
+			State:        ReadinessUnknown,
+			Dispatchable: false,
+			Reasons:      []Reason{{Type: "unknown_status", Detail: task.Status}},
+		}
 	}
-	// task.Status == StatusReady from here on.
 
 	// not_before gate: schedule a task for the future.
 	if task.NotBefore.Valid && task.NotBefore.String != "" {
