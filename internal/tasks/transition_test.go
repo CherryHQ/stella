@@ -14,14 +14,15 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// testHarness wires a fresh SQLite + seeded org/user + TransitionService.
+// testHarness wires a fresh SQLite + seeded org/user/agent + TransitionService.
 type testHarness struct {
-	t      *testing.T
-	db     *sql.DB
-	q      *sqlc.Queries
-	svc    *TransitionService
-	orgID  string
-	userID string
+	t       *testing.T
+	db      *sql.DB
+	q       *sqlc.Queries
+	svc     *TransitionService
+	orgID   string
+	userID  string
+	agentID string
 }
 
 func newHarness(t *testing.T) *testHarness {
@@ -43,9 +44,15 @@ func newHarness(t *testing.T) *testHarness {
 		userID, "test-"+userID[:8]+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
+	agentID := uuid.NewString()
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO settings_agent (id, org_id, name, workspace) VALUES (?, ?, 'test-agent', '/tmp')`,
+		agentID, orgID); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
 	q := sqlc.New(db)
 	svc := NewTransitionService(db, q)
-	return &testHarness{t: t, db: db, q: q, svc: svc, orgID: orgID, userID: userID}
+	return &testHarness{t: t, db: db, q: q, svc: svc, orgID: orgID, userID: userID, agentID: agentID}
 }
 
 // createTask inserts a task in the given status.

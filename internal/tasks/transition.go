@@ -576,11 +576,12 @@ func (s *TransitionService) WaiveDep(ctx context.Context, taskID, depTaskID, use
 
 // FailParams captures a worker-or-system-declared run failure.
 type FailParams struct {
-	TaskID    string
-	RunID     string
-	Reason    string // free-form error message
-	Retryable bool   // if false, force terminal failure
-	Actor     Actor
+	TaskID          string
+	RunID           string
+	Reason          string // free-form error message
+	Retryable       bool   // if false, force terminal failure
+	RunStatusOnFail string // override final run status; "" => RunFailed
+	Actor           Actor
 }
 
 // Fail records a run failure and either returns the task to StatusReady (if
@@ -598,10 +599,15 @@ func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
 			return ErrInvalidTransition
 		}
 		now := s.now()
-		// Finalize the run row, if provided.
+		// Finalize the run row, if provided. Caller may override the final
+		// run status (e.g. dispatcher's stale-run sweep uses RunInterrupted).
+		runStatus := p.RunStatusOnFail
+		if runStatus == "" {
+			runStatus = RunFailed
+		}
 		if p.RunID != "" {
 			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
-				Status: RunFailed, Result: "{}", Error: p.Reason,
+				Status: runStatus, Result: "{}", Error: p.Reason,
 				FinishedAt: sql.NullString{String: now, Valid: true},
 				UpdatedAt:  now, ID: p.RunID,
 			}); err != nil {
