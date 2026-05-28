@@ -33,15 +33,15 @@ const createAgentTaskDispatchHint = `-- name: CreateAgentTaskDispatchHint :one
 
 INSERT INTO agent_task_dispatch_hint (id, task_id, kind, executor_agent_id, created_at)
 VALUES (?, ?, ?, ?, ?)
-RETURNING id, task_id, kind, executor_agent_id, consumed_at, created_at
+RETURNING id, task_id, goal_id, kind, executor_agent_id, consumed_at, created_at
 `
 
 type CreateAgentTaskDispatchHintParams struct {
-	ID              string `json:"id"`
-	TaskID          string `json:"task_id"`
-	Kind            string `json:"kind"`
-	ExecutorAgentID string `json:"executor_agent_id"`
-	CreatedAt       string `json:"created_at"`
+	ID              string         `json:"id"`
+	TaskID          sql.NullString `json:"task_id"`
+	Kind            string         `json:"kind"`
+	ExecutorAgentID string         `json:"executor_agent_id"`
+	CreatedAt       string         `json:"created_at"`
 }
 
 // Dispatch hint persistence between task creation and the next claim (B1 / D13).
@@ -57,6 +57,7 @@ func (q *Queries) CreateAgentTaskDispatchHint(ctx context.Context, arg CreateAge
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.GoalID,
 		&i.Kind,
 		&i.ExecutorAgentID,
 		&i.ConsumedAt,
@@ -75,14 +76,14 @@ func (q *Queries) DeleteDispatchHint(ctx context.Context, id string) error {
 }
 
 const getLiveDispatchHintForTask = `-- name: GetLiveDispatchHintForTask :one
-SELECT id, task_id, kind, executor_agent_id, consumed_at, created_at FROM agent_task_dispatch_hint
+SELECT id, task_id, goal_id, kind, executor_agent_id, consumed_at, created_at FROM agent_task_dispatch_hint
 WHERE task_id = ? AND kind = ? AND consumed_at IS NULL
 LIMIT 1
 `
 
 type GetLiveDispatchHintForTaskParams struct {
-	TaskID string `json:"task_id"`
-	Kind   string `json:"kind"`
+	TaskID sql.NullString `json:"task_id"`
+	Kind   string         `json:"kind"`
 }
 
 func (q *Queries) GetLiveDispatchHintForTask(ctx context.Context, arg GetLiveDispatchHintForTaskParams) (AgentTaskDispatchHint, error) {
@@ -91,6 +92,7 @@ func (q *Queries) GetLiveDispatchHintForTask(ctx context.Context, arg GetLiveDis
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.GoalID,
 		&i.Kind,
 		&i.ExecutorAgentID,
 		&i.ConsumedAt,

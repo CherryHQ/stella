@@ -166,7 +166,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	}
 	if _, err := h.q.CreateAgentTaskDispatchHint(context.Background(), sqlc.CreateAgentTaskDispatchHintParams{
 		ID:              uuid.NewString(),
-		TaskID:          id,
+		TaskID:          nullable(id),
 		Kind:            RunKindWorker,
 		ExecutorAgentID: hintAgent,
 		CreatedAt:       time.Now().Format(time.RFC3339Nano),
@@ -189,7 +189,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	}
 	// And the hint should now be consumed.
 	hint, _ := h.q.GetLiveDispatchHintForTask(context.Background(), sqlc.GetLiveDispatchHintForTaskParams{
-		TaskID: id, Kind: RunKindWorker,
+		TaskID: nullable(id), Kind: RunKindWorker,
 	})
 	if hint.ID == "" {
 		// Live hint query returns sql.ErrNoRows for consumed hints; the empty

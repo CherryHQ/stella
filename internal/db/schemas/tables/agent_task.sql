@@ -7,11 +7,13 @@ CREATE TABLE agent_task (
     org_id              TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id            TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,  -- D12: creator, NOT assignee
+    goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,        -- Slice 3
     title               TEXT NOT NULL,
     description         TEXT NOT NULL DEFAULT '',
-    -- status: Slice 2 widens CHECK to include 'reviewing'.
-    status              TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','running','blocked','done','failed','cancelled')),
+    status              TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','running','blocked','reviewing','done','failed','cancelled')),
     priority            TEXT NOT NULL DEFAULT 'routine' CHECK (priority IN ('routine','urgent')),
+    review_policy       TEXT NOT NULL DEFAULT 'none' CHECK (review_policy IN ('none','auto','agent','human')),
+    active_review_id    TEXT REFERENCES agent_review(id) ON DELETE RESTRICT,
     required            INTEGER NOT NULL DEFAULT 1,
     retry_count         INTEGER NOT NULL DEFAULT 0,
     max_retries         INTEGER NOT NULL DEFAULT 3,
@@ -31,3 +33,4 @@ CREATE TABLE agent_task (
 CREATE INDEX idx_agent_task_org_status        ON agent_task(org_id, status);
 CREATE INDEX idx_agent_task_status_not_before ON agent_task(status, not_before);
 CREATE INDEX idx_agent_task_session           ON agent_task(session_id);
+CREATE INDEX idx_agent_task_goal              ON agent_task(goal_id);

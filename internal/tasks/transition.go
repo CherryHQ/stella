@@ -248,7 +248,7 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 		// Consume any live dispatch hint (B1). Best-effort — if no hint was
 		// live, there's nothing to consume.
 		if hint, err := q.GetLiveDispatchHintForTask(ctx, sqlc.GetLiveDispatchHintForTaskParams{
-			TaskID: p.TaskID, Kind: RunKindWorker,
+			TaskID: nullable(p.TaskID), Kind: RunKindWorker,
 		}); err == nil {
 			_, _ = q.ConsumeDispatchHint(ctx, sqlc.ConsumeDispatchHintParams{
 				ConsumedAt: sql.NullString{String: now, Valid: true}, ID: hint.ID,

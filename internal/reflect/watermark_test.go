@@ -32,15 +32,15 @@ type testStateStore struct {
 }
 
 func (s testStateStore) Get(ctx context.Context, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {
-	return s.store.Get(ctx, PluginID, scope, key)
+	return s.store.Get(ctx, "reflect", scope, key)
 }
 
 func (s testStateStore) Set(ctx context.Context, scope pkgplugins.StateScope, key string, value map[string]any) error {
-	return s.store.Set(ctx, PluginID, scope, key, value)
+	return s.store.Set(ctx, "reflect", scope, key, value)
 }
 
 func (s testStateStore) Delete(ctx context.Context, scope pkgplugins.StateScope, key string) error {
-	return s.store.Delete(ctx, PluginID, scope, key)
+	return s.store.Delete(ctx, "reflect", scope, key)
 }
 
 func TestWatermarkStore_GetMissing(t *testing.T) {

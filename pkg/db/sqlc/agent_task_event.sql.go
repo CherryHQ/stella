@@ -13,11 +13,11 @@ import (
 const insertAgentTaskEvent = `-- name: InsertAgentTaskEvent :one
 
 INSERT INTO agent_task_event (
-    id, task_id, run_id, blocker_id, event_type, from_status, to_status,
+    id, task_id, run_id, blocker_id, review_id, event_type, from_status, to_status,
     actor_type, actor_id, detail, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, task_id, run_id, blocker_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at
 `
 
 type InsertAgentTaskEventParams struct {
@@ -25,6 +25,7 @@ type InsertAgentTaskEventParams struct {
 	TaskID     sql.NullString `json:"task_id"`
 	RunID      sql.NullString `json:"run_id"`
 	BlockerID  sql.NullString `json:"blocker_id"`
+	ReviewID   sql.NullString `json:"review_id"`
 	EventType  string         `json:"event_type"`
 	FromStatus sql.NullString `json:"from_status"`
 	ToStatus   sql.NullString `json:"to_status"`
@@ -41,6 +42,7 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 		arg.TaskID,
 		arg.RunID,
 		arg.BlockerID,
+		arg.ReviewID,
 		arg.EventType,
 		arg.FromStatus,
 		arg.ToStatus,
@@ -53,8 +55,10 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.GoalID,
 		&i.RunID,
 		&i.BlockerID,
+		&i.ReviewID,
 		&i.EventType,
 		&i.FromStatus,
 		&i.ToStatus,
@@ -67,7 +71,7 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 }
 
 const listAgentTaskEvents = `-- name: ListAgentTaskEvents :many
-SELECT id, task_id, run_id, blocker_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC
 `
 
 func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID sql.NullString) ([]AgentTaskEvent, error) {
@@ -82,8 +86,10 @@ func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID sql.NullString
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,
+			&i.GoalID,
 			&i.RunID,
 			&i.BlockerID,
+			&i.ReviewID,
 			&i.EventType,
 			&i.FromStatus,
 			&i.ToStatus,
@@ -106,7 +112,7 @@ func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID sql.NullString
 }
 
 const listAgentTaskEventsByRun = `-- name: ListAgentTaskEventsByRun :many
-SELECT id, task_id, run_id, blocker_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE run_id = ? ORDER BY created_at ASC
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE run_id = ? ORDER BY created_at ASC
 `
 
 func (q *Queries) ListAgentTaskEventsByRun(ctx context.Context, runID sql.NullString) ([]AgentTaskEvent, error) {
@@ -121,8 +127,10 @@ func (q *Queries) ListAgentTaskEventsByRun(ctx context.Context, runID sql.NullSt
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,
+			&i.GoalID,
 			&i.RunID,
 			&i.BlockerID,
+			&i.ReviewID,
 			&i.EventType,
 			&i.FromStatus,
 			&i.ToStatus,

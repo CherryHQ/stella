@@ -71,6 +71,25 @@ now) Readiness`,返回 `dispatchable` / `waiting_deps` / `deferred` /
 `waived_by_user` + 自由文本 reason。少了 waiver,即便 blocker 标记
 resolved,readiness 仍然看到失败的上游,task 仍然卡住。
 
+### Waiver 工作流(hard / failed / block)
+
+上游失败、下游边是 `hard` + `on_failure='block'` 时,下一次 dispatcher tick:
+
+1. 计算可调度性 → 命中 `dep_failed_block`。
+2. 调 `TransitionService.Block`,kind=`dep_failure`,把下游转到 `blocked`,
+   开一条 `agent_task_blocker`。
+
+解锁路径:操作员调 `WaiveDep(taskID, depTaskID, userID, reason)`:
+
+1. 在边上写 `waived_at` + `waived_by_user` + `waiver_reason`。
+2. 同事务里把开着的 `dep_failure` blocker 标为 resolved(resolution_json 里
+   记录 waiver),清掉 `active_blocker_id`,task 回到 `ready`。
+3. 下次 dispatcher tick 重新算 readiness,被 waive 的边视为满足,任务可
+   以分派。
+
+软依赖永远不进入 waiver 流程 —— 软依赖忽略 `on_failure`,上游进入任一终
+止状态(`done` / `failed` / `cancelled`)立刻视为满足。
+
 ## Executor 解析
 
 dispatcher 不在任务行上存"被指派的 agent"。claim 任务时按下面顺序解析

@@ -27,15 +27,12 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
-	reflectplugin "github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	mcp "github.com/CherryHQ/stella/internal/tools/mcp"
-	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/pkg/providers"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
@@ -189,18 +186,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	stateStore := pluginstate.New(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
-	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
-	reflectRuntimeServices.Set(context.Background(), mem, store, t.TempDir(), func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
-		return func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-			return nil, nil
-		}, nil
-	})
 	phost := pluginhost.New(store,
 		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
-		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
 	phost.RegisterBuiltinTools(mcp.NewManager())
 	if err := phost.LoadDefaultCatalog(); err != nil {
@@ -210,9 +200,6 @@ func setupAdmin(t *testing.T) *testEnv {
 	phost.SetSkillStore(skillStore)
 	if err := phost.ApplyPlugin(orgCtx, mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
-	}
-	if err := phost.ApplyPlugin(orgCtx, reflectplugin.PluginID); err != nil {
-		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
 	srv := server.New(orgCtx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
@@ -648,7 +635,6 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 		{path: "/api/plugin-config-schema/channel/qq", propertyName: "app_id"},
 		{path: "/api/plugin-config-schema/channel/feishu", propertyName: "app_id"},
 		{path: "/api/plugin-config-schema/channel/weixin", propertyName: "bot_token"},
-		{path: "/api/plugin-config-schema/reflect/reflect", propertyName: "interval"},
 	}
 
 	for _, tt := range tests {
@@ -676,14 +662,6 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 
 func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	env := setupAdmin(t)
-
-	octx := config.WithOrgID(context.Background(), env.orgID)
-	if err := env.store.SetPluginConfig(octx, reflectplugin.PluginID, map[string]any{
-		"interval": "30m",
-		"batch":    3,
-	}); err != nil {
-		t.Fatalf("SetPluginConfig(reflect): %v", err)
-	}
 
 	rr := doRequest(t, env, "GET", "/api/plugins", nil)
 	if rr.Code != http.StatusOK {
@@ -729,14 +707,6 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	if qq.DisplayName != "QQ" {
 		t.Fatalf("unexpected qq plugin payload: %#v", qq)
 	}
-
-	reflect := byID[reflectplugin.PluginID]
-	if reflect.DisplayName != "Reflect" || !reflect.Managed || !reflect.HasConfig || !reflect.HasStatus {
-		t.Fatalf("unexpected reflect plugin payload: %#v", reflect)
-	}
-	if reflect.Description == "" {
-		t.Fatalf("expected reflect description in payload: %#v", reflect)
-	}
 }
 
 func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
@@ -752,70 +722,6 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("PUT status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
-	}
-}
-
-func TestReflectPluginConfigAndStatus(t *testing.T) {
-	env := setupAdmin(t)
-
-	rr := doRequest(t, env, "PATCH", "/api/plugin-config/reflect/reflect", map[string]any{
-		"config": map[string]any{"interval": "30m", "batch": 3},
-	})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("config status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect/reflect", map[string]any{"enabled": true})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("toggle status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	rr = doRequest(t, env, "GET", "/api/plugin-status/reflect/reflect", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	resp := parseResponse(t, rr)
-	var payload struct {
-		State    string         `json:"state"`
-		Message  string         `json:"message"`
-		Metadata map[string]any `json:"metadata"`
-	}
-	if err := json.Unmarshal(resp.Data, &payload); err != nil {
-		t.Fatalf("unmarshal reflect status: %v", err)
-	}
-	if payload.State != "running" {
-		t.Fatalf("reflect state = %q, want running", payload.State)
-	}
-	if payload.Metadata["interval"] != "30m0s" {
-		t.Fatalf("interval metadata = %#v, want %q", payload.Metadata["interval"], "30m0s")
-	}
-	if payload.Metadata["batch"] != float64(3) {
-		t.Fatalf("batch metadata = %#v, want 3", payload.Metadata["batch"])
-	}
-
-	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect/reflect", map[string]any{"enabled": false})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	resp = parseResponse(t, rr)
-	var plugin config.Plugin
-	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
-		t.Fatalf("unmarshal plugin: %v", err)
-	}
-	if plugin.ID != reflectplugin.PluginID || plugin.Enabled {
-		t.Fatalf("unexpected plugin payload: %#v", plugin)
-	}
-
-	rr = doRequest(t, env, "GET", "/api/plugin-status/reflect/reflect", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	resp = parseResponse(t, rr)
-	if err := json.Unmarshal(resp.Data, &payload); err != nil {
-		t.Fatalf("unmarshal reflect status after disable: %v", err)
-	}
-	if payload.State != "stopped" {
-		t.Fatalf("reflect state after disable = %q, want stopped", payload.State)
 	}
 }
 

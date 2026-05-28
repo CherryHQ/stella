@@ -77,7 +77,7 @@ INSERT INTO agent_task (
     session_id, context, output, created_at, updated_at
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, org_id, user_id, agent_id, title, description, status, priority, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
+RETURNING id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
 `
 
 type CreateAgentTaskParams struct {
@@ -132,10 +132,13 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
+		&i.GoalID,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
+		&i.ReviewPolicy,
+		&i.ActiveReviewID,
 		&i.Required,
 		&i.RetryCount,
 		&i.MaxRetries,
@@ -169,7 +172,7 @@ func (q *Queries) DeleteAgentTask(ctx context.Context, arg DeleteAgentTaskParams
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, org_id, user_id, agent_id, title, description, status, priority, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
 `
 
 func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
@@ -180,10 +183,13 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
+		&i.GoalID,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
+		&i.ReviewPolicy,
+		&i.ActiveReviewID,
 		&i.Required,
 		&i.RetryCount,
 		&i.MaxRetries,
@@ -203,7 +209,7 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 }
 
 const getAgentTaskForOrg = `-- name: GetAgentTaskForOrg :one
-SELECT id, org_id, user_id, agent_id, title, description, status, priority, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ? AND org_id = ?
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ? AND org_id = ?
 `
 
 type GetAgentTaskForOrgParams struct {
@@ -219,10 +225,13 @@ func (q *Queries) GetAgentTaskForOrg(ctx context.Context, arg GetAgentTaskForOrg
 		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
+		&i.GoalID,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
+		&i.ReviewPolicy,
+		&i.ActiveReviewID,
 		&i.Required,
 		&i.RetryCount,
 		&i.MaxRetries,
@@ -258,7 +267,7 @@ func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgen
 }
 
 const listAgentTasksByOrg = `-- name: ListAgentTasksByOrg :many
-SELECT id, org_id, user_id, agent_id, title, description, status, priority, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentTasksByOrgParams struct {
@@ -281,10 +290,13 @@ func (q *Queries) ListAgentTasksByOrg(ctx context.Context, arg ListAgentTasksByO
 			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
+			&i.GoalID,
 			&i.Title,
 			&i.Description,
 			&i.Status,
 			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
 			&i.Required,
 			&i.RetryCount,
 			&i.MaxRetries,
@@ -314,7 +326,7 @@ func (q *Queries) ListAgentTasksByOrg(ctx context.Context, arg ListAgentTasksByO
 }
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, org_id, user_id, agent_id, title, description, status, priority, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentTasksByUserParams struct {
@@ -343,10 +355,13 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
+			&i.GoalID,
 			&i.Title,
 			&i.Description,
 			&i.Status,
 			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
 			&i.Required,
 			&i.RetryCount,
 			&i.MaxRetries,
@@ -376,7 +391,7 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 }
 
 const listReadyCandidates = `-- name: ListReadyCandidates :many
-SELECT id, org_id, user_id, agent_id, title, description, status, priority, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
 WHERE status = 'ready'
   AND active_run_id IS NULL
   AND (not_before IS NULL OR not_before <= ?)
@@ -405,10 +420,13 @@ func (q *Queries) ListReadyCandidates(ctx context.Context, arg ListReadyCandidat
 			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
+			&i.GoalID,
 			&i.Title,
 			&i.Description,
 			&i.Status,
 			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
 			&i.Required,
 			&i.RetryCount,
 			&i.MaxRetries,
@@ -451,6 +469,23 @@ type SetAgentTaskActiveBlockerParams struct {
 
 func (q *Queries) SetAgentTaskActiveBlocker(ctx context.Context, arg SetAgentTaskActiveBlockerParams) error {
 	_, err := q.db.ExecContext(ctx, setAgentTaskActiveBlocker, arg.ActiveBlockerID, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setAgentTaskActiveReview = `-- name: SetAgentTaskActiveReview :exec
+UPDATE agent_task
+SET active_review_id = ?, updated_at = ?
+WHERE id = ?
+`
+
+type SetAgentTaskActiveReviewParams struct {
+	ActiveReviewID sql.NullString `json:"active_review_id"`
+	UpdatedAt      string         `json:"updated_at"`
+	ID             string         `json:"id"`
+}
+
+func (q *Queries) SetAgentTaskActiveReview(ctx context.Context, arg SetAgentTaskActiveReviewParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskActiveReview, arg.ActiveReviewID, arg.UpdatedAt, arg.ID)
 	return err
 }
 
@@ -508,6 +543,23 @@ func (q *Queries) SetAgentTaskOutput(ctx context.Context, arg SetAgentTaskOutput
 		arg.UpdatedAt,
 		arg.ID,
 	)
+	return err
+}
+
+const setAgentTaskReviewPolicy = `-- name: SetAgentTaskReviewPolicy :exec
+UPDATE agent_task
+SET review_policy = ?, updated_at = ?
+WHERE id = ?
+`
+
+type SetAgentTaskReviewPolicyParams struct {
+	ReviewPolicy string `json:"review_policy"`
+	UpdatedAt    string `json:"updated_at"`
+	ID           string `json:"id"`
+}
+
+func (q *Queries) SetAgentTaskReviewPolicy(ctx context.Context, arg SetAgentTaskReviewPolicyParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskReviewPolicy, arg.ReviewPolicy, arg.UpdatedAt, arg.ID)
 	return err
 }
 

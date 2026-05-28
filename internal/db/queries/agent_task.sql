@@ -72,6 +72,16 @@ UPDATE agent_task
 SET active_blocker_id = ?, updated_at = ?
 WHERE id = ?;
 
+-- name: SetAgentTaskActiveReview :exec
+UPDATE agent_task
+SET active_review_id = ?, updated_at = ?
+WHERE id = ?;
+
+-- name: SetAgentTaskReviewPolicy :exec
+UPDATE agent_task
+SET review_policy = ?, updated_at = ?
+WHERE id = ?;
+
 -- name: IncrementAgentTaskRetry :exec
 UPDATE agent_task
 SET retry_count = retry_count + 1, updated_at = ?
