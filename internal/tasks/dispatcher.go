@@ -12,8 +12,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// SchedulerLike is the subset of scheduler.Service the dispatcher needs.
-// Allows tests to drive ticks directly without wiring gocron.
+// SchedulerLike is the subset of scheduler.Service Service.Start needs to
+// register the dispatcher tick. Tests can pass a stub or drive Tick directly.
 type SchedulerLike interface {
 	ScheduleEvery(ctx context.Context, every string, fn func(ctx context.Context)) error
 }
@@ -82,17 +82,6 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	}
 }
 
-// Start registers the dispatcher tick on the given scheduler. If sched is nil
-// the dispatcher is silent — callers must call Tick directly (used by tests).
-func (d *Dispatcher) Start(ctx context.Context, sched SchedulerLike) error {
-	if sched == nil {
-		return nil
-	}
-	return sched.ScheduleEvery(ctx, fmt.Sprintf("%ds", int(d.cfg.TickEvery.Seconds())), func(ctx context.Context) {
-		d.Tick(ctx)
-	})
-}
-
 // Stop waits for all in-flight workers to drain. The dispatcher tick stops
 // firing when its scheduler is stopped (the scheduler owns the lifecycle).
 func (d *Dispatcher) Stop() {
@@ -145,15 +134,14 @@ func (d *Dispatcher) interruptStaleRuns(ctx context.Context, now time.Time) {
 		if taskID == "" {
 			continue
 		}
-		// Fail() finalizes the run row; override the final status to
-		// RunInterrupted so the audit trail records this as a lease expiry
-		// rather than an explicit failure.
-		if err := d.cfg.Service.Fail(ctx, FailParams{
+		// InterruptStaleRun finalises the run as 'interrupted' and emits a
+		// run_interrupted / run_interrupt_retry event so the audit trail
+		// distinguishes lease expiry from an explicit failure (M11).
+		if err := d.cfg.Service.InterruptStaleRun(ctx, InterruptStaleRunParams{
 			TaskID: taskID, RunID: r.ID,
-			Reason: "lease expired", Retryable: true,
-			RunStatusOnFail: RunInterrupted, Actor: SystemActor(),
+			Reason: "lease expired", Actor: SystemActor(),
 		}); err != nil && !errors.Is(err, ErrInvalidTransition) {
-			d.cfg.Logger.Warn("dispatcher: fail-after-interrupt", "task", taskID, "err", err)
+			d.cfg.Logger.Warn("dispatcher: interrupt stale run", "task", taskID, "err", err)
 		}
 	}
 }
@@ -161,6 +149,13 @@ func (d *Dispatcher) interruptStaleRuns(ctx context.Context, now time.Time) {
 // propagateDepFailures scans tasks whose hard dep has failed (or been
 // cancelled) without a waiver and either blocks them or fails them per
 // on_failure.
+//
+// Scope (M9): only ready candidates are scanned. If an upstream fails while
+// a downstream is already running, on_failure=block / on_failure=fail will
+// NOT fire mid-run; the downstream worker is expected to notice through its
+// own logic (or run to completion). This is intentional — interrupting a
+// running task on remote state change widens the race surface and makes
+// worker semantics unpredictable.
 func (d *Dispatcher) propagateDepFailures(ctx context.Context, now time.Time) {
 	candidates, err := d.cfg.Queries.ListReadyCandidates(ctx, sqlc.ListReadyCandidatesParams{
 		NotBefore: sql.NullString{String: now.Format(time.RFC3339Nano), Valid: true},

@@ -290,7 +290,7 @@ func TestWaiveDep_UnblocksTask(t *testing.T) {
 		t.Fatalf("Block(dep_failure): %v", err)
 	}
 	// WaiveDep should both record waiver and resolve the blocker.
-	if err := h.svc.WaiveDep(context.Background(), downstream, upstream, h.userID, "manual override", SystemActor()); err != nil {
+	if err := h.svc.WaiveDep(context.Background(), downstream, upstream, "manual override", Actor{Type: ActorUser, ID: h.userID}); err != nil {
 		t.Fatalf("WaiveDep: %v", err)
 	}
 	task := h.getTask(t, downstream)
@@ -419,7 +419,7 @@ func TestSubmit_FromReady_Rejected(t *testing.T) {
 func TestWaiveDep_NoMatchingEdge_ReturnsError(t *testing.T) {
 	h := newHarness(t)
 	a := h.createTask(t, StatusReady)
-	err := h.svc.WaiveDep(context.Background(), a, "no-such-dep", h.userID, "x", SystemActor())
+	err := h.svc.WaiveDep(context.Background(), a, "no-such-dep", "x", Actor{Type: ActorUser, ID: h.userID})
 	if err == nil {
 		t.Fatal("expected error for missing dep")
 	}
@@ -430,7 +430,7 @@ func TestWaiveDep_EmptyReason_Rejected(t *testing.T) {
 	a := h.createTask(t, StatusReady)
 	b := h.createTask(t, StatusReady)
 	_ = h.svc.AddDep(context.Background(), a, b, DepKindHard, OnFailureBlock)
-	err := h.svc.WaiveDep(context.Background(), a, b, h.userID, "", SystemActor())
+	err := h.svc.WaiveDep(context.Background(), a, b, "", Actor{Type: ActorUser, ID: h.userID})
 	if err == nil {
 		t.Fatal("expected error for empty reason")
 	}

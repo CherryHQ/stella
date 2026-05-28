@@ -38,10 +38,13 @@ UPDATE agent_task_run
 SET status = 'running', started_at = ?, heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
 WHERE id = ? AND status = 'queued';
 
--- name: FinishAgentTaskRun :exec
+-- Finalize a run row. Guarded on the run still being in flight so a late
+-- Cancel/Block tx cannot overwrite the output a concurrent Submit committed.
+-- execrows so callers can detect the race-loser case.
+-- name: FinishAgentTaskRun :execrows
 UPDATE agent_task_run
 SET status = ?, result = ?, error = ?, finished_at = ?, updated_at = ?
-WHERE id = ?;
+WHERE id = ? AND status IN ('queued','running');
 
 -- name: ListStaleAgentTaskRuns :many
 SELECT * FROM agent_task_run

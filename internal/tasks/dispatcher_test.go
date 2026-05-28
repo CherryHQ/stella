@@ -34,7 +34,7 @@ func newDispatcherHarness(t *testing.T, runner RunnerFunc) (*testHarness, *Dispa
 
 func TestDispatcher_PicksUpReadyTask(t *testing.T) {
 	called := atomic.Int32{}
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	runner := func(ctx context.Context, _ RunContext, tool *TaskControlTool) error {
 		called.Add(1)
 		return tool.Submit(ctx, "{}")
 	}
@@ -52,7 +52,7 @@ func TestDispatcher_PicksUpReadyTask(t *testing.T) {
 
 func TestDispatcher_DraftTaskNotPickedUp(t *testing.T) {
 	called := atomic.Int32{}
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error {
+	runner := func(_ context.Context, _ RunContext, _ *TaskControlTool) error {
 		called.Add(1)
 		return nil
 	}
@@ -67,7 +67,7 @@ func TestDispatcher_DraftTaskNotPickedUp(t *testing.T) {
 
 func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	called := atomic.Int32{}
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	runner := func(ctx context.Context, _ RunContext, tool *TaskControlTool) error {
 		called.Add(1)
 		return tool.Submit(ctx, "{}")
 	}
@@ -97,7 +97,7 @@ func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
 	// Worker runner that "hangs" — we'll simulate stale by setting a past
 	// lease_expires_at directly.
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error {
+	runner := func(_ context.Context, _ RunContext, _ *TaskControlTool) error {
 		return nil // not used here
 	}
 	h, d := newDispatcherHarness(t, runner)
@@ -128,7 +128,7 @@ func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
 }
 
 func TestDispatcher_DepFailurePropagatesAsBlock(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error { return nil }
+	runner := func(_ context.Context, _ RunContext, _ *TaskControlTool) error { return nil }
 	h, d := newDispatcherHarness(t, runner)
 	// Upstream task in failed state. Downstream depends on it hard+block.
 	upstream := h.createTask(t, StatusReady)
@@ -150,8 +150,8 @@ func TestDispatcher_DepFailurePropagatesAsBlock(t *testing.T) {
 
 func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	captured := ""
-	runner := func(ctx context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		captured = run.ExecutorAgentID.String
+	runner := func(ctx context.Context, run RunContext, tool *TaskControlTool) error {
+		captured = run.ExecutorAgentID
 		return tool.Submit(ctx, "{}")
 	}
 	h := newHarness(t)
@@ -204,7 +204,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 }
 
 func TestDispatcher_NoExecutorResolved_EmitsProtocolError(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error { return nil }
+	runner := func(_ context.Context, _ RunContext, _ *TaskControlTool) error { return nil }
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
 	d := NewDispatcher(DispatcherConfig{
@@ -241,7 +241,7 @@ func TestDispatcher_ConcurrencyCapHonored(t *testing.T) {
 	var live atomic.Int32
 	maxObserved := atomic.Int32{}
 	gate := make(chan struct{})
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	runner := func(ctx context.Context, _ RunContext, tool *TaskControlTool) error {
 		cur := live.Add(1)
 		defer live.Add(-1)
 		for {

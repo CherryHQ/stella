@@ -12,6 +12,37 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+// RunContext is the per-run domain payload handed to RunnerFunc. It carries
+// only the fields a runner needs (M10) so the runner contract is decoupled
+// from the sqlc-generated AgentTaskRun row layout. New fields can be added
+// without breaking adapter implementations.
+type RunContext struct {
+	RunID           string
+	TaskID          string
+	OrgID           string
+	UserID          string
+	AgentID         string // creator agent (may be empty if task had none)
+	ExecutorAgentID string // resolved executor agent for this run
+	SessionID       string
+	AttemptNo       int64
+	Input           string // task input as JSON
+}
+
+// runContextFromRow projects the persisted run row into the domain struct.
+func runContextFromRow(r sqlc.AgentTaskRun) RunContext {
+	return RunContext{
+		RunID:           r.ID,
+		TaskID:          r.TaskID.String,
+		OrgID:           r.OrgID,
+		UserID:          r.UserID,
+		AgentID:         r.AgentID.String,
+		ExecutorAgentID: r.ExecutorAgentID.String,
+		SessionID:       r.SessionID,
+		AttemptNo:       r.AttemptNo,
+		Input:           r.Input,
+	}
+}
+
 // RunnerFunc is the agent-execution callback that the worker invokes for a
 // claimed run. The runner must call exactly one of tool.Submit / tool.Block /
 // tool.Fail before returning; otherwise the worker applies the protocol-error
@@ -19,14 +50,16 @@ import (
 //
 // The runner runs inside the dispatcher's worker goroutine and must honor ctx
 // cancellation (e.g. on dispatcher shutdown).
-type RunnerFunc func(ctx context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error
+type RunnerFunc func(ctx context.Context, run RunContext, tool *TaskControlTool) error
 
 // HeartbeatInterval is how often the worker extends lease_expires_at on the
 // run row while the runner is executing. Set to 0 to disable heartbeats.
-const HeartbeatInterval = 20 * time.Second
+const HeartbeatInterval = 15 * time.Second
 
-// LeaseDuration is the default lease applied while a run is in flight. Must
-// be > 3 * HeartbeatInterval so a single missed beat doesn't expire the lease.
+// LeaseDuration is the default lease applied while a run is in flight. Set
+// well above HeartbeatInterval (M3: ~5x) so transient scheduler delays,
+// GC pauses, or one missed beat don't expire the lease and let the
+// dispatcher's stale-run sweep yank the task away from a still-live worker.
 const LeaseDuration = 90 * time.Second
 
 // Worker runs one claimed agent_task_run to completion.
@@ -105,7 +138,7 @@ func (w *Worker) Run(ctx context.Context, taskID, runID string, actor Actor) (er
 		}
 	}()
 
-	rerr := w.runner(ctx, run, tool)
+	rerr := w.runner(ctx, runContextFromRow(run), tool)
 
 	if !tool.Finished() {
 		reason := "agent exited without calling submit/block/fail"

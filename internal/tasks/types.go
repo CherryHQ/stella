@@ -105,6 +105,21 @@ var (
 	// ErrAlreadyClosed is returned when attempting to resolve a blocker that
 	// is not in the 'open' state.
 	ErrAlreadyClosed = errors.New("tasks: blocker is not open")
+
+	// ErrCrossOrg is returned when a request would join two rows from
+	// different orgs (e.g. AddDep across orgs, executor_agent_id pointing at
+	// an agent in a different org).
+	ErrCrossOrg = errors.New("tasks: cross-org reference rejected")
+
+	// ErrUnauthorized is returned when the caller is not allowed to perform
+	// the requested action (e.g. WaiveDep by a non-owner non-admin).
+	ErrUnauthorized = errors.New("tasks: unauthorized")
+
+	// ErrCycleCheckBudgetExceeded is returned when AddDep's bounded DFS
+	// exhausts its visit budget without confirming the absence of a cycle.
+	// Surfacing this as an error makes the operation fail closed rather than
+	// silently accepting an edge that may close a cycle in a large graph.
+	ErrCycleCheckBudgetExceeded = errors.New("tasks: cycle check budget exceeded")
 )
 
 // IsTerminalStatus reports whether the task status is terminal (no further

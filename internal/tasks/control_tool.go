@@ -3,7 +3,9 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -18,6 +20,7 @@ import (
 type TaskControlTool struct {
 	svc      *TransitionService
 	q        *sqlc.Queries
+	log      *slog.Logger
 	taskID   string
 	runID    string
 	actor    Actor
@@ -26,7 +29,22 @@ type TaskControlTool struct {
 
 // NewTaskControlTool wires a control tool for one claimed run.
 func NewTaskControlTool(svc *TransitionService, q *sqlc.Queries, taskID, runID string, actor Actor) *TaskControlTool {
-	return &TaskControlTool{svc: svc, q: q, taskID: taskID, runID: runID, actor: actor}
+	return &TaskControlTool{
+		svc: svc, q: q,
+		log:    slog.Default().With("component", "tasks/control_tool"),
+		taskID: taskID, runID: runID, actor: actor,
+	}
+}
+
+// logLostToSweep records a structured warning when a control-tool call hits
+// ErrInvalidTransition — almost always because the dispatcher's stale-run
+// sweep interrupted the run after a heartbeat delay (M3). Surfacing this
+// distinctly from generic transition errors makes lease-budget mistuning
+// diagnosable.
+func (t *TaskControlTool) logLostToSweep(action string) {
+	t.log.Warn("worker lost to dispatcher sweep",
+		"action", action, "task_id", t.taskID, "run_id", t.runID,
+		"hint", "lease/heartbeat margin may be too tight; raise LeaseDuration or lower HeartbeatInterval")
 }
 
 // Finished reports whether the tool has seen a terminal action (submit, block,
@@ -34,9 +52,28 @@ func NewTaskControlTool(svc *TransitionService, q *sqlc.Queries, taskID, runID s
 // fallback when the agent loop exits.
 func (t *TaskControlTool) Finished() bool { return t.finished }
 
+// MaxProgressPatchBytes caps a single Progress patch (M7). Patches above
+// this size are rejected — the worker is feeding the model's output back as
+// state, and unbounded blobs amplify into self-DoS as the merged context
+// grows on every tick.
+const MaxProgressPatchBytes = 64 * 1024
+
+// MaxTaskContextBytes caps the merged task.context document. Above this we
+// refuse the merge rather than commit an unbounded row (M7).
+const MaxTaskContextBytes = 256 * 1024
+
+// reservedProgressKeyPrefixes are namespaces the worker cannot write to via
+// Progress. Reserved for future system fields and to avoid collisions with
+// downstream JS consumers (M7).
+var reservedProgressKeyPrefixes = []string{"_system", "__"}
+
 // Progress merges patch into agent_task.context as a shallow JSON merge
 // (HP6 / D14). Existing keys not in patch are preserved.
 // patch may be raw JSON bytes or a Go map; both produce the same merge.
+//
+// Hardened (M7): patch size capped, reserved-prefix keys rejected, total
+// merged size capped. Worker-driven Progress is model-generated and cannot
+// be trusted to stay bounded on its own.
 func (t *TaskControlTool) Progress(ctx context.Context, patch any) error {
 	if t.finished {
 		return fmt.Errorf("task_control: progress after terminal action")
@@ -45,11 +82,24 @@ func (t *TaskControlTool) Progress(ctx context.Context, patch any) error {
 	if err != nil {
 		return err
 	}
+	if b, err := json.Marshal(patchMap); err == nil && len(b) > MaxProgressPatchBytes {
+		return fmt.Errorf("task_control: progress patch exceeds %d bytes (got %d)", MaxProgressPatchBytes, len(b))
+	}
+	for k := range patchMap {
+		for _, p := range reservedProgressKeyPrefixes {
+			if len(k) >= len(p) && k[:len(p)] == p {
+				return fmt.Errorf("task_control: progress key %q uses reserved prefix %q", k, p)
+			}
+		}
+	}
 	task, err := t.q.GetAgentTask(ctx, t.taskID)
 	if err != nil {
 		return err
 	}
 	merged := mergeContext(task.Context, patchMap)
+	if len(merged) > MaxTaskContextBytes {
+		return fmt.Errorf("task_control: merged context would exceed %d bytes (got %d)", MaxTaskContextBytes, len(merged))
+	}
 	now := t.svc.now()
 	return t.q.UpdateAgentTaskMeta(ctx, sqlc.UpdateAgentTaskMetaParams{
 		Title:       task.Title,
@@ -90,6 +140,9 @@ func (t *TaskControlTool) Submit(ctx context.Context, output any) error {
 	}
 	outputStr := detailJSON(output)
 	if err := t.svc.Submit(ctx, t.taskID, t.runID, outputStr, t.actor); err != nil {
+		if errors.Is(err, ErrInvalidTransition) {
+			t.logLostToSweep("submit")
+		}
 		return err
 	}
 	t.finished = true

@@ -7,12 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// isUniqueConstraintErr reports whether err is a sqlite UNIQUE constraint
+// violation. We string-match because the modernc driver does not export a
+// constraint sentinel; the message text is stable across modernc/mattn.
+func isUniqueConstraintErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
 
 // TransitionService is the single entry point for every state change on
 // agent_task / agent_task_run / agent_task_blocker / agent_task_dep rows.
@@ -44,6 +52,14 @@ func nullable(v string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: v, Valid: true}
+}
+
+// WithTx runs fn inside a transaction using the transition service's *sql.DB
+// and *sqlc.Queries. Exposed so the facade can do multi-step composite
+// operations (e.g. CreateTask's task+deps+hint+activate sequence) inside a
+// single tx without bypassing the transition service.
+func (s *TransitionService) WithTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
+	return s.withTx(ctx, fn)
 }
 
 // withTx runs fn inside a transaction. On error it rolls back; on success it
@@ -122,27 +138,33 @@ func expect(ctx context.Context, q *sqlc.Queries, taskID string, from ...string)
 // Activate moves StatusDraft → StatusReady.
 func (s *TransitionService) Activate(ctx context.Context, taskID string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		if _, err := expect(ctx, q, taskID, StatusDraft); err != nil {
-			return err
-		}
-		now := s.now()
-		n, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
-			Status: StatusReady, UpdatedAt: now, ID: taskID, Status_2: StatusDraft,
-		})
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrInvalidTransition
-		}
-		return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID:     nullable(taskID),
-			EventType:  "activate",
-			FromStatus: nullable(StatusDraft),
-			ToStatus:   nullable(StatusReady),
-			ActorType:  actor.Type,
-			ActorID:    nullable(actor.ID),
-		})
+		return s.activateTx(ctx, q, taskID, actor)
+	})
+}
+
+// activateTx is the inner body of Activate, callable from inside an existing
+// tx (CreateTask uses this to atomically draft→ready before commit).
+func (s *TransitionService) activateTx(ctx context.Context, q *sqlc.Queries, taskID string, actor Actor) error {
+	if _, err := expect(ctx, q, taskID, StatusDraft); err != nil {
+		return err
+	}
+	now := s.now()
+	n, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
+		Status: StatusReady, UpdatedAt: now, ID: taskID, Status_2: StatusDraft,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrInvalidTransition
+	}
+	return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+		TaskID:     nullable(taskID),
+		EventType:  "activate",
+		FromStatus: nullable(StatusDraft),
+		ToStatus:   nullable(StatusReady),
+		ActorType:  actor.Type,
+		ActorID:    nullable(actor.ID),
 	})
 }
 
@@ -228,6 +250,13 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 			UpdatedAt:       now,
 		})
 		if err != nil {
+			// Race loser: the partial unique index uniq_active_worker_run
+			// rejects a second queued/running run for the same task. Surface
+			// as ErrInvalidTransition so the dispatcher's normal "lost race"
+			// path consumes it without a warning log (M1).
+			if isUniqueConstraintErr(err) {
+				return ErrInvalidTransition
+			}
 			return fmt.Errorf("create run: %w", err)
 		}
 		// Atomic claim: ready + no active run -> running, set active_run_id and
@@ -298,9 +327,10 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 				return err
 			}
 		}
-		// Finalize the run row.
+		// Finalize the run row. Conditional on still-in-flight; if a racing
+		// Cancel beat us here the run is already cancelled and we leave it.
 		if runID != "" {
-			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
+			if _, err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: RunCompleted, Result: output, Error: "",
 				FinishedAt: sql.NullString{String: now, Valid: true},
 				UpdatedAt:  now, ID: runID,
@@ -352,8 +382,16 @@ func (s *TransitionService) Block(ctx context.Context, p BlockParams) error {
 		// into it. This is the only case where Block accepts from=blocked.
 		if open, err := q.GetOpenBlockerForTask(ctx, p.TaskID); err == nil {
 			merged := mergeBlockerDetail(open.Detail, p.Kind, p.Question, p.Detail)
-			if err := q.AppendAgentTaskBlockerDetail(ctx, sqlc.AppendAgentTaskBlockerDetailParams{
-				Detail: merged, ID: open.ID,
+			// H4: dep_failure is sticky. If the incoming condition is a
+			// dep_failure (the only kind ResolveBlocker rejects), promote the
+			// row's kind so the M1 waiver path stays enforced even when an
+			// earlier softer condition (user_input, etc.) created the row.
+			promotedKind := open.Kind
+			if p.Kind == BlockerKindDepFailure {
+				promotedKind = BlockerKindDepFailure
+			}
+			if err := q.MergeAgentTaskBlocker(ctx, sqlc.MergeAgentTaskBlockerParams{
+				Detail: merged, Kind: promotedKind, ID: open.ID,
 			}); err != nil {
 				return err
 			}
@@ -363,7 +401,7 @@ func (s *TransitionService) Block(ctx context.Context, p BlockParams) error {
 				EventType: "blocker_merged",
 				ActorType: actorTypeOrSystem(p.Actor),
 				ActorID:   nullable(p.Actor.ID),
-				Detail:    detailJSON(map[string]any{"new_kind": p.Kind, "question": p.Question}),
+				Detail:    detailJSON(map[string]any{"new_kind": p.Kind, "question": p.Question, "promoted_kind": promotedKind}),
 			})
 		}
 
@@ -407,9 +445,13 @@ func (s *TransitionService) Block(ctx context.Context, p BlockParams) error {
 		}); err != nil {
 			return err
 		}
-		// If we were running, clear active_run_id and mark its run cancelled.
-		if from == StatusRunning && task.ActiveRunID.Valid {
-			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
+		// Always clear active_run_id when a block fires — even from from=ready,
+		// where a previously-finalised run may still be hanging off the
+		// pointer (M2). FinishAgentTaskRun is conditional on still-in-flight
+		// status so a finalised run is left untouched; the UPDATE is the
+		// guard against overwriting a successful Submit.
+		if task.ActiveRunID.Valid {
+			if _, err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: RunCancelled, Result: "{}", Error: "blocked",
 				FinishedAt: sql.NullString{String: now, Valid: true},
 				UpdatedAt:  now, ID: task.ActiveRunID.String,
@@ -523,16 +565,37 @@ func (s *TransitionService) ResolveBlocker(ctx context.Context, blockerID, resol
 
 // WaiveDep records a waiver on a hard-dep edge whose upstream failed or
 // cancelled. After waiver, readiness treats the edge as satisfied; the
-// downstream's dep_failure blocker (if any) is also resolved in the same tx.
-func (s *TransitionService) WaiveDep(ctx context.Context, taskID, depTaskID, userID, reason string, actor Actor) error {
+// downstream's dep_failure blocker (if any) is also resolved — but only when
+// no other unwaived hard-failed deps remain (H5).
+//
+// Authority (H3): the waiver is recorded with actor.ID as waived_by_user; the
+// actor must be a user, and must own the task or be an org admin
+// (org-admin check is a hook left for the auth layer to refine — for now we
+// require actor.Type == ActorUser and actor.ID == task.user_id).
+func (s *TransitionService) WaiveDep(ctx context.Context, taskID, depTaskID, reason string, actor Actor) error {
 	if reason == "" {
 		return fmt.Errorf("WaiveDep: reason is required")
 	}
+	if actor.Type != ActorUser || actor.ID == "" {
+		return ErrUnauthorized
+	}
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		task, err := q.GetAgentTask(ctx, taskID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrTaskNotFound
+			}
+			return err
+		}
+		// Authority check: task owner only. Org-admin escalation can layer
+		// on top once roles are wired.
+		if task.UserID != actor.ID {
+			return ErrUnauthorized
+		}
 		now := s.now()
 		n, err := q.WaiveAgentTaskDep(ctx, sqlc.WaiveAgentTaskDepParams{
 			WaivedAt:     sql.NullString{String: now, Valid: true},
-			WaivedByUser: nullable(userID),
+			WaivedByUser: nullable(actor.ID),
 			WaiverReason: reason,
 			TaskID:       taskID,
 			DepTaskID:    depTaskID,
@@ -543,25 +606,33 @@ func (s *TransitionService) WaiveDep(ctx context.Context, taskID, depTaskID, use
 		if n == 0 {
 			return fmt.Errorf("WaiveDep: dep edge not found or already waived")
 		}
-		// If the downstream is blocked with a dep_failure blocker, resolve it
-		// and return the task to ready.
+		// H5: only resolve the dep_failure blocker if no other hard-failed/
+		// cancelled-block deps remain unwaived. A merged blocker can cover
+		// multiple failed upstreams; waiving one shouldn't unblock the task
+		// if another is still outstanding.
 		if open, err := q.GetOpenBlockerForTask(ctx, taskID); err == nil && open.Kind == BlockerKindDepFailure {
-			if _, err := q.ResolveAgentTaskBlocker(ctx, sqlc.ResolveAgentTaskBlockerParams{
-				Resolution: detailJSON(map[string]any{"waived_dep_task_id": depTaskID, "reason": reason}),
-				ResolvedAt: sql.NullString{String: now, Valid: true},
-				ID:         open.ID,
-			}); err != nil {
+			deps, err := q.ListAgentTaskDepsWithUpstream(ctx, taskID)
+			if err != nil {
 				return err
 			}
-			if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
-				Status: StatusReady, UpdatedAt: now, ID: taskID, Status_2: StatusBlocked,
-			}); err != nil {
-				return err
-			}
-			if err := q.SetAgentTaskActiveBlocker(ctx, sqlc.SetAgentTaskActiveBlockerParams{
-				ActiveBlockerID: sql.NullString{}, UpdatedAt: now, ID: taskID,
-			}); err != nil {
-				return err
+			if !anyUnresolvedDepFailure(deps) {
+				if _, err := q.ResolveAgentTaskBlocker(ctx, sqlc.ResolveAgentTaskBlockerParams{
+					Resolution: detailJSON(map[string]any{"waived_dep_task_id": depTaskID, "reason": reason}),
+					ResolvedAt: sql.NullString{String: now, Valid: true},
+					ID:         open.ID,
+				}); err != nil {
+					return err
+				}
+				if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
+					Status: StatusReady, UpdatedAt: now, ID: taskID, Status_2: StatusBlocked,
+				}); err != nil {
+					return err
+				}
+				if err := q.SetAgentTaskActiveBlocker(ctx, sqlc.SetAgentTaskActiveBlockerParams{
+					ActiveBlockerID: sql.NullString{}, UpdatedAt: now, ID: taskID,
+				}); err != nil {
+					return err
+				}
 			}
 		}
 		return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
@@ -574,19 +645,62 @@ func (s *TransitionService) WaiveDep(ctx context.Context, taskID, depTaskID, use
 	})
 }
 
+// anyUnresolvedDepFailure reports whether any dep edge is still blocking the
+// task from a dep_failure standpoint: hard kind, upstream failed/cancelled,
+// on_failure=block, and not waived.
+func anyUnresolvedDepFailure(deps []sqlc.ListAgentTaskDepsWithUpstreamRow) bool {
+	for _, r := range deps {
+		e := r.AgentTaskDep
+		if e.DepKind != DepKindHard || e.OnFailure != OnFailureBlock || e.WaivedAt.Valid {
+			continue
+		}
+		if r.UpstreamStatus == StatusFailed || r.UpstreamStatus == StatusCancelled {
+			return true
+		}
+	}
+	return false
+}
+
 // FailParams captures a worker-or-system-declared run failure.
 type FailParams struct {
-	TaskID          string
-	RunID           string
-	Reason          string // free-form error message
-	Retryable       bool   // if false, force terminal failure
-	RunStatusOnFail string // override final run status; "" => RunFailed
-	Actor           Actor
+	TaskID    string
+	RunID     string
+	Reason    string // free-form error message
+	Retryable bool   // if false, force terminal failure
+	Actor     Actor
 }
 
 // Fail records a run failure and either returns the task to StatusReady (if
 // the retry budget allows and Retryable is true) or moves it to StatusFailed.
 func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
+	return s.failTx(ctx, p, RunFailed, "fail", "fail_retry")
+}
+
+// InterruptStaleRunParams describes a lease-expired run that the dispatcher
+// is finalising on the original worker's behalf.
+type InterruptStaleRunParams struct {
+	TaskID string
+	RunID  string
+	Reason string // typically "lease expired"
+	Actor  Actor
+}
+
+// InterruptStaleRun finalises a run whose lease expired and either returns
+// the task to ready (retry budget allowing) or moves it to failed. Distinct
+// from Fail so the audit trail records run_status=interrupted +
+// event=run_interrupted / run_interrupt_retry, instead of a generic fail
+// label that misrepresents the cause (M11).
+func (s *TransitionService) InterruptStaleRun(ctx context.Context, p InterruptStaleRunParams) error {
+	return s.failTx(ctx,
+		FailParams{TaskID: p.TaskID, RunID: p.RunID, Reason: p.Reason, Retryable: true, Actor: p.Actor},
+		RunInterrupted, "run_interrupted", "run_interrupt_retry")
+}
+
+// failTx is the shared body for Fail and InterruptStaleRun: it parameterises
+// the run-row terminal status and the audit event names so callers can be
+// honest about whether this was a failure or a lease-expiry interrupt
+// without leaking a "RunStatusOnFail" override knob (M11 POSD).
+func (s *TransitionService) failTx(ctx context.Context, p FailParams, runStatus, evtTerminal, evtRetry string) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		task, err := q.GetAgentTask(ctx, p.TaskID)
 		if err != nil {
@@ -599,14 +713,8 @@ func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
 			return ErrInvalidTransition
 		}
 		now := s.now()
-		// Finalize the run row, if provided. Caller may override the final
-		// run status (e.g. dispatcher's stale-run sweep uses RunInterrupted).
-		runStatus := p.RunStatusOnFail
-		if runStatus == "" {
-			runStatus = RunFailed
-		}
 		if p.RunID != "" {
-			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
+			if _, err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: runStatus, Result: "{}", Error: p.Reason,
 				FinishedAt: sql.NullString{String: now, Valid: true},
 				UpdatedAt:  now, ID: p.RunID,
@@ -614,15 +722,12 @@ func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
 				return err
 			}
 		}
-		// Decide downstream state.
 		next := StatusReady
 		var budgetExhausted bool
 		if !p.Retryable || task.RetryCount+1 > task.MaxRetries {
 			next = StatusFailed
 			budgetExhausted = !p.Retryable || task.RetryCount+1 > task.MaxRetries
 		}
-		// Only increment retry on a retryable failure; terminal failures
-		// don't consume a retry slot.
 		if next == StatusReady {
 			if err := q.IncrementAgentTaskRetry(ctx, sqlc.IncrementAgentTaskRetryParams{
 				UpdatedAt: now, ID: p.TaskID,
@@ -639,15 +744,14 @@ func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
 		if n == 0 {
 			return ErrInvalidTransition
 		}
-		// Clear active_run_id either way.
 		if err := q.SetAgentTaskActiveRun(ctx, sqlc.SetAgentTaskActiveRunParams{
 			ActiveRunID: sql.NullString{}, UpdatedAt: now, ID: p.TaskID,
 		}); err != nil {
 			return err
 		}
-		evt := "fail_retry"
+		evt := evtRetry
 		if next == StatusFailed {
-			evt = "fail"
+			evt = evtTerminal
 		}
 		if err := s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
 			TaskID:     nullable(p.TaskID),
@@ -661,10 +765,7 @@ func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
 		}); err != nil {
 			return err
 		}
-		if budgetExhausted && p.Retryable {
-			// Signal so callers can log; not a hard error.
-			return nil
-		}
+		_ = budgetExhausted // preserved for future signalling; not a hard error today
 		return nil
 	})
 }
@@ -702,9 +803,12 @@ func (s *TransitionService) Cancel(ctx context.Context, taskID, reason string, a
 		}); err != nil {
 			return err
 		}
-		// Cancel an in-flight run, clear active pointers.
+		// Cancel an in-flight run, clear active pointers. FinishAgentTaskRun
+		// is conditional on status IN ('queued','running'), so if Submit
+		// already finalised the run before Cancel got here the call is a
+		// no-op and the worker's output is preserved (H7).
 		if task.ActiveRunID.Valid {
-			if err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
+			if _, err := q.FinishAgentTaskRun(ctx, sqlc.FinishAgentTaskRunParams{
 				Status: RunCancelled, Result: "{}", Error: reason,
 				FinishedAt: sql.NullString{String: now, Valid: true},
 				UpdatedAt:  now, ID: task.ActiveRunID.String,
@@ -742,7 +846,9 @@ func (s *TransitionService) Cancel(ctx context.Context, taskID, reason string, a
 }
 
 // AddDep inserts a dep edge after a DFS cycle check. depKind and onFailure
-// default to "hard" / "block" when blank.
+// default to "hard" / "block" when blank. Cross-org edges are rejected:
+// readiness joins on agent_task globally and on_failure propagation would
+// otherwise let an Org A task gate (or be gated by) an Org B task.
 func (s *TransitionService) AddDep(ctx context.Context, taskID, depTaskID, depKind, onFailure string) error {
 	if taskID == "" || depTaskID == "" {
 		return fmt.Errorf("AddDep: task and dep ids required")
@@ -757,32 +863,63 @@ func (s *TransitionService) AddDep(ctx context.Context, taskID, depTaskID, depKi
 		onFailure = OnFailureBlock
 	}
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		// Cycle check: walk forward from depTaskID; if we reach taskID, a
-		// cycle would form.
-		if reaches, err := reachable(ctx, q, depTaskID, taskID); err != nil {
-			return err
-		} else if reaches {
-			return ErrCycle
-		}
-		_, err := q.CreateAgentTaskDep(ctx, sqlc.CreateAgentTaskDepParams{
-			TaskID:    taskID,
-			DepTaskID: depTaskID,
-			DepKind:   depKind,
-			OnFailure: onFailure,
-			CreatedAt: s.now(),
-		})
-		return err
+		return s.addDepTx(ctx, q, taskID, depTaskID, depKind, onFailure)
 	})
+}
+
+// addDepTx is the inner AddDep body, callable from inside an existing tx
+// (CreateTask uses this to keep dep inserts in the same transaction as the
+// task row — B1).
+func (s *TransitionService) addDepTx(ctx context.Context, q *sqlc.Queries, taskID, depTaskID, depKind, onFailure string) error {
+	// Cross-org check (H1): both endpoints must share an org_id.
+	task, err := q.GetAgentTask(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrTaskNotFound
+		}
+		return err
+	}
+	dep, err := q.GetAgentTask(ctx, depTaskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrTaskNotFound
+		}
+		return err
+	}
+	if task.OrgID != dep.OrgID {
+		return ErrCrossOrg
+	}
+	if reaches, err := reachable(ctx, q, depTaskID, taskID); err != nil {
+		return err
+	} else if reaches {
+		return ErrCycle
+	}
+	_, err = q.CreateAgentTaskDep(ctx, sqlc.CreateAgentTaskDepParams{
+		TaskID:    taskID,
+		DepTaskID: depTaskID,
+		DepKind:   depKind,
+		OnFailure: onFailure,
+		CreatedAt: s.now(),
+	})
+	return err
 }
 
 // reachable reports whether `from` can reach `target` by following dep edges
 // (from -> dep_task_id -> dep_task_id -> ...). The walk is bounded by the
-// number of nodes to defend against accidental existing cycles.
+// node-visit budget to defend against pathological graphs. If the budget is
+// exhausted without an answer, the function returns
+// ErrCycleCheckBudgetExceeded so the caller can fail closed instead of
+// accepting an edge that may close a cycle (M4).
 func reachable(ctx context.Context, q *sqlc.Queries, from, target string) (bool, error) {
 	stack := []string{from}
 	seen := map[string]struct{}{from: {}}
 	const maxVisits = 10000
-	for visits := 0; len(stack) > 0 && visits < maxVisits; visits++ {
+	visits := 0
+	for len(stack) > 0 {
+		if visits >= maxVisits {
+			return false, ErrCycleCheckBudgetExceeded
+		}
+		visits++
 		n := len(stack) - 1
 		node := stack[n]
 		stack = stack[:n]

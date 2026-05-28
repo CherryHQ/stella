@@ -177,6 +177,28 @@ func (q *Queries) ListAgentTaskBlockersByTask(ctx context.Context, taskID string
 	return items, nil
 }
 
+const mergeAgentTaskBlocker = `-- name: MergeAgentTaskBlocker :exec
+UPDATE agent_task_blocker
+SET detail = ?, kind = ?
+WHERE id = ?
+`
+
+type MergeAgentTaskBlockerParams struct {
+	Detail string `json:"detail"`
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+}
+
+// Merge a new condition into an existing open blocker: set detail and
+// (possibly) promote kind. Used by Block when a dep_failure condition
+// arrives at a task that already has an open blocker of a softer kind;
+// promoting to dep_failure is sticky so ResolveBlocker keeps rejecting
+// per D14 / M1 (the only resolution path is WaiveDep).
+func (q *Queries) MergeAgentTaskBlocker(ctx context.Context, arg MergeAgentTaskBlockerParams) error {
+	_, err := q.db.ExecContext(ctx, mergeAgentTaskBlocker, arg.Detail, arg.Kind, arg.ID)
+	return err
+}
+
 const resolveAgentTaskBlocker = `-- name: ResolveAgentTaskBlocker :execrows
 UPDATE agent_task_blocker
 SET status = 'resolved', resolution = ?, resolved_at = ?

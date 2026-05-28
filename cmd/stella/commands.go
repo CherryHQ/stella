@@ -178,23 +178,12 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 
 	// v2 task system (Phase 6 boot wiring). The runner is a noop until the
 	// agent.Pool adapter is wired; this still validates the boot path,
-	// scheduler registration, dispatcher tick, and DB plumbing.
+	// scheduler registration, dispatcher tick, and DB plumbing. The pool
+	// wiring is omitted from BootConfig deliberately — adding it before the
+	// adapter exists would silently drop the caller-supplied closure.
 	tasksSvc := tasks.New(tasks.BootConfig{
 		DB:     db,
 		Memory: memProvider,
-		Pools: func(agentID string) (agent.NewRunnerFunc, bool) {
-			if poolMgr == nil {
-				return nil, false
-			}
-			p := poolMgr.Get(agentID)
-			if p == nil {
-				p = poolMgr.DefaultPool()
-			}
-			if p == nil {
-				return nil, false
-			}
-			return p.Factory(), true
-		},
 	})
 
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)

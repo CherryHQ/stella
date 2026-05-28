@@ -247,12 +247,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// task on scheduler.Service — no sched_job row (D4). The dispatcher waits
 	// for in-flight workers to drain on Stop.
 	if s.tasksSvc != nil && s.schedulerSvc != nil {
-		if err := s.schedulerSvc.ScheduleEvery(ctx, "2s", func(ctx context.Context) {
-			s.tasksSvc.Dispatcher.Tick(ctx)
-		}); err != nil {
+		if err := s.tasksSvc.Start(ctx, tasksSchedulerAdapter{s.schedulerSvc}); err != nil {
 			return fmt.Errorf("schedule tasks dispatcher tick: %w", err)
 		}
-		defer s.tasksSvc.Dispatcher.Stop()
+		defer s.tasksSvc.Stop()
 	}
 
 	if err := s.pluginHost.ApplyPlugin(gctx, reflectplugin.PluginID); err != nil {
@@ -268,6 +266,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 type channelStarterFunc func(ctx context.Context) error
 
 func (f channelStarterFunc) StartChannels(ctx context.Context) error { return f(ctx) }
+
+// tasksSchedulerAdapter bridges scheduler.Service (which takes a named
+// TaskFunc) into the tasks.SchedulerLike interface (which takes a plain
+// func(context.Context)). Go treats those as distinct method signatures even
+// though the underlying types match.
+type tasksSchedulerAdapter struct{ s *scheduler.Service }
+
+func (a tasksSchedulerAdapter) ScheduleEvery(ctx context.Context, every string, fn func(context.Context)) error {
+	return a.s.ScheduleEvery(ctx, every, scheduler.TaskFunc(fn))
+}
 
 func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
 	if job.UserID != "" {

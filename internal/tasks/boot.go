@@ -9,27 +9,51 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Service bundles the v2 task system components for boot wiring. The legacy
-// stub Service in service.go is kept for back-compat with the existing
-// HTTP handlers (which still return 503); cmd/stella holds both side-by-side
-// until Phase 6 of the API rewrite swaps them.
+// Service bundles the v2 task system components for boot wiring. Fields are
+// unexported so callers can't reach in to write task status without going
+// through the transition service (D14). Use Facade for external mutations,
+// Start/Stop for the dispatcher lifecycle.
 type Service struct {
-	Queries    *sqlc.Queries
-	Transition *TransitionService
-	Facade     *ServiceFacade
-	Dispatcher *Dispatcher
+	queries    *sqlc.Queries
+	transition *TransitionService
+	facade     *ServiceFacade
+	dispatcher *Dispatcher
 }
 
+// Facade returns the org-aware HTTP/CLI surface.
+func (s *Service) Facade() *ServiceFacade { return s.facade }
+
+// Start registers the dispatcher tick on the given scheduler. Pass the
+// scheduler.Service (or any SchedulerLike) the gateway is already running.
+// Using TickEvery.String() preserves sub-second resolution (avoiding the
+// integer-truncation bug the previous duplicated wiring carried).
+func (s *Service) Start(ctx context.Context, sched SchedulerLike) error {
+	if sched == nil {
+		return nil
+	}
+	return sched.ScheduleEvery(ctx, s.dispatcher.cfg.TickEvery.String(), func(ctx context.Context) {
+		s.dispatcher.Tick(ctx)
+	})
+}
+
+// Stop drains in-flight workers. The scheduler owns the tick lifecycle and
+// stops firing on its own.
+func (s *Service) Stop() { s.dispatcher.Stop() }
+
 // BootConfig is the minimal wiring needed at server start.
+//
+// Pools is intentionally absent: until the agent.Pool → RunnerFunc adapter
+// exists (Phase 6 follow-up) the dispatcher uses a noop runner that fails
+// with a clear "not wired" message. Adding the field before the adapter
+// would silently drop caller-supplied wiring — a real bug surfaced by the
+// PR-1 review.
 type BootConfig struct {
 	DB     *sql.DB
 	Memory memory.Provider // used to mint sessions
-	Pools  func(agentID string) (agent.NewRunnerFunc, bool)
 	// MaxPerOrg, TickEvery, LeaseTTL override defaults; zero values use the
 	// dispatcher's defaults.
 	MaxPerOrg int
@@ -38,17 +62,15 @@ type BootConfig struct {
 	Logger    *slog.Logger
 }
 
-// BuildService constructs every v2 component. The dispatcher is constructed
-// but not started; the caller registers it on a scheduler via
-// dispatcher.Start(ctx, sched).
+// New constructs every v2 component. The dispatcher is constructed but not
+// started; the caller invokes Service.Start with a scheduler.
 //
-// PHASE 6 STATUS: this wires the dispatcher to a noop RunnerFunc that fails
-// with a "worker integration not wired" message. Replacing the noop with a
-// real agent.Pool/Runner adapter (which would translate Runner.Chat events
-// into TaskControlTool calls, register task_control as a tool, and pump the
-// event channel until completion) is the remaining engineering work for
-// Slice 1's end-to-end story. Tracked as a follow-up — see plan.md Phase 6
-// handoff.
+// PHASE 6 STATUS: the runner is a noop that fails with a "worker integration
+// not wired" message. Replacing it with a real agent.Pool/Runner adapter
+// (which translates Runner.Chat events into TaskControlTool calls,
+// registers task_control as a tool, and pumps the event channel until
+// completion) is the remaining engineering work for Slice 1's end-to-end
+// story. Tracked as a follow-up — see plan.md Phase 6 handoff.
 func New(cfg BootConfig) *Service {
 	q := sqlc.New(cfg.DB)
 	svc := NewTransitionService(cfg.DB, q)
@@ -58,12 +80,10 @@ func New(cfg BootConfig) *Service {
 		logger = slog.Default().With("component", "tasks")
 	}
 
-	runner := noopRunner(logger)
-
 	disp := NewDispatcher(DispatcherConfig{
 		Service:    svc,
 		Queries:    q,
-		Runner:     runner,
+		Runner:     noopRunner(logger),
 		Resolver:   sessionAndCreatorResolver(q, cfg.Memory, logger),
 		NewSession: sessionMinterFor(cfg.Memory, logger),
 		MaxPerOrg:  cfg.MaxPerOrg,
@@ -73,22 +93,22 @@ func New(cfg BootConfig) *Service {
 	})
 
 	return &Service{
-		Queries:    q,
-		Transition: svc,
-		Facade:     facade,
-		Dispatcher: disp,
+		queries:    q,
+		transition: svc,
+		facade:     facade,
+		dispatcher: disp,
 	}
 }
 
 // noopRunner returns a RunnerFunc that always fails. Used until the real
 // agent.Runner adapter is wired (Phase 6 follow-up).
 func noopRunner(log *slog.Logger) RunnerFunc {
-	return func(_ context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	return func(_ context.Context, run RunContext, tool *TaskControlTool) error {
 		log.Warn("tasks v2 noop runner invoked",
-			"task_id", run.TaskID.String, "run_id", run.ID,
-			"hint", "wire BootConfig.Pools to a real agent adapter to actually execute tasks")
+			"task_id", run.TaskID, "run_id", run.RunID,
+			"hint", "wire the agent.Pool adapter in tasks.New to actually execute tasks")
 		return tool.Fail(context.Background(),
-			"task system v2 runner not wired (noop): connect cmd/stella to agent.PoolManager",
+			"task system v2 runner not wired (noop): agent.Pool adapter is the Phase 6 follow-up",
 			false)
 	}
 }

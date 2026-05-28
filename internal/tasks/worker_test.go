@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // claimedHarness wires a harness and claims a single task, returning the
@@ -28,7 +26,7 @@ func claimedHarness(t *testing.T, runner RunnerFunc) (*testHarness, string, stri
 
 func TestWorker_HappyPath_SubmitFinalizesRun(t *testing.T) {
 	called := false
-	runner := func(_ context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	runner := func(_ context.Context, run RunContext, tool *TaskControlTool) error {
 		called = true
 		return tool.Submit(context.Background(), map[string]string{"answer": "42"})
 	}
@@ -53,7 +51,7 @@ func TestWorker_HappyPath_SubmitFinalizesRun(t *testing.T) {
 }
 
 func TestWorker_BlockPath_PausesTask(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	runner := func(_ context.Context, _ RunContext, tool *TaskControlTool) error {
 		return tool.Block(context.Background(), BlockerKindUserInput, "approve?", nil)
 	}
 	h, id, runID, w := claimedHarness(t, runner)
@@ -70,7 +68,7 @@ func TestWorker_BlockPath_PausesTask(t *testing.T) {
 }
 
 func TestWorker_FailRetryable_ReturnsToReady(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	runner := func(_ context.Context, _ RunContext, tool *TaskControlTool) error {
 		return tool.Fail(context.Background(), "transient", true)
 	}
 	h, id, runID, w := claimedHarness(t, runner)
@@ -85,7 +83,7 @@ func TestWorker_FailRetryable_ReturnsToReady(t *testing.T) {
 // HP5: agent exits without calling submit/block/fail → protocol_error event,
 // run failed, task retried per budget.
 func TestWorker_ProtocolFallback_AgentExitsSilent(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error {
+	runner := func(_ context.Context, _ RunContext, _ *TaskControlTool) error {
 		return nil // no terminal action
 	}
 	h, id, runID, w := claimedHarness(t, runner)
@@ -113,7 +111,7 @@ func TestWorker_ProtocolFallback_AgentExitsSilent(t *testing.T) {
 // HP5: agent returns an error without calling a terminal action → run failed
 // with the agent's error message, protocol_error event recorded.
 func TestWorker_ProtocolFallback_AgentReturnsError(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error {
+	runner := func(_ context.Context, _ RunContext, _ *TaskControlTool) error {
 		return errors.New("boom")
 	}
 	h, id, runID, w := claimedHarness(t, runner)
@@ -130,7 +128,7 @@ func TestWorker_ProtocolFallback_AgentReturnsError(t *testing.T) {
 }
 
 func TestWorker_PanicConvertedToFail(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error {
+	runner := func(_ context.Context, _ RunContext, _ *TaskControlTool) error {
 		panic("kaboom")
 	}
 	h, id, runID, w := claimedHarness(t, runner)
@@ -142,7 +140,7 @@ func TestWorker_PanicConvertedToFail(t *testing.T) {
 }
 
 func TestWorker_ProgressShallowMerges(t *testing.T) {
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	runner := func(ctx context.Context, _ RunContext, tool *TaskControlTool) error {
 		if err := tool.Progress(ctx, map[string]any{"phase": "step-1", "count": 1}); err != nil {
 			return err
 		}
@@ -163,20 +161,20 @@ func TestWorker_ProgressShallowMerges(t *testing.T) {
 }
 
 func TestWorker_PromotesRunToRunning(t *testing.T) {
-	gotRunStatus := ""
-	runner := func(ctx context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		// The run row at this point should already be 'running' (promoted by
-		// the worker before invoking the runner).
-		gotRunStatus = run.Status
+	gotRunID := ""
+	runner := func(ctx context.Context, run RunContext, tool *TaskControlTool) error {
+		// RunContext carries the projected fields; status isn't part of the
+		// contract since the runner is only invoked once promotion succeeds.
+		gotRunID = run.RunID
 		return tool.Submit(ctx, "{}")
 	}
 	_, id, runID, w := claimedHarness(t, runner)
 	if err := w.Run(context.Background(), id, runID, SystemActor()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	// Note: the run snapshot is loaded BEFORE promotion, so the runner sees
-	// 'queued'. The actual DB state after promotion is what matters.
-	_ = gotRunStatus
+	if gotRunID != runID {
+		t.Errorf("runner saw run id %q, want %q", gotRunID, runID)
+	}
 }
 
 func contains(s, sub string) bool {

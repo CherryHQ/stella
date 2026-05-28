@@ -86,10 +86,10 @@ func (q *Queries) CreateAgentTaskRun(ctx context.Context, arg CreateAgentTaskRun
 	return i, err
 }
 
-const finishAgentTaskRun = `-- name: FinishAgentTaskRun :exec
+const finishAgentTaskRun = `-- name: FinishAgentTaskRun :execrows
 UPDATE agent_task_run
 SET status = ?, result = ?, error = ?, finished_at = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND status IN ('queued','running')
 `
 
 type FinishAgentTaskRunParams struct {
@@ -101,8 +101,11 @@ type FinishAgentTaskRunParams struct {
 	ID         string         `json:"id"`
 }
 
-func (q *Queries) FinishAgentTaskRun(ctx context.Context, arg FinishAgentTaskRunParams) error {
-	_, err := q.db.ExecContext(ctx, finishAgentTaskRun,
+// Finalize a run row. Guarded on the run still being in flight so a late
+// Cancel/Block tx cannot overwrite the output a concurrent Submit committed.
+// execrows so callers can detect the race-loser case.
+func (q *Queries) FinishAgentTaskRun(ctx context.Context, arg FinishAgentTaskRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, finishAgentTaskRun,
 		arg.Status,
 		arg.Result,
 		arg.Error,
@@ -110,7 +113,10 @@ func (q *Queries) FinishAgentTaskRun(ctx context.Context, arg FinishAgentTaskRun
 		arg.UpdatedAt,
 		arg.ID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getAgentTaskRun = `-- name: GetAgentTaskRun :one

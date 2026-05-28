@@ -32,3 +32,13 @@ WHERE id = ? AND status = 'open';
 UPDATE agent_task_blocker
 SET detail = ?
 WHERE id = ?;
+
+-- Merge a new condition into an existing open blocker: set detail and
+-- (possibly) promote kind. Used by Block when a dep_failure condition
+-- arrives at a task that already has an open blocker of a softer kind;
+-- promoting to dep_failure is sticky so ResolveBlocker keeps rejecting
+-- per D14 / M1 (the only resolution path is WaiveDep).
+-- name: MergeAgentTaskBlocker :exec
+UPDATE agent_task_blocker
+SET detail = ?, kind = ?
+WHERE id = ?;

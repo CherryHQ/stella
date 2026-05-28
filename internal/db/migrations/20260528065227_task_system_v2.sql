@@ -1,9 +1,12 @@
 -- Disable the enforcement of foreign-keys constraints
 PRAGMA foreign_keys = off;
--- Drop all rows from old task tables: D1 of plan.md decides the task system v2
--- replaces the v1 surface and does not migrate data. Old rows carry status
--- values ('pending','review_requested') that the new CHECK rejects; the v1
--- feature had no production users worth preserving.
+-- !! DO NOT REMOVE — these two DELETE statements are hand-edited and atlas
+-- !! regen WILL drop them on its own next pass. D1 of plan.md decides the v2
+-- !! task system replaces the v1 surface without data migration. Old rows
+-- !! carry status values ('pending','review_requested') that the new CHECK
+-- !! constraint rejects, so the table rebuild below would otherwise fail on
+-- !! INSERT INTO new_agent_task SELECT * FROM agent_task. If you ran a fresh
+-- !! db:diff and these are missing, paste them back before committing.
 DELETE FROM `agent_task_event`;
 DELETE FROM `agent_task`;
 -- Create "new_agent_task" table
