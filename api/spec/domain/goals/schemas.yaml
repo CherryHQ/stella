@@ -1,0 +1,88 @@
+openapi: 3.0.3
+info:
+  title: Agent Goals Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Goal:
+      type: object
+      required:
+        [
+          id,
+          org_id,
+          user_id,
+          title,
+          status,
+          priority,
+          review_policy,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string }
+        org_id: { type: string }
+        user_id: { type: string }
+        agent_id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        status:
+          type: string
+          enum:
+            [
+              draft,
+              planning,
+              running,
+              blocked,
+              reviewing,
+              done,
+              failed,
+              cancelled,
+            ]
+        priority:
+          type: string
+          enum: [routine, urgent]
+        review_policy:
+          type: string
+          enum: [none, auto, agent, human]
+        active_review_id: { type: string }
+        context:
+          type: object
+          additionalProperties: {}
+        output:
+          type: object
+          additionalProperties: {}
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        cancelled_at: { type: string, format: date-time }
+
+    GoalList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Goal" }
+
+    CreateGoalRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        priority:
+          type: string
+          enum: [routine, urgent]
+        agent_id: { type: string }
+        review_policy:
+          type: string
+          enum: [none, auto, agent, human]
+        context:
+          type: object
+          additionalProperties: {}
+
+    CancelGoalRequest:
+      type: object
+      properties:
+        reason: { type: string }

@@ -179,3 +179,79 @@ func TestTasks_EventsListReturnsActivateEvent(t *testing.T) {
 		t.Fatalf("expected at least one event, got none")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Goal HTTP tests
+// ---------------------------------------------------------------------------
+
+func TestGoals_CreateGetRoundTrip(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+
+	body := apitypes.CreateGoalRequest{Title: "ship it"}
+	rr := doRequest(t, env, http.MethodPost, "/api/goals", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var goal apitypes.Goal
+	if err := json.Unmarshal(rr.Body.Bytes(), &goal); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if goal.Id == "" || goal.Status != "draft" {
+		t.Fatalf("unexpected goal: %+v", goal)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/goals/"+goal.Id, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGoals_Activate_DraftToRunning(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+	rr := doRequest(t, env, http.MethodPost, "/api/goals", apitypes.CreateGoalRequest{Title: "x"})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var goal apitypes.Goal
+	_ = json.Unmarshal(rr.Body.Bytes(), &goal)
+
+	rr = doRequest(t, env, http.MethodPost, "/api/goals/"+goal.Id+"/activate", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("activate: %d %s", rr.Code, rr.Body.String())
+	}
+	var fresh apitypes.Goal
+	_ = json.Unmarshal(rr.Body.Bytes(), &fresh)
+	if fresh.Status != "running" {
+		t.Fatalf("goal status=%q want running", fresh.Status)
+	}
+}
+
+func TestGoals_GetUnknown_404(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+	rr := doRequest(t, env, http.MethodGet, "/api/goals/missing", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404", rr.Code)
+	}
+}
+
+func TestGoals_CancelRunningCascade(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+	rr := doRequest(t, env, http.MethodPost, "/api/goals", apitypes.CreateGoalRequest{Title: "x"})
+	var goal apitypes.Goal
+	_ = json.Unmarshal(rr.Body.Bytes(), &goal)
+	_ = doRequest(t, env, http.MethodPost, "/api/goals/"+goal.Id+"/activate", nil)
+
+	rr = doRequest(t, env, http.MethodPost, "/api/goals/"+goal.Id+"/cancel", apitypes.CancelGoalRequest{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("cancel: %d %s", rr.Code, rr.Body.String())
+	}
+	var cancelled apitypes.Goal
+	_ = json.Unmarshal(rr.Body.Bytes(), &cancelled)
+	if cancelled.Status != "cancelled" {
+		t.Fatalf("status after cancel=%q", cancelled.Status)
+	}
+}
