@@ -15,12 +15,12 @@ type fakeReflectStore struct {
 	sawOrg string
 }
 
-func (f *fakeReflectStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
+func (f *fakeReflectStore) ListEnabledAgents(ctx context.Context) ([]config.Agent, error) {
 	f.sawOrg = config.OrgIDFromContext(ctx)
 	return nil, nil
 }
 
-func (f *fakeReflectStore) Snapshot(ctx context.Context, _ string) (*Snapshot, error) {
+func (f *fakeReflectStore) Snapshot(ctx context.Context, _ string) (*config.Snapshot, error) {
 	_ = config.OrgIDFromContext(ctx)
 	return nil, nil
 }

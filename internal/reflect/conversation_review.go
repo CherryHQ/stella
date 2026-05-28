@@ -9,6 +9,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -17,12 +18,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-func (s *Service) reviewConversation(ctx context.Context, snap *Snapshot, c candidate) error {
+func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, c candidate) error {
 	ctx, span := startConversationSpan(ctx, c)
 	defer span.End()
 
 	userID := c.session.UserID
-	model := snap.ResolveModelTier(ModelTierFast)
+	model := snap.ResolveModelTier(config.ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
 	span.SetAttributes(
@@ -86,7 +87,7 @@ func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.Stream
 	return s.providers(api, apiKey, baseURL)
 }
 
-func (s *Service) newConversationReviewer(snap *Snapshot, userID string, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
+func (s *Service) newConversationReviewer(snap *config.Snapshot, userID string, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
 	return newReviewer(reviewerConfig{
 		Stream:         stream,
 		Model:          model,

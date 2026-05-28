@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
@@ -60,7 +61,7 @@ func (s *Service) runCycle(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) reviewAgent(ctx context.Context, snap *Snapshot) (int, error) {
+func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, error) {
 	sm, ok := s.memory.(memory.SessionManager)
 	if !ok {
 		return 0, nil

@@ -165,7 +165,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
 	if err := registerReflectBuiltin(schedulerSvc, reflectplugin.Config{
 		Memory:     memProvider,
-		Store:      reflectplugin.NewConfigStore(store),
+		Store:      store,
 		SkillStore: skillStoreAdapter,
 		Notifier:   dispatcher,
 		StateStore: pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),

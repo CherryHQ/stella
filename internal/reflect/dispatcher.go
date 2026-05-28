@@ -9,6 +9,10 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 )
 
+// BuiltinJobName is the scheduler builtin name reflect registers under.
+// Exported so gateway wiring and operational tooling refer to one source.
+const BuiltinJobName = "reflect-review"
+
 // NewBuiltinHandler returns a scheduler.OnJobFunc that runs one reflect
 // review cycle per fire, scoped to the job's OrgID. The supplied Config
 // holds the process-global deps; org context is the only thing that

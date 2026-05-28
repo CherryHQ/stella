@@ -16,8 +16,7 @@ const (
 	// override is a dev knob; setting it below this is almost certainly a
 	// mistake (e.g. STELLA_REFLECT_INTERVAL=1ns) and would fire reflect per
 	// org continuously, hammering the configured LLM providers.
-	minReflectInterval    = time.Minute
-	reflectBuiltinJobName = "reflect-review"
+	minReflectInterval = time.Minute
 )
 
 // registerReflectBuiltin wires the reflect review cycle into the scheduler
@@ -33,7 +32,7 @@ func registerReflectBuiltin(svc *scheduler.Service, cfg reflectplugin.Config) er
 		return fmt.Errorf("build reflect handler: %w", err)
 	}
 	if err := svc.RegisterBuiltin(scheduler.BuiltinJob{
-		Name:      reflectBuiltinJobName,
+		Name:      reflectplugin.BuiltinJobName,
 		Schedule:  scheduler.Schedule{Every: every.String()},
 		ExecScope: scheduler.ExecScopeSystem,
 		Handler:   handler,
