@@ -163,7 +163,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
-	if err := registerReflectBuiltin(schedulerSvc, reflectplugin.DispatcherDeps{
+	if err := registerReflectBuiltin(schedulerSvc, reflectplugin.Config{
 		Memory:     memProvider,
 		Store:      reflectplugin.NewConfigStore(store),
 		SkillStore: skillStoreAdapter,

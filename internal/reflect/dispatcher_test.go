@@ -25,8 +25,8 @@ func (f *fakeReflectStore) Snapshot(ctx context.Context, _ string) (*Snapshot, e
 	return nil, nil
 }
 
-// Stubs used by NewDispatcher's dep validation — none of these methods are
-// hit when ListEnabledAgents returns no agents.
+// Stubs to satisfy NewBuiltinHandler's dep validation. None of these are
+// invoked when ListEnabledAgents returns no agents.
 
 type stubMemory struct{ memory.Provider }
 
@@ -43,21 +43,25 @@ func (stubStateStore) Delete(context.Context, pkgplugins.StateScope, string) err
 
 func stubProviders(string, string, string) (providers.StreamFunc, error) { return nil, nil }
 
-func TestDispatcherHandleInjectsOrgID(t *testing.T) {
-	store := &fakeReflectStore{}
-	d, err := NewDispatcher(DispatcherDeps{
+func validConfig(store Store) Config {
+	return Config{
 		Memory:     stubMemory{},
 		Store:      store,
 		StateStore: stubStateStore{},
 		Providers:  stubProviders,
-	})
+	}
+}
+
+func TestBuiltinHandlerInjectsOrgID(t *testing.T) {
+	store := &fakeReflectStore{}
+	handler, err := NewBuiltinHandler(validConfig(store))
 	if err != nil {
-		t.Fatalf("NewDispatcher: %v", err)
+		t.Fatalf("NewBuiltinHandler: %v", err)
 	}
 
 	job := scheduler.Job{Name: "reflect-review", OrgID: "org-xyz"}
-	if err := d.Handle(context.Background(), job); err != nil {
-		t.Fatalf("Handle: %v", err)
+	if err := handler(context.Background(), job); err != nil {
+		t.Fatalf("handler: %v", err)
 	}
 
 	if store.sawOrg != "org-xyz" {
@@ -65,23 +69,18 @@ func TestDispatcherHandleInjectsOrgID(t *testing.T) {
 	}
 }
 
-func TestDispatcherHandleRejectsEmptyOrgID(t *testing.T) {
-	d, err := NewDispatcher(DispatcherDeps{
-		Memory:     stubMemory{},
-		Store:      &fakeReflectStore{},
-		StateStore: stubStateStore{},
-		Providers:  stubProviders,
-	})
+func TestBuiltinHandlerRejectsEmptyOrgID(t *testing.T) {
+	handler, err := NewBuiltinHandler(validConfig(&fakeReflectStore{}))
 	if err != nil {
-		t.Fatalf("NewDispatcher: %v", err)
+		t.Fatalf("NewBuiltinHandler: %v", err)
 	}
-	if err := d.Handle(context.Background(), scheduler.Job{Name: "reflect-review"}); err == nil {
+	if err := handler(context.Background(), scheduler.Job{Name: "reflect-review"}); err == nil {
 		t.Fatal("expected error for empty OrgID, got nil")
 	}
 }
 
-func TestNewDispatcherRejectsMissingDeps(t *testing.T) {
-	if _, err := NewDispatcher(DispatcherDeps{}); err == nil {
+func TestNewBuiltinHandlerRejectsMissingDeps(t *testing.T) {
+	if _, err := NewBuiltinHandler(Config{}); err == nil {
 		t.Fatal("expected error for missing deps, got nil")
 	}
 }

@@ -53,12 +53,11 @@ type Service struct {
 	userJobsEnabled bool
 	listActiveUsers ListActiveUsersFunc
 
-	// Runtime-registered builtin specs and their handler-mode dispatch table.
-	// Populated via (*Service).RegisterBuiltin, distinct from the package-global
-	// builtinJobs registry that init() functions write to. Keyed by Name so
-	// duplicate registrations are rejected at the API.
+	// Runtime-registered builtin specs, keyed by Name. Populated via
+	// (*Service).RegisterBuiltin and distinct from the package-global
+	// builtinJobs registry that init() functions write to. Handler-mode
+	// dispatch reads the Handler off this map at fire time.
 	runtimeBuiltins map[string]BuiltinJob
-	builtinHandlers map[string]OnJobFunc
 
 	// started flips to true inside start(); RegisterBuiltin rejects further
 	// runtime registrations after that point to avoid persisted handler-mode
@@ -582,36 +581,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	jobRun := job
 	jobRun.UserID = userID
 
-	s.mu.Lock()
-	handler, hasHandler := s.builtinHandlers[job.Name]
-	fn := s.onJob
-	listeners := append([]OnJobFunc(nil), s.listeners...)
-	s.mu.Unlock()
-
-	var runErr error
-	switch {
-	case hasHandler:
-		// Handler-mode builtin: bypass the default agent dispatch so the Go
-		// callback owns the run entirely.
-		if err := handler(runCtx, jobRun); err != nil {
-			runErr = err
-		}
-	case job.OwnerKind == JobOwnerSystem && job.Message == "":
-		// Orphan: persisted system job with no message and no live handler
-		// (e.g. a handler-mode builtin whose RegisterBuiltin call was removed
-		// in a later build). Don't dispatch an empty prompt to the agent pool.
-		runErr = fmt.Errorf("scheduler: system job %q has no handler registered and no message", job.Name)
-		s.log.Error("scheduler: dropping orphan system job run", "job_id", job.ID, "name", job.Name)
-	case fn != nil:
-		if err := fn(runCtx, jobRun); err != nil {
-			runErr = err
-		}
-	}
-	for _, listener := range listeners {
-		if err := listener(runCtx, jobRun); err != nil && runErr == nil {
-			runErr = err
-		}
-	}
+	runErr := s.dispatchJob(runCtx, jobRun)
 
 	finishedAt := time.Now().UTC()
 	status := RunStatusSuccess
@@ -683,32 +653,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	go func() {
 		runCtx := WithRunSessionID(svcCtx, sessionID)
-
-		s.mu.Lock()
-		handler, hasHandler := s.builtinHandlers[job.Name]
-		fn := s.onJob
-		listeners := append([]OnJobFunc(nil), s.listeners...)
-		s.mu.Unlock()
-
-		var runErr error
-		switch {
-		case hasHandler:
-			if err := handler(runCtx, job); err != nil {
-				runErr = err
-			}
-		case job.OwnerKind == JobOwnerSystem && job.Message == "":
-			runErr = fmt.Errorf("scheduler: system job %q has no handler registered and no message", job.Name)
-			s.log.Error("scheduler: dropping orphan system job run", "job_id", job.ID, "name", job.Name)
-		case fn != nil:
-			if err := fn(runCtx, job); err != nil {
-				runErr = err
-			}
-		}
-		for _, listener := range listeners {
-			if err := listener(runCtx, job); err != nil && runErr == nil {
-				runErr = err
-			}
-		}
+		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
 		status := RunStatusSuccess
@@ -780,4 +725,36 @@ func (s *Service) removeOneTimeJob(id string) {
 		s.log.Info("one-time job auto-removed after execution", "id", id)
 	}
 	delete(s.jobs, id)
+}
+
+// dispatchJob routes a fired job to its handler-mode callback, the default
+// agent OnJob, or an orphan error; then runs every listener. Returns the
+// first error seen across primary + listeners.
+func (s *Service) dispatchJob(ctx context.Context, job Job) error {
+	s.mu.Lock()
+	handler := s.runtimeBuiltins[job.Name].Handler
+	fn := s.onJob
+	listeners := append([]OnJobFunc(nil), s.listeners...)
+	s.mu.Unlock()
+
+	var runErr error
+	switch {
+	case handler != nil:
+		// Handler-mode builtin: bypass the default agent dispatch.
+		runErr = handler(ctx, job)
+	case job.OwnerKind == JobOwnerSystem && job.Message == "":
+		// Orphan: persisted system job with no message and no live handler
+		// (handler-mode builtin whose RegisterBuiltin call was removed in a
+		// later build). Don't dispatch an empty prompt to the agent pool.
+		runErr = fmt.Errorf("scheduler: system job %q has no handler registered and no message", job.Name)
+		s.log.Error("scheduler: dropping orphan system job run", "job_id", job.ID, "name", job.Name)
+	case fn != nil:
+		runErr = fn(ctx, job)
+	}
+	for _, listener := range listeners {
+		if err := listener(ctx, job); err != nil && runErr == nil {
+			runErr = err
+		}
+	}
+	return runErr
 }

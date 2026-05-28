@@ -25,18 +25,18 @@ const (
 // for development via the STELLA_REFLECT_INTERVAL env var (Go duration
 // string). The override is intentionally undocumented in user-facing docs
 // — it exists so verifying reflect's wiring doesn't require a code rebuild.
-func registerReflectBuiltin(svc *scheduler.Service, deps reflectplugin.DispatcherDeps) error {
+func registerReflectBuiltin(svc *scheduler.Service, cfg reflectplugin.Config) error {
 	every := resolveReflectInterval()
 
-	dispatcher, err := reflectplugin.NewDispatcher(deps)
+	handler, err := reflectplugin.NewBuiltinHandler(cfg)
 	if err != nil {
-		return fmt.Errorf("build reflect dispatcher: %w", err)
+		return fmt.Errorf("build reflect handler: %w", err)
 	}
 	if err := svc.RegisterBuiltin(scheduler.BuiltinJob{
 		Name:      reflectBuiltinJobName,
 		Schedule:  scheduler.Schedule{Every: every.String()},
 		ExecScope: scheduler.ExecScopeSystem,
-		Handler:   dispatcher.Handle,
+		Handler:   handler,
 	}); err != nil {
 		return fmt.Errorf("register reflect builtin: %w", err)
 	}

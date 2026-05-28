@@ -95,12 +95,6 @@ func (s *Service) RegisterBuiltin(job BuiltinJob) error {
 	if _, dup := s.runtimeBuiltins[job.Name]; dup {
 		return fmt.Errorf("scheduler: runtime builtin %q already registered", job.Name)
 	}
-	if job.Handler != nil {
-		if s.builtinHandlers == nil {
-			s.builtinHandlers = make(map[string]OnJobFunc)
-		}
-		s.builtinHandlers[job.Name] = job.Handler
-	}
 	s.runtimeBuiltins[job.Name] = job
 	return nil
 }
