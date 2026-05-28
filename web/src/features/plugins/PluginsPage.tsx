@@ -54,7 +54,7 @@ import {
   SettingsListItem,
 } from "@/features/settings/SettingsListPanel";
 
-type Tab = "tools" | "mcp" | "channels" | "hooks" | "memory" | "sandbox" | "standalone";
+type Tab = "tools" | "mcp" | "channels" | "hooks" | "sandbox" | "standalone";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
   return { plugins: plugins.map((plugin) => ({ ...plugin })) };
@@ -116,7 +116,6 @@ export function PluginsPage() {
     (p) => p.id !== "tool/mcp",
   );
   const hookPlugins = semanticPlugins("hook", plugins, manifestPlugins);
-  const memoryPlugins = plugins.filter((p) => p.kind === "memory");
   const validSandboxBackends = new Set(["sandbox/docker", "sandbox/local", "sandbox/none"]);
   const sandboxPlugins = plugins.filter(
     (p) => p.kind === "sandbox" && validSandboxBackends.has(p.id),
@@ -508,7 +507,6 @@ export function PluginsPage() {
     { id: "mcp", label: t("plugins.mcp.title") },
     { id: "channels", label: t("plugins.tab.channels") },
     { id: "hooks", label: t("plugins.tab.hooks") },
-    { id: "memory", label: t("plugins.tab.memory") },
     { id: "sandbox", label: t("plugins.tab.sandbox") },
     { id: "standalone", label: t("plugins.tab.others") },
   ];
@@ -856,45 +854,6 @@ export function PluginsPage() {
           emptyMessage="No hook plugins registered."
           showManifestEditor
         />
-      </div>
-    );
-  } else if (tab === "memory") {
-    detail = (
-      <div className="p-6">
-        <p className="text-xs text-muted-foreground mb-4">
-          Only one memory plugin can be active at a time. Changing requires restart.
-        </p>
-        <div className="border border-border rounded-lg divide-y divide-border">
-          {memoryPlugins.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-4 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">{pluginLabel(p)}</span>
-                  <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
-                  {p.enabled && (
-                    <Badge variant="success" size="sm">
-                      on
-                    </Badge>
-                  )}
-                </div>
-                {pluginDescription(p) && (
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {pluginDescription(p)}
-                  </p>
-                )}
-              </div>
-              <Switch
-                checked={p.enabled}
-                onCheckedChange={(checked) => void togglePlugin(p.id, checked)}
-              />
-            </div>
-          ))}
-          {memoryPlugins.length === 0 && (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              No memory plugins registered.
-            </div>
-          )}
-        </div>
       </div>
     );
   } else if (tab === "sandbox") {
