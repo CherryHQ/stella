@@ -2,235 +2,178 @@ package tasks
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
+	"maps"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const controlToolName = "task_control"
-
-// TaskControlTool is injected into task sessions.
-// Its Execute method performs DB transitions directly.
+// TaskControlTool is the surface a worker (agent runner) sees to communicate
+// task lifecycle decisions. Each method routes through TransitionService so
+// status writes obey the single-source-of-truth invariant (D14).
+//
+// All four methods are idempotent within reason: a second Submit returns
+// ErrInvalidTransition cleanly, callers can branch on it.
 type TaskControlTool struct {
-	q      *sqlc.Queries
-	taskID string
-	userID string
-	cancel context.CancelFunc
+	svc         *TransitionService
+	q           *sqlc.Queries
+	taskID      string
+	runID       string
+	actor       Actor
+	finished    bool   // worker may inspect this to know if it called a terminal action
+	finalStatus string // task status after the terminal action (e.g. "done" or "reviewing")
 }
 
-func newTaskControlTool(q *sqlc.Queries, taskID string, userID string, cancel context.CancelFunc) *TaskControlTool {
-	return &TaskControlTool{
-		q:      q,
-		taskID: taskID,
-		userID: userID,
-		cancel: cancel,
+// NewTaskControlTool wires a control tool for one claimed run.
+func NewTaskControlTool(svc *TransitionService, q *sqlc.Queries, taskID, runID string, actor Actor) *TaskControlTool {
+	return &TaskControlTool{svc: svc, q: q, taskID: taskID, runID: runID, actor: actor}
+}
+
+// Finished reports whether the tool has seen a terminal action (submit, block,
+// fail). The worker uses this to decide whether to apply the protocol-error
+// fallback when the agent loop exits.
+func (t *TaskControlTool) Finished() bool { return t.finished }
+
+// FinalStatus returns the task status observed right after the terminal
+// action. Empty before any terminal call. Worker-facing callers use this to
+// report the real outcome (e.g. "reviewing" vs "done") instead of assuming.
+func (t *TaskControlTool) FinalStatus() string { return t.finalStatus }
+
+// Progress merges patch into agent_task.context as a shallow JSON merge
+// (HP6 / D14). Existing keys not in patch are preserved.
+// patch may be raw JSON bytes or a Go map; both produce the same merge.
+func (t *TaskControlTool) Progress(ctx context.Context, patch any) error {
+	if t.finished {
+		return fmt.Errorf("task_control: progress after terminal action")
 	}
-}
-
-func (t *TaskControlTool) Definition() tools.Definition {
-	return tools.Definition{
-		Name:        controlToolName,
-		Description: "Signal task state transitions. Use to report progress, request a human review, block awaiting input, or mark the task done or failed.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action": map[string]any{
-					"type":        "string",
-					"enum":        []string{"progress", "block", "request_review", "done", "failed"},
-					"description": "The state transition to perform.",
-				},
-				"message": map[string]any{
-					"type":        "string",
-					"description": "Required for block, request_review, done, and failed. A human-readable description of the state.",
-				},
-				"context": map[string]any{
-					"type":        "object",
-					"description": "Optional. For progress: updates context metadata stored with the task.",
-				},
-				"review_request": map[string]any{
-					"type":        "object",
-					"description": "Optional. For request_review: structured review request payload.",
-				},
-				"notify_after": map[string]any{
-					"type":        "string",
-					"description": "Optional. For progress: a Go duration (e.g. '2h') after which the user is notified.",
-				},
-			},
-			"required": []string{"action"},
-		},
-	}
-}
-
-func (t *TaskControlTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	action, _ := args["action"].(string)
-	message, _ := args["message"].(string)
-	now := time.Now().Format(time.RFC3339)
-
-	switch action {
-	case "progress":
-		contextObj, _ := args["context"].(map[string]any)
-		contextJSON := "{}"
-		if contextObj != nil {
-			b, err := json.Marshal(contextObj)
-			if err != nil {
-				return "", fmt.Errorf("task_control: marshal context: %w", err)
-			}
-			contextJSON = string(b)
-		}
-		if err := t.q.UpdateAgentTaskContext(ctx, sqlc.UpdateAgentTaskContextParams{
-			Context:   contextJSON,
-			UpdatedAt: now,
-			ID:        t.taskID,
-			UserID:    t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: update context: %w", err)
-		}
-		// Optional deferred notification.
-		if notifyAfter, _ := args["notify_after"].(string); notifyAfter != "" {
-			d, err := time.ParseDuration(notifyAfter)
-			if err == nil {
-				notifyAt := time.Now().Add(d).Format(time.RFC3339)
-				_ = t.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
-					NotifyAt:  sql.NullString{String: notifyAt, Valid: true},
-					UpdatedAt: now,
-					ID:        t.taskID,
-					UserID:    t.userID,
-				})
-			}
-		}
-		if err := t.logEvent(ctx, "progress", message); err != nil {
-			return "", err
-		}
-		return "progress recorded", nil
-
-	case "block":
-		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "blocked",
-			UpdatedAt: now,
-			ID:        t.taskID,
-			UserID:    t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: set blocked: %w", err)
-		}
-		if err := t.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
-			NotifyAt:  sql.NullString{String: now, Valid: true},
-			UpdatedAt: now,
-			ID:        t.taskID,
-			UserID:    t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: set notify_at: %w", err)
-		}
-		if err := t.logEvent(ctx, "blocked", message); err != nil {
-			return "", err
-		}
-		t.cancel()
-		return "task blocked", nil
-
-	case "request_review":
-		reviewObj, _ := args["review_request"].(map[string]any)
-		reviewJSON := "{}"
-		if reviewObj != nil {
-			b, err := json.Marshal(reviewObj)
-			if err != nil {
-				return "", fmt.Errorf("task_control: marshal review_request: %w", err)
-			}
-			reviewJSON = string(b)
-		}
-		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "review_requested",
-			UpdatedAt: now,
-			ID:        t.taskID,
-			UserID:    t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: set review_requested: %w", err)
-		}
-		if err := t.q.UpdateAgentTaskReviewRequest(ctx, sqlc.UpdateAgentTaskReviewRequestParams{
-			ReviewRequest: reviewJSON,
-			UpdatedAt:     now,
-			ID:            t.taskID,
-			UserID:        t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: update review_request: %w", err)
-		}
-		if err := t.q.UpdateAgentTaskNotifyAt(ctx, sqlc.UpdateAgentTaskNotifyAtParams{
-			NotifyAt:  sql.NullString{String: now, Valid: true},
-			UpdatedAt: now,
-			ID:        t.taskID,
-			UserID:    t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: set notify_at: %w", err)
-		}
-		if err := t.logEvent(ctx, "review_requested", message); err != nil {
-			return "", err
-		}
-		t.cancel()
-		return "review requested", nil
-
-	case "done":
-		if message != "" {
-			outputJSON, err := json.Marshal(map[string]any{"output": message})
-			if err != nil {
-				return "", fmt.Errorf("task_control: marshal output: %w", err)
-			}
-			if err := t.q.UpdateAgentTaskContext(ctx, sqlc.UpdateAgentTaskContextParams{
-				Context:   string(outputJSON),
-				UpdatedAt: now,
-				ID:        t.taskID,
-				UserID:    t.userID,
-			}); err != nil {
-				return "", fmt.Errorf("task_control: store output: %w", err)
-			}
-		}
-		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "done",
-			UpdatedAt: now,
-			ID:        t.taskID,
-			UserID:    t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: set done: %w", err)
-		}
-		if err := t.logEvent(ctx, "done", message); err != nil {
-			return "", err
-		}
-		t.cancel()
-		return "task marked done", nil
-
-	case "failed":
-		if err := t.q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-			Status:    "failed",
-			UpdatedAt: now,
-			ID:        t.taskID,
-			UserID:    t.userID,
-		}); err != nil {
-			return "", fmt.Errorf("task_control: set failed: %w", err)
-		}
-		if err := t.logEvent(ctx, "failed", message); err != nil {
-			return "", err
-		}
-		t.cancel()
-		return "task marked failed", nil
-
-	default:
-		return "", fmt.Errorf("task_control: unknown action %q", action)
-	}
-}
-
-func (t *TaskControlTool) logEvent(ctx context.Context, eventType, detail string) error {
-	now := time.Now().Format(time.RFC3339)
-	_, err := t.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        newID(),
-		TaskID:    t.taskID,
-		EventType: eventType,
-		Detail:    detailJSON(detail),
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	patchMap, err := normalizePatch(patch)
 	if err != nil {
-		return fmt.Errorf("task_control: log event: %w", err)
+		return err
+	}
+	task, err := t.q.GetAgentTask(ctx, t.taskID)
+	if err != nil {
+		return err
+	}
+	merged := mergeContext(task.Context, patchMap)
+	now := t.svc.now()
+	return t.q.UpdateAgentTaskMeta(ctx, sqlc.UpdateAgentTaskMetaParams{
+		Title:       task.Title,
+		Description: task.Description,
+		Priority:    task.Priority,
+		NotBefore:   task.NotBefore,
+		DeadlineAt:  task.DeadlineAt,
+		Context:     merged,
+		UpdatedAt:   now,
+		ID:          t.taskID,
+	})
+}
+
+// Block creates a blocker and moves the task to StatusBlocked.
+func (t *TaskControlTool) Block(ctx context.Context, kind, question string, detail any) error {
+	if t.finished {
+		return fmt.Errorf("task_control: block after terminal action")
+	}
+	if kind == "" {
+		kind = BlockerKindUserInput
+	}
+	detailStr := detailJSON(detail)
+	if err := t.svc.Block(ctx, BlockParams{
+		TaskID: t.taskID, Kind: kind, Question: question, Detail: detailStr,
+		RunID: t.runID, Actor: t.actor,
+	}); err != nil {
+		return err
+	}
+	t.finished = true
+	return nil
+}
+
+// Submit completes the worker run. Per review_policy on the task, the final
+// status may be "done" (none / auto) or "reviewing" (agent / human). Output is
+// stored on agent_task.output. FinalStatus() exposes the resulting status.
+func (t *TaskControlTool) Submit(ctx context.Context, output any) error {
+	if t.finished {
+		return fmt.Errorf("task_control: submit after terminal action")
+	}
+	outputStr := detailJSON(output)
+	if err := t.svc.Submit(ctx, t.taskID, t.runID, outputStr, t.actor); err != nil {
+		return err
+	}
+	t.finished = true
+	if task, err := t.q.GetAgentTask(ctx, t.taskID); err == nil {
+		t.finalStatus = task.Status
 	}
 	return nil
+}
+
+// Fail marks the run as failed. Retryable=true returns the task to ready (if
+// retry budget remains); false forces StatusFailed.
+func (t *TaskControlTool) Fail(ctx context.Context, reason string, retryable bool) error {
+	if t.finished {
+		return fmt.Errorf("task_control: fail after terminal action")
+	}
+	if err := t.svc.Fail(ctx, FailParams{
+		TaskID: t.taskID, RunID: t.runID, Reason: reason, Retryable: retryable, Actor: t.actor,
+	}); err != nil {
+		return err
+	}
+	t.finished = true
+	return nil
+}
+
+// normalizePatch accepts a Go map, a struct, or raw JSON bytes and returns a
+// map[string]any.
+func normalizePatch(patch any) (map[string]any, error) {
+	if patch == nil {
+		return map[string]any{}, nil
+	}
+	switch p := patch.(type) {
+	case map[string]any:
+		return p, nil
+	case []byte:
+		var m map[string]any
+		if err := json.Unmarshal(p, &m); err != nil {
+			return nil, fmt.Errorf("task_control: patch is not valid JSON: %w", err)
+		}
+		return m, nil
+	case string:
+		if p == "" {
+			return map[string]any{}, nil
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(p), &m); err != nil {
+			return nil, fmt.Errorf("task_control: patch is not valid JSON: %w", err)
+		}
+		return m, nil
+	default:
+		// Round-trip through JSON for arbitrary structs.
+		b, err := json.Marshal(p)
+		if err != nil {
+			return nil, fmt.Errorf("task_control: patch not serialisable: %w", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			return nil, fmt.Errorf("task_control: patch not a JSON object: %w", err)
+		}
+		return m, nil
+	}
+}
+
+// mergeContext performs a shallow merge of patch into the current context
+// JSON. Per D14 / HP6: existing top-level keys not present in patch are
+// preserved. If existing is unparseable, patch wins entirely.
+func mergeContext(existing string, patch map[string]any) string {
+	var doc map[string]any
+	if existing != "" && existing != "{}" {
+		_ = json.Unmarshal([]byte(existing), &doc)
+	}
+	if doc == nil {
+		doc = map[string]any{}
+	}
+	maps.Copy(doc, patch)
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return existing
+	}
+	return string(b)
 }

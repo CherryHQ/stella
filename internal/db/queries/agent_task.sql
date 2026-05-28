@@ -1,63 +1,106 @@
+-- agent_task v2 queries  Slice 1.
+-- Status writes are split: only the transition service uses the *Status* /
+-- *Active* / Claim mutators. Other code paths read via Get/List and write only
+-- non-status fields via UpdateAgentTaskMeta.
+
 -- name: CreateAgentTask :one
 INSERT INTO agent_task (
-    id, title, description, status, priority, session_id, context,
-    review_request, deps, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
+    id, org_id, user_id, agent_id, title, description, status, priority,
+    required, retry_count, max_retries, not_before, deadline_at,
+    session_id, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTask :one
-SELECT * FROM agent_task WHERE id = ? AND user_id = ?;
+SELECT * FROM agent_task WHERE id = ?;
+
+-- name: GetAgentTaskForOrg :one
+SELECT * FROM agent_task WHERE id = ? AND org_id = ?;
+
+-- name: ListAgentTasksByOrg :many
+SELECT * FROM agent_task WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
 -- name: ListAgentTasksByUser :many
-SELECT * FROM agent_task WHERE user_id = ? ORDER BY created_at DESC;
+SELECT * FROM agent_task WHERE org_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
--- name: ListAgentTasksByUserAndAgent :many
-SELECT * FROM agent_task WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC;
+-- name: CountRunningAgentTasksByOrg :one
+SELECT count(*) FROM agent_task WHERE org_id = ? AND status = 'running';
 
--- name: ListPendingAgentTasks :many
-SELECT * FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC;
-
--- name: ListRunningAgentTasks :many
-SELECT * FROM agent_task WHERE status = 'running' ORDER BY created_at ASC;
-
--- name: CountRunningAgentTasksByUser :one
-SELECT count(*) FROM agent_task WHERE status = 'running' AND user_id = ?;
-
--- name: ListPendingNotifyTasks :many
+-- Coarse pre-filter for the dispatcher tick (HP4).
+-- Real dispatchability is decided by readiness.Compute in Go.
+-- name: ListReadyCandidates :many
 SELECT * FROM agent_task
-WHERE notify_at IS NOT NULL AND notify_at <= ?
-ORDER BY notify_at ASC;
+WHERE status = 'ready'
+  AND active_run_id IS NULL
+  AND (not_before IS NULL OR not_before <= ?)
+ORDER BY priority DESC, created_at ASC
+LIMIT ?;
 
--- name: UpdateAgentTask :exec
+-- name: UpdateAgentTaskMeta :exec
 UPDATE agent_task
-SET title = ?, description = ?, priority = ?, agent_id = ?, updated_at = ?
-WHERE id = ? AND user_id = ?;
+SET title = ?, description = ?, priority = ?, not_before = ?, deadline_at = ?,
+    context = ?, updated_at = ?
+WHERE id = ?;
 
--- name: UpdateAgentTaskStatus :exec
+-- Transition service uses these. Conditional UPDATE returns affected rows
+-- so callers can detect lost races.
+
+-- name: TransitionAgentTaskStatus :execrows
 UPDATE agent_task
 SET status = ?, updated_at = ?
-WHERE id = ? AND user_id = ?;
+WHERE id = ? AND status = ?;
 
--- name: UpdateAgentTaskStatusFrom :exec
+-- Atomic claim: ready + no active run  running, set active_run_id and session_id.
+-- name: ClaimAgentTask :execrows
 UPDATE agent_task
-SET status = ?, updated_at = ?
-WHERE id = ? AND user_id = ? AND status = ?;
+SET status = 'running',
+    active_run_id = ?,
+    session_id = COALESCE(session_id, ?),
+    updated_at = ?
+WHERE id = ?
+  AND status = 'ready'
+  AND active_run_id IS NULL;
 
--- name: UpdateAgentTaskContext :exec
+-- name: SetAgentTaskActiveRun :exec
 UPDATE agent_task
-SET context = ?, updated_at = ?
-WHERE id = ? AND user_id = ?;
+SET active_run_id = ?, updated_at = ?
+WHERE id = ?;
 
--- name: UpdateAgentTaskReviewRequest :exec
+-- name: SetAgentTaskActiveBlocker :exec
 UPDATE agent_task
-SET review_request = ?, updated_at = ?
-WHERE id = ? AND user_id = ?;
+SET active_blocker_id = ?, updated_at = ?
+WHERE id = ?;
 
--- name: UpdateAgentTaskNotifyAt :exec
+-- name: SetAgentTaskActiveReview :exec
 UPDATE agent_task
-SET notify_at = ?, updated_at = ?
-WHERE id = ? AND user_id = ?;
+SET active_review_id = ?, updated_at = ?
+WHERE id = ?;
+
+-- name: SetAgentTaskReviewPolicy :exec
+UPDATE agent_task
+SET review_policy = ?, updated_at = ?
+WHERE id = ?;
+
+-- name: IncrementAgentTaskRetry :exec
+UPDATE agent_task
+SET retry_count = retry_count + 1, updated_at = ?
+WHERE id = ?;
+
+-- name: SetAgentTaskOutput :exec
+UPDATE agent_task
+SET output = ?, completed_at = ?, updated_at = ?
+WHERE id = ?;
+
+-- name: SetAgentTaskCancelled :exec
+UPDATE agent_task
+SET cancelled_at = ?, updated_at = ?
+WHERE id = ?;
+
+-- name: ClearAgentTaskSession :exec
+UPDATE agent_task
+SET session_id = NULL, updated_at = ?
+WHERE id = ?;
 
 -- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ? AND user_id = ?;
+DELETE FROM agent_task WHERE id = ? AND org_id = ?;

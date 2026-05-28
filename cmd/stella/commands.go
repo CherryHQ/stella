@@ -193,7 +193,26 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	tasksSvc := buildTasksService(db, dispatcher, memProvider, &poolMgr)
+	// v2 task system (Phase 6 boot wiring). The runner is a noop until the
+	// agent.Pool adapter is wired; this still validates the boot path,
+	// scheduler registration, dispatcher tick, and DB plumbing.
+	tasksSvc := tasks.New(tasks.BootConfig{
+		DB:     db,
+		Memory: memProvider,
+		Pools: func(agentID string) (agent.NewRunnerFunc, bool) {
+			if poolMgr == nil {
+				return nil, false
+			}
+			p := poolMgr.Get(agentID)
+			if p == nil {
+				p = poolMgr.DefaultPool()
+			}
+			if p == nil {
+				return nil, false
+			}
+			return p.Factory(), true
+		},
+	})
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -311,28 +330,6 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 			}
 		}
 		return runErr
-	})
-}
-
-func buildTasksService(db *sql.DB, dispatcher *notify.Dispatcher, mem memory.Provider, poolMgr **agent.PoolManager) *tasks.Service {
-	runnerFactory := tasks.RunnerFactoryFn(func(agentID string) (agent.NewRunnerFunc, bool) {
-		if *poolMgr == nil {
-			return nil, false
-		}
-		p := (*poolMgr).Get(agentID)
-		if p == nil {
-			p = (*poolMgr).DefaultPool()
-		}
-		if p == nil {
-			return nil, false
-		}
-		return p.Factory(), true
-	})
-	return tasks.New(tasks.Config{
-		Queries:       sqlc.New(db),
-		Notifier:      dispatcher,
-		Memory:        mem,
-		RunnerFactory: runnerFactory,
 	})
 }
 

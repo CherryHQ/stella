@@ -242,18 +242,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
 
-	if s.tasksSvc != nil {
-		if err := s.tasksSvc.Start(ctx); err != nil {
-			return fmt.Errorf("start tasks service: %w", err)
+	// Dispatcher tick (Phase 6 wiring). Registered as a recurring in-memory
+	// task on scheduler.Service — no sched_job row (D4). The dispatcher waits
+	// for in-flight workers to drain on Stop.
+	if s.tasksSvc != nil && s.schedulerSvc != nil {
+		if err := s.schedulerSvc.ScheduleEvery(ctx, "2s", func(ctx context.Context) {
+			s.tasksSvc.Dispatcher.Tick(ctx)
+		}); err != nil {
+			return fmt.Errorf("schedule tasks dispatcher tick: %w", err)
 		}
-		defer s.tasksSvc.Stop()
-		if s.schedulerSvc != nil {
-			if err := s.schedulerSvc.ScheduleEvery(ctx, "30s", func(ctx context.Context) {
-				s.tasksSvc.Tick()
-			}); err != nil {
-				return fmt.Errorf("schedule tasks tick: %w", err)
-			}
-		}
+		defer s.tasksSvc.Dispatcher.Stop()
 	}
 
 	waitErr := g.Wait()

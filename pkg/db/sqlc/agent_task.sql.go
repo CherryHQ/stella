@@ -10,500 +10,616 @@ import (
 	"database/sql"
 )
 
-const countRunningAgentTasksByUser = `-- name: CountRunningAgentTasksByUser :one
-SELECT count(*) FROM agent_task WHERE status = 'running' AND user_id = ?
+const claimAgentTask = `-- name: ClaimAgentTask :execrows
+UPDATE agent_task
+SET status = 'running',
+    active_run_id = ?,
+    session_id = COALESCE(session_id, ?),
+    updated_at = ?
+WHERE id = ?
+  AND status = 'ready'
+  AND active_run_id IS NULL
 `
 
-func (q *Queries) CountRunningAgentTasksByUser(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countRunningAgentTasksByUser, userID)
+type ClaimAgentTaskParams struct {
+	ActiveRunID sql.NullString `json:"active_run_id"`
+	SessionID   sql.NullString `json:"session_id"`
+	UpdatedAt   string         `json:"updated_at"`
+	ID          string         `json:"id"`
+}
+
+// Atomic claim: ready + no active run  running, set active_run_id and session_id.
+func (q *Queries) ClaimAgentTask(ctx context.Context, arg ClaimAgentTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimAgentTask,
+		arg.ActiveRunID,
+		arg.SessionID,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearAgentTaskSession = `-- name: ClearAgentTaskSession :exec
+UPDATE agent_task
+SET session_id = NULL, updated_at = ?
+WHERE id = ?
+`
+
+type ClearAgentTaskSessionParams struct {
+	UpdatedAt string `json:"updated_at"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) ClearAgentTaskSession(ctx context.Context, arg ClearAgentTaskSessionParams) error {
+	_, err := q.db.ExecContext(ctx, clearAgentTaskSession, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const countRunningAgentTasksByOrg = `-- name: CountRunningAgentTasksByOrg :one
+SELECT count(*) FROM agent_task WHERE org_id = ? AND status = 'running'
+`
+
+func (q *Queries) CountRunningAgentTasksByOrg(ctx context.Context, orgID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunningAgentTasksByOrg, orgID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createAgentTask = `-- name: CreateAgentTask :one
+
 INSERT INTO agent_task (
-    id, title, description, status, priority, session_id, context,
-    review_request, deps, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
+    id, org_id, user_id, agent_id, title, description, status, priority,
+    required, retry_count, max_retries, not_before, deadline_at,
+    session_id, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
 `
 
 type CreateAgentTaskParams struct {
-	ID             string         `json:"id"`
-	Title          string         `json:"title"`
-	Description    string         `json:"description"`
-	Status         string         `json:"status"`
-	Priority       string         `json:"priority"`
-	SessionID      sql.NullString `json:"session_id"`
-	Context        string         `json:"context"`
-	ReviewRequest  string         `json:"review_request"`
-	Deps           string         `json:"deps"`
-	SchedulerJobID sql.NullString `json:"scheduler_job_id"`
-	SchedulerRunID sql.NullString `json:"scheduler_run_id"`
-	AgentID        sql.NullString `json:"agent_id"`
-	UserID         string         `json:"user_id"`
-	CreatedAt      string         `json:"created_at"`
-	UpdatedAt      string         `json:"updated_at"`
+	ID          string         `json:"id"`
+	OrgID       string         `json:"org_id"`
+	UserID      string         `json:"user_id"`
+	AgentID     sql.NullString `json:"agent_id"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Status      string         `json:"status"`
+	Priority    string         `json:"priority"`
+	Required    int64          `json:"required"`
+	RetryCount  int64          `json:"retry_count"`
+	MaxRetries  int64          `json:"max_retries"`
+	NotBefore   sql.NullString `json:"not_before"`
+	DeadlineAt  sql.NullString `json:"deadline_at"`
+	SessionID   sql.NullString `json:"session_id"`
+	Context     string         `json:"context"`
+	Output      string         `json:"output"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
 }
 
+// agent_task v2 queries  Slice 1.
+// Status writes are split: only the transition service uses the *Status* /
+// *Active* / Claim mutators. Other code paths read via Get/List and write only
+// non-status fields via UpdateAgentTaskMeta.
 func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams) (AgentTask, error) {
 	row := q.db.QueryRowContext(ctx, createAgentTask,
 		arg.ID,
+		arg.OrgID,
+		arg.UserID,
+		arg.AgentID,
 		arg.Title,
 		arg.Description,
 		arg.Status,
 		arg.Priority,
+		arg.Required,
+		arg.RetryCount,
+		arg.MaxRetries,
+		arg.NotBefore,
+		arg.DeadlineAt,
 		arg.SessionID,
 		arg.Context,
-		arg.ReviewRequest,
-		arg.Deps,
-		arg.SchedulerJobID,
-		arg.SchedulerRunID,
-		arg.AgentID,
-		arg.UserID,
+		arg.Output,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
 	var i AgentTask
 	err := row.Scan(
 		&i.ID,
+		&i.OrgID,
+		&i.UserID,
+		&i.AgentID,
+		&i.GoalID,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
+		&i.ReviewPolicy,
+		&i.ActiveReviewID,
+		&i.Required,
+		&i.RetryCount,
+		&i.MaxRetries,
+		&i.NotBefore,
+		&i.DeadlineAt,
 		&i.SessionID,
+		&i.ActiveRunID,
+		&i.ActiveBlockerID,
 		&i.Context,
-		&i.ReviewRequest,
-		&i.Deps,
-		&i.NotifyAt,
-		&i.SchedulerJobID,
-		&i.SchedulerRunID,
-		&i.AgentID,
-		&i.UserID,
+		&i.Output,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
 
 const deleteAgentTask = `-- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ? AND user_id = ?
+DELETE FROM agent_task WHERE id = ? AND org_id = ?
 `
 
 type DeleteAgentTaskParams struct {
-	ID     string `json:"id"`
-	UserID string `json:"user_id"`
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
 }
 
 func (q *Queries) DeleteAgentTask(ctx context.Context, arg DeleteAgentTaskParams) error {
-	_, err := q.db.ExecContext(ctx, deleteAgentTask, arg.ID, arg.UserID)
+	_, err := q.db.ExecContext(ctx, deleteAgentTask, arg.ID, arg.OrgID)
 	return err
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE id = ? AND user_id = ?
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
 `
 
-type GetAgentTaskParams struct {
-	ID     string `json:"id"`
-	UserID string `json:"user_id"`
-}
-
-func (q *Queries) GetAgentTask(ctx context.Context, arg GetAgentTaskParams) (AgentTask, error) {
-	row := q.db.QueryRowContext(ctx, getAgentTask, arg.ID, arg.UserID)
+func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
+	row := q.db.QueryRowContext(ctx, getAgentTask, id)
 	var i AgentTask
 	err := row.Scan(
 		&i.ID,
+		&i.OrgID,
+		&i.UserID,
+		&i.AgentID,
+		&i.GoalID,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
+		&i.ReviewPolicy,
+		&i.ActiveReviewID,
+		&i.Required,
+		&i.RetryCount,
+		&i.MaxRetries,
+		&i.NotBefore,
+		&i.DeadlineAt,
 		&i.SessionID,
+		&i.ActiveRunID,
+		&i.ActiveBlockerID,
 		&i.Context,
-		&i.ReviewRequest,
-		&i.Deps,
-		&i.NotifyAt,
-		&i.SchedulerJobID,
-		&i.SchedulerRunID,
-		&i.AgentID,
-		&i.UserID,
+		&i.Output,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.CancelledAt,
 	)
 	return i, err
 }
 
-const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC
+const getAgentTaskForOrg = `-- name: GetAgentTaskForOrg :one
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ? AND org_id = ?
 `
 
-func (q *Queries) ListAgentTasksByUser(ctx context.Context, userID string) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTask{}
-	for rows.Next() {
-		var i AgentTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Description,
-			&i.Status,
-			&i.Priority,
-			&i.SessionID,
-			&i.Context,
-			&i.ReviewRequest,
-			&i.Deps,
-			&i.NotifyAt,
-			&i.SchedulerJobID,
-			&i.SchedulerRunID,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type GetAgentTaskForOrgParams struct {
+	ID    string `json:"id"`
+	OrgID string `json:"org_id"`
 }
 
-const listAgentTasksByUserAndAgent = `-- name: ListAgentTasksByUserAndAgent :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC
-`
-
-type ListAgentTasksByUserAndAgentParams struct {
-	UserID  string         `json:"user_id"`
-	AgentID sql.NullString `json:"agent_id"`
+func (q *Queries) GetAgentTaskForOrg(ctx context.Context, arg GetAgentTaskForOrgParams) (AgentTask, error) {
+	row := q.db.QueryRowContext(ctx, getAgentTaskForOrg, arg.ID, arg.OrgID)
+	var i AgentTask
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.UserID,
+		&i.AgentID,
+		&i.GoalID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.ReviewPolicy,
+		&i.ActiveReviewID,
+		&i.Required,
+		&i.RetryCount,
+		&i.MaxRetries,
+		&i.NotBefore,
+		&i.DeadlineAt,
+		&i.SessionID,
+		&i.ActiveRunID,
+		&i.ActiveBlockerID,
+		&i.Context,
+		&i.Output,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.CancelledAt,
+	)
+	return i, err
 }
 
-func (q *Queries) ListAgentTasksByUserAndAgent(ctx context.Context, arg ListAgentTasksByUserAndAgentParams) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTasksByUserAndAgent, arg.UserID, arg.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTask{}
-	for rows.Next() {
-		var i AgentTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Description,
-			&i.Status,
-			&i.Priority,
-			&i.SessionID,
-			&i.Context,
-			&i.ReviewRequest,
-			&i.Deps,
-			&i.NotifyAt,
-			&i.SchedulerJobID,
-			&i.SchedulerRunID,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listPendingAgentTasks = `-- name: ListPendingAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'pending' ORDER BY created_at ASC
-`
-
-func (q *Queries) ListPendingAgentTasks(ctx context.Context) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listPendingAgentTasks)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTask{}
-	for rows.Next() {
-		var i AgentTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Description,
-			&i.Status,
-			&i.Priority,
-			&i.SessionID,
-			&i.Context,
-			&i.ReviewRequest,
-			&i.Deps,
-			&i.NotifyAt,
-			&i.SchedulerJobID,
-			&i.SchedulerRunID,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listPendingNotifyTasks = `-- name: ListPendingNotifyTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task
-WHERE notify_at IS NOT NULL AND notify_at <= ?
-ORDER BY notify_at ASC
-`
-
-func (q *Queries) ListPendingNotifyTasks(ctx context.Context, notifyAt sql.NullString) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listPendingNotifyTasks, notifyAt)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTask{}
-	for rows.Next() {
-		var i AgentTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Description,
-			&i.Status,
-			&i.Priority,
-			&i.SessionID,
-			&i.Context,
-			&i.ReviewRequest,
-			&i.Deps,
-			&i.NotifyAt,
-			&i.SchedulerJobID,
-			&i.SchedulerRunID,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listRunningAgentTasks = `-- name: ListRunningAgentTasks :many
-SELECT id, title, description, status, priority, session_id, context, review_request, deps, notify_at, scheduler_job_id, scheduler_run_id, agent_id, user_id, created_at, updated_at FROM agent_task WHERE status = 'running' ORDER BY created_at ASC
-`
-
-func (q *Queries) ListRunningAgentTasks(ctx context.Context) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listRunningAgentTasks)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTask{}
-	for rows.Next() {
-		var i AgentTask
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Description,
-			&i.Status,
-			&i.Priority,
-			&i.SessionID,
-			&i.Context,
-			&i.ReviewRequest,
-			&i.Deps,
-			&i.NotifyAt,
-			&i.SchedulerJobID,
-			&i.SchedulerRunID,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const updateAgentTask = `-- name: UpdateAgentTask :exec
+const incrementAgentTaskRetry = `-- name: IncrementAgentTaskRetry :exec
 UPDATE agent_task
-SET title = ?, description = ?, priority = ?, agent_id = ?, updated_at = ?
-WHERE id = ? AND user_id = ?
+SET retry_count = retry_count + 1, updated_at = ?
+WHERE id = ?
 `
 
-type UpdateAgentTaskParams struct {
-	Title       string         `json:"title"`
-	Description string         `json:"description"`
-	Priority    string         `json:"priority"`
-	AgentID     sql.NullString `json:"agent_id"`
+type IncrementAgentTaskRetryParams struct {
+	UpdatedAt string `json:"updated_at"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgentTaskRetryParams) error {
+	_, err := q.db.ExecContext(ctx, incrementAgentTaskRetry, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const listAgentTasksByOrg = `-- name: ListAgentTasksByOrg :many
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+`
+
+type ListAgentTasksByOrgParams struct {
+	OrgID  string `json:"org_id"`
+	Limit  int64  `json:"limit"`
+	Offset int64  `json:"offset"`
+}
+
+func (q *Queries) ListAgentTasksByOrg(ctx context.Context, arg ListAgentTasksByOrgParams) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTasksByOrg, arg.OrgID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.UserID,
+			&i.AgentID,
+			&i.GoalID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
+			&i.Required,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.NotBefore,
+			&i.DeadlineAt,
+			&i.SessionID,
+			&i.ActiveRunID,
+			&i.ActiveBlockerID,
+			&i.Context,
+			&i.Output,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+`
+
+type ListAgentTasksByUserParams struct {
+	OrgID  string `json:"org_id"`
+	UserID string `json:"user_id"`
+	Limit  int64  `json:"limit"`
+	Offset int64  `json:"offset"`
+}
+
+func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser,
+		arg.OrgID,
+		arg.UserID,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.UserID,
+			&i.AgentID,
+			&i.GoalID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
+			&i.Required,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.NotBefore,
+			&i.DeadlineAt,
+			&i.SessionID,
+			&i.ActiveRunID,
+			&i.ActiveBlockerID,
+			&i.Context,
+			&i.Output,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReadyCandidates = `-- name: ListReadyCandidates :many
+SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+WHERE status = 'ready'
+  AND active_run_id IS NULL
+  AND (not_before IS NULL OR not_before <= ?)
+ORDER BY priority DESC, created_at ASC
+LIMIT ?
+`
+
+type ListReadyCandidatesParams struct {
+	NotBefore sql.NullString `json:"not_before"`
+	Limit     int64          `json:"limit"`
+}
+
+// Coarse pre-filter for the dispatcher tick (HP4).
+// Real dispatchability is decided by readiness.Compute in Go.
+func (q *Queries) ListReadyCandidates(ctx context.Context, arg ListReadyCandidatesParams) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listReadyCandidates, arg.NotBefore, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.UserID,
+			&i.AgentID,
+			&i.GoalID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
+			&i.Required,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.NotBefore,
+			&i.DeadlineAt,
+			&i.SessionID,
+			&i.ActiveRunID,
+			&i.ActiveBlockerID,
+			&i.Context,
+			&i.Output,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setAgentTaskActiveBlocker = `-- name: SetAgentTaskActiveBlocker :exec
+UPDATE agent_task
+SET active_blocker_id = ?, updated_at = ?
+WHERE id = ?
+`
+
+type SetAgentTaskActiveBlockerParams struct {
+	ActiveBlockerID sql.NullString `json:"active_blocker_id"`
+	UpdatedAt       string         `json:"updated_at"`
+	ID              string         `json:"id"`
+}
+
+func (q *Queries) SetAgentTaskActiveBlocker(ctx context.Context, arg SetAgentTaskActiveBlockerParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskActiveBlocker, arg.ActiveBlockerID, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setAgentTaskActiveReview = `-- name: SetAgentTaskActiveReview :exec
+UPDATE agent_task
+SET active_review_id = ?, updated_at = ?
+WHERE id = ?
+`
+
+type SetAgentTaskActiveReviewParams struct {
+	ActiveReviewID sql.NullString `json:"active_review_id"`
+	UpdatedAt      string         `json:"updated_at"`
+	ID             string         `json:"id"`
+}
+
+func (q *Queries) SetAgentTaskActiveReview(ctx context.Context, arg SetAgentTaskActiveReviewParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskActiveReview, arg.ActiveReviewID, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setAgentTaskActiveRun = `-- name: SetAgentTaskActiveRun :exec
+UPDATE agent_task
+SET active_run_id = ?, updated_at = ?
+WHERE id = ?
+`
+
+type SetAgentTaskActiveRunParams struct {
+	ActiveRunID sql.NullString `json:"active_run_id"`
 	UpdatedAt   string         `json:"updated_at"`
 	ID          string         `json:"id"`
-	UserID      string         `json:"user_id"`
 }
 
-func (q *Queries) UpdateAgentTask(ctx context.Context, arg UpdateAgentTaskParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTask,
-		arg.Title,
-		arg.Description,
-		arg.Priority,
-		arg.AgentID,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.UserID,
-	)
+func (q *Queries) SetAgentTaskActiveRun(ctx context.Context, arg SetAgentTaskActiveRunParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskActiveRun, arg.ActiveRunID, arg.UpdatedAt, arg.ID)
 	return err
 }
 
-const updateAgentTaskContext = `-- name: UpdateAgentTaskContext :exec
+const setAgentTaskCancelled = `-- name: SetAgentTaskCancelled :exec
 UPDATE agent_task
-SET context = ?, updated_at = ?
-WHERE id = ? AND user_id = ?
+SET cancelled_at = ?, updated_at = ?
+WHERE id = ?
 `
 
-type UpdateAgentTaskContextParams struct {
-	Context   string `json:"context"`
-	UpdatedAt string `json:"updated_at"`
-	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
+type SetAgentTaskCancelledParams struct {
+	CancelledAt sql.NullString `json:"cancelled_at"`
+	UpdatedAt   string         `json:"updated_at"`
+	ID          string         `json:"id"`
 }
 
-func (q *Queries) UpdateAgentTaskContext(ctx context.Context, arg UpdateAgentTaskContextParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskContext,
-		arg.Context,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.UserID,
-	)
+func (q *Queries) SetAgentTaskCancelled(ctx context.Context, arg SetAgentTaskCancelledParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskCancelled, arg.CancelledAt, arg.UpdatedAt, arg.ID)
 	return err
 }
 
-const updateAgentTaskNotifyAt = `-- name: UpdateAgentTaskNotifyAt :exec
+const setAgentTaskOutput = `-- name: SetAgentTaskOutput :exec
 UPDATE agent_task
-SET notify_at = ?, updated_at = ?
-WHERE id = ? AND user_id = ?
+SET output = ?, completed_at = ?, updated_at = ?
+WHERE id = ?
 `
 
-type UpdateAgentTaskNotifyAtParams struct {
-	NotifyAt  sql.NullString `json:"notify_at"`
-	UpdatedAt string         `json:"updated_at"`
-	ID        string         `json:"id"`
-	UserID    string         `json:"user_id"`
+type SetAgentTaskOutputParams struct {
+	Output      string         `json:"output"`
+	CompletedAt sql.NullString `json:"completed_at"`
+	UpdatedAt   string         `json:"updated_at"`
+	ID          string         `json:"id"`
 }
 
-func (q *Queries) UpdateAgentTaskNotifyAt(ctx context.Context, arg UpdateAgentTaskNotifyAtParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskNotifyAt,
-		arg.NotifyAt,
+func (q *Queries) SetAgentTaskOutput(ctx context.Context, arg SetAgentTaskOutputParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskOutput,
+		arg.Output,
+		arg.CompletedAt,
 		arg.UpdatedAt,
 		arg.ID,
-		arg.UserID,
 	)
 	return err
 }
 
-const updateAgentTaskReviewRequest = `-- name: UpdateAgentTaskReviewRequest :exec
+const setAgentTaskReviewPolicy = `-- name: SetAgentTaskReviewPolicy :exec
 UPDATE agent_task
-SET review_request = ?, updated_at = ?
-WHERE id = ? AND user_id = ?
+SET review_policy = ?, updated_at = ?
+WHERE id = ?
 `
 
-type UpdateAgentTaskReviewRequestParams struct {
-	ReviewRequest string `json:"review_request"`
-	UpdatedAt     string `json:"updated_at"`
-	ID            string `json:"id"`
-	UserID        string `json:"user_id"`
+type SetAgentTaskReviewPolicyParams struct {
+	ReviewPolicy string `json:"review_policy"`
+	UpdatedAt    string `json:"updated_at"`
+	ID           string `json:"id"`
 }
 
-func (q *Queries) UpdateAgentTaskReviewRequest(ctx context.Context, arg UpdateAgentTaskReviewRequestParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskReviewRequest,
-		arg.ReviewRequest,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.UserID,
-	)
+func (q *Queries) SetAgentTaskReviewPolicy(ctx context.Context, arg SetAgentTaskReviewPolicyParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentTaskReviewPolicy, arg.ReviewPolicy, arg.UpdatedAt, arg.ID)
 	return err
 }
 
-const updateAgentTaskStatus = `-- name: UpdateAgentTaskStatus :exec
+const transitionAgentTaskStatus = `-- name: TransitionAgentTaskStatus :execrows
+
 UPDATE agent_task
 SET status = ?, updated_at = ?
-WHERE id = ? AND user_id = ?
+WHERE id = ? AND status = ?
 `
 
-type UpdateAgentTaskStatusParams struct {
+type TransitionAgentTaskStatusParams struct {
 	Status    string `json:"status"`
 	UpdatedAt string `json:"updated_at"`
 	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
-}
-
-func (q *Queries) UpdateAgentTaskStatus(ctx context.Context, arg UpdateAgentTaskStatusParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskStatus,
-		arg.Status,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.UserID,
-	)
-	return err
-}
-
-const updateAgentTaskStatusFrom = `-- name: UpdateAgentTaskStatusFrom :exec
-UPDATE agent_task
-SET status = ?, updated_at = ?
-WHERE id = ? AND user_id = ? AND status = ?
-`
-
-type UpdateAgentTaskStatusFromParams struct {
-	Status    string `json:"status"`
-	UpdatedAt string `json:"updated_at"`
-	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
 	Status_2  string `json:"status_2"`
 }
 
-func (q *Queries) UpdateAgentTaskStatusFrom(ctx context.Context, arg UpdateAgentTaskStatusFromParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentTaskStatusFrom,
+// Transition service uses these. Conditional UPDATE returns affected rows
+// so callers can detect lost races.
+func (q *Queries) TransitionAgentTaskStatus(ctx context.Context, arg TransitionAgentTaskStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, transitionAgentTaskStatus,
 		arg.Status,
 		arg.UpdatedAt,
 		arg.ID,
-		arg.UserID,
 		arg.Status_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateAgentTaskMeta = `-- name: UpdateAgentTaskMeta :exec
+UPDATE agent_task
+SET title = ?, description = ?, priority = ?, not_before = ?, deadline_at = ?,
+    context = ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateAgentTaskMetaParams struct {
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Priority    string         `json:"priority"`
+	NotBefore   sql.NullString `json:"not_before"`
+	DeadlineAt  sql.NullString `json:"deadline_at"`
+	Context     string         `json:"context"`
+	UpdatedAt   string         `json:"updated_at"`
+	ID          string         `json:"id"`
+}
+
+func (q *Queries) UpdateAgentTaskMeta(ctx context.Context, arg UpdateAgentTaskMetaParams) error {
+	_, err := q.db.ExecContext(ctx, updateAgentTaskMeta,
+		arg.Title,
+		arg.Description,
+		arg.Priority,
+		arg.NotBefore,
+		arg.DeadlineAt,
+		arg.Context,
+		arg.UpdatedAt,
+		arg.ID,
 	)
 	return err
 }

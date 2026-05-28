@@ -6,6 +6,7 @@
     "sandbox",
     "memory-internals",
     "session-compaction",
-    "plugin-system"
+    "plugin-system",
+    "task-system"
   ]
 }

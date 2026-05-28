@@ -2,213 +2,173 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// workerConfig holds dependencies needed to run a task worker goroutine.
-type workerConfig struct {
-	q             *sqlc.Queries
-	mem           memory.Provider
-	runnerFactory RunnerFactoryFn
+// RunnerFunc is the agent-execution callback that the worker invokes for a
+// claimed run. The runner must call exactly one of tool.Submit / tool.Block /
+// tool.Fail before returning; otherwise the worker applies the protocol-error
+// fallback per D14 / HP5.
+//
+// The runner runs inside the dispatcher's worker goroutine and must honor ctx
+// cancellation (e.g. on dispatcher shutdown).
+type RunnerFunc func(ctx context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error
+
+// HeartbeatInterval is how often the worker extends lease_expires_at on the
+// run row while the runner is executing. Set to 0 to disable heartbeats.
+const HeartbeatInterval = 20 * time.Second
+
+// LeaseDuration is the default lease applied while a run is in flight. Must
+// be > 3 * HeartbeatInterval so a single missed beat doesn't expire the lease.
+const LeaseDuration = 90 * time.Second
+
+// Worker runs one claimed agent_task_run to completion.
+type Worker struct {
+	svc       *TransitionService
+	q         *sqlc.Queries
+	runner    RunnerFunc
+	heartbeat time.Duration
+	lease     time.Duration
+	log       *slog.Logger
 }
 
-// runWorker executes a single task session. It claims the task (pending→running),
-// runs the agent loop, and ensures the task ends in a terminal state.
-func runWorker(ctx context.Context, cancel context.CancelFunc, cfg workerConfig, task sqlc.AgentTask) {
-	log := slog.With("component", "tasks.worker", "task_id", task.ID)
-
-	// Atomically claim the task: pending → running.
-	now := time.Now().Format(time.RFC3339)
-	if err := cfg.q.UpdateAgentTaskStatusFrom(ctx, sqlc.UpdateAgentTaskStatusFromParams{
-		Status:    "running",
-		UpdatedAt: now,
-		ID:        task.ID,
-		UserID:    task.UserID,
-		Status_2:  "pending",
-	}); err != nil {
-		log.Error("failed to claim task", "error", err)
-		return
+// NewWorker wires a worker.
+func NewWorker(svc *TransitionService, q *sqlc.Queries, runner RunnerFunc) *Worker {
+	return &Worker{
+		svc:       svc,
+		q:         q,
+		runner:    runner,
+		heartbeat: HeartbeatInterval,
+		lease:     LeaseDuration,
+		log:       slog.Default().With("component", "tasks/worker"),
 	}
-	// Verify the claim succeeded (UpdateAgentTaskStatusFrom returns nil even on 0 rows).
-	claimed, err := cfg.q.GetAgentTask(ctx, sqlc.GetAgentTaskParams{ID: task.ID, UserID: task.UserID})
+}
+
+// SetHeartbeat overrides the heartbeat interval (for tests).
+func (w *Worker) SetHeartbeat(d time.Duration) { w.heartbeat = d }
+
+// SetLease overrides the lease duration (for tests).
+func (w *Worker) SetLease(d time.Duration) { w.lease = d }
+
+// Run drives the runner for one claimed task. Responsibilities:
+//   - flip the run from queued to running with started_at + initial lease
+//   - keep lease_expires_at fresh while the runner executes (heartbeat)
+//   - apply the protocol-error fallback if the runner returns without a
+//     terminal control action (HP5 / D14)
+//   - turn runner panics into a non-retryable Fail
+//
+// Run does not transition the task itself; the control tool does that.
+func (w *Worker) Run(ctx context.Context, taskID, runID string, actor Actor) (err error) {
+	run, err := w.q.GetAgentTaskRun(ctx, runID)
 	if err != nil {
-		log.Error("failed to verify task claim", "error", err)
-		return
-	}
-	if claimed.Status != "running" {
-		log.Info("task already claimed by another worker, skipping")
-		return
+		return fmt.Errorf("worker: load run: %w", err)
 	}
 
-	// Log a "started" event.
-	startedAt := time.Now().Format(time.RFC3339)
-	_, _ = cfg.q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        newID(),
-		TaskID:    task.ID,
-		EventType: "started",
-		Detail:    "{}",
-		CreatedAt: startedAt,
-		UpdatedAt: startedAt,
-	})
-
-	// Resolve factory for this task's agent.
-	agentID := task.AgentID.String
-	factory, ok := cfg.runnerFactory(agentID)
-	if !ok {
-		log.Error("no runner factory for agent", "agent_id", agentID)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("no runner available for agent %q", agentID))
-		return
+	now := w.svc.now()
+	if _, perr := w.q.PromoteAgentTaskRun(ctx, sqlc.PromoteAgentTaskRunParams{
+		StartedAt:      sql.NullString{String: now, Valid: true},
+		HeartbeatAt:    sql.NullString{String: now, Valid: true},
+		LeaseExpiresAt: w.leaseUntil(),
+		UpdatedAt:      now,
+		ID:             runID,
+	}); perr != nil {
+		return fmt.Errorf("worker: promote run: %w", perr)
 	}
 
-	// Build the control tool with the worker's cancel func.
-	controlTool := newTaskControlTool(cfg.q, task.ID, task.UserID, cancel)
+	tool := NewTaskControlTool(w.svc, w.q, taskID, runID, actor)
 
-	// Create a full runner (with sandbox tools) via the agent factory,
-	// injecting task_control as an extra tool.
-	runner, err := factory(ctx, agent.RunnerParams{
-		UserID:     task.UserID,
-		AgentID:    agentID,
-		Memory:     cfg.mem,
-		ExtraTools: []tools.Tool{controlTool},
-	})
-	if err != nil {
-		log.Error("create runner failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("create runner: %v", err))
-		return
-	}
-	defer func() { _ = runner.Close() }()
-
-	// Set up memory session.
-	session := taskSession(task)
-	memCtx := memory.WithSessionID(ctx, session.ID)
-	memCtx = memory.WithUserID(memCtx, task.UserID)
-	memCtx = memory.WithAgentID(memCtx, agentID)
-
-	if err := saveTaskSessionInfo(memCtx, cfg.mem, task, session); err != nil {
-		log.Error("memory session info failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("memory session info failed: %v", err))
-		return
-	}
-	if err := cfg.mem.Bootstrap(memCtx, session); err != nil {
-		log.Error("memory bootstrap failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("memory bootstrap failed: %v", err))
-		return
+	// Start heartbeat in the background.
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	var hbWG sync.WaitGroup
+	if w.heartbeat > 0 {
+		hbWG.Add(1)
+		go w.heartbeatLoop(hbCtx, &hbWG, runID)
 	}
 
-	// Assemble prior history from memory.
-	history, err := cfg.mem.Assemble(memCtx, session, 100_000, 20)
-	if err != nil {
-		log.Error("assemble history failed", "error", err)
-		markFailed(ctx, cfg.q, task.ID, task.UserID, fmt.Sprintf("assemble history: %v", err))
-		return
-	}
-
-	// Override the runner's system prompt to include async-task instructions.
-	taskCtx := agent.WithSystemOverride(memCtx, taskSystemPrompt(runner.SystemPrompt()))
-
-	// Build the initial or resume message.
-	var message string
-	if len(history) == 0 {
-		message = taskStartMessage(task)
-	} else {
-		message = taskResumeMessage(task)
-	}
-
-	log.Info("worker starting agent loop")
-	eventCh := runner.Chat(taskCtx, history, message)
-
-	// Drain events. Use a fresh context for cleanup so cancellation by
-	// task_control doesn't break persistence.
-	cleanupCtx := context.Background()
-	cleanupCtx = memory.WithSessionID(cleanupCtx, session.ID)
-	cleanupCtx = memory.WithUserID(cleanupCtx, task.UserID)
-	cleanupCtx = memory.WithAgentID(cleanupCtx, agentID)
-
-	var runErr error
-	for evt := range eventCh {
-		if evt.Err != nil {
-			runErr = evt.Err
+	defer func() {
+		hbCancel()
+		hbWG.Wait()
+		if r := recover(); r != nil {
+			w.log.Error("worker runner panicked", "task_id", taskID, "panic", r)
+			_ = w.svc.Fail(context.Background(), FailParams{
+				TaskID: taskID, RunID: runID,
+				Reason: fmt.Sprintf("runner panic: %v", r), Retryable: false, Actor: actor,
+			})
+			err = fmt.Errorf("runner panic: %v", r)
 		}
-		if evt.Store != nil {
-			if appendErr := cfg.mem.Append(cleanupCtx, session, evt.Store); appendErr != nil {
-				log.Warn("failed to persist message", "error", appendErr)
+	}()
+
+	rerr := w.runner(ctx, run, tool)
+
+	if !tool.Finished() {
+		reason := "agent exited without calling submit/block/fail"
+		retryable := true
+		if rerr != nil {
+			reason = fmt.Sprintf("agent error: %v", rerr)
+			// A ctx-cancellation means we initiated shutdown; do not consume
+			// retry budget so the task picks up cleanly on next boot.
+			if errors.Is(rerr, context.Canceled) {
+				retryable = true
 			}
 		}
+		// Use a fresh context: if ctx was cancelled, we still need to write
+		// the failure record.
+		if ferr := w.svc.Fail(context.Background(), FailParams{
+			TaskID: taskID, RunID: runID, Reason: reason, Retryable: retryable, Actor: actor,
+		}); ferr != nil {
+			w.log.Warn("worker: fail bookkeeping returned error", "err", ferr)
+		}
+		w.appendProtocolError(taskID, runID, reason, actor)
+		return nil
 	}
+	return rerr
+}
 
-	// If the task is still running (agent exited without calling task_control), finalize it.
-	final, err := cfg.q.GetAgentTask(cleanupCtx, sqlc.GetAgentTaskParams{ID: task.ID, UserID: task.UserID})
-	if err != nil {
-		log.Error("failed to read final task status", "error", err)
-		return
-	}
-
-	if final.Status == "running" {
-		if runErr != nil {
-			log.Error("agent loop failed", "error", runErr)
-			markFailed(cleanupCtx, cfg.q, task.ID, task.UserID, runErr.Error())
-		} else {
-			log.Info("agent loop finished without explicit task_control done call, marking done")
-			markDone(cleanupCtx, cfg.q, task.ID, task.UserID)
+func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, runID string) {
+	defer wg.Done()
+	t := time.NewTicker(w.heartbeat)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_, _ = w.q.HeartbeatAgentTaskRun(ctx, sqlc.HeartbeatAgentTaskRunParams{
+				HeartbeatAt:    sql.NullString{String: w.svc.now(), Valid: true},
+				LeaseExpiresAt: w.leaseUntil(),
+				UpdatedAt:      w.svc.now(),
+				ID:             runID,
+			})
 		}
 	}
 }
 
-func taskSystemPrompt(base string) string {
-	return fmt.Sprintf(`%s
-
-# Async task mode
-
-Use task_control for task state: progress at checkpoints, block when user input is needed, request_review before risky/user-visible changes, done when complete, and failed when you cannot continue. Keep context compact and do not notify the user directly.`, base)
+func (w *Worker) leaseUntil() sql.NullString {
+	return sql.NullString{
+		String: w.svc.clock().Add(w.lease).UTC().Format(time.RFC3339Nano),
+		Valid:  true,
+	}
 }
 
-func taskStartMessage(task sqlc.AgentTask) string {
-	return fmt.Sprintf("Task ID: %s\nTask: %s\n\nDescription: %s\n\nStored context: %s", task.ID, task.Title, task.Description, task.Context)
-}
-
-func taskResumeMessage(task sqlc.AgentTask) string {
-	return fmt.Sprintf("[Resume] Task ID: %s\nTask: %s\nStatus before resume: %s\nStored context: %s\n\nContinue from the persisted conversation and this task context.", task.ID, task.Title, task.Status, task.Context)
-}
-
-func markFailed(ctx context.Context, q *sqlc.Queries, taskID, userID, reason string) {
-	now := time.Now().Format(time.RFC3339)
-	_ = q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-		Status:    "failed",
-		UpdatedAt: now,
-		ID:        taskID,
-		UserID:    userID,
-	})
-	_, _ = q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        newID(),
-		TaskID:    taskID,
-		EventType: "failed",
-		Detail:    detailJSON(reason),
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-}
-
-func markDone(ctx context.Context, q *sqlc.Queries, taskID, userID string) {
-	now := time.Now().Format(time.RFC3339)
-	_ = q.UpdateAgentTaskStatus(ctx, sqlc.UpdateAgentTaskStatusParams{
-		Status:    "done",
-		UpdatedAt: now,
-		ID:        taskID,
-		UserID:    userID,
-	})
-	_, _ = q.InsertAgentTaskEvent(ctx, sqlc.InsertAgentTaskEventParams{
-		ID:        newID(),
-		TaskID:    taskID,
-		EventType: "done",
-		Detail:    "{}",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+// appendProtocolError writes one event row recording the protocol violation.
+// Best-effort; failure to write the event must not mask the protocol error.
+func (w *Worker) appendProtocolError(taskID, runID, reason string, actor Actor) {
+	ctx := context.Background()
+	if err := w.svc.appendEvent(ctx, w.q, sqlc.InsertAgentTaskEventParams{
+		TaskID:    nullable(taskID),
+		RunID:     nullable(runID),
+		EventType: "protocol_error",
+		ActorType: actorTypeOrSystem(actor),
+		ActorID:   nullable(actor.ID),
+		Detail:    detailJSON(map[string]any{"reason": reason}),
+	}); err != nil {
+		w.log.Warn("worker: append protocol_error event failed", "err", err)
+	}
 }

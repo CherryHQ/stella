@@ -7,49 +7,74 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const insertAgentTaskEvent = `-- name: InsertAgentTaskEvent :one
-INSERT INTO agent_task_event (id, task_id, event_type, detail, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, task_id, event_type, detail, created_at, updated_at
+
+INSERT INTO agent_task_event (
+    id, task_id, run_id, blocker_id, review_id, event_type, from_status, to_status,
+    actor_type, actor_id, detail, created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at
 `
 
 type InsertAgentTaskEventParams struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"task_id"`
-	EventType string `json:"event_type"`
-	Detail    string `json:"detail"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID         string         `json:"id"`
+	TaskID     sql.NullString `json:"task_id"`
+	RunID      sql.NullString `json:"run_id"`
+	BlockerID  sql.NullString `json:"blocker_id"`
+	ReviewID   sql.NullString `json:"review_id"`
+	EventType  string         `json:"event_type"`
+	FromStatus sql.NullString `json:"from_status"`
+	ToStatus   sql.NullString `json:"to_status"`
+	ActorType  string         `json:"actor_type"`
+	ActorID    sql.NullString `json:"actor_id"`
+	Detail     string         `json:"detail"`
+	CreatedAt  string         `json:"created_at"`
 }
 
+// Append-only audit log.
 func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskEventParams) (AgentTaskEvent, error) {
 	row := q.db.QueryRowContext(ctx, insertAgentTaskEvent,
 		arg.ID,
 		arg.TaskID,
+		arg.RunID,
+		arg.BlockerID,
+		arg.ReviewID,
 		arg.EventType,
+		arg.FromStatus,
+		arg.ToStatus,
+		arg.ActorType,
+		arg.ActorID,
 		arg.Detail,
 		arg.CreatedAt,
-		arg.UpdatedAt,
 	)
 	var i AgentTaskEvent
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
+		&i.GoalID,
+		&i.RunID,
+		&i.BlockerID,
+		&i.ReviewID,
 		&i.EventType,
+		&i.FromStatus,
+		&i.ToStatus,
+		&i.ActorType,
+		&i.ActorID,
 		&i.Detail,
 		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listAgentTaskEvents = `-- name: ListAgentTaskEvents :many
-SELECT id, task_id, event_type, detail, created_at, updated_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC
 `
 
-func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID string) ([]AgentTaskEvent, error) {
+func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID sql.NullString) ([]AgentTaskEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentTaskEvents, taskID)
 	if err != nil {
 		return nil, err
@@ -61,10 +86,58 @@ func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID string) ([]Age
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,
+			&i.GoalID,
+			&i.RunID,
+			&i.BlockerID,
+			&i.ReviewID,
 			&i.EventType,
+			&i.FromStatus,
+			&i.ToStatus,
+			&i.ActorType,
+			&i.ActorID,
 			&i.Detail,
 			&i.CreatedAt,
-			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentTaskEventsByRun = `-- name: ListAgentTaskEventsByRun :many
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE run_id = ? ORDER BY created_at ASC
+`
+
+func (q *Queries) ListAgentTaskEventsByRun(ctx context.Context, runID sql.NullString) ([]AgentTaskEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTaskEventsByRun, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTaskEvent{}
+	for rows.Next() {
+		var i AgentTaskEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.GoalID,
+			&i.RunID,
+			&i.BlockerID,
+			&i.ReviewID,
+			&i.EventType,
+			&i.FromStatus,
+			&i.ToStatus,
+			&i.ActorType,
+			&i.ActorID,
+			&i.Detail,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
