@@ -1,53 +1,45 @@
 package scheduler
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-func TestBuiltinRSSJobRegistered(t *testing.T) {
-	builtinMu.Lock()
-	defer builtinMu.Unlock()
-
-	for _, j := range builtinJobs {
-		if j.Name == "recally-rss" {
-			if j.Schedule.Every != "6h" {
-				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "6h")
-			}
-			if j.SessionMode != SessionNew {
-				t.Errorf("SessionMode = %q, want %q", j.SessionMode, SessionNew)
-			}
-			if j.ExecScope != ExecScopeAllUsers {
-				t.Errorf("ExecScope = %q, want %q", j.ExecScope, ExecScopeAllUsers)
-			}
-			return
-		}
+func TestRecallyRSSBuiltinSpec(t *testing.T) {
+	if RecallyRSSBuiltin.Schedule.Every != "6h" {
+		t.Errorf("Schedule.Every = %q, want %q", RecallyRSSBuiltin.Schedule.Every, "6h")
 	}
-	t.Fatal("recally-rss builtin job not registered")
+	if RecallyRSSBuiltin.SessionMode != SessionNew {
+		t.Errorf("SessionMode = %q, want %q", RecallyRSSBuiltin.SessionMode, SessionNew)
+	}
+	if RecallyRSSBuiltin.ExecScope != ExecScopeAllUsers {
+		t.Errorf("ExecScope = %q, want %q", RecallyRSSBuiltin.ExecScope, ExecScopeAllUsers)
+	}
 }
 
-func TestBuiltinDigestJobRegistered(t *testing.T) {
-	builtinMu.Lock()
-	defer builtinMu.Unlock()
-
-	for _, j := range builtinJobs {
-		if j.Name == "recally-digest" {
-			if j.Schedule.Every != "24h" {
-				t.Errorf("Schedule.Every = %q, want %q", j.Schedule.Every, "24h")
-			}
-			if j.SessionMode != SessionNew {
-				t.Errorf("SessionMode = %q, want %q", j.SessionMode, SessionNew)
-			}
-			if j.ExecScope != ExecScopeAllUsers {
-				t.Errorf("ExecScope = %q, want %q", j.ExecScope, ExecScopeAllUsers)
-			}
-			return
-		}
+func TestRecallyDigestBuiltinSpec(t *testing.T) {
+	if RecallyDigestBuiltin.Schedule.Every != "24h" {
+		t.Errorf("Schedule.Every = %q, want %q", RecallyDigestBuiltin.Schedule.Every, "24h")
 	}
-	t.Fatal("recally-digest builtin job not registered")
+	if RecallyDigestBuiltin.SessionMode != SessionNew {
+		t.Errorf("SessionMode = %q, want %q", RecallyDigestBuiltin.SessionMode, SessionNew)
+	}
+	if RecallyDigestBuiltin.ExecScope != ExecScopeAllUsers {
+		t.Errorf("ExecScope = %q, want %q", RecallyDigestBuiltin.ExecScope, ExecScopeAllUsers)
+	}
 }
 
 func TestEnsureBuiltinJobs(t *testing.T) {
-	svc, orgID := testService(t)
+	db := testDB(t)
+	svc, orgID := newServiceWithOrg(t, db)
+	if err := svc.RegisterBuiltin(RecallyRSSBuiltin); err != nil {
+		t.Fatalf("RegisterBuiltin(RecallyRSS): %v", err)
+	}
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = svc.Stop() })
 
-	// EnsureBuiltinJobs creates one row per builtin regardless of ExecScope.
 	svc.EnsureBuiltinJobs(orgID)
 
 	found := false

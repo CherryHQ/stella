@@ -76,6 +76,28 @@ or `ignore`. Combined:
 reason on the edge itself. Without the waiver, simply marking the blocker
 resolved would leave readiness still seeing a failed upstream.
 
+### Waiver workflow (hard / failed / block)
+
+When an upstream task fails and the downstream's edge is `hard` with
+`on_failure='block'`, the dispatcher's next tick:
+
+1. Computes readiness → sees `dep_failed_block`.
+2. Calls `TransitionService.Block` with `kind=dep_failure`, transitioning the
+   downstream to `blocked` with an open `agent_task_blocker`.
+
+To unblock, an operator must call `WaiveDep(taskID, depTaskID, userID, reason)`:
+
+1. Records `waived_at` + `waived_by_user` + `waiver_reason` on the edge.
+2. In the same tx, resolves the open `dep_failure` blocker (writes
+   `resolution_json` mentioning the waiver), clears
+   `agent_task.active_blocker_id`, and transitions the task back to `ready`.
+3. The next dispatcher tick re-evaluates readiness; the waived edge is now
+   `satisfied`, and the task dispatches.
+
+Soft deps never trigger the waiver flow — `on_failure` is ignored for soft
+deps, and a soft dep is satisfied as soon as its upstream is terminal in
+any state (`done`, `failed`, or `cancelled`).
+
 ## Executor resolution
 
 The dispatcher does not store an "assignee" on the task row. When it
