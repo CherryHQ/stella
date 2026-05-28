@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Features
 
+- **Goals**: Flat `/api/goals` HTTP surface (create / list / get / activate /
+  cancel / list-tasks / list-reviews + review decisions). Dispatcher gains
+  `rollupGoals`, reviewer dispatch, planner dispatch, and synthesizer
+  dispatch tick steps. Goal-parented `agent_review` rows now flow through the
+  same approve / reject / request-changes / escalate path as task reviews,
+  driving goal status. With no real runner wired yet, reviewer / planner /
+  synthesizer runs are created queued and immediately fail with a
+  `protocol_error` event — the dispatch path is observable but waits on the
+  follow-up `agent.Pool` adapter PR before real execution.
+
 - **Tasks**: Flat `/api/tasks` HTTP surface. Tasks now live under the resolved
   org (header `X-Stella-Org-ID`, session fallback) instead of an agent path.
   Sub-resource POSTs replace the old action envelope:

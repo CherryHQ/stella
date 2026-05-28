@@ -193,11 +193,12 @@ Slice 1 (MVP) ships:
 
 **Pending follow-ups (stacked PRs):**
 
-- Real agent.Pool ↔ RunnerFunc adapter (right now the runner is a noop
-  that explicitly fails so the path is observable in logs)
-- Reviewer dispatcher — `review_policy='agent'` currently parks the
-  task in `reviewing` correctly but no reviewer run is spawned yet.
-- Goal entity (`agent_goal` + planner / synthesizer + rollup).
+- Real agent.Pool ↔ RunnerFunc adapter for **all four** run kinds
+  (worker / reviewer / planner / synthesizer). The dispatcher now
+  creates each kind of run; the runners themselves are noop fallbacks
+  that immediately emit a `protocol_error` event.
+
+See [Goal system](./goal-system) for the goal-side details.
 
 ## HTTP surface
 
