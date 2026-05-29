@@ -232,10 +232,7 @@ func TestCannotDeactivateSelf(t *testing.T) {
 	}
 }
 
-// TestNonAdminCannotAccessAuthUserAPIs removed: single-tenant mode grants admin
-// to all authenticated users, so non-admin RBAC is not exercised.
-
-// --- Phase 3: login identity admin API tests ---
+// --- login identity admin API tests ---
 
 func setupOIDCStore(t *testing.T, env *testEnv) *appdb.OIDCStore {
 	t.Helper()
@@ -422,8 +419,6 @@ func TestListAuthUserChannelIdentitiesUserNotFound(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 }
-
-// Membership-based tests removed: single-tenant mode has no org/membership concept.
 
 func TestAuthUserWithLinkedIdentities(t *testing.T) {
 	env := setupAdmin(t)

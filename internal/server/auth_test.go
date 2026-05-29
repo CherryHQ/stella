@@ -68,9 +68,6 @@ func TestMeUnauthenticated(t *testing.T) {
 	}
 }
 
-// TestFirstUserGetsAdminRole removed: single-tenant mode grants admin to all
-// authenticated users, so role differentiation is not exercised.
-
 func TestExpiredTokenDenied(t *testing.T) {
 	env := setupAdmin(t)
 
@@ -173,8 +170,6 @@ func TestBearerAuthRejectsRevokedToken(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
 }
-
-// TestBearerAuthRejectsInactiveUser removed: single-tenant mode has no membership concept.
 
 func TestBearerAuthWrongTokenDenied(t *testing.T) {
 	env := setupAdmin(t)
