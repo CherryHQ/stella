@@ -80,18 +80,34 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			// Unknown plugin (not in manifest); skip silently to avoid orphan DB rows.
 			continue
 		}
-		// Persist an override only when the requested state differs from the default.
-		if plugin.Enabled == def.Enabled {
+		// The Save payload only carries the enable toggle; the per-org
+		// session_env_vault_key is a separate override dimension. Read the
+		// existing row so we preserve that binding instead of clobbering it.
+		existing, _, err := s.store.GetManifestPluginOverride(r.Context(), plugin.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Drop the row only when nothing is left to override: the requested
+		// state matches the default and no session env binding is set.
+		if plugin.Enabled == def.Enabled && existing.SessionEnvVaultKey == "" {
 			if err := s.store.DeleteManifestPluginOverride(r.Context(), plugin.ID); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			continue
 		}
-		enabled := plugin.Enabled
+		// Store an explicit enabled pointer only when it diverges from the
+		// default; nil falls back to the manifest default at resolve time.
+		var enabled *bool
+		if plugin.Enabled != def.Enabled {
+			e := plugin.Enabled
+			enabled = &e
+		}
 		if err := s.store.UpsertManifestPluginOverride(r.Context(), config.ManifestPluginOverride{
-			PluginID: plugin.ID,
-			Enabled:  &enabled,
+			PluginID:           plugin.ID,
+			Enabled:            enabled,
+			SessionEnvVaultKey: existing.SessionEnvVaultKey,
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

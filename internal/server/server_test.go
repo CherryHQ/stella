@@ -1142,3 +1142,66 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 		t.Fatalf("unauth: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
 	}
 }
+
+// TestSaveManifestPluginsPreservesSessionEnvVaultKey guards against the enable
+// toggle clobbering the per-org session_env_vault_key. The Save payload only
+// carries the enable flag, so the handler must read the existing override row
+// and preserve any session env binding instead of overwriting it with "".
+func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
+	env := setupAdmin(t)
+	octx := config.WithOrgID(context.Background(), env.orgID)
+
+	// tool/mise defaults to enabled=true in the builtin manifest. Pre-seed an
+	// override row that binds a session env vault key.
+	const pluginID = "tool/mise"
+	const vaultKey = "vault/session/mise"
+	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
+		PluginID:           pluginID,
+		SessionEnvVaultKey: vaultKey,
+	}); err != nil {
+		t.Fatalf("seed override: %v", err)
+	}
+
+	// Disable the plugin via the Save handler (enabled diverges from default).
+	body := map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": false}}}
+	rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
+	if err != nil {
+		t.Fatalf("get override: %v", err)
+	}
+	if !ok {
+		t.Fatal("override row missing after save")
+	}
+	if ov.SessionEnvVaultKey != vaultKey {
+		t.Fatalf("session_env_vault_key clobbered: got %q, want %q", ov.SessionEnvVaultKey, vaultKey)
+	}
+	if ov.Enabled == nil || *ov.Enabled != false {
+		t.Fatalf("enabled override not persisted: got %v, want explicit false", ov.Enabled)
+	}
+
+	// Toggle back to the default (enabled=true). The row must survive because a
+	// session env binding still exists; only the enable override clears to nil.
+	body = map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": true}}}
+	rr = doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("save back: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	ov, ok, err = env.store.GetManifestPluginOverride(octx, pluginID)
+	if err != nil {
+		t.Fatalf("get override after reset: %v", err)
+	}
+	if !ok {
+		t.Fatal("override row deleted despite session env binding")
+	}
+	if ov.SessionEnvVaultKey != vaultKey {
+		t.Fatalf("session_env_vault_key lost on reset: got %q, want %q", ov.SessionEnvVaultKey, vaultKey)
+	}
+	if ov.Enabled != nil {
+		t.Fatalf("enabled should fall back to default (nil), got %v", *ov.Enabled)
+	}
+}
