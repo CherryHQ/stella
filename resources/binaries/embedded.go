@@ -190,7 +190,9 @@ func toolNameForEntry(entry string) (string, bool) {
 		return "", false
 	}
 	name := strings.TrimSuffix(entry, ".gz")
-	if !infraTools[name] {
+	// On Windows the embedded entry is "mise.exe.gz"; infraTools keys are the
+	// platform-neutral tool name, so strip a trailing ".exe" before the lookup.
+	if !infraTools[strings.TrimSuffix(name, ".exe")] {
 		return "", false
 	}
 	return name, true

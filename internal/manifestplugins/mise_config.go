@@ -24,25 +24,47 @@ func scopeForOrg(orgID string) string {
 	return orgID
 }
 
+// miseBaseEnv returns the mise env entries shared by every Stella mise
+// invocation — the isolated data-dir layout plus the non-interactive flags.
+// Both the install side (isolatedMiseEnv) and the runtime side (RuntimeMiseEnv)
+// build on this, so the directories they must agree on cannot silently drift.
+func miseBaseEnv(stellaHome string) map[string]string {
+	dataDir := miseToolsDir(stellaHome)
+	return map[string]string{
+		"MISE_DATA_DIR":     dataDir,
+		"MISE_CONFIG_DIR":   filepath.Join(dataDir, "config"),
+		"MISE_CACHE_DIR":    filepath.Join(dataDir, "cache"),
+		"MISE_STATE_DIR":    filepath.Join(dataDir, "state"),
+		"MISE_YES":          "1",
+		"MISE_NO_ANALYTICS": "1",
+		"MISE_EXPERIMENTAL": "1",
+	}
+}
+
+// runtimeScopeConfigPath returns the mise config the sandbox resolves against.
+// It points at the org's own scope, but falls back to the builtin base when the
+// org config was never written (e.g. org CLI sync failed and was logged
+// non-fatally) so builtin tools still resolve instead of mise running against a
+// missing global config.
+func runtimeScopeConfigPath(stellaHome, orgID string) string {
+	orgPath := ScopeConfigPath(stellaHome, scopeForOrg(orgID))
+	if _, err := os.Stat(orgPath); err == nil {
+		return orgPath
+	}
+	return ScopeConfigPath(stellaHome, builtinScope)
+}
+
 // RuntimeMiseEnv returns the mise environment variables a sandbox needs so its
 // shims resolve tool versions from the org's persisted config against the shared
 // install dir. HOME/XDG are intentionally left untouched — the sandbox owns
 // those. Auto-install is disabled so runtime never reaches the network.
 func RuntimeMiseEnv(stellaHome, orgID string) map[string]string {
-	dataDir := miseToolsDir(stellaHome)
-	configPath := ScopeConfigPath(stellaHome, scopeForOrg(orgID))
-	return map[string]string{
-		"MISE_DATA_DIR":               dataDir,
-		"MISE_CONFIG_DIR":             filepath.Join(dataDir, "config"),
-		"MISE_CACHE_DIR":              filepath.Join(dataDir, "cache"),
-		"MISE_STATE_DIR":              filepath.Join(dataDir, "state"),
-		"MISE_GLOBAL_CONFIG_FILE":     configPath,
-		"MISE_TRUSTED_CONFIG_PATHS":   configPath,
-		"MISE_NOT_FOUND_AUTO_INSTALL": "false",
-		"MISE_YES":                    "1",
-		"MISE_NO_ANALYTICS":           "1",
-		"MISE_EXPERIMENTAL":           "1",
-	}
+	env := miseBaseEnv(stellaHome)
+	configPath := runtimeScopeConfigPath(stellaHome, orgID)
+	env["MISE_GLOBAL_CONFIG_FILE"] = configPath
+	env["MISE_TRUSTED_CONFIG_PATHS"] = configPath
+	env["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
+	return env
 }
 
 // miseTool is a single entry rendered into a mise config. Both manifest

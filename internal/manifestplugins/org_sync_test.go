@@ -84,8 +84,8 @@ func TestSyncOrgCLITools_PerOrgVersionsDiffer(t *testing.T) {
 	stellaHome := t.TempDir()
 	writeFakeMise(t, stellaHome)
 
-	store1 := &fakePluginLister{plugins: []config.Plugin{cliPlugin("shared", "npm:shared", "1.0.0")}}
-	store2 := &fakePluginLister{plugins: []config.Plugin{cliPlugin("shared", "npm:shared", "2.0.0")}}
+	store1 := &fakePluginLister{plugins: []config.Plugin{cliPlugin("shared", "ubi:acme/shared", "1.0.0")}}
+	store2 := &fakePluginLister{plugins: []config.Plugin{cliPlugin("shared", "ubi:acme/shared", "2.0.0")}}
 
 	if err := NewOrgCLISyncer(store1, stellaHome).SyncOrgCLITools(context.Background(), "orgA"); err != nil {
 		t.Fatalf("sync orgA: %v", err)
@@ -102,10 +102,44 @@ func TestSyncOrgCLITools_PerOrgVersionsDiffer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read orgB: %v", err)
 	}
-	if !strings.Contains(string(a), `'npm:shared' = '1.0.0'`) {
+	if !strings.Contains(string(a), `'ubi:acme/shared' = '1.0.0'`) {
 		t.Errorf("orgA wrong version:\n%s", a)
 	}
-	if !strings.Contains(string(b), `'npm:shared' = '2.0.0'`) {
+	if !strings.Contains(string(b), `'ubi:acme/shared' = '2.0.0'`) {
 		t.Errorf("orgB wrong version:\n%s", b)
+	}
+}
+
+func TestSyncOrgCLITools_RejectsUnsafeBackend(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake mise script uses POSIX shell")
+	}
+	stellaHome := t.TempDir()
+	writeFakeMise(t, stellaHome)
+
+	store := &fakePluginLister{plugins: []config.Plugin{
+		cliPlugin("safe", "github:acme/safe", "1.0.0"),
+		cliPlugin("evil", "npm:evil", "1.0.0"), // code-executing backend
+		cliPlugin("bare", "ripgrep", "1.0.0"),  // no explicit safe backend
+	}}
+
+	if err := NewOrgCLISyncer(store, stellaHome).SyncOrgCLITools(context.Background(), "org1"); err != nil {
+		t.Fatalf("SyncOrgCLITools: %v", err)
+	}
+
+	data, err := os.ReadFile(ScopeConfigPath(stellaHome, "org1"))
+	if err != nil {
+		t.Fatalf("read org config: %v", err)
+	}
+	cfg := string(data)
+
+	if !strings.Contains(cfg, "github:acme/safe") {
+		t.Errorf("safe tool was dropped:\n%s", cfg)
+	}
+	if strings.Contains(cfg, "npm:evil") {
+		t.Errorf("code-executing backend was not rejected:\n%s", cfg)
+	}
+	if strings.Contains(cfg, "'ripgrep'") {
+		t.Errorf("bare registry name was not rejected:\n%s", cfg)
 	}
 }

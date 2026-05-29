@@ -9,11 +9,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// miseToolsDir returns the MISE_DATA_DIR path for isolated mise installs.
+// miseToolsDir returns the MISE_DATA_DIR path for isolated mise installs. The
+// layout is owned by pkg/sandbox so the install side and the sandbox PATH stay
+// in lockstep.
 func miseToolsDir(stellaHome string) string {
-	return filepath.Join(stellaHome, ".mise-tools")
+	return pkgsandbox.MiseToolsDir(stellaHome)
 }
 
 // findMiseBin returns the path to the mise binary. It prefers the Stella-managed
@@ -61,11 +65,10 @@ var misePassthroughEnv = []string{
 
 func isolatedMiseEnv(stellaHome string) ([]string, error) {
 	dataDir := miseToolsDir(stellaHome)
-	paths := map[string]string{
-		"MISE_DATA_DIR":   dataDir,
-		"MISE_CONFIG_DIR": filepath.Join(dataDir, "config"),
-		"MISE_CACHE_DIR":  filepath.Join(dataDir, "cache"),
-		"MISE_STATE_DIR":  filepath.Join(dataDir, "state"),
+	// Directories the install needs on disk; the shared base (miseBaseEnv)
+	// already covers DATA/CONFIG/CACHE/STATE, install adds shims + an isolated
+	// HOME/XDG so nothing leaks into the host user's profile.
+	installDirs := map[string]string{
 		"MISE_SHIMS_DIR":  filepath.Join(dataDir, "shims"),
 		"HOME":            filepath.Join(dataDir, "home"),
 		"XDG_CONFIG_HOME": filepath.Join(dataDir, "xdg", "config"),
@@ -73,25 +76,28 @@ func isolatedMiseEnv(stellaHome string) ([]string, error) {
 		"XDG_STATE_HOME":  filepath.Join(dataDir, "xdg", "state"),
 	}
 	if runtime.GOOS == "windows" {
-		paths["USERPROFILE"] = paths["HOME"]
+		installDirs["USERPROFILE"] = installDirs["HOME"]
 	}
 
-	for _, dir := range paths {
+	base := miseBaseEnv(stellaHome)
+	for _, dir := range []string{
+		base["MISE_DATA_DIR"], base["MISE_CONFIG_DIR"], base["MISE_CACHE_DIR"], base["MISE_STATE_DIR"],
+		installDirs["MISE_SHIMS_DIR"], installDirs["HOME"],
+		installDirs["XDG_CONFIG_HOME"], installDirs["XDG_CACHE_HOME"], installDirs["XDG_STATE_HOME"],
+	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("create isolated mise dir %s: %w", dir, err)
 		}
 	}
 
-	env := make(map[string]string, len(misePassthroughEnv)+len(paths)+2)
+	env := make(map[string]string, len(misePassthroughEnv)+len(base)+len(installDirs))
 	for _, key := range misePassthroughEnv {
 		if value, ok := os.LookupEnv(key); ok {
 			env[key] = value
 		}
 	}
-	maps.Copy(env, paths)
-	env["MISE_YES"] = "1"
-	env["MISE_NO_ANALYTICS"] = "1"
-	env["MISE_EXPERIMENTAL"] = "1"
+	maps.Copy(env, base)
+	maps.Copy(env, installDirs)
 
 	keys := make([]string, 0, len(env))
 	for key := range env {

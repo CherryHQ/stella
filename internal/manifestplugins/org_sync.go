@@ -3,9 +3,36 @@ package manifestplugins
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
 )
+
+// safeOrgToolBackends is the allowlist of mise backends an org may use for cli
+// plugins. Every entry installs a precompiled binary by download only. Backends
+// that build or run arbitrary code at install time (asdf, vfox, cargo, go, npm,
+// pipx, gem, ...) are rejected: org cli tools are installed on the host, outside
+// any sandbox, so a code-executing backend would be host RCE driven by org input.
+var safeOrgToolBackends = map[string]bool{
+	"github": true,
+	"gitlab": true,
+	"ubi":    true,
+	"aqua":   true,
+	"http":   true,
+}
+
+// orgToolKeyAllowed reports whether an org-supplied mise tool key uses an
+// allowlisted precompiled-binary backend. Keys without an explicit safe backend
+// prefix — including bare registry names, which may resolve to a code-executing
+// backend — are rejected.
+func orgToolKeyAllowed(key string) bool {
+	backend, _, ok := strings.Cut(key, ":")
+	if !ok {
+		return false
+	}
+	return safeOrgToolBackends[backend]
+}
 
 // PluginLister lists CLI plugin rows for the org carried in ctx.
 type PluginLister interface {
@@ -41,6 +68,11 @@ func (s *OrgCLISyncer) SyncOrgCLITools(ctx context.Context, orgID string) error 
 	}
 	for _, t := range config.CLIToolsFromPlugins(plugins) {
 		if !t.Enabled {
+			continue
+		}
+		if !orgToolKeyAllowed(t.Tool) {
+			slog.Warn("manifestplugins: skipping org cli tool with disallowed mise backend",
+				"org_id", orgID, "tool", t.Name, "key", t.Tool)
 			continue
 		}
 		tools = append(tools, miseToolFromCLITool(t))

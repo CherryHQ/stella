@@ -6,6 +6,26 @@ import (
 	"testing"
 )
 
+func TestToolNameForEntry(t *testing.T) {
+	cases := []struct {
+		entry    string
+		wantName string
+		wantOK   bool
+	}{
+		{"mise.gz", "mise", true},
+		{"mise.exe.gz", "mise.exe", true}, // windows: extracted, not filtered out
+		{"gh.gz", "", false},              // non-infra tools resolve via shims
+		{"mise", "", false},               // uncompressed entries are ignored
+	}
+	for _, c := range cases {
+		name, ok := toolNameForEntry(c.entry)
+		if name != c.wantName || ok != c.wantOK {
+			t.Errorf("toolNameForEntry(%q) = (%q, %v), want (%q, %v)",
+				c.entry, name, ok, c.wantName, c.wantOK)
+		}
+	}
+}
+
 func TestExtractTools(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "bin")
 

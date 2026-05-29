@@ -7,11 +7,19 @@ import (
 	"strings"
 )
 
+// MiseToolsDir returns the root MISE_DATA_DIR for Stella-managed mise installs.
+// This is the single source of truth for the on-disk layout: the manifest/org
+// reconcilers install into it and the sandbox PATH is built from it, so both
+// sides must derive their paths from here to stay in lockstep.
+func MiseToolsDir(stellaHome string) string {
+	return filepath.Join(stellaHome, ".mise-tools")
+}
+
 // MiseShimsDir returns the mise shims directory for host-execution sandbox
 // backends. Tools installed by the manifest/org reconcilers are exposed here as
 // shims (not copied into bin), so it must be on PATH for them to resolve.
 func MiseShimsDir(stellaHome string) string {
-	return filepath.Join(stellaHome, ".mise-tools", "shims")
+	return filepath.Join(MiseToolsDir(stellaHome), "shims")
 }
 
 // HostEnvBuildPath returns a sanitized PATH suitable for host-execution sandbox
