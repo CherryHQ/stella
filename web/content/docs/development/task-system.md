@@ -203,8 +203,8 @@ See [Goal system](./goal-system) for the goal-side details.
 ## HTTP surface
 
 All routes are flat under `/api/tasks/...` and org-scoped via the
-`X-Stella-Org-ID` request header (session default if absent). Cross-org
-access returns 404 (not 403) so existence isn't leaked.
+authenticated session. Cross-org access returns 404 (not 403) so existence
+isn't leaked.
 
 | Method | Path                                                 | Purpose                                    |
 | ------ | ---------------------------------------------------- | ------------------------------------------ |
