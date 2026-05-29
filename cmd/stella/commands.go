@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/orgruntime"
@@ -242,6 +243,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		Syncer:   poolMgr,
 		Channels: nil, // Channels wired later in runServer
 		Jobs:     schedulerSvc,
+		CLITools: manifestplugins.NewOrgCLISyncer(store, config.StellaHome()),
 	})
 
 	backgroundTasks := &sync.WaitGroup{}

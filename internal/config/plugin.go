@@ -5,6 +5,7 @@ import "sync"
 // Plugin kind constants.
 const (
 	PluginKindTool     = "tool"
+	PluginKindCLI      = "cli"
 	PluginKindChannel  = "channel"
 	PluginKindHook     = "hook"
 	PluginKindProvider = "provider"

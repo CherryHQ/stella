@@ -24,6 +24,12 @@ type BuiltinJobSeeder interface {
 	EnsureBuiltinJobs(orgID string)
 }
 
+// CLIToolSyncer installs an org's self-contained CLI tool set (builtin base
+// plus the org's own cli plugins) so its sandbox shims resolve at runtime.
+type CLIToolSyncer interface {
+	SyncOrgCLITools(ctx context.Context, orgID string) error
+}
+
 // OrgRuntime holds per-org lifecycle state while using shared infrastructure.
 type OrgRuntime struct {
 	orgID    string
@@ -38,15 +44,21 @@ func (r *OrgRuntime) OrgID() string { return r.orgID }
 // starts channel runtimes, and ensures builtin scheduler jobs.
 // Safe for concurrent calls — only the first caller does the work,
 // all others block until it completes.
-func (r *OrgRuntime) Start(ctx context.Context, store config.Store, syncer AgentSyncer, channels ChannelStarter, jobs BuiltinJobSeeder) error {
+func (r *OrgRuntime) Start(ctx context.Context, store config.Store, syncer AgentSyncer, channels ChannelStarter, jobs BuiltinJobSeeder, cliTools CLIToolSyncer) error {
 	r.once.Do(func() {
-		r.startErr = r.doStart(ctx, store, syncer, channels, jobs)
+		r.startErr = r.doStart(ctx, store, syncer, channels, jobs, cliTools)
 	})
 	return r.startErr
 }
 
-func (r *OrgRuntime) doStart(ctx context.Context, store config.Store, syncer AgentSyncer, channels ChannelStarter, jobs BuiltinJobSeeder) error {
+func (r *OrgRuntime) doStart(ctx context.Context, store config.Store, syncer AgentSyncer, channels ChannelStarter, jobs BuiltinJobSeeder, cliTools CLIToolSyncer) error {
 	orgCtx := config.WithOrgID(ctx, r.orgID)
+
+	if cliTools != nil {
+		if err := cliTools.SyncOrgCLITools(orgCtx, r.orgID); err != nil {
+			slog.Warn("orgruntime: sync cli tools failed", "org_id", r.orgID, "error", err)
+		}
+	}
 
 	agents, err := store.ListEnabledAgents(orgCtx)
 	if err != nil {
@@ -81,6 +93,7 @@ type Manager struct {
 	syncer   AgentSyncer
 	channels ChannelStarter
 	jobs     BuiltinJobSeeder
+	cliTools CLIToolSyncer
 }
 
 // ManagerDeps holds the shared dependencies injected into Manager.
@@ -89,6 +102,7 @@ type ManagerDeps struct {
 	Syncer   AgentSyncer
 	Channels ChannelStarter
 	Jobs     BuiltinJobSeeder
+	CLITools CLIToolSyncer
 }
 
 // NewManager creates a Manager with the given shared dependencies.
@@ -99,6 +113,7 @@ func NewManager(deps ManagerDeps) *Manager {
 		syncer:   deps.Syncer,
 		channels: deps.Channels,
 		jobs:     deps.Jobs,
+		cliTools: deps.CLITools,
 	}
 }
 
@@ -114,7 +129,7 @@ func (m *Manager) GetOrInit(ctx context.Context, orgID string) (*OrgRuntime, err
 	}
 	m.mu.Unlock()
 
-	if err := rt.Start(ctx, m.store, m.syncer, m.channels, m.jobs); err != nil {
+	if err := rt.Start(ctx, m.store, m.syncer, m.channels, m.jobs, m.cliTools); err != nil {
 		m.mu.Lock()
 		delete(m.runtimes, orgID)
 		m.mu.Unlock()
