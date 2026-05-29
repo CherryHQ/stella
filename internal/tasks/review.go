@@ -187,19 +187,31 @@ func (s *TransitionService) completeTaskInline(ctx context.Context, q *sqlc.Quer
 	})
 }
 
-// ApproveReview closes a review with 'approved' and moves the task to done.
+// ApproveReview closes a review with 'approved'. The caller doesn't need to
+// know whether the parent is a task or a goal; this dispatcher branches on
+// the row's parent column and routes to the right inner transition.
 func (s *TransitionService) ApproveReview(ctx context.Context, reviewID, summary string, actor Actor) error {
-	return s.decideReview(ctx, reviewID, ReviewApproved, summary, "", StatusDone, actor)
+	return s.decideAnyReview(ctx, reviewID, ReviewApproved, summary, "", actor)
 }
 
-// RejectReview closes a review with 'rejected' and moves the task to failed.
+// RejectReview closes a review with 'rejected'. Task parent → task failed,
+// goal parent → goal failed.
 func (s *TransitionService) RejectReview(ctx context.Context, reviewID, summary, feedback string, actor Actor) error {
-	return s.decideReview(ctx, reviewID, ReviewRejected, summary, feedback, StatusFailed, actor)
+	return s.decideAnyReview(ctx, reviewID, ReviewRejected, summary, feedback, actor)
 }
 
-// RequestChanges closes a review with 'changes_requested'. If the task has
-// retry budget, it returns to 'ready'; otherwise it transitions to 'failed'.
+// RequestChanges closes a review with 'changes_requested'. On a task review
+// the task either bounces back to 'ready' (with retry budget consumed) or
+// transitions to 'failed'. On a goal review there is no retry budget — the
+// goal goes to 'failed' with a documented gap (no synthesizer retry yet).
 func (s *TransitionService) RequestChanges(ctx context.Context, reviewID, summary, feedback string, actor Actor) error {
+	return s.decideAnyReview(ctx, reviewID, ReviewChangesRequested, summary, feedback, actor)
+}
+
+// decideAnyReview is the shared dispatcher for the three external decision
+// entry points. It loads the review once, validates it's still open, then
+// routes by parent type.
+func (s *TransitionService) decideAnyReview(ctx context.Context, reviewID, decision, summary, feedback string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		review, err := q.GetAgentReview(ctx, reviewID)
 		if err != nil {
@@ -211,46 +223,142 @@ func (s *TransitionService) RequestChanges(ctx context.Context, reviewID, summar
 		if review.Status != ReviewRequested && review.Status != ReviewInProgress {
 			return ErrReviewClosed
 		}
-		if !review.TaskID.Valid {
-			return fmt.Errorf("RequestChanges: review %s has no task", reviewID)
+		if review.TaskID.Valid {
+			return s.decideTaskReviewInTx(ctx, q, review, decision, summary, feedback, actor)
 		}
-		taskID := review.TaskID.String
-		task, err := q.GetAgentTask(ctx, taskID)
-		if err != nil {
-			return err
+		if review.GoalID.Valid {
+			return s.decideGoalReviewInTx(ctx, q, review, decision, summary, feedback, actor)
 		}
-		now := s.now()
-		if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
-			Status: ReviewChangesRequested, Summary: summary, Feedback: feedback,
-			ResolvedAt: sql.NullString{String: now, Valid: true},
-			UpdatedAt:  now, ID: reviewID,
-		}); err != nil {
-			return err
-		}
-		nextStatus := StatusReady
+		return fmt.Errorf("decideAnyReview: review %s has neither task nor goal parent", reviewID)
+	})
+}
+
+// decideTaskReviewInTx handles the three decisions for a task-parented
+// review.
+func (s *TransitionService) decideTaskReviewInTx(ctx context.Context, q *sqlc.Queries, review sqlc.AgentReview, decision, summary, feedback string, actor Actor) error {
+	taskID := review.TaskID.String
+	task, err := q.GetAgentTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
+		Status: decision, Summary: summary, Feedback: feedback,
+		ResolvedAt: sql.NullString{String: now, Valid: true},
+		UpdatedAt:  now, ID: review.ID,
+	}); err != nil {
+		return err
+	}
+
+	var nextStatus string
+	switch decision {
+	case ReviewApproved:
+		nextStatus = StatusDone
+	case ReviewRejected:
+		nextStatus = StatusFailed
+	case ReviewChangesRequested:
+		nextStatus = StatusReady
 		if task.RetryCount+1 > task.MaxRetries {
 			nextStatus = StatusFailed
 		} else if err := q.IncrementAgentTaskRetry(ctx, sqlc.IncrementAgentTaskRetryParams{UpdatedAt: now, ID: taskID}); err != nil {
 			return err
 		}
-		if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
-			Status: nextStatus, UpdatedAt: now, ID: taskID, Status_2: StatusReviewing,
-		}); err != nil {
-			return err
-		}
-		if err := q.SetAgentTaskActiveReview(ctx, sqlc.SetAgentTaskActiveReviewParams{
-			ActiveReviewID: sql.NullString{}, UpdatedAt: now, ID: taskID,
-		}); err != nil {
-			return err
-		}
-		return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID: nullable(taskID), ReviewID: nullable(reviewID),
-			EventType:  "review_changes_requested",
-			FromStatus: nullable(StatusReviewing), ToStatus: nullable(nextStatus),
-			ActorType: actorTypeOrSystem(actor), ActorID: nullable(actor.ID),
-			Detail: detailJSON(map[string]any{"summary": summary, "feedback": feedback}),
+	default:
+		return fmt.Errorf("decideTaskReviewInTx: unknown decision %q", decision)
+	}
+
+	if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
+		Status: nextStatus, UpdatedAt: now, ID: taskID, Status_2: StatusReviewing,
+	}); err != nil {
+		return err
+	}
+	if nextStatus == StatusDone {
+		_ = q.SetAgentTaskOutput(ctx, sqlc.SetAgentTaskOutputParams{
+			Output: "", CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID,
 		})
+	}
+	if err := q.SetAgentTaskActiveReview(ctx, sqlc.SetAgentTaskActiveReviewParams{
+		ActiveReviewID: sql.NullString{}, UpdatedAt: now, ID: taskID,
+	}); err != nil {
+		return err
+	}
+	return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+		TaskID: nullable(taskID), ReviewID: nullable(review.ID),
+		EventType:  reviewEventType(decision),
+		FromStatus: nullable(StatusReviewing), ToStatus: nullable(nextStatus),
+		ActorType: actorTypeOrSystem(actor), ActorID: nullable(actor.ID),
+		Detail: detailJSON(map[string]any{"summary": summary, "feedback": feedback}),
 	})
+}
+
+// decideGoalReviewInTx handles the three decisions for a goal-parented
+// review.
+//
+// Approve → goal.done; reject → goal.failed; request_changes → goal.failed
+// (documented gap: goal-side synthesizer retry budget not yet modelled).
+func (s *TransitionService) decideGoalReviewInTx(ctx context.Context, q *sqlc.Queries, review sqlc.AgentReview, decision, summary, feedback string, actor Actor) error {
+	goalID := review.GoalID.String
+	goal, err := q.GetAgentGoal(ctx, goalID)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
+		Status: decision, Summary: summary, Feedback: feedback,
+		ResolvedAt: sql.NullString{String: now, Valid: true},
+		UpdatedAt:  now, ID: review.ID,
+	}); err != nil {
+		return err
+	}
+
+	var nextStatus string
+	switch decision {
+	case ReviewApproved:
+		nextStatus = GoalStatusDone
+	case ReviewRejected, ReviewChangesRequested:
+		nextStatus = GoalStatusFailed
+	default:
+		return fmt.Errorf("decideGoalReviewInTx: unknown decision %q", decision)
+	}
+
+	n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
+		Status: nextStatus, UpdatedAt: now, ID: goalID, Status_2: goal.Status,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrInvalidTransition
+	}
+	if nextStatus == GoalStatusDone {
+		if err := q.SetAgentGoalOutput(ctx, sqlc.SetAgentGoalOutputParams{
+			Output: goal.Output, CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: goalID,
+		}); err != nil {
+			return err
+		}
+	}
+	if err := q.SetAgentGoalActiveReview(ctx, sqlc.SetAgentGoalActiveReviewParams{
+		ActiveReviewID: sql.NullString{}, UpdatedAt: now, ID: goalID,
+	}); err != nil {
+		return err
+	}
+	return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
+		GoalID: nullable(goalID), ReviewID: nullable(review.ID),
+		EventType:  reviewEventType(decision),
+		FromStatus: nullable(goal.Status), ToStatus: nullable(nextStatus),
+		ActorType: actorTypeOrSystem(actor), ActorID: nullable(actor.ID),
+		Detail: detailJSON(map[string]any{"summary": summary, "feedback": feedback}),
+	})
+}
+
+// reviewEventType maps a decision value to its event_type label.
+func reviewEventType(decision string) string {
+	switch decision {
+	case ReviewChangesRequested:
+		return "review_changes_requested"
+	default:
+		return "review_" + decision
+	}
 }
 
 // EscalateReview closes an agent review with 'escalated' and inserts a fresh
@@ -305,62 +413,18 @@ func (s *TransitionService) EscalateReview(ctx context.Context, reviewID, reason
 				return err
 			}
 		}
+		if review.GoalID.Valid {
+			if err := q.SetAgentGoalActiveReview(ctx, sqlc.SetAgentGoalActiveReviewParams{
+				ActiveReviewID: nullable(newID), UpdatedAt: now, ID: review.GoalID.String,
+			}); err != nil {
+				return err
+			}
+		}
 		return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID: review.TaskID, ReviewID: nullable(reviewID),
+			TaskID: review.TaskID, GoalID: review.GoalID, ReviewID: nullable(reviewID),
 			EventType: "review_escalated",
 			ActorType: actorTypeOrSystem(actor), ActorID: nullable(actor.ID),
 			Detail: detailJSON(map[string]any{"escalated_to_review_id": newID, "reason": reason}),
-		})
-	})
-}
-
-// decideReview is the shared path for approve / reject — both terminal-status
-// decisions that route the task to a fixed next state.
-func (s *TransitionService) decideReview(ctx context.Context, reviewID, decision, summary, feedback, nextTaskStatus string, actor Actor) error {
-	return s.withTx(ctx, func(q *sqlc.Queries) error {
-		review, err := q.GetAgentReview(ctx, reviewID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrReviewNotFound
-			}
-			return err
-		}
-		if review.Status != ReviewRequested && review.Status != ReviewInProgress {
-			return ErrReviewClosed
-		}
-		if !review.TaskID.Valid {
-			return fmt.Errorf("decideReview: review %s has no task parent", reviewID)
-		}
-		taskID := review.TaskID.String
-		now := s.now()
-		if _, err := q.SetAgentReviewDecision(ctx, sqlc.SetAgentReviewDecisionParams{
-			Status: decision, Summary: summary, Feedback: feedback,
-			ResolvedAt: sql.NullString{String: now, Valid: true},
-			UpdatedAt:  now, ID: reviewID,
-		}); err != nil {
-			return err
-		}
-		if _, err := q.TransitionAgentTaskStatus(ctx, sqlc.TransitionAgentTaskStatusParams{
-			Status: nextTaskStatus, UpdatedAt: now, ID: taskID, Status_2: StatusReviewing,
-		}); err != nil {
-			return err
-		}
-		if nextTaskStatus == StatusDone {
-			_ = q.SetAgentTaskOutput(ctx, sqlc.SetAgentTaskOutputParams{
-				Output: "", CompletedAt: sql.NullString{String: now, Valid: true}, UpdatedAt: now, ID: taskID,
-			})
-		}
-		if err := q.SetAgentTaskActiveReview(ctx, sqlc.SetAgentTaskActiveReviewParams{
-			ActiveReviewID: sql.NullString{}, UpdatedAt: now, ID: taskID,
-		}); err != nil {
-			return err
-		}
-		return s.appendEvent(ctx, q, sqlc.InsertAgentTaskEventParams{
-			TaskID: nullable(taskID), ReviewID: nullable(reviewID),
-			EventType:  "review_" + decision,
-			FromStatus: nullable(StatusReviewing), ToStatus: nullable(nextTaskStatus),
-			ActorType: actorTypeOrSystem(actor), ActorID: nullable(actor.ID),
-			Detail: detailJSON(map[string]any{"summary": summary, "feedback": feedback}),
 		})
 	})
 }

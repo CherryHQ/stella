@@ -289,6 +289,27 @@ paths:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reviews~1{reviewID}~1request-changes"
   /api/tasks/{taskID}/reviews/{reviewID}/escalate:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reviews~1{reviewID}~1escalate"
+  # ── Goals ──────────────────────────────────────────────────────────────────
+  /api/goals:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
+  /api/goals/{goalID}:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}"
+  /api/goals/{goalID}/activate:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1activate"
+  /api/goals/{goalID}/cancel:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1cancel"
+  /api/goals/{goalID}/tasks:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1tasks"
+  /api/goals/{goalID}/reviews:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews"
+  /api/goals/{goalID}/reviews/{reviewID}/approve:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1approve"
+  /api/goals/{goalID}/reviews/{reviewID}/reject:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1reject"
+  /api/goals/{goalID}/reviews/{reviewID}/request-changes:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1request-changes"
+  /api/goals/{goalID}/reviews/{reviewID}/escalate:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1escalate"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
@@ -588,4 +609,12 @@ components:
     }
     EscalateReviewRequest: {
       $ref: "./components.yaml#/components/schemas/EscalateReviewRequest",
+    }
+    Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
+    GoalList: { $ref: "./components.yaml#/components/schemas/GoalList" }
+    CreateGoalRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateGoalRequest",
+    }
+    CancelGoalRequest: {
+      $ref: "./components.yaml#/components/schemas/CancelGoalRequest",
     }

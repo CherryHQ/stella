@@ -2,11 +2,11 @@
 
 -- name: CreateAgentTaskRun :one
 INSERT INTO agent_task_run (
-    id, task_id, org_id, user_id, agent_id, executor_agent_id,
+    id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id,
     kind, attempt_no, status, session_id, input, lease_expires_at, worker_id,
     started_at, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTaskRun :one
@@ -25,6 +25,17 @@ LIMIT 1;
 SELECT COALESCE(MAX(attempt_no), 0) + 1 AS next_attempt
 FROM agent_task_run
 WHERE task_id = ? AND kind = ?;
+
+-- name: NextAttemptNoForGoal :one
+SELECT COALESCE(MAX(attempt_no), 0) + 1 AS next_attempt
+FROM agent_task_run
+WHERE goal_id = ? AND kind = ?;
+
+-- name: LatestAgentTaskRunForGoal :one
+SELECT * FROM agent_task_run
+WHERE goal_id = ? AND kind = ?
+ORDER BY attempt_no DESC
+LIMIT 1;
 
 -- name: HeartbeatAgentTaskRun :execrows
 UPDATE agent_task_run

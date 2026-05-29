@@ -13,6 +13,14 @@ icon: History
 
 ### ✨ 功能
 
+- **目标**：扁平化 `/api/goals` HTTP 接口(create / list / get / activate /
+  cancel / list-tasks / list-reviews + 评审决策)。Dispatcher 新增
+  `rollupGoals`、reviewer 派发、planner 派发、synthesizer 派发 tick 步骤。
+  Goal-parented `agent_review` 行通过与任务评审相同的 approve / reject /
+  request-changes / escalate 路径驱动 goal 状态。当前 PR 还没接真实 runner,
+  reviewer / planner / synthesizer run 创建后会立即以 `protocol_error` 事
+  件失败 —— 派发路径已可观察,真实执行等后续 `agent.Pool` 适配器 PR。
+
 - **任务**：扁平化 `/api/tasks` HTTP 接口。任务在解析后的组织（`X-Stella-Org-ID`
   请求头，回退到会话默认组织）下管理，不再嵌套于 agent 路径下。子资源 POST 取代
   旧的 action 信封：`/api/tasks/{id}/cancel`、`/reopen`、`/deps`、

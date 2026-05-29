@@ -13,16 +13,17 @@ import (
 const insertAgentTaskEvent = `-- name: InsertAgentTaskEvent :one
 
 INSERT INTO agent_task_event (
-    id, task_id, run_id, blocker_id, review_id, event_type, from_status, to_status,
+    id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status,
     actor_type, actor_id, detail, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at
 `
 
 type InsertAgentTaskEventParams struct {
 	ID         string         `json:"id"`
 	TaskID     sql.NullString `json:"task_id"`
+	GoalID     sql.NullString `json:"goal_id"`
 	RunID      sql.NullString `json:"run_id"`
 	BlockerID  sql.NullString `json:"blocker_id"`
 	ReviewID   sql.NullString `json:"review_id"`
@@ -40,6 +41,7 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 	row := q.db.QueryRowContext(ctx, insertAgentTaskEvent,
 		arg.ID,
 		arg.TaskID,
+		arg.GoalID,
 		arg.RunID,
 		arg.BlockerID,
 		arg.ReviewID,
@@ -76,6 +78,47 @@ SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_sta
 
 func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID sql.NullString) ([]AgentTaskEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentTaskEvents, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTaskEvent{}
+	for rows.Next() {
+		var i AgentTaskEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.GoalID,
+			&i.RunID,
+			&i.BlockerID,
+			&i.ReviewID,
+			&i.EventType,
+			&i.FromStatus,
+			&i.ToStatus,
+			&i.ActorType,
+			&i.ActorID,
+			&i.Detail,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentTaskEventsByGoal = `-- name: ListAgentTaskEventsByGoal :many
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE goal_id = ? ORDER BY created_at ASC
+`
+
+func (q *Queries) ListAgentTaskEventsByGoal(ctx context.Context, goalID sql.NullString) ([]AgentTaskEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTaskEventsByGoal, goalID)
 	if err != nil {
 		return nil, err
 	}

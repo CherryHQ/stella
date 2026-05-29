@@ -175,11 +175,12 @@ Slice 1(MVP)已落地:
 
 **待办(后续 PR 跟进):**
 
-- 真正的 agent.Pool ↔ RunnerFunc 适配器(目前 runner 是 noop,显式失
-  败,以便日志里能看到)
-- Reviewer dispatcher — `review_policy='agent'` 当前能正确把任务停在
-  `reviewing`,但还没有 reviewer run 被派发。
-- Goal 实体(`agent_goal` + planner / synthesizer + rollup)。
+- 真正的 agent.Pool ↔ RunnerFunc 适配器,覆盖**全部四种** run kind
+  (worker / reviewer / planner / synthesizer)。dispatcher 现在会创建
+  四种 run;runner 本身是 noop fallback,立即写一条 `protocol_error`
+  事件。
+
+详细 goal 侧文档参见[目标系统](./goal-system)。
 
 ## HTTP 接口
 
