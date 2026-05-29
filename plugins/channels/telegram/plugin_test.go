@@ -6,6 +6,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	internalnotify "github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -64,10 +65,11 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	if err := host.ApplyPlugin(context.Background(), PluginID); err != nil {
+	ctx := orgctx.WithOrgID(context.Background(), "org-A")
+	if err := host.ApplyPlugin(ctx, PluginID); err != nil {
 		t.Fatalf("ApplyPlugin: %v", err)
 	}
-	status, err := host.Status(context.Background(), PluginID)
+	status, err := host.Status(ctx, PluginID)
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}

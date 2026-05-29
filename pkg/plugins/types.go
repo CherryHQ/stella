@@ -25,9 +25,10 @@ type ConfigStore interface {
 }
 
 // RuntimeLookup resolves running runtime handles by plugin and runtime capability ID.
+// The org is resolved from ctx; an absent orgID returns (nil, false).
 type RuntimeLookup interface {
-	Get(pluginID string, runtimeName string) (RuntimeHandle, bool)
-	Lookup(pluginID string, runtimeName string) (RuntimeHandle, bool)
+	Get(ctx context.Context, runtimeID string, runtimeName string) (RuntimeHandle, bool)
+	Lookup(ctx context.Context, runtimeID string, runtimeName string) (RuntimeHandle, bool)
 }
 
 // RuntimeHandle exposes status access to a running runtime.

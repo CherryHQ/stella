@@ -51,7 +51,7 @@ func RegisterManagedChannelPlugin(host Host, reg ManagedChannelPluginRegistratio
 }
 
 func managedRuntimeStatus(ctx context.Context, runtime RuntimeLookup, pluginID, runtimeName string) (any, error) {
-	handle, ok := runtime.Get(pluginID, runtimeName)
+	handle, ok := runtime.Get(ctx, pluginID, runtimeName)
 	if !ok {
 		return map[string]any{
 			"state":      RuntimeStateStopped,

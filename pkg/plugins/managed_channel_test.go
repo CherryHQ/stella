@@ -10,15 +10,15 @@ type runtimeLookupStub struct {
 	handle RuntimeHandle
 }
 
-func (s runtimeLookupStub) Get(pluginID string, runtimeName string) (RuntimeHandle, bool) {
+func (s runtimeLookupStub) Get(_ context.Context, pluginID string, runtimeName string) (RuntimeHandle, bool) {
 	if s.handle == nil || pluginID != "channel/telegram" || runtimeName != "bot" {
 		return nil, false
 	}
 	return s.handle, true
 }
 
-func (s runtimeLookupStub) Lookup(pluginID string, runtimeName string) (RuntimeHandle, bool) {
-	return s.Get(pluginID, runtimeName)
+func (s runtimeLookupStub) Lookup(ctx context.Context, pluginID string, runtimeName string) (RuntimeHandle, bool) {
+	return s.Get(ctx, pluginID, runtimeName)
 }
 
 type runtimeHandleStub struct {
