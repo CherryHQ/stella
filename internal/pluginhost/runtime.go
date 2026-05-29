@@ -197,7 +197,11 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 		if build == nil {
 			return fmt.Errorf("runtime %s/%s has no builder", runtimeID, reg.Name)
 		}
-		created, err := build(pkgplugins.RuntimeContext{Platform: h.host.platform(reg.PluginID), State: desired.Clone()})
+		created, err := build(pkgplugins.RuntimeContext{
+			Platform: h.host.platform(reg.PluginID),
+			State:    desired.Clone(),
+			OrgID:    orgID,
+		})
 		if err != nil {
 			return fmt.Errorf("create runtime %s/%s: %w", runtimeID, reg.Name, err)
 		}

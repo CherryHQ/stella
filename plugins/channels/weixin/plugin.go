@@ -12,7 +12,8 @@ const (
 	RuntimeName = "bot"
 )
 
-var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
+var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+	platform := rc.Platform
 	channelRuntime := platform.ChannelPlatform()
 	if channelRuntime == nil {
 		return nil, fmt.Errorf("weixin: channel runtime services unavailable")
@@ -25,6 +26,7 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 	if handler == nil {
 		return nil, fmt.Errorf("weixin: missing channel handler")
 	}
+	handler = pkgchannel.HandlerWithOrgID(rc.OrgID, handler)
 	return NewWeixinManagedRuntime(WeixinRuntimeDeps{
 		Parent:        parent,
 		Handler:       handler,
@@ -77,8 +79,8 @@ func init() {
 // SetRuntimeFactoryForTesting swaps the Weixin managed runtime factory for tests.
 func SetRuntimeFactoryForTesting(factory func(platform pkgplugins.Platform) (pkgplugins.Runtime, error)) func() {
 	prev := newRuntime
-	newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
-		return factory(platform)
+	newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+		return factory(rc.Platform)
 	}
 	return func() { newRuntime = prev }
 }

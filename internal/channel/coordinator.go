@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -140,6 +141,12 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 // command is not handled, streams a chat response. This avoids double
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	if orgctx.OrgIDFromContext(ctx) == "" {
+		slog.Error("coordinator: inbound message dropped: orgID missing from ctx; the channel runtime was built without an org, so HandlerWithOrgID degraded to passthrough — check this channel's OrgID",
+			"platform", msg.Platform, "channel_id", msg.ChannelID, "sender", msg.SenderID)
+		return "", false, nil, fmt.Errorf("coordinator: orgID missing from context (channel %s built without org)", msg.ChannelID)
+	}
+
 	// Try link code first (before auth resolution, since it creates identity).
 	if c.auth != nil && c.linkCodes != nil {
 		fullText := command

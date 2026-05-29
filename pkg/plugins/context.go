@@ -55,9 +55,14 @@ type ChannelContext struct {
 }
 
 // RuntimeContext is the narrow construction context for runtime capabilities.
+//
+// OrgID is populated by the host when calling Build; runtimes should hold onto
+// it and wrap any inbound ctx (e.g. SDK callbacks that originate outside an
+// HTTP handler) with orgctx.WithOrgID before dispatching downstream.
 type RuntimeContext struct {
 	Platform Platform
 	State    PluginState
+	OrgID    string
 }
 
 // AdminContext is the narrow build context for plugin admin/status behavior.
