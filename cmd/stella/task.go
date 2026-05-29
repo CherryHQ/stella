@@ -42,6 +42,7 @@ nest under an agent path.`,
 			taskEventsCmd(),
 			taskDepsCmd(),
 			taskReviewCmd(),
+			goalCommand(),
 		},
 	}
 }

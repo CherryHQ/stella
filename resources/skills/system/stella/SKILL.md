@@ -3,7 +3,8 @@ name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
   stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat),
-  memory system (LCM), scheduled jobs, heartbeat, skills, plugins, session compaction, notifications,
+  memory system (LCM), scheduled jobs, heartbeat, background tasks, goals, task workers/reviews/dependencies,
+  skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
   Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
@@ -48,12 +49,13 @@ Project context (AGENTS.md files) is appended after these layers.
 
 Read the relevant reference file for detailed guidance:
 
-| Topic         | Reference                                                  | When to read                                                |
-| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------- |
-| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults         |
-| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands        |
-| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control |
-| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                  |
+| Topic         | Reference                                                  | When to read                                                                                          |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                   |
+| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                  |
+| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                           |
+| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                            |
+| Tasks & goals | [references/tasks.md](references/tasks.md)                 | Goal/task system: manager CLI vs worker `task_control`, lifecycle, deps, readiness, reviews, blockers |
 
 ## In-chat commands
 
@@ -91,11 +93,21 @@ stella share article <id>      # Create a public share link for a Recally articl
 stella scheduler add ...        # Create a scheduled job
 stella scheduler list           # List scheduled jobs
 stella scheduler remove <id>    # Remove a scheduled job
-stella task list [--status <s>] # List tasks
+stella task list [--status <s>] # List tasks in the resolved org
 stella task get <id>            # Get task details
-stella task create --title <t>  # Create a task
-stella task action <id> --type  # Take action on a task
+stella task create --title <t>  # Create a task (--dep, --priority, --activate, ...)
+stella task cancel <id>         # Cancel a task
+stella task reopen <id>         # Reopen a done/failed task
+stella task readiness <id>      # Show why a task is / isn't dispatchable
+stella task deps <id>           # List dependency edges
 stella task events <id>         # List task events
+stella task review approve|reject|request-changes <id> <review-id>  # Decide a review
+stella task goal list           # List goals (container that rolls up from child tasks)
+stella task goal create --title <t>  # Create a goal (--review-policy, --activate, ...)
+stella task goal get <id>       # Goal details
+stella task goal tasks <id>     # List a goal's child tasks
+stella task goal activate|cancel <id>                              # Activate / cancel a goal
+stella task goal review approve|reject|request-changes|escalate <goal-id> <review-id>  # Decide a goal review
 stella version                  # Print version
 stella upgrade                  # Self-update to latest release
 ```
