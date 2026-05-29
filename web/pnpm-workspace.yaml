@@ -8,6 +8,9 @@ catalog:
 overrides:
   vite: "catalog:"
   vitest: "catalog:"
+  next: ">=16.2.6"
+  mermaid: ">=11.15.0"
+  postcss: ">=8.5.10"
 peerDependencyRules:
   allowAny:
     - vite
