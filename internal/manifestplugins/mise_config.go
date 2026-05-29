@@ -8,12 +8,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/pelletier/go-toml/v2"
 )
 
 // builtinScope is the scope name for the manifest-wide (all-org) base config.
 const builtinScope = "_builtin"
+
+// miseInstallMu serializes installs into the shared MISE_DATA_DIR. mise reshim
+// rewrites the whole shims directory, so concurrent scope installs (different
+// orgs starting at once, or an org start overlapping the builtin reconcile)
+// must not run in parallel or they clobber each other's shims.
+var miseInstallMu sync.Mutex
 
 // scopeForOrg maps an org ID to its mise config scope. The empty org (default /
 // no-org) resolves to the builtin base config.
@@ -89,12 +96,22 @@ func ScopeConfigPath(stellaHome, scope string) string {
 }
 
 // renderMiseTOML builds a mise.toml [tools] table from the given tools. On a
-// duplicate key the last entry wins, letting org tools override builtins.
+// duplicate key the last entry wins, letting org tools override builtins. Two
+// different keys exposing the same shim name (Lookup) are rejected: shims live
+// in one shared directory, so the collision would non-deterministically shadow
+// one tool with the other.
 func renderMiseTOML(tools []miseTool) (string, error) {
 	out := make(map[string]any, len(tools))
+	lookupKey := make(map[string]string, len(tools))
 	for _, t := range tools {
 		if t.Key == "" {
 			return "", fmt.Errorf("mise tool with empty key")
+		}
+		if t.Lookup != "" {
+			if prev, ok := lookupKey[t.Lookup]; ok && prev != t.Key {
+				return "", fmt.Errorf("mise tools %q and %q both expose shim %q", prev, t.Key, t.Lookup)
+			}
+			lookupKey[t.Lookup] = t.Key
 		}
 		ver := t.Version
 		if ver == "" {
@@ -139,6 +156,9 @@ func writeScopeConfig(stellaHome, scope string, tools []miseTool) (string, error
 // PATH; nothing is copied to $STELLA_HOME/bin. mise runs in a neutral cwd so no
 // ambient project mise.toml is picked up.
 func runScopeInstall(ctx context.Context, stellaHome, scope string) error {
+	miseInstallMu.Lock()
+	defer miseInstallMu.Unlock()
+
 	miseBin, err := findMiseBin(stellaHome)
 	if err != nil {
 		return err
@@ -176,13 +196,19 @@ func installScope(ctx context.Context, stellaHome, scope string, tools []miseToo
 }
 
 // scopeMiseEnv returns the isolated mise env with MISE_GLOBAL_CONFIG_FILE
-// pointed at the scope's persisted config.
+// pointed at the scope's persisted config. MISE_TRUSTED_CONFIG_PATHS mirrors
+// RuntimeMiseEnv so install, resolve, and runtime all trust the config the same
+// way rather than depending on the persisted trust store under the isolated HOME.
 func scopeMiseEnv(stellaHome, scope string) ([]string, error) {
 	env, err := isolatedMiseEnv(stellaHome)
 	if err != nil {
 		return nil, err
 	}
-	return append(env, "MISE_GLOBAL_CONFIG_FILE="+ScopeConfigPath(stellaHome, scope)), nil
+	configPath := ScopeConfigPath(stellaHome, scope)
+	return append(env,
+		"MISE_GLOBAL_CONFIG_FILE="+configPath,
+		"MISE_TRUSTED_CONFIG_PATHS="+configPath,
+	), nil
 }
 
 // resolveToolVersion returns the concrete installed version mise resolves for

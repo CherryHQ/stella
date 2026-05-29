@@ -19,7 +19,12 @@ var safeOrgToolBackends = map[string]bool{
 	"gitlab": true,
 	"ubi":    true,
 	"aqua":   true,
-	"http":   true,
+	// TODO(security): "http" takes an org-admin-supplied `url` option that mise
+	// fetches on the host, outside any sandbox — host-side SSRF and arbitrary
+	// binary placement, contradicting the "download precompiled binary only"
+	// guarantee above. Before this ships widely, either drop "http" or validate
+	// the url (https-only, reject link-local / private / metadata IPs).
+	"http": true,
 }
 
 // orgToolKeyAllowed reports whether an org-supplied mise tool key uses an
@@ -56,6 +61,11 @@ func NewOrgCLISyncer(store PluginLister, stellaHome string) *OrgCLISyncer {
 // org ID so ListPluginsByKind returns that org's rows. The builtin base is
 // always included so the org's shims resolve builtin tools, not just org extras.
 func (s *OrgCLISyncer) SyncOrgCLITools(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		// scopeForOrg("") maps to the builtin scope, which reconcile owns; an
+		// empty-org sync would clobber the shared base config.
+		return fmt.Errorf("sync cli tools: empty org id")
+	}
 	builtin, err := LoadBuiltin()
 	if err != nil {
 		return fmt.Errorf("load builtin manifest: %w", err)

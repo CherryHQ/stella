@@ -66,10 +66,13 @@ func SaveState(path string, s *ManifestState) error {
 	return os.Rename(tmp, path)
 }
 
-// isCacheHit returns true if the state already records the binary at the given version.
-// Returns false for empty version (latest) so mise always verifies the install.
-func isCacheHit(state *ManifestState, pluginID, binaryName, version string) bool {
-	if version == "" {
+// isCacheHit returns true if the state already records the binary at the given
+// version spec. It compares against the requested spec, not the resolved
+// version, so a partial spec (e.g. "2.40") still hits after resolving to a
+// concrete version. Returns false for an empty spec (latest) so mise always
+// verifies the install.
+func isCacheHit(state *ManifestState, pluginID, binaryName, spec string) bool {
+	if spec == "" {
 		return false
 	}
 	ps, ok := state.Plugins[pluginID]
@@ -77,7 +80,7 @@ func isCacheHit(state *ManifestState, pluginID, binaryName, version string) bool
 		return false
 	}
 	for _, b := range ps.Binaries {
-		if b.Name == binaryName && b.Version == version {
+		if b.Name == binaryName && b.Spec == spec {
 			return true
 		}
 	}
@@ -132,14 +135,13 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 	// Collect every enabled binary into one builtin-scope mise config. The
 	// config always reflects the full enabled set so runtime shims resolve any
 	// of them; persisting it is offline and runs no mise commands.
-	var tools []miseTool
+	tools := enabledBuiltinTools(m)
 	needInstall := false
 	for _, plugin := range m.Plugins {
 		if !plugin.Enabled {
 			continue
 		}
 		for _, binary := range plugin.Binaries {
-			tools = append(tools, miseToolFromBinary(binary))
 			if !isCacheHit(state, plugin.ID, binary.Name, binary.Version) {
 				needInstall = true
 			}
@@ -250,6 +252,7 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 			upsertBinaryState(state, plugin.ID, BinaryInstallState{
 				Name:        binary.Name,
 				Tool:        binary.Tool,
+				Spec:        binary.Version,
 				Version:     version,
 				InstalledAt: time.Now(),
 			})

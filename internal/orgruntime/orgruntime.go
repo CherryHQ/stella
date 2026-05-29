@@ -32,13 +32,19 @@ type CLIToolSyncer interface {
 
 // OrgRuntime holds per-org lifecycle state while using shared infrastructure.
 type OrgRuntime struct {
-	orgID    string
-	once     sync.Once
-	startErr error
+	orgID       string
+	once        sync.Once
+	startErr    error
+	cliToolsErr error
 }
 
 // OrgID returns the org's ID.
 func (r *OrgRuntime) OrgID() string { return r.orgID }
+
+// CLIToolsErr returns the error from provisioning the org's CLI tools, if any.
+// Non-fatal: the org still starts with builtin tools, but its own cli plugins
+// will not resolve. Safe to read after Start has returned.
+func (r *OrgRuntime) CLIToolsErr() error { return r.cliToolsErr }
 
 // Start initializes runtime services for this org: syncs agent pools,
 // starts channel runtimes, and ensures builtin scheduler jobs.
@@ -56,6 +62,7 @@ func (r *OrgRuntime) doStart(ctx context.Context, store config.Store, syncer Age
 
 	if cliTools != nil {
 		if err := cliTools.SyncOrgCLITools(orgCtx, r.orgID); err != nil {
+			r.cliToolsErr = err
 			slog.Warn("orgruntime: sync cli tools failed", "org_id", r.orgID, "error", err)
 		}
 	}

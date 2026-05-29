@@ -1,5 +1,7 @@
 package config
 
+import "log/slog"
+
 // CLITool is an org-configured CLI tool provisioned through mise. It is stored
 // as a settings_plugin row with kind=cli; the mise-specific fields live in the
 // plugin's Config JSON under "mise_tool", "version", and "options".
@@ -22,14 +24,26 @@ func CLIToolFromPlugin(p Plugin) (CLITool, bool) {
 		return CLITool{}, false
 	}
 	t := CLITool{Name: p.Name, Enabled: p.Enabled}
-	if v, ok := p.Config["mise_tool"].(string); ok {
-		t.Tool = v
+	if raw, present := p.Config["mise_tool"]; present {
+		if v, ok := raw.(string); ok {
+			t.Tool = v
+		} else {
+			slog.Warn("config: cli plugin mise_tool is not a string", "plugin", p.Name)
+		}
 	}
-	if v, ok := p.Config["version"].(string); ok {
-		t.Version = v
+	if raw, present := p.Config["version"]; present {
+		if v, ok := raw.(string); ok {
+			t.Version = v
+		} else {
+			slog.Warn("config: cli plugin version is not a string", "plugin", p.Name)
+		}
 	}
-	if v, ok := p.Config["options"].(map[string]any); ok {
-		t.Options = v
+	if raw, present := p.Config["options"]; present {
+		if v, ok := raw.(map[string]any); ok {
+			t.Options = v
+		} else {
+			slog.Warn("config: cli plugin options is not an object", "plugin", p.Name)
+		}
 	}
 	if t.Tool == "" {
 		return CLITool{}, false
