@@ -21,7 +21,6 @@ import (
 var (
 	templateMemOnce sync.Once
 	templateMemPath string
-	templateOrgID   string
 )
 
 func TestMain(m *testing.M) {
@@ -39,11 +38,6 @@ func ensureTemplateMemDB() string {
 		if err != nil {
 			panic(fmt.Sprintf("ensureTemplateMemDB: OpenDB: %v", err))
 		}
-		orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-		if err != nil {
-			panic(fmt.Sprintf("ensureTemplateMemDB: EnsureDefaultOrg: %v", err))
-		}
-		templateOrgID = orgID
 		if err := db.Close(); err != nil {
 			panic(fmt.Sprintf("ensureTemplateMemDB: Close: %v", err))
 		}
@@ -52,9 +46,8 @@ func ensureTemplateMemDB() string {
 	return templateMemPath
 }
 
-// newTestPool creates a Pool with the test org ID included automatically.
+// newTestPool creates a Pool for tests.
 func newTestPool(factory NewRunnerFunc, mem memory.Provider, opts ...PoolOption) *Pool {
-	opts = append([]PoolOption{WithOrgID(templateOrgID)}, opts...)
 	return NewPool(factory, mem, opts...)
 }
 
@@ -1173,7 +1166,6 @@ func TestPoolActiveSessionFromMemEngine(t *testing.T) {
 		Channel:    "telegram",
 		AgentID:    "test-agent",
 		UserID:     "test-user",
-		OrgID:      templateOrgID,
 		LastActive: time.Now(),
 	}
 	if err := sm.SaveInfo(testSessionContext(), extInfo); err != nil {
@@ -1306,7 +1298,6 @@ func TestPoolGetSessionFromMemEngine(t *testing.T) {
 		Title:   "External Session",
 		AgentID: "test-agent",
 		UserID:  "test-user",
-		OrgID:   templateOrgID,
 	}
 	if err := sm.SaveInfo(testSessionContext(), info); err != nil {
 		t.Fatalf("SaveInfo: %v", err)
@@ -1381,7 +1372,6 @@ func TestPoolGetOrCreateRunnerRestoresFromMemEngine(t *testing.T) {
 		Title:   "Restored Session",
 		AgentID: "test-agent",
 		UserID:  "test-user",
-		OrgID:   templateOrgID,
 	}
 	if err := sm.SaveInfo(testSessionContext(), info); err != nil {
 		t.Fatalf("SaveInfo: %v", err)

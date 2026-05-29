@@ -20,7 +20,6 @@ const (
 // row can express "fallback to manifest default" without losing the row itself.
 type ManifestPluginOverride struct {
 	PluginID           string
-	OrgID              string
 	Enabled            *bool  // nil = fallback to manifest default; non-nil = override
 	SessionEnvVaultKey string // empty = fallback; non-empty = vault blob with session_env override map
 	UpdatedAt          string
@@ -32,7 +31,6 @@ type Plugin struct {
 	Name    string         `json:"name"`
 	Enabled bool           `json:"enabled"`
 	Config  map[string]any `json:"config"`
-	OrgID   string         `json:"org_id,omitempty"`
 }
 
 // PluginID constructs a plugin ID from kind and name.

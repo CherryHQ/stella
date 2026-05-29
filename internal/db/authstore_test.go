@@ -15,8 +15,6 @@ import (
 	"github.com/CherryHQ/stella/internal/store"
 )
 
-const testOrgID = "test-org-id"
-
 func setupAuthStore(t *testing.T) (*appdb.AuthStore, *appdb.OIDCStore, *sql.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -25,10 +23,6 @@ func setupAuthStore(t *testing.T) (*appdb.AuthStore, *appdb.OIDCStore, *sql.DB) 
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
-	if err != nil {
-		t.Fatalf("create test org: %v", err)
-	}
 	return appdb.NewAuthStore(db), appdb.NewOIDCStore(db), db
 }
 
@@ -50,7 +44,7 @@ func createUser(t *testing.T, oidc *appdb.OIDCStore, email string) auth.User {
 func seedAgent(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
 	cs := store.NewDBStore(db)
-	ctx := config.WithOrgID(context.Background(), testOrgID)
+	ctx := context.Background()
 	if err := cs.CreateAgent(ctx, config.Agent{
 		ID: id, Name: id, Model: "p/m", Workspace: "/tmp/" + id, Enabled: true,
 	}); err != nil {
@@ -61,7 +55,7 @@ func seedAgent(t *testing.T, db *sql.DB, id string) {
 func TestPolicyCRUD(t *testing.T) {
 	t.Parallel()
 	store, _, _ := setupAuthStore(t)
-	ctx := config.WithOrgID(context.Background(), testOrgID)
+	ctx := context.Background()
 
 	policy, err := store.CreatePolicy(ctx, auth.Policy{
 		ID:        "system:admin-full",
@@ -73,7 +67,6 @@ func TestPolicyCRUD(t *testing.T) {
 		Priority:  100,
 		IsSystem:  true,
 		Enabled:   true,
-		OrgID:     testOrgID,
 	})
 	if err != nil {
 		t.Fatalf("CreatePolicy: %v", err)
@@ -92,7 +85,7 @@ func TestPolicyCRUD(t *testing.T) {
 
 	// Create a disabled policy.
 	_, _ = store.CreatePolicy(ctx, auth.Policy{
-		ID: "custom:deny", Name: "Deny", Effect: auth.EffectDeny, Enabled: false, OrgID: testOrgID,
+		ID: "custom:deny", Name: "Deny", Effect: auth.EffectDeny, Enabled: false,
 	})
 
 	all, _ := store.ListPolicies(ctx)

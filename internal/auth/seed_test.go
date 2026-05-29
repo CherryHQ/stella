@@ -6,11 +6,8 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 )
-
-const testOrgID = "test-org-id"
 
 func setupSeedStore(t *testing.T) auth.AuthStore {
 	t.Helper()
@@ -20,10 +17,6 @@ func setupSeedStore(t *testing.T) auth.AuthStore {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
-	if err != nil {
-		t.Fatalf("create test org: %v", err)
-	}
 	return appdb.NewAuthStore(db)
 }
 
@@ -67,13 +60,13 @@ func TestListEnabledPoliciesWithoutOrgID(t *testing.T) {
 		t.Fatalf("ListEnabledPolicies: %v", err)
 	}
 	if len(policies) != 9 {
-		t.Errorf("expected 9 builtin policies without orgID, got %d", len(policies))
+		t.Errorf("expected 9 builtin policies, got %d", len(policies))
 	}
 }
 
 func TestNewEngine_WithBuiltinPolicies(t *testing.T) {
 	store := setupSeedStore(t)
-	ctx := config.WithOrgID(context.Background(), testOrgID)
+	ctx := context.Background()
 
 	engine, err := auth.NewEngine(ctx, store)
 	if err != nil {

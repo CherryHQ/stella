@@ -14,7 +14,6 @@ import (
 // It is the only type channels interact with.
 type Pool struct {
 	agentID          string // agent this pool belongs to (empty for legacy single-agent)
-	orgID            string // org this pool belongs to
 	factory          NewRunnerFunc
 	hooksFn          func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
 	beforeRunFn      BeforeRunBuilder

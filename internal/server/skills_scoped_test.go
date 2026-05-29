@@ -57,7 +57,7 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, ag
 		Description: "test",
 		Status:      "active",
 	}
-	ctx := config.WithOrgID(context.Background(), env.orgID)
+	ctx := context.Background()
 	id, err := env.pluginHost.SkillStore().Create(ctx, sk, map[string]string{
 		skills.MainFile: "# " + name,
 		"reference.md":  "reference content",
@@ -148,7 +148,6 @@ func TestSessionSystemPromptIncludesSkills(t *testing.T) {
 		UserID:     env.adminUser.ID,
 		Channel:    "admin",
 		Kind:       "chat",
-		OrgID:      env.orgID,
 		CreatedAt:  now,
 		LastActive: now,
 	}); err != nil {
@@ -186,7 +185,7 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user", creator.ID, agentID, "creator-user-skill")
 	draftID := createTestSkill(t, env, "user", creator.ID, agentID, "draft-skill")
-	orgCtx := config.WithOrgID(context.Background(), env.orgID)
+	orgCtx := context.Background()
 	draftStatus := "draft"
 	if err := env.pluginHost.SkillStore().Update(orgCtx, draftID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &draftStatus}); err != nil {
 		t.Fatalf("mark skill draft: %v", err)
@@ -226,9 +225,11 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		t.Fatalf("admin list included another user's skill: %#v", list)
 	}
 
+	// In single-tenant mode all authenticated users are admin, so any user
+	// can list skills for any agent.
 	rr = doRequestWithSession(t, env.srv, otherSID, "GET", "/api/agents/"+agentID+"/skills", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("other status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("other status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	rr = doUnauthRequest(t, env.srv, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -260,13 +261,14 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	_, otherSID := newNonAdmin(t, env, "other-ud")
 	agentID := createAgentAsUser(t, env, sid, "ud-agent")
 
-	// Non-creator cannot create agent-scoped skills
+	// In single-tenant mode all users are admin, so any user can create
+	// agent-scoped skills on any agent.
 	rr := doRequestWithSession(t, env.srv, otherSID, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
 		"name":  "other-agent-skill",
 		"scope": "agent",
 	})
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("other create status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("other create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// Cannot create system-scoped skills

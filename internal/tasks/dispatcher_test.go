@@ -25,9 +25,9 @@ func newDispatcherHarness(t *testing.T, runner RunnerFunc) (*testHarness, *Dispa
 		NewSession: func(_ context.Context, _ sqlc.AgentTask) (string, error) {
 			return "sess-" + uuid.NewString()[:8], nil
 		},
-		TickEvery: 0,
-		MaxPerOrg: 5,
-		LeaseTTL:  60 * time.Second,
+		TickEvery:  0,
+		MaxWorkers: 5,
+		LeaseTTL:   60 * time.Second,
 	})
 	return h, d
 }
@@ -160,8 +160,8 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	// table FK is ON DELETE CASCADE → settings_agent; we just need any agent id
 	// to exist.)
 	hintAgent := uuid.NewString()
-	if _, err := h.db.Exec(`INSERT INTO settings_agent (id, org_id, name, workspace) VALUES (?, ?, 'hint-agent', '/tmp')`,
-		hintAgent, h.orgID); err != nil {
+	if _, err := h.db.Exec(`INSERT INTO settings_agent (id, name, workspace) VALUES (?, 'hint-agent', '/tmp')`,
+		hintAgent); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 	if _, err := h.q.CreateAgentTaskDispatchHint(context.Background(), sqlc.CreateAgentTaskDispatchHintParams{
@@ -266,7 +266,7 @@ func TestDispatcher_ConcurrencyCapHonored(t *testing.T) {
 		NewSession: func(_ context.Context, _ sqlc.AgentTask) (string, error) {
 			return uuid.NewString(), nil
 		},
-		MaxPerOrg: cap,
+		MaxWorkers: cap,
 	})
 	d.Tick(context.Background())
 	// Wait briefly for workers to start.

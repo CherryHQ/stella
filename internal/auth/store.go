@@ -10,7 +10,7 @@ type UserStore interface {
 	CreateUser(ctx context.Context, u User) (User, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
-	ListUsers(ctx context.Context, orgID string) ([]User, error)
+	ListUsers(ctx context.Context) ([]User, error)
 	UpdateUser(ctx context.Context, u User) error
 	DeleteUser(ctx context.Context, id string) error
 	CountUsers(ctx context.Context) (int64, error)
@@ -49,42 +49,9 @@ type SessionStore interface {
 	ListSessionsByUser(ctx context.Context, userID string) ([]Session, error)
 }
 
-// OrganizationStore provides CRUD for auth_organization.
-type OrganizationStore interface {
-	CreateOrganization(ctx context.Context, o Organization) (Organization, error)
-	GetOrganization(ctx context.Context, id string) (Organization, error)
-	GetOrganizationBySource(ctx context.Context, source, externalID string) (Organization, error)
-	ListOrganizations(ctx context.Context) ([]Organization, error)
-	UpdateOrganizationName(ctx context.Context, id, name string) error
-	DeleteOrganization(ctx context.Context, id string) error
-}
-
-// MembershipStore provides CRUD for auth_membership.
-type MembershipStore interface {
-	CreateMembership(ctx context.Context, m Membership) (Membership, error)
-	GetMembership(ctx context.Context, userID, orgID string) (Membership, error)
-	GetUserMembership(ctx context.Context, userID string) (Membership, error)
-	UpdateMembershipRole(ctx context.Context, id, role string) error
-	UpdateMembershipActive(ctx context.Context, id string, active bool) error
-	DeleteMembership(ctx context.Context, id string) error
-}
-
-// InviteStore provides CRUD for auth_invite (organization invitations).
-type InviteStore interface {
-	CreateInvite(ctx context.Context, inv Invite) (Invite, error)
-	GetInvite(ctx context.Context, id string) (Invite, error)
-	GetInviteByTokenHash(ctx context.Context, tokenHash string) (Invite, error)
-	ListInvitesByOrg(ctx context.Context, orgID string) ([]Invite, error)
-	ListPendingInvitesByEmail(ctx context.Context, email string) ([]Invite, error)
-	ConsumeInvite(ctx context.Context, id string, acceptedBy string) error
-	RevokeInvite(ctx context.Context, id string) error
-}
-
 // OIDCCodeStore provides operations for local OIDC authorization codes.
 type OIDCCodeStore interface {
 	CreateOIDCCode(ctx context.Context, c OIDCCode) (OIDCCode, error)
-	// ConsumeOIDCCode atomically looks up a code by hash and marks it consumed.
-	// Returns ErrNotFound if the code does not exist, ErrAlreadyConsumed if already used.
 	// ConsumeOIDCCode atomically looks up a code by hash and marks it consumed.
 	// Returns ErrNotFound if the code does not exist, ErrAlreadyConsumed if already used.
 	ConsumeOIDCCode(ctx context.Context, codeHash string) (OIDCCode, error)
@@ -107,13 +74,10 @@ type CredentialStore interface {
 
 // AuthStores groups the stores needed for a single transactional login flow.
 type AuthStores struct {
-	Users         UserStore
-	Logins        LoginIdentityStore
-	Sessions      SessionStore
-	Organizations OrganizationStore
-	Memberships   MembershipStore
-	Credentials   CredentialStore
-	Invites       InviteStore
+	Users       UserStore
+	Logins      LoginIdentityStore
+	Sessions    SessionStore
+	Credentials CredentialStore
 }
 
 // Transactioner is an optional interface that store implementations may satisfy

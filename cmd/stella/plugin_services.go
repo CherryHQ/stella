@@ -6,7 +6,6 @@ import (
 	"maps"
 	"reflect"
 
-	"github.com/CherryHQ/stella/internal/config"
 	internalscheduler "github.com/CherryHQ/stella/internal/scheduler"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -147,7 +146,6 @@ func (a schedulerServiceAdapter) dispatchPluginJob(ctx context.Context, job inte
 		return fmt.Errorf("host unavailable for plugin %s job %s", job.PluginID, job.JobKey)
 	}
 
-	ctx = config.WithOrgID(ctx, job.OrgID)
 	handle, ok := a.lookup.Lookup(ctx, job.PluginID, job.RuntimeName)
 	if !ok {
 		return fmt.Errorf("runtime unavailable for plugin %s runtime %s", job.PluginID, job.RuntimeName)

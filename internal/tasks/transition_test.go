@@ -20,7 +20,6 @@ type testHarness struct {
 	db      *sql.DB
 	q       *sqlc.Queries
 	svc     *TransitionService
-	orgID   string
 	userID  string
 	agentID string
 }
@@ -34,10 +33,6 @@ func newHarness(t *testing.T) *testHarness {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	orgID, err := appdb.EnsureDefaultOrg(ctx, db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
 	userID := uuid.NewString()
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO auth_user (id, email) VALUES (?, ?)`,
@@ -46,13 +41,13 @@ func newHarness(t *testing.T) *testHarness {
 	}
 	agentID := uuid.NewString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO settings_agent (id, org_id, name, workspace) VALUES (?, ?, 'test-agent', '/tmp')`,
-		agentID, orgID); err != nil {
+		`INSERT INTO settings_agent (id, name, workspace) VALUES (?, 'test-agent', '/tmp')`,
+		agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 	q := sqlc.New(db)
 	svc := NewTransitionService(db, q)
-	return &testHarness{t: t, db: db, q: q, svc: svc, orgID: orgID, userID: userID, agentID: agentID}
+	return &testHarness{t: t, db: db, q: q, svc: svc, userID: userID, agentID: agentID}
 }
 
 // createTask inserts a task in the given status.
@@ -61,7 +56,7 @@ func (h *testHarness) createTask(t *testing.T, status string) string {
 	id := uuid.NewString()
 	now := time.Now().Format(time.RFC3339Nano)
 	if _, err := h.q.CreateAgentTask(context.Background(), sqlc.CreateAgentTaskParams{
-		ID: id, OrgID: h.orgID, UserID: h.userID,
+		ID: id, UserID: h.userID,
 		Title: "t-" + id[:8], Status: status, Priority: "routine",
 		Required: 1, RetryCount: 0, MaxRetries: 3,
 		Context: "{}", Output: "{}",
@@ -567,9 +562,9 @@ func TestInvariant_AtMostOneActiveWorkerRun(t *testing.T) {
 	}
 	// And the uniqueness index must reject any raw INSERT too.
 	_, err = h.db.Exec(`INSERT INTO agent_task_run
-		(id, task_id, org_id, user_id, kind, attempt_no, status, session_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'worker', 99, 'running', 's', ?, ?)`,
-		uuid.NewString(), id, h.orgID, h.userID, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339))
+		(id, task_id, user_id, kind, attempt_no, status, session_id, created_at, updated_at)
+		VALUES (?, ?, ?, 'worker', 99, 'running', 's', ?, ?)`,
+		uuid.NewString(), id, h.userID, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339))
 	if err == nil {
 		t.Errorf("uniq_active_worker_run should reject second active run")
 	}

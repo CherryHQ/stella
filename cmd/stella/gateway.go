@@ -160,26 +160,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if err != nil {
 		slog.Warn("oidc: setup failed", "error", err)
 	} else {
-		oidcResult.AuthSvc.SetOrgSeeder(&orgSeeder{store: s.store})
-		if tokenSvc != nil {
-			oidcResult.AuthSvc.SetUserSeeder(&userSeeder{tokenSvc: tokenSvc})
-		}
-		oidcResult.AuthSvc.SetOrgInitializer(s.orgRuntimeManager)
 		adminSrv.SetLoginIdentityStore(oidcStore)
-		adminSrv.SetMembershipStore(oidcStore)
 		adminSrv.SetUserStore(oidcStore)
 		adminSrv.SetSessionStore(oidcStore)
 		adminSrv.SetCredentialStore(oidcStore)
-		adminSrv.SetOrganizationStore(oidcStore)
 		adminSrv.SetOIDCAuth(oidcResult)
 		slog.Info("oidc: authentication configured")
 	}
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
-	if s.orgRuntimeManager != nil {
-		coordOpts = append(coordOpts, channel.WithOrgRuntimeInitializer(s.orgRuntimeManager))
-	}
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(
@@ -193,13 +183,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	// Wire channel startup into OrgRuntime so channels start per-org.
-	if s.orgRuntimeManager != nil {
-		s.orgRuntimeManager.SetChannels(channelStarterFunc(func(ctx context.Context) error {
-			applyManagedChannelPlugins(ctx, s.pluginHost)
-			return nil
-		}))
-	}
+	// Apply managed channel plugins at startup.
+	applyManagedChannelPlugins(gctx, s.pluginHost)
 
 	// Start Web UI server.
 	listenAddr := adminListenAddress(adminHost, adminPort)
@@ -228,13 +213,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Wire auth directory into dispatcher for per-user notification routing.
 	s.notifier.SetAuthService(s.pluginHost.Auth())
 
-	// Wire scheduler and start it. Builtin jobs and heartbeat are configured
-	// per-org via OrgRuntime.Start(), not at boot.
+	// Wire scheduler and start it.
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
-		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context, orgID string) ([]string, error) {
-			return as.ListActiveUserIDs(ctx, orgID)
+		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
+			return as.ListActiveUserIDs(ctx)
 		})
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
@@ -258,11 +242,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	slog.Info("gateway stopped")
 	return waitErr
 }
-
-// channelStarterFunc adapts a plain function to orgruntime.ChannelStarter.
-type channelStarterFunc func(ctx context.Context) error
-
-func (f channelStarterFunc) StartChannels(ctx context.Context) error { return f(ctx) }
 
 func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
 	if job.UserID != "" {
@@ -339,25 +318,4 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 			"base_url": creds.BaseURL,
 		})
 	}
-}
-
-// orgSeeder seeds org settings on first login via auth.OrgSeeder.
-type orgSeeder struct {
-	store config.Store
-}
-
-func (s *orgSeeder) SeedOrg(ctx context.Context, orgID string) error {
-	if err := s.store.SeedNewOrg(ctx, orgID); err != nil {
-		return fmt.Errorf("seed settings: %w", err)
-	}
-	return nil
-}
-
-// userSeeder initializes per-user resources after org seed.
-type userSeeder struct {
-	tokenSvc *auth.TokenService
-}
-
-func (u *userSeeder) SeedUser(ctx context.Context, userID, _ string) error {
-	return u.tokenSvc.EnsureAutoToken(ctx, userID)
 }

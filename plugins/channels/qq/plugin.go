@@ -26,7 +26,6 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 	if handler == nil {
 		return nil, fmt.Errorf("qq: missing channel handler")
 	}
-	handler = pkgchannel.HandlerWithOrgID(rc.OrgID, handler)
 	return NewQQManagedRuntime(QQRuntimeDeps{
 		Parent:        parent,
 		Handler:       handler,

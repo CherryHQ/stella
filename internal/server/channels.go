@@ -203,15 +203,9 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
-	ctx := r.Context()
-	info := UserFromContext(ctx)
-	ch, err := s.store.GetChannel(ctx, id)
+	ch, err := s.store.GetChannel(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
-		return
-	}
-	if info != nil && info.OrgID != "" && ch.OrgID != "" && ch.OrgID != info.OrgID {
-		writeError(w, http.StatusForbidden, "channel not found")
 		return
 	}
 	writeData(w, http.StatusOK, channelToView(ch))
@@ -229,12 +223,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	req.ID = id
 
 	ctx := r.Context()
-	info := UserFromContext(ctx)
 	existing, existingErr := s.store.GetChannel(ctx, id)
-	if existingErr == nil && info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
-		writeError(w, http.StatusForbidden, "channel not found")
-		return
-	}
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
@@ -272,17 +261,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		AgentID: requestAgentID(req),
 		Enabled: s.defaultChannelEnabled(r, channelType),
 	}
-	if !s.saveChannel(w, r, ch, cfgMap, http.StatusCreated) {
-		return
-	}
-	// Stamp org when the creating user belongs to one.
-	ctx := r.Context()
-	info := UserFromContext(ctx)
-	if info != nil && info.OrgID != "" {
-		if err := s.store.SetChannelOrg(ctx, ch.ID, info.OrgID); err != nil {
-			s.log.Error("stamp channel org", "channel_id", ch.ID, "org_id", info.OrgID, "error", err)
-		}
-	}
+	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
 }
 
 func requestChannelType(req channelWriteRequest) string {
@@ -389,14 +368,9 @@ func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	ctx := r.Context()
-	info := UserFromContext(ctx)
 	ch, err := s.store.GetChannel(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
-		return
-	}
-	if info != nil && info.OrgID != "" && ch.OrgID != "" && ch.OrgID != info.OrgID {
-		writeError(w, http.StatusForbidden, "channel not found")
 		return
 	}
 	ch.Enabled = false

@@ -13,8 +13,7 @@ import (
 // findStellaID lists agents and returns the seeded Stella agent's UUID.
 func findStellaID(t *testing.T, env *testEnv) string {
 	t.Helper()
-	octx := config.WithOrgID(context.Background(), env.orgID)
-	agents, err := env.store.ListAgents(octx)
+	agents, err := env.store.ListAgents(context.Background())
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
@@ -300,108 +299,6 @@ func TestAgentUserAssignment(t *testing.T) {
 	}
 }
 
-func TestAgentUserAssignmentNonAdminDenied(t *testing.T) {
-	env := setupAdmin(t)
-
-	// Create non-admin user with bearer token.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "nonadmin", auth.RoleUser)
-
-	// Non-admin cannot access agent user APIs.
-	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/stella/users", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
-	}
-}
-
-func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
-	env := setupAdmin(t)
-	ctx := context.Background()
-
-	// Create a restricted agent (admin creates it).
-	agentID := createTestAgent(t, env, config.Agent{
-		Name:    "Private",
-		Model:   "anthropic/claude-sonnet-4-6",
-		Scope:   "restricted",
-		Enabled: true,
-	})
-
-	// Create non-admin user with bearer token.
-	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser, env.orgID)
-
-	stellaID := findStellaID(t, env)
-	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("list agents: status = %d", rr.Code)
-	}
-	var agents []config.Agent
-	_ = json.Unmarshal(parseListItems(t, rr), &agents)
-
-	foundStella := false
-	foundPrivate := false
-	for _, a := range agents {
-		if a.ID == stellaID {
-			foundStella = true
-		}
-		if a.ID == agentID {
-			foundPrivate = true
-		}
-	}
-	if !foundStella {
-		t.Error("expected non-admin to see system-scoped Stella agent")
-	}
-	if foundPrivate {
-		t.Error("non-admin should not see restricted agent")
-	}
-
-	// Assign user to the restricted agent.
-	_ = env.authStore.AssignAgent(ctx, user.ID, agentID)
-
-	// Now listing should include the assigned agent.
-	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents", nil)
-	_ = json.Unmarshal(parseListItems(t, rr), &agents)
-
-	foundPrivate = false
-	for _, a := range agents {
-		if a.ID == agentID {
-			foundPrivate = true
-		}
-	}
-	if !foundPrivate {
-		t.Error("expected assigned user to see restricted agent")
-	}
-}
-
-func TestNonAdminGetAgentAccessCheck(t *testing.T) {
-	env := setupAdmin(t)
-	ctx := context.Background()
-
-	// Create a restricted agent.
-	agentID := createTestAgent(t, env, config.Agent{
-		Name:    "Secret",
-		Model:   "anthropic/claude-sonnet-4-6",
-		Scope:   "restricted",
-		Enabled: true,
-	})
-
-	// Create non-admin user with bearer token.
-	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular2", auth.RoleUser, env.orgID)
-
-	stellaID := findStellaID(t, env)
-	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/"+stellaID, nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("get stella: status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	// Non-admin cannot get restricted agent they're not assigned to.
-	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/"+agentID, nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("get secret: status = %d, want %d", rr.Code, http.StatusForbidden)
-	}
-
-	// Assign user, then they can access.
-	_ = env.authStore.AssignAgent(ctx, user.ID, agentID)
-	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/agents/"+agentID, nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("get secret after assign: status = %d, want %d", rr.Code, http.StatusOK)
-	}
-}
+// TestAgentUserAssignmentNonAdminDenied, TestNonAdminSeesOnlyAccessibleAgents,
+// TestNonAdminGetAgentAccessCheck removed: single-tenant mode grants admin to all
+// authenticated users, so non-admin RBAC is not exercised.

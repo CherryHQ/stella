@@ -46,16 +46,9 @@ func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
 		p.Enabled = true
 	}
 	ctx := r.Context()
-	info := UserFromContext(ctx)
 	if err := s.store.CreateProvider(ctx, p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	if info != nil && info.OrgID != "" {
-		if err := s.store.SetProviderOrg(ctx, p.ID, info.OrgID); err != nil {
-			s.log.Error("stamp provider org", "provider_id", p.ID, "org_id", info.OrgID, "error", err)
-		}
-		p.OrgID = info.OrgID
 	}
 	s.reloadProviders(ctx)
 	writeData(w, http.StatusCreated, p)
@@ -65,15 +58,9 @@ func (s *Server) GetProvider(w http.ResponseWriter, r *http.Request, id string) 
 	if requireAdmin(w, r) == nil {
 		return
 	}
-	ctx := r.Context()
-	info := UserFromContext(ctx)
-	p, err := s.store.GetProvider(ctx, id)
+	p, err := s.store.GetProvider(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "provider not found")
-		return
-	}
-	if info != nil && info.OrgID != "" && p.OrgID != "" && p.OrgID != info.OrgID {
-		writeError(w, http.StatusForbidden, "provider not found")
 		return
 	}
 	writeData(w, http.StatusOK, p)
@@ -84,7 +71,6 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	ctx := r.Context()
-	info := UserFromContext(ctx)
 	var p config.Provider
 	if err := decodeJSON(r, &p); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -93,10 +79,6 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 	existing, err := s.store.GetProvider(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "provider not found")
-		return
-	}
-	if info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
-		writeError(w, http.StatusForbidden, "provider not found")
 		return
 	}
 	p.ID = id
@@ -119,14 +101,8 @@ func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	ctx := r.Context()
-	info := UserFromContext(ctx)
-	existing, err := s.store.GetProvider(ctx, id)
-	if err != nil {
+	if _, err := s.store.GetProvider(ctx, id); err != nil {
 		writeError(w, http.StatusNotFound, "provider not found")
-		return
-	}
-	if info != nil && info.OrgID != "" && existing.OrgID != "" && existing.OrgID != info.OrgID {
-		writeError(w, http.StatusForbidden, "provider not found")
 		return
 	}
 	if err := s.store.DeleteProvider(ctx, id); err != nil {

@@ -27,10 +27,7 @@ type AuthStores interface {
 	auth.UserStore
 	auth.LoginIdentityStore
 	auth.SessionStore
-	auth.OrganizationStore
-	auth.MembershipStore
 	auth.CredentialStore
-	auth.InviteStore
 	auth.OIDCCodeStore
 	auth.OIDCAccessTokenStore
 }
@@ -59,7 +56,7 @@ func Setup(ctx context.Context, p SetupParams) (*SetupResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("state manager: %w", err)
 	}
-	authSvc := auth.NewAuthService(p.DB, s, s, s, s, s, s)
+	authSvc := auth.NewAuthService(p.DB, s, s, s)
 
 	if os.Getenv("OIDC_ISSUER_URL") != "" {
 		return setupExternal(ctx, authSvc, sessionMgr, stateMgr)
@@ -107,9 +104,9 @@ func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, s
 	}
 
 	s := p.AuthStores
-	issuerAuthSvc := auth.NewAuthService(p.DB, s, s, s, s, s, s)
+	issuerAuthSvc := auth.NewAuthService(p.DB, s, s, s)
 	issuerSessionMgr := sessionMgr.WithStore(s)
-	issuer := local.NewIssuer(cfg, s, s, s, s, s, issuerAuthSvc, issuerSessionMgr)
+	issuer := local.NewIssuer(cfg, s, s, s, s, issuerAuthSvc, issuerSessionMgr)
 
 	return &SetupResult{
 		Providers:  []auth.AuthProvider{clientProvider},

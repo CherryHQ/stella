@@ -34,7 +34,6 @@ func NewServiceFacade(db *sql.DB, q *sqlc.Queries, svc *TransitionService) *Serv
 // CreateTaskInput is the request body for CreateTask. Fields are optional
 // except where noted.
 type CreateTaskInput struct {
-	OrgID            string // required
 	UserID           string // required
 	Title            string // required
 	Description      string
@@ -60,8 +59,8 @@ type DepInput struct {
 // CreateTask creates a task in 'draft', optionally activates it, optionally
 // writes a dispatch hint, and adds dependency edges with cycle checking.
 func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sqlc.AgentTask, error) {
-	if in.OrgID == "" || in.UserID == "" || in.Title == "" {
-		return sqlc.AgentTask{}, fmt.Errorf("CreateTask: org_id, user_id, and title are required")
+	if in.UserID == "" || in.Title == "" {
+		return sqlc.AgentTask{}, fmt.Errorf("CreateTask: user_id and title are required")
 	}
 	priority := in.Priority
 	if priority == "" {
@@ -88,7 +87,6 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 		var err error
 		task, err = q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
 			ID:          id,
-			OrgID:       in.OrgID,
 			UserID:      in.UserID,
 			AgentID:     nullable(in.AgentID),
 			Title:       in.Title,
@@ -138,9 +136,9 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	return task, nil
 }
 
-// GetTask returns a task by id within an org.
-func (f *ServiceFacade) GetTask(ctx context.Context, taskID, orgID string) (sqlc.AgentTask, error) {
-	t, err := f.q.GetAgentTaskForOrg(ctx, sqlc.GetAgentTaskForOrgParams{ID: taskID, OrgID: orgID})
+// GetTask returns a task by id.
+func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentTask, error) {
+	t, err := f.q.GetAgentTask(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return sqlc.AgentTask{}, ErrTaskNotFound
@@ -150,13 +148,13 @@ func (f *ServiceFacade) GetTask(ctx context.Context, taskID, orgID string) (sqlc
 	return t, nil
 }
 
-// ListTasksByOrg returns paginated tasks for an org.
-func (f *ServiceFacade) ListTasksByOrg(ctx context.Context, orgID string, limit, offset int64) ([]sqlc.AgentTask, error) {
+// ListTasks returns paginated tasks.
+func (f *ServiceFacade) ListTasks(ctx context.Context, limit, offset int64) ([]sqlc.AgentTask, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentTasksByOrg(ctx, sqlc.ListAgentTasksByOrgParams{
-		OrgID: orgID, Limit: limit, Offset: offset,
+	return f.q.ListAgentTasks(ctx, sqlc.ListAgentTasksParams{
+		Limit: limit, Offset: offset,
 	})
 }
 
@@ -271,10 +269,9 @@ func (f *ServiceFacade) GetReview(ctx context.Context, reviewID string) (sqlc.Ag
 // Goal facade
 // ---------------------------------------------------------------------------
 
-// CreateGoalInput is the request body for CreateGoal. OrgID/UserID/Title are
+// CreateGoalInput is the request body for CreateGoal. UserID/Title are
 // required; everything else carries safe defaults.
 type CreateGoalInput struct {
-	OrgID        string
 	UserID       string
 	AgentID      string
 	Title        string
@@ -288,8 +285,8 @@ type CreateGoalInput struct {
 // scan will pick it up next tick when status=draft and an executor is
 // resolvable.
 func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sqlc.AgentGoal, error) {
-	if in.OrgID == "" || in.UserID == "" || in.Title == "" {
-		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: org_id, user_id, and title are required")
+	if in.UserID == "" || in.Title == "" {
+		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: user_id and title are required")
 	}
 	priority := in.Priority
 	if priority == "" {
@@ -308,7 +305,6 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	return f.q.CreateAgentGoal(ctx, sqlc.CreateAgentGoalParams{
 		ID:           uuid.NewString(),
-		OrgID:        in.OrgID,
 		UserID:       in.UserID,
 		AgentID:      nullable(in.AgentID),
 		Title:        in.Title,
@@ -336,12 +332,12 @@ func (f *ServiceFacade) GetGoal(ctx context.Context, goalID string) (sqlc.AgentG
 	return g, nil
 }
 
-// ListGoalsByOrg returns the org's goals, newest first.
-func (f *ServiceFacade) ListGoalsByOrg(ctx context.Context, orgID string, limit int64) ([]sqlc.AgentGoal, error) {
+// ListGoals returns goals, newest first.
+func (f *ServiceFacade) ListGoals(ctx context.Context, limit int64) ([]sqlc.AgentGoal, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentGoalsByOrg(ctx, sqlc.ListAgentGoalsByOrgParams{OrgID: orgID, Limit: limit, Offset: 0})
+	return f.q.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{Limit: limit, Offset: 0})
 }
 
 // ActivateGoal / CancelGoal are thin shims over TransitionService.

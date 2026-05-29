@@ -62,16 +62,30 @@ func runtimeScopeConfigPath(stellaHome, orgID string) string {
 }
 
 // RuntimeMiseEnv returns the mise environment variables a sandbox needs so its
-// shims resolve tool versions from the org's persisted config against the shared
+// shims resolve tool versions from the persisted config against the shared
 // install dir. HOME/XDG are intentionally left untouched — the sandbox owns
 // those. Auto-install is disabled so runtime never reaches the network.
-func RuntimeMiseEnv(stellaHome, orgID string) map[string]string {
+func RuntimeMiseEnv(stellaHome string) map[string]string {
 	env := miseBaseEnv(stellaHome)
-	configPath := runtimeScopeConfigPath(stellaHome, orgID)
+	configPath := runtimeScopeConfigPath(stellaHome, "")
 	env["MISE_GLOBAL_CONFIG_FILE"] = configPath
 	env["MISE_TRUSTED_CONFIG_PATHS"] = configPath
 	env["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
 	return env
+}
+
+// enabledBuiltinTools collects all mise tools from enabled manifest plugins.
+func enabledBuiltinTools(m *Manifest) []miseTool {
+	var tools []miseTool
+	for _, p := range m.Plugins {
+		if !p.Enabled {
+			continue
+		}
+		for _, b := range p.Binaries {
+			tools = append(tools, miseToolFromBinary(b))
+		}
+	}
+	return tools
 }
 
 // miseTool is a single entry rendered into a mise config. Both manifest

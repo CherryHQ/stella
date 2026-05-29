@@ -25,9 +25,8 @@ import (
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
 // It avoids the import cycle internal/skills → internal/tools/skills → internal/skills.
 type testSkillStore struct {
-	db    *sql.DB
-	q     *sqlc.Queries
-	orgID string
+	db *sql.DB
+	q  *sqlc.Queries
 }
 
 func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
@@ -39,10 +38,6 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := context.Background()
-	orgID, err := appdb.EnsureDefaultOrg(ctx, db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
 	oidcStore := appdb.NewOIDCStore(db)
 	u, err := oidcStore.CreateUser(ctx, auth.User{
 		ID:    uuid.NewString(),
@@ -54,20 +49,17 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, string, string) {
 	}
 	agentID := "agent1"
 	cs := store.NewDBStore(db)
-	orgCtx := config.WithOrgID(ctx, orgID)
-	_ = cs.SeedNewOrg(ctx, orgID)
-	if err := cs.CreateAgent(orgCtx, config.Agent{
-		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
+	if err := cs.CreateAgent(ctx, config.Agent{
+		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 
-	return &testSkillStore{db: db, q: sqlc.New(db), orgID: orgID}, u.ID, agentID
+	return &testSkillStore{db: db, q: sqlc.New(db)}, u.ID, agentID
 }
 
 func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
-		OrgID:   s.orgID,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
 	})
@@ -83,7 +75,6 @@ func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContex
 
 func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{
-		OrgID:   s.orgID,
 		Name:    name,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullString{String: vc.UserID, Valid: vc.UserID != ""},
@@ -129,7 +120,6 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 		Status:                 sk.Status,
 		DisableModelInvocation: disabled,
 		Metadata:               meta,
-		OrgID:                  s.orgID,
 	}
 	switch sk.Scope {
 	case "user":
@@ -161,7 +151,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 }
 
 func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, OrgID: s.orgID})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: nil, UserID: nil})
 	if err != nil {
 		return err
 	}
@@ -186,7 +176,7 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 		meta = string(patch.Metadata)
 	}
 	params := sqlc.UpdateSkillMetadataParams{
-		ID: id, OrgID: s.orgID, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
+		ID: id, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
 	}
 	if row.Scope == "agent" {
 		params.AgentID = row.AgentID
@@ -206,11 +196,11 @@ func (s *testSkillStore) DeleteFile(ctx context.Context, skillID, path string) e
 }
 
 func (s *testSkillStore) Delete(ctx context.Context, id string) error {
-	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, OrgID: s.orgID})
+	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: nil, UserID: nil})
 	if err != nil {
 		return err
 	}
-	params := sqlc.DeleteSkillParams{ID: id, OrgID: s.orgID}
+	params := sqlc.DeleteSkillParams{ID: id}
 	if row.Scope == "agent" {
 		params.AgentID = row.AgentID
 	}
@@ -221,10 +211,7 @@ func (s *testSkillStore) Delete(ctx context.Context, id string) error {
 }
 
 func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	return s.q.DeprecateExpiredDrafts(ctx, sqlc.DeprecateExpiredDraftsParams{
-		OrgID:    s.orgID,
-		Metadata: before.UTC().Format(time.RFC3339),
-	})
+	return s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339))
 }
 
 func tsMapRow(r sqlc.Skill) pkgplugins.Skill {

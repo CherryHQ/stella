@@ -7,7 +7,6 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -19,12 +18,8 @@ func newTestWatermarkStore(t *testing.T) (*watermarkStore, context.Context) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
 
-	return newWatermarkStore(testStateStore{store: pluginstate.New(db)}), orgctx.WithOrgID(context.Background(), orgID)
+	return newWatermarkStore(testStateStore{store: pluginstate.New(db)}), context.Background()
 }
 
 type testStateStore struct {

@@ -15,7 +15,6 @@ import (
 
 type testEnv struct {
 	store config.Store
-	orgID string
 }
 
 func setupAdminStore(t *testing.T) testEnv {
@@ -28,12 +27,8 @@ func setupAdminStore(t *testing.T) testEnv {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
 	store := cfgstore.NewDBStore(db)
-	return testEnv{store: store, orgID: orgID}
+	return testEnv{store: store}
 }
 
 func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) {
@@ -42,7 +37,7 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	t.Cleanup(config.ResetStellaHome)
 
 	env := setupAdminStore(t)
-	ctx := config.WithOrgID(context.Background(), env.orgID)
+	ctx := context.Background()
 
 	if err := env.store.CreateProvider(ctx, config.Provider{
 		ID:      "openai",
@@ -58,9 +53,6 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("CreateProvider(openai): %v", err)
 	}
-	if err := env.store.SetProviderOrg(ctx, "openai", env.orgID); err != nil {
-		t.Fatalf("SetProviderOrg(openai): %v", err)
-	}
 	if err := env.store.CreateProvider(ctx, config.Provider{
 		ID:      "anthropic",
 		Name:    "Anthropic",
@@ -72,10 +64,6 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("CreateProvider(anthropic): %v", err)
 	}
-	if err := env.store.SetProviderOrg(ctx, "anthropic", env.orgID); err != nil {
-		t.Fatalf("SetProviderOrg(anthropic): %v", err)
-	}
-
 	if err := config.SaveModelsCache(&config.ModelsCache{Models: []config.CachedModel{
 		{Provider: "openai", Model: "gpt-4.1"},
 		{Provider: "openai", Model: "qwen3.6-plus"},
@@ -89,7 +77,6 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
 	req = req.WithContext(withAuthInfo(req.Context(), &AuthInfo{
 		UserID:  "test-user",
-		OrgID:   env.orgID,
 		IsAdmin: true,
 	}))
 	rec := httptest.NewRecorder()

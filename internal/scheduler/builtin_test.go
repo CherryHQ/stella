@@ -31,7 +31,7 @@ func TestRecallyDigestBuiltinSpec(t *testing.T) {
 
 func TestEnsureBuiltinJobs(t *testing.T) {
 	db := testDB(t)
-	svc, orgID := newServiceWithOrg(t, db)
+	svc := newTestService(t, db)
 	if err := svc.RegisterBuiltin(RecallyRSSBuiltin); err != nil {
 		t.Fatalf("RegisterBuiltin(RecallyRSS): %v", err)
 	}
@@ -40,7 +40,7 @@ func TestEnsureBuiltinJobs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = svc.Stop() })
 
-	svc.EnsureBuiltinJobs(orgID)
+	svc.EnsureBuiltinJobs()
 
 	found := false
 	for _, j := range svc.ListJobs() {
@@ -59,7 +59,7 @@ func TestEnsureBuiltinJobs(t *testing.T) {
 	}
 
 	// Idempotent: second call does not duplicate.
-	svc.EnsureBuiltinJobs(orgID)
+	svc.EnsureBuiltinJobs()
 	count := 0
 	for _, j := range svc.ListJobs() {
 		if j.Name == "recally-rss" {

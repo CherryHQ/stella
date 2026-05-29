@@ -46,36 +46,14 @@ type ChannelIdentity struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// Organization is a tenant / org stored in auth_organization.
-type Organization struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	ExternalID string    `json:"external_id"`
-	Source     string    `json:"source"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-}
-
-// Membership links a User to an Organization with a role, stored in auth_membership.
-type Membership struct {
-	ID             string    `json:"id"`
-	UserID         string    `json:"user_id"`
-	OrganizationID string    `json:"organization_id"`
-	Role           string    `json:"role"`
-	IsActive       bool      `json:"is_active"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-}
-
 // Principal is the request-scoped identity injected into context by the auth
-// middleware. It replaces AuthInfo. All business logic depends on Principal.
+// middleware. Single-tenant: every authenticated user is admin.
 type Principal struct {
 	UserID    string `json:"user_id"`
-	OrgID     string `json:"org_id"`
 	Email     string `json:"email"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
-	Role      string `json:"role"` // org-level role from membership
+	Role      string `json:"role"` // always "admin" in single-tenant mode
 }
 
 // IsAdmin returns true if the principal holds the admin role.
@@ -93,7 +71,6 @@ type Policy struct {
 	Priority   int       `json:"priority"`
 	IsSystem   bool      `json:"is_system"`
 	Enabled    bool      `json:"enabled"`
-	OrgID      string    `json:"org_id"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -134,11 +111,10 @@ const (
 
 // Resource represents the target of an authorization request.
 type Resource struct {
-	Type       ResourceType   `json:"type"`
-	ID         string         `json:"id"`
-	OwnerID    string         `json:"owner_id"`
-	OwnerOrgID string         `json:"owner_org_id"` // org that owns the resource; required for org-scoped permission checks
-	Attrs      map[string]any `json:"attrs,omitempty"`
+	Type    ResourceType   `json:"type"`
+	ID      string         `json:"id"`
+	OwnerID string         `json:"owner_id"`
+	Attrs   map[string]any `json:"attrs,omitempty"`
 }
 
 // ResourceType is a string alias for resource types.
@@ -193,7 +169,6 @@ type OIDCCode struct {
 	ID            string     `json:"id"`
 	CodeHash      string     `json:"-"`
 	UserID        string     `json:"user_id"`
-	OrgID         string     `json:"org_id"`
 	ClientID      string     `json:"client_id"`
 	RedirectURI   string     `json:"redirect_uri"`
 	Scopes        []string   `json:"scopes"`
@@ -211,7 +186,6 @@ type OIDCAccessToken struct {
 	ID        string    `json:"id"`
 	TokenHash string    `json:"-"`
 	UserID    string    `json:"user_id"`
-	OrgID     string    `json:"org_id"`
 	ClientID  string    `json:"client_id"`
 	Scopes    []string  `json:"scopes"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -228,40 +202,8 @@ type Credential struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// Invite is a pending invitation to join an organization.
-type Invite struct {
-	ID         string    `json:"id"`
-	TokenHash  string    `json:"-"`
-	OrgID      string    `json:"org_id"`
-	Email      string    `json:"email,omitempty"`
-	Role       string    `json:"role"`
-	Status     string    `json:"status"`
-	MaxUses    int       `json:"max_uses"`
-	UseCount   int       `json:"use_count"`
-	InvitedBy  string    `json:"invited_by"`
-	AcceptedBy string    `json:"accepted_by,omitempty"`
-	ExpiresAt  time.Time `json:"expires_at"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-}
-
-// InviteWithOrg pairs an invite with its organization name for display.
-type InviteWithOrg struct {
-	Invite  Invite `json:"invite"`
-	OrgName string `json:"org_name"`
-}
-
-// Invite status constants.
-const (
-	InviteStatusPending  = "pending"
-	InviteStatusAccepted = "accepted"
-	InviteStatusRevoked  = "revoked"
-)
-
 // RoleAdmin and RoleUser are the built-in role IDs.
 const (
 	RoleAdmin = "admin"
 	RoleUser  = "user"
 )
-
-const DefaultOrgName = "My Organization"

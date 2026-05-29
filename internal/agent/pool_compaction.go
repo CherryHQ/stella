@@ -58,6 +58,5 @@ func (p *Pool) memorySession(ctx context.Context, sessionID string) memory.Sessi
 		AgentID: p.agentID,
 		UserID:  memory.UserIDFromContext(ctx),
 		Channel: ch,
-		OrgID:   p.orgID,
 	}
 }

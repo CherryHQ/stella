@@ -50,18 +50,14 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
-	orgCtx := config.WithOrgID(context.Background(), orgID)
 	store := cfgstore.NewDBStore(db)
-	if err := store.SeedNewOrg(orgCtx, orgID); err != nil {
-		t.Fatalf("SeedNewOrg: %v", err)
+	ctx := context.Background()
+	if err := store.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)
-	engine, err := auth.NewEngine(orgCtx, as)
+	engine, err := auth.NewEngine(ctx, as)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -98,12 +94,11 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		ILinkBotID:  "bot-1",
 		ILinkUserID: "user-1",
 	}
-	octx := config.WithOrgID(context.Background(), orgID)
-	if err := srv.saveWeixinCredentials(octx, status); err != nil {
+	if err := srv.saveWeixinCredentials(ctx, status); err != nil {
 		t.Fatalf("saveWeixinCredentials: %v", err)
 	}
 
-	plugin, err := store.GetPlugin(octx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
+	plugin, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
@@ -111,7 +106,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("bot_token = %#v, want %q", plugin.Config["bot_token"], "wx-token")
 	}
 
-	runtimeStatus, err := phost.Status(octx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
+	runtimeStatus, err := phost.Status(ctx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}

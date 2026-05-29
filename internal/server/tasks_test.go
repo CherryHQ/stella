@@ -30,7 +30,7 @@ func TestTasks_CreateGetRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &task); err != nil {
 		t.Fatalf("decode create: %v", err)
 	}
-	if task.Id == "" || task.Title != "hello" || task.OrgId != env.orgID {
+	if task.Id == "" || task.Title != "hello" {
 		t.Fatalf("unexpected task: %+v", task)
 	}
 

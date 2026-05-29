@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/scheduler"
 )
 
@@ -38,11 +37,7 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 		cfg.Log = slog.Default()
 	}
 	return func(ctx context.Context, job scheduler.Job) error {
-		if job.OrgID == "" {
-			return fmt.Errorf("reflect: scheduler job %q has no OrgID", job.Name)
-		}
 		perFire := cfg
-		perFire.Log = cfg.Log.With("org_id", job.OrgID)
-		return New(perFire).RunOnce(config.WithOrgID(ctx, job.OrgID))
+		return New(perFire).RunOnce(ctx)
 	}, nil
 }

@@ -55,7 +55,7 @@ func (m *mockStore) GetProvider(_ context.Context, _ string) (config.Provider, e
 func (m *mockStore) CreateProvider(_ context.Context, _ config.Provider) error { return nil }
 func (m *mockStore) UpdateProvider(_ context.Context, _ config.Provider) error { return nil }
 func (m *mockStore) DeleteProvider(_ context.Context, _ string) error          { return nil }
-func (m *mockStore) SetProviderOrg(_ context.Context, _, _ string) error       { return nil }
+func (m *mockStore) Seed(_ context.Context) error                              { return nil }
 func (m *mockStore) ListAgents(_ context.Context) ([]config.Agent, error)      { return nil, nil }
 func (m *mockStore) GetAgent(_ context.Context, id string) (config.Agent, error) {
 	for _, a := range m.agents {
@@ -71,7 +71,6 @@ func (m *mockStore) DeleteAgent(_ context.Context, _ string) error       { retur
 func (m *mockStore) ListAccessibleAgents(_ context.Context, _ string) ([]config.Agent, error) {
 	return nil, nil
 }
-func (m *mockStore) SetAgentOrg(_ context.Context, _, _ string) error         { return nil }
 func (m *mockStore) ListChannels(_ context.Context) ([]config.Channel, error) { return nil, nil }
 func (m *mockStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -82,7 +81,6 @@ func (m *mockStore) GetChannel(_ context.Context, _ string) (config.Channel, err
 }
 func (m *mockStore) UpsertChannel(_ context.Context, _ config.Channel) error { return nil }
 func (m *mockStore) DeleteChannel(_ context.Context, _ string) error         { return nil }
-func (m *mockStore) SetChannelOrg(_ context.Context, _, _ string) error      { return nil }
 func (m *mockStore) GetChatAgent(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
@@ -90,7 +88,6 @@ func (m *mockStore) SetChatAgent(_ context.Context, _, _, _, _ string) error    
 func (m *mockStore) DeleteChatAgent(_ context.Context, _, _, _ string) error        { return nil }
 func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)         { return "", nil }
 func (m *mockStore) SetSetting(_ context.Context, _, _ string) error                { return nil }
-func (m *mockStore) SeedNewOrg(_ context.Context, _ string) error                   { return nil }
 func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)         { return nil, nil }
 func (m *mockStore) ListPluginOverrides(_ context.Context) ([]config.Plugin, error) { return nil, nil }
 func (m *mockStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plugin, error) {

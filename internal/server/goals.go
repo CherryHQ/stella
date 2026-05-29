@@ -11,9 +11,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// loadGoalInOrg fetches a goal by id and enforces the org boundary. Returns
-// false (after writing 404) on miss / mismatch.
-func (s *Server) loadGoalInOrg(ctx context.Context, w http.ResponseWriter, goalID, orgID string) (sqlc.AgentGoal, bool) {
+// loadGoal fetches a goal by id. Returns false (after writing 404) on miss.
+func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, goalID string) (sqlc.AgentGoal, bool) {
 	g, err := s.tasksSvc.Facade.GetGoal(ctx, goalID)
 	if err != nil {
 		if errors.Is(err, tasks.ErrGoalNotFound) {
@@ -23,28 +22,23 @@ func (s *Server) loadGoalInOrg(ctx context.Context, w http.ResponseWriter, goalI
 		taskError(w, err)
 		return sqlc.AgentGoal{}, false
 	}
-	if g.OrgID != orgID {
-		writeError(w, http.StatusNotFound, "not_found")
-		return sqlc.AgentGoal{}, false
-	}
 	return g, true
 }
 
-// ListGoals returns the resolved org's goals.
+// ListGoals returns all goals.
 func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiserver.ListGoalsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
 	var limit int64 = 50
 	if params.Limit != nil && *params.Limit > 0 {
 		limit = *params.Limit
 	}
-	rows, err := s.tasksSvc.Facade.ListGoalsByOrg(r.Context(), org, limit)
+	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), limit)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -61,12 +55,11 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	info := UserFromContext(r.Context())
-	if info == nil || info.UserID == "" {
+	if info.UserID == "" {
 		writeError(w, http.StatusUnauthorized, "missing_user")
 		return
 	}
@@ -80,7 +73,6 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := tasks.CreateGoalInput{
-		OrgID:       org,
 		UserID:      info.UserID,
 		Title:       req.Title,
 		Description: strPtr(req.Description),
@@ -106,11 +98,10 @@ func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, goalID string) 
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	g, ok := s.loadGoalInOrg(r.Context(), w, goalID, org)
+	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
@@ -122,11 +113,10 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, goalID str
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	g, ok := s.loadGoalInOrg(r.Context(), w, goalID, org)
+	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
@@ -147,11 +137,10 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, goalID strin
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	g, ok := s.loadGoalInOrg(r.Context(), w, goalID, org)
+	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
@@ -174,11 +163,10 @@ func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID st
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	g, ok := s.loadGoalInOrg(r.Context(), w, goalID, org)
+	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
@@ -199,11 +187,10 @@ func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID 
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	g, ok := s.loadGoalInOrg(r.Context(), w, goalID, org)
+	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
@@ -236,11 +223,10 @@ func (s *Server) EscalateGoalReview(w http.ResponseWriter, r *http.Request, goal
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	g, ok := s.loadGoalInOrg(r.Context(), w, goalID, org)
+	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
@@ -268,11 +254,10 @@ func (s *Server) decideGoalReview(w http.ResponseWriter, r *http.Request, goalID
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	g, ok := s.loadGoalInOrg(r.Context(), w, goalID, org)
+	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
@@ -308,7 +293,6 @@ func (s *Server) decideGoalReview(w http.ResponseWriter, r *http.Request, goalID
 func goalToAPI(g sqlc.AgentGoal) apitypes.Goal {
 	out := apitypes.Goal{
 		Id:           g.ID,
-		OrgId:        g.OrgID,
 		UserId:       g.UserID,
 		Title:        g.Title,
 		Description:  optStr(g.Description),

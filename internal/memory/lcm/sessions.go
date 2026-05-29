@@ -83,7 +83,6 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
 			AgentID:    nullAgent(info.AgentID),
 			UserID:     sql.NullString{String: info.UserID, Valid: true},
-			OrgID:      info.OrgID,
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -239,7 +238,6 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 		Channel:  conv.Channel,
 		Kind:     conv.Kind,
 		Archived: conv.Archived != 0,
-		OrgID:    conv.OrgID,
 	}
 	if conv.Title.Valid {
 		info.Title = conv.Title.String

@@ -38,7 +38,7 @@ type DispatcherConfig struct {
 	Resolver   ExecutorResolver
 	NewSession SessionMinter
 	TickEvery  time.Duration // 0 => 2s
-	MaxPerOrg  int           // 0 => 5
+	MaxWorkers int           // 0 => 5
 	LeaseTTL   time.Duration // 0 => LeaseDuration
 	BatchLimit int           // 0 => 50
 	Logger     *slog.Logger
@@ -50,7 +50,7 @@ type Dispatcher struct {
 	cfg DispatcherConfig
 
 	mu      sync.Mutex
-	running map[string]int // org_id -> live workers
+	running int // live worker count
 	wg      sync.WaitGroup
 
 	stopCh  chan struct{}
@@ -63,8 +63,8 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.TickEvery == 0 {
 		cfg.TickEvery = 2 * time.Second
 	}
-	if cfg.MaxPerOrg == 0 {
-		cfg.MaxPerOrg = 5
+	if cfg.MaxWorkers == 0 {
+		cfg.MaxWorkers = 5
 	}
 	if cfg.LeaseTTL == 0 {
 		cfg.LeaseTTL = LeaseDuration
@@ -76,9 +76,8 @@ func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 		cfg.Logger = slog.Default().With("component", "tasks/dispatcher")
 	}
 	return &Dispatcher{
-		cfg:     cfg,
-		running: make(map[string]int),
-		stopCh:  make(chan struct{}),
+		cfg:    cfg,
+		stopCh: make(chan struct{}),
 	}
 }
 
@@ -235,7 +234,7 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 		if d.isStopped() {
 			return
 		}
-		if !d.underOrgCap(task.OrgID) {
+		if !d.underCap() {
 			continue
 		}
 		depViews, err := d.loadDepViews(ctx, task.ID)
@@ -269,7 +268,7 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 			d.cfg.Logger.Warn("dispatcher: claim", "task", task.ID, "err", err)
 			continue
 		}
-		d.spawnWorker(ctx, task.OrgID, task.ID, res.RunID)
+		d.spawnWorker(ctx, task.ID, res.RunID)
 	}
 }
 
@@ -325,31 +324,28 @@ func (d *Dispatcher) emitProtocolError(ctx context.Context, taskID, reason strin
 	})
 }
 
-func (d *Dispatcher) underOrgCap(orgID string) bool {
+func (d *Dispatcher) underCap() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.running[orgID] < d.cfg.MaxPerOrg
+	return d.running < d.cfg.MaxWorkers
 }
 
-func (d *Dispatcher) incOrg(orgID string) {
+func (d *Dispatcher) inc() {
 	d.mu.Lock()
-	d.running[orgID]++
+	d.running++
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) decOrg(orgID string) {
+func (d *Dispatcher) dec() {
 	d.mu.Lock()
-	d.running[orgID]--
-	if d.running[orgID] <= 0 {
-		delete(d.running, orgID)
-	}
+	d.running--
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) spawnWorker(ctx context.Context, orgID, taskID, runID string) {
-	d.incOrg(orgID)
+func (d *Dispatcher) spawnWorker(ctx context.Context, taskID, runID string) {
+	d.inc()
 	d.wg.Go(func() {
-		defer d.decOrg(orgID)
+		defer d.dec()
 		w := NewWorker(d.cfg.Service, d.cfg.Queries, d.cfg.Runner)
 		if err := w.Run(ctx, taskID, runID, SystemActor()); err != nil {
 			d.cfg.Logger.Warn("dispatcher: worker returned error", "task", taskID, "err", err)

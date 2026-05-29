@@ -6,7 +6,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	internalnotify "github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -65,7 +64,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	ctx := orgctx.WithOrgID(context.Background(), "org-A")
+	ctx := context.Background()
 	if err := host.ApplyPlugin(ctx, PluginID); err != nil {
 		t.Fatalf("ApplyPlugin: %v", err)
 	}
@@ -96,7 +95,7 @@ func (s *stubStore) GetProvider(context.Context, string) (config.Provider, error
 func (s *stubStore) CreateProvider(context.Context, config.Provider) error     { return nil }
 func (s *stubStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
 func (s *stubStore) DeleteProvider(context.Context, string) error              { return nil }
-func (s *stubStore) SetProviderOrg(context.Context, string, string) error      { return nil }
+func (s *stubStore) Seed(context.Context) error                                { return nil }
 func (s *stubStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
 func (s *stubStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
 func (s *stubStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
@@ -109,7 +108,6 @@ func (s *stubStore) GetAgent(context.Context, string) (config.Agent, error) {
 func (s *stubStore) CreateAgent(context.Context, config.Agent) error        { return nil }
 func (s *stubStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
 func (s *stubStore) DeleteAgent(context.Context, string) error              { return nil }
-func (s *stubStore) SetAgentOrg(context.Context, string, string) error      { return nil }
 func (s *stubStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -120,7 +118,6 @@ func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) 
 }
 func (s *stubStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) DeleteChannel(context.Context, string) error         { return nil }
-func (s *stubStore) SetChannelOrg(context.Context, string, string) error { return nil }
 func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	plugins := make([]config.Plugin, 0, len(s.plugins))
 	for _, plugin := range s.plugins {
@@ -180,7 +177,6 @@ func (s *stubStore) DeleteChatAgent(context.Context, string, string, string) err
 func (s *stubStore) GetSetting(context.Context, string) (string, error)                 { return "", nil }
 func (s *stubStore) SetSetting(context.Context, string, string) error                   { return nil }
 func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)         { return nil, nil }
-func (s *stubStore) SeedNewOrg(context.Context, string) error                           { return nil }
 
 type testChannel struct{ stop chan struct{} }
 
