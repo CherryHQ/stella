@@ -24,7 +24,6 @@ type RunnerFactoryConfig struct {
 	BuiltinTools             []tools.Tool
 	PluginToolsBuilder       PluginToolsBuilder
 	ProviderStreamBuilder    ProviderStreamBuilder
-	PromptToolsBuilder       prompt.ToolsBuilder
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillStore               pkgplugins.SkillStore
@@ -98,10 +97,6 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				memProvider, _ = params.Memory.(memory.Provider)
 			}
 
-			var promptTools []pkgplugins.PromptToolInfo
-			if cfg.PromptToolsBuilder != nil {
-				promptTools, _ = cfg.PromptToolsBuilder(ctx)
-			}
 			homeDir, _ := os.UserHomeDir()
 			pluginView := pkgplugins.SessionPluginView{}
 			if cfg.SessionPluginViewBuilder != nil {
@@ -137,7 +132,6 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				StellaHome:   config.StellaHome(),
 				AgentRoot:    cfg.Snap.Workspace,
 				UserRoot:     userRoot,
-				PromptTools:  promptTools,
 				Sections:     sections,
 			})
 

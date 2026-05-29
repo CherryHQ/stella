@@ -1143,7 +1143,6 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 		StellaHome:   config.StellaHome(),
 		AgentRoot:    agentCfg.Workspace,
 		UserRoot:     userRoot,
-		PromptTools:  nil,
 		Sections:     append(promptSections, s.pluginHost.ManifestPluginPrompts()...),
 	})
 

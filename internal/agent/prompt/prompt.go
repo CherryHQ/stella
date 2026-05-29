@@ -16,10 +16,7 @@ import (
 	"github.com/CherryHQ/stella/resources"
 )
 
-type (
-	ToolsBuilder    func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
-	SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-)
+type SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 
 //go:embed template/system_prompt.tmpl
 var systemTemplate string
@@ -79,7 +76,6 @@ type DBPromptParams struct {
 	AgentRoot         string
 	ProjectRoot       string // optional project root for local/project-attached runs
 	UserRoot          string // per-user writable root
-	PromptTools       []pkgplugins.PromptToolInfo
 	Sections          []pkgplugins.SystemPromptSection
 	Host              sandbox.Host
 	SnapshotVersion   int64     // frozen memory version for this session; 0 means current

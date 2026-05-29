@@ -60,7 +60,7 @@ plugins/
   memory/              Memory plugin registry + implementations
     lcm/               Lossless Context Management (default) — DAG summaries, compaction, search
     simple/            Sliding-window memory — last N messages, no summaries
-  tools/               Plugin tool registry + plugin tools (mcp, webfetch)
+  tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
   channels/            Channel plugins (telegram, qq, feishu, weixin)
   providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
@@ -129,10 +129,9 @@ type Tool interface {
 
 ### Plugin Tools (toggleable via admin)
 
-| Tool       | Description                                                      |
-| ---------- | ---------------------------------------------------------------- |
-| `mcp`      | Proxy configured MCP servers through one generic Stella MCP tool |
-| `webfetch` | Fetch web page contents                                          |
+| Tool       | Description             |
+| ---------- | ----------------------- |
+| `webfetch` | Fetch web page contents |
 
 The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use `Session.ResolvePath` to obtain the host path and then call `os.*` directly. Runner startup fails closed when Docker is unavailable.
 
@@ -195,7 +194,7 @@ Sandbox guarantees apply to local execution paths owned by Stella. Remote MCP tr
 - remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `ToolRuntime`
 - that exception is explicit, observable, and logged as `runtime.exception_path` with `exception_id=EX-009`
 
-Builtin tools (bash, read, write, edit, delegate, mcp, notify, skills, coretools) live in `internal/tools/` and are wired directly into the agent. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
+Builtin tools (bash, read, write, edit, delegate, notify, skills, coretools) live in `internal/tools/` and are wired directly into the agent. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
 ### Delegate Tool
 

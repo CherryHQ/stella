@@ -27,7 +27,7 @@ type pluginSetup struct {
 	manifestToReconcile    *manifestplugins.Manifest
 }
 
-func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
+func setupPlugins(_ context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	stateStore := pluginstate.New(db)
@@ -65,8 +65,6 @@ func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStor
 
 		oauthRegistry = buildOAuthRegistry(merged)
 	}
-
-	_ = ctx
 
 	return &pluginSetup{
 		host:                   phost,

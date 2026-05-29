@@ -96,7 +96,6 @@ type setupResult struct {
 	builtinTools             []pkgtools.Tool
 	notifier                 *notify.Dispatcher
 	pluginToolsBuilder       agent.PluginToolsBuilder
-	promptToolsBuilder       prompt.ToolsBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
@@ -183,9 +182,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 
 	toolLifecycle := buildToolLifecycle(phost)
-	promptToolsBuilder := func(_ context.Context) ([]pkgplugins.PromptToolInfo, error) {
-		return nil, nil
-	}
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 		return phost.SystemPromptSections(ctx, build)
 	}
@@ -201,7 +197,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 		agent.WithProviderStreamBuilder(providerStreamBuilder),
-		agent.WithPromptToolsBuilder(promptToolsBuilder),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
 		agent.WithSessionPluginViewBuilder(sessionPluginViewBuilder),
 		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
@@ -248,7 +243,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
 		pluginToolsBuilder:       pluginToolsBuilder,
-		promptToolsBuilder:       promptToolsBuilder,
 		promptSectionsBuilder:    promptSectionsBuilder,
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,

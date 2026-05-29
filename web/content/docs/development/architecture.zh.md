@@ -60,7 +60,7 @@ plugins/
   memory/              记忆插件注册表 + 实现
     lcm/               无损上下文管理（默认）— 摘要 DAG、压缩、搜索
     simple/            滑动窗口记忆 — 保留最近 N 条消息，无摘要
-  tools/               插件工具注册表 + 插件工具（mcp、webfetch）
+  tools/               插件工具注册表 + 插件工具（webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
   channels/            通道插件（telegram、qq、feishu、weixin）
   providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
@@ -129,10 +129,9 @@ type Tool interface {
 
 ### 插件工具（通过Web UI切换）
 
-| 工具       | 描述                                                |
-| ---------- | --------------------------------------------------- |
-| `mcp`      | 通过一个通用 Stella MCP 工具代理已配置的 MCP 服务器 |
-| `webfetch` | 获取网页内容                                        |
+| 工具       | 描述         |
+| ---------- | ------------ |
+| `webfetch` | 获取网页内容 |
 
 核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行；`read`、`write` 和 `edit` 工具使用 `Session.ResolvePath` 获取主机路径，然后直接调用 `os.*`。Runner 启动时如果 Docker 不可用则失败关闭。
 
@@ -195,7 +194,7 @@ Runner 启动在以下情况下失败关闭：
 - 远程 MCP HTTP/SSE/StreamableHTTP 拨号目前不由 `ToolRuntime` 调解
 - 该例外是显式的、可观察的，并记录为 `runtime.exception_path`，`exception_id=EX-009`
 
-内置工具（bash、read、write、edit、delegate、mcp、notify、skills、coretools）位于 `internal/tools/`，直接集成到代理中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
+内置工具（bash、read、write、edit、delegate、notify、skills、coretools）位于 `internal/tools/`，直接集成到代理中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
 
 ### Delegate 工具
 

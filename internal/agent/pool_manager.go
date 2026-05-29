@@ -75,12 +75,6 @@ func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
 	}
 }
 
-func WithPromptToolsBuilder(b prompt.ToolsBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.promptToolsBuilder = b
-	}
-}
-
 func WithPromptSectionsBuilder(b prompt.SectionsBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.promptSectionsBuilder = b
@@ -157,7 +151,6 @@ type PoolManager struct {
 	pluginToolsBuilder       PluginToolsBuilder // builds external tools from enabled plugin state
 	hookPlugins              []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state
-	promptToolsBuilder       prompt.ToolsBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
@@ -458,10 +451,6 @@ func (pm *PoolManager) removeAgentPool(agentID string) error {
 // updated (acceptable for Phase 3 — a future pass can extend rebuildPoolFactory).
 func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOption {
 	return WithSnapshotPromptBuilder(func(ctx context.Context, userID string, agentID string, memSnap memory.SessionSnapshot) string {
-		var promptTools []pkgplugins.PromptToolInfo
-		if pm.promptToolsBuilder != nil {
-			promptTools, _ = pm.promptToolsBuilder(ctx)
-		}
 		homeDir, _ := os.UserHomeDir()
 		pluginView := pkgplugins.SessionPluginView{}
 		if pm.sessionPluginViewBuilder != nil {
@@ -493,7 +482,6 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			AgentRoot:         snap.Workspace,
 			SnapshotVersion:   memSnap.Version,
 			SnapshotUpdatedAt: memSnap.UpdatedAt,
-			PromptTools:       promptTools,
 			Sections:          sections,
 		}
 		if ks, ok := pm.skillStore.(pkgplugins.KnowledgeStore); ok {
@@ -534,7 +522,6 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		BuiltinTools:             builtinTools,
 		PluginToolsBuilder:       pm.pluginToolsBuilder,
 		ProviderStreamBuilder:    pm.providerStreamBuilder,
-		PromptToolsBuilder:       pm.promptToolsBuilder,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
