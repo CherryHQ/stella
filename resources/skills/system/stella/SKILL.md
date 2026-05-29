@@ -3,7 +3,8 @@ name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
   stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat),
-  memory system (LCM), scheduled jobs, heartbeat, skills, plugins, session compaction, notifications,
+  memory system (LCM), scheduled jobs, heartbeat, background tasks, goals, task workers/reviews/dependencies,
+  skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
   Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
@@ -48,12 +49,13 @@ Project context (AGENTS.md files) is appended after these layers.
 
 Read the relevant reference file for detailed guidance:
 
-| Topic         | Reference                                                  | When to read                                                |
-| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------- |
-| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults         |
-| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands        |
-| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control |
-| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                  |
+| Topic         | Reference                                                  | When to read                                                                                          |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                   |
+| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                  |
+| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                           |
+| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                            |
+| Tasks & goals | [references/tasks.md](references/tasks.md)                 | Goal/task system: manager CLI vs worker `task_control`, lifecycle, deps, readiness, reviews, blockers |
 
 ## In-chat commands
 
@@ -69,36 +71,22 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
 ## CLI commands
 
+The `stella` CLI is self-documenting. These are the command groups and their subcommands — **always run `stella <command> [<subcommand>] --help` (via bash) for exact flags and usage before invoking one.**
+
 ```
-stella                          # Show help
 stella server                   # Start server (channels + scheduler); web UI at http://localhost:25678
-stella server --port 8080       # Start server with web UI on custom port
-stella skill list --agent-id <id>          # List skills visible to an agent
-stella skill list --agent-id <id> --session-id <sid> # Include project skills
-stella skill search <q>                    # Search skill ecosystem
-stella skill install --agent-id <id> <s>   # Install a user skill for an agent
-stella skill remove --agent-id <id> <s>    # Remove a user skill from an agent
-stella vault list               # List stored secrets
-stella vault get <name>         # Retrieve a secret value
-stella vault set <name> <value> # Store a secret (use '-' to read from stdin)
-stella vault delete <name>      # Remove a secret
-stella oauth providers          # List OAuth providers and connection status
-stella oauth connect <provider> # Start OAuth flow
-stella oauth status <provider>  # Check connection status
-stella oauth disconnect <p>     # Disconnect a provider
-stella share artifact <path>    # Create a public share link for an artifact (uses STELLA_AGENT_ID/STELLA_SESSION_ID by default)
-stella share article <id>      # Create a public share link for a Recally article
-stella scheduler add ...        # Create a scheduled job
-stella scheduler list           # List scheduled jobs
-stella scheduler remove <id>    # Remove a scheduled job
-stella task list [--status <s>] # List tasks
-stella task get <id>            # Get task details
-stella task create --title <t>  # Create a task
-stella task action <id> --type  # Take action on a task
-stella task events <id>         # List task events
+stella skill      list/search/install/remove
+stella vault      list/get/set/delete
+stella oauth      providers/connect/status/disconnect
+stella share      artifact/article
+stella scheduler  add/list/remove
+stella task       list/get/create/cancel/reopen/readiness/events/runs/deps/dep/blocker/reviews/review
+stella task goal  list/get/create/activate/cancel/tasks/reviews/review
 stella version                  # Print version
 stella upgrade                  # Self-update to latest release
 ```
+
+For when to use tasks/goals and how to combine the subcommands, read [references/tasks.md](references/tasks.md).
 
 ## Delegation
 

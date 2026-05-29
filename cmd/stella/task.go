@@ -41,7 +41,12 @@ nest under an agent path.`,
 			taskReadinessCmd(),
 			taskEventsCmd(),
 			taskDepsCmd(),
+			taskDepCmd(),
+			taskRunsCmd(),
+			taskReviewsCmd(),
 			taskReviewCmd(),
+			taskBlockerCmd(),
+			goalCommand(),
 		},
 	}
 }
@@ -313,7 +318,194 @@ func taskReviewCmd() *ucli.Command {
 			reviewDecisionCmd("approve", "Approve a review"),
 			reviewDecisionCmd("reject", "Reject a review"),
 			reviewDecisionCmd("request-changes", "Request changes on a review"),
+			taskReviewEscalateCmd(),
 		},
+	}
+}
+
+func taskReviewEscalateCmd() *ucli.Command {
+	return &ucli.Command{
+		Name:      "escalate",
+		Usage:     "Escalate an agent review to a human",
+		ArgsUsage: "<task-id> <review-id>",
+		Flags:     []ucli.Flag{&ucli.StringFlag{Name: "reason", Usage: "Escalation reason"}},
+		Action: func(c *ucli.Context) error {
+			if c.NArg() < 2 {
+				return fmt.Errorf("usage: stella task review escalate <task-id> <review-id>")
+			}
+			taskID := c.Args().Get(0)
+			reviewID := c.Args().Get(1)
+			body := apitypes.EscalateReviewRequest{}
+			if r := c.String("reason"); r != "" {
+				body.Reason = &r
+			}
+			rev, err := apiclient.Call[apitypes.Review](func(api *apiclient.Client) (*http.Response, error) {
+				return api.EscalateTaskReview(c.Context, taskID, reviewID, body)
+			})
+			if err != nil {
+				return fmt.Errorf("review escalate: %w", err)
+			}
+			fmt.Printf("review %s -> %s\n", rev.Id, rev.Status)
+			return nil
+		},
+	}
+}
+
+func taskReviewsCmd() *ucli.Command {
+	return &ucli.Command{
+		Name:      "reviews",
+		Usage:     "List task reviews",
+		ArgsUsage: "<task-id>",
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("task id is required")
+			}
+			list, err := apiclient.Call[apitypes.ReviewList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListTaskReviews(c.Context, id)
+			})
+			if err != nil {
+				return fmt.Errorf("reviews: %w", err)
+			}
+			printReviewList(list.Items)
+			return nil
+		},
+	}
+}
+
+func taskRunsCmd() *ucli.Command {
+	return &ucli.Command{
+		Name:      "runs",
+		Usage:     "List task run attempts",
+		ArgsUsage: "<task-id>",
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("task id is required")
+			}
+			list, err := apiclient.Call[apitypes.RunList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListTaskRuns(c.Context, id)
+			})
+			if err != nil {
+				return fmt.Errorf("runs: %w", err)
+			}
+			for _, r := range list.Items {
+				errStr := ""
+				if r.Error != nil {
+					errStr = *r.Error
+				}
+				fmt.Printf("%-36s  %-9s  %-11s  #%d  %s\n", r.Id, r.Kind, r.Status, r.AttemptNo, errStr)
+			}
+			return nil
+		},
+	}
+}
+
+func taskDepCmd() *ucli.Command {
+	return &ucli.Command{
+		Name:  "dep",
+		Usage: "Add or waive a dependency edge",
+		Subcommands: []*ucli.Command{
+			{
+				Name:      "add",
+				Usage:     "Add a dependency edge",
+				ArgsUsage: "<task-id> <dep-spec>",
+				Description: "dep-spec is <dep-task-id>[:kind[:on_failure]] " +
+					"(kind: hard|soft, on_failure: block|fail|ignore).",
+				Action: func(c *ucli.Context) error {
+					if c.NArg() < 2 {
+						return fmt.Errorf("usage: stella task dep add <task-id> <dep-spec>")
+					}
+					taskID := c.Args().Get(0)
+					spec, err := parseDepSpec(c.Args().Get(1))
+					if err != nil {
+						return err
+					}
+					body := apitypes.AddDepRequest{DepTaskId: spec.DepTaskId}
+					if spec.Kind != nil {
+						k := apitypes.AddDepRequestKind(*spec.Kind)
+						body.Kind = &k
+					}
+					if spec.OnFailure != nil {
+						f := apitypes.AddDepRequestOnFailure(*spec.OnFailure)
+						body.OnFailure = &f
+					}
+					if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+						return api.AddTaskDep(c.Context, taskID, body)
+					}); err != nil {
+						return fmt.Errorf("add dep: %w", err)
+					}
+					fmt.Printf("added dep %s -> %s\n", taskID, spec.DepTaskId)
+					return nil
+				},
+			},
+			{
+				Name:      "waive",
+				Usage:     "Waive a failed hard dependency",
+				ArgsUsage: "<task-id> <dep-task-id>",
+				Flags:     []ucli.Flag{&ucli.StringFlag{Name: "reason", Usage: "Waiver reason"}},
+				Action: func(c *ucli.Context) error {
+					if c.NArg() < 2 {
+						return fmt.Errorf("usage: stella task dep waive <task-id> <dep-task-id>")
+					}
+					taskID := c.Args().Get(0)
+					depTaskID := c.Args().Get(1)
+					body := apitypes.WaiveDepRequest{}
+					if r := c.String("reason"); r != "" {
+						body.Reason = &r
+					}
+					if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+						return api.WaiveTaskDep(c.Context, taskID, depTaskID, body)
+					}); err != nil {
+						return fmt.Errorf("waive dep: %w", err)
+					}
+					fmt.Printf("waived dep %s -> %s\n", taskID, depTaskID)
+					return nil
+				},
+			},
+		},
+	}
+}
+
+func taskBlockerCmd() *ucli.Command {
+	return &ucli.Command{
+		Name:  "blocker",
+		Usage: "Resolve a task blocker",
+		Subcommands: []*ucli.Command{
+			{
+				Name:      "resolve",
+				Usage:     "Resolve an open blocker (resume a blocked task)",
+				ArgsUsage: "<task-id> <blocker-id>",
+				Description: "Get the blocker id from `stella task get` (active_blocker). " +
+					"dep_failure blockers must be cleared with `stella task dep waive` instead.",
+				Flags: []ucli.Flag{&ucli.StringFlag{Name: "resolution", Usage: "Resolution note / answer"}},
+				Action: func(c *ucli.Context) error {
+					if c.NArg() < 2 {
+						return fmt.Errorf("usage: stella task blocker resolve <task-id> <blocker-id>")
+					}
+					taskID := c.Args().Get(0)
+					blockerID := c.Args().Get(1)
+					body := apitypes.ResolveBlockerRequest{}
+					if r := c.String("resolution"); r != "" {
+						body.Resolution = &r
+					}
+					task, err := apiclient.Call[apitypes.Task](func(api *apiclient.Client) (*http.Response, error) {
+						return api.ResolveTaskBlocker(c.Context, taskID, blockerID, body)
+					})
+					if err != nil {
+						return fmt.Errorf("resolve blocker: %w", err)
+					}
+					printTask(task)
+					return nil
+				},
+			},
+		},
+	}
+}
+
+func printReviewList(items []apitypes.Review) {
+	for _, r := range items {
+		fmt.Printf("%-36s  %-12s  %-8s  %s\n", r.Id, r.Status, r.ReviewerType, r.Feedback)
 	}
 }
 
@@ -380,5 +572,14 @@ func printTask(t apitypes.Task) {
 	fmt.Printf("status:   %s\n", t.Status)
 	fmt.Printf("priority: %s\n", t.Priority)
 	fmt.Printf("review:   %s\n", t.ReviewPolicy)
+	if t.ActiveBlockerId != nil {
+		fmt.Printf("active_blocker: %s\n", *t.ActiveBlockerId)
+	}
+	if t.ActiveReviewId != nil {
+		fmt.Printf("active_review:  %s\n", *t.ActiveReviewId)
+	}
+	if t.ActiveRunId != nil {
+		fmt.Printf("active_run:     %s\n", *t.ActiveRunId)
+	}
 	fmt.Printf("created:  %s\n", t.CreatedAt.Format("2006-01-02 15:04:05"))
 }
