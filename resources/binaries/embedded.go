@@ -22,9 +22,11 @@ var (
 	ensureStates = make(map[string]*ensureState)
 )
 
-// EnsureTools extracts all embedded tool binaries to stellaHome/bin/.
-// Gzip-compressed binaries in the embed FS are decompressed on extraction.
-// Already-extracted binaries are skipped. Safe for concurrent calls.
+// EnsureTools extracts the embedded infrastructure binaries (see infraTools)
+// to stellaHome/bin/. Gzip-compressed binaries in the embed FS are
+// decompressed on extraction. All other embedded archives are ignored — those
+// tools resolve through mise shims, not bin. Already-extracted binaries are
+// skipped. Safe for concurrent calls.
 func EnsureTools(stellaHome string) error {
 	destDir := BinDir(stellaHome)
 
@@ -175,11 +177,23 @@ func platformEntries() ([]fs.DirEntry, error) {
 	return filtered, nil
 }
 
+// infraTools lists the embedded binaries that are extracted to
+// $STELLA_HOME/bin. Only mise belongs here: it bootstraps the install/shim
+// machinery before any shim exists. Every other tool (gh, fd, rg, tap,
+// lark-cli, boxsh, rtk, ...) is provided through mise shims on the sandbox
+// PATH and must never be copied into bin, even if a stale archive happens to
+// sit in the embed directory.
+var infraTools = map[string]bool{"mise": true}
+
 func toolNameForEntry(entry string) (string, bool) {
 	if !strings.HasSuffix(entry, ".gz") {
 		return "", false
 	}
-	return strings.TrimSuffix(entry, ".gz"), true
+	name := strings.TrimSuffix(entry, ".gz")
+	if !infraTools[name] {
+		return "", false
+	}
+	return name, true
 }
 
 func extractGzip(srcPath, destPath string) error {
