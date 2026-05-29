@@ -98,7 +98,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
-		slog.Warn("seed default data", "error", err)
+		return fmt.Errorf("seed default data: %w", err)
 	}
 
 	// Create auth store and policy engine for channel bots and Web UI.

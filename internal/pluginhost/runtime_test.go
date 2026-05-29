@@ -82,7 +82,7 @@ func TestShutdownReleasesLockBeforeStop(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 	done := make(chan error, 1)
-	go func() { done <- host.Shutdown(ctx) }()
+	go func() { done <- host.Stop(ctx) }()
 	select {
 	case err := <-done:
 		if err != nil {

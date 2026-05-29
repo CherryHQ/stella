@@ -190,7 +190,10 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 	}
 
 	// Create new user + identity. First user becomes admin.
-	count, _ := s.users.CountUsers(ctx)
+	count, err := s.users.CountUsers(ctx)
+	if err != nil {
+		return User{}, false, fmt.Errorf("auth: count users: %w", err)
+	}
 	role := RoleUser
 	if count == 0 {
 		role = RoleAdmin

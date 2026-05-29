@@ -236,6 +236,11 @@ func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ct
 		return
 	}
 
+	if !user.IsActive {
+		is.renderLoginForm(w, params, "Account is disabled.")
+		return
+	}
+
 	credSvc := auth.NewCredentialService(is.credentials)
 	if err := credSvc.VerifyPassword(ctx, user.ID, password); err != nil {
 		is.renderLoginForm(w, params, "Invalid email or password.")
@@ -263,10 +268,17 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		return
 	}
 
+	// First registered user becomes admin.
+	role := auth.RoleUser
+	if count, err := is.users.CountUsers(ctx); err == nil && count == 0 {
+		role = auth.RoleAdmin
+	}
+
 	newUser, err := is.users.CreateUser(ctx, auth.User{
 		ID:    uuid.NewString(),
 		Email: email,
 		Name:  name,
+		Role:  role,
 	})
 	if err != nil {
 		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
@@ -484,6 +496,10 @@ func (is *Issuer) HandleToken(w http.ResponseWriter, r *http.Request) {
 		is.tokenError(w, "server_error", "could not load user")
 		return
 	}
+	if !user.IsActive {
+		is.tokenError(w, "access_denied", "account disabled")
+		return
+	}
 
 	// Issue opaque access token.
 	rawAccessToken := generateOpaqueToken()
@@ -545,6 +561,10 @@ func (is *Issuer) HandleUserinfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server_error", http.StatusInternalServerError)
 		return
 	}
+	if !user.IsActive {
+		http.Error(w, "access_denied", http.StatusForbidden)
+		return
+	}
 
 	claims := map[string]any{"sub": user.ID}
 	for _, s := range tok.Scopes {
@@ -572,7 +592,7 @@ func (is *Issuer) buildIDToken(user auth.User, scopes []string, nonce, audience 
 		"aud":  audience,
 		"iat":  now.Unix(),
 		"exp":  now.Add(ttl).Unix(),
-		"role": auth.RoleAdmin,
+		"role": user.Role,
 	}
 	if nonce != "" {
 		claims["nonce"] = nonce

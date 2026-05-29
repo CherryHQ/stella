@@ -216,7 +216,7 @@ func hexChar(b byte) byte {
 
 func seedUserAndCreds(userID, email, password string) (*fakeUserStore, *fakeCredStore) {
 	hash, _ := auth.HashPassword(password)
-	users := newFakeUserStore(auth.User{ID: userID, Email: email, Name: "Test User"})
+	users := newFakeUserStore(auth.User{ID: userID, Email: email, Name: "Test User", IsActive: true})
 	creds := newFakeCredStore(auth.Credential{ID: uuid.NewString(), UserID: userID, PasswordHash: hash})
 	return users, creds
 }
@@ -575,7 +575,7 @@ func TestUserinfoWithValidToken(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
 	userID := uuid.NewString()
-	users := newFakeUserStore(auth.User{ID: userID, Email: "info@test.example", Name: "Info User"})
+	users := newFakeUserStore(auth.User{ID: userID, Email: "info@test.example", Name: "Info User", IsActive: true})
 	tokenStore := newFakeTokenStore()
 
 	issuer := local.NewIssuer(cfg,

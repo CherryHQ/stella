@@ -139,7 +139,7 @@ func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeSpec, 
 	return h.applyOneWithKey(ctx, reg, reg.PluginID, desired)
 }
 
-func (h *RuntimeHost) applyOneWithKey(_ context.Context, reg pkgplugins.RuntimeSpec, runtimeID string, desired pkgplugins.PluginState) error {
+func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.RuntimeSpec, runtimeID string, desired pkgplugins.PluginState) error {
 	key := runtimeKey{RuntimeID: runtimeID, RuntimeName: reg.Name}
 	h.mu.Lock()
 	entry := h.rt[key]
@@ -166,16 +166,15 @@ func (h *RuntimeHost) applyOneWithKey(_ context.Context, reg pkgplugins.RuntimeS
 		entry.managed = created
 		h.mu.Unlock()
 	}
-	ctx := context.Background()
 	if err := managed.Apply(ctx, desired.Clone()); err != nil {
 		return fmt.Errorf("apply runtime %s/%s: %w", runtimeID, reg.Name, err)
 	}
 	return nil
 }
 
-// Shutdown tears down every managed runtime. Entries are removed from the map
-// before Stop() is called so the lock isn't held while runtime teardown executes.
-func (h *RuntimeHost) Shutdown(ctx context.Context) error {
+// Stop tears down every managed runtime. Entries are removed from the map
+// before Stop is called so the lock isn't held while runtime teardown executes.
+func (h *RuntimeHost) Stop(ctx context.Context) error {
 	h.mu.Lock()
 	entries := h.rt
 	h.rt = map[runtimeKey]*runtimeEntry{}
@@ -191,11 +190,6 @@ func (h *RuntimeHost) Shutdown(ctx context.Context) error {
 		}
 	}
 	return lastErr
-}
-
-// Stop tears down all managed runtimes. Used at process exit.
-func (h *RuntimeHost) Stop(ctx context.Context) error {
-	return h.Shutdown(ctx)
 }
 
 func (h *RuntimeHost) Snapshot(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {
