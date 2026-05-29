@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"sync"
 
 	"golang.org/x/oauth2"
@@ -53,17 +52,9 @@ func setupPlugins(_ context.Context, db *sql.DB, store config.Store, skillStore 
 	if err != nil {
 		slog.Warn("manifest plugin: failed to load builtin manifest", "error", err)
 	} else {
-		userManifestPath := filepath.Join(config.StellaHome(), "plugins.yaml")
-		userManifest, err := manifestplugins.LoadUser(userManifestPath)
-		if err != nil {
-			slog.Warn("manifest plugin: failed to load user manifest", "path", userManifestPath, "error", err)
-			userManifest = &manifestplugins.Manifest{}
-		}
-		merged := manifestplugins.Merge(builtinManifest, userManifest)
-		manifestToReconcile = merged
-		phost.RegisterManifestPlugins(merged)
-
-		oauthRegistry = buildOAuthRegistry(merged)
+		manifestToReconcile = builtinManifest
+		phost.RegisterManifestPlugins(builtinManifest)
+		oauthRegistry = buildOAuthRegistry(builtinManifest)
 	}
 
 	return &pluginSetup{

@@ -104,6 +104,18 @@ func (m *mockStore) UpsertPlugin(_ context.Context, _ config.Plugin) error      
 func (m *mockStore) SetPluginEnabled(_ context.Context, _ string, _ bool) error          { return nil }
 func (m *mockStore) SetPluginConfig(_ context.Context, _ string, _ map[string]any) error { return nil }
 func (m *mockStore) DeletePlugin(_ context.Context, _ string) error                      { return nil }
+func (m *mockStore) GetManifestPluginOverride(context.Context, string) (config.ManifestPluginOverride, bool, error) {
+	return config.ManifestPluginOverride{}, false, nil
+}
+
+func (m *mockStore) ListManifestPluginOverrides(context.Context) ([]config.ManifestPluginOverride, error) {
+	return nil, nil
+}
+
+func (m *mockStore) UpsertManifestPluginOverride(context.Context, config.ManifestPluginOverride) error {
+	return nil
+}
+func (m *mockStore) DeleteManifestPluginOverride(context.Context, string) error { return nil }
 
 func TestPoolManagerGetNil(t *testing.T) {
 	store := &mockStore{}

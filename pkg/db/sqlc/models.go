@@ -596,6 +596,14 @@ type SettingsChannelAgent struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type SettingsManifestPluginOverride struct {
+	PluginID           string        `json:"plugin_id"`
+	OrgID              string        `json:"org_id"`
+	Enabled            sql.NullInt64 `json:"enabled"`
+	SessionEnvVaultKey string        `json:"session_env_vault_key"`
+	UpdatedAt          string        `json:"updated_at"`
+}
+
 type SettingsPlugin struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`

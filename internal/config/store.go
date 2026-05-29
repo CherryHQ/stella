@@ -96,6 +96,13 @@ type Store interface {
 	DeleteChannel(ctx context.Context, id string) error
 	SetChannelOrg(ctx context.Context, channelID, orgID string) error
 
+	// Manifest plugin overrides — per-org tunables for manifest-declared plugins.
+	// Reads merge the builtin manifest defaults with these rows.
+	GetManifestPluginOverride(ctx context.Context, pluginID string) (ManifestPluginOverride, bool, error)
+	ListManifestPluginOverrides(ctx context.Context) ([]ManifestPluginOverride, error)
+	UpsertManifestPluginOverride(ctx context.Context, override ManifestPluginOverride) error
+	DeleteManifestPluginOverride(ctx context.Context, pluginID string) error
+
 	// Plugins — read paths merge BuiltinPlugins() with DB override rows.
 	ListPlugins(ctx context.Context) ([]Plugin, error)
 	ListPluginOverrides(ctx context.Context) ([]Plugin, error)

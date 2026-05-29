@@ -53,3 +53,4 @@
 -- atlas:import tables/agent_task_dispatch_hint.sql
 -- atlas:import tables/agent_task_event.sql
 -- atlas:import tables/settings_project.sql
+-- atlas:import tables/settings_manifest_plugin_override.sql

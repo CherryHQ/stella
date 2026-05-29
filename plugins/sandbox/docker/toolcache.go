@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -272,17 +271,13 @@ func shellQuoteForDoubleQuotedPath(s string) string {
 
 // resolveUserToolBinaries loads manifest plugins and returns user-configured
 // tool binaries that differ from builtins. Called by NewFactory when
-// StellaHome is set.
-func resolveUserToolBinaries(stellaHome string) ([]ToolBinary, error) {
+// StellaHome is set. Sandbox tool binaries derive from manifest defaults
+// only — per-org overrides cannot change which binaries ship in the image.
+func resolveUserToolBinaries(_ string) ([]ToolBinary, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
-	user, err := manifestplugins.LoadUser(filepath.Join(stellaHome, "plugins.yaml"))
-	if err != nil {
-		return nil, err
-	}
-	merged := manifestplugins.Merge(builtin, user)
 
 	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
 	for _, plugin := range builtin.Plugins {
@@ -290,7 +285,7 @@ func resolveUserToolBinaries(stellaHome string) ([]ToolBinary, error) {
 	}
 
 	var out []ToolBinary
-	for _, plugin := range merged.Plugins {
+	for _, plugin := range builtin.Plugins {
 		if !plugin.Enabled || len(plugin.Binaries) == 0 {
 			continue
 		}

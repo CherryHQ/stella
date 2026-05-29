@@ -2,42 +2,49 @@ package server
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
-	"reflect"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 )
-
-type manifestFile struct {
-	Plugins []manifestplugins.ManifestPlugin `yaml:"plugins"`
-}
 
 type manifestPluginsResponse struct {
 	Plugins        []manifestplugins.ManifestPlugin        `json:"plugins"`
 	OAuthProviders []manifestplugins.ManifestOAuthProvider `json:"oauth_providers"`
 }
 
-func loadMergedManifest() (*manifestplugins.Manifest, error) {
+// resolveManifestPlugins loads the builtin manifest and overlays per-org
+// overrides from the DB. Each manifest plugin's Enabled flag reflects the
+// override row when present; the default otherwise. SessionEnvs are not
+// touched here — those are resolved at agent runtime against the vault.
+func (s *Server) resolveManifestPlugins(r *http.Request) (*manifestplugins.Manifest, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
-	user, err := manifestplugins.LoadUser(filepath.Join(config.StellaHome(), "plugins.yaml"))
+	if s.store == nil {
+		return builtin, nil
+	}
+	overrides, err := s.store.ListManifestPluginOverrides(r.Context())
 	if err != nil {
 		return nil, err
 	}
-	return manifestplugins.Merge(builtin, user), nil
+	byID := make(map[string]config.ManifestPluginOverride, len(overrides))
+	for _, ov := range overrides {
+		byID[ov.PluginID] = ov
+	}
+	for i := range builtin.Plugins {
+		if ov, ok := byID[builtin.Plugins[i].ID]; ok && ov.Enabled != nil {
+			builtin.Plugins[i].Enabled = *ov.Enabled
+		}
+	}
+	return builtin, nil
 }
 
 func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
-	merged, err := loadMergedManifest()
+	merged, err := s.resolveManifestPlugins(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -56,26 +63,59 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	userPlugins := userManifestOverrides(builtin.Plugins, req.Plugins)
-	userManifest := manifestplugins.Manifest{Plugins: userPlugins}
-	merged := manifestplugins.Merge(builtin, &userManifest)
-	if err := manifestplugins.Validate(merged); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
+	for _, p := range builtin.Plugins {
+		builtinByID[p.ID] = p
 	}
-	mf := manifestFile{Plugins: userPlugins}
-	data, err := yaml.Marshal(&mf)
+
+	for _, plugin := range req.Plugins {
+		def, ok := builtinByID[plugin.ID]
+		if !ok {
+			// Unknown plugin (not in manifest); skip silently to avoid orphan DB rows.
+			continue
+		}
+		// The Save payload only carries the enable toggle; the per-org
+		// session_env_vault_key is a separate override dimension. Read the
+		// existing row so we preserve that binding instead of clobbering it.
+		existing, _, err := s.store.GetManifestPluginOverride(r.Context(), plugin.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Drop the row only when nothing is left to override: the requested
+		// state matches the default and no session env binding is set.
+		if plugin.Enabled == def.Enabled && existing.SessionEnvVaultKey == "" {
+			if err := s.store.DeleteManifestPluginOverride(r.Context(), plugin.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			continue
+		}
+		// Store an explicit enabled pointer only when it diverges from the
+		// default; nil falls back to the manifest default at resolve time.
+		var enabled *bool
+		if plugin.Enabled != def.Enabled {
+			e := plugin.Enabled
+			enabled = &e
+		}
+		if err := s.store.UpsertManifestPluginOverride(r.Context(), config.ManifestPluginOverride{
+			PluginID:           plugin.ID,
+			Enabled:            enabled,
+			SessionEnvVaultKey: existing.SessionEnvVaultKey,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	merged, err := s.resolveManifestPlugins(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	path := filepath.Join(config.StellaHome(), "plugins.yaml")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -88,7 +128,6 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("failed to reload manifest plugin hooks", "error", err)
 		}
 	}
-	_ = manifestplugins.Reconcile(r.Context(), merged, config.StellaHome())
 	writeData(w, http.StatusOK, manifestPluginsResponse{Plugins: merged.Plugins, OAuthProviders: merged.OAuthProviders})
 }
 
@@ -96,28 +135,11 @@ func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
-	merged, err := loadMergedManifest()
+	merged, err := s.resolveManifestPlugins(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	result := manifestplugins.Reconcile(r.Context(), merged, config.StellaHome())
 	writeData(w, http.StatusOK, result)
-}
-
-func userManifestOverrides(builtinPlugins []manifestplugins.ManifestPlugin, requestedPlugins []manifestplugins.ManifestPlugin) []manifestplugins.ManifestPlugin {
-	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtinPlugins))
-	for _, plugin := range builtinPlugins {
-		builtinByID[plugin.ID] = plugin
-	}
-
-	out := make([]manifestplugins.ManifestPlugin, 0, len(requestedPlugins))
-	for _, plugin := range requestedPlugins {
-		builtin, ok := builtinByID[plugin.ID]
-		if ok && reflect.DeepEqual(plugin, builtin) {
-			continue
-		}
-		out = append(out, plugin)
-	}
-	return out
 }
