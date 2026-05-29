@@ -26,12 +26,10 @@ func taskAgentID(c *ucli.Context) (string, error) {
 
 func taskCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:     "task",
-		Usage:    "Manage durable background tasks (flat /api/tasks v2)",
-		Category: "Feature",
-		Description: `Create, track, and act on tasks owned by the resolved org.
-Org comes from the configured profile (X-Stella-Org-ID); tasks no longer
-nest under an agent path.`,
+		Name:        "task",
+		Usage:       "Manage durable background tasks (flat /api/tasks v2)",
+		Category:    "Feature",
+		Description: `Create, track, and act on durable background tasks.`,
 		Subcommands: []*ucli.Command{
 			taskListCmd(),
 			taskGetCmd(),
@@ -54,7 +52,7 @@ nest under an agent path.`,
 func taskListCmd() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
-		Usage: "List tasks in the resolved org",
+		Usage: "List tasks",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "agent", Usage: "Filter by creator agent ID"},
 			&ucli.StringFlag{Name: "status", Usage: "Filter by status"},

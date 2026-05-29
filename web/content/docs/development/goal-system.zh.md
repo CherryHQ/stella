@@ -108,8 +108,7 @@ reviewer / planner / synthesizer run 会被创建到数据库,然后立刻被
 | GET  | `/api/goals/{id}/reviews`                                                         | 列出 goal 评审。                              |
 | POST | `/api/goals/{id}/reviews/{reviewID}/approve`(reject / request-changes / escalate) | 对 goal 评审作决定。                          |
 
-组织作用域同 `/api/tasks`:`X-Stella-Org-ID` 优先,回退会话默认组织;跨
-组织访问返回 404。
+访问通过认证会话进行作用域控制。
 
 ## 待办
 

@@ -76,7 +76,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		panic("admin: plugin host is required")
 	}
 
-	// Read CORS origin once at startup (uses org context for settings scoping).
+	// Read CORS origin once at startup.
 	corsOrigin := "http://localhost:8080"
 	if val, err := store.GetSetting(ctx, "admin.cors_origin"); err == nil && val != "" {
 		corsOrigin = val

@@ -103,7 +103,7 @@ the new human review row.
 | Method | Path                                                                              | Purpose                                            |
 | ------ | --------------------------------------------------------------------------------- | -------------------------------------------------- |
 | POST   | `/api/goals`                                                                      | Create a goal (draft).                             |
-| GET    | `/api/goals`                                                                      | List goals in the resolved org.                    |
+| GET    | `/api/goals`                                                                      | List goals.                                        |
 | GET    | `/api/goals/{id}`                                                                 | Fetch one goal.                                    |
 | POST   | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready. |
 | POST   | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.              |
@@ -111,8 +111,7 @@ the new human review row.
 | GET    | `/api/goals/{id}/reviews`                                                         | List goal reviews.                                 |
 | POST   | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Decide on a goal review.                           |
 
-Org resolution mirrors `/api/tasks`: header `X-Stella-Org-ID` wins, falls
-back to the session default; cross-org access returns 404.
+Access is scoped via the authenticated session.
 
 ## Pending follow-ups
 

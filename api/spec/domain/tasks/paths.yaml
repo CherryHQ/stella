@@ -2,7 +2,7 @@ paths:
   /api/tasks:
     get:
       tags: [tasks]
-      summary: List tasks in the resolved org
+      summary: List tasks
       operationId: listTasks
       parameters:
         - { name: status, in: query, required: false, schema: { type: string } }

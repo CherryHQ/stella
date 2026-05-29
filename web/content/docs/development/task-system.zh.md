@@ -43,7 +43,7 @@ draft ──activate──▶ ready ──claim──▶ running ──submit─
 - 所有硬依赖已满足(上游 `done`,或上游已终止且有 waiver / `on_failure=ignore`)
 - 所有软依赖已终止(`done` / `failed` / `cancelled` 任一)
 - 没有 active run 占着这个任务
-- 所属 org 下未超并发上限
+- 未超并发上限
 - executor 能解析出来
 
 `internal/tasks/readiness.go` 暴露一个**纯函数** `Compute(task, deps,

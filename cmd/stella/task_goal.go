@@ -15,9 +15,8 @@ func goalCommand() *ucli.Command {
 		Name:     "goal",
 		Usage:    "Manage high-level goals that roll up from child tasks",
 		Category: "Feature",
-		Description: `Create and track goals owned by the resolved org. A goal is a
-container whose status rolls up from its child tasks; it is not dispatched
-directly. Org comes from the configured profile (X-Stella-Org-ID).`,
+		Description: `Create and track goals. A goal is a container whose status
+rolls up from its child tasks; it is not dispatched directly.`,
 		Subcommands: []*ucli.Command{
 			goalListCmd(),
 			goalGetCmd(),
@@ -56,7 +55,7 @@ func goalReviewsCmd() *ucli.Command {
 func goalListCmd() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
-		Usage: "List goals in the resolved org",
+		Usage: "List goals",
 		Flags: []ucli.Flag{
 			&ucli.Int64Flag{Name: "limit", Usage: "Maximum number of goals to return"},
 		},

@@ -2,7 +2,7 @@ paths:
   /api/goals:
     get:
       tags: [goals]
-      summary: List goals in the resolved org
+      summary: List goals
       operationId: listGoals
       parameters:
         - {
