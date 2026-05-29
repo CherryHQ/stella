@@ -21,7 +21,7 @@ func ListProjectSkills(root string) ([]pkgplugins.Skill, map[string]string, erro
 
 // ListSystemSkills walks {stellaHome}/.agents/skills/ and returns skill metadata
 // structs with Scope="system". System skills are extracted from the embedded FS
-// at startup and live on disk — they are never stored in the DB.
+// at startup under a system/ subdirectory, so this walks recursively.
 func ListSystemSkills(stellaHome string) ([]pkgplugins.Skill, map[string]string, error) {
 	return listFSSkills(stellaHome, "system")
 }
@@ -32,35 +32,38 @@ func listFSSkills(root, scope string) ([]pkgplugins.Skill, map[string]string, er
 	}
 
 	skillsDir := filepath.Join(root, ".agents", "skills")
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
+	if _, err := os.Stat(skillsDir); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil, nil
 		}
 		return nil, nil, err
 	}
 
-	var skills []pkgplugins.Skill
+	var out []pkgplugins.Skill
 	dirs := make(map[string]string)
 
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" || !entry.IsDir() {
-			continue
+	err := filepath.WalkDir(skillsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() || path == skillsDir {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".") || name == "node_modules" {
+			return filepath.SkipDir
 		}
 
-		skillDir := filepath.Join(skillsDir, name)
-		skillMD := filepath.Join(skillDir, pkgplugins.SkillMainFile)
-
+		skillMD := filepath.Join(path, pkgplugins.SkillMainFile)
 		data, err := os.ReadFile(skillMD)
 		if err != nil {
-			continue // no SKILL.md
+			return nil //nolint:nilerr // no SKILL.md — recurse into subdirectories
 		}
 
-		fm, err := parseFrontmatter(string(data))
-		if err != nil {
-			slog.Warn("fs_skill: cannot parse frontmatter", "scope", scope, "path", skillMD, "err", err)
-			continue
+		fm, parseErr := parseFrontmatter(string(data))
+		if parseErr != nil {
+			slog.Warn("fs_skill: cannot parse frontmatter", "scope", scope, "path", skillMD, "err", parseErr)
+			return filepath.SkipDir
 		}
 
 		skillName := strings.TrimSpace(fm.Name)
@@ -68,28 +71,31 @@ func listFSSkills(root, scope string) ([]pkgplugins.Skill, map[string]string, er
 			skillName = name
 		}
 		if strings.TrimSpace(fm.Description) == "" {
-			continue
+			return filepath.SkipDir
 		}
 		if skillName != name {
 			slog.Warn("fs_skill: skill name does not match directory, skipping",
 				"scope", scope, "name", skillName, "dir", name)
-			continue
+			return filepath.SkipDir
 		}
 
-		sk := pkgplugins.Skill{
-			ID:                     scope + ":" + skillDir,
+		out = append(out, pkgplugins.Skill{
+			ID:                     scope + ":" + path,
 			Scope:                  scope,
 			Name:                   skillName,
 			Description:            fm.Description,
 			Status:                 NormalizeSkillStatus(fm.Status),
 			DisableModelInvocation: fm.DisableModelInvocation,
 			CreatedAt:              time.Time{},
-		}
-		skills = append(skills, sk)
-		dirs[skillName] = skillDir
+		})
+		dirs[skillName] = path
+		return filepath.SkipDir
+	})
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return skills, dirs, nil
+	return out, dirs, nil
 }
 
 // loadProjectSkillFile reads a file from a project skill directory.
