@@ -223,6 +223,146 @@ func (f *ServiceFacade) WaiveDep(ctx context.Context, taskID, depTaskID, userID,
 	return f.svc.WaiveDep(ctx, taskID, depTaskID, userID, reason, actor)
 }
 
+// ReopenTask exposes TransitionService.ReopenTask. Cascade applies the
+// downstream reset rules in D10.
+func (f *ServiceFacade) ReopenTask(ctx context.Context, taskID string, cascade bool, actor Actor) error {
+	return f.svc.ReopenTask(ctx, taskID, cascade, actor)
+}
+
+// ListReviews returns the review history for a task, newest first.
+func (f *ServiceFacade) ListReviews(ctx context.Context, taskID string) ([]sqlc.AgentReview, error) {
+	return f.q.ListAgentReviewsByTask(ctx, nullable(taskID))
+}
+
+// ApproveReview exposes TransitionService.ApproveReview.
+func (f *ServiceFacade) ApproveReview(ctx context.Context, reviewID, summary string, actor Actor) error {
+	return f.svc.ApproveReview(ctx, reviewID, summary, actor)
+}
+
+// RejectReview exposes TransitionService.RejectReview.
+func (f *ServiceFacade) RejectReview(ctx context.Context, reviewID, summary, feedback string, actor Actor) error {
+	return f.svc.RejectReview(ctx, reviewID, summary, feedback, actor)
+}
+
+// RequestChanges exposes TransitionService.RequestChanges.
+func (f *ServiceFacade) RequestChanges(ctx context.Context, reviewID, summary, feedback string, actor Actor) error {
+	return f.svc.RequestChanges(ctx, reviewID, summary, feedback, actor)
+}
+
+// EscalateReview exposes TransitionService.EscalateReview.
+func (f *ServiceFacade) EscalateReview(ctx context.Context, reviewID, reason string, actor Actor) error {
+	return f.svc.EscalateReview(ctx, reviewID, reason, actor)
+}
+
+// ListBlockerForTask returns the open blocker (if any) for a task. Phase-2
+// handlers use this to translate {blockerID} path params into the underlying
+// blocker row before resolving.
+func (f *ServiceFacade) GetBlocker(ctx context.Context, blockerID string) (sqlc.AgentTaskBlocker, error) {
+	return f.q.GetAgentTaskBlocker(ctx, blockerID)
+}
+
+// GetReview returns a review by id. Phase-2 handlers use this to enforce
+// task<->review parentage before applying a decision.
+func (f *ServiceFacade) GetReview(ctx context.Context, reviewID string) (sqlc.AgentReview, error) {
+	return f.q.GetAgentReview(ctx, reviewID)
+}
+
+// ---------------------------------------------------------------------------
+// Goal facade
+// ---------------------------------------------------------------------------
+
+// CreateGoalInput is the request body for CreateGoal. OrgID/UserID/Title are
+// required; everything else carries safe defaults.
+type CreateGoalInput struct {
+	OrgID        string
+	UserID       string
+	AgentID      string
+	Title        string
+	Description  string
+	Priority     string
+	ReviewPolicy string
+	Context      string
+}
+
+// CreateGoal inserts an agent_goal row in 'draft'. The dispatcher's planner
+// scan will pick it up next tick when status=draft and an executor is
+// resolvable.
+func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sqlc.AgentGoal, error) {
+	if in.OrgID == "" || in.UserID == "" || in.Title == "" {
+		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: org_id, user_id, and title are required")
+	}
+	priority := in.Priority
+	if priority == "" {
+		priority = "routine"
+	}
+	if priority != "routine" && priority != "urgent" {
+		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid priority %q", priority)
+	}
+	policy := in.ReviewPolicy
+	if policy == "" {
+		policy = ReviewPolicyNone
+	}
+	if in.Context == "" {
+		in.Context = "{}"
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	return f.q.CreateAgentGoal(ctx, sqlc.CreateAgentGoalParams{
+		ID:           uuid.NewString(),
+		OrgID:        in.OrgID,
+		UserID:       in.UserID,
+		AgentID:      nullable(in.AgentID),
+		Title:        in.Title,
+		Description:  in.Description,
+		Status:       GoalStatusDraft,
+		Priority:     priority,
+		ReviewPolicy: policy,
+		Context:      in.Context,
+		Output:       "{}",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+}
+
+// GetGoal returns one goal, enforcing the org boundary at the handler level
+// (the row carries org_id so handlers compare after fetch).
+func (f *ServiceFacade) GetGoal(ctx context.Context, goalID string) (sqlc.AgentGoal, error) {
+	g, err := f.q.GetAgentGoal(ctx, goalID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sqlc.AgentGoal{}, ErrGoalNotFound
+		}
+		return sqlc.AgentGoal{}, err
+	}
+	return g, nil
+}
+
+// ListGoalsByOrg returns the org's goals, newest first.
+func (f *ServiceFacade) ListGoalsByOrg(ctx context.Context, orgID string, limit int64) ([]sqlc.AgentGoal, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentGoalsByOrg(ctx, sqlc.ListAgentGoalsByOrgParams{OrgID: orgID, Limit: limit, Offset: 0})
+}
+
+// ActivateGoal / CancelGoal are thin shims over TransitionService.
+func (f *ServiceFacade) ActivateGoal(ctx context.Context, goalID string, actor Actor) error {
+	return f.svc.ActivateGoal(ctx, goalID, actor)
+}
+
+func (f *ServiceFacade) CancelGoal(ctx context.Context, goalID, reason string, actor Actor) error {
+	return f.svc.CancelGoal(ctx, goalID, reason, actor)
+}
+
+// ListGoalTasks lists child tasks of a goal.
+func (f *ServiceFacade) ListGoalTasks(ctx context.Context, goalID string) ([]sqlc.AgentTask, error) {
+	return f.q.ListChildrenByGoal(ctx, nullable(goalID))
+}
+
+// ListGoalReviews lists reviews for a goal.
+func (f *ServiceFacade) ListGoalReviews(ctx context.Context, goalID string) ([]sqlc.AgentReview, error) {
+	return f.q.ListAgentReviewsByGoal(ctx, nullable(goalID))
+}
+
 func timeOrNull(t time.Time) sql.NullString {
 	if t.IsZero() {
 		return sql.NullString{}

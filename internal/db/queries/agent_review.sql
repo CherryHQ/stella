@@ -20,6 +20,22 @@ LIMIT 1;
 -- name: ListAgentReviewsByTask :many
 SELECT * FROM agent_review WHERE task_id = ? ORDER BY created_at DESC;
 
+-- name: ListAgentReviewsByGoal :many
+SELECT * FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC;
+
+-- Reviews awaiting agent dispatch: open, reviewer_type='agent', reviewer_run_id unset.
+-- name: ListOpenAgentReviewsForDispatch :many
+SELECT * FROM agent_review
+WHERE status IN ('requested','in_progress')
+  AND reviewer_type = 'agent'
+  AND reviewer_run_id IS NULL
+ORDER BY created_at ASC
+LIMIT ?;
+
+-- name: SetAgentReviewReviewerRun :execrows
+UPDATE agent_review SET reviewer_run_id = ?, status = 'in_progress', updated_at = ?
+WHERE id = ? AND reviewer_run_id IS NULL;
+
 -- name: SetAgentReviewDecision :execrows
 UPDATE agent_review
 SET status = ?, summary = ?, feedback = ?, resolved_at = ?, updated_at = ?

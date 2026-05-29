@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
+import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import { TaskPanel } from "@/features/sessions/panels/TaskPanel";
 
 export function TaskNewPage() {
@@ -11,7 +11,7 @@ export function TaskNewPage() {
   return (
     <TaskPanel
       agentId={agentId}
-      onCreated={(task: ComponentsAgentTask) => {
+      onCreated={(task: ComponentsTask) => {
         void queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
         if (task.session_id) {
           void navigate({

@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Brain, ChevronDown, FileText, Sparkles, Wrench } from "lucide-react";
-import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
+import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import {
   getSessionMessages,
   getSessionSystemPrompt,
   listAgentSkills,
-  listAgentTasks,
+  listTasks,
   listTools,
 } from "@/lib/api-client";
 import {
@@ -738,15 +738,15 @@ function ContextEmpty({ children }: { children: React.ReactNode }) {
 }
 
 function useWorkData(agentID: string) {
-  const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
+  const [tasks, setTasks] = useState<ComponentsTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const { data: jobs = [], isLoading: jobsLoading } = useQuery(agentSchedulerJobsOptions(agentID));
 
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
-      const { data } = await listAgentTasks({
-        path: { agentID },
+      const { data } = await listTasks({
+        query: { agent_id: agentID },
         throwOnError: true,
       });
       setTasks(data?.items ?? []);
@@ -763,7 +763,7 @@ function useWorkData(agentID: string) {
   }, [loadTasks]);
 
   const needsTasks = tasks.filter(
-    (task) => task.status === "blocked" || task.status === "review_requested",
+    (task) => task.status === "blocked" || task.status === "reviewing",
   );
   const runningTasks = tasks.filter((task) => task.status === "running");
   const scheduledJobs = jobs.filter((job) => job.enabled);
@@ -778,7 +778,7 @@ function useWorkData(agentID: string) {
   };
 }
 
-function workTaskItem(task: ComponentsAgentTask) {
+function workTaskItem(task: ComponentsTask) {
   return {
     id: task.id,
     title: task.title,

@@ -259,14 +259,57 @@ paths:
   /api/agents/{agentID}/scheduler/jobs/{jobID}/runs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentID}~1scheduler~1jobs~1{jobID}~1runs"
   # ── Tasks ──────────────────────────────────────────────────────────────────
-  /api/agents/{agentID}/tasks:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks"
-  /api/agents/{agentID}/tasks/{taskID}:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}"
-  /api/agents/{agentID}/tasks/{taskID}/action:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1action"
-  /api/agents/{agentID}/tasks/{taskID}/events:
-    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1agents~1{agentID}~1tasks~1{taskID}~1events"
+  /api/tasks:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks"
+  /api/tasks/{taskID}:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}"
+  /api/tasks/{taskID}/cancel:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1cancel"
+  /api/tasks/{taskID}/reopen:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reopen"
+  /api/tasks/{taskID}/readiness:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1readiness"
+  /api/tasks/{taskID}/events:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1events"
+  /api/tasks/{taskID}/runs:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1runs"
+  /api/tasks/{taskID}/deps:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1deps"
+  /api/tasks/{taskID}/deps/{depTaskID}/waive:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1deps~1{depTaskID}~1waive"
+  /api/tasks/{taskID}/blockers/{blockerID}/resolve:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1blockers~1{blockerID}~1resolve"
+  /api/tasks/{taskID}/reviews:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reviews"
+  /api/tasks/{taskID}/reviews/{reviewID}/approve:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reviews~1{reviewID}~1approve"
+  /api/tasks/{taskID}/reviews/{reviewID}/reject:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reviews~1{reviewID}~1reject"
+  /api/tasks/{taskID}/reviews/{reviewID}/request-changes:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reviews~1{reviewID}~1request-changes"
+  /api/tasks/{taskID}/reviews/{reviewID}/escalate:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskID}~1reviews~1{reviewID}~1escalate"
+  # ── Goals ──────────────────────────────────────────────────────────────────
+  /api/goals:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals"
+  /api/goals/{goalID}:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}"
+  /api/goals/{goalID}/activate:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1activate"
+  /api/goals/{goalID}/cancel:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1cancel"
+  /api/goals/{goalID}/tasks:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1tasks"
+  /api/goals/{goalID}/reviews:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews"
+  /api/goals/{goalID}/reviews/{reviewID}/approve:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1approve"
+  /api/goals/{goalID}/reviews/{reviewID}/reject:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1reject"
+  /api/goals/{goalID}/reviews/{reviewID}/request-changes:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1request-changes"
+  /api/goals/{goalID}/reviews/{reviewID}/escalate:
+    $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalID}~1reviews~1{reviewID}~1escalate"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
@@ -528,25 +571,50 @@ components:
     ManifestPlugin: {
       $ref: "./components.yaml#/components/schemas/ManifestPlugin",
     }
-    AgentTask: { $ref: "./components.yaml#/components/schemas/AgentTask" }
-    AgentTaskList: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskList",
+    Task: { $ref: "./components.yaml#/components/schemas/Task" }
+    TaskList: { $ref: "./components.yaml#/components/schemas/TaskList" }
+    CreateTaskRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateTaskRequest",
     }
-    AgentTaskInput: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskInput",
+    CancelRequest: {
+      $ref: "./components.yaml#/components/schemas/CancelRequest",
     }
-    AgentTaskUpdate: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskUpdate",
+    ReopenRequest: {
+      $ref: "./components.yaml#/components/schemas/ReopenRequest",
     }
-    AgentTaskAction: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskAction",
+    Readiness: { $ref: "./components.yaml#/components/schemas/Readiness" }
+    ReadinessReason: {
+      $ref: "./components.yaml#/components/schemas/ReadinessReason",
     }
-    AgentTaskReviewRequest: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskReviewRequest",
+    Run: { $ref: "./components.yaml#/components/schemas/Run" }
+    RunList: { $ref: "./components.yaml#/components/schemas/RunList" }
+    Event: { $ref: "./components.yaml#/components/schemas/Event" }
+    EventList: { $ref: "./components.yaml#/components/schemas/EventList" }
+    Dep: { $ref: "./components.yaml#/components/schemas/Dep" }
+    DepList: { $ref: "./components.yaml#/components/schemas/DepList" }
+    DepInput: { $ref: "./components.yaml#/components/schemas/DepInput" }
+    AddDepRequest: {
+      $ref: "./components.yaml#/components/schemas/AddDepRequest",
     }
-    AgentTaskEvent: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskEvent",
+    WaiveDepRequest: {
+      $ref: "./components.yaml#/components/schemas/WaiveDepRequest",
     }
-    AgentTaskEventList: {
-      $ref: "./components.yaml#/components/schemas/AgentTaskEventList",
+    ResolveBlockerRequest: {
+      $ref: "./components.yaml#/components/schemas/ResolveBlockerRequest",
+    }
+    Review: { $ref: "./components.yaml#/components/schemas/Review" }
+    ReviewList: { $ref: "./components.yaml#/components/schemas/ReviewList" }
+    ReviewDecisionRequest: {
+      $ref: "./components.yaml#/components/schemas/ReviewDecisionRequest",
+    }
+    EscalateReviewRequest: {
+      $ref: "./components.yaml#/components/schemas/EscalateReviewRequest",
+    }
+    Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
+    GoalList: { $ref: "./components.yaml#/components/schemas/GoalList" }
+    CreateGoalRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateGoalRequest",
+    }
+    CancelGoalRequest: {
+      $ref: "./components.yaml#/components/schemas/CancelGoalRequest",
     }

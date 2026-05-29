@@ -116,7 +116,11 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	now := d.cfg.Service.clock().UTC()
 	d.interruptStaleRuns(ctx, now)
 	d.propagateDepFailures(ctx, now)
+	d.rollupGoals(ctx, now)
 	d.scanAndDispatch(ctx, now)
+	d.scanAndDispatchReviewers(ctx, now)
+	d.scanAndDispatchPlanners(ctx, now)
+	d.scanAndDispatchSynthesizers(ctx, now)
 }
 
 func (d *Dispatcher) isStopped() bool {

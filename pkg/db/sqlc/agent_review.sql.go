@@ -128,12 +128,102 @@ func (q *Queries) GetOpenReviewForTask(ctx context.Context, taskID sql.NullStrin
 	return i, err
 }
 
+const listAgentReviewsByGoal = `-- name: ListAgentReviewsByGoal :many
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC
+`
+
+func (q *Queries) ListAgentReviewsByGoal(ctx context.Context, goalID sql.NullString) ([]AgentReview, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentReviewsByGoal, goalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentReview{}
+	for rows.Next() {
+		var i AgentReview
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.GoalID,
+			&i.SubmittedRunID,
+			&i.ReviewerRunID,
+			&i.ReviewerType,
+			&i.ReviewerUserID,
+			&i.EscalatedFromReviewID,
+			&i.Status,
+			&i.Summary,
+			&i.Feedback,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentReviewsByTask = `-- name: ListAgentReviewsByTask :many
 SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE task_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgentReviewsByTask(ctx context.Context, taskID sql.NullString) ([]AgentReview, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentReviewsByTask, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentReview{}
+	for rows.Next() {
+		var i AgentReview
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.GoalID,
+			&i.SubmittedRunID,
+			&i.ReviewerRunID,
+			&i.ReviewerType,
+			&i.ReviewerUserID,
+			&i.EscalatedFromReviewID,
+			&i.Status,
+			&i.Summary,
+			&i.Feedback,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenAgentReviewsForDispatch = `-- name: ListOpenAgentReviewsForDispatch :many
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review
+WHERE status IN ('requested','in_progress')
+  AND reviewer_type = 'agent'
+  AND reviewer_run_id IS NULL
+ORDER BY created_at ASC
+LIMIT ?
+`
+
+// Reviews awaiting agent dispatch: open, reviewer_type='agent', reviewer_run_id unset.
+func (q *Queries) ListOpenAgentReviewsForDispatch(ctx context.Context, limit int64) ([]AgentReview, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenAgentReviewsForDispatch, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +284,25 @@ func (q *Queries) SetAgentReviewDecision(ctx context.Context, arg SetAgentReview
 		arg.UpdatedAt,
 		arg.ID,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setAgentReviewReviewerRun = `-- name: SetAgentReviewReviewerRun :execrows
+UPDATE agent_review SET reviewer_run_id = ?, status = 'in_progress', updated_at = ?
+WHERE id = ? AND reviewer_run_id IS NULL
+`
+
+type SetAgentReviewReviewerRunParams struct {
+	ReviewerRunID sql.NullString `json:"reviewer_run_id"`
+	UpdatedAt     string         `json:"updated_at"`
+	ID            string         `json:"id"`
+}
+
+func (q *Queries) SetAgentReviewReviewerRun(ctx context.Context, arg SetAgentReviewReviewerRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAgentReviewReviewerRun, arg.ReviewerRunID, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

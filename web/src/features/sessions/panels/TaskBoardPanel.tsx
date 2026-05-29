@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ComponentsAgentTask } from "@/lib/api-client/types.gen";
-import { listAgentTasks } from "@/lib/api-client";
+import type { ComponentsReadiness, ComponentsTask } from "@/lib/api-client/types.gen";
+import { getTaskReadiness, listTasks } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
@@ -22,14 +22,15 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "done", label: "Done" },
 ];
 
-function matchesFilter(task: ComponentsAgentTask, filter: Filter): boolean {
+function matchesFilter(task: ComponentsTask, filter: Filter): boolean {
   if (filter === "all") return true;
   if (filter === "active")
     return (
-      task.status === "pending" ||
+      task.status === "draft" ||
+      task.status === "ready" ||
       task.status === "running" ||
       task.status === "blocked" ||
-      task.status === "review_requested"
+      task.status === "reviewing"
     );
   return task.status === "done" || task.status === "cancelled" || task.status === "failed";
 }
@@ -40,7 +41,7 @@ export function TaskBoardPanel({
   onSelectTask,
   onOpenTaskSession,
 }: Props) {
-  const [tasks, setTasks] = useState<ComponentsAgentTask[]>([]);
+  const [tasks, setTasks] = useState<ComponentsTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
   const [showCreate, setShowCreate] = useState(false);
@@ -57,8 +58,8 @@ export function TaskBoardPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await listAgentTasks({
-        path: { agentID: agentId },
+      const { data } = await listTasks({
+        query: { agent_id: agentId },
         throwOnError: true,
       });
       setTasks(data?.items ?? []);
@@ -221,10 +222,25 @@ function TaskDetail({
   onOpenSession,
 }: {
   agentId: string;
-  task: ComponentsAgentTask;
+  task: ComponentsTask;
   onBack: () => void;
   onOpenSession: () => void;
 }) {
+  const [readiness, setReadiness] = useState<ComponentsReadiness | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await getTaskReadiness({ path: { taskID: task.id }, throwOnError: true });
+        if (!cancelled) setReadiness(data ?? null);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, task.updated_at]);
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Mobile back + Open Session header */}
@@ -282,6 +298,7 @@ function TaskDetail({
             value={task.priority}
             highlight={task.priority === "urgent"}
           />
+          {readiness && <PropertyRow label="Readiness" value={readiness.state} />}
           <PropertyRow label="Updated" value={formatTime(task.updated_at)} />
           <PropertyRow label="Created" value={formatTime(task.created_at)} />
         </div>
@@ -336,9 +353,9 @@ function StatusDot({ status, className }: { status: string; className?: string }
         "w-2 h-2 rounded-full shrink-0",
         status === "done" && "bg-emerald-500",
         status === "running" && "bg-blue-500",
-        status === "pending" && "bg-muted-foreground/30",
+        (status === "draft" || status === "ready") && "bg-muted-foreground/30",
         status === "failed" && "bg-destructive",
-        (status === "blocked" || status === "review_requested") && "bg-amber-500",
+        (status === "blocked" || status === "reviewing") && "bg-amber-500",
         status === "cancelled" && "bg-muted-foreground/20",
         className,
       )}
@@ -364,11 +381,11 @@ function statusColor(status: string): string {
   if (status === "done") return "text-emerald-600";
   if (status === "running") return "text-blue-600";
   if (status === "failed") return "text-destructive";
-  if (status === "blocked" || status === "review_requested") return "text-amber-600";
+  if (status === "blocked" || status === "reviewing") return "text-amber-600";
   return "text-muted-foreground";
 }
 
 function formatStatus(status: string): string {
-  if (status === "review_requested") return "Review Requested";
+  if (status === "reviewing") return "Reviewing";
   return status;
 }

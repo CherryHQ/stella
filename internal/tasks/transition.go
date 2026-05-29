@@ -222,6 +222,7 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 		_, err = q.CreateAgentTaskRun(ctx, sqlc.CreateAgentTaskRunParams{
 			ID:              runID,
 			TaskID:          nullable(p.TaskID),
+			GoalID:          sql.NullString{},
 			OrgID:           task.OrgID,
 			UserID:          task.UserID,
 			AgentID:         task.AgentID,
