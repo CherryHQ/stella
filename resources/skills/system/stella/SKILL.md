@@ -71,52 +71,22 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
 ## CLI commands
 
+The `stella` CLI is self-documenting. These are the command groups and their subcommands — **always run `stella <command> [<subcommand>] --help` (via bash) for exact flags and usage before invoking one.**
+
 ```
-stella                          # Show help
 stella server                   # Start server (channels + scheduler); web UI at http://localhost:25678
-stella server --port 8080       # Start server with web UI on custom port
-stella skill list --agent-id <id>          # List skills visible to an agent
-stella skill list --agent-id <id> --session-id <sid> # Include project skills
-stella skill search <q>                    # Search skill ecosystem
-stella skill install --agent-id <id> <s>   # Install a user skill for an agent
-stella skill remove --agent-id <id> <s>    # Remove a user skill from an agent
-stella vault list               # List stored secrets
-stella vault get <name>         # Retrieve a secret value
-stella vault set <name> <value> # Store a secret (use '-' to read from stdin)
-stella vault delete <name>      # Remove a secret
-stella oauth providers          # List OAuth providers and connection status
-stella oauth connect <provider> # Start OAuth flow
-stella oauth status <provider>  # Check connection status
-stella oauth disconnect <p>     # Disconnect a provider
-stella share artifact <path>    # Create a public share link for an artifact (uses STELLA_AGENT_ID/STELLA_SESSION_ID by default)
-stella share article <id>      # Create a public share link for a Recally article
-stella scheduler add ...        # Create a scheduled job
-stella scheduler list           # List scheduled jobs
-stella scheduler remove <id>    # Remove a scheduled job
-stella task list [--status <s>] # List tasks in the resolved org
-stella task get <id>            # Get task details
-stella task create --title <t>  # Create a task (--dep, --priority, --activate, ...)
-stella task cancel <id>         # Cancel a task
-stella task reopen <id>         # Reopen a done/failed task
-stella task readiness <id>      # Show why a task is / isn't dispatchable
-stella task deps <id>           # List dependency edges
-stella task dep add <id> <dep-spec>          # Add a dependency edge
-stella task dep waive <id> <dep-task-id>     # Waive a failed hard dep
-stella task events <id>         # List task events
-stella task runs <id>           # List execution attempts
-stella task blocker resolve <id> <blocker-id>  # Unblock / answer a blocked task
-stella task reviews <id>        # List reviews (source of review-id)
-stella task review approve|reject|request-changes|escalate <id> <review-id>  # Decide a review
-stella task goal list           # List goals (container that rolls up from child tasks)
-stella task goal create --title <t>  # Create a goal (--review-policy, --activate, ...)
-stella task goal get <id>       # Goal details
-stella task goal tasks <id>     # List a goal's child tasks
-stella task goal activate|cancel <id>                              # Activate / cancel a goal
-stella task goal reviews <id>   # List goal reviews
-stella task goal review approve|reject|request-changes|escalate <goal-id> <review-id>  # Decide a goal review
+stella skill      list/search/install/remove
+stella vault      list/get/set/delete
+stella oauth      providers/connect/status/disconnect
+stella share      artifact/article
+stella scheduler  add/list/remove
+stella task       list/get/create/cancel/reopen/readiness/events/runs/deps/dep/blocker/reviews/review
+stella task goal  list/get/create/activate/cancel/tasks/reviews/review
 stella version                  # Print version
 stella upgrade                  # Self-update to latest release
 ```
+
+For when to use tasks/goals and how to combine the subcommands, read [references/tasks.md](references/tasks.md).
 
 ## Delegation
 
