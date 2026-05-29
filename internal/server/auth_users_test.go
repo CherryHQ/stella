@@ -135,7 +135,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	env := setupAdmin(t)
 
 	// Create a user.
-	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "agentuser", auth.RoleUser, env.orgID)
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "agentuser", auth.RoleUser)
 	uid := user.ID
 
 	// List agents - initially empty.

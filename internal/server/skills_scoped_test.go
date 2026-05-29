@@ -23,7 +23,7 @@ import (
 // (user, bearer token).
 func newNonAdmin(t *testing.T, env *testEnv, username string) (auth.User, string) {
 	t.Helper()
-	return createTestUserWithToken(t, env.authStore, env.oidcStore, username, auth.RoleUser, env.orgID)
+	return createTestUserWithToken(t, env.authStore, env.oidcStore, username, auth.RoleUser)
 }
 
 // createAgentAsUser creates an agent via the API using the given session

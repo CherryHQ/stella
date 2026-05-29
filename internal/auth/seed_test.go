@@ -51,7 +51,7 @@ func TestBuiltinPolicies(t *testing.T) {
 	}
 }
 
-func TestListEnabledPoliciesWithoutOrgID(t *testing.T) {
+func TestListEnabledPolicies(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 

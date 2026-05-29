@@ -7,7 +7,7 @@ import (
 )
 
 // LoadBuiltin returns the manifest baked into the binary at build time. This is
-// the single source of truth for plugin defaults; per-org overrides live in the
+// the single source of truth for plugin defaults; overrides live in the
 // settings_manifest_plugin_override DB table.
 func LoadBuiltin() (*Manifest, error) {
 	rm, err := parseRawYAML(resources.BuiltinPluginsYAML())

@@ -12,7 +12,7 @@ type manifestPluginsResponse struct {
 	OAuthProviders []manifestplugins.ManifestOAuthProvider `json:"oauth_providers"`
 }
 
-// resolveManifestPlugins loads the builtin manifest and overlays per-org
+// resolveManifestPlugins loads the builtin manifest and overlays
 // overrides from the DB. Each manifest plugin's Enabled flag reflects the
 // override row when present; the default otherwise. SessionEnvs are not
 // touched here — those are resolved at agent runtime against the vault.
@@ -80,7 +80,7 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			// Unknown plugin (not in manifest); skip silently to avoid orphan DB rows.
 			continue
 		}
-		// The Save payload only carries the enable toggle; the per-org
+		// The Save payload only carries the enable toggle; the
 		// session_env_vault_key is a separate override dimension. Read the
 		// existing row so we preserve that binding instead of clobbering it.
 		existing, _, err := s.store.GetManifestPluginOverride(r.Context(), plugin.ID)

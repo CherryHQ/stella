@@ -319,8 +319,7 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	})
 }
 
-// GetGoal returns one goal, enforcing the org boundary at the handler level
-// (the row carries org_id so handlers compare after fetch).
+// GetGoal returns one goal by ID.
 func (f *ServiceFacade) GetGoal(ctx context.Context, goalID string) (sqlc.AgentGoal, error) {
 	g, err := f.q.GetAgentGoal(ctx, goalID)
 	if err != nil {

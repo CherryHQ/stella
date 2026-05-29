@@ -102,7 +102,6 @@ type testEnv struct {
 	mem         memory.Provider
 	adminUser   auth.User
 	bearerToken string
-	orgID       string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
@@ -227,8 +226,7 @@ func setupAdmin(t *testing.T) *testEnv {
 }
 
 // createTestUserWithToken creates a user and bearer token for testing.
-// The orgIDs parameter is accepted for API compatibility but ignored.
-func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string, orgIDs ...string) (auth.User, string) {
+func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string) (auth.User, string) {
 	t.Helper()
 	ctx := context.Background()
 	user, err := oidcStore.CreateUser(ctx, auth.User{
@@ -1061,7 +1059,7 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 	}
 
 	// Authenticated non-admin with missing q → 400, proving search is no longer admin-only.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser, env.orgID)
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser)
 	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/skills/search", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("user missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
@@ -1075,9 +1073,9 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 }
 
 // TestSaveManifestPluginsPreservesSessionEnvVaultKey guards against the enable
-// toggle clobbering the per-org session_env_vault_key. The Save payload only
-// carries the enable flag, so the handler must read the existing override row
-// and preserve any session env binding instead of overwriting it with "".
+// toggle clobbering the session_env_vault_key. The Save payload only carries
+// the enable flag, so the handler must read the existing override row and
+// preserve any session env binding instead of overwriting it with "".
 func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()

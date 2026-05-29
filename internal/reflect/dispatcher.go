@@ -13,11 +13,7 @@ import (
 const BuiltinJobName = "reflect-review"
 
 // NewBuiltinHandler returns a scheduler.OnJobFunc that runs one reflect
-// review cycle per fire, scoped to the job's OrgID. The supplied Config
-// holds the process-global deps; org context is the only thing that
-// varies per fire.
-//
-// Cycle-level failures (missing OrgID, store errors, ctx cancellation)
+// review cycle per fire. Cycle-level failures (store errors, ctx cancellation)
 // surface as errors so the scheduler marks the run errored. Per-agent
 // failures are still logged inside the service and do not fail the run.
 func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
