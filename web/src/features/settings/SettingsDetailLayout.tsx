@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 interface SettingsDetailLayoutProps {
-  listHeader: ReactNode;
+  listHeader?: ReactNode;
   list: ReactNode;
   detail?: ReactNode;
   emptyState?: ReactNode;

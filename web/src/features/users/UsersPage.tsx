@@ -22,7 +22,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { InviteManagement } from "@/features/invites/InviteManagement";
 import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { SettingsListBody, SettingsListItem } from "@/features/settings/SettingsListPanel";
@@ -375,62 +374,28 @@ export function UsersPage() {
     ? (legacyUsers.find((u) => u.id === selectedUser.id) ?? null)
     : null;
 
-  const [listTab, setListTab] = useState<"users" | "invites">("users");
-
   // ── Left panel ──────────────────────────────────────────────────────────────
 
-  const listHeader = (
-    <div>
-      <div className="flex border-b border-border">
-        <button
-          onClick={() => setListTab("users")}
-          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
-            listTab === "users"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
+  const list = (
+    <SettingsListBody>
+      {authUsers.map((u) => (
+        <SettingsListItem
+          key={u.id}
+          onClick={() => void selectUser(u)}
+          active={selectedUser?.id === u.id}
         >
-          Users
-        </button>
-        <button
-          onClick={() => setListTab("invites")}
-          className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
-            listTab === "invites"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Invites
-        </button>
-      </div>
-    </div>
+          <div className="truncate text-sm font-medium">{u.username}</div>
+          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+            {u.role === "admin" ? (
+              <span className="text-primary">{u.role}</span>
+            ) : (
+              <span>{u.role}</span>
+            )}
+          </div>
+        </SettingsListItem>
+      ))}
+    </SettingsListBody>
   );
-
-  const list =
-    listTab === "users" ? (
-      <SettingsListBody>
-        {authUsers.map((u) => (
-          <SettingsListItem
-            key={u.id}
-            onClick={() => void selectUser(u)}
-            active={selectedUser?.id === u.id}
-          >
-            <div className="truncate text-sm font-medium">{u.username}</div>
-            <div className="mt-0.5 font-mono text-xs text-muted-foreground">
-              {u.role === "admin" ? (
-                <span className="text-primary">{u.role}</span>
-              ) : (
-                <span>{u.role}</span>
-              )}
-            </div>
-          </SettingsListItem>
-        ))}
-      </SettingsListBody>
-    ) : (
-      <div className="flex-1 overflow-y-auto">
-        <InviteManagement />
-      </div>
-    );
 
   // ── Right panel — user detail ────────────────────────────────────────────────
 
@@ -868,7 +833,6 @@ export function UsersPage() {
   return (
     <div className="h-full">
       <SettingsDetailLayout
-        listHeader={listHeader}
         list={list}
         detail={detail}
         emptyState={

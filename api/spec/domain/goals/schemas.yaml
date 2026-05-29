@@ -10,7 +10,6 @@ components:
       required:
         [
           id,
-          org_id,
           user_id,
           title,
           status,
@@ -21,7 +20,6 @@ components:
         ]
       properties:
         id: { type: string }
-        org_id: { type: string }
         user_id: { type: string }
         agent_id: { type: string }
         title: { type: string }

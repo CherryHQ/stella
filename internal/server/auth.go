@@ -72,42 +72,6 @@ func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
 	writeListData(w, http.StatusOK, items)
 }
 
-// GetOnboardingStatus handles GET /api/auth/onboarding.
-// Single-tenant: onboarding is always completed.
-func (s *Server) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-
-	resp := map[string]any{
-		"needs_onboarding": false,
-		"email":            info.Email,
-		"name":             info.Name,
-	}
-
-	writeData(w, http.StatusOK, resp)
-}
-
-// CreateWorkspace handles POST /api/auth/onboarding/create-workspace.
-// Single-tenant: no-op, workspace always exists.
-func (s *Server) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusConflict, "single-tenant mode — workspace already exists")
-}
-
-// RedeemInviteOnboarding handles POST /api/auth/onboarding/redeem-invite.
-// Single-tenant: invites are not supported.
-func (s *Server) RedeemInviteOnboarding(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "invites are not supported in single-tenant mode")
-}
-
-// UpdateOrg handles PATCH /api/auth/org.
-// Single-tenant: not supported.
-func (s *Server) UpdateOrg(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "organizations are not supported in single-tenant mode")
-}
-
 // DeleteAuthSession handles DELETE /api/auth/sessions/{id}.
 func (s *Server) DeleteAuthSession(w http.ResponseWriter, r *http.Request, id string) {
 	info := UserFromContext(r.Context())

@@ -7,7 +7,6 @@
     "memory-internals",
     "session-compaction",
     "plugin-system",
-    "plugin-org-isolation",
     "task-system",
     "goal-system"
   ]

@@ -4,7 +4,6 @@ import {
   changePassword as changePasswordRequest,
   listAuthSessions,
   deleteAuthSession,
-  updateOrg,
 } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
@@ -39,8 +38,6 @@ export function AccountPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
-  const [editingOrgName, setEditingOrgName] = useState(false);
-  const [orgNameDraft, setOrgNameDraft] = useState("");
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -101,19 +98,6 @@ export function AccountPage() {
     onError: (e) => showToast(e instanceof Error ? e.message : "Failed to revoke session", "error"),
   });
 
-  // Org name update
-  const updateOrgName = useMutation({
-    mutationFn: async (name: string) => {
-      await updateOrg({ body: { name }, throwOnError: true });
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: meQueryOptions.queryKey });
-      setEditingOrgName(false);
-      showToast("Organization updated");
-    },
-    onError: (e) => showToast(e instanceof Error ? e.message : "Failed to update", "error"),
-  });
-
   return (
     <div className="p-6 sm:p-8 lg:p-10">
       <SettingsPageHeader title={t("account.title")} description={t("account.description")} />
@@ -149,61 +133,6 @@ export function AccountPage() {
           </div>
         </div>
       </div>
-
-      {/* Organization section */}
-      {me?.org_id && (
-        <div className="mb-10">
-          <h2 className="font-serif text-xl mb-4">{t("account.organization")}</h2>
-          <div className="border-t border-border pt-6">
-            <div className="flex items-center gap-3">
-              {editingOrgName ? (
-                <>
-                  <Input
-                    value={orgNameDraft}
-                    onChange={(e) => setOrgNameDraft(e.target.value)}
-                    className="max-w-xs"
-                    nativeInput
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && orgNameDraft.trim()) {
-                        updateOrgName.mutate(orgNameDraft.trim());
-                      } else if (e.key === "Escape") {
-                        setEditingOrgName(false);
-                      }
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    loading={updateOrgName.isPending}
-                    onClick={() => orgNameDraft.trim() && updateOrgName.mutate(orgNameDraft.trim())}
-                  >
-                    Save
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setEditingOrgName(false)}>
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <span className="text-sm font-medium">{me.org_name || me.org_id}</span>
-                  {me.is_admin && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setOrgNameDraft(me.org_name || "");
-                        setEditingOrgName(true);
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Password change — only shown for users who have local credentials */}
       {me?.has_credentials && (

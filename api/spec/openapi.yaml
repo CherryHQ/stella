@@ -49,7 +49,6 @@ tags:
   - name: auth-users
   - name: profile
   - name: auth
-  - name: invites
   - name: plugins
   - name: status
   - name: tasks
@@ -65,27 +64,10 @@ paths:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1me"
   /api/auth/providers:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1providers"
-  /api/auth/org:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1org"
-  /api/auth/onboarding:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding"
-  /api/auth/onboarding/create-workspace:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding~1create-workspace"
-  /api/auth/onboarding/redeem-invite:
-    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1onboarding~1redeem-invite"
   /api/auth/sessions:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1sessions"
   /api/auth/sessions/{id}:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1sessions~1{id}"
-  # ── Invites ────────────────────────────────────────────────────────────────
-  /api/auth/invites:
-    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites"
-  /api/auth/invites/{id}:
-    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{id}"
-  /api/auth/invites/{token}/info:
-    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{token}~1info"
-  /api/auth/invites/{token}/accept:
-    $ref: "./domain/invites/paths.yaml#/paths/~1api~1auth~1invites~1{token}~1accept"
   # ── Agents ─────────────────────────────────────────────────────────────────
   /api/agents:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents"
@@ -524,24 +506,6 @@ components:
     }
     AuthResponse: { $ref: "./components.yaml#/components/schemas/AuthResponse" }
     MeResponse: { $ref: "./components.yaml#/components/schemas/MeResponse" }
-    OnboardingStatus: {
-      $ref: "./components.yaml#/components/schemas/OnboardingStatus",
-    }
-    PendingInvite: {
-      $ref: "./components.yaml#/components/schemas/PendingInvite",
-    }
-    CreateWorkspaceInput: {
-      $ref: "./components.yaml#/components/schemas/CreateWorkspaceInput",
-    }
-    WorkspaceCreated: {
-      $ref: "./components.yaml#/components/schemas/WorkspaceCreated",
-    }
-    RedeemInviteInput: {
-      $ref: "./components.yaml#/components/schemas/RedeemInviteInput",
-    }
-    UpdateOrgRequest: {
-      $ref: "./components.yaml#/components/schemas/UpdateOrgRequest",
-    }
     AuthSession: { $ref: "./components.yaml#/components/schemas/AuthSession" }
     AuthSessionList: {
       $ref: "./components.yaml#/components/schemas/AuthSessionList",

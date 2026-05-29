@@ -10,7 +10,6 @@ components:
       required:
         [
           id,
-          org_id,
           user_id,
           title,
           status,
@@ -24,7 +23,6 @@ components:
         ]
       properties:
         id: { type: string }
-        org_id: { type: string }
         user_id: { type: string }
         agent_id:
           type: string
@@ -165,7 +163,6 @@ components:
         [
           id,
           task_id,
-          org_id,
           user_id,
           kind,
           attempt_no,
@@ -177,7 +174,6 @@ components:
       properties:
         id: { type: string }
         task_id: { type: string }
-        org_id: { type: string }
         user_id: { type: string }
         agent_id: { type: string }
         executor_agent_id: { type: string }
