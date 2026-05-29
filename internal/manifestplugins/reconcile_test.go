@@ -41,6 +41,7 @@ func seedState(t *testing.T, stellaHome, pluginID, binaryName, version string) {
 					{
 						Name:        binaryName,
 						Tool:        "github:owner/repo",
+						Spec:        version,
 						Version:     version,
 						InstalledAt: time.Now(),
 					},

@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -80,6 +82,13 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
+
+	// Host-execution backends (none, local) run tools via mise shims on the host
+	// PATH, so they need the mise env pointed at the org's config. Docker carries
+	// its own in-image mise tree and PATH, so host-side paths must not leak in.
+	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
+		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, cfg.OrgID))
+	}
 
 	return env, nil
 }

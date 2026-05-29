@@ -161,6 +161,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 						UserRoot:    userRoot,
 						ProjectRoot: projectRoot,
 					},
+					OrgID:           config.OrgIDFromContext(ctx),
 					UserID:          params.UserID,
 					AgentID:         params.AgentID,
 					SessionID:       params.SessionID,

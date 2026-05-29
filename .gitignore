@@ -20,7 +20,5 @@ web/src/lib/api-client/
 # Embedded tool binaries (downloaded via builddeps sync)
 resources/binaries/binaries/*/*.gz
 
-cmd/stella/.agents/
 internal/agent/runner/.agents/
 .chorus/
-stella
