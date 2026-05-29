@@ -100,13 +100,19 @@ stella task cancel <id>         # Cancel a task
 stella task reopen <id>         # Reopen a done/failed task
 stella task readiness <id>      # Show why a task is / isn't dispatchable
 stella task deps <id>           # List dependency edges
+stella task dep add <id> <dep-spec>          # Add a dependency edge
+stella task dep waive <id> <dep-task-id>     # Waive a failed hard dep
 stella task events <id>         # List task events
-stella task review approve|reject|request-changes <id> <review-id>  # Decide a review
+stella task runs <id>           # List execution attempts
+stella task blocker resolve <id> <blocker-id>  # Unblock / answer a blocked task
+stella task reviews <id>        # List reviews (source of review-id)
+stella task review approve|reject|request-changes|escalate <id> <review-id>  # Decide a review
 stella task goal list           # List goals (container that rolls up from child tasks)
 stella task goal create --title <t>  # Create a goal (--review-policy, --activate, ...)
 stella task goal get <id>       # Goal details
 stella task goal tasks <id>     # List a goal's child tasks
 stella task goal activate|cancel <id>                              # Activate / cancel a goal
+stella task goal reviews <id>   # List goal reviews
 stella task goal review approve|reject|request-changes|escalate <goal-id> <review-id>  # Decide a goal review
 stella version                  # Print version
 stella upgrade                  # Self-update to latest release

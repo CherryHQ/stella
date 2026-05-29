@@ -25,7 +25,30 @@ directly. Org comes from the configured profile (X-Stella-Org-ID).`,
 			goalActivateCmd(),
 			goalCancelCmd(),
 			goalTasksCmd(),
+			goalReviewsCmd(),
 			goalReviewCmd(),
+		},
+	}
+}
+
+func goalReviewsCmd() *ucli.Command {
+	return &ucli.Command{
+		Name:      "reviews",
+		Usage:     "List goal reviews",
+		ArgsUsage: "<goal-id>",
+		Action: func(c *ucli.Context) error {
+			id := c.Args().First()
+			if id == "" {
+				return fmt.Errorf("goal id is required")
+			}
+			list, err := apiclient.Call[apitypes.ReviewList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListGoalReviews(c.Context, id)
+			})
+			if err != nil {
+				return fmt.Errorf("goal reviews: %w", err)
+			}
+			printReviewList(list.Items)
+			return nil
 		},
 	}
 }

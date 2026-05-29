@@ -27,15 +27,15 @@ goal ──rolls up from──▶ task ──one attempt──▶ run
                           └─ review    ──▶ approval gate before "done"
 ```
 
-| Entity   | What it is                                                                                                                   |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Entity   | What it is                                                                                                                        |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Goal     | High-level objective; container whose status rolls up from child tasks. Not directly dispatched. Managed with `stella task goal`. |
-| Task     | Smallest executable unit. Has a strict lifecycle status.                                                                     |
-| Run      | One execution attempt. Carries the session, heartbeat, lease.                                                                |
-| Dep edge | DAG link. `hard` (default) or `soft`, with an `on_failure` policy.                                                           |
-| Blocker  | Records why a task is paused. At most one open per task.                                                                     |
-| Review   | Approval gate. Policy decides whether/who reviews before `done`.                                                             |
-| Event    | Append-only audit row. Every transition writes one.                                                                          |
+| Task     | Smallest executable unit. Has a strict lifecycle status.                                                                          |
+| Run      | One execution attempt. Carries the session, heartbeat, lease.                                                                     |
+| Dep edge | DAG link. `hard` (default) or `soft`, with an `on_failure` policy.                                                                |
+| Blocker  | Records why a task is paused. At most one open per task.                                                                          |
+| Review   | Approval gate. Policy decides whether/who reviews before `done`.                                                                  |
+| Event    | Append-only audit row. Every transition writes one.                                                                               |
 
 Tasks are owned by the resolved org (profile `X-Stella-Org-ID`); they don't nest under an agent path.
 
@@ -73,10 +73,17 @@ stella task create --title <t> [flags]               # create (flags below)
 stella task cancel <task-id> [--reason <r>]          # cancel
 stella task reopen <task-id> [--cascade]             # reopen done/failed
 stella task readiness <task-id>                      # why it is / isn't dispatchable
-stella task events <task-id>                         # audit log
-stella task deps <task-id>                           # dependency edges
-stella task review approve|reject|request-changes <task-id> <review-id> [--summary <s>] [--feedback <f>]
+stella task events <task-id>                          # audit log
+stella task runs <task-id>                            # execution attempts
+stella task deps <task-id>                            # list dependency edges
+stella task dep add <task-id> <dep-spec>             # add an edge after creation
+stella task dep waive <task-id> <dep-task-id> [--reason <r>]   # waive a failed hard dep
+stella task blocker resolve <task-id> <blocker-id> [--resolution <r>]   # unblock / answer
+stella task reviews <task-id>                         # list reviews (source of review-id)
+stella task review approve|reject|request-changes|escalate <task-id> <review-id> [--summary <s>] [--feedback <f>] [--reason <r>]
 ```
+
+`stella task get` prints `active_blocker`, `active_review`, and `active_run` IDs when present — that's where you get the `blocker-id` / `review-id` for the commands above (or use `task reviews`).
 
 ### create flags
 
@@ -114,6 +121,8 @@ When dispatched, the task's title+description is your prompt. Do the work, then 
 
 Blocker `kind` values: `user_input`, `external_dependency`, `tool_error`, `policy_hold`. (`dep_failure` is system-generated, never yours.)
 
+A blocked task resumes once its blocker is resolved: `stella task blocker resolve <task-id> <blocker-id> --resolution "..."` (blocker-id from `stella task get`). This is the manager-side answer to a worker's `block`.
+
 Rules:
 
 - **Always end with submit/block/fail.** Returning without one = `protocol_error` → run fails.
@@ -129,7 +138,7 @@ Edge: `<task-id>[:kind[:on_failure]]`. Defaults `hard` + `block`.
 - `kind`: `hard` — upstream must succeed; `soft` — proceed once upstream is terminal in any state (`done`/`failed`/`cancelled`).
 - `on_failure` (hard only): `block` (default) → downstream `blocked` on upstream failure; `fail` → downstream `failed`; `ignore` → treat failure as satisfied.
 
-A `hard`/`block` edge whose upstream **failed** parks the downstream in `blocked` with a `dep_failure` reason. This can't be cleared by a normal resolve — it needs an attributable **waiver** (Web UI / API), not a CLI flag. Soft deps never trigger the waiver flow.
+A `hard`/`block` edge whose upstream **failed** parks the downstream in `blocked` with a `dep_failure` reason. This can't be cleared by `blocker resolve` — it needs an attributable **waiver**: `stella task dep waive <task-id> <dep-task-id> --reason "..."`. Soft deps never trigger the waiver flow.
 
 ## Readiness, not status
 
@@ -146,15 +155,16 @@ A worker's `submit` routes on the task's `review_policy`:
 | `agent` | Opens an agent review → `reviewing`; an agent reviewer decides. |
 | `human` | Opens a human review → `reviewing`; awaits a human decision.    |
 
-Decide a pending review:
+List reviews to get a `review-id` (`stella task reviews <task-id>`, or `active_review` from `stella task get`), then decide:
 
 ```
 stella task review approve <task-id> <review-id> --summary "ok"
 stella task review reject <task-id> <review-id> --feedback "wrong dataset"   # task → failed
 stella task review request-changes <task-id> <review-id> --feedback "add tests"  # back for rework
+stella task review escalate <task-id> <review-id> --reason "needs a human"   # agent → human review
 ```
 
-Get the `review-id` from `stella task get` / the Web UI. Approve resumes; reject fails the task; request-changes sends it back with feedback.
+Approve resumes; reject fails the task; request-changes sends it back with feedback; escalate hands an agent review to a human. Goal reviews mirror this under `stella task goal review ...` (`stella task goal reviews <goal-id>` lists them).
 
 ## Goals
 
