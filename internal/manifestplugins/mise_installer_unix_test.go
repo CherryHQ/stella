@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestInstallBinaryWithMiseCancelKillsChildProcessGroup(t *testing.T) {
+func TestInstallScopeCancelKillsChildProcessGroup(t *testing.T) {
 	stellaHome := t.TempDir()
 	binDir := filepath.Join(stellaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -46,7 +46,7 @@ esac
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := installBinaryWithMise(ctx, ManifestBinary{Name: "mytool", Tool: "github:owner/repo"}, stellaHome)
+		err := installScope(ctx, stellaHome, builtinScope, []miseTool{{Key: "github:owner/repo", Lookup: "mytool"}})
 		errCh <- err
 	}()
 

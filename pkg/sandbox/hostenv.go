@@ -7,16 +7,26 @@ import (
 	"strings"
 )
 
+// MiseShimsDir returns the mise shims directory for host-execution sandbox
+// backends. Tools installed by the manifest/org reconcilers are exposed here as
+// shims (not copied into bin), so it must be on PATH for them to resolve.
+func MiseShimsDir(stellaHome string) string {
+	return filepath.Join(stellaHome, ".mise-tools", "shims")
+}
+
 // HostEnvBuildPath returns a sanitized PATH suitable for host-execution sandbox
-// backends (local, none). It prepends the stella bin directory and filters
-// host PATH entries to a safe allowlist on Linux.
+// backends (local, none). It prepends the mise shims and stella bin directories
+// and filters host PATH entries to a safe allowlist on Linux.
 func HostEnvBuildPath(stellaHome string) string {
 	stellaBin := filepath.Join(stellaHome, "bin")
+	shimsDir := MiseShimsDir(stellaHome)
 	if runtime.GOOS != "linux" {
-		return hostEnvPrependPath(stellaBin, os.Getenv("PATH"))
+		return strings.Join(hostEnvDedupeEntries([]string{
+			shimsDir, stellaBin, os.Getenv("PATH"),
+		}), string(os.PathListSeparator))
 	}
 
-	entries := []string{stellaBin}
+	entries := []string{shimsDir, stellaBin}
 	for entry := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
 		if hostEnvPathAllowed(entry, stellaBin) {
 			entries = append(entries, entry)
@@ -76,16 +86,6 @@ func hostEnvPathAllowed(entry, stellaBin string) bool {
 		}
 	}
 	return false
-}
-
-func hostEnvPrependPath(entry, existing string) string {
-	if entry == "" {
-		return existing
-	}
-	if existing == "" {
-		return entry
-	}
-	return entry + string(os.PathListSeparator) + existing
 }
 
 func hostEnvDedupeEntries(entries []string) []string {

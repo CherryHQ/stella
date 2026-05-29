@@ -129,6 +129,52 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 
 	errorCount := 0
 
+	// Collect every enabled binary into one builtin-scope mise config. The
+	// config always reflects the full enabled set so runtime shims resolve any
+	// of them; persisting it is offline and runs no mise commands.
+	var tools []miseTool
+	needInstall := false
+	for _, plugin := range m.Plugins {
+		if !plugin.Enabled {
+			continue
+		}
+		for _, binary := range plugin.Binaries {
+			tools = append(tools, miseToolFromBinary(binary))
+			if !isCacheHit(state, plugin.ID, binary.Name, binary.Version) {
+				needInstall = true
+			}
+		}
+	}
+
+	var configErr, installErr error
+	if len(tools) > 0 {
+		if _, configErr = writeScopeConfig(stellaHome, builtinScope, tools); configErr != nil {
+			slog.Error("manifest builtin config write failed", "error", configErr)
+		} else if needInstall {
+			slog.Info("manifest builtin tools installing", "tools", len(tools))
+			if installErr = runScopeInstall(ctx, stellaHome, builtinScope); installErr != nil {
+				slog.Error("manifest builtin tools install failed", "error", installErr)
+			}
+		}
+	}
+
+	// Resolve concrete versions for cache misses via the persisted config in a
+	// neutral cwd (no ambient project mise.toml). Cache hits skip mise entirely.
+	miseBin, miseErr := findMiseBin(stellaHome)
+	var resolveEnv []string
+	if miseErr == nil {
+		resolveEnv, miseErr = scopeMiseEnv(stellaHome, builtinScope)
+	}
+	resolveDir, dirErr := os.MkdirTemp("", "stella-mise-resolve-*")
+	if dirErr != nil && miseErr == nil {
+		miseErr = dirErr
+	}
+	defer func() {
+		if resolveDir != "" {
+			_ = os.RemoveAll(resolveDir)
+		}
+	}()
+
 	for _, plugin := range m.Plugins {
 		if !plugin.Enabled {
 			continue
@@ -143,7 +189,8 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 				goto done
 			}
 
-			// Cache hit check (skipped for latest/empty version)
+			// Cache hit: state already records this version — report it without
+			// shelling out to mise.
 			if isCacheHit(state, plugin.ID, binary.Name, binary.Version) {
 				slog.Info("manifest binary cache hit",
 					"plugin", plugin.ID,
@@ -157,21 +204,34 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 				continue
 			}
 
-			slog.Info("manifest binary installing",
-				"plugin", plugin.ID,
-				"binary", binary.Name,
-				"version", binary.Version)
+			// Cache miss: resolve the concrete installed version via the shims
+			// config. Surface config/install/resolution failures per binary.
+			version := binary.Version
+			var binErr error
+			switch {
+			case configErr != nil:
+				binErr = configErr
+			case installErr != nil:
+				binErr = installErr
+			case miseErr != nil:
+				binErr = miseErr
+			default:
+				if v, verr := resolveToolVersion(ctx, miseBin, resolveEnv, resolveDir, binaryLookupName(binary)); verr != nil {
+					binErr = verr
+				} else {
+					version = v
+				}
+			}
 
-			installedVersion, installErr := installBinaryWithMise(ctx, binary, stellaHome)
-			if installErr != nil {
+			if binErr != nil {
 				slog.Error("manifest binary install failed",
 					"plugin", plugin.ID,
 					"binary", binary.Name,
-					"error", installErr)
+					"error", binErr)
 				pr.Binaries = append(pr.Binaries, BinaryReconcileResult{
 					Name:    binary.Name,
 					Version: binary.Version,
-					Err:     installErr,
+					Err:     binErr,
 				})
 				errorCount++
 				continue
@@ -180,17 +240,17 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 			slog.Info("manifest binary installed",
 				"plugin", plugin.ID,
 				"binary", binary.Name,
-				"version", installedVersion)
+				"version", version)
 
 			pr.Binaries = append(pr.Binaries, BinaryReconcileResult{
 				Name:    binary.Name,
-				Version: installedVersion,
+				Version: version,
 			})
 
 			upsertBinaryState(state, plugin.ID, BinaryInstallState{
 				Name:        binary.Name,
 				Tool:        binary.Tool,
-				Version:     installedVersion,
+				Version:     version,
 				InstalledAt: time.Now(),
 			})
 		}
