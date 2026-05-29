@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/orgctx"
@@ -171,7 +172,8 @@ func TestShutdownReleasesLockBeforeStop(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Shutdown: %v", err)
 		}
-	case <-context.Background().Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown deadlocked: lock held during Stop")
 	}
 }
 
