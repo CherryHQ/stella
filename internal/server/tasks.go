@@ -14,10 +14,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Header for explicit org scoping (D14 / MP4). Missing => fall back to the
-// authenticated session's default org.
-const orgHeader = "X-Stella-Org-ID"
-
 // SetTasksService wires the tasks service into the admin server.
 func (s *Server) SetTasksService(svc *tasks.Service) {
 	s.tasksSvc = svc
@@ -28,13 +24,8 @@ func (s *Server) SetTasksService(svc *tasks.Service) {
 // panicking.
 func (s *Server) tasksReady() bool { return s.tasksSvc != nil && s.tasksSvc.Facade != nil }
 
-// resolveOrg picks the org for this request: explicit header wins, then the
-// authenticated session default. Returns "" only when both are unset, in
-// which case handlers should 401.
+// resolveOrg returns the org ID from the authenticated session, or "" if none.
 func resolveOrg(r *http.Request) string {
-	if h := r.Header.Get(orgHeader); h != "" {
-		return h
-	}
 	if info := UserFromContext(r.Context()); info != nil {
 		return info.OrgID
 	}
