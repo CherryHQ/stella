@@ -181,8 +181,41 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	}
 }
 
-// TestUpdateAuthUserActive removed: single-tenant mode has no is_active column
-// on auth_user; the handler deletes sessions but cannot toggle active state.
+func TestUpdateAuthUserActive(t *testing.T) {
+	env := setupAdmin(t)
+
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "activeuser", auth.RoleUser)
+
+	// Deactivate.
+	body := map[string]any{"is_active": false}
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+
+	// Verify deactivated.
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	resp := parseResponse(t, rr)
+	var u struct {
+		IsActive bool `json:"is_active"`
+	}
+	if err := json.Unmarshal(resp.Data, &u); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if u.IsActive {
+		t.Error("expected user to be deactivated")
+	}
+
+	// Reactivate.
+	body = map[string]any{"is_active": true}
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("reactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+}
 
 func TestCannotDeactivateSelf(t *testing.T) {
 	env := setupAdmin(t)
@@ -245,6 +278,7 @@ func TestLinkAuthUserLoginIdentity(t *testing.T) {
 		ID:    env.adminUser.ID,
 		Email: "testadmin@example.com",
 		Name:  "Test Admin",
+		Role:  auth.RoleAdmin,
 	})
 	// Ignore duplicate error; admin user may already exist.
 	_ = err
@@ -287,8 +321,8 @@ func TestLinkLoginIdentityOwnedByAnotherUserIsConflict(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two users in the OIDC store.
-	u1, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest1@test.local", Name: "linktest1"})
-	u2, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest2@test.local", Name: "linktest2"})
+	u1, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest1@test.local", Name: "linktest1", Role: auth.RoleUser})
+	u2, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest2@test.local", Name: "linktest2", Role: auth.RoleUser})
 
 	// Link the identity to u1.
 	_, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{
@@ -319,7 +353,7 @@ func TestLinkLoginIdentityIdempotent(t *testing.T) {
 	store := setupOIDCStore(t, env)
 	ctx := context.Background()
 
-	u, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "idemuser@test.local", Name: "idemuser"})
+	u, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "idemuser@test.local", Name: "idemuser", Role: auth.RoleUser})
 
 	// Link once.
 	_, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{

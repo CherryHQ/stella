@@ -3,6 +3,8 @@ CREATE TABLE auth_user (
     email               TEXT NOT NULL UNIQUE,
     name                TEXT NOT NULL DEFAULT '',
     avatar_url          TEXT NOT NULL DEFAULT '',
+    role                TEXT NOT NULL DEFAULT 'user',
+    is_active           INTEGER NOT NULL DEFAULT 1,
     default_agent_id    TEXT REFERENCES settings_agent(id),
     notify_identity_id  TEXT REFERENCES plugin_channel_identity(id) ON DELETE SET NULL,
     age_public_key      TEXT NOT NULL DEFAULT '',

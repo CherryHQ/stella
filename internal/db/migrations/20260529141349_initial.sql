@@ -331,6 +331,8 @@ CREATE TABLE `auth_user` (
   `email` text NOT NULL,
   `name` text NOT NULL DEFAULT '',
   `avatar_url` text NOT NULL DEFAULT '',
+  `role` text NOT NULL DEFAULT 'user',
+  `is_active` integer NOT NULL DEFAULT 1,
   `default_agent_id` text NULL,
   `notify_identity_id` text NULL,
   `age_public_key` text NOT NULL DEFAULT '',

@@ -33,6 +33,7 @@ func createUser(t *testing.T, oidc *appdb.OIDCStore, email string) auth.User {
 		ID:    uuid.NewString(),
 		Email: email,
 		Name:  email,
+		Role:  auth.RoleUser,
 	})
 	if err != nil {
 		t.Fatalf("CreateUser(%q): %v", email, err)

@@ -225,11 +225,10 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		t.Fatalf("admin list included another user's skill: %#v", list)
 	}
 
-	// In single-tenant mode all authenticated users are admin, so any user
-	// can list skills for any agent.
+	// Non-admin users without agent assignment are denied access.
 	rr = doRequestWithSession(t, env.srv, otherSID, "GET", "/api/agents/"+agentID+"/skills", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("other status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("other status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	rr = doUnauthRequest(t, env.srv, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -261,14 +260,13 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	_, otherSID := newNonAdmin(t, env, "other-ud")
 	agentID := createAgentAsUser(t, env, sid, "ud-agent")
 
-	// In single-tenant mode all users are admin, so any user can create
-	// agent-scoped skills on any agent.
+	// Non-admin users without agent assignment are denied access.
 	rr := doRequestWithSession(t, env.srv, otherSID, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
 		"name":  "other-agent-skill",
 		"scope": "agent",
 	})
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("other create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("other create status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// Cannot create system-scoped skills

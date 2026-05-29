@@ -101,8 +101,8 @@ func (s *Server) authInfoFromOIDCSession(ctx context.Context, r *http.Request) *
 	return &AuthInfo{
 		UserID:    principal.UserID,
 		Username:  principal.Email,
-		Role:      RoleAdmin,
-		IsAdmin:   true,
+		Role:      principal.Role,
+		IsAdmin:   principal.IsAdmin(),
 		Email:     principal.Email,
 		Name:      principal.Name,
 		AvatarURL: principal.AvatarURL,
@@ -124,14 +124,18 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 		}
 		return nil
 	}
+	if !user.IsActive {
+		s.log.Warn("bearer auth rejected: user deactivated", "user_id", user.ID)
+		return nil
+	}
 	return &AuthInfo{
 		UserID:    user.ID,
 		Username:  user.Email,
 		Email:     user.Email,
 		Name:      user.Name,
 		AvatarURL: user.AvatarURL,
-		Role:      RoleAdmin,
-		IsAdmin:   true,
+		Role:      user.Role,
+		IsAdmin:   user.Role == auth.RoleAdmin,
 	}
 }
 
@@ -173,6 +177,3 @@ func (s *Server) denyAccess(w http.ResponseWriter, r *http.Request) {
 func isAPIRoute(path string) bool {
 	return strings.HasPrefix(path, "/api/")
 }
-
-// RoleAdmin is the admin role constant used in single-tenant mode.
-const RoleAdmin = "admin"

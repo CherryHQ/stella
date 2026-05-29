@@ -38,7 +38,7 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserRe
 		ID:         u.ID,
 		Email:      u.Email,
 		Name:       u.Name,
-		Role:       RoleAdmin,
+		Role:       u.Role,
 		IsActive:   u.IsActive,
 		Identities: identities,
 		CreatedAt:  u.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -92,7 +92,6 @@ func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) 
 }
 
 // UpdateAuthUserRole handles PATCH /api/auth/users/{id}/role.
-// Single-tenant: all users are admin; this is a no-op that validates input.
 func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id string) {
 	info := requireAdmin(w, r)
 	if info == nil {
@@ -113,6 +112,11 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 
 	if info.UserID == id && body.Role != auth.RoleAdmin {
 		writeError(w, http.StatusBadRequest, "cannot remove your own admin role")
+		return
+	}
+
+	if err := s.users.UpdateUserRole(r.Context(), id, body.Role); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update role: "+err.Error())
 		return
 	}
 
@@ -244,6 +248,11 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 
 	if _, err := s.users.GetUser(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	if err := s.users.UpdateUserActive(r.Context(), id, body.IsActive); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update active status: "+err.Error())
 		return
 	}
 

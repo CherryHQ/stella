@@ -210,6 +210,8 @@ type AuthUser struct {
 	Email            string         `json:"email"`
 	Name             string         `json:"name"`
 	AvatarUrl        string         `json:"avatar_url"`
+	Role             string         `json:"role"`
+	IsActive         int64          `json:"is_active"`
 	DefaultAgentID   sql.NullString `json:"default_agent_id"`
 	NotifyIdentityID sql.NullString `json:"notify_identity_id"`
 	AgePublicKey     string         `json:"age_public_key"`

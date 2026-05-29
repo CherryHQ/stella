@@ -17,6 +17,8 @@ type UserStore interface {
 	UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error
 	UpdateUserDefaultAgent(ctx context.Context, userID, agentID string) error
 	UpdateUserNotifyIdentity(ctx context.Context, userID string, identityID *string) error
+	UpdateUserRole(ctx context.Context, userID string, role string) error
+	UpdateUserActive(ctx context.Context, userID string, isActive bool) error
 }
 
 // LoginIdentityStore provides CRUD for auth_identity (OIDC login identities).

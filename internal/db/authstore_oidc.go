@@ -142,16 +142,19 @@ func parseOIDCTime(s string) time.Time {
 // ---- UserStore ----
 
 func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, error) {
-	const q = `INSERT INTO auth_user (id, email, name, avatar_url, age_public_key, age_private_key)
-	           VALUES (?, ?, ?, ?, ?, '') RETURNING id, email, name, avatar_url,
+	if u.Role == "" {
+		u.Role = auth.RoleUser
+	}
+	const q = `INSERT INTO auth_user (id, email, name, avatar_url, role, age_public_key, age_private_key)
+	           VALUES (?, ?, ?, ?, ?, ?, '') RETURNING id, email, name, avatar_url, role, is_active,
 	           default_agent_id, notify_identity_id, age_public_key, age_private_key,
 	           created_at, updated_at`
-	row := s.db.QueryRowContext(ctx, q, u.ID, u.Email, u.Name, u.AvatarURL, u.AgePublicKey)
+	row := s.db.QueryRowContext(ctx, q, u.ID, u.Email, u.Name, u.AvatarURL, u.Role, u.AgePublicKey)
 	return scanUser(row)
 }
 
 func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {
-	const q = `SELECT id, email, name, avatar_url, default_agent_id, notify_identity_id,
+	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, q, id)
@@ -159,7 +162,7 @@ func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {
 }
 
 func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User, error) {
-	const q = `SELECT id, email, name, avatar_url, default_agent_id, notify_identity_id,
+	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user WHERE email = ?`
 	row := s.db.QueryRowContext(ctx, q, email)
@@ -167,7 +170,7 @@ func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User
 }
 
 func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
-	const q = `SELECT id, email, name, avatar_url, default_agent_id, notify_identity_id,
+	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user ORDER BY created_at ASC`
 	rows, err := s.db.QueryContext(ctx, q)
@@ -187,7 +190,7 @@ func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
 }
 
 func (s *OIDCStore) ListActiveUserIDs(ctx context.Context) ([]string, error) {
-	const q = `SELECT id FROM auth_user ORDER BY id`
+	const q = `SELECT id FROM auth_user WHERE is_active = 1 ORDER BY id`
 	rows, err := s.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
@@ -248,6 +251,22 @@ func (s *OIDCStore) UpdateUserNotifyIdentity(ctx context.Context, userID string,
 	return err
 }
 
+func (s *OIDCStore) UpdateUserRole(ctx context.Context, userID string, role string) error {
+	const q = `UPDATE auth_user SET role = ?, updated_at = datetime('now') WHERE id = ?`
+	_, err := s.db.ExecContext(ctx, q, role, userID)
+	return err
+}
+
+func (s *OIDCStore) UpdateUserActive(ctx context.Context, userID string, isActive bool) error {
+	active := 0
+	if isActive {
+		active = 1
+	}
+	const q = `UPDATE auth_user SET is_active = ?, updated_at = datetime('now') WHERE id = ?`
+	_, err := s.db.ExecContext(ctx, q, active, userID)
+	return err
+}
+
 // scanUser reads a single auth_user row from a *sql.Row or *sql.Rows.
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -259,6 +278,7 @@ func scanUser(r rowScanner) (auth.User, error) {
 	var createdAt, updatedAt string
 	err := r.Scan(
 		&u.ID, &u.Email, &u.Name, &u.AvatarURL,
+		&u.Role, &u.IsActive,
 		&defaultAgentID, &notifyIdentityID,
 		&u.AgePublicKey, &u.AgePrivateKey,
 		&createdAt, &updatedAt,
@@ -266,7 +286,6 @@ func scanUser(r rowScanner) (auth.User, error) {
 	if err != nil {
 		return auth.User{}, fmt.Errorf("auth_user scan: %w", err)
 	}
-	u.IsActive = true
 	u.DefaultAgentID = defaultAgentID.String
 	if notifyIdentityID.Valid {
 		id := notifyIdentityID.String

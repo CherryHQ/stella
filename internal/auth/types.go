@@ -4,18 +4,18 @@ import "time"
 
 // User is the OIDC-based user record stored in auth_user.
 type User struct {
-	ID               string  `json:"id"`
-	Email            string  `json:"email"`
-	Name             string  `json:"name"`
-	AvatarURL        string  `json:"avatar_url"`
-	DefaultAgentID   string  `json:"default_agent_id,omitempty"`
-	NotifyIdentityID *string `json:"notify_identity_id,omitempty"`
-	// IsActive is always true for OIDC users; membership controls access.
-	IsActive      bool      `json:"is_active"`
-	AgePublicKey  string    `json:"-"`
-	AgePrivateKey string    `json:"-"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID               string    `json:"id"`
+	Email            string    `json:"email"`
+	Name             string    `json:"name"`
+	AvatarURL        string    `json:"avatar_url"`
+	Role             string    `json:"role"`
+	DefaultAgentID   string    `json:"default_agent_id,omitempty"`
+	NotifyIdentityID *string   `json:"notify_identity_id,omitempty"`
+	IsActive         bool      `json:"is_active"`
+	AgePublicKey     string    `json:"-"`
+	AgePrivateKey    string    `json:"-"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // LoginIdentity is an OIDC login identity stored in auth_identity.
@@ -46,14 +46,13 @@ type ChannelIdentity struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// Principal is the request-scoped identity injected into context by the auth
-// middleware. Single-tenant: every authenticated user is admin.
+// Principal is the request-scoped identity injected into context by the auth middleware.
 type Principal struct {
 	UserID    string `json:"user_id"`
 	Email     string `json:"email"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
-	Role      string `json:"role"` // always "admin" in single-tenant mode
+	Role      string `json:"role"` // user role: admin or user
 }
 
 // IsAdmin returns true if the principal holds the admin role.

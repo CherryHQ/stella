@@ -227,8 +227,7 @@ func setupAdmin(t *testing.T) *testEnv {
 }
 
 // createTestUserWithToken creates a user and bearer token for testing.
-// The role and orgIDs parameters are accepted for API compatibility but
-// ignored in single-tenant mode (all users are admin).
+// The orgIDs parameter is accepted for API compatibility but ignored.
 func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string, orgIDs ...string) (auth.User, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -236,6 +235,7 @@ func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb
 		ID:       uuid.NewString(),
 		Email:    name + "@test.local",
 		Name:     name,
+		Role:     role,
 		IsActive: true,
 	})
 	if err != nil {

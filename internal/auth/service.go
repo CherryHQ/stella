@@ -103,7 +103,6 @@ func (s *AuthService) processOIDCLoginNoTx(ctx context.Context, ext ExternalIden
 }
 
 // PrincipalFromToken resolves a Principal from a raw session token.
-// Single-tenant: always returns Role="admin".
 func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (*Principal, error) {
 	session, err := s.sessions.GetSessionByTokenHash(ctx, hashSessionToken(rawToken))
 	if err != nil {
@@ -119,12 +118,16 @@ func (s *AuthService) PrincipalFromToken(ctx context.Context, rawToken string) (
 		return nil, fmt.Errorf("auth: get user: %w", err)
 	}
 
+	if !user.IsActive {
+		return nil, errors.New("auth: user is deactivated")
+	}
+
 	return &Principal{
 		UserID:    user.ID,
 		Email:     user.Email,
 		Name:      user.Name,
 		AvatarURL: user.AvatarURL,
-		Role:      RoleAdmin,
+		Role:      user.Role,
 	}, nil
 }
 
@@ -186,12 +189,18 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 		}
 	}
 
-	// Create new user + identity.
+	// Create new user + identity. First user becomes admin.
+	count, _ := s.users.CountUsers(ctx)
+	role := RoleUser
+	if count == 0 {
+		role = RoleAdmin
+	}
 	newUser, err := s.users.CreateUser(ctx, User{
 		ID:        uuid.NewString(),
 		Email:     ext.Email,
 		Name:      ext.Name,
 		AvatarURL: ext.AvatarURL,
+		Role:      role,
 	})
 	if err != nil {
 		return User{}, false, fmt.Errorf("auth: create user: %w", err)

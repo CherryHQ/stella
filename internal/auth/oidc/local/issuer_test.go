@@ -62,6 +62,8 @@ func (f *fakeUserStore) UpdateUserDefaultAgent(_ context.Context, _, _ string) e
 func (f *fakeUserStore) UpdateUserNotifyIdentity(_ context.Context, _ string, _ *string) error {
 	return nil
 }
+func (f *fakeUserStore) UpdateUserRole(_ context.Context, _ string, _ string) error { return nil }
+func (f *fakeUserStore) UpdateUserActive(_ context.Context, _ string, _ bool) error { return nil }
 
 type fakeCredStore struct{ byUser map[string]auth.Credential }
 
