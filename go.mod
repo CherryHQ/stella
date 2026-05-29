@@ -19,7 +19,6 @@ require (
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/moby/moby/api v1.54.1
 	github.com/moby/moby/client v0.4.0
-	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/oapi-codegen/runtime v1.4.0
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/openai/openai-go v1.12.0
@@ -81,7 +80,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
@@ -114,8 +112,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/segmentio/asm v1.1.3 // indirect
-	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/speakeasy-api/jsonpath v0.6.3 // indirect
@@ -128,7 +124,6 @@ require (
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
-	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/bridges/prometheus v0.67.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.18.0 // indirect

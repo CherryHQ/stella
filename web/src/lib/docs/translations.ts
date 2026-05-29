@@ -56,9 +56,6 @@ const translations = {
     capPlugins: "Plugins",
     capPluginsDesc:
       "Extend with custom code. Build integrations, add tools, or connect to internal services.",
-    capMCP: "MCP tools",
-    capMCPDesc:
-      "Connect any Model Context Protocol server. Industry-standard tool integration, zero custom wiring.",
     capModels: "Multi-provider models",
     capModelsDesc:
       "Anthropic, OpenAI, or any compatible API. Switch models per agent, per task. Your keys, your choice.",
@@ -182,8 +179,6 @@ const translations = {
     capOAuthDesc: "连接 GitHub、Google 等服务。Stella 以你的身份操作，具有正确的授权。",
     capPlugins: "插件",
     capPluginsDesc: "用自定义代码扩展。构建集成、添加工具或连接内部服务。",
-    capMCP: "MCP 工具",
-    capMCPDesc: "连接任何 Model Context Protocol 服务器。行业标准工具集成，零自定义配线。",
     capModels: "多供应商模型",
     capModelsDesc: "Anthropic、OpenAI 或任何兼容 API。按智能体、按任务切换模型。你的密钥，你做主。",
     capAgents: "专业智能体",

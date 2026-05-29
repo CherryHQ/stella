@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
-	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
@@ -325,29 +324,6 @@ func TestChannelConfiguredComeFromPluginRegistrations(t *testing.T) {
 	if host.ChannelConfigured(context.Background(), "missing") {
 		t.Fatal("expected missing channel to be not configured")
 	}
-}
-
-func TestLoadDefaultCatalogIncludesMCPMetadata(t *testing.T) {
-	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.RegisterBuiltinTools(mcpplugin.NewManager())
-	if err := host.LoadDefaultCatalog(); err != nil {
-		t.Fatalf("LoadDefaultCatalog: %v", err)
-	}
-
-	metas := host.ListRegisteredPlugins()
-	for _, meta := range metas {
-		if meta.ID != mcpplugin.PluginID {
-			continue
-		}
-		if !meta.Managed || !meta.AdminVisible || !meta.HasConfig || !meta.HasStatus {
-			t.Fatalf("unexpected mcp metadata: %#v", meta)
-		}
-		if got := host.ConfigSchema(mcpplugin.PluginID); len(got) == 0 {
-			t.Fatal("expected non-empty mcp schema")
-		}
-		return
-	}
-	t.Fatalf("missing metadata for %q", mcpplugin.PluginID)
 }
 
 type fakeChannelHandler struct{}

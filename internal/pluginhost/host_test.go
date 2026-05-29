@@ -103,13 +103,13 @@ func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error) 
 func (s *stubStore) SeedNewOrg(context.Context, string) error                           { return nil }
 
 func TestConfigServiceUsesPluginIDDirectly(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true, Config: map[string]any{"x": 1}}}}
+	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true, Config: map[string]any{"x": 1}}}}
 	host := New(store)
-	state, err := host.DesiredState(context.Background(), "tool/mcp")
+	state, err := host.DesiredState(context.Background(), "tool/test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.ID != "tool/mcp" || !state.Enabled || state.Config["x"] != 1 {
+	if state.ID != "tool/test" || !state.Enabled || state.Config["x"] != 1 {
 		t.Fatalf("bad state: %#v", state)
 	}
 }
@@ -117,15 +117,15 @@ func TestConfigServiceUsesPluginIDDirectly(t *testing.T) {
 func TestPromptToolsUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
-	host.RegisterPluginID("tool/mcp")
-	host.AddPromptInventory(pkgplugins.PromptInventorySpec{PluginID: "tool/mcp", Name: "tools", GetTools: func(context.Context, pkgplugins.PromptInventoryContext) ([]pkgplugins.PromptToolInfo, error) {
-		return []pkgplugins.PromptToolInfo{{Name: "mcp__docs__search"}}, nil
+	host.RegisterPluginID("tool/test")
+	host.AddPromptInventory(pkgplugins.PromptInventorySpec{PluginID: "tool/test", Name: "tools", GetTools: func(context.Context, pkgplugins.PromptInventoryContext) ([]pkgplugins.PromptToolInfo, error) {
+		return []pkgplugins.PromptToolInfo{{Name: "test__docs__search"}}, nil
 	}})
-	tools, err := host.PromptTools(context.Background(), "tool/mcp")
+	tools, err := host.PromptTools(context.Background(), "tool/test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools) != 1 || tools[0].Name != "mcp__docs__search" {
+	if len(tools) != 1 || tools[0].Name != "test__docs__search" {
 		t.Fatalf("unexpected tools: %#v", tools)
 	}
 }
@@ -389,9 +389,9 @@ func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *test
 func TestConfigSchemaUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
-	host.RegisterPluginID("tool/mcp")
+	host.RegisterPluginID("tool/test")
 	host.AddAdmin(pkgplugins.AdminSpec{
-		PluginID: "tool/mcp",
+		PluginID: "tool/test",
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -400,31 +400,31 @@ func TestConfigSchemaUsesPluginIDDirectly(t *testing.T) {
 		},
 	})
 
-	schema := host.ConfigSchema("tool/mcp")
+	schema := host.ConfigSchema("tool/test")
 	props := schema["properties"].(map[string]any)
 	props["servers"].(map[string]any)["type"] = "object"
 
-	original := host.ConfigSchema("tool/mcp")
+	original := host.ConfigSchema("tool/test")
 	if got := original["properties"].(map[string]any)["servers"].(map[string]any)["type"]; got != "array" {
 		t.Fatalf("expected schema clone, got %#v", got)
 	}
 }
 
 func TestRuntimeApplyCreatesAndApplies(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true, Config: map[string]any{"x": 1}}}}
+	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true, Config: map[string]any{"x": 1}}}}
 	host := New(store)
-	host.RegisterPluginID("tool/mcp")
+	host.RegisterPluginID("tool/test")
 	called := 0
-	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/mcp", Name: "main", Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/test", Name: "main", Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 		return runtimeStub{apply: func(_ context.Context, desired pkgplugins.PluginState) error {
 			called++
-			if desired.ID != "tool/mcp" {
+			if desired.ID != "tool/test" {
 				t.Fatal(desired.ID)
 			}
 			return nil
 		}}, nil
 	}})
-	if err := host.ApplyPlugin(context.Background(), "tool/mcp"); err != nil {
+	if err := host.ApplyPlugin(context.Background(), "tool/test"); err != nil {
 		t.Fatal(err)
 	}
 	if called != 1 {

@@ -9,7 +9,7 @@ In Stella, a plugin is the ownership unit for a feature area.
 
 A plugin:
 
-- has one canonical plugin ID such as `tool/mcp`, `channel/telegram`, or `reflect`
+- has one canonical plugin ID such as `tool/webfetch`, `channel/telegram`, or `reflect`
 - owns its own metadata, config schema, validation, and status behavior
 - can register one or more capabilities against the plugin host
 - is compiled into the `stella` binary at build time
@@ -58,7 +58,7 @@ A plugin ID identifies the plugin as a whole.
 Examples:
 
 - `tool/notify`
-- `tool/mcp`
+- `tool/webfetch`
 - `channel/telegram`
 - `hook/trace`
 - `provider/openai`
@@ -69,7 +69,7 @@ Capabilities are registered under that plugin ID, but each capability may also h
 Examples:
 
 - plugin `tool/notify` owns tool capability `notify`
-- plugin `tool/mcp` owns runtime `manager`, tool `mcp`, and prompt inventory `tools`
+- plugin `channel/telegram` owns config, channel registration, and a managed runtime
 - plugin `reflect` owns runtime `reviewer` and admin/status behavior
 
 This matters because one plugin can own more than one capability.
@@ -96,7 +96,6 @@ Some plugins register only one capability. Others register several.
 Examples:
 
 - `tool/notify` is a simple tool plugin
-- `tool/mcp` owns config, status, runtime, tool exposure, and prompt inventory
 - `channel/telegram` owns config, status, channel registration, and runtime lifecycle
 - `reflect` owns config, status, and a managed runtime
 

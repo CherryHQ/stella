@@ -16,10 +16,7 @@ import (
 	"github.com/CherryHQ/stella/resources"
 )
 
-type (
-	ToolsBuilder    func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
-	SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-)
+type SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 
 //go:embed template/system_prompt.tmpl
 var systemTemplate string
@@ -62,16 +59,9 @@ type promptData struct {
 	UserProfile    string // per-user profile from ProfileStore
 	Constraints    []memory.ConstraintEntry
 	Knowledge      []pkgplugins.KnowledgeEntry // active fact/context knowledge entries
-	MCPTools       []promptToolEntry           // prompt inventory for MCP-discovered tools
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
-}
-
-type promptToolEntry struct {
-	ID          string
-	Description string
-	ServerName  string
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -86,7 +76,6 @@ type DBPromptParams struct {
 	AgentRoot         string
 	ProjectRoot       string // optional project root for local/project-attached runs
 	UserRoot          string // per-user writable root
-	PromptTools       []pkgplugins.PromptToolInfo
 	Sections          []pkgplugins.SystemPromptSection
 	Host              sandbox.Host
 	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
@@ -173,15 +162,6 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 			}
 			data.Knowledge = entries
 		}
-	}
-
-	// MCP prompt inventory.
-	for _, tool := range p.PromptTools {
-		entry := promptToolEntry{ID: tool.Name, Description: tool.Description}
-		if serverName, _ := tool.Metadata["server_name"].(string); serverName != "" {
-			entry.ServerName = serverName
-		}
-		data.MCPTools = append(data.MCPTools, entry)
 	}
 
 	for _, s := range p.Sections {

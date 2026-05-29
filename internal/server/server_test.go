@@ -30,7 +30,6 @@ import (
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
-	mcp "github.com/CherryHQ/stella/internal/tools/mcp"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
@@ -192,15 +191,11 @@ func setupAdmin(t *testing.T) *testEnv {
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 	)
-	phost.RegisterBuiltinTools(mcp.NewManager())
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
 	skillStore := skills.New(db)
 	phost.SetSkillStore(skillStore)
-	if err := phost.ApplyPlugin(orgCtx, mcp.PluginID); err != nil {
-		t.Fatalf("ApplyPlugin(mcp): %v", err)
-	}
 	srv := server.New(orgCtx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	oidcStore := appdb.NewOIDCStore(db)
@@ -496,110 +491,6 @@ func TestListAgents(t *testing.T) {
 	}
 	if agents[0].Name != "Stella" {
 		t.Errorf("agent Name = %q, want %q", agents[0].Name, "Stella")
-	}
-}
-
-func TestUpdateMCPPluginConfig(t *testing.T) {
-	env := setupAdmin(t)
-
-	body := map[string]any{
-		"config": map[string]any{
-			"servers": []any{
-				map[string]any{
-					"name":      "github",
-					"enabled":   true,
-					"transport": mcp.TransportStdio,
-					"command":   "npx",
-				},
-			},
-		},
-	}
-	rr := doRequest(t, env, "PATCH", "/api/plugin-config/tool/mcp", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	resp := parseResponse(t, rr)
-	var plugin config.Plugin
-	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
-		t.Fatalf("unmarshal plugin: %v", err)
-	}
-	if plugin.ID != mcp.PluginID {
-		t.Fatalf("plugin.ID = %q", plugin.ID)
-	}
-	servers, ok := plugin.Config["servers"].([]any)
-	if !ok || len(servers) != 1 {
-		t.Fatalf("unexpected plugin config: %#v", plugin.Config)
-	}
-}
-
-func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
-	env := setupAdmin(t)
-	body := map[string]any{
-		"config": map[string]any{
-			"servers": []any{
-				map[string]any{"name": "bad", "transport": mcp.TransportStdio},
-			},
-		},
-	}
-	rr := doRequest(t, env, "PATCH", "/api/plugin-config/tool/mcp", body)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
-func TestGetMCPPluginStatus(t *testing.T) {
-	env := setupAdmin(t)
-	octx := config.WithOrgID(context.Background(), env.orgID)
-	if err := env.store.SetPluginEnabled(octx, mcp.PluginID, true); err != nil {
-		t.Fatalf("SetPluginEnabled: %v", err)
-	}
-	if err := env.store.SetPluginConfig(octx, mcp.PluginID, map[string]any{"servers": []any{}}); err != nil {
-		t.Fatalf("SetPluginConfig: %v", err)
-	}
-	if err := env.pluginHost.ApplyPlugin(octx, mcp.PluginID); err != nil {
-		t.Fatalf("ApplyPlugin: %v", err)
-	}
-	if _, ok := mcp.LookupRuntime(env.pluginHost.Runtime()); !ok {
-		t.Fatal("expected mcp runtime")
-	}
-
-	rr := doRequest(t, env, "GET", "/api/plugin-status/tool/mcp", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	resp := parseResponse(t, rr)
-	var payload struct {
-		Servers []mcp.ServerStatus `json:"servers"`
-	}
-	if err := json.Unmarshal(resp.Data, &payload); err != nil {
-		t.Fatalf("unmarshal status payload: %v", err)
-	}
-	if len(payload.Servers) != 0 {
-		t.Fatalf("len(payload.Servers) = %d, want 0", len(payload.Servers))
-	}
-}
-
-func TestGetMCPPluginConfigSchema(t *testing.T) {
-	env := setupAdmin(t)
-
-	rr := doRequest(t, env, "GET", "/api/plugin-config-schema/tool/mcp", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	resp := parseResponse(t, rr)
-	var schema map[string]any
-	if err := json.Unmarshal(resp.Data, &schema); err != nil {
-		t.Fatalf("unmarshal schema: %v", err)
-	}
-	props, ok := schema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("schema properties = %#v", schema["properties"])
-	}
-	if _, ok := props["servers"]; !ok {
-		t.Fatalf("expected servers property in schema: %#v", schema)
 	}
 }
 

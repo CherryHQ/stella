@@ -2,8 +2,6 @@ import type {
   ManifestBinary,
   ManifestPlugin,
   ManifestSessionEnv,
-  McpServer,
-  McpStatus,
   Plugin,
   PluginSchemaField,
   PluginSchemaProperty,
@@ -188,12 +186,7 @@ export function hasGenericConfigEditor(
   plugin: Plugin,
   schemas: Record<string, { properties?: Record<string, PluginSchemaProperty> }>,
 ): boolean {
-  return (
-    !!plugin &&
-    plugin.id !== "tool/mcp" &&
-    plugin.has_config &&
-    pluginSchemaFields(plugin, schemas).length > 0
-  );
+  return !!plugin && plugin.has_config && pluginSchemaFields(plugin, schemas).length > 0;
 }
 
 export function buildPluginConfigDraft(
@@ -268,205 +261,6 @@ export function buildPluginConfigPayload(
   return next;
 }
 
-// MCP helpers
-export function createArgsRows(args: string[]): { id: number; value: string }[] {
-  if (!Array.isArray(args) || args.length === 0) {
-    return [{ id: nextRowID(), value: "" }];
-  }
-  return args.map((value) => ({ id: nextRowID(), value: String(value || "") }));
-}
-
-export function createKeyValueRows(
-  entries: Record<string, string>,
-): { id: number; key: string; value: string }[] {
-  const pairs = Object.entries(entries || {});
-  if (pairs.length === 0) {
-    return [{ id: nextRowID(), key: "", value: "" }];
-  }
-  return pairs.map(([key, value]) => ({ id: nextRowID(), key, value: String(value || "") }));
-}
-
-export function normalizeMcpServers(servers: Record<string, unknown>[]): McpServer[] {
-  return (servers || []).map((server) => ({
-    id: nextRowID(),
-    expanded: true,
-    name: pluginFieldText(server.name),
-    enabled: server.enabled !== false,
-    transport: pluginFieldText(server.transport) || "stdio",
-    command: pluginFieldText(server.command),
-    url: pluginFieldText(server.url),
-    timeout_seconds: Number(server.timeout_seconds || 30),
-    args: createArgsRows((server.args as string[]) || []),
-    env: createKeyValueRows((server.env as Record<string, string>) || {}),
-    headers: createKeyValueRows((server.headers as Record<string, string>) || {}),
-  }));
-}
-
-export function newMcpServer(): McpServer {
-  return {
-    id: nextRowID(),
-    expanded: true,
-    name: "",
-    enabled: true,
-    transport: "stdio",
-    command: "",
-    url: "",
-    timeout_seconds: 30,
-    args: createArgsRows([]),
-    env: createKeyValueRows({}),
-    headers: createKeyValueRows({}),
-  };
-}
-
-export function argsFromRows(rows: { id: number; value: string }[]): string[] {
-  return (rows || []).map((row) => String(row.value || "")).filter((v) => v !== "");
-}
-
-export function objectFromRows(
-  rows: { id: number; key: string; value: string }[],
-): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const row of rows || []) {
-    const key = (row.key || "").trim();
-    if (!key) continue;
-    result[key] = String(row.value || "");
-  }
-  return result;
-}
-
-export function snapshotServer(server: McpServer): Record<string, unknown> {
-  return {
-    name: (server.name || "").trim(),
-    enabled: !!server.enabled,
-    transport: server.transport,
-    command: (server.command || "").trim(),
-    url: (server.url || "").trim(),
-    timeout_seconds: Number(server.timeout_seconds || 0),
-    args: argsFromRows(server.args),
-    env: objectFromRows(server.env),
-    headers: objectFromRows(server.headers),
-  };
-}
-
-export function snapshotMcpConfig(servers: McpServer[]): { servers: Record<string, unknown>[] } {
-  return { servers: servers.map(snapshotServer) };
-}
-
-export function validateKeyValueRows(
-  label: string,
-  rows: { id: number; key: string; value: string }[],
-): string[] {
-  const errors: string[] = [];
-  const seen = new Set<string>();
-  for (const row of rows || []) {
-    const key = (row.key || "").trim();
-    const value = String(row.value || "");
-    if (!key && value === "") continue;
-    if (!key) {
-      errors.push(`${label} key is required`);
-      continue;
-    }
-    const normalized = key.toLowerCase();
-    if (seen.has(normalized)) {
-      errors.push(`duplicate ${label} key "${key}"`);
-      continue;
-    }
-    seen.add(normalized);
-  }
-  return errors;
-}
-
-export function validateMcpServers(servers: McpServer[]): {
-  global: string[];
-  byIndex: string[][];
-} {
-  const global: string[] = [];
-  const byIndex: string[][] = servers.map(() => []);
-  const names = new Map<string, number[]>();
-
-  servers.forEach((server, index) => {
-    const errors = byIndex[index];
-    const name = (server.name || "").trim();
-    const transport = server.transport;
-    const timeout = Number(server.timeout_seconds);
-
-    if (!name) {
-      errors.push("Server name is required");
-    } else {
-      const normalized = name.toLowerCase();
-      if (!names.has(normalized)) names.set(normalized, []);
-      names.get(normalized)!.push(index);
-    }
-
-    if (transport === "stdio") {
-      if (!(server.command || "").trim()) {
-        errors.push("Command is required for stdio transport");
-      }
-    } else if (["sse", "streamable_http", "http"].includes(transport)) {
-      if (!(server.url || "").trim()) {
-        errors.push(`URL is required for ${transport} transport`);
-      }
-    } else {
-      errors.push(`Unsupported transport "${transport}"`);
-    }
-
-    if (Number.isNaN(timeout) || timeout < 0) {
-      errors.push("Timeout must be 0 or greater");
-    }
-
-    errors.push(...validateKeyValueRows("Environment", server.env));
-    errors.push(...validateKeyValueRows("Header", server.headers));
-  });
-
-  for (const [name, indexes] of names.entries()) {
-    if (indexes.length > 1) {
-      global.push(`Duplicate server name "${name}"`);
-      indexes.forEach((index) => byIndex[index].push("Server names must be unique"));
-    }
-  }
-
-  return { global, byIndex };
-}
-
-export function usesRemoteTransport(server: McpServer): boolean {
-  return ["sse", "streamable_http", "http"].includes(server.transport);
-}
-
-export function mcpStatusFor(serverName: string, statuses: McpStatus[]): McpStatus | null {
-  const key = (serverName || "").trim().toLowerCase();
-  return (
-    statuses.find(
-      (s) =>
-        String(s.name || "")
-          .trim()
-          .toLowerCase() === key,
-    ) ?? null
-  );
-}
-
-export function mcpStatusTone(serverName: string, statuses: McpStatus[]): string {
-  const status = mcpStatusFor(serverName, statuses);
-  if (!status) return "outline";
-  if (status.state === "running") return "success";
-  if (status.state === "suppressed") return "error";
-  if (status.state === "backoff") return "warning";
-  if (status.state === "starting") return "info";
-  return "outline";
-}
-
-export function mcpStatusLabel(
-  serverName: string,
-  serverEnabled: boolean,
-  mcpPluginEnabled: boolean,
-  statuses: McpStatus[],
-): string {
-  if (!serverEnabled) return "configured off";
-  if (!mcpPluginEnabled) return "plugin off";
-  const status = mcpStatusFor(serverName, statuses);
-  if (!status) return "not connected";
-  return status.state || "unknown";
-}
-
 export function formatTimestamp(value: string): string {
   if (!value) return "";
   const date = new Date(value);
@@ -517,7 +311,7 @@ export function sandboxMeta(pluginID: string): {
         "Full container-level process, filesystem, and network isolation",
         "Works on Linux, macOS, and Windows",
         "Per-agent network policy enforcement",
-        "Dedicated container process namespace for MCP servers",
+        "Dedicated container process namespace",
       ],
       limitations: ["Requires a running Docker daemon"],
     },

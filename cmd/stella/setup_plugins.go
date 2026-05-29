@@ -18,19 +18,16 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	skills "github.com/CherryHQ/stella/internal/skills"
-	mcpplugin "github.com/CherryHQ/stella/internal/tools/mcp"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type pluginSetup struct {
 	host                   *pluginhost.Host
-	mcpManager             *mcpplugin.Manager
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	oauthRegistry          *oauth.ProviderRegistry
 	manifestToReconcile    *manifestplugins.Manifest
 }
 
-func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
+func setupPlugins(_ context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	stateStore := pluginstate.New(db)
@@ -43,8 +40,6 @@ func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStor
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 	)
 
-	mcpManager := mcpplugin.NewManager()
-	phost.RegisterBuiltinTools(mcpManager)
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
@@ -71,15 +66,8 @@ func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStor
 		oauthRegistry = buildOAuthRegistry(merged)
 	}
 
-	// MCP config is per-org; at startup there is no org context yet.
-	// The runtime will be applied when an admin saves MCP config via the API.
-	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
-		slog.Warn("mcp: deferred runtime start (no org context at boot)", "error", err)
-	}
-
 	return &pluginSetup{
 		host:                   phost,
-		mcpManager:             mcpManager,
 		channelRuntimeServices: channelRuntimeServices,
 		oauthRegistry:          oauthRegistry,
 		manifestToReconcile:    manifestToReconcile,
@@ -120,21 +108,6 @@ func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistr
 		})
 	}
 	return registry
-}
-
-func buildPromptToolsBuilder(mcpManager *mcpplugin.Manager) func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
-	return func(_ context.Context) ([]pkgplugins.PromptToolInfo, error) {
-		validTools := mcpManager.ValidTools()
-		items := make([]pkgplugins.PromptToolInfo, 0, len(validTools))
-		for _, t := range validTools {
-			items = append(items, pkgplugins.PromptToolInfo{
-				Name:        t.ID,
-				Description: t.Description,
-				Metadata:    map[string]any{"server_name": t.ServerName},
-			})
-		}
-		return items, nil
-	}
 }
 
 func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, stellaHome string) {

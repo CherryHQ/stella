@@ -8,9 +8,7 @@
 - `bash`: Run shell commands — git, system tools, package managers, etc. Do NOT use bash to read/write files; use the dedicated tools above. Prefer `fd`/`rg` over `find`/`grep`.
 - `memory`: Manage persistent knowledge across sessions. See the Memories section below for file scope rules
 - `delegate`: Delegate focused subtasks to isolated child loops. Multiple tasks run in parallel (max 5, concurrency 3)
-{{ if .MCPTools }}- `mcp`: Proxy configured MCP tools. Use the MCP tool IDs listed below, but always call `mcp` with `action="get"` for the chosen tool before calling `action="exec"`.
-{{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
-{{ end }}{{ end }}
+
 # CLI
 
 The `stella` CLI is self-documenting. Run `stella <command> --help` via bash to see exact flags and usage before calling any command.
