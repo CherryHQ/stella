@@ -9,7 +9,6 @@ CREATE TABLE agent_task_run (
     id                  TEXT NOT NULL PRIMARY KEY,
     task_id             TEXT REFERENCES agent_task(id) ON DELETE CASCADE,
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,
-    org_id              TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id            TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,   -- delegator (creator of this run)
     executor_agent_id   TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,   -- D13: resolved at claim

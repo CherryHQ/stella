@@ -11,30 +11,20 @@ import (
 )
 
 const deleteChannel = `-- name: DeleteChannel :exec
-DELETE FROM settings_channel WHERE id = ? AND org_id = ?
+DELETE FROM settings_channel WHERE id = ?
 `
 
-type DeleteChannelParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteChannel(ctx context.Context, arg DeleteChannelParams) error {
-	_, err := q.db.ExecContext(ctx, deleteChannel, arg.ID, arg.OrgID)
+func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteChannel, id)
 	return err
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE id = ? AND org_id = ?
+SELECT id, type, agent_id, enabled, config, created_at, updated_at FROM settings_channel WHERE id = ?
 `
 
-type GetChannelParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetChannel(ctx context.Context, arg GetChannelParams) (SettingsChannel, error) {
-	row := q.db.QueryRowContext(ctx, getChannel, arg.ID, arg.OrgID)
+func (q *Queries) GetChannel(ctx context.Context, id string) (SettingsChannel, error) {
+	row := q.db.QueryRowContext(ctx, getChannel, id)
 	var i SettingsChannel
 	err := row.Scan(
 		&i.ID,
@@ -42,7 +32,6 @@ func (q *Queries) GetChannel(ctx context.Context, arg GetChannelParams) (Setting
 		&i.AgentID,
 		&i.Enabled,
 		&i.Config,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -50,11 +39,11 @@ func (q *Queries) GetChannel(ctx context.Context, arg GetChannelParams) (Setting
 }
 
 const listChannels = `-- name: ListChannels :many
-SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE org_id = ? ORDER BY type, id
+SELECT id, type, agent_id, enabled, config, created_at, updated_at FROM settings_channel ORDER BY type, id
 `
 
-func (q *Queries) ListChannels(ctx context.Context, orgID string) ([]SettingsChannel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannels, orgID)
+func (q *Queries) ListChannels(ctx context.Context) ([]SettingsChannel, error) {
+	rows, err := q.db.QueryContext(ctx, listChannels)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +57,6 @@ func (q *Queries) ListChannels(ctx context.Context, orgID string) ([]SettingsCha
 			&i.AgentID,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -86,16 +74,11 @@ func (q *Queries) ListChannels(ctx context.Context, orgID string) ([]SettingsCha
 }
 
 const listChannelsByType = `-- name: ListChannelsByType :many
-SELECT id, type, agent_id, enabled, config, org_id, created_at, updated_at FROM settings_channel WHERE type = ? AND org_id = ? ORDER BY id
+SELECT id, type, agent_id, enabled, config, created_at, updated_at FROM settings_channel WHERE type = ? ORDER BY id
 `
 
-type ListChannelsByTypeParams struct {
-	Type  string `json:"type"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) ListChannelsByType(ctx context.Context, arg ListChannelsByTypeParams) ([]SettingsChannel, error) {
-	rows, err := q.db.QueryContext(ctx, listChannelsByType, arg.Type, arg.OrgID)
+func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]SettingsChannel, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelsByType, type_)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +92,6 @@ func (q *Queries) ListChannelsByType(ctx context.Context, arg ListChannelsByType
 			&i.AgentID,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -126,25 +108,10 @@ func (q *Queries) ListChannelsByType(ctx context.Context, arg ListChannelsByType
 	return items, nil
 }
 
-const setChannelOrg = `-- name: SetChannelOrg :exec
-UPDATE settings_channel SET org_id = ?1 WHERE id = ?2 AND org_id = ?3
-`
-
-type SetChannelOrgParams struct {
-	OrgID        string `json:"org_id"`
-	ID           string `json:"id"`
-	CurrentOrgID string `json:"current_org_id"`
-}
-
-func (q *Queries) SetChannelOrg(ctx context.Context, arg SetChannelOrgParams) error {
-	_, err := q.db.ExecContext(ctx, setChannelOrg, arg.OrgID, arg.ID, arg.CurrentOrgID)
-	return err
-}
-
 const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO settings_channel (id, type, agent_id, enabled, config, org_id, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(id, org_id) DO UPDATE SET
+INSERT INTO settings_channel (id, type, agent_id, enabled, config, updated_at)
+VALUES (?, ?, ?, ?, ?, datetime('now'))
+ON CONFLICT(id) DO UPDATE SET
     type = excluded.type,
     agent_id = excluded.agent_id,
     enabled = excluded.enabled,
@@ -158,7 +125,6 @@ type UpsertChannelParams struct {
 	AgentID sql.NullString `json:"agent_id"`
 	Enabled int64          `json:"enabled"`
 	Config  string         `json:"config"`
-	OrgID   string         `json:"org_id"`
 }
 
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
@@ -168,7 +134,6 @@ func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) er
 		arg.AgentID,
 		arg.Enabled,
 		arg.Config,
-		arg.OrgID,
 	)
 	return err
 }

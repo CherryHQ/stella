@@ -9,8 +9,5 @@ CREATE TABLE auth_policy (
     priority   INTEGER NOT NULL DEFAULT 0,
     is_system  INTEGER NOT NULL DEFAULT 0,
     enabled    INTEGER NOT NULL DEFAULT 1,
-    org_id     TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
-CREATE INDEX idx_auth_policies_org_id ON auth_policy(org_id);

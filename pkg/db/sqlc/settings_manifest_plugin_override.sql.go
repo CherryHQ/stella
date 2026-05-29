@@ -12,35 +12,24 @@ import (
 
 const deleteManifestPluginOverride = `-- name: DeleteManifestPluginOverride :exec
 DELETE FROM settings_manifest_plugin_override
-WHERE plugin_id = ? AND org_id = ?
+WHERE plugin_id = ?
 `
 
-type DeleteManifestPluginOverrideParams struct {
-	PluginID string `json:"plugin_id"`
-	OrgID    string `json:"org_id"`
-}
-
-func (q *Queries) DeleteManifestPluginOverride(ctx context.Context, arg DeleteManifestPluginOverrideParams) error {
-	_, err := q.db.ExecContext(ctx, deleteManifestPluginOverride, arg.PluginID, arg.OrgID)
+func (q *Queries) DeleteManifestPluginOverride(ctx context.Context, pluginID string) error {
+	_, err := q.db.ExecContext(ctx, deleteManifestPluginOverride, pluginID)
 	return err
 }
 
 const getManifestPluginOverride = `-- name: GetManifestPluginOverride :one
-SELECT plugin_id, org_id, enabled, session_env_vault_key, updated_at FROM settings_manifest_plugin_override
-WHERE plugin_id = ? AND org_id = ?
+SELECT plugin_id, enabled, session_env_vault_key, updated_at FROM settings_manifest_plugin_override
+WHERE plugin_id = ?
 `
 
-type GetManifestPluginOverrideParams struct {
-	PluginID string `json:"plugin_id"`
-	OrgID    string `json:"org_id"`
-}
-
-func (q *Queries) GetManifestPluginOverride(ctx context.Context, arg GetManifestPluginOverrideParams) (SettingsManifestPluginOverride, error) {
-	row := q.db.QueryRowContext(ctx, getManifestPluginOverride, arg.PluginID, arg.OrgID)
+func (q *Queries) GetManifestPluginOverride(ctx context.Context, pluginID string) (SettingsManifestPluginOverride, error) {
+	row := q.db.QueryRowContext(ctx, getManifestPluginOverride, pluginID)
 	var i SettingsManifestPluginOverride
 	err := row.Scan(
 		&i.PluginID,
-		&i.OrgID,
 		&i.Enabled,
 		&i.SessionEnvVaultKey,
 		&i.UpdatedAt,
@@ -49,13 +38,12 @@ func (q *Queries) GetManifestPluginOverride(ctx context.Context, arg GetManifest
 }
 
 const listManifestPluginOverrides = `-- name: ListManifestPluginOverrides :many
-SELECT plugin_id, org_id, enabled, session_env_vault_key, updated_at FROM settings_manifest_plugin_override
-WHERE org_id = ?
+SELECT plugin_id, enabled, session_env_vault_key, updated_at FROM settings_manifest_plugin_override
 ORDER BY plugin_id
 `
 
-func (q *Queries) ListManifestPluginOverrides(ctx context.Context, orgID string) ([]SettingsManifestPluginOverride, error) {
-	rows, err := q.db.QueryContext(ctx, listManifestPluginOverrides, orgID)
+func (q *Queries) ListManifestPluginOverrides(ctx context.Context) ([]SettingsManifestPluginOverride, error) {
+	rows, err := q.db.QueryContext(ctx, listManifestPluginOverrides)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +53,6 @@ func (q *Queries) ListManifestPluginOverrides(ctx context.Context, orgID string)
 		var i SettingsManifestPluginOverride
 		if err := rows.Scan(
 			&i.PluginID,
-			&i.OrgID,
 			&i.Enabled,
 			&i.SessionEnvVaultKey,
 			&i.UpdatedAt,
@@ -84,9 +71,9 @@ func (q *Queries) ListManifestPluginOverrides(ctx context.Context, orgID string)
 }
 
 const upsertManifestPluginOverride = `-- name: UpsertManifestPluginOverride :exec
-INSERT INTO settings_manifest_plugin_override (plugin_id, org_id, enabled, session_env_vault_key, updated_at)
-VALUES (?, ?, ?, ?, datetime('now'))
-ON CONFLICT(plugin_id, org_id) DO UPDATE SET
+INSERT INTO settings_manifest_plugin_override (plugin_id, enabled, session_env_vault_key, updated_at)
+VALUES (?, ?, ?, datetime('now'))
+ON CONFLICT(plugin_id) DO UPDATE SET
     enabled               = excluded.enabled,
     session_env_vault_key = excluded.session_env_vault_key,
     updated_at            = datetime('now')
@@ -94,17 +81,11 @@ ON CONFLICT(plugin_id, org_id) DO UPDATE SET
 
 type UpsertManifestPluginOverrideParams struct {
 	PluginID           string        `json:"plugin_id"`
-	OrgID              string        `json:"org_id"`
 	Enabled            sql.NullInt64 `json:"enabled"`
 	SessionEnvVaultKey string        `json:"session_env_vault_key"`
 }
 
 func (q *Queries) UpsertManifestPluginOverride(ctx context.Context, arg UpsertManifestPluginOverrideParams) error {
-	_, err := q.db.ExecContext(ctx, upsertManifestPluginOverride,
-		arg.PluginID,
-		arg.OrgID,
-		arg.Enabled,
-		arg.SessionEnvVaultKey,
-	)
+	_, err := q.db.ExecContext(ctx, upsertManifestPluginOverride, arg.PluginID, arg.Enabled, arg.SessionEnvVaultKey)
 	return err
 }

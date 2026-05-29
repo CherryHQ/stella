@@ -27,9 +27,9 @@ func (q *Queries) ArchiveProject(ctx context.Context, arg ArchiveProjectParams) 
 }
 
 const createProject = `-- name: CreateProject :one
-INSERT INTO settings_project (id, agent_id, user_id, name, base_dir, description, org_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, agent_id, user_id, name, base_dir, description, archived, org_id, created_at, updated_at
+INSERT INTO settings_project (id, agent_id, user_id, name, base_dir, description)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at
 `
 
 type CreateProjectParams struct {
@@ -39,7 +39,6 @@ type CreateProjectParams struct {
 	Name        string         `json:"name"`
 	BaseDir     string         `json:"base_dir"`
 	Description sql.NullString `json:"description"`
-	OrgID       string         `json:"org_id"`
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (SettingsProject, error) {
@@ -50,7 +49,6 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (S
 		arg.Name,
 		arg.BaseDir,
 		arg.Description,
-		arg.OrgID,
 	)
 	var i SettingsProject
 	err := row.Scan(
@@ -61,7 +59,6 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (S
 		&i.BaseDir,
 		&i.Description,
 		&i.Archived,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -83,7 +80,7 @@ func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) er
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, agent_id, user_id, name, base_dir, description, archived, org_id, created_at, updated_at FROM settings_project WHERE id = ? AND user_id = ?
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM settings_project WHERE id = ? AND user_id = ?
 `
 
 type GetProjectParams struct {
@@ -102,7 +99,6 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Setting
 		&i.BaseDir,
 		&i.Description,
 		&i.Archived,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -110,7 +106,7 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Setting
 }
 
 const getProjectByName = `-- name: GetProjectByName :one
-SELECT id, agent_id, user_id, name, base_dir, description, archived, org_id, created_at, updated_at FROM settings_project WHERE agent_id = ? AND user_id = ? AND name = ?
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM settings_project WHERE agent_id = ? AND user_id = ? AND name = ?
 `
 
 type GetProjectByNameParams struct {
@@ -130,7 +126,6 @@ func (q *Queries) GetProjectByName(ctx context.Context, arg GetProjectByNamePara
 		&i.BaseDir,
 		&i.Description,
 		&i.Archived,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -138,7 +133,7 @@ func (q *Queries) GetProjectByName(ctx context.Context, arg GetProjectByNamePara
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, agent_id, user_id, name, base_dir, description, archived, org_id, created_at, updated_at FROM settings_project WHERE agent_id = ? AND user_id = ? AND archived = 0 ORDER BY created_at ASC
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM settings_project WHERE agent_id = ? AND user_id = ? AND archived = 0 ORDER BY created_at ASC
 `
 
 type ListProjectsParams struct {
@@ -163,7 +158,6 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]S
 			&i.BaseDir,
 			&i.Description,
 			&i.Archived,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -181,7 +175,7 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]S
 }
 
 const listProjectsAll = `-- name: ListProjectsAll :many
-SELECT id, agent_id, user_id, name, base_dir, description, archived, org_id, created_at, updated_at FROM settings_project WHERE agent_id = ? AND user_id = ? ORDER BY created_at ASC
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM settings_project WHERE agent_id = ? AND user_id = ? ORDER BY created_at ASC
 `
 
 type ListProjectsAllParams struct {
@@ -206,7 +200,6 @@ func (q *Queries) ListProjectsAll(ctx context.Context, arg ListProjectsAllParams
 			&i.BaseDir,
 			&i.Description,
 			&i.Archived,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -226,7 +219,7 @@ func (q *Queries) ListProjectsAll(ctx context.Context, arg ListProjectsAllParams
 const updateProject = `-- name: UpdateProject :one
 UPDATE settings_project SET name = ?, description = ?, base_dir = ?, updated_at = datetime('now')
 WHERE id = ? AND user_id = ?
-RETURNING id, agent_id, user_id, name, base_dir, description, archived, org_id, created_at, updated_at
+RETURNING id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at
 `
 
 type UpdateProjectParams struct {
@@ -254,7 +247,6 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (S
 		&i.BaseDir,
 		&i.Description,
 		&i.Archived,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

@@ -1,26 +1,10 @@
--- Create "auth_organization" table
-CREATE TABLE `auth_organization` (
-  `id` text NOT NULL,
-  `name` text NOT NULL,
-  `external_id` text NOT NULL DEFAULT '',
-  `source` text NOT NULL DEFAULT 'local',
-  `created_at` text NOT NULL DEFAULT (datetime('now')),
-  `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`)
-);
--- Create index "auth_organization_source_external_id" to table: "auth_organization"
-CREATE UNIQUE INDEX `auth_organization_source_external_id` ON `auth_organization` (`source`, `external_id`);
 -- Create "settings" table
 CREATE TABLE `settings` (
-  `key` text NULL,
+  `key` text NOT NULL,
   `value` text NOT NULL DEFAULT '{}',
-  `org_id` text NOT NULL,
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`key`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+  PRIMARY KEY (`key`)
 );
--- Create index "idx_settings_org_id" to table: "settings"
-CREATE INDEX `idx_settings_org_id` ON `settings` (`org_id`);
 -- Create "settings_agent" table
 CREATE TABLE `settings_agent` (
   `id` text NULL,
@@ -36,45 +20,33 @@ CREATE TABLE `settings_agent` (
   `scope` text NOT NULL DEFAULT 'system',
   `creator_id` text NOT NULL DEFAULT '',
   `enabled` integer NOT NULL DEFAULT 1,
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+  PRIMARY KEY (`id`)
 );
--- Create index "idx_settings_agents_org_id" to table: "settings_agent"
-CREATE INDEX `idx_settings_agents_org_id` ON `settings_agent` (`org_id`);
 -- Create "settings_channel" table
 CREATE TABLE `settings_channel` (
-  `id` text NULL,
+  `id` text NOT NULL,
   `type` text NOT NULL DEFAULT '',
   `agent_id` text NULL,
   `enabled` integer NOT NULL DEFAULT 1,
   `config` text NOT NULL DEFAULT '{}',
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL
 );
--- Create index "idx_settings_channels_org_id" to table: "settings_channel"
-CREATE INDEX `idx_settings_channels_org_id` ON `settings_channel` (`org_id`);
 -- Create "settings_plugin" table
 CREATE TABLE `settings_plugin` (
-  `id` text NULL,
+  `id` text NOT NULL,
   `kind` text NOT NULL,
   `name` text NOT NULL,
   `enabled` integer NOT NULL DEFAULT 1,
   `config` text NOT NULL DEFAULT '{}',
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+  PRIMARY KEY (`id`)
 );
--- Create index "idx_settings_plugins_org_id" to table: "settings_plugin"
-CREATE INDEX `idx_settings_plugins_org_id` ON `settings_plugin` (`org_id`);
 -- Create "settings_provider" table
 CREATE TABLE `settings_provider` (
   `id` text NULL,
@@ -82,28 +54,20 @@ CREATE TABLE `settings_provider` (
   `name` text NOT NULL,
   `enabled` integer NOT NULL DEFAULT 1,
   `config` text NOT NULL DEFAULT '{}',
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+  PRIMARY KEY (`id`)
 );
--- Create index "idx_settings_providers_org_id" to table: "settings_provider"
-CREATE INDEX `idx_settings_providers_org_id` ON `settings_provider` (`org_id`);
 -- Create "settings_channel_agent" table
 CREATE TABLE `settings_channel_agent` (
   `channel_id` text NOT NULL DEFAULT '',
   `platform` text NOT NULL,
   `chat_id` text NOT NULL,
   `agent_id` text NOT NULL,
-  `org_id` text NOT NULL,
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`channel_id`, `platform`, `chat_id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
--- Create index "idx_settings_channel_agents_org_id" to table: "settings_channel_agent"
-CREATE INDEX `idx_settings_channel_agents_org_id` ON `settings_channel_agent` (`org_id`);
 -- Create "ctx_agent_memory" table
 CREATE TABLE `ctx_agent_memory` (
   `user_id` text NOT NULL,
@@ -170,16 +134,12 @@ CREATE TABLE `ctx_conversation` (
   `bootstrapped_at` text NULL,
   `agent_id` text NULL,
   `user_id` text NULL,
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+  PRIMARY KEY (`id`)
 );
 -- Create index "ctx_conversation_session_id" to table: "ctx_conversation"
 CREATE UNIQUE INDEX `ctx_conversation_session_id` ON `ctx_conversation` (`session_id`);
--- Create index "idx_ctx_conversations_org_id" to table: "ctx_conversation"
-CREATE INDEX `idx_ctx_conversations_org_id` ON `ctx_conversation` (`org_id`);
 -- Create index "idx_one_agent_main" to table: "ctx_conversation"
 CREATE UNIQUE INDEX `idx_one_agent_main` ON `ctx_conversation` (`agent_id`, `user_id`) WHERE kind = 'main' AND project_id IS NULL AND archived = 0;
 -- Create index "idx_one_project_main" to table: "ctx_conversation"
@@ -297,18 +257,14 @@ CREATE TABLE `sched_job` (
   `enabled` integer NOT NULL DEFAULT 1,
   `agent_id` text NULL,
   `user_id` text NULL,
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   `last_run_at` text NULL,
   `last_error` text NOT NULL DEFAULT '',
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+  PRIMARY KEY (`id`)
 );
 -- Create index "idx_sched_jobs_owner" to table: "sched_job"
 CREATE INDEX `idx_sched_jobs_owner` ON `sched_job` (`owner_kind`, `plugin_id`, `job_key`);
--- Create index "idx_sched_jobs_org_id" to table: "sched_job"
-CREATE INDEX `idx_sched_jobs_org_id` ON `sched_job` (`org_id`);
 -- Create "sched_job_run" table
 CREATE TABLE `sched_job_run` (
   `id` text NOT NULL,
@@ -336,14 +292,10 @@ CREATE TABLE `auth_policy` (
   `priority` integer NOT NULL DEFAULT 0,
   `is_system` integer NOT NULL DEFAULT 0,
   `enabled` integer NOT NULL DEFAULT 1,
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (effect IN ('allow', 'deny'))
 );
--- Create index "idx_auth_policies_org_id" to table: "auth_policy"
-CREATE INDEX `idx_auth_policies_org_id` ON `auth_policy` (`org_id`);
 -- Create "auth_user_agent" table
 CREATE TABLE `auth_user_agent` (
   `user_id` text NOT NULL,
@@ -445,25 +397,6 @@ CREATE UNIQUE INDEX `auth_session_token_hash` ON `auth_session` (`token_hash`);
 CREATE INDEX `idx_auth_session_user_id` ON `auth_session` (`user_id`);
 -- Create index "idx_auth_session_token_hash" to table: "auth_session"
 CREATE INDEX `idx_auth_session_token_hash` ON `auth_session` (`token_hash`);
--- Create "auth_membership" table
-CREATE TABLE `auth_membership` (
-  `id` text NOT NULL,
-  `user_id` text NOT NULL,
-  `organization_id` text NOT NULL,
-  `role` text NOT NULL DEFAULT 'user',
-  `is_active` integer NOT NULL DEFAULT 1,
-  `created_at` text NOT NULL DEFAULT (datetime('now')),
-  `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`organization_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
-);
--- Create index "auth_membership_user_id_organization_id" to table: "auth_membership"
-CREATE UNIQUE INDEX `auth_membership_user_id_organization_id` ON `auth_membership` (`user_id`, `organization_id`);
--- Create index "idx_auth_membership_user_id" to table: "auth_membership"
-CREATE INDEX `idx_auth_membership_user_id` ON `auth_membership` (`user_id`);
--- Create index "idx_auth_membership_organization_id" to table: "auth_membership"
-CREATE INDEX `idx_auth_membership_organization_id` ON `auth_membership` (`organization_id`);
 -- Create "auth_credential" table
 CREATE TABLE `auth_credential` (
   `id` text NOT NULL,
@@ -478,39 +411,11 @@ CREATE TABLE `auth_credential` (
 CREATE UNIQUE INDEX `auth_credential_user_id` ON `auth_credential` (`user_id`);
 -- Create index "idx_auth_credential_user_id" to table: "auth_credential"
 CREATE INDEX `idx_auth_credential_user_id` ON `auth_credential` (`user_id`);
--- Create "auth_invite" table
-CREATE TABLE `auth_invite` (
-  `id` text NOT NULL,
-  `token_hash` text NOT NULL,
-  `org_id` text NOT NULL,
-  `email` text NULL,
-  `role` text NOT NULL DEFAULT 'user',
-  `status` text NOT NULL DEFAULT 'pending',
-  `max_uses` integer NOT NULL DEFAULT 1,
-  `use_count` integer NOT NULL DEFAULT 0,
-  `invited_by` text NOT NULL,
-  `accepted_by` text NULL,
-  `expires_at` text NOT NULL,
-  `created_at` text NOT NULL DEFAULT (datetime('now')),
-  `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`accepted_by`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
-  CONSTRAINT `1` FOREIGN KEY (`invited_by`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
-  CONSTRAINT `2` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (status IN ('pending','accepted','revoked'))
-);
--- Create index "auth_invite_token_hash" to table: "auth_invite"
-CREATE UNIQUE INDEX `auth_invite_token_hash` ON `auth_invite` (`token_hash`);
--- Create index "idx_auth_invite_org" to table: "auth_invite"
-CREATE INDEX `idx_auth_invite_org` ON `auth_invite` (`org_id`);
--- Create index "idx_auth_invite_token_hash" to table: "auth_invite"
-CREATE INDEX `idx_auth_invite_token_hash` ON `auth_invite` (`token_hash`);
 -- Create "oidc_code" table
 CREATE TABLE `oidc_code` (
   `id` text NOT NULL,
   `code_hash` text NOT NULL,
   `user_id` text NOT NULL,
-  `org_id` text NOT NULL DEFAULT '',
   `client_id` text NOT NULL,
   `redirect_uri` text NOT NULL,
   `scopes` text NOT NULL DEFAULT '[]',
@@ -534,7 +439,6 @@ CREATE TABLE `oidc_access_token` (
   `id` text NOT NULL,
   `token_hash` text NOT NULL,
   `user_id` text NOT NULL,
-  `org_id` text NOT NULL DEFAULT '',
   `client_id` text NOT NULL,
   `scopes` text NOT NULL DEFAULT '[]',
   `expires_at` text NOT NULL,
@@ -588,13 +492,11 @@ CREATE TABLE `skill` (
   `status` text NOT NULL DEFAULT 'active',
   `disable_model_invocation` integer NOT NULL DEFAULT 0,
   `metadata` text NOT NULL DEFAULT '{}',
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (scope IN ('system','agent','user')),
   CHECK (status IN ('draft','active','deprecated')),
   CHECK (
@@ -607,8 +509,6 @@ CREATE TABLE `skill` (
 CREATE UNIQUE INDEX `idx_skills_owner_name` ON `skill` (`name`, `scope`, (ifnull(user_id, 0)), (ifnull(agent_id, '')));
 -- Create index "idx_skills_visibility" to table: "skill"
 CREATE INDEX `idx_skills_visibility` ON `skill` (`scope`, `user_id`, `agent_id`);
--- Create index "idx_skills_org_id" to table: "skill"
-CREATE INDEX `idx_skills_org_id` ON `skill` (`org_id`);
 -- Create "skill_file" table
 CREATE TABLE `skill_file` (
   `skill_id` text NOT NULL,
@@ -759,57 +659,291 @@ CREATE TABLE `recally_digest_articles` (
 );
 -- Create index "idx_recally_digest_articles_digest" to table: "recally_digest_articles"
 CREATE INDEX `idx_recally_digest_articles_digest` ON `recally_digest_articles` (`digest_id`);
--- Create "agent_task" table
-CREATE TABLE `agent_task` (
+-- Create "agent_goal" table
+CREATE TABLE `agent_goal` (
   `id` text NOT NULL,
+  `user_id` text NOT NULL,
+  `agent_id` text NULL,
   `title` text NOT NULL,
   `description` text NOT NULL DEFAULT '',
-  `status` text NOT NULL DEFAULT 'pending',
+  `status` text NOT NULL DEFAULT 'draft',
   `priority` text NOT NULL DEFAULT 'routine',
-  `session_id` text NULL,
+  `review_policy` text NOT NULL DEFAULT 'none',
+  `active_review_id` text NULL,
   `context` text NOT NULL DEFAULT '{}',
-  `review_request` text NOT NULL DEFAULT '{}',
-  `deps` text NOT NULL DEFAULT '[]',
-  `notify_at` text NULL,
-  `scheduler_job_id` text NULL,
-  `scheduler_run_id` text NULL,
-  `agent_id` text NULL,
+  `output` text NOT NULL DEFAULT '{}',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
+  `updated_at` text NOT NULL DEFAULT (datetime('now')),
+  `completed_at` text NULL,
+  `cancelled_at` text NULL,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`active_review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (status IN ('draft','planning','running','blocked','reviewing','done','failed','cancelled')),
+  CHECK (priority IN ('routine','urgent')),
+  CHECK (review_policy IN ('none','auto','agent','human'))
+);
+-- Create "agent_task_run" table
+CREATE TABLE `agent_task_run` (
+  `id` text NOT NULL,
+  `task_id` text NULL,
+  `goal_id` text NULL,
   `user_id` text NOT NULL,
+  `agent_id` text NULL,
+  `executor_agent_id` text NULL,
+  `kind` text NOT NULL DEFAULT 'worker',
+  `attempt_no` integer NOT NULL DEFAULT 1,
+  `status` text NOT NULL DEFAULT 'queued',
+  `session_id` text NOT NULL,
+  `input` text NOT NULL DEFAULT '{}',
+  `result` text NOT NULL DEFAULT '{}',
+  `error` text NOT NULL DEFAULT '',
+  `heartbeat_at` text NULL,
+  `lease_expires_at` text NULL,
+  `worker_id` text NOT NULL DEFAULT '',
+  `started_at` text NULL,
+  `finished_at` text NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `0` FOREIGN KEY (`executor_agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `2` FOREIGN KEY (`scheduler_run_id`) REFERENCES `sched_job_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `3` FOREIGN KEY (`scheduler_job_id`) REFERENCES `sched_job` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CHECK (status IN ('pending','running','blocked','review_requested','done','failed','cancelled')),
-  CHECK (priority IN ('routine','urgent'))
+  CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `4` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (kind IN ('worker','reviewer','planner','synthesizer')),
+  CHECK (status IN ('queued','running','completed','failed','cancelled','interrupted','timed_out')),
+  CHECK (
+      (task_id IS NOT NULL AND goal_id IS NULL     AND kind IN ('worker','reviewer'))
+      OR
+      (task_id IS NULL     AND goal_id IS NOT NULL AND kind IN ('planner','synthesizer'))
+    )
 );
--- Create index "idx_agent_task_user_id_status" to table: "agent_task"
-CREATE INDEX `idx_agent_task_user_id_status` ON `agent_task` (`user_id`, `status`);
--- Create index "idx_agent_task_status" to table: "agent_task"
-CREATE INDEX `idx_agent_task_status` ON `agent_task` (`status`);
--- Create index "idx_agent_task_session_id" to table: "agent_task"
-CREATE INDEX `idx_agent_task_session_id` ON `agent_task` (`session_id`);
--- Create index "idx_agent_task_scheduler_job_id" to table: "agent_task"
-CREATE INDEX `idx_agent_task_scheduler_job_id` ON `agent_task` (`scheduler_job_id`);
--- Create index "idx_agent_task_scheduler_run_id" to table: "agent_task"
-CREATE INDEX `idx_agent_task_scheduler_run_id` ON `agent_task` (`scheduler_run_id`);
--- Create index "idx_agent_task_agent_id" to table: "agent_task"
-CREATE INDEX `idx_agent_task_agent_id` ON `agent_task` (`agent_id`);
--- Create "agent_task_event" table
-CREATE TABLE `agent_task_event` (
+-- Create index "idx_agent_task_run_task" to table: "agent_task_run"
+CREATE INDEX `idx_agent_task_run_task` ON `agent_task_run` (`task_id`, `attempt_no` DESC);
+-- Create index "idx_agent_task_run_active" to table: "agent_task_run"
+CREATE INDEX `idx_agent_task_run_active` ON `agent_task_run` (`status`) WHERE status IN ('queued','running');
+-- Create index "idx_agent_task_run_lease" to table: "agent_task_run"
+CREATE INDEX `idx_agent_task_run_lease` ON `agent_task_run` (`lease_expires_at`) WHERE status IN ('queued','running');
+-- Create index "uniq_active_worker_run" to table: "agent_task_run"
+CREATE UNIQUE INDEX `uniq_active_worker_run` ON `agent_task_run` (`task_id`) WHERE task_id IS NOT NULL AND kind = 'worker' AND status IN ('queued','running');
+-- Create index "uniq_active_reviewer_run" to table: "agent_task_run"
+CREATE UNIQUE INDEX `uniq_active_reviewer_run` ON `agent_task_run` (`task_id`) WHERE task_id IS NOT NULL AND kind = 'reviewer' AND status IN ('queued','running');
+-- Create index "uniq_active_planner_run" to table: "agent_task_run"
+CREATE UNIQUE INDEX `uniq_active_planner_run` ON `agent_task_run` (`goal_id`) WHERE goal_id IS NOT NULL AND kind = 'planner' AND status IN ('queued','running');
+-- Create index "uniq_active_synthesizer_run" to table: "agent_task_run"
+CREATE UNIQUE INDEX `uniq_active_synthesizer_run` ON `agent_task_run` (`goal_id`) WHERE goal_id IS NOT NULL AND kind = 'synthesizer' AND status IN ('queued','running');
+-- Create index "idx_agent_task_run_goal" to table: "agent_task_run"
+CREATE INDEX `idx_agent_task_run_goal` ON `agent_task_run` (`goal_id`);
+-- Create index "uniq_goal_run_attempt" to table: "agent_task_run"
+CREATE UNIQUE INDEX `uniq_goal_run_attempt` ON `agent_task_run` (`goal_id`, `kind`, `attempt_no`) WHERE goal_id IS NOT NULL;
+-- Create index "uniq_task_run_attempt" to table: "agent_task_run"
+CREATE UNIQUE INDEX `uniq_task_run_attempt` ON `agent_task_run` (`task_id`, `kind`, `attempt_no`) WHERE task_id IS NOT NULL;
+-- Create "agent_task_blocker" table
+CREATE TABLE `agent_task_blocker` (
   `id` text NOT NULL,
   `task_id` text NOT NULL,
-  `event_type` text NOT NULL,
+  `kind` text NOT NULL,
+  `status` text NOT NULL DEFAULT 'open',
+  `question` text NOT NULL DEFAULT '',
   `detail` text NOT NULL DEFAULT '{}',
+  `resolution` text NOT NULL DEFAULT '{}',
+  `created_by_run_id` text NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
-  `updated_at` text NOT NULL DEFAULT (datetime('now')),
+  `resolved_at` text NULL,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`created_by_run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (kind IN ('user_input','external_dependency','tool_error','policy_hold','dep_failure')),
+  CHECK (status IN ('open','resolved','cancelled'))
+);
+-- Create index "idx_agent_task_blocker_task_open" to table: "agent_task_blocker"
+CREATE INDEX `idx_agent_task_blocker_task_open` ON `agent_task_blocker` (`task_id`) WHERE status='open';
+-- Create index "uniq_open_blocker_per_task" to table: "agent_task_blocker"
+CREATE UNIQUE INDEX `uniq_open_blocker_per_task` ON `agent_task_blocker` (`task_id`) WHERE status = 'open';
+-- Create "agent_task_criterion" table
+CREATE TABLE `agent_task_criterion` (
+  `id` text NOT NULL,
+  `task_id` text NOT NULL,
+  `description` text NOT NULL,
+  `required_flag` integer NOT NULL DEFAULT 1,
+  `position` integer NOT NULL DEFAULT 0,
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "idx_agent_task_event_task_id" to table: "agent_task_event"
-CREATE INDEX `idx_agent_task_event_task_id` ON `agent_task_event` (`task_id`, `created_at` DESC);
+-- Create index "idx_agent_task_criterion_task" to table: "agent_task_criterion"
+CREATE INDEX `idx_agent_task_criterion_task` ON `agent_task_criterion` (`task_id`, `position`);
+-- Create "agent_review" table
+CREATE TABLE `agent_review` (
+  `id` text NOT NULL,
+  `task_id` text NULL,
+  `goal_id` text NULL,
+  `submitted_run_id` text NULL,
+  `reviewer_run_id` text NULL,
+  `reviewer_type` text NOT NULL,
+  `reviewer_user_id` text NULL,
+  `escalated_from_review_id` text NULL,
+  `status` text NOT NULL DEFAULT 'requested',
+  `summary` text NOT NULL DEFAULT '',
+  `feedback` text NOT NULL DEFAULT '',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
+  `updated_at` text NOT NULL DEFAULT (datetime('now')),
+  `resolved_at` text NULL,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`escalated_from_review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`reviewer_user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `2` FOREIGN KEY (`reviewer_run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `3` FOREIGN KEY (`submitted_run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `4` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `5` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (reviewer_type IN ('system','agent','human')),
+  CHECK (status IN ('requested','in_progress','approved','changes_requested','rejected','escalated','cancelled')),
+  CHECK (
+      (task_id IS NOT NULL AND goal_id IS NULL)
+      OR
+      (task_id IS NULL AND goal_id IS NOT NULL)
+    )
+);
+-- Create index "idx_agent_review_task" to table: "agent_review"
+CREATE INDEX `idx_agent_review_task` ON `agent_review` (`task_id`, `created_at` DESC);
+-- Create index "idx_agent_review_open" to table: "agent_review"
+CREATE INDEX `idx_agent_review_open` ON `agent_review` (`status`) WHERE status IN ('requested','in_progress');
+-- Create index "uniq_open_review_per_task" to table: "agent_review"
+CREATE UNIQUE INDEX `uniq_open_review_per_task` ON `agent_review` (`task_id`) WHERE task_id IS NOT NULL AND status IN ('requested','in_progress');
+-- Create index "uniq_open_review_per_goal" to table: "agent_review"
+CREATE UNIQUE INDEX `uniq_open_review_per_goal` ON `agent_review` (`goal_id`) WHERE goal_id IS NOT NULL AND status IN ('requested','in_progress');
+-- Create "agent_review_item" table
+CREATE TABLE `agent_review_item` (
+  `id` text NOT NULL,
+  `review_id` text NOT NULL,
+  `criterion_id` text NULL,
+  `passed` integer NULL,
+  `evidence` text NOT NULL DEFAULT '',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`criterion_id`) REFERENCES `agent_task_criterion` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+-- Create index "idx_agent_review_item_review" to table: "agent_review_item"
+CREATE INDEX `idx_agent_review_item_review` ON `agent_review_item` (`review_id`);
+-- Create "agent_task" table
+CREATE TABLE `agent_task` (
+  `id` text NOT NULL,
+  `user_id` text NOT NULL,
+  `agent_id` text NULL,
+  `goal_id` text NULL,
+  `title` text NOT NULL,
+  `description` text NOT NULL DEFAULT '',
+  `status` text NOT NULL DEFAULT 'draft',
+  `priority` text NOT NULL DEFAULT 'routine',
+  `review_policy` text NOT NULL DEFAULT 'none',
+  `active_review_id` text NULL,
+  `required` integer NOT NULL DEFAULT 1,
+  `retry_count` integer NOT NULL DEFAULT 0,
+  `max_retries` integer NOT NULL DEFAULT 3,
+  `not_before` text NULL,
+  `deadline_at` text NULL,
+  `session_id` text NULL,
+  `active_run_id` text NULL,
+  `active_blocker_id` text NULL,
+  `context` text NOT NULL DEFAULT '{}',
+  `output` text NOT NULL DEFAULT '{}',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
+  `updated_at` text NOT NULL DEFAULT (datetime('now')),
+  `completed_at` text NULL,
+  `cancelled_at` text NULL,
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`active_blocker_id`) REFERENCES `agent_task_blocker` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+  CONSTRAINT `1` FOREIGN KEY (`active_run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+  CONSTRAINT `2` FOREIGN KEY (`active_review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+  CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `4` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `5` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (status IN ('draft','ready','running','blocked','reviewing','done','failed','cancelled')),
+  CHECK (priority IN ('routine','urgent')),
+  CHECK (review_policy IN ('none','auto','agent','human'))
+);
+-- Create index "idx_agent_task_status_not_before" to table: "agent_task"
+CREATE INDEX `idx_agent_task_status_not_before` ON `agent_task` (`status`, `not_before`);
+-- Create index "idx_agent_task_session" to table: "agent_task"
+CREATE INDEX `idx_agent_task_session` ON `agent_task` (`session_id`);
+-- Create index "idx_agent_task_goal" to table: "agent_task"
+CREATE INDEX `idx_agent_task_goal` ON `agent_task` (`goal_id`);
+-- Create "agent_task_dep" table
+CREATE TABLE `agent_task_dep` (
+  `task_id` text NOT NULL,
+  `dep_task_id` text NOT NULL,
+  `dep_kind` text NOT NULL DEFAULT 'hard',
+  `on_failure` text NOT NULL DEFAULT 'block',
+  `waived_at` text NULL,
+  `waived_by_user` text NULL,
+  `waiver_reason` text NOT NULL DEFAULT '',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (`task_id`, `dep_task_id`),
+  CONSTRAINT `0` FOREIGN KEY (`waived_by_user`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`dep_task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `2` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (dep_kind IN ('hard','soft')),
+  CHECK (on_failure IN ('block','fail','ignore')),
+  CHECK (task_id != dep_task_id)
+);
+-- Create index "idx_agent_task_dep_dep" to table: "agent_task_dep"
+CREATE INDEX `idx_agent_task_dep_dep` ON `agent_task_dep` (`dep_task_id`);
+-- Create "agent_task_dispatch_hint" table
+CREATE TABLE `agent_task_dispatch_hint` (
+  `id` text NOT NULL,
+  `task_id` text NULL,
+  `goal_id` text NULL,
+  `kind` text NOT NULL,
+  `executor_agent_id` text NOT NULL,
+  `consumed_at` text NULL,
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`executor_agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `1` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `2` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (kind IN ('worker','reviewer','planner','synthesizer')),
+  CHECK (
+      (task_id IS NOT NULL AND goal_id IS NULL     AND kind IN ('worker','reviewer'))
+      OR
+      (task_id IS NULL     AND goal_id IS NOT NULL AND kind IN ('planner','synthesizer'))
+    )
+);
+-- Create index "uniq_active_dispatch_hint_task" to table: "agent_task_dispatch_hint"
+CREATE UNIQUE INDEX `uniq_active_dispatch_hint_task` ON `agent_task_dispatch_hint` (`task_id`, `kind`) WHERE task_id IS NOT NULL AND consumed_at IS NULL;
+-- Create index "uniq_active_dispatch_hint_goal" to table: "agent_task_dispatch_hint"
+CREATE UNIQUE INDEX `uniq_active_dispatch_hint_goal` ON `agent_task_dispatch_hint` (`goal_id`, `kind`) WHERE goal_id IS NOT NULL AND consumed_at IS NULL;
+-- Create "agent_task_event" table
+CREATE TABLE `agent_task_event` (
+  `id` text NOT NULL,
+  `task_id` text NULL,
+  `goal_id` text NULL,
+  `run_id` text NULL,
+  `blocker_id` text NULL,
+  `review_id` text NULL,
+  `event_type` text NOT NULL,
+  `from_status` text NULL,
+  `to_status` text NULL,
+  `actor_type` text NOT NULL,
+  `actor_id` text NULL,
+  `detail` text NOT NULL DEFAULT '{}',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`blocker_id`) REFERENCES `agent_task_blocker` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `2` FOREIGN KEY (`run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `4` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CHECK (actor_type IN ('system','user','agent','worker','reviewer','planner','synthesizer'))
+);
+-- Create index "idx_agent_task_event_task" to table: "agent_task_event"
+CREATE INDEX `idx_agent_task_event_task` ON `agent_task_event` (`task_id`, `created_at` DESC);
+-- Create index "idx_agent_task_event_goal" to table: "agent_task_event"
+CREATE INDEX `idx_agent_task_event_goal` ON `agent_task_event` (`goal_id`, `created_at` DESC);
+-- Create index "idx_agent_task_event_run" to table: "agent_task_event"
+CREATE INDEX `idx_agent_task_event_run` ON `agent_task_event` (`run_id`);
 -- Create "settings_project" table
 CREATE TABLE `settings_project` (
   `id` text NULL,
@@ -819,13 +953,17 @@ CREATE TABLE `settings_project` (
   `base_dir` text NOT NULL,
   `description` text NULL,
   `archived` integer NOT NULL DEFAULT 0,
-  `org_id` text NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`org_id`) REFERENCES `auth_organization` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+  PRIMARY KEY (`id`)
 );
 -- Create index "settings_project_agent_id_user_id_name" to table: "settings_project"
 CREATE UNIQUE INDEX `settings_project_agent_id_user_id_name` ON `settings_project` (`agent_id`, `user_id`, `name`);
--- Create index "idx_projects_org_id" to table: "settings_project"
-CREATE INDEX `idx_projects_org_id` ON `settings_project` (`org_id`);
+-- Create "settings_manifest_plugin_override" table
+CREATE TABLE `settings_manifest_plugin_override` (
+  `plugin_id` text NOT NULL,
+  `enabled` integer NULL,
+  `session_env_vault_key` text NOT NULL DEFAULT '',
+  `updated_at` text NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (`plugin_id`)
+);

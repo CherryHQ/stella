@@ -2,17 +2,17 @@
 
 -- name: CreateAgentGoal :one
 INSERT INTO agent_goal (
-    id, org_id, user_id, agent_id, title, description, status, priority,
+    id, user_id, agent_id, title, description, status, priority,
     review_policy, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentGoal :one
 SELECT * FROM agent_goal WHERE id = ?;
 
--- name: ListAgentGoalsByOrg :many
-SELECT * FROM agent_goal WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
+-- name: ListAgentGoals :many
+SELECT * FROM agent_goal ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
 -- name: TransitionAgentGoalStatus :execrows
 UPDATE agent_goal

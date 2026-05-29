@@ -4,7 +4,6 @@
 
 CREATE TABLE agent_task (
     id                  TEXT NOT NULL PRIMARY KEY,
-    org_id              TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id            TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,  -- D12: creator, NOT assignee
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,        -- Slice 3
@@ -30,7 +29,6 @@ CREATE TABLE agent_task (
     cancelled_at        TEXT
 );
 
-CREATE INDEX idx_agent_task_org_status        ON agent_task(org_id, status);
 CREATE INDEX idx_agent_task_status_not_before ON agent_task(status, not_before);
 CREATE INDEX idx_agent_task_session           ON agent_task(session_id);
 CREATE INDEX idx_agent_task_goal              ON agent_task(goal_id);

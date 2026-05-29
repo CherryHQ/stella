@@ -1,5 +1,3 @@
--- Auth tables first (settings tables reference auth_organization)
--- atlas:import tables/auth_organization.sql
 -- atlas:import tables/settings.sql
 -- atlas:import tables/settings_agent.sql
 -- atlas:import tables/settings_channel.sql
@@ -25,9 +23,7 @@
 -- atlas:import tables/plugin_channel_identity.sql
 -- atlas:import tables/auth_identity.sql
 -- atlas:import tables/auth_session.sql
--- atlas:import tables/auth_membership.sql
 -- atlas:import tables/auth_credential.sql
--- atlas:import tables/auth_invite.sql
 -- Local OIDC provider tables
 -- atlas:import tables/oidc_code.sql
 -- atlas:import tables/oidc_access_token.sql

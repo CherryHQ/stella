@@ -10,30 +10,20 @@ import (
 )
 
 const deletePlugin = `-- name: DeletePlugin :exec
-DELETE FROM settings_plugin WHERE id = ? AND org_id = ?
+DELETE FROM settings_plugin WHERE id = ?
 `
 
-type DeletePluginParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeletePlugin(ctx context.Context, arg DeletePluginParams) error {
-	_, err := q.db.ExecContext(ctx, deletePlugin, arg.ID, arg.OrgID)
+func (q *Queries) DeletePlugin(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deletePlugin, id)
 	return err
 }
 
 const getPlugin = `-- name: GetPlugin :one
-SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE id = ? AND org_id = ?
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugin WHERE id = ?
 `
 
-type GetPluginParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetPlugin(ctx context.Context, arg GetPluginParams) (SettingsPlugin, error) {
-	row := q.db.QueryRowContext(ctx, getPlugin, arg.ID, arg.OrgID)
+func (q *Queries) GetPlugin(ctx context.Context, id string) (SettingsPlugin, error) {
+	row := q.db.QueryRowContext(ctx, getPlugin, id)
 	var i SettingsPlugin
 	err := row.Scan(
 		&i.ID,
@@ -41,7 +31,6 @@ func (q *Queries) GetPlugin(ctx context.Context, arg GetPluginParams) (SettingsP
 		&i.Name,
 		&i.Enabled,
 		&i.Config,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -49,11 +38,11 @@ func (q *Queries) GetPlugin(ctx context.Context, arg GetPluginParams) (SettingsP
 }
 
 const listEnabledPlugins = `-- name: ListEnabledPlugins :many
-SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE org_id = ? AND enabled = 1 ORDER BY kind, name
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugin WHERE enabled = 1 ORDER BY kind, name
 `
 
-func (q *Queries) ListEnabledPlugins(ctx context.Context, orgID string) ([]SettingsPlugin, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledPlugins, orgID)
+func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledPlugins)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +56,6 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context, orgID string) ([]Setti
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -85,11 +73,11 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context, orgID string) ([]Setti
 }
 
 const listPluginOverrides = `-- name: ListPluginOverrides :many
-SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE org_id = ? ORDER BY kind, name
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugin ORDER BY kind, name
 `
 
-func (q *Queries) ListPluginOverrides(ctx context.Context, orgID string) ([]SettingsPlugin, error) {
-	rows, err := q.db.QueryContext(ctx, listPluginOverrides, orgID)
+func (q *Queries) ListPluginOverrides(ctx context.Context) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listPluginOverrides)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +91,6 @@ func (q *Queries) ListPluginOverrides(ctx context.Context, orgID string) ([]Sett
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -121,11 +108,11 @@ func (q *Queries) ListPluginOverrides(ctx context.Context, orgID string) ([]Sett
 }
 
 const listPlugins = `-- name: ListPlugins :many
-SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE org_id = ? ORDER BY kind, name
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugin ORDER BY kind, name
 `
 
-func (q *Queries) ListPlugins(ctx context.Context, orgID string) ([]SettingsPlugin, error) {
-	rows, err := q.db.QueryContext(ctx, listPlugins, orgID)
+func (q *Queries) ListPlugins(ctx context.Context) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listPlugins)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +126,6 @@ func (q *Queries) ListPlugins(ctx context.Context, orgID string) ([]SettingsPlug
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -157,16 +143,11 @@ func (q *Queries) ListPlugins(ctx context.Context, orgID string) ([]SettingsPlug
 }
 
 const listPluginsByKind = `-- name: ListPluginsByKind :many
-SELECT id, kind, name, enabled, config, org_id, created_at, updated_at FROM settings_plugin WHERE kind = ? AND org_id = ? ORDER BY name
+SELECT id, kind, name, enabled, config, created_at, updated_at FROM settings_plugin WHERE kind = ? ORDER BY name
 `
 
-type ListPluginsByKindParams struct {
-	Kind  string `json:"kind"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) ListPluginsByKind(ctx context.Context, arg ListPluginsByKindParams) ([]SettingsPlugin, error) {
-	rows, err := q.db.QueryContext(ctx, listPluginsByKind, arg.Kind, arg.OrgID)
+func (q *Queries) ListPluginsByKind(ctx context.Context, kind string) ([]SettingsPlugin, error) {
+	rows, err := q.db.QueryContext(ctx, listPluginsByKind, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +161,6 @@ func (q *Queries) ListPluginsByKind(ctx context.Context, arg ListPluginsByKindPa
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -198,9 +178,9 @@ func (q *Queries) ListPluginsByKind(ctx context.Context, arg ListPluginsByKindPa
 }
 
 const upsertPlugin = `-- name: UpsertPlugin :exec
-INSERT INTO settings_plugin (id, kind, name, enabled, config, org_id, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(id, org_id) DO UPDATE SET
+INSERT INTO settings_plugin (id, kind, name, enabled, config, updated_at)
+VALUES (?, ?, ?, ?, ?, datetime('now'))
+ON CONFLICT(id) DO UPDATE SET
     kind = excluded.kind,
     name = excluded.name,
     enabled = excluded.enabled,
@@ -214,7 +194,6 @@ type UpsertPluginParams struct {
 	Name    string `json:"name"`
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
-	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) error {
@@ -224,7 +203,6 @@ func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) erro
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
-		arg.OrgID,
 	)
 	return err
 }

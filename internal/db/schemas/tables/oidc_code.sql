@@ -2,7 +2,6 @@ CREATE TABLE oidc_code (
     id             TEXT NOT NULL PRIMARY KEY,
     code_hash      TEXT NOT NULL UNIQUE,
     user_id        TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    org_id         TEXT NOT NULL DEFAULT '',
     client_id      TEXT NOT NULL,
     redirect_uri   TEXT NOT NULL,
     scopes         TEXT NOT NULL DEFAULT '[]',

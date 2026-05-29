@@ -10,7 +10,6 @@ import (
 
 type AgentGoal struct {
 	ID             string         `json:"id"`
-	OrgID          string         `json:"org_id"`
 	UserID         string         `json:"user_id"`
 	AgentID        sql.NullString `json:"agent_id"`
 	Title          string         `json:"title"`
@@ -55,7 +54,6 @@ type AgentReviewItem struct {
 
 type AgentTask struct {
 	ID              string         `json:"id"`
-	OrgID           string         `json:"org_id"`
 	UserID          string         `json:"user_id"`
 	AgentID         sql.NullString `json:"agent_id"`
 	GoalID          sql.NullString `json:"goal_id"`
@@ -144,7 +142,6 @@ type AgentTaskRun struct {
 	ID              string         `json:"id"`
 	TaskID          sql.NullString `json:"task_id"`
 	GoalID          sql.NullString `json:"goal_id"`
-	OrgID           string         `json:"org_id"`
 	UserID          string         `json:"user_id"`
 	AgentID         sql.NullString `json:"agent_id"`
 	ExecutorAgentID sql.NullString `json:"executor_agent_id"`
@@ -185,41 +182,6 @@ type AuthIdentity struct {
 	UpdatedAt       string `json:"updated_at"`
 }
 
-type AuthInvite struct {
-	ID         string         `json:"id"`
-	TokenHash  string         `json:"token_hash"`
-	OrgID      string         `json:"org_id"`
-	Email      sql.NullString `json:"email"`
-	Role       string         `json:"role"`
-	Status     string         `json:"status"`
-	MaxUses    int64          `json:"max_uses"`
-	UseCount   int64          `json:"use_count"`
-	InvitedBy  string         `json:"invited_by"`
-	AcceptedBy sql.NullString `json:"accepted_by"`
-	ExpiresAt  string         `json:"expires_at"`
-	CreatedAt  string         `json:"created_at"`
-	UpdatedAt  string         `json:"updated_at"`
-}
-
-type AuthMembership struct {
-	ID             string `json:"id"`
-	UserID         string `json:"user_id"`
-	OrganizationID string `json:"organization_id"`
-	Role           string `json:"role"`
-	IsActive       int64  `json:"is_active"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-}
-
-type AuthOrganization struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	ExternalID string `json:"external_id"`
-	Source     string `json:"source"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
-}
-
 type AuthPolicy struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -231,7 +193,6 @@ type AuthPolicy struct {
 	Priority   int64  `json:"priority"`
 	IsSystem   int64  `json:"is_system"`
 	Enabled    int64  `json:"enabled"`
-	OrgID      string `json:"org_id"`
 	CreatedAt  string `json:"created_at"`
 }
 
@@ -325,7 +286,6 @@ type CtxConversation struct {
 	BootstrappedAt sql.NullString `json:"bootstrapped_at"`
 	AgentID        sql.NullString `json:"agent_id"`
 	UserID         sql.NullString `json:"user_id"`
-	OrgID          string         `json:"org_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
 }
@@ -394,7 +354,6 @@ type OidcAccessToken struct {
 	ID        string `json:"id"`
 	TokenHash string `json:"token_hash"`
 	UserID    string `json:"user_id"`
-	OrgID     string `json:"org_id"`
 	ClientID  string `json:"client_id"`
 	Scopes    string `json:"scopes"`
 	ExpiresAt string `json:"expires_at"`
@@ -405,7 +364,6 @@ type OidcCode struct {
 	ID            string         `json:"id"`
 	CodeHash      string         `json:"code_hash"`
 	UserID        string         `json:"user_id"`
-	OrgID         string         `json:"org_id"`
 	ClientID      string         `json:"client_id"`
 	RedirectUri   string         `json:"redirect_uri"`
 	Scopes        string         `json:"scopes"`
@@ -428,14 +386,13 @@ type PluginChannelIdentity struct {
 }
 
 type PluginOauthProvider struct {
-	ID              string         `json:"id"`
-	ProviderID      string         `json:"provider_id"`
-	ClientID        string         `json:"client_id"`
-	ClientSecretEnc string         `json:"client_secret_enc"`
-	RedirectUrl     string         `json:"redirect_url"`
-	OrgID           sql.NullString `json:"org_id"`
-	CreatedAt       string         `json:"created_at"`
-	UpdatedAt       string         `json:"updated_at"`
+	ID              string `json:"id"`
+	ProviderID      string `json:"provider_id"`
+	ClientID        string `json:"client_id"`
+	ClientSecretEnc string `json:"client_secret_enc"`
+	RedirectUrl     string `json:"redirect_url"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 type RecallyArticle struct {
@@ -532,7 +489,6 @@ type SchedJob struct {
 	Enabled       int64          `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        sql.NullString `json:"user_id"`
-	OrgID         string         `json:"org_id"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
 	LastRunAt     sql.NullString `json:"last_run_at"`
@@ -553,7 +509,6 @@ type SchedJobRun struct {
 type Setting struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
-	OrgID     string `json:"org_id"`
 	UpdatedAt string `json:"updated_at"`
 }
 
@@ -571,7 +526,6 @@ type SettingsAgent struct {
 	Scope                string `json:"scope"`
 	CreatorID            string `json:"creator_id"`
 	Enabled              int64  `json:"enabled"`
-	OrgID                string `json:"org_id"`
 	CreatedAt            string `json:"created_at"`
 	UpdatedAt            string `json:"updated_at"`
 }
@@ -582,7 +536,6 @@ type SettingsChannel struct {
 	AgentID   sql.NullString `json:"agent_id"`
 	Enabled   int64          `json:"enabled"`
 	Config    string         `json:"config"`
-	OrgID     string         `json:"org_id"`
 	CreatedAt string         `json:"created_at"`
 	UpdatedAt string         `json:"updated_at"`
 }
@@ -592,13 +545,11 @@ type SettingsChannelAgent struct {
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
 	AgentID   string `json:"agent_id"`
-	OrgID     string `json:"org_id"`
 	UpdatedAt string `json:"updated_at"`
 }
 
 type SettingsManifestPluginOverride struct {
 	PluginID           string        `json:"plugin_id"`
-	OrgID              string        `json:"org_id"`
 	Enabled            sql.NullInt64 `json:"enabled"`
 	SessionEnvVaultKey string        `json:"session_env_vault_key"`
 	UpdatedAt          string        `json:"updated_at"`
@@ -610,20 +561,18 @@ type SettingsPlugin struct {
 	Name      string `json:"name"`
 	Enabled   int64  `json:"enabled"`
 	Config    string `json:"config"`
-	OrgID     string `json:"org_id"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
 
 type SettingsPluginState struct {
-	PluginID  string         `json:"plugin_id"`
-	ScopeKind string         `json:"scope_kind"`
-	ScopeID   string         `json:"scope_id"`
-	StateKey  string         `json:"state_key"`
-	Value     string         `json:"value"`
-	OrgID     sql.NullString `json:"org_id"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
+	PluginID  string `json:"plugin_id"`
+	ScopeKind string `json:"scope_kind"`
+	ScopeID   string `json:"scope_id"`
+	StateKey  string `json:"state_key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type SettingsProject struct {
@@ -634,7 +583,6 @@ type SettingsProject struct {
 	BaseDir     string         `json:"base_dir"`
 	Description sql.NullString `json:"description"`
 	Archived    int64          `json:"archived"`
-	OrgID       string         `json:"org_id"`
 	CreatedAt   string         `json:"created_at"`
 	UpdatedAt   string         `json:"updated_at"`
 }
@@ -645,7 +593,6 @@ type SettingsProvider struct {
 	Name      string `json:"name"`
 	Enabled   int64  `json:"enabled"`
 	Config    string `json:"config"`
-	OrgID     string `json:"org_id"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -672,7 +619,6 @@ type Skill struct {
 	Status                 string         `json:"status"`
 	DisableModelInvocation int64          `json:"disable_model_invocation"`
 	Metadata               string         `json:"metadata"`
-	OrgID                  string         `json:"org_id"`
 	CreatedAt              string         `json:"created_at"`
 	UpdatedAt              string         `json:"updated_at"`
 }

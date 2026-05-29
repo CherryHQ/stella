@@ -10,9 +10,9 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at
+INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at
 `
 
 type CreateAgentParams struct {
@@ -29,7 +29,6 @@ type CreateAgentParams struct {
 	Scope                string `json:"scope"`
 	CreatorID            string `json:"creator_id"`
 	Enabled              int64  `json:"enabled"`
-	OrgID                string `json:"org_id"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (SettingsAgent, error) {
@@ -47,7 +46,6 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		arg.Scope,
 		arg.CreatorID,
 		arg.Enabled,
-		arg.OrgID,
 	)
 	var i SettingsAgent
 	err := row.Scan(
@@ -64,7 +62,6 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		&i.Scope,
 		&i.CreatorID,
 		&i.Enabled,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -72,30 +69,20 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 }
 
 const deleteAgent = `-- name: DeleteAgent :exec
-DELETE FROM settings_agent WHERE id = ? AND org_id = ?
+DELETE FROM settings_agent WHERE id = ?
 `
 
-type DeleteAgentParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) error {
-	_, err := q.db.ExecContext(ctx, deleteAgent, arg.ID, arg.OrgID)
+func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteAgent, id)
 	return err
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE id = ? AND org_id = ?
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agent WHERE id = ?
 `
 
-type GetAgentParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (SettingsAgent, error) {
-	row := q.db.QueryRowContext(ctx, getAgent, arg.ID, arg.OrgID)
+func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error) {
+	row := q.db.QueryRowContext(ctx, getAgent, id)
 	var i SettingsAgent
 	err := row.Scan(
 		&i.ID,
@@ -111,7 +98,6 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (SettingsAge
 		&i.Scope,
 		&i.CreatorID,
 		&i.Enabled,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -119,19 +105,14 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (SettingsAge
 }
 
 const listAccessibleAgents = `-- name: ListAccessibleAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent
-WHERE org_id = ? AND enabled = 1
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agent
+WHERE enabled = 1
   AND (scope = 'system' OR id IN (SELECT agent_id FROM auth_user_agent WHERE user_id = ?))
 ORDER BY name
 `
 
-type ListAccessibleAgentsParams struct {
-	OrgID  string `json:"org_id"`
-	UserID string `json:"user_id"`
-}
-
-func (q *Queries) ListAccessibleAgents(ctx context.Context, arg ListAccessibleAgentsParams) ([]SettingsAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listAccessibleAgents, arg.OrgID, arg.UserID)
+func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]SettingsAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listAccessibleAgents, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +134,6 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, arg ListAccessibleAg
 			&i.Scope,
 			&i.CreatorID,
 			&i.Enabled,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -171,11 +151,11 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, arg ListAccessibleAg
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE org_id = ? ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agent ORDER BY name
 `
 
-func (q *Queries) ListAgents(ctx context.Context, orgID string) ([]SettingsAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgents, orgID)
+func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgents)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +177,6 @@ func (q *Queries) ListAgents(ctx context.Context, orgID string) ([]SettingsAgent
 			&i.Scope,
 			&i.CreatorID,
 			&i.Enabled,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -215,11 +194,11 @@ func (q *Queries) ListAgents(ctx context.Context, orgID string) ([]SettingsAgent
 }
 
 const listEnabledAgents = `-- name: ListEnabledAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, org_id, created_at, updated_at FROM settings_agent WHERE org_id = ? AND enabled = 1 ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agent WHERE enabled = 1 ORDER BY name
 `
 
-func (q *Queries) ListEnabledAgents(ctx context.Context, orgID string) ([]SettingsAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledAgents, orgID)
+func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledAgents)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +220,6 @@ func (q *Queries) ListEnabledAgents(ctx context.Context, orgID string) ([]Settin
 			&i.Scope,
 			&i.CreatorID,
 			&i.Enabled,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -258,20 +236,6 @@ func (q *Queries) ListEnabledAgents(ctx context.Context, orgID string) ([]Settin
 	return items, nil
 }
 
-const setAgentOrg = `-- name: SetAgentOrg :exec
-UPDATE settings_agent SET org_id = ? WHERE id = ?
-`
-
-type SetAgentOrgParams struct {
-	OrgID string `json:"org_id"`
-	ID    string `json:"id"`
-}
-
-func (q *Queries) SetAgentOrg(ctx context.Context, arg SetAgentOrgParams) error {
-	_, err := q.db.ExecContext(ctx, setAgentOrg, arg.OrgID, arg.ID)
-	return err
-}
-
 const updateAgent = `-- name: UpdateAgent :exec
 UPDATE settings_agent SET
     name = ?,
@@ -286,7 +250,7 @@ UPDATE settings_agent SET
     scope = ?,
     enabled = ?,
     updated_at = datetime('now')
-WHERE id = ? AND org_id = ?
+WHERE id = ?
 `
 
 type UpdateAgentParams struct {
@@ -302,7 +266,6 @@ type UpdateAgentParams struct {
 	Scope                string `json:"scope"`
 	Enabled              int64  `json:"enabled"`
 	ID                   string `json:"id"`
-	OrgID                string `json:"org_id"`
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
@@ -319,7 +282,6 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.Scope,
 		arg.Enabled,
 		arg.ID,
-		arg.OrgID,
 	)
 	return err
 }

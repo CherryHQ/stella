@@ -1,6 +1,6 @@
 -- name: CreateConversation :one
-INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, org_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetConversation :one

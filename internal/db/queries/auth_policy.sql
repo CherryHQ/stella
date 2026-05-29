@@ -1,16 +1,16 @@
 -- name: CreateAuthPolicy :one
-INSERT INTO auth_policy (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO auth_policy (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAuthPolicy :one
-SELECT * FROM auth_policy WHERE id = ? AND org_id = ?;
+SELECT * FROM auth_policy WHERE id = ?;
 
 -- name: ListAuthPolicies :many
-SELECT * FROM auth_policy WHERE org_id = ? ORDER BY priority DESC, name;
+SELECT * FROM auth_policy ORDER BY priority DESC, name;
 
 -- name: ListEnabledAuthPolicies :many
-SELECT * FROM auth_policy WHERE org_id = ? AND enabled = 1 ORDER BY priority DESC, name;
+SELECT * FROM auth_policy WHERE enabled = 1 ORDER BY priority DESC, name;
 
 -- name: UpdateAuthPolicy :exec
 UPDATE auth_policy SET
@@ -22,7 +22,7 @@ UPDATE auth_policy SET
     conditions = ?,
     priority = ?,
     enabled = ?
-WHERE id = ? AND org_id = ?;
+WHERE id = ?;
 
 -- name: DeleteAuthPolicy :exec
-DELETE FROM auth_policy WHERE id = ? AND org_id = ?;
+DELETE FROM auth_policy WHERE id = ?;

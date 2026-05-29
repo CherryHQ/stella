@@ -5,7 +5,6 @@
 
 CREATE TABLE agent_goal (
     id              TEXT NOT NULL PRIMARY KEY,
-    org_id          TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE,
     user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id        TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,
     title           TEXT NOT NULL,
@@ -21,5 +20,3 @@ CREATE TABLE agent_goal (
     completed_at    TEXT,
     cancelled_at    TEXT
 );
-
-CREATE INDEX idx_agent_goal_org_status ON agent_goal(org_id, status);
