@@ -122,8 +122,8 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure new users get an auto-generated API token.
-	if result.IsNewUser && s.tokenSvc != nil {
+	// Ensure every user has an auto-generated API token (idempotent).
+	if s.tokenSvc != nil {
 		if err := s.tokenSvc.EnsureAutoToken(r.Context(), result.User.ID); err != nil {
 			slog.Warn("oidc: ensure auto token failed", "user_id", result.User.ID, "error", err)
 		}

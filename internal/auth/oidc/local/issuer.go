@@ -269,8 +269,13 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 	}
 
 	// First registered user becomes admin.
+	count, err := is.users.CountUsers(ctx)
+	if err != nil {
+		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		return
+	}
 	role := auth.RoleUser
-	if count, err := is.users.CountUsers(ctx); err == nil && count == 0 {
+	if count == 0 {
 		role = auth.RoleAdmin
 	}
 

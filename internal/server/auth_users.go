@@ -120,6 +120,11 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
+	// Force re-authentication so new role takes effect in tokens.
+	if s.sessions != nil {
+		_ = s.sessions.DeleteUserSessions(r.Context(), id)
+	}
+
 	writeNoContent(w)
 }
 
