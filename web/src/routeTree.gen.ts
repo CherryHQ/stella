@@ -55,6 +55,7 @@ import { Route as AppAgentsAgentIdAutomationsNewRouteImport } from './routes/_ap
 import { Route as AppAgentsAgentIdAutomationsJobIdRouteImport } from './routes/_app/agents.$agentId/automations/$jobId'
 import { Route as AppAgentsAgentIdProjectsProjectIdIndexRouteImport } from './routes/_app/agents.$agentId/projects.$projectId/index'
 import { Route as AppAgentsAgentIdSkillsScopeSkillIdRouteImport } from './routes/_app/agents.$agentId/skills/$scope.$skillId'
+import { Route as AppAgentsAgentIdAutomationsGoalsGoalIdRouteImport } from './routes/_app/agents.$agentId/automations/goals.$goalId'
 import { Route as AppAgentsAgentIdAutomationsJobIdEditRouteImport } from './routes/_app/agents.$agentId/automations/$jobId.edit'
 import { Route as AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRouteImport } from './routes/_app/agents.$agentId/projects.$projectId/sessions.$sessionId'
 import { Route as AppAgentsAgentIdAutomationsJobIdRunsRunIdRouteImport } from './routes/_app/agents.$agentId/automations/$jobId.runs.$runId'
@@ -386,6 +387,16 @@ const AppAgentsAgentIdSkillsScopeSkillIdRoute =
       (d) => d.Route,
     ),
   )
+const AppAgentsAgentIdAutomationsGoalsGoalIdRoute =
+  AppAgentsAgentIdAutomationsGoalsGoalIdRouteImport.update({
+    id: '/automations/goals/$goalId',
+    path: '/automations/goals/$goalId',
+    getParentRoute: () => AppAgentsAgentIdRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/agents.$agentId/automations/goals.$goalId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AppAgentsAgentIdAutomationsJobIdEditRoute =
   AppAgentsAgentIdAutomationsJobIdEditRouteImport.update({
     id: '/edit',
@@ -462,6 +473,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId/skills/': typeof AppAgentsAgentIdSkillsIndexRoute
   '/agents/$agentId/tasks/': typeof AppAgentsAgentIdTasksIndexRoute
   '/agents/$agentId/automations/$jobId/edit': typeof AppAgentsAgentIdAutomationsJobIdEditRoute
+  '/agents/$agentId/automations/goals/$goalId': typeof AppAgentsAgentIdAutomationsGoalsGoalIdRoute
   '/agents/$agentId/skills/$scope/$skillId': typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
   '/agents/$agentId/projects/$projectId/': typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   '/agents/$agentId/automations/$jobId/runs/$runId': typeof AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute
@@ -509,6 +521,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId/skills': typeof AppAgentsAgentIdSkillsIndexRoute
   '/agents/$agentId/tasks': typeof AppAgentsAgentIdTasksIndexRoute
   '/agents/$agentId/automations/$jobId/edit': typeof AppAgentsAgentIdAutomationsJobIdEditRoute
+  '/agents/$agentId/automations/goals/$goalId': typeof AppAgentsAgentIdAutomationsGoalsGoalIdRoute
   '/agents/$agentId/skills/$scope/$skillId': typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
   '/agents/$agentId/projects/$projectId': typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   '/agents/$agentId/automations/$jobId/runs/$runId': typeof AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute
@@ -561,6 +574,7 @@ export interface FileRoutesById {
   '/_app/agents/$agentId/skills/': typeof AppAgentsAgentIdSkillsIndexRoute
   '/_app/agents/$agentId/tasks/': typeof AppAgentsAgentIdTasksIndexRoute
   '/_app/agents/$agentId/automations/$jobId/edit': typeof AppAgentsAgentIdAutomationsJobIdEditRoute
+  '/_app/agents/$agentId/automations/goals/$goalId': typeof AppAgentsAgentIdAutomationsGoalsGoalIdRoute
   '/_app/agents/$agentId/skills/$scope/$skillId': typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
   '/_app/agents/$agentId/projects/$projectId/': typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   '/_app/agents/$agentId/automations/$jobId/runs/$runId': typeof AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute
@@ -613,6 +627,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId/skills/'
     | '/agents/$agentId/tasks/'
     | '/agents/$agentId/automations/$jobId/edit'
+    | '/agents/$agentId/automations/goals/$goalId'
     | '/agents/$agentId/skills/$scope/$skillId'
     | '/agents/$agentId/projects/$projectId/'
     | '/agents/$agentId/automations/$jobId/runs/$runId'
@@ -660,6 +675,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId/skills'
     | '/agents/$agentId/tasks'
     | '/agents/$agentId/automations/$jobId/edit'
+    | '/agents/$agentId/automations/goals/$goalId'
     | '/agents/$agentId/skills/$scope/$skillId'
     | '/agents/$agentId/projects/$projectId'
     | '/agents/$agentId/automations/$jobId/runs/$runId'
@@ -711,6 +727,7 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId/skills/'
     | '/_app/agents/$agentId/tasks/'
     | '/_app/agents/$agentId/automations/$jobId/edit'
+    | '/_app/agents/$agentId/automations/goals/$goalId'
     | '/_app/agents/$agentId/skills/$scope/$skillId'
     | '/_app/agents/$agentId/projects/$projectId/'
     | '/_app/agents/$agentId/automations/$jobId/runs/$runId'
@@ -1052,6 +1069,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsAgentIdSkillsScopeSkillIdRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
     }
+    '/_app/agents/$agentId/automations/goals/$goalId': {
+      id: '/_app/agents/$agentId/automations/goals/$goalId'
+      path: '/automations/goals/$goalId'
+      fullPath: '/agents/$agentId/automations/goals/$goalId'
+      preLoaderRoute: typeof AppAgentsAgentIdAutomationsGoalsGoalIdRouteImport
+      parentRoute: typeof AppAgentsAgentIdRoute
+    }
     '/_app/agents/$agentId/automations/$jobId/edit': {
       id: '/_app/agents/$agentId/automations/$jobId/edit'
       path: '/edit'
@@ -1108,6 +1132,7 @@ interface AppAgentsAgentIdRouteChildren {
   AppAgentsAgentIdAutomationsIndexRoute: typeof AppAgentsAgentIdAutomationsIndexRoute
   AppAgentsAgentIdSkillsIndexRoute: typeof AppAgentsAgentIdSkillsIndexRoute
   AppAgentsAgentIdTasksIndexRoute: typeof AppAgentsAgentIdTasksIndexRoute
+  AppAgentsAgentIdAutomationsGoalsGoalIdRoute: typeof AppAgentsAgentIdAutomationsGoalsGoalIdRoute
   AppAgentsAgentIdSkillsScopeSkillIdRoute: typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
   AppAgentsAgentIdProjectsProjectIdIndexRoute: typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute: typeof AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute
@@ -1129,6 +1154,8 @@ const AppAgentsAgentIdRouteChildren: AppAgentsAgentIdRouteChildren = {
   AppAgentsAgentIdAutomationsIndexRoute: AppAgentsAgentIdAutomationsIndexRoute,
   AppAgentsAgentIdSkillsIndexRoute: AppAgentsAgentIdSkillsIndexRoute,
   AppAgentsAgentIdTasksIndexRoute: AppAgentsAgentIdTasksIndexRoute,
+  AppAgentsAgentIdAutomationsGoalsGoalIdRoute:
+    AppAgentsAgentIdAutomationsGoalsGoalIdRoute,
   AppAgentsAgentIdSkillsScopeSkillIdRoute:
     AppAgentsAgentIdSkillsScopeSkillIdRoute,
   AppAgentsAgentIdProjectsProjectIdIndexRoute:
