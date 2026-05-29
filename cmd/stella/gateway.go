@@ -96,6 +96,11 @@ func serverAction(c *ucli.Context) error {
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
 
+	// Seed default data (channels, providers, default agent) if absent.
+	if err := s.store.Seed(gctx); err != nil {
+		slog.Warn("seed default data", "error", err)
+	}
+
 	// Create auth store and policy engine for channel bots and Web UI.
 	as := appdb.NewAuthStore(s.db)
 	engine, err := auth.NewEngine(gctx, as)
@@ -220,6 +225,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
 			return as.ListActiveUserIDs(ctx)
 		})
+		s.schedulerSvc.EnsureBuiltinJobs()
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}

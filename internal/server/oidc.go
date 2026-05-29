@@ -122,6 +122,13 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure new users get an auto-generated API token.
+	if result.IsNewUser && s.tokenSvc != nil {
+		if err := s.tokenSvc.EnsureAutoToken(r.Context(), result.User.ID); err != nil {
+			slog.Warn("oidc: ensure auto token failed", "user_id", result.User.ID, "error", err)
+		}
+	}
+
 	// Provision vault age keys when the user doesn't have them yet.
 	if result.User.AgePublicKey == "" && s.vaultRecipient != nil {
 		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
