@@ -1,0 +1,59 @@
+---
+title: 核心概念
+---
+
+这些概念会贯穿 Stella。
+
+## Tenant
+
+Tenant 是组织边界。它把用户、Agent、凭证和数据限制在正确的组织内。
+
+## User
+
+User 是和 Agent 协作的人。用户可以从 Web UI、终端，或 Telegram、QQ、飞书、微信等渠道聊天。
+
+## Agent
+
+Agent 是共享的专业伙伴。它拥有自己的角色、instructions、模型设置、skills、tools、knowledge、工作区、渠道绑定和记忆策略。
+
+围绕工作创建 Agent，而不是围绕技术集成创建 Agent。`财务报销 Agent` 比 `表格 bot` 更好。
+
+## Session
+
+Session 是用户和 Agent 之间的一次持续协作。它保存对话上下文和工作区状态，让工作可以继续，而不是每条消息都重新开始。
+
+## Memory
+
+Memory 让 Agent 能长期认识一个人。Stella 支持每用户、每 Agent 的独立记忆，所以同一个 HR Agent 可以用不同上下文理解 Alice 和 Bob。
+
+当你希望多个 Agent 共享同一套用户偏好时，Stella 也可以使用共享用户记忆。
+
+## Knowledge
+
+Knowledge 是 Agent 的专业参考资料：制度、流程文档、示例、playbook、PDF、保存的文章，或团队专属上下文。
+
+Knowledge 回答的问题是：这个 Agent 为了把工作做好，需要知道什么？
+
+## Skills
+
+Skills 是可复用的工作方法。一个 skill 可以教 Agent 如何做代码审查、准备报告、处理事故、筛选候选人，或执行财务 checklist。
+
+Skills 不只是 prompt。它们打包 instructions、工具使用方式和工作流约定。
+
+## Tools
+
+Tools 是 Agent 可以调用的外部能力：命令行工具、API、OAuth 连接服务、通知渠道、文件操作，以及 plugin 提供的函数。
+
+Tools 回答的问题是：这个 Agent 实际能做什么？
+
+## Goal
+
+Goal 是用户交给 Agent 的目标。好的 goal 描述期望结果，而不是列出所有实现步骤。
+
+## Task
+
+Task 是可追踪的工作单元。Stella 可以把 goal 转成带依赖、验收标准、blocker、事件、运行记录和 review 状态的任务。
+
+## Review
+
+Review 是人工检查点。Agent 可以执行工作，但组织仍然可以把判断、审批和责任留在正确的人手里。

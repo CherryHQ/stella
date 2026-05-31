@@ -1,4 +1,4 @@
 {
   "title": "Start Here",
-  "pages": ["index"]
+  "pages": ["index", "what-is-stella", "core-concepts", "first-shared-agent"]
 }
