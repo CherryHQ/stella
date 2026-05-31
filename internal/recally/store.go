@@ -32,7 +32,10 @@ func generateID() string {
 
 // SaveArticle saves or updates an article by canonical URL.
 func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
-	if req.SourceType != "" && !req.SourceType.Valid() {
+	if req.SourceType == "" {
+		req.SourceType = SourceTypeWeb
+	}
+	if !req.SourceType.Valid() {
 		return nil, false, fmt.Errorf("save article: invalid source_type %q", req.SourceType)
 	}
 	canonicalURL := req.CanonicalURL
