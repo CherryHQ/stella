@@ -100,8 +100,14 @@ SELECT id, token_hash, user_id, title,
 FROM share
 WHERE user_id = ?
 ORDER BY created_at DESC, id DESC
-LIMIT 200
+LIMIT ? OFFSET ?
 `
+
+type ListSharesByUserParams struct {
+	UserID string `json:"user_id"`
+	Limit  int64  `json:"limit"`
+	Offset int64  `json:"offset"`
+}
 
 type ListSharesByUserRow struct {
 	ID        string         `json:"id"`
@@ -114,8 +120,8 @@ type ListSharesByUserRow struct {
 	UpdatedAt string         `json:"updated_at"`
 }
 
-func (q *Queries) ListSharesByUser(ctx context.Context, userID string) ([]ListSharesByUserRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSharesByUser, userID)
+func (q *Queries) ListSharesByUser(ctx context.Context, arg ListSharesByUserParams) ([]ListSharesByUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSharesByUser, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

@@ -28,19 +28,29 @@ import (
 
 const maxShareSize = 25 * 1024 * 1024
 
-func (s *Server) ListShares(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apiserver.ListSharesParams) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	rows, err := s.q.ListSharesByUser(r.Context(), info.UserID)
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	out := make([]apitypes.Share, 0, len(rows))
-	for _, row := range rows {
+	rows, err := s.q.ListSharesByUser(r.Context(), sqlc.ListSharesByUserParams{
+		UserID: info.UserID,
+		Limit:  int64(limit + 1),
+		Offset: int64(offset),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list shares")
+		return
+	}
+	page, nextToken := nextPageTokenForRows(rows, limit, offset)
+	out := make([]apitypes.Share, 0, len(page))
+	for _, row := range page {
 		out = append(out, apitypes.Share{
 			Id:        row.ID,
 			Title:     row.Title,
@@ -49,7 +59,11 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: parseTime(row.CreatedAt),
 		})
 	}
-	writeData(w, http.StatusOK, map[string]any{"shares": out})
+	resp := map[string]any{"shares": out}
+	if nextToken != "" {
+		resp["next_page_token"] = nextToken
+	}
+	writeData(w, http.StatusOK, resp)
 }
 
 func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {

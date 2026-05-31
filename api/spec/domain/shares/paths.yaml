@@ -4,6 +4,19 @@ paths:
       tags: [shares]
       summary: List shares for the current user
       operationId: listShares
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
