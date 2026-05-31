@@ -29,7 +29,7 @@ func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
 	}
 }
 
-// ListOAuthProviders handles GET /api/auth/profile/oauth/providers.
+// ListOAuthProviders handles GET /api/users/me/oauth/providers.
 func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -41,7 +41,7 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
-// StartOAuthFlow handles POST /api/auth/profile/oauth/{provider}/start.
+// StartOAuthFlow handles POST /api/users/me/oauth/{provider}/start.
 func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
@@ -62,7 +62,7 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 	writeData(w, http.StatusOK, toFlowStatusJSON(status))
 }
 
-// PollOAuthFlow handles GET /api/auth/profile/oauth/{provider}/status/{flowID}.
+// PollOAuthFlow handles GET /api/users/me/oauth/{provider}/status/{flowID}.
 func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider string, flowID string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
@@ -82,7 +82,7 @@ func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider 
 	writeData(w, http.StatusOK, toFlowStatusJSON(status))
 }
 
-// GetOAuthConnected handles GET /api/auth/profile/oauth/{provider}/connected.
+// GetOAuthConnected handles GET /api/users/me/oauth/{provider}/connected.
 func (s *Server) GetOAuthConnected(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
@@ -110,7 +110,7 @@ func (s *Server) GetOAuthConnected(w http.ResponseWriter, r *http.Request, provi
 	writeError(w, http.StatusBadRequest, "unsupported provider: "+provider)
 }
 
-// DisconnectOAuth handles DELETE /api/auth/profile/oauth/{provider}.
+// DisconnectOAuth handles DELETE /api/users/me/oauth/{provider}.
 func (s *Server) DisconnectOAuth(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")

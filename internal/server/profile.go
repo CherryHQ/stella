@@ -12,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// ListProfileIdentities handles GET /api/auth/profile/identities.
+// ListProfileIdentities handles GET /api/users/me/identities.
 func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -34,7 +34,7 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{"identities": identities})
 }
 
-// ChangePassword handles PATCH /api/auth/profile/password.
+// ChangePassword handles PATCH /api/users/me/password.
 func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -100,7 +100,7 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	writeNoContent(w)
 }
 
-// GenerateLinkCode handles POST /api/auth/profile/link-code.
+// GenerateLinkCode handles POST /api/users/me/link-code.
 func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -131,7 +131,7 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UnlinkProfileIdentity handles DELETE /api/auth/profile/identities/{id}.
+// UnlinkProfileIdentity handles DELETE /api/users/me/identities/{id}.
 func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, id string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -167,56 +167,17 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 	writeNoContent(w)
 }
 
-// ListProfileMemories handles GET /api/auth/profile/memories.
+// ListProfileMemories handles GET /api/users/me/memories.
 func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-
-	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), info.UserID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defaultSoul := prompt.DefaultAgentSoul()
-	for i := range memories {
-		if memories[i].Soul == "" {
-			memories[i].Soul = defaultSoul
-		}
-	}
-	writeData(w, http.StatusOK, map[string]any{"memories": memories})
+	s.ListUserMemories(w, r, "me")
 }
 
-// SetProfileMemory handles PATCH /api/auth/profile/memories/{agentID}.
+// SetProfileMemory handles PATCH /api/users/me/memories/{agentID}.
 func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	var body struct {
-		Content string `json:"content"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
-	if err := memorywrite.SetProfile(ctx, s.db, s.q, info.UserID, agentID, body.Content); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.writeProfileMemory(w, r, info.UserID, agentID)
+	s.SetUserMemory(w, r, "me", agentID)
 }
 
-// SetProfileSoul handles PATCH /api/auth/profile/soul/{agentID}.
+// SetProfileSoul handles PATCH /api/users/me/soul/{agentID}.
 func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID string) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -257,27 +218,12 @@ func (s *Server) writeProfileMemory(w http.ResponseWriter, r *http.Request, user
 	writeData(w, http.StatusOK, mem)
 }
 
-// DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentID}.
+// DeleteProfileMemory handles DELETE /api/users/me/memories/{agentID}.
 func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
-	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, info.UserID, agentID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeNoContent(w)
+	s.DeleteUserMemory(w, r, "me", agentID)
 }
 
-// OauthCallback handles GET /api/auth/profile/oauth/{provider}/callback.
+// OauthCallback handles GET /api/auth/oauth/{provider}/callback.
 // This is intentionally a pass-through to the unexported helper so the
 // generated interface signature is satisfied.
 func (s *Server) OauthCallback(w http.ResponseWriter, r *http.Request, provider string, params apiserver.OauthCallbackParams) {
@@ -306,4 +252,9 @@ func (s *Server) OauthCallback(w http.ResponseWriter, r *http.Request, provider 
 	}
 
 	http.Redirect(w, r, "/settings/credentials", http.StatusFound)
+}
+
+// OauthCallbackLegacy handles the deprecated /api/auth/profile/oauth/{provider}/callback alias.
+func (s *Server) OauthCallbackLegacy(w http.ResponseWriter, r *http.Request, provider string, params apiserver.OauthCallbackLegacyParams) {
+	s.OauthCallback(w, r, provider, apiserver.OauthCallbackParams(params))
 }

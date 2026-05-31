@@ -1,6 +1,8 @@
 package server
 
 import (
+	"net/http"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/web"
 )
@@ -15,6 +17,9 @@ func (s *Server) registerRoutes() {
 // Auth is enforced by the global authMiddleware (Bearer + session).
 func (s *Server) registerAPIRoutes() {
 	apiserver.HandlerFromMux(s, s.mux)
+	s.mux.HandleFunc("GET /api/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, "api route not found")
+	})
 }
 
 func (s *Server) registerStaticRoutes() {

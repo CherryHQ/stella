@@ -1,6 +1,6 @@
 paths:
   # ── Identities ──────────────────────────────────────────────────────────────
-  /api/auth/profile/identities:
+  /api/users/me/identities:
     get:
       tags: [profile]
       summary: List linked identities for the current user
@@ -17,7 +17,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/identities/{id}:
+  /api/users/me/identities/{id}:
     parameters:
       - {
           name: id,
@@ -41,7 +41,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/auth/profile/password:
+  /api/users/me/password:
     patch:
       tags: [profile]
       summary: Change the current user's password
@@ -65,7 +65,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/link-code:
+  /api/users/me/link-code:
     post:
       tags: [profile]
       summary: Generate a short-lived link code for a platform
@@ -93,7 +93,7 @@ paths:
         }
 
   # ── Memories ────────────────────────────────────────────────────────────────
-  /api/auth/profile/memories:
+  /api/users/me/memories:
     get:
       tags: [profile]
       summary: List per-agent memories for the current user
@@ -110,7 +110,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/memories/{agentId}:
+  /api/users/me/memories/{agentId}:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
@@ -150,7 +150,7 @@ paths:
         }
 
   # ── Soul ────────────────────────────────────────────────────────────────────
-  /api/auth/profile/soul/{agentId}:
+  /api/users/me/soul/{agentId}:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
@@ -180,7 +180,7 @@ paths:
         }
 
   # ── Vault ───────────────────────────────────────────────────────────────────
-  /api/auth/profile/vault:
+  /api/users/me/vault:
     get:
       tags: [profile]
       summary: List vault entries for the current user
@@ -197,7 +197,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/vault/{name}:
+  /api/users/me/vault/{name}:
     parameters:
       - { name: name, in: path, required: true, schema: { type: string } }
     get:
@@ -253,7 +253,7 @@ paths:
         }
 
   # ── OAuth ───────────────────────────────────────────────────────────────────
-  /api/auth/profile/oauth/providers:
+  /api/users/me/oauth/providers:
     get:
       tags: [profile]
       summary: List OAuth provider statuses for the current user
@@ -270,7 +270,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/oauth/{provider}/start:
+  /api/users/me/oauth/{provider}/start:
     parameters:
       - { name: provider, in: path, required: true, schema: { type: string } }
     post:
@@ -292,7 +292,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/oauth/{provider}/status/{flowId}:
+  /api/users/me/oauth/{provider}/status/{flowId}:
     parameters:
       - { name: provider, in: path, required: true, schema: { type: string } }
       - { name: flowId, in: path, required: true, schema: { type: string } }
@@ -315,7 +315,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/oauth/{provider}/connected:
+  /api/users/me/oauth/{provider}/connected:
     parameters:
       - { name: provider, in: path, required: true, schema: { type: string } }
     get:
@@ -337,7 +337,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/oauth/{provider}:
+  /api/users/me/oauth/{provider}:
     parameters:
       - { name: provider, in: path, required: true, schema: { type: string } }
     delete:
@@ -354,13 +354,33 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/oauth/{provider}/callback:
+  /api/auth/oauth/{provider}/callback:
     parameters:
       - { name: provider, in: path, required: true, schema: { type: string } }
     get:
       tags: [profile]
       summary: OAuth callback (browser redirect, unauthenticated)
       operationId: oauthCallback
+      security: []
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+      responses:
+        "302":
+          description: redirect on success
+        "400":
+          description: bad request
+        "500":
+          description: internal server error
+
+  /api/auth/profile/oauth/{provider}/callback:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: Deprecated OAuth callback alias (browser redirect, unauthenticated)
+      operationId: oauthCallbackLegacy
+      deprecated: true
       security: []
       parameters:
         - { name: code, in: query, required: true, schema: { type: string } }

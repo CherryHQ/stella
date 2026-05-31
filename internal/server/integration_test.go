@@ -156,18 +156,27 @@ func TestDeactivatedUserBlockedOnSessionAuth(t *testing.T) {
 func TestNonAdminCannotAccessAdminEndpoints(t *testing.T) {
 	env := setupAdmin(t)
 
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser)
+	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser)
+
+	rr := doBearerRequest(t, env.srv, userToken, "GET", "/api/users/"+user.ID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET own user: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/users/"+env.adminUser.ID, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("GET other user: status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
 
 	adminPaths := []struct {
 		method string
 		path   string
 	}{
-		{"GET", "/api/auth/users"},
-		{"GET", "/api/auth/users/" + env.adminUser.ID},
-		{"PATCH", "/api/auth/users/" + env.adminUser.ID + "/role"},
-		{"PATCH", "/api/auth/users/" + env.adminUser.ID + "/active"},
-		{"GET", "/api/auth/users/" + env.adminUser.ID + "/agents"},
-		{"PATCH", "/api/auth/users/" + env.adminUser.ID + "/agents"},
+		{"GET", "/api/users"},
+		{"PATCH", "/api/users/" + env.adminUser.ID + "/role"},
+		{"PATCH", "/api/users/" + env.adminUser.ID + "/active"},
+		{"GET", "/api/users/" + env.adminUser.ID + "/agents"},
+		{"PATCH", "/api/users/" + env.adminUser.ID + "/agents"},
 	}
 
 	for _, tc := range adminPaths {
@@ -176,6 +185,35 @@ func TestNonAdminCannotAccessAdminEndpoints(t *testing.T) {
 			t.Errorf("%s %s: status = %d, want %d (body: %s)",
 				tc.method, tc.path, rr.Code, http.StatusForbidden, rr.Body.String())
 		}
+	}
+}
+
+func TestLegacyUserRoutesRemoved(t *testing.T) {
+	env := setupAdmin(t)
+
+	for _, path := range []string{"/api/auth/users", "/api/auth/profile/identities"} {
+		rr := doRequest(t, env, "GET", path, nil)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("GET %s: status = %d, want %d (body: %s)", path, rr.Code, http.StatusNotFound, rr.Body.String())
+		}
+	}
+}
+
+func TestLegacyOAuthCallbackAliasRemainsPublic(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doUnauthRequest(t, env.srv, "GET", "/api/auth/profile/oauth/feishu/callback?code=x&state=y", nil)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("legacy callback alias: status = %d, want %d (body: %s)", rr.Code, http.StatusServiceUnavailable, rr.Body.String())
+	}
+}
+
+func TestAdminSelfMemoryRejectsUnknownAgent(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PATCH", "/api/users/me/memories/not-an-agent", map[string]string{"content": "memory"})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
 }
 
@@ -201,6 +239,49 @@ func TestNonAdminCanAccessOwnProfile(t *testing.T) {
 	}
 	if me.IsAdmin {
 		t.Error("expected is_admin = false for regular user")
+	}
+}
+
+func TestUserNotifyIdentityRequiresOwnedIdentity(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "notifyuser", auth.RoleUser)
+	other, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "notifyother", auth.RoleUser)
+	owned, err := env.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
+		UserID:     user.ID,
+		Platform:   "telegram",
+		ExternalID: "tg-notify-user",
+		Name:       "Notify User",
+	})
+	if err != nil {
+		t.Fatalf("CreateChannelIdentity owned: %v", err)
+	}
+	foreign, err := env.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
+		UserID:     other.ID,
+		Platform:   "telegram",
+		ExternalID: "tg-notify-other",
+		Name:       "Notify Other",
+	})
+	if err != nil {
+		t.Fatalf("CreateChannelIdentity foreign: %v", err)
+	}
+
+	rr := doBearerRequest(t, env.srv, userToken, "PATCH", "/api/users/me/notify-identity", map[string]any{"notify_identity_id": owned.ID})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set owned identity: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doBearerRequest(t, env.srv, userToken, "PATCH", "/api/users/me/notify-identity", map[string]any{"notify_identity_id": foreign.ID})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("set foreign identity: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+
+	rr = doBearerRequest(t, env.srv, userToken, "PATCH", "/api/users/me/notify-identity", map[string]any{"notify_identity_id": nil})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear identity: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -241,7 +322,7 @@ func TestRoleDemotionInvalidatesSessions(t *testing.T) {
 
 	// Demote via the admin API (using the original admin's bearer token).
 	body := map[string]string{"role": "user"}
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/role", body)
+	rr = doRequest(t, env, "PATCH", "/api/users/"+result.User.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("demote: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -284,7 +365,7 @@ func TestDeactivationInvalidatesSessions(t *testing.T) {
 	}
 
 	// Deactivate via admin API.
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/active", map[string]any{"is_active": false})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+result.User.ID+"/active", map[string]any{"is_active": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("deactivate: status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -388,13 +469,13 @@ func TestFullUserLifecycle(t *testing.T) {
 	}
 
 	// 3. User cannot access admin endpoints.
-	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/users", nil)
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/users", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("step 3: status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
 
 	// 4. Admin promotes user to admin.
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "admin"})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/role", map[string]string{"role": "admin"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("step 4 promote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -411,25 +492,25 @@ func TestFullUserLifecycle(t *testing.T) {
 	}
 
 	// 6. Admin can now access admin endpoints with their bearer token.
-	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/users", nil)
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/users", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("step 6: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// 7. Demote back to user.
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "user"})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/role", map[string]string{"role": "user"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("step 7 demote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// 8. Can no longer access admin endpoints.
-	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/users", nil)
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/users", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("step 8: status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
 
 	// 9. Deactivate user.
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": false})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/active", map[string]any{"is_active": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("step 9 deactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -441,7 +522,7 @@ func TestFullUserLifecycle(t *testing.T) {
 	}
 
 	// 11. Reactivate user.
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": true})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/active", map[string]any{"is_active": true})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("step 11 reactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -460,7 +541,7 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 	stellaID := findStellaID(t, env)
 
 	// Initially no agents assigned.
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+user.ID+"/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list: status = %d", rr.Code)
 	}
@@ -471,13 +552,13 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 	}
 
 	// Assign Stella.
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID}})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID}})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("assign: status = %d", rr.Code)
 	}
 
 	// Verify.
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+user.ID+"/agents", nil)
 	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &ids)
 	if len(ids) != 1 || ids[0] != stellaID {
 		t.Fatalf("expected [%s], got %v", stellaID, ids)
@@ -489,22 +570,22 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 		Enabled: true,
 		Scope:   "system",
 	})
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID, secondAgent}})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID, secondAgent}})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("assign both: status = %d", rr.Code)
 	}
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+user.ID+"/agents", nil)
 	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &ids)
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 agents, got %d", len(ids))
 	}
 
 	// Remove all.
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{}})
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{}})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("remove all: status = %d", rr.Code)
 	}
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+user.ID+"/agents", nil)
 	ids = nil
 	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &ids)
 	if len(ids) != 0 {
@@ -525,13 +606,13 @@ func TestIdentityManagementLifecycle(t *testing.T) {
 		"email":            "identuser@github.com",
 		"name":             "identuser",
 	}
-	rr := doRequest(t, env, "POST", "/api/auth/users/"+user.ID+"/identities/login", body)
+	rr := doRequest(t, env, "POST", "/api/users/"+user.ID+"/identities/login", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("link login identity: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// List login identities.
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/identities/login", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+user.ID+"/identities/login", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list login identities: status = %d", rr.Code)
 	}
@@ -554,7 +635,7 @@ func TestIdentityManagementLifecycle(t *testing.T) {
 	}
 
 	// List channel identities.
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/identities/channel", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+user.ID+"/identities/channel", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list channel identities: status = %d", rr.Code)
 	}
@@ -565,13 +646,13 @@ func TestIdentityManagementLifecycle(t *testing.T) {
 	}
 
 	// Delete channel identity.
-	rr = doRequest(t, env, "DELETE", "/api/auth/users/"+user.ID+"/identities/"+chanIdent.ID, nil)
+	rr = doRequest(t, env, "DELETE", "/api/users/"+user.ID+"/identities/"+chanIdent.ID, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete identity: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// Verify deleted.
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/identities/channel", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+user.ID+"/identities/channel", nil)
 	chanIdents = nil
 	_ = json.Unmarshal(parseListItems(t, rr, "identities"), &chanIdents)
 	if len(chanIdents) != 0 {

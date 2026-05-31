@@ -15,7 +15,7 @@ import (
 func TestListProfileIdentitiesEmpty(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/auth/profile/identities", nil)
+	rr := doRequest(t, env, "GET", "/api/users/me/identities", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -49,7 +49,7 @@ func TestListProfileIdentitiesWithLink(t *testing.T) {
 		t.Fatalf("CreateChannelIdentity: %v", err)
 	}
 
-	rr := doRequest(t, env, "GET", "/api/auth/profile/identities", nil)
+	rr := doRequest(t, env, "GET", "/api/users/me/identities", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -77,7 +77,7 @@ func TestChangePasswordSuccess(t *testing.T) {
 		"current_password": "testpassword",
 		"new_password":     "newpassword123",
 	}
-	rr := doRequest(t, env, "PATCH", "/api/auth/profile/password", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/me/password", body)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
@@ -99,7 +99,7 @@ func TestChangePasswordWrongCurrent(t *testing.T) {
 		"current_password": "wrongpassword",
 		"new_password":     "newpassword123",
 	}
-	rr := doRequest(t, env, "PATCH", "/api/auth/profile/password", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/me/password", body)
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
@@ -112,7 +112,7 @@ func TestChangePasswordTooShort(t *testing.T) {
 		"current_password": "testpassword",
 		"new_password":     "short",
 	}
-	rr := doRequest(t, env, "PATCH", "/api/auth/profile/password", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/me/password", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -124,7 +124,7 @@ func TestGenerateLinkCode(t *testing.T) {
 	body := map[string]string{
 		"platform": "telegram",
 	}
-	rr := doRequest(t, env, "POST", "/api/auth/profile/link-code", body)
+	rr := doRequest(t, env, "POST", "/api/users/me/link-code", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -151,7 +151,7 @@ func TestGenerateLinkCodeInvalidPlatform(t *testing.T) {
 	body := map[string]string{
 		"platform": "invalid",
 	}
-	rr := doRequest(t, env, "POST", "/api/auth/profile/link-code", body)
+	rr := doRequest(t, env, "POST", "/api/users/me/link-code", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -173,7 +173,7 @@ func TestUnlinkIdentity(t *testing.T) {
 		t.Fatalf("CreateChannelIdentity: %v", err)
 	}
 
-	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+identity.ID, nil)
+	rr := doRequest(t, env, "DELETE", "/api/users/me/identities/"+identity.ID, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
@@ -208,7 +208,7 @@ func TestUnlinkIdentityOtherUser(t *testing.T) {
 	}
 
 	// Try to unlink it as the admin — should fail (not your identity).
-	rr := doRequest(t, env, "DELETE", "/api/auth/profile/identities/"+identity.ID, nil)
+	rr := doRequest(t, env, "DELETE", "/api/users/me/identities/"+identity.ID, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
 	}

@@ -154,7 +154,7 @@ func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID st
 	if origin != "" {
 		baseOrigin = origin
 	}
-	redirectFallback := baseOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
+	redirectFallback := baseOrigin + "/api/auth/oauth/" + providerID + "/callback"
 
 	// DB override wins over YAML default.
 	if s.q != nil {

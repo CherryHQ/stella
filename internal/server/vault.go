@@ -14,7 +14,7 @@ type vaultEntryResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// ListVaultEntries handles GET /api/auth/profile/vault.
+// ListVaultEntries handles GET /api/users/me/vault.
 func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
@@ -45,7 +45,7 @@ func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{"entries": resp})
 }
 
-// GetVaultEntry handles GET /api/auth/profile/vault/{name}.
+// GetVaultEntry handles GET /api/users/me/vault/{name}.
 func (s *Server) GetVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
@@ -77,7 +77,7 @@ func (s *Server) GetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 	writeData(w, http.StatusOK, map[string]string{"name": name, "value": value})
 }
 
-// SetVaultEntry handles PUT /api/auth/profile/vault/{name}.
+// SetVaultEntry handles PUT /api/users/me/vault/{name}.
 func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
@@ -126,7 +126,7 @@ func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 	})
 }
 
-// DeleteVaultEntry handles DELETE /api/auth/profile/vault/{name}.
+// DeleteVaultEntry handles DELETE /api/users/me/vault/{name}.
 func (s *Server) DeleteVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
 	if s.vaultSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "vault not configured")
