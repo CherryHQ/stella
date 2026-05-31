@@ -39,6 +39,13 @@ Rules:
 - Never hand-write migration SQL.
 - Do not edit generated migration checksums manually.
 
+## Timestamps and timezones
+
+- **Store UTC.** Schema timestamp columns default to `(datetime('now'))`, which SQLite evaluates in UTC. Never use `'localtime'`. When writing timestamps from Go, use `time.Now().UTC()`.
+- **Serialize timezone-aware.** Always emit RFC3339 with a zone to clients: `t.UTC().Format(time.RFC3339)`. Never return the naive `"2006-01-02 15:04:05"` form in an API response — browsers parse it as local time and render fresh records hours in the past.
+- DB strings are naive UTC, so parse them as UTC before reformatting: `time.Parse("2006-01-02 15:04:05", s)` yields UTC; re-emit with `.UTC().Format(time.RFC3339)` (see `parseProjectTime` in `internal/server/projects.go`).
+- Keep timestamps as UTC end to end; convert to the user's local zone only at the presentation layer (the web UI renders the local time from the RFC3339 instant).
+
 ## API-first design
 
 For new or changed HTTP APIs, design from the OpenAPI spec first and follow `api/CLAUDE.md` for the full workflow, generated files, and API-specific rules.
