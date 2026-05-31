@@ -9,7 +9,6 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -20,45 +19,34 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	ensureTestOrg(t, db)
 	return db
 }
 
-func ensureTestOrg(t *testing.T, db *sql.DB) string {
+// newTestService wraps New.
+func newTestService(t *testing.T, db *sql.DB) *Service {
 	t.Helper()
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
-	return orgID
-}
-
-// newServiceWithOrg wraps New and returns the test org ID.
-func newServiceWithOrg(t *testing.T, db *sql.DB) (*Service, string) {
-	t.Helper()
-	orgID := ensureTestOrg(t, db)
 	svc, err := New(db)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return svc, orgID
+	return svc
 }
 
-func testService(t *testing.T) (*Service, string) {
+func testService(t *testing.T) *Service {
 	t.Helper()
 	db := testDB(t)
-	svc, orgID := newServiceWithOrg(t, db)
+	svc := newTestService(t, db)
 	if err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { _ = svc.Stop() })
-	return svc, orgID
+	return svc
 }
 
 // addTestJob is a convenience wrapper around AddJobWithOwner for tests.
-func addTestJob(t *testing.T, svc *Service, orgID, name, message string, sched Schedule, sessionMode string) Job {
+func addTestJob(t *testing.T, svc *Service, name, message string, sched Schedule, sessionMode string) Job {
 	t.Helper()
-	job, err := svc.AddJobWithOwner(name, message, sched, sessionMode, "", "", orgID)
+	job, err := svc.AddJobWithOwner(name, message, sched, sessionMode, "", "")
 	if err != nil {
 		t.Fatalf("AddJobWithOwner: %v", err)
 	}
@@ -66,10 +54,10 @@ func addTestJob(t *testing.T, svc *Service, orgID, name, message string, sched S
 }
 
 func TestAddListRemoveJob(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	// Add a job.
-	job := addTestJob(t, svc, orgID, "test", "say hello", Schedule{Every: "1h"}, "")
+	job := addTestJob(t, svc, "test", "say hello", Schedule{Every: "1h"}, "")
 	if job.ID == "" {
 		t.Fatal("expected non-empty job ID")
 	}
@@ -90,7 +78,7 @@ func TestAddListRemoveJob(t *testing.T) {
 	}
 
 	// Verify persistence in DB.
-	row, err := svc.q.GetSchedulerJob(context.Background(), sqlc.GetSchedulerJobParams{ID: job.ID, OrgID: orgID})
+	row, err := svc.q.GetSchedulerJob(context.Background(), job.ID)
 	if err != nil {
 		t.Fatalf("GetSchedulerJob: %v", err)
 	}
@@ -108,7 +96,7 @@ func TestAddListRemoveJob(t *testing.T) {
 }
 
 func TestAddJobValidation(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
 	tests := []struct {
@@ -131,7 +119,7 @@ func TestAddJobValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.AddJobWithOwner(tt.jName, tt.message, tt.sched, "", "", "", orgID)
+			_, err := svc.AddJobWithOwner(tt.jName, tt.message, tt.sched, "", "", "")
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -140,7 +128,7 @@ func TestAddJobValidation(t *testing.T) {
 }
 
 func TestRemoveJobNotFound(t *testing.T) {
-	svc, _ := testService(t)
+	svc := testService(t)
 
 	if err := svc.RemoveJob("nonexistent"); err == nil {
 		t.Error("expected error for nonexistent job")
@@ -155,11 +143,11 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, orgID := newServiceWithOrg(t, db1)
+	svc1 := newTestService(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	job := addTestJob(t, svc1, orgID, "persist-test", "check weather", Schedule{Cron: "0 9 * * *"}, "")
+	job := addTestJob(t, svc1, "persist-test", "check weather", Schedule{Cron: "0 9 * * *"}, "")
 	_ = svc1.Stop()
 	_ = db1.Close()
 
@@ -168,7 +156,7 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, _ := newServiceWithOrg(t, db2)
+	svc2 := newTestService(t, db2)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -196,11 +184,11 @@ func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, orgID := newServiceWithOrg(t, db1)
+	svc1 := newTestService(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	addTestJob(t, svc1, orgID, "persist-test", "check weather", Schedule{Every: "1h"}, "")
+	addTestJob(t, svc1, "persist-test", "check weather", Schedule{Every: "1h"}, "")
 	_ = svc1.Stop()
 	_ = db1.Close()
 
@@ -208,7 +196,7 @@ func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, _ := newServiceWithOrg(t, db2)
+	svc2 := newTestService(t, db2)
 	if err := svc2.StartEphemeral(context.Background()); err != nil {
 		t.Fatalf("StartEphemeral: %v", err)
 	}
@@ -223,7 +211,7 @@ func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
 }
 
 func TestOnJobCallbackFires(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	var mu sync.Mutex
 	var fired []string
@@ -234,7 +222,7 @@ func TestOnJobCallbackFires(t *testing.T) {
 		return nil
 	})
 
-	addTestJob(t, svc, orgID, "quick", "ping", Schedule{Every: "100ms"}, "")
+	addTestJob(t, svc, "quick", "ping", Schedule{Every: "100ms"}, "")
 
 	// Wait for the callback to fire.
 	deadline := time.After(2 * time.Second)
@@ -254,9 +242,9 @@ func TestOnJobCallbackFires(t *testing.T) {
 }
 
 func TestAddJobWithOwner(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
-	job, err := svc.AddJobWithOwner("owned-job", "do work", Schedule{Every: "1h"}, "", "agent-x", "99", orgID)
+	job, err := svc.AddJobWithOwner("owned-job", "do work", Schedule{Every: "1h"}, "", "agent-x", "99")
 	if err != nil {
 		t.Fatalf("AddJobWithOwner: %v", err)
 	}
@@ -281,10 +269,10 @@ func TestAddJobWithOwner(t *testing.T) {
 }
 
 func TestOneTimeJobCreation(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	futureTime := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
-	job := addTestJob(t, svc, orgID, "one-time-test", "do something once", Schedule{At: futureTime}, "")
+	job := addTestJob(t, svc, "one-time-test", "do something once", Schedule{At: futureTime}, "")
 	if job.Schedule.At != futureTime {
 		t.Errorf("At = %q, want %q", job.Schedule.At, futureTime)
 	}
@@ -296,7 +284,7 @@ func TestOneTimeJobCreation(t *testing.T) {
 }
 
 func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	var mu sync.Mutex
 	var fired []string
@@ -309,7 +297,7 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 
 	// Schedule 200ms from now.
 	at := time.Now().Add(200 * time.Millisecond).Format(time.RFC3339Nano)
-	job := addTestJob(t, svc, orgID, "fire-once", "ping once", Schedule{At: at}, "")
+	job := addTestJob(t, svc, "fire-once", "ping once", Schedule{At: at}, "")
 
 	// Wait for the callback to fire and cleanup to happen.
 	deadline := time.After(3 * time.Second)
@@ -352,12 +340,12 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, orgID := newServiceWithOrg(t, db1)
+	svc1 := newTestService(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	futureTime := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
-	addTestJob(t, svc1, orgID, "restart-test", "do once", Schedule{At: futureTime}, "")
+	addTestJob(t, svc1, "restart-test", "do once", Schedule{At: futureTime}, "")
 	_ = svc1.Stop()
 
 	// Manually tamper the job to have a past timestamp to simulate missed window.
@@ -373,7 +361,7 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, _ := newServiceWithOrg(t, db2)
+	svc2 := newTestService(t, db2)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -397,19 +385,19 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 }
 
 func TestSessionModeDefault(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	// Empty session_mode defaults to "reuse".
-	job := addTestJob(t, svc, orgID, "default-mode", "msg", Schedule{Every: "1h"}, "")
+	job := addTestJob(t, svc, "default-mode", "msg", Schedule{Every: "1h"}, "")
 	if job.SessionMode != SessionReuse {
 		t.Errorf("SessionMode = %q, want %q", job.SessionMode, SessionReuse)
 	}
 }
 
 func TestSessionModeReuse(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
-	job := addTestJob(t, svc, orgID, "reuse-mode", "msg", Schedule{Every: "1h"}, SessionReuse)
+	job := addTestJob(t, svc, "reuse-mode", "msg", Schedule{Every: "1h"}, SessionReuse)
 
 	// Reuse mode: SessionID is stable across calls.
 	id1 := job.SessionID()
@@ -423,9 +411,9 @@ func TestSessionModeReuse(t *testing.T) {
 }
 
 func TestSessionModeNew(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
-	job := addTestJob(t, svc, orgID, "new-mode", "msg", Schedule{Every: "1h"}, SessionNew)
+	job := addTestJob(t, svc, "new-mode", "msg", Schedule{Every: "1h"}, SessionNew)
 	if job.SessionMode != SessionNew {
 		t.Errorf("SessionMode = %q, want %q", job.SessionMode, SessionNew)
 	}
@@ -440,23 +428,23 @@ func TestSessionModeNew(t *testing.T) {
 }
 
 func TestSessionModeInvalid(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
-	_, err := svc.AddJobWithOwner("bad-mode", "msg", Schedule{Every: "1h"}, "invalid", "", "", orgID)
+	_, err := svc.AddJobWithOwner("bad-mode", "msg", Schedule{Every: "1h"}, "invalid", "", "")
 	if err == nil {
 		t.Error("expected error for invalid session_mode")
 	}
 }
 
 func TestEnsureJobCreatesOnce(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
-	job1, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem, orgID)
+	job1, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("first EnsureJob: %v", err)
 	}
 
-	job2, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem, orgID)
+	job2, err := svc.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("second EnsureJob: %v", err)
 	}
@@ -471,14 +459,14 @@ func TestEnsureJobCreatesOnce(t *testing.T) {
 }
 
 func TestEnsureJobUpdatesExisting(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
-	job1, err := svc.EnsureJob("rss-poll", "poll feeds v1", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem, orgID)
+	job1, err := svc.EnsureJob("rss-poll", "poll feeds v1", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("first EnsureJob: %v", err)
 	}
 
-	job2, err := svc.EnsureJob("rss-poll", "poll feeds v2", Schedule{Every: "30m"}, SessionNew, "", ExecScopeSystem, orgID)
+	job2, err := svc.EnsureJob("rss-poll", "poll feeds v2", Schedule{Every: "30m"}, SessionNew, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("second EnsureJob: %v", err)
 	}
@@ -508,11 +496,11 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc1, orgID := newServiceWithOrg(t, db1)
+	svc1 := newTestService(t, db1)
 	if err := svc1.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	job1, err := svc1.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem, orgID)
+	job1, err := svc1.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("EnsureJob: %v", err)
 	}
@@ -523,7 +511,7 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	svc2, orgID2 := newServiceWithOrg(t, db2)
+	svc2 := newTestService(t, db2)
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -532,7 +520,7 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 		_ = db2.Close()
 	}()
 
-	job2, err := svc2.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem, orgID2)
+	job2, err := svc2.EnsureJob("rss-poll", "poll feeds", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeSystem)
 	if err != nil {
 		t.Fatalf("EnsureJob after restart: %v", err)
 	}
@@ -547,7 +535,7 @@ func TestEnsureJobPersistsAcrossRestart(t *testing.T) {
 }
 
 func TestRunJobNow_SingleRun(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	var fired []string
 	var mu sync.Mutex
@@ -558,7 +546,7 @@ func TestRunJobNow_SingleRun(t *testing.T) {
 		return nil
 	})
 
-	job := addTestJob(t, svc, orgID, "run-now-test", "hello", Schedule{Every: "24h"}, SessionReuse)
+	job := addTestJob(t, svc, "run-now-test", "hello", Schedule{Every: "24h"}, SessionReuse)
 
 	runID, err := svc.RunJobNow(context.Background(), job.ID)
 	if err != nil {
@@ -599,7 +587,7 @@ func TestRunJobNow_SingleRun(t *testing.T) {
 }
 
 func TestRunJobNow_PreventsConcurrentRun(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	// Slow job so we can attempt a second trigger while it's still running.
 	started := make(chan struct{})
@@ -610,7 +598,7 @@ func TestRunJobNow_PreventsConcurrentRun(t *testing.T) {
 		return nil
 	})
 
-	job := addTestJob(t, svc, orgID, "concurrent-test", "block", Schedule{Every: "24h"}, SessionReuse)
+	job := addTestJob(t, svc, "concurrent-test", "block", Schedule{Every: "24h"}, SessionReuse)
 
 	runID, err := svc.RunJobNow(context.Background(), job.ID)
 	if err != nil {
@@ -632,7 +620,7 @@ func TestRunJobNow_PreventsConcurrentRun(t *testing.T) {
 }
 
 func TestRunJobNow_NotFound(t *testing.T) {
-	svc, _ := testService(t)
+	svc := testService(t)
 	_, err := svc.RunJobNow(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unknown job ID")
@@ -640,7 +628,7 @@ func TestRunJobNow_NotFound(t *testing.T) {
 }
 
 func TestRunJobNow_AllUsers(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	var calledWith []string
 	var mu sync.Mutex
@@ -650,11 +638,11 @@ func TestRunJobNow_AllUsers(t *testing.T) {
 		mu.Unlock()
 		return nil
 	})
-	svc.SetListActiveUsersFunc(func(_ context.Context, _ string) ([]string, error) {
+	svc.SetListActiveUsersFunc(func(_ context.Context) ([]string, error) {
 		return []string{"1", "2"}, nil
 	})
 
-	job, err := svc.EnsureJob("all-users-test", "hello", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeAllUsers, orgID)
+	job, err := svc.EnsureJob("all-users-test", "hello", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeAllUsers)
 	if err != nil {
 		t.Fatalf("EnsureJob: %v", err)
 	}
@@ -687,7 +675,7 @@ func TestRunJobNow_AllUsers(t *testing.T) {
 }
 
 func TestExecuteJobForAllUsers_NoListFunc(t *testing.T) {
-	svc, orgID := testService(t)
+	svc := testService(t)
 
 	var called int
 	svc.SetOnJob(func(_ context.Context, _ Job) error {
@@ -696,7 +684,7 @@ func TestExecuteJobForAllUsers_NoListFunc(t *testing.T) {
 	})
 	// Intentionally do NOT call SetListActiveUsersFunc.
 
-	job, err := svc.EnsureJob("no-list-func", "hello", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeAllUsers, orgID)
+	job, err := svc.EnsureJob("no-list-func", "hello", Schedule{Every: "1h"}, SessionReuse, "", ExecScopeAllUsers)
 	if err != nil {
 		t.Fatalf("EnsureJob: %v", err)
 	}

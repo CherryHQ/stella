@@ -6,15 +6,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/orgctx"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
-
-const testOrg = "org-A"
-
-func ctxWithOrg(org string) context.Context {
-	return orgctx.WithOrgID(context.Background(), org)
-}
 
 func TestConfigMapFromJSON(t *testing.T) {
 	tests := []struct {
@@ -49,7 +42,7 @@ func TestRuntimeLookup(t *testing.T) {
 	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/test", Name: "main", Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
 	}})
-	ctx := ctxWithOrg(testOrg)
+	ctx := context.Background()
 	if err := host.ApplyPlugin(ctx, "tool/test"); err != nil {
 		t.Fatal(err)
 	}
@@ -66,89 +59,12 @@ func TestRuntimeLookup(t *testing.T) {
 	}
 }
 
-// TestRuntimeOrgIsolation verifies that two orgs each running a runtime under
-// the same plugin ID + runtime name keep entirely separate managed instances.
-func TestRuntimeOrgIsolation(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true}}}
-	host := New(store)
-	host.RegisterPluginID("tool/test")
-
-	var builds []string
-	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/test", Name: "main", Build: func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
-		builds = append(builds, rc.State.ID)
-		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
-	}})
-
-	ctxA := ctxWithOrg("org-A")
-	ctxB := ctxWithOrg("org-B")
-	if err := host.ApplyPlugin(ctxA, "tool/test"); err != nil {
-		t.Fatalf("ApplyPlugin org-A: %v", err)
-	}
-	if err := host.ApplyPlugin(ctxB, "tool/test"); err != nil {
-		t.Fatalf("ApplyPlugin org-B: %v", err)
-	}
-	if len(builds) != 2 {
-		t.Fatalf("expected 2 builds (one per org), got %d", len(builds))
-	}
-
-	// Each org sees its own runtime; cross-org lookup returns nothing.
-	if _, ok := host.Runtime().Get(ctxA, "tool/test", "main"); !ok {
-		t.Fatal("org-A: expected runtime handle")
-	}
-	if _, ok := host.Runtime().Get(ctxB, "tool/test", "main"); !ok {
-		t.Fatal("org-B: expected runtime handle")
-	}
-
-	// Shutdown org-A clears only its runtimes; org-B still works.
-	if err := host.Shutdown(ctxA); err != nil {
-		t.Fatalf("Shutdown org-A: %v", err)
-	}
-	if _, ok := host.Runtime().Get(ctxA, "tool/test", "main"); ok {
-		t.Fatal("org-A: expected runtime gone after Shutdown")
-	}
-	if _, ok := host.Runtime().Get(ctxB, "tool/test", "main"); !ok {
-		t.Fatal("org-B: expected runtime still present after org-A Shutdown")
-	}
-}
-
-// TestRuntimeMissingOrgIDOnReadReturnsFalse ensures the read paths fail soft
-// when ctx lacks orgID (Get/Lookup return nil,false instead of panicking).
-func TestRuntimeMissingOrgIDOnReadReturnsFalse(t *testing.T) {
+// TestRuntimeMissingKeyReturnsFalse ensures Get returns (nil,false) for
+// unknown runtime keys.
+func TestRuntimeMissingKeyReturnsFalse(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 	if _, ok := host.Runtime().Get(context.Background(), "tool/test", "main"); ok {
-		t.Fatal("expected (nil, false) when ctx has no orgID")
-	}
-}
-
-// TestRuntimeMissingOrgIDOnWriteReturnsError ensures Apply/Shutdown reject a
-// ctx without orgID rather than silently accepting it.
-func TestRuntimeMissingOrgIDOnWriteReturnsError(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true}}}
-	host := New(store)
-	host.RegisterPluginID("tool/test")
-	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/test", Name: "main", Build: func(pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
-		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
-	}})
-	if err := host.ApplyPlugin(context.Background(), "tool/test"); err == nil {
-		t.Fatal("ApplyPlugin without orgID: expected error, got nil")
-	}
-	if err := host.Shutdown(context.Background()); err == nil {
-		t.Fatal("Shutdown without orgID: expected error, got nil")
-	}
-}
-
-// TestApplyChannelOrgMismatchRejects guards against using one org's ctx to
-// apply another org's channel record.
-func TestApplyChannelOrgMismatchRejects(t *testing.T) {
-	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.RegisterPluginID("channel/telegram")
-	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "channel/telegram", Name: "bot", Build: func(pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
-		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
-	}})
-	ch := config.Channel{ID: "tg-main", Type: "telegram", Enabled: true, Config: "{}", OrgID: "org-B"}
-	err := host.ApplyChannel(ctxWithOrg("org-A"), ch)
-	if err == nil {
-		t.Fatal("expected error for ctx/channel org mismatch")
+		t.Fatal("expected (nil, false) for unknown runtime key")
 	}
 }
 
@@ -161,12 +77,12 @@ func TestShutdownReleasesLockBeforeStop(t *testing.T) {
 	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/test", Name: "main", Build: func(pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 		return reentrantRuntime{host: host}, nil
 	}})
-	ctx := ctxWithOrg("org-A")
+	ctx := context.Background()
 	if err := host.ApplyPlugin(ctx, "tool/test"); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	done := make(chan error, 1)
-	go func() { done <- host.Shutdown(ctx) }()
+	go func() { done <- host.Stop(ctx) }()
 	select {
 	case err := <-done:
 		if err != nil {

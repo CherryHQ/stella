@@ -56,7 +56,6 @@ type Session struct {
 	AgentID string // agent this session belongs to (e.g. "default")
 	UserID  string // internal user ID (empty for anonymous/legacy)
 	Channel string // originating channel (e.g. "cli", "telegram")
-	OrgID   string // organization this session belongs to
 }
 
 // SessionInfo holds metadata about a session.
@@ -68,7 +67,6 @@ type SessionInfo struct {
 	Kind       string // session kind: main, chat, scheduler, task
 	ProjectID  string // set for project-scoped sessions
 	Title      string // auto-generated from first message
-	OrgID      string
 	CreatedAt  time.Time
 	LastActive time.Time
 	Archived   bool

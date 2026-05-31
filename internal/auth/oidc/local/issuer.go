@@ -31,7 +31,6 @@ type Issuer struct {
 	codes       auth.OIDCCodeStore
 	tokens      auth.OIDCAccessTokenStore
 	users       auth.UserStore
-	memberships auth.MembershipStore
 	credentials auth.CredentialStore
 	// authSvc is used to validate an existing Stella OIDC session on the authorize endpoint.
 	// May be nil; when nil, the authorize endpoint always shows the login form.
@@ -45,7 +44,6 @@ func NewIssuer(
 	codes auth.OIDCCodeStore,
 	tokens auth.OIDCAccessTokenStore,
 	users auth.UserStore,
-	memberships auth.MembershipStore,
 	credentials auth.CredentialStore,
 	authSvc *auth.AuthService,
 	sessionMgr *auth.SessionManager,
@@ -55,7 +53,6 @@ func NewIssuer(
 		codes:       codes,
 		tokens:      tokens,
 		users:       users,
-		memberships: memberships,
 		credentials: credentials,
 		authSvc:     authSvc,
 		sessionMgr:  sessionMgr,
@@ -96,7 +93,7 @@ func (is *Issuer) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 		ClaimsSupported: []string{
 			"sub", "iss", "aud", "iat", "exp", "nonce",
 			"email", "email_verified", "name", "picture",
-			"org_id", "org_name", "role",
+			"role",
 		},
 		CodeChallengeMethodsSupported: []string{"S256"},
 	}
@@ -161,8 +158,8 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	// GET: check for existing Stella OIDC session.
 	if is.sessionMgr != nil && is.authSvc != nil {
 		if rawToken, err := is.sessionMgr.GetToken(r); err == nil {
-			if principal, _, err := is.authSvc.PrincipalFromTokenPartial(ctx, rawToken); err == nil {
-				is.issueCodeAndRedirect(w, r, ctx, principal.UserID, principal.OrgID, params)
+			if principal, err := is.authSvc.PrincipalFromToken(ctx, rawToken); err == nil {
+				is.issueCodeAndRedirect(w, r, ctx, principal.UserID, params)
 				return
 			}
 		}
@@ -239,22 +236,18 @@ func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ct
 		return
 	}
 
+	if !user.IsActive {
+		is.renderLoginForm(w, params, "Account is disabled.")
+		return
+	}
+
 	credSvc := auth.NewCredentialService(is.credentials)
 	if err := credSvc.VerifyPassword(ctx, user.ID, password); err != nil {
 		is.renderLoginForm(w, params, "Invalid email or password.")
 		return
 	}
 
-	var orgID string
-	if membership, err := is.memberships.GetUserMembership(ctx, user.ID); err == nil {
-		if !membership.IsActive {
-			is.renderLoginForm(w, params, "Account is disabled.")
-			return
-		}
-		orgID = membership.OrganizationID
-	}
-
-	is.issueCodeAndRedirect(w, r, ctx, user.ID, orgID, params)
+	is.issueCodeAndRedirect(w, r, ctx, user.ID, params)
 }
 
 func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
@@ -275,10 +268,22 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		return
 	}
 
+	// First registered user becomes admin.
+	count, err := is.users.CountUsers(ctx)
+	if err != nil {
+		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		return
+	}
+	role := auth.RoleUser
+	if count == 0 {
+		role = auth.RoleAdmin
+	}
+
 	newUser, err := is.users.CreateUser(ctx, auth.User{
 		ID:    uuid.NewString(),
 		Email: email,
 		Name:  name,
+		Role:  role,
 	})
 	if err != nil {
 		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
@@ -292,10 +297,10 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		return
 	}
 
-	is.issueCodeAndRedirect(w, r, ctx, newUser.ID, "", params)
+	is.issueCodeAndRedirect(w, r, ctx, newUser.ID, params)
 }
 
-func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, ctx context.Context, userID, orgID string, params *authorizeParams) {
+func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, ctx context.Context, userID string, params *authorizeParams) {
 	rawCode := generateOpaqueToken()
 	codeHash := hashToken(rawCode)
 
@@ -303,7 +308,6 @@ func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, c
 		ID:            uuid.NewString(),
 		CodeHash:      codeHash,
 		UserID:        userID,
-		OrgID:         orgID,
 		ClientID:      params.clientID,
 		RedirectURI:   params.redirectURI,
 		Scopes:        params.scopes,
@@ -491,19 +495,15 @@ func (is *Issuer) HandleToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Load user and optional membership for claims.
+	// Load user for claims.
 	user, err := is.users.GetUser(ctx, code.UserID)
 	if err != nil {
 		is.tokenError(w, "server_error", "could not load user")
 		return
 	}
-	var membership *auth.Membership
-	if m, mErr := is.memberships.GetUserMembership(ctx, code.UserID); mErr == nil {
-		if !m.IsActive {
-			is.tokenError(w, "access_denied", "account disabled")
-			return
-		}
-		membership = &m
+	if !user.IsActive {
+		is.tokenError(w, "access_denied", "account disabled")
+		return
 	}
 
 	// Issue opaque access token.
@@ -514,7 +514,6 @@ func (is *Issuer) HandleToken(w http.ResponseWriter, r *http.Request) {
 		ID:        uuid.NewString(),
 		TokenHash: accessTokenHash,
 		UserID:    code.UserID,
-		OrgID:     code.OrgID,
 		ClientID:  clientID,
 		Scopes:    code.Scopes,
 		ExpiresAt: time.Now().Add(ttl),
@@ -525,7 +524,7 @@ func (is *Issuer) HandleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build ID token.
-	idToken, err := is.buildIDToken(user, membership, code.Scopes, code.Nonce, clientID, ttl)
+	idToken, err := is.buildIDToken(user, code.Scopes, code.Nonce, clientID, ttl)
 	if err != nil {
 		is.tokenError(w, "server_error", "could not build ID token")
 		return
@@ -567,7 +566,7 @@ func (is *Issuer) HandleUserinfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server_error", http.StatusInternalServerError)
 		return
 	}
-	if m, mErr := is.memberships.GetUserMembership(ctx, tok.UserID); mErr == nil && !m.IsActive {
+	if !user.IsActive {
 		http.Error(w, "access_denied", http.StatusForbidden)
 		return
 	}
@@ -590,14 +589,15 @@ func (is *Issuer) HandleUserinfo(w http.ResponseWriter, r *http.Request) {
 
 // --- JWT helpers ---
 
-func (is *Issuer) buildIDToken(user auth.User, membership *auth.Membership, scopes []string, nonce, audience string, ttl time.Duration) (string, error) {
+func (is *Issuer) buildIDToken(user auth.User, scopes []string, nonce, audience string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := map[string]any{
-		"iss": is.cfg.IssuerURL,
-		"sub": user.ID,
-		"aud": audience,
-		"iat": now.Unix(),
-		"exp": now.Add(ttl).Unix(),
+		"iss":  is.cfg.IssuerURL,
+		"sub":  user.ID,
+		"aud":  audience,
+		"iat":  now.Unix(),
+		"exp":  now.Add(ttl).Unix(),
+		"role": user.Role,
 	}
 	if nonce != "" {
 		claims["nonce"] = nonce
@@ -611,10 +611,6 @@ func (is *Issuer) buildIDToken(user auth.User, membership *auth.Membership, scop
 			claims["name"] = user.Name
 			claims["picture"] = user.AvatarURL
 		}
-	}
-	if membership != nil {
-		claims["org_id"] = membership.OrganizationID
-		claims["role"] = membership.Role
 	}
 
 	return signES256(is.cfg.SigningKey, is.cfg.KeyID, claims)

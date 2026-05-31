@@ -430,9 +430,6 @@ func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
 
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
-// Shutdown tears down every managed runtime for the org resolved from ctx.
-func (h *Host) Shutdown(ctx context.Context) error { return h.runtimes.Shutdown(ctx) }
-
 func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.PromptInventorySpec, 0, len(h.promptRegs))

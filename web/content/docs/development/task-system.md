@@ -46,7 +46,7 @@ depends on:
   waiver / `on_failure=ignore`)
 - all soft deps terminal (any of `done`, `failed`, `cancelled`)
 - no active run already claiming the task
-- per-org concurrency cap below the limit
+- concurrency cap below the limit
 - an executor can be resolved
 
 `internal/tasks/readiness.go` exposes a **pure function** `Compute(task,
@@ -202,9 +202,8 @@ See [Goal system](./goal-system) for the goal-side details.
 
 ## HTTP surface
 
-All routes are flat under `/api/tasks/...` and org-scoped via the
-authenticated session. Cross-org access returns 404 (not 403) so existence
-isn't leaked.
+All routes are flat under `/api/tasks/...` and scoped via the
+authenticated session.
 
 | Method | Path                                                 | Purpose                                    |
 | ------ | ---------------------------------------------------- | ------------------------------------------ |

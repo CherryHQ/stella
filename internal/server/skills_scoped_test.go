@@ -23,7 +23,7 @@ import (
 // (user, bearer token).
 func newNonAdmin(t *testing.T, env *testEnv, username string) (auth.User, string) {
 	t.Helper()
-	return createTestUserWithToken(t, env.authStore, env.oidcStore, username, auth.RoleUser, env.orgID)
+	return createTestUserWithToken(t, env.authStore, env.oidcStore, username, auth.RoleUser)
 }
 
 // createAgentAsUser creates an agent via the API using the given session
@@ -57,7 +57,7 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, ag
 		Description: "test",
 		Status:      "active",
 	}
-	ctx := config.WithOrgID(context.Background(), env.orgID)
+	ctx := context.Background()
 	id, err := env.pluginHost.SkillStore().Create(ctx, sk, map[string]string{
 		skills.MainFile: "# " + name,
 		"reference.md":  "reference content",
@@ -148,7 +148,6 @@ func TestSessionSystemPromptIncludesSkills(t *testing.T) {
 		UserID:     env.adminUser.ID,
 		Channel:    "admin",
 		Kind:       "chat",
-		OrgID:      env.orgID,
 		CreatedAt:  now,
 		LastActive: now,
 	}); err != nil {
@@ -186,7 +185,7 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user", creator.ID, agentID, "creator-user-skill")
 	draftID := createTestSkill(t, env, "user", creator.ID, agentID, "draft-skill")
-	orgCtx := config.WithOrgID(context.Background(), env.orgID)
+	orgCtx := context.Background()
 	draftStatus := "draft"
 	if err := env.pluginHost.SkillStore().Update(orgCtx, draftID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &draftStatus}); err != nil {
 		t.Fatalf("mark skill draft: %v", err)
@@ -226,6 +225,7 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		t.Fatalf("admin list included another user's skill: %#v", list)
 	}
 
+	// Non-admin users without agent assignment are denied access.
 	rr = doRequestWithSession(t, env.srv, otherSID, "GET", "/api/agents/"+agentID+"/skills", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("other status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
@@ -260,7 +260,7 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	_, otherSID := newNonAdmin(t, env, "other-ud")
 	agentID := createAgentAsUser(t, env, sid, "ud-agent")
 
-	// Non-creator cannot create agent-scoped skills
+	// Non-admin users without agent assignment are denied access.
 	rr := doRequestWithSession(t, env.srv, otherSID, "POST", "/api/agents/"+agentID+"/skills", map[string]any{
 		"name":  "other-agent-skill",
 		"scope": "agent",

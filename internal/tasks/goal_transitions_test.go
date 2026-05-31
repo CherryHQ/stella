@@ -18,7 +18,7 @@ func (h *testHarness) createGoal(t *testing.T, status, policy string) string {
 	id := uuid.NewString()
 	now := time.Now().Format(time.RFC3339Nano)
 	if _, err := h.q.CreateAgentGoal(context.Background(), sqlc.CreateAgentGoalParams{
-		ID: id, OrgID: h.orgID, UserID: h.userID,
+		ID: id, UserID: h.userID,
 		Title: "g-" + id[:8], Description: "", Status: status, Priority: "routine",
 		ReviewPolicy: policy, Context: "{}", Output: "{}",
 		CreatedAt: now, UpdatedAt: now,
@@ -34,10 +34,10 @@ func (h *testHarness) createChildTask(t *testing.T, goalID, status string) strin
 	id := uuid.NewString()
 	now := time.Now().Format(time.RFC3339Nano)
 	if _, err := h.db.ExecContext(context.Background(), `
-		INSERT INTO agent_task (id, org_id, user_id, goal_id, title, status, priority,
+		INSERT INTO agent_task (id, user_id, goal_id, title, status, priority,
 		    required, retry_count, max_retries, context, output, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'routine', 1, 0, 3, '{}', '{}', ?, ?)`,
-		id, h.orgID, h.userID, goalID, "child-"+id[:8], status, now, now,
+		VALUES (?, ?, ?, ?, ?, 'routine', 1, 0, 3, '{}', '{}', ?, ?)`,
+		id, h.userID, goalID, "child-"+id[:8], status, now, now,
 	); err != nil {
 		t.Fatalf("create child: %v", err)
 	}

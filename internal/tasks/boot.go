@@ -27,12 +27,12 @@ type BootConfig struct {
 	DB     *sql.DB
 	Memory memory.Provider // used to mint sessions
 	Pools  func(agentID string) (agent.NewRunnerFunc, bool)
-	// MaxPerOrg, TickEvery, LeaseTTL override defaults; zero values use the
+	// MaxWorkers, TickEvery, LeaseTTL override defaults; zero values use the
 	// dispatcher's defaults.
-	MaxPerOrg int
-	TickEvery time.Duration
-	LeaseTTL  time.Duration
-	Logger    *slog.Logger
+	MaxWorkers int
+	TickEvery  time.Duration
+	LeaseTTL   time.Duration
+	Logger     *slog.Logger
 }
 
 // New constructs the task system. The dispatcher is constructed but not
@@ -64,7 +64,7 @@ func New(cfg BootConfig) *Service {
 		Runner:     runner,
 		Resolver:   sessionAndCreatorResolver(q, cfg.Memory, logger),
 		NewSession: sessionMinterFor(cfg.Memory, logger),
-		MaxPerOrg:  cfg.MaxPerOrg,
+		MaxWorkers: cfg.MaxWorkers,
 		TickEvery:  cfg.TickEvery,
 		LeaseTTL:   cfg.LeaseTTL,
 		Logger:     logger.With("subcomponent", "dispatcher"),

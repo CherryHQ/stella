@@ -68,7 +68,7 @@ func (commandTestStore) GetProvider(context.Context, string) (config.Provider, e
 func (commandTestStore) CreateProvider(context.Context, config.Provider) error     { return nil }
 func (commandTestStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
 func (commandTestStore) DeleteProvider(context.Context, string) error              { return nil }
-func (commandTestStore) SetProviderOrg(context.Context, string, string) error      { return nil }
+func (commandTestStore) Seed(context.Context) error                                { return nil }
 func (commandTestStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
 func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
 func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) {
@@ -80,7 +80,6 @@ func (commandTestStore) DeleteAgent(context.Context, string) error       { retur
 func (commandTestStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
 	return nil, nil
 }
-func (commandTestStore) SetAgentOrg(context.Context, string, string) error      { return nil }
 func (commandTestStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -91,7 +90,6 @@ func (commandTestStore) GetChannel(context.Context, string) (config.Channel, err
 }
 func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
-func (commandTestStore) SetChannelOrg(context.Context, string, string) error { return nil }
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return nil, nil
 }
@@ -136,7 +134,6 @@ func (commandTestStore) DeleteChatAgent(context.Context, string, string, string)
 func (commandTestStore) GetSetting(context.Context, string) (string, error)            { return "", nil }
 func (commandTestStore) SetSetting(context.Context, string, string) error              { return nil }
 func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)    { return nil, nil }
-func (commandTestStore) SeedNewOrg(context.Context, string) error                      { return nil }
 
 func setupCommandTestStellaHome(t *testing.T) string {
 	t.Helper()
@@ -205,13 +202,9 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("ensure default org: %v", err)
-	}
 	store := cfgstore.NewDBStore(db)
-	ctx := config.WithOrgID(context.Background(), orgID)
-	if err := store.SeedNewOrg(ctx, orgID); err != nil {
+	ctx := context.Background()
+	if err := store.Seed(ctx); err != nil {
 		t.Fatalf("seed defaults: %v", err)
 	}
 	agents, err := store.ListEnabledAgents(ctx)

@@ -24,14 +24,6 @@ func (s *Server) SetTasksService(svc *tasks.Service) {
 // panicking.
 func (s *Server) tasksReady() bool { return s.tasksSvc != nil && s.tasksSvc.Facade != nil }
 
-// resolveOrg returns the org ID from the authenticated session, or "" if none.
-func resolveOrg(r *http.Request) string {
-	if info := UserFromContext(r.Context()); info != nil {
-		return info.OrgID
-	}
-	return ""
-}
-
 // authActor builds a tasks.Actor for an authenticated user request. Falls back
 // to system if the request somehow lacks auth context.
 func authActor(r *http.Request) tasks.Actor {
@@ -69,22 +61,10 @@ func taskError(w http.ResponseWriter, err error) {
 	}
 }
 
-// requireOrg pulls the resolved org for the request, writing 401 and returning
-// "" when neither header nor session supplied one. Phase-2 handlers call this
-// up front before any facade work.
-func requireOrg(w http.ResponseWriter, r *http.Request) string {
-	org := resolveOrg(r)
-	if org == "" {
-		writeError(w, http.StatusUnauthorized, "missing_org")
-		return ""
-	}
-	return org
-}
-
-// loadTaskInOrg resolves a {taskID} path param to a task row, enforcing the
-// org boundary. Returns false (and writes an error) on miss / mismatch.
-func (s *Server) loadTaskInOrg(ctx context.Context, w http.ResponseWriter, taskID, orgID string) (sqlc.AgentTask, bool) {
-	t, err := s.tasksSvc.Facade.GetTask(ctx, taskID, orgID)
+// loadTask resolves a {taskID} path param to a task row.
+// Returns false (and writes an error) on miss.
+func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID string) (sqlc.AgentTask, bool) {
+	t, err := s.tasksSvc.Facade.GetTask(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, tasks.ErrTaskNotFound) || errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found")
@@ -105,15 +85,14 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
 	var limit int64 = 50
 	if params.Limit != nil && *params.Limit > 0 {
 		limit = *params.Limit
 	}
-	rows, err := s.tasksSvc.Facade.ListTasksByOrg(r.Context(), org, limit, 0)
+	rows, err := s.tasksSvc.Facade.ListTasks(r.Context(), limit, 0)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -136,12 +115,11 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	info := UserFromContext(r.Context())
-	if info == nil || info.UserID == "" {
+	if info.UserID == "" {
 		writeError(w, http.StatusUnauthorized, "missing_user")
 		return
 	}
@@ -156,7 +134,6 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	in := tasks.CreateTaskInput{
-		OrgID:           org,
 		UserID:          info.UserID,
 		Title:           req.Title,
 		Description:     strPtr(req.Description),
@@ -205,11 +182,10 @@ func (s *Server) GetTask(w http.ResponseWriter, r *http.Request, taskID string) 
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -225,11 +201,10 @@ func (s *Server) CancelTask(w http.ResponseWriter, r *http.Request, taskID strin
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -239,7 +214,7 @@ func (s *Server) CancelTask(w http.ResponseWriter, r *http.Request, taskID strin
 		taskError(w, err)
 		return
 	}
-	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID, org)
+	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -252,11 +227,10 @@ func (s *Server) ReopenTask(w http.ResponseWriter, r *http.Request, taskID strin
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -267,7 +241,7 @@ func (s *Server) ReopenTask(w http.ResponseWriter, r *http.Request, taskID strin
 		taskError(w, err)
 		return
 	}
-	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID, org)
+	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -284,11 +258,10 @@ func (s *Server) GetTaskReadiness(w http.ResponseWriter, r *http.Request, taskID
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -305,11 +278,10 @@ func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID s
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -330,11 +302,10 @@ func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID str
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -359,11 +330,10 @@ func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID str
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -384,11 +354,10 @@ func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID strin
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -421,11 +390,10 @@ func (s *Server) WaiveTaskDep(w http.ResponseWriter, r *http.Request, taskID str
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -452,11 +420,10 @@ func (s *Server) ResolveTaskBlocker(w http.ResponseWriter, r *http.Request, task
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -475,7 +442,7 @@ func (s *Server) ResolveTaskBlocker(w http.ResponseWriter, r *http.Request, task
 		taskError(w, err)
 		return
 	}
-	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID, org)
+	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -492,11 +459,10 @@ func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID 
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -529,11 +495,10 @@ func (s *Server) EscalateTaskReview(w http.ResponseWriter, r *http.Request, task
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -563,11 +528,10 @@ func (s *Server) decideReview(w http.ResponseWriter, r *http.Request, taskID, re
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	org := requireOrg(w, r)
-	if org == "" {
+	if requireAuth(w, r) == nil {
 		return
 	}
-	t, ok := s.loadTaskInOrg(r.Context(), w, taskID, org)
+	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
@@ -606,7 +570,6 @@ func (s *Server) decideReview(w http.ResponseWriter, r *http.Request, taskID, re
 func taskToAPI(t sqlc.AgentTask) apitypes.Task {
 	out := apitypes.Task{
 		Id:           t.ID,
-		OrgId:        t.OrgID,
 		UserId:       t.UserID,
 		Title:        t.Title,
 		Description:  optStr(t.Description),
@@ -672,7 +635,6 @@ func runToAPI(r sqlc.AgentTaskRun) apitypes.Run {
 	out := apitypes.Run{
 		Id:        r.ID,
 		TaskId:    r.TaskID.String,
-		OrgId:     r.OrgID,
 		UserId:    r.UserID,
 		Kind:      apitypes.RunKind(r.Kind),
 		AttemptNo: r.AttemptNo,

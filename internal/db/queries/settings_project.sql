@@ -1,6 +1,6 @@
 -- name: CreateProject :one
-INSERT INTO settings_project (id, agent_id, user_id, name, base_dir, description, org_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO settings_project (id, agent_id, user_id, name, base_dir, description)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetProject :one

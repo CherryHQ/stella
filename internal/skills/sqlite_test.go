@@ -12,12 +12,10 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/orgctx"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
-// newTestStore opens a fresh in-tmpdir SQLite DB, ensures a default org, and returns a Store
-// plus a context with the org ID set.
+// newTestStore opens a fresh in-tmpdir SQLite DB and returns a Store plus a context.
 func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB, context.Context) {
 	t.Helper()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
@@ -25,24 +23,14 @@ func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB, context.Context) {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
-	ctx := orgctx.WithOrgID(context.Background(), orgID)
-	return New(db), db, ctx
+	return New(db), db, context.Background()
 }
 
-// seedFixtures inserts the auth_organization, auth_users and settings_agent rows needed by FK constraints.
-// Returns (userID, agentID, orgID).
-func seedFixtures(t *testing.T, db *sql.DB) (string, string, string) {
+// seedFixtures inserts auth_users and settings_agent rows needed by FK constraints.
+// Returns (userID, agentID).
+func seedFixtures(t *testing.T, db *sql.DB) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-
-	orgID, err := appdb.EnsureDefaultOrg(ctx, db)
-	if err != nil {
-		t.Fatalf("ensure default org: %v", err)
-	}
 
 	oidcStore := appdb.NewOIDCStore(db)
 	u, err := oidcStore.CreateUser(ctx, auth.User{
@@ -56,19 +44,18 @@ func seedFixtures(t *testing.T, db *sql.DB) (string, string, string) {
 
 	agentID := "agent1"
 	cs := cfgstore.NewDBStore(db)
-	orgCtx := config.WithOrgID(ctx, orgID)
-	if err := cs.CreateAgent(orgCtx, config.Agent{
-		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true, OrgID: orgID,
+	if err := cs.CreateAgent(ctx, config.Agent{
+		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 
-	return u.ID, agentID, orgID
+	return u.ID, agentID
 }
 
 func TestCreateAndLoadFile(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, agentID, _ := seedFixtures(t, db)
+	userID, agentID := seedFixtures(t, db)
 
 	sk := Skill{
 		Scope:       "user",
@@ -124,7 +111,7 @@ func TestCreateAndLoadFile(t *testing.T) {
 
 func TestCreateMissingSkillMD(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, _, _ := seedFixtures(t, db)
+	userID, _ := seedFixtures(t, db)
 
 	_, err := store.Create(ctx, Skill{
 		Scope: "user", UserID: userID, Name: "bad", Description: "missing main",
@@ -144,45 +131,9 @@ func TestCreateMissingSkillMD(t *testing.T) {
 	}
 }
 
-func TestCreateSystemSkillSameNameAcrossOrgs(t *testing.T) {
-	store1, db, ctx1 := newTestStore(t)
-	_, _, org1 := seedFixtures(t, db)
-	org2 := "org-2"
-	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, org2, "Org 2", org2, "test"); err != nil {
-		t.Fatalf("create org 2: %v", err)
-	}
-	store2 := New(db)
-	ctx2 := orgctx.WithOrgID(context.Background(), org2)
-	files := map[string]string{MainFile: "body"}
-
-	id1, err := store1.Create(ctx1, Skill{Scope: "system", Name: "shared", Description: "org1"}, files)
-	if err != nil {
-		t.Fatalf("create org1 skill: %v", err)
-	}
-	id2, err := store2.Create(ctx2, Skill{Scope: "system", Name: "shared", Description: "org2"}, files)
-	if err != nil {
-		t.Fatalf("create org2 skill: %v", err)
-	}
-	if id1 == id2 {
-		t.Fatalf("expected distinct skill IDs, got %q", id1)
-	}
-
-	got1, err := store1.Resolve(ctx1, "shared", ViewContext{})
-	if err != nil || got1 == nil {
-		t.Fatalf("resolve org1: %v skill=%v", err, got1)
-	}
-	got2, err := store2.Resolve(ctx2, "shared", ViewContext{})
-	if err != nil || got2 == nil {
-		t.Fatalf("resolve org2: %v skill=%v", err, got2)
-	}
-	if got1.OrgID != org1 || got2.OrgID != org2 {
-		t.Fatalf("skills crossed orgs: org1=%+v org2=%+v", got1, got2)
-	}
-}
-
 func TestResolvePrecedence(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, agentID, _ := seedFixtures(t, db)
+	userID, agentID := seedFixtures(t, db)
 
 	mainFile := map[string]string{MainFile: "body"}
 
@@ -241,7 +192,7 @@ func TestResolvePrecedence(t *testing.T) {
 
 func TestVisibilityFiltering(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, agentID, orgID := seedFixtures(t, db)
+	userID, agentID := seedFixtures(t, db)
 
 	// Seed a second user and agent.
 	oidcStore2 := appdb.NewOIDCStore(db)
@@ -254,8 +205,8 @@ func TestVisibilityFiltering(t *testing.T) {
 		t.Fatalf("create user2: %v", err)
 	}
 	cs := cfgstore.NewDBStore(db)
-	if err := cs.CreateAgent(config.WithOrgID(ctx, orgID), config.Agent{
-		ID: "agent2", Name: "agent2", Model: "p/m", Workspace: "/tmp/agent2", Enabled: true, OrgID: orgID,
+	if err := cs.CreateAgent(ctx, config.Agent{
+		ID: "agent2", Name: "agent2", Model: "p/m", Workspace: "/tmp/agent2", Enabled: true,
 	}); err != nil {
 		t.Fatalf("create agent2: %v", err)
 	}
@@ -307,7 +258,7 @@ func TestVisibilityFiltering(t *testing.T) {
 
 func TestDeprecatedAndDisabled(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, _, _ := seedFixtures(t, db)
+	userID, _ := seedFixtures(t, db)
 
 	mainFile := map[string]string{MainFile: "body"}
 
@@ -384,7 +335,7 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 
 func TestUpsertFileAndDeleteFile(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, _, _ := seedFixtures(t, db)
+	userID, _ := seedFixtures(t, db)
 
 	id, err := store.Create(ctx, Skill{
 		Scope: "user", UserID: userID, Name: "multi-file", Description: "d",
@@ -427,7 +378,7 @@ func TestUpsertFileAndDeleteFile(t *testing.T) {
 
 func TestDeleteCascadesSkillFiles(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, _, _ := seedFixtures(t, db)
+	userID, _ := seedFixtures(t, db)
 
 	id, err := store.Create(ctx, Skill{
 		Scope: "user", UserID: userID, Name: "cascade-test", Description: "d",

@@ -200,45 +200,6 @@ If you're querying inside JSON frequently, extract it into proper columns.
 - Avoid unbounded text search without full-text indexes.
 - Partition only when tables are genuinely large (millions+ rows).
 
-## Multi-Tenancy (org_id)
-
-Every resource must belong to an org or a user in an org. Every top-level resource table must include a `NOT NULL org_id` column with an index.
-
-```sql
-org_id TEXT NOT NULL REFERENCES auth_organization(id) ON DELETE CASCADE
-```
-
-```sql
-CREATE INDEX idx_{table}_org_id ON {table}(org_id);
-```
-
-### Which tables need org_id
-
-**Add org_id to top-level resources** — tables that are queried directly by org:
-
-- Configuration: `settings_agents`, `settings_providers`, `settings_channels`, `settings_plugins`, `settings_channel_agents`, `settings`
-- Resources: `ctx_conversations`, `sched_jobs`, `skills`, `projects`
-- Policies: `auth_policies`
-
-**Skip org_id on child/detail tables** — tables only accessed through their parent via FK:
-
-- `ctx_messages`, `ctx_message_parts`, `ctx_items`, `ctx_summaries`, `ctx_summary_messages`, `ctx_summary_parents`
-- `agent_task_event`, `sched_job_runs`, `skill_files`, `plugin_state_entries`
-- `memory_changelog`, `memory_snapshots`, `ctx_agent_memory`
-
-**Skip org_id on user-owned tables** — already scoped via `user_id` → `auth_membership` → org:
-
-- `articles`, `vault_entries`, `shares`, `rss_feeds`, `recally_digests`
-- `auth_user_tokens`, `auth_user_agents`
-
-### Context propagation
-
-The Go request context must carry `org_id` for every authenticated call. `AuthInfo.OrgID` is set in the auth middleware and available via `UserFromContext(ctx)`. All store/service methods that touch org-scoped tables must accept and filter by `orgID`.
-
-### Seed strategy
-
-Since `org_id` is `NOT NULL`, resources cannot be seeded at bootstrap before any org exists. Instead, seed default resources (agents, providers, channels, plugins) when a new organization is created. The seed function receives the new org's ID and creates all defaults scoped to that org.
-
 ## Review Checklist
 
 Before approving any schema change:
@@ -254,4 +215,3 @@ Before approving any schema change:
 9. Is deletion behavior intentional per table?
 10. Can this schema evolve safely with migrations?
 11. Is sensitive data protected?
-12. Does the table need `org_id`? (See Multi-Tenancy section.)

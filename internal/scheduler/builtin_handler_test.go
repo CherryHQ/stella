@@ -10,7 +10,7 @@ import (
 
 func TestBuiltinHandlerDispatch(t *testing.T) {
 	db := testDB(t)
-	svc, orgID := newServiceWithOrg(t, db)
+	svc := newTestService(t, db)
 
 	var handlerCalls int32
 	var fallbackCalls int32
@@ -38,7 +38,7 @@ func TestBuiltinHandlerDispatch(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = svc.Stop() })
 
-	svc.EnsureBuiltinJobs(orgID)
+	svc.EnsureBuiltinJobs()
 
 	var jobID string
 	for _, j := range svc.ListJobs() {
@@ -72,7 +72,7 @@ func TestBuiltinHandlerDispatch(t *testing.T) {
 }
 
 func TestBuiltinMessageHandlerXOR(t *testing.T) {
-	svc, _ := testService(t)
+	svc := testService(t)
 
 	cases := []struct {
 		name string
@@ -118,7 +118,7 @@ func TestBuiltinMessageHandlerXOR(t *testing.T) {
 }
 
 func TestServiceRegisterBuiltinRejectsAfterStart(t *testing.T) {
-	svc, _ := testService(t)
+	svc := testService(t)
 	err := svc.RegisterBuiltin(BuiltinJob{
 		Name:     "post-start",
 		Schedule: Schedule{Every: "1h"},
@@ -131,7 +131,7 @@ func TestServiceRegisterBuiltinRejectsAfterStart(t *testing.T) {
 
 func TestUserJobCannotHijackBuiltinHandler(t *testing.T) {
 	db := testDB(t)
-	svc, orgID := newServiceWithOrg(t, db)
+	svc := newTestService(t, db)
 
 	var handlerCalls int32
 	if err := svc.RegisterBuiltin(BuiltinJob{
@@ -151,7 +151,7 @@ func TestUserJobCannotHijackBuiltinHandler(t *testing.T) {
 
 	// User-owned job with a colliding Name must be rejected at creation so
 	// the handler-mode dispatch path can never see it.
-	_, err := svc.AddJobWithOwner("reflect-review", "hi", Schedule{Every: "1h"}, "", "", "user-1", orgID)
+	_, err := svc.AddJobWithOwner("reflect-review", "hi", Schedule{Every: "1h"}, "", "", "user-1")
 	if err == nil {
 		t.Fatal("expected AddJobWithOwner to reject the reserved name, got nil")
 	}
@@ -166,7 +166,6 @@ func TestUserJobCannotHijackBuiltinHandler(t *testing.T) {
 		Name:      "reflect-review",
 		OwnerKind: JobOwnerUser,
 		Message:   "hi",
-		OrgID:     orgID,
 		UserID:    "user-1",
 	}
 	if err := svc.dispatchJob(context.Background(), userJob); err != nil {
@@ -179,7 +178,7 @@ func TestUserJobCannotHijackBuiltinHandler(t *testing.T) {
 
 func TestServiceRegisterBuiltinRejectsDuplicate(t *testing.T) {
 	db := testDB(t)
-	svc, _ := newServiceWithOrg(t, db)
+	svc := newTestService(t, db)
 	spec := BuiltinJob{
 		Name:     "duplicate-runtime",
 		Schedule: Schedule{Every: "1h"},

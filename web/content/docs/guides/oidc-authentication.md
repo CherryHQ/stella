@@ -126,27 +126,9 @@ Any OIDC-compliant provider works. The only requirement is that the identity pro
 When you log in through OIDC for the first time, Stella looks up your account by the email address in the ID token:
 
 - **Email matches an existing account** — Stella links your OIDC identity to that account. Your existing data (agents, conversations, vault secrets) is preserved.
-- **No match** — Stella creates a new account for you.
+- **No match** — Stella creates a new account for you. The first user to register is automatically assigned the admin role; subsequent users get the regular user role.
 
-Each new user gets their own personal organization and the admin role. To bring users into the same organization, use the invite system (see below).
-
-## Inviting users to your organization
-
-Admins can invite other users to join their organization from **Settings > Users**.
-
-1. Open **Settings > Users** in the web UI.
-2. Click **Invite User**.
-3. Optionally enter an email address to restrict the invite.
-4. Choose a role (user or admin).
-5. Click **Create** and copy the invite link.
-6. Share the link with the person you want to invite.
-
-When the invitee opens the link:
-
-- **Not logged in** — The invite token is saved in a cookie. After logging in (or registering), the user automatically joins the inviting organization.
-- **Already logged in** — The user sees an accept page and can choose to join.
-
-Accepting an invite moves the user from their current organization to the invited one.
+Admins can manage users and roles from **Settings > Users** in the web UI.
 
 ## Upgrading an existing installation
 

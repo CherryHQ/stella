@@ -135,9 +135,9 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore channelAuth
 	}
 
 	assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
-	role := auth.RoleUser
-	if m, err := authStore.GetUserMembership(ctx, identity.User.ID); err == nil {
-		role = m.Role
+	role := identity.User.Role
+	if role == "" {
+		role = auth.RoleUser
 	}
 	subject := auth.Subject{
 		UserID:   identity.User.ID,

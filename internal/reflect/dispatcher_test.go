@@ -12,16 +12,15 @@ import (
 )
 
 type fakeReflectStore struct {
-	sawOrg string
+	called bool
 }
 
-func (f *fakeReflectStore) ListEnabledAgents(ctx context.Context) ([]config.Agent, error) {
-	f.sawOrg = config.OrgIDFromContext(ctx)
+func (f *fakeReflectStore) ListEnabledAgents(_ context.Context) ([]config.Agent, error) {
+	f.called = true
 	return nil, nil
 }
 
-func (f *fakeReflectStore) Snapshot(ctx context.Context, _ string) (*config.Snapshot, error) {
-	_ = config.OrgIDFromContext(ctx)
+func (f *fakeReflectStore) Snapshot(_ context.Context, _ string) (*config.Snapshot, error) {
 	return nil, nil
 }
 
@@ -52,30 +51,20 @@ func validConfig(store Store) Config {
 	}
 }
 
-func TestBuiltinHandlerInjectsOrgID(t *testing.T) {
+func TestBuiltinHandlerInvokesStore(t *testing.T) {
 	store := &fakeReflectStore{}
 	handler, err := NewBuiltinHandler(validConfig(store))
 	if err != nil {
 		t.Fatalf("NewBuiltinHandler: %v", err)
 	}
 
-	job := scheduler.Job{Name: "reflect-review", OrgID: "org-xyz"}
+	job := scheduler.Job{Name: "reflect-review"}
 	if err := handler(context.Background(), job); err != nil {
 		t.Fatalf("handler: %v", err)
 	}
 
-	if store.sawOrg != "org-xyz" {
-		t.Errorf("ListEnabledAgents saw OrgID=%q, want %q", store.sawOrg, "org-xyz")
-	}
-}
-
-func TestBuiltinHandlerRejectsEmptyOrgID(t *testing.T) {
-	handler, err := NewBuiltinHandler(validConfig(&fakeReflectStore{}))
-	if err != nil {
-		t.Fatalf("NewBuiltinHandler: %v", err)
-	}
-	if err := handler(context.Background(), scheduler.Job{Name: "reflect-review"}); err == nil {
-		t.Fatal("expected error for empty OrgID, got nil")
+	if !store.called {
+		t.Error("ListEnabledAgents was not called")
 	}
 }
 

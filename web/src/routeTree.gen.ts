@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
@@ -38,7 +37,6 @@ import { Route as AppSessionsSplatRouteImport } from './routes/_app/sessions.$'
 import { Route as AppAutomationsSplatRouteImport } from './routes/_app/automations.$'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
-import { Route as AuthInviteTokenAcceptRouteImport } from './routes/auth.invite.$token.accept'
 import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/settings/agents.$agentId'
 import { Route as AppAgentsAgentIdTasksIndexRouteImport } from './routes/_app/agents.$agentId/tasks/index'
 import { Route as AppAgentsAgentIdSkillsIndexRouteImport } from './routes/_app/agents.$agentId/skills/index'
@@ -63,11 +61,6 @@ import { Route as AppAgentsAgentIdAutomationsJobIdRunsRunIdRouteImport } from '.
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -226,11 +219,6 @@ const AppAgentsAgentIdIndexRoute = AppAgentsAgentIdIndexRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/agents.$agentId/index.lazy').then((d) => d.Route),
 )
-const AuthInviteTokenAcceptRoute = AuthInviteTokenAcceptRouteImport.update({
-  id: '/auth/invite/$token/accept',
-  path: '/auth/invite/$token/accept',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AppSettingsAgentsAgentIdRoute =
   AppSettingsAgentsAgentIdRouteImport.update({
     id: '/$agentId',
@@ -431,7 +419,6 @@ const AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/agents': typeof AppAgentsRouteWithChildren
   '/automations': typeof AppAutomationsRouteWithChildren
@@ -457,7 +444,6 @@ export interface FileRoutesByFullPath {
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
-  '/auth/invite/$token/accept': typeof AuthInviteTokenAcceptRoute
   '/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -482,7 +468,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/automations': typeof AppAutomationsRouteWithChildren
   '/recally': typeof AppRecallyRoute
@@ -505,7 +490,6 @@ export interface FileRoutesByTo {
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
-  '/auth/invite/$token/accept': typeof AuthInviteTokenAcceptRoute
   '/agents/$agentId': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -532,7 +516,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/_app/agents': typeof AppAgentsRouteWithChildren
   '/_app/automations': typeof AppAutomationsRouteWithChildren
@@ -558,7 +541,6 @@ export interface FileRoutesById {
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
-  '/auth/invite/$token/accept': typeof AuthInviteTokenAcceptRoute
   '/_app/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/_app/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/_app/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -585,7 +567,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
-    | '/onboarding'
     | '/profile'
     | '/agents'
     | '/automations'
@@ -611,7 +592,6 @@ export interface FileRouteTypes {
     | '/agents/'
     | '/settings/'
     | '/settings/agents/$agentId'
-    | '/auth/invite/$token/accept'
     | '/agents/$agentId/'
     | '/agents/$agentId/automations/$jobId'
     | '/agents/$agentId/automations/new'
@@ -636,7 +616,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
-    | '/onboarding'
     | '/profile'
     | '/automations'
     | '/recally'
@@ -659,7 +638,6 @@ export interface FileRouteTypes {
     | '/agents'
     | '/settings'
     | '/settings/agents/$agentId'
-    | '/auth/invite/$token/accept'
     | '/agents/$agentId'
     | '/agents/$agentId/automations/$jobId'
     | '/agents/$agentId/automations/new'
@@ -685,7 +663,6 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/login'
-    | '/onboarding'
     | '/profile'
     | '/_app/agents'
     | '/_app/automations'
@@ -711,7 +688,6 @@ export interface FileRouteTypes {
     | '/_app/agents/'
     | '/_app/settings/'
     | '/_app/settings/agents/$agentId'
-    | '/auth/invite/$token/accept'
     | '/_app/agents/$agentId/'
     | '/_app/agents/$agentId/automations/$jobId'
     | '/_app/agents/$agentId/automations/new'
@@ -738,11 +714,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
-  OnboardingRoute: typeof OnboardingRoute
   ProfileRoute: typeof ProfileRoute
   DocsSplatRoute: typeof DocsSplatRoute
   STokenRoute: typeof STokenRoute
-  AuthInviteTokenAcceptRoute: typeof AuthInviteTokenAcceptRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -752,13 +726,6 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -949,13 +916,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/$agentId/'
       preLoaderRoute: typeof AppAgentsAgentIdIndexRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
-    }
-    '/auth/invite/$token/accept': {
-      id: '/auth/invite/$token/accept'
-      path: '/auth/invite/$token/accept'
-      fullPath: '/auth/invite/$token/accept'
-      preLoaderRoute: typeof AuthInviteTokenAcceptRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/_app/settings/agents/$agentId': {
       id: '/_app/settings/agents/$agentId'
@@ -1296,11 +1256,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
-  OnboardingRoute: OnboardingRoute,
   ProfileRoute: ProfileRoute,
   DocsSplatRoute: DocsSplatRoute,
   STokenRoute: STokenRoute,
-  AuthInviteTokenAcceptRoute: AuthInviteTokenAcceptRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

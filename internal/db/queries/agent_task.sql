@@ -5,27 +5,24 @@
 
 -- name: CreateAgentTask :one
 INSERT INTO agent_task (
-    id, org_id, user_id, agent_id, title, description, status, priority,
+    id, user_id, agent_id, title, description, status, priority,
     required, retry_count, max_retries, not_before, deadline_at,
     session_id, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTask :one
 SELECT * FROM agent_task WHERE id = ?;
 
--- name: GetAgentTaskForOrg :one
-SELECT * FROM agent_task WHERE id = ? AND org_id = ?;
-
--- name: ListAgentTasksByOrg :many
-SELECT * FROM agent_task WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
+-- name: ListAgentTasks :many
+SELECT * FROM agent_task ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
 -- name: ListAgentTasksByUser :many
-SELECT * FROM agent_task WHERE org_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_task WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
--- name: CountRunningAgentTasksByOrg :one
-SELECT count(*) FROM agent_task WHERE org_id = ? AND status = 'running';
+-- name: CountRunningAgentTasks :one
+SELECT count(*) FROM agent_task WHERE status = 'running';
 
 -- Coarse pre-filter for the dispatcher tick (HP4).
 -- Real dispatchability is decided by readiness.Compute in Go.
@@ -103,4 +100,4 @@ SET session_id = NULL, updated_at = ?
 WHERE id = ?;
 
 -- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ? AND org_id = ?;
+DELETE FROM agent_task WHERE id = ?;

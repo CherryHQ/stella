@@ -2,7 +2,6 @@ package credentials
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
-	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -151,7 +149,7 @@ func (s *Service) providerCredentials(ctx context.Context, providerID string) (c
 	return s.providerCredentialsWithOrigin(ctx, providerID, "")
 }
 
-func (s *Service) providerCredentialsWithOrigin(ctx context.Context, providerID string, origin string) (clientID, clientSecret, redirectURI string, err error) {
+func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID string, origin string) (clientID, clientSecret, redirectURI string, err error) {
 	baseOrigin := s.corsOrigin
 	if origin != "" {
 		baseOrigin = origin
@@ -160,11 +158,7 @@ func (s *Service) providerCredentialsWithOrigin(ctx context.Context, providerID 
 
 	// DB override wins over YAML default.
 	if s.q != nil {
-		orgID := orgctx.OrgIDFromContext(ctx)
-		if orgID == "" {
-			return "", "", "", fmt.Errorf("org_id is required in context")
-		}
-		cfg, err := s.q.GetAuthOAuthProvider(ctx, pkgdb.GetAuthOAuthProviderParams{ProviderID: providerID, OrgID: sql.NullString{String: orgID, Valid: true}})
+		cfg, err := s.q.GetAuthOAuthProvider(context.Background(), providerID)
 		if err == nil && cfg.ClientID != "" {
 			secret := ""
 			if cfg.ClientSecretEnc != "" && s.vaultSvc != nil {
@@ -209,11 +203,7 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 
 	// DB override (takes precedence).
 	if s.q != nil {
-		orgID := orgctx.OrgIDFromContext(ctx)
-		if orgID == "" {
-			return out, fmt.Errorf("org_id is required in context")
-		}
-		cfg, err := s.q.GetAuthOAuthProvider(ctx, pkgdb.GetAuthOAuthProviderParams{ProviderID: providerID, OrgID: sql.NullString{String: orgID, Valid: true}})
+		cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID)
 		if err == nil && cfg.ClientID != "" {
 			out.ClientID = cfg.ClientID
 			out.RedirectURL = cfg.RedirectUrl
@@ -232,10 +222,6 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 	if s.q == nil {
 		return fmt.Errorf("database not configured")
 	}
-	orgID := orgctx.OrgIDFromContext(ctx)
-	if orgID == "" {
-		return fmt.Errorf("org_id is required in context")
-	}
 	secretEnc := ""
 	if cfg.ClientSecret != "" {
 		if s.vaultSvc == nil {
@@ -248,7 +234,7 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		}
 	} else {
 		// Preserve existing encrypted secret when no new value is provided.
-		existing, err := s.q.GetAuthOAuthProvider(ctx, pkgdb.GetAuthOAuthProviderParams{ProviderID: cfg.ProviderID, OrgID: sql.NullString{String: orgID, Valid: true}})
+		existing, err := s.q.GetAuthOAuthProvider(ctx, cfg.ProviderID)
 		if err == nil {
 			secretEnc = existing.ClientSecretEnc
 		}
@@ -259,7 +245,6 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		ClientID:        cfg.ClientID,
 		ClientSecretEnc: secretEnc,
 		RedirectUrl:     cfg.RedirectURL,
-		OrgID:           sql.NullString{String: orgID, Valid: true},
 	})
 }
 
@@ -268,11 +253,7 @@ func (s *Service) DeleteOAuthProviderConfig(ctx context.Context, providerID stri
 	if s.q == nil {
 		return fmt.Errorf("database not configured")
 	}
-	orgID := orgctx.OrgIDFromContext(ctx)
-	if orgID == "" {
-		return fmt.Errorf("org_id is required in context")
-	}
-	return s.q.DeleteAuthOAuthProvider(ctx, pkgdb.DeleteAuthOAuthProviderParams{ProviderID: providerID, OrgID: sql.NullString{String: orgID, Valid: true}})
+	return s.q.DeleteAuthOAuthProvider(ctx, providerID)
 }
 
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
@@ -380,11 +361,8 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		ps.Configured = true
 	}
 	if s.q != nil {
-		orgID := orgctx.OrgIDFromContext(ctx)
-		if orgID != "" {
-			if cfg, err := s.q.GetAuthOAuthProvider(ctx, pkgdb.GetAuthOAuthProviderParams{ProviderID: provider, OrgID: sql.NullString{String: orgID, Valid: true}}); err == nil && cfg.ClientID != "" {
-				ps.Configured = true
-			}
+		if cfg, err := s.q.GetAuthOAuthProvider(ctx, provider); err == nil && cfg.ClientID != "" {
+			ps.Configured = true
 		}
 	}
 
@@ -440,10 +418,6 @@ func (s *Service) StartFlow(ctx context.Context, userID string, provider string)
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
-	orgID := orgctx.OrgIDFromContext(ctx)
-	if orgID == "" {
-		return FlowStatus{}, fmt.Errorf("org_id is required in context")
-	}
 	flowType := s.preferredFlowType(provider)
 	broker, err := s.getBroker(ctx, provider, flowType)
 	if err != nil {
@@ -453,10 +427,6 @@ func (s *Service) StartFlow(ctx context.Context, userID string, provider string)
 	if err != nil {
 		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
 	}
-	s.flowStore.Update(status.FlowID, status.State, func(fs *oauth.FlowStatus) {
-		fs.OrgID = orgID
-	})
-	status.OrgID = orgID
 	return toFlowStatus(status), nil
 }
 
@@ -468,10 +438,6 @@ func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provid
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
-	orgID := orgctx.OrgIDFromContext(ctx)
-	if orgID == "" {
-		return FlowStatus{}, fmt.Errorf("org_id is required in context")
-	}
 	flowType := s.preferredFlowType(provider)
 	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin)
 	if err != nil {
@@ -481,10 +447,6 @@ func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provid
 	if err != nil {
 		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
 	}
-	s.flowStore.Update(status.FlowID, status.State, func(fs *oauth.FlowStatus) {
-		fs.OrgID = orgID
-	})
-	status.OrgID = orgID
 	return toFlowStatus(status), nil
 }
 
@@ -545,9 +507,6 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 	flow, ok := s.flowStore.Get(flowID)
 	if !ok {
 		return fmt.Errorf("unknown or expired flow")
-	}
-	if flow.OrgID != "" {
-		ctx = orgctx.WithOrgID(ctx, flow.OrgID)
 	}
 
 	broker, err := s.getBrokerWithOrigin(ctx, provider, "authorization_code", origin)

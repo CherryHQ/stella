@@ -27,11 +27,6 @@ func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, string, string, func()) 
 	q := sqlc.New(db)
 	ctx := context.Background()
 
-	orgID, err := appdb.EnsureDefaultOrg(ctx, db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
-
 	// Create test user
 	oidcStore := appdb.NewOIDCStore(db)
 	u, err := oidcStore.CreateUser(ctx, auth.User{
@@ -46,8 +41,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *sqlc.Queries, string, string, func()) 
 	// Create test agent (required for FK constraint)
 	agentID := "test-agent-1"
 	store := cfgstore.NewDBStore(db)
-	orgCtx := config.WithOrgID(ctx, orgID)
-	if err := store.CreateAgent(orgCtx, config.Agent{
+	if err := store.CreateAgent(ctx, config.Agent{
 		ID:      agentID,
 		Name:    "Test Agent",
 		Model:   "anthropic/claude",

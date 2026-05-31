@@ -19,7 +19,6 @@ type Skill struct {
 	Status                 string // draft | active | deprecated
 	DisableModelInvocation bool
 	Metadata               json.RawMessage
-	OrgID                  string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 }

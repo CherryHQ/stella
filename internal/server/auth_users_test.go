@@ -89,37 +89,25 @@ func TestGetAuthUserNotFound(t *testing.T) {
 
 func TestUpdateAuthUserRolePromote(t *testing.T) {
 	env := setupAdmin(t)
-	ctx := context.Background()
 
-	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular1", auth.RoleUser, env.orgID)
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular1", auth.RoleUser)
 
 	body := map[string]string{"role": "admin"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
-
-	got, _ := env.oidcStore.GetUserMembership(ctx, user.ID)
-	if got.Role != auth.RoleAdmin {
-		t.Errorf("role = %q, want %q", got.Role, auth.RoleAdmin)
-	}
 }
 
 func TestUpdateAuthUserRoleDemote(t *testing.T) {
 	env := setupAdmin(t)
-	ctx := context.Background()
 
-	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "admin2", auth.RoleAdmin, env.orgID)
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "admin2", auth.RoleAdmin)
 
 	body := map[string]string{"role": "user"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
-	}
-
-	got, _ := env.oidcStore.GetUserMembership(ctx, user.ID)
-	if got.Role != auth.RoleUser {
-		t.Errorf("role = %q, want %q", got.Role, auth.RoleUser)
 	}
 }
 
@@ -147,7 +135,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	env := setupAdmin(t)
 
 	// Create a user.
-	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "agentuser", auth.RoleUser, env.orgID)
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "agentuser", auth.RoleUser)
 	uid := user.ID
 
 	// List agents - initially empty.
@@ -195,35 +183,37 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 func TestUpdateAuthUserActive(t *testing.T) {
 	env := setupAdmin(t)
-	ctx := context.Background()
 
-	// Create a user.
-	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "deactivateme", auth.RoleUser, env.orgID)
-	uid := user.ID
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "activeuser", auth.RoleUser)
 
 	// Deactivate.
 	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/active", body)
+	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
 	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 
-	// Verify membership is inactive.
-	m, _ := env.oidcStore.GetUserMembership(ctx, user.ID)
-	if m.IsActive {
-		t.Error("expected user membership to be inactive")
+	// Verify deactivated.
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	resp := parseResponse(t, rr)
+	var u struct {
+		IsActive bool `json:"is_active"`
+	}
+	if err := json.Unmarshal(resp.Data, &u); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if u.IsActive {
+		t.Error("expected user to be deactivated")
 	}
 
 	// Reactivate.
 	body = map[string]any{"is_active": true}
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/active", body)
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
 	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
-	}
-
-	m, _ = env.oidcStore.GetUserMembership(ctx, user.ID)
-	if !m.IsActive {
-		t.Error("expected user membership to be active after reactivation")
+		t.Fatalf("reactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
 }
 
@@ -242,34 +232,7 @@ func TestCannotDeactivateSelf(t *testing.T) {
 	}
 }
 
-func TestNonAdminCannotAccessAuthUserAPIs(t *testing.T) {
-	env := setupAdmin(t)
-
-	// Create non-admin user with bearer token.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "nonadmin2", auth.RoleUser, env.orgID)
-
-	// All auth user endpoints should be 403.
-	endpoints := []struct {
-		method string
-		path   string
-	}{
-		{"GET", "/api/auth/users"},
-		{"GET", "/api/auth/users/1"},
-		{"PATCH", "/api/auth/users/1/role"},
-		{"GET", "/api/auth/users/1/agents"},
-		{"PATCH", "/api/auth/users/1/agents"},
-		{"PATCH", "/api/auth/users/1/active"},
-	}
-
-	for _, ep := range endpoints {
-		rr := doRequestWithSession(t, env.srv, userToken, ep.method, ep.path, nil)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("%s %s: status = %d, want %d", ep.method, ep.path, rr.Code, http.StatusForbidden)
-		}
-	}
-}
-
-// --- Phase 3: login identity admin API tests ---
+// --- login identity admin API tests ---
 
 func setupOIDCStore(t *testing.T, env *testEnv) *appdb.OIDCStore {
 	t.Helper()
@@ -312,6 +275,7 @@ func TestLinkAuthUserLoginIdentity(t *testing.T) {
 		ID:    env.adminUser.ID,
 		Email: "testadmin@example.com",
 		Name:  "Test Admin",
+		Role:  auth.RoleAdmin,
 	})
 	// Ignore duplicate error; admin user may already exist.
 	_ = err
@@ -353,14 +317,9 @@ func TestLinkLoginIdentityOwnedByAnotherUserIsConflict(t *testing.T) {
 	store := setupOIDCStore(t, env)
 	ctx := context.Background()
 
-	// Create two users in the OIDC store with memberships in the admin's org.
-	u1, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest1@test.local", Name: "linktest1"})
-	u2, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest2@test.local", Name: "linktest2"})
-	for _, u := range []auth.User{u1, u2} {
-		if _, err := env.oidcStore.CreateMembership(ctx, auth.Membership{ID: uuid.NewString(), UserID: u.ID, OrganizationID: env.orgID, Role: auth.RoleUser, IsActive: true}); err != nil {
-			t.Fatalf("CreateMembership: %v", err)
-		}
-	}
+	// Create two users in the OIDC store.
+	u1, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest1@test.local", Name: "linktest1", Role: auth.RoleUser})
+	u2, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "linktest2@test.local", Name: "linktest2", Role: auth.RoleUser})
 
 	// Link the identity to u1.
 	_, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{
@@ -391,10 +350,7 @@ func TestLinkLoginIdentityIdempotent(t *testing.T) {
 	store := setupOIDCStore(t, env)
 	ctx := context.Background()
 
-	u, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "idemuser@test.local", Name: "idemuser"})
-	if _, err := env.oidcStore.CreateMembership(ctx, auth.Membership{ID: uuid.NewString(), UserID: u.ID, OrganizationID: env.orgID, Role: auth.RoleUser, IsActive: true}); err != nil {
-		t.Fatalf("CreateMembership: %v", err)
-	}
+	u, _ := env.oidcStore.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "idemuser@test.local", Name: "idemuser", Role: auth.RoleUser})
 
 	// Link once.
 	_, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{
@@ -461,121 +417,6 @@ func TestListAuthUserChannelIdentitiesUserNotFound(t *testing.T) {
 	rr := doRequest(t, env, "GET", "/api/auth/users/nonexistent/identities/channel", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
-	}
-}
-
-// --- Phase 4: membership-authoritative role/active tests ---
-
-func setupMembershipStore(t *testing.T, env *testEnv) *appdb.OIDCStore {
-	t.Helper()
-	return env.oidcStore
-}
-
-// createUserWithMembership creates an OIDC user with a membership in the admin's org. Returns the user and membership.
-func createUserWithMembership(t *testing.T, env *testEnv, store *appdb.OIDCStore, username, role string) (auth.User, auth.Membership) {
-	t.Helper()
-	ctx := context.Background()
-	u, err := store.CreateUser(ctx, auth.User{
-		ID:       uuid.NewString(),
-		Email:    username + "@test.example",
-		Name:     username,
-		IsActive: true,
-	})
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	m, err := store.CreateMembership(ctx, auth.Membership{
-		ID:             uuid.NewString(),
-		UserID:         u.ID,
-		OrganizationID: env.orgID,
-		Role:           role,
-		IsActive:       true,
-	})
-	if err != nil {
-		t.Fatalf("CreateMembership: %v", err)
-	}
-	return u, m
-}
-
-func TestRoleDowngradeReflectsInMembership(t *testing.T) {
-	env := setupAdmin(t)
-	store := setupMembershipStore(t, env)
-	ctx := context.Background()
-
-	u, m := createUserWithMembership(t, env, store, "roletest-"+uuid.NewString(), auth.RoleAdmin)
-	if m.Role != auth.RoleAdmin {
-		t.Fatalf("membership role = %q, want %q", m.Role, auth.RoleAdmin)
-	}
-
-	// Demote to user via admin API.
-	body := map[string]string{"role": auth.RoleUser}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+u.ID+"/role", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
-	}
-
-	// Membership should now reflect user role.
-	updated, err := store.GetUserMembership(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("GetUserMembership: %v", err)
-	}
-	if updated.Role != auth.RoleUser {
-		t.Errorf("membership role = %q, want %q", updated.Role, auth.RoleUser)
-	}
-}
-
-func TestInactiveMembershipBlocksAccess(t *testing.T) {
-	env := setupAdmin(t)
-	store := setupMembershipStore(t, env)
-	ctx := context.Background()
-
-	// Use createTestUserWithToken which creates user+org+membership+token in one step.
-	u, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "inactivetest-"+uuid.NewString(), auth.RoleUser, env.orgID)
-
-	// Verify the membership exists.
-	m, err := store.GetUserMembership(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("GetUserMembership: %v", err)
-	}
-	if !m.IsActive {
-		t.Fatal("membership should be active initially")
-	}
-
-	// Deactivate via admin API.
-	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+u.ID+"/active", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
-	}
-
-	// Membership should be inactive.
-	updated, err := store.GetUserMembership(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("GetUserMembership: %v", err)
-	}
-	if updated.IsActive {
-		t.Error("membership should be inactive after deactivation")
-	}
-
-	// Bearer token for the inactive user should be blocked.
-	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/auth/users", nil)
-	// Should be denied because membership is inactive.
-	if rr.Code == http.StatusOK {
-		t.Error("expected denied access for inactive membership user, got 200")
-	}
-}
-
-func TestMembershipRoleOverridesLegacyRole(t *testing.T) {
-	env := setupAdmin(t)
-	_ = setupMembershipStore(t, env)
-
-	// Create a user with user role and bearer token.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "roleoverride-"+uuid.NewString(), auth.RoleUser, env.orgID)
-
-	// Attempting admin endpoint with user membership should be forbidden.
-	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/auth/users", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d (body: %s)", rr.Code, rr.Body.String())
 	}
 }
 

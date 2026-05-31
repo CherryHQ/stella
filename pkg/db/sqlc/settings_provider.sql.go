@@ -10,9 +10,9 @@ import (
 )
 
 const createProvider = `-- name: CreateProvider :one
-INSERT INTO settings_provider (id, type, name, enabled, config, org_id, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-RETURNING id, type, name, enabled, config, org_id, created_at, updated_at
+INSERT INTO settings_provider (id, type, name, enabled, config, updated_at)
+VALUES (?, ?, ?, ?, ?, datetime('now'))
+RETURNING id, type, name, enabled, config, created_at, updated_at
 `
 
 type CreateProviderParams struct {
@@ -21,7 +21,6 @@ type CreateProviderParams struct {
 	Name    string `json:"name"`
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
-	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) (SettingsProvider, error) {
@@ -31,7 +30,6 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
-		arg.OrgID,
 	)
 	var i SettingsProvider
 	err := row.Scan(
@@ -40,7 +38,6 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.Name,
 		&i.Enabled,
 		&i.Config,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -48,30 +45,20 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 }
 
 const deleteProvider = `-- name: DeleteProvider :exec
-DELETE FROM settings_provider WHERE id = ? AND org_id = ?
+DELETE FROM settings_provider WHERE id = ?
 `
 
-type DeleteProviderParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteProvider(ctx context.Context, arg DeleteProviderParams) error {
-	_, err := q.db.ExecContext(ctx, deleteProvider, arg.ID, arg.OrgID)
+func (q *Queries) DeleteProvider(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteProvider, id)
 	return err
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE id = ? AND org_id = ?
+SELECT id, type, name, enabled, config, created_at, updated_at FROM settings_provider WHERE id = ?
 `
 
-type GetProviderParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetProvider(ctx context.Context, arg GetProviderParams) (SettingsProvider, error) {
-	row := q.db.QueryRowContext(ctx, getProvider, arg.ID, arg.OrgID)
+func (q *Queries) GetProvider(ctx context.Context, id string) (SettingsProvider, error) {
+	row := q.db.QueryRowContext(ctx, getProvider, id)
 	var i SettingsProvider
 	err := row.Scan(
 		&i.ID,
@@ -79,7 +66,6 @@ func (q *Queries) GetProvider(ctx context.Context, arg GetProviderParams) (Setti
 		&i.Name,
 		&i.Enabled,
 		&i.Config,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -87,11 +73,11 @@ func (q *Queries) GetProvider(ctx context.Context, arg GetProviderParams) (Setti
 }
 
 const listEnabledProviders = `-- name: ListEnabledProviders :many
-SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE org_id = ? AND enabled = 1 ORDER BY name, id
+SELECT id, type, name, enabled, config, created_at, updated_at FROM settings_provider WHERE enabled = 1 ORDER BY name, id
 `
 
-func (q *Queries) ListEnabledProviders(ctx context.Context, orgID string) ([]SettingsProvider, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledProviders, orgID)
+func (q *Queries) ListEnabledProviders(ctx context.Context) ([]SettingsProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +91,6 @@ func (q *Queries) ListEnabledProviders(ctx context.Context, orgID string) ([]Set
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -123,11 +108,11 @@ func (q *Queries) ListEnabledProviders(ctx context.Context, orgID string) ([]Set
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, type, name, enabled, config, org_id, created_at, updated_at FROM settings_provider WHERE org_id = ? ORDER BY name, id
+SELECT id, type, name, enabled, config, created_at, updated_at FROM settings_provider ORDER BY name, id
 `
 
-func (q *Queries) ListProviders(ctx context.Context, orgID string) ([]SettingsProvider, error) {
-	rows, err := q.db.QueryContext(ctx, listProviders, orgID)
+func (q *Queries) ListProviders(ctx context.Context) ([]SettingsProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +126,6 @@ func (q *Queries) ListProviders(ctx context.Context, orgID string) ([]SettingsPr
 			&i.Name,
 			&i.Enabled,
 			&i.Config,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -159,8 +143,8 @@ func (q *Queries) ListProviders(ctx context.Context, orgID string) ([]SettingsPr
 }
 
 const seedProvider = `-- name: SeedProvider :exec
-INSERT OR IGNORE INTO settings_provider (id, type, name, enabled, config, org_id)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT OR IGNORE INTO settings_provider (id, type, name, enabled, config)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type SeedProviderParams struct {
@@ -169,7 +153,6 @@ type SeedProviderParams struct {
 	Name    string `json:"name"`
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
-	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) error {
@@ -179,22 +162,7 @@ func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) erro
 		arg.Name,
 		arg.Enabled,
 		arg.Config,
-		arg.OrgID,
 	)
-	return err
-}
-
-const setProviderOrg = `-- name: SetProviderOrg :exec
-UPDATE settings_provider SET org_id = ? WHERE id = ?
-`
-
-type SetProviderOrgParams struct {
-	OrgID string `json:"org_id"`
-	ID    string `json:"id"`
-}
-
-func (q *Queries) SetProviderOrg(ctx context.Context, arg SetProviderOrgParams) error {
-	_, err := q.db.ExecContext(ctx, setProviderOrg, arg.OrgID, arg.ID)
 	return err
 }
 
@@ -205,7 +173,7 @@ UPDATE settings_provider SET
     enabled = ?,
     config = ?,
     updated_at = datetime('now')
-WHERE id = ? AND org_id = ?
+WHERE id = ?
 `
 
 type UpdateProviderParams struct {
@@ -214,7 +182,6 @@ type UpdateProviderParams struct {
 	Enabled int64  `json:"enabled"`
 	Config  string `json:"config"`
 	ID      string `json:"id"`
-	OrgID   string `json:"org_id"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) error {
@@ -224,7 +191,6 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		arg.Enabled,
 		arg.Config,
 		arg.ID,
-		arg.OrgID,
 	)
 	return err
 }

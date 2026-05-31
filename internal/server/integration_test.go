@@ -1,0 +1,599 @@
+package server_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/oidc"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/server"
+)
+
+// --- Integration tests: cross-cutting auth & lifecycle flows ---
+
+func TestFirstUserGetsAdmin(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	svc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)
+
+	// ProcessOIDCLogin with a brand-new email.
+	// The template DB already has the admin from setupAdmin, so this is the
+	// second user — should get "user" role.
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key-32bytes!!!!!!!!")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+
+	result, err := svc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{
+		Provider:  "test",
+		Subject:   "sub-second",
+		Email:     "second@test.local",
+		Name:      "Second User",
+		AvatarURL: "",
+	}, sessionMgr)
+	if err != nil {
+		t.Fatalf("ProcessOIDCLogin: %v", err)
+	}
+	if result.User.Role != auth.RoleUser {
+		t.Errorf("second user role = %q, want %q", result.User.Role, auth.RoleUser)
+	}
+	if !result.IsNewUser {
+		t.Error("expected second user to be flagged as new")
+	}
+}
+
+func TestFirstUserGetsAdmin_EmptyDB(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	// Delete ALL users so the next login is truly the "first user".
+	users, err := env.oidcStore.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	for _, u := range users {
+		if err := env.oidcStore.DeleteUser(ctx, u.ID); err != nil {
+			t.Fatalf("DeleteUser %q: %v", u.ID, err)
+		}
+	}
+
+	svc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key-32bytes!!!!!!!!")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+
+	result, err := svc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{
+		Provider: "test",
+		Subject:  "sub-first",
+		Email:    "first@test.local",
+		Name:     "First User",
+	}, sessionMgr)
+	if err != nil {
+		t.Fatalf("ProcessOIDCLogin: %v", err)
+	}
+	if result.User.Role != auth.RoleAdmin {
+		t.Errorf("first user role = %q, want %q", result.User.Role, auth.RoleAdmin)
+	}
+}
+
+func TestDeactivatedUserBlockedOnBearerAuth(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	user, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "victim", auth.RoleUser)
+
+	// Bearer auth should work initially.
+	rr := doBearerRequest(t, env.srv, token, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("active user: status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	// Deactivate the user.
+	if err := env.oidcStore.UpdateUserActive(ctx, user.ID, false); err != nil {
+		t.Fatalf("UpdateUserActive: %v", err)
+	}
+
+	// Bearer auth should now be blocked.
+	rr = doBearerRequest(t, env.srv, token, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("deactivated user: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+}
+
+func TestDeactivatedUserBlockedOnSessionAuth(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	// Set up OIDC auth components so session-based auth works.
+	svc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key-32bytes!!!!!!!!")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+	env.srv.SetOIDCAuth(&oidc.SetupResult{
+		AuthSvc:    svc,
+		SessionMgr: sessionMgr,
+	})
+
+	// Create a user via OIDC login flow — this produces a session token.
+	result, err := svc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{
+		Provider: "test",
+		Subject:  "sub-session-victim",
+		Email:    "sessionvictim@test.local",
+		Name:     "Session Victim",
+	}, sessionMgr)
+	if err != nil {
+		t.Fatalf("ProcessOIDCLogin: %v", err)
+	}
+
+	// Session auth should work initially.
+	rr := doSessionRequest(t, env.srv, result.SessionToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("active session user: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Deactivate the user.
+	if err := env.oidcStore.UpdateUserActive(ctx, result.User.ID, false); err != nil {
+		t.Fatalf("UpdateUserActive: %v", err)
+	}
+
+	// Session auth should now be blocked (PrincipalFromToken checks IsActive).
+	rr = doSessionRequest(t, env.srv, result.SessionToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("deactivated session user: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+}
+
+func TestNonAdminCannotAccessAdminEndpoints(t *testing.T) {
+	env := setupAdmin(t)
+
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular", auth.RoleUser)
+
+	adminPaths := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/auth/users"},
+		{"GET", "/api/auth/users/" + env.adminUser.ID},
+		{"PATCH", "/api/auth/users/" + env.adminUser.ID + "/role"},
+		{"PATCH", "/api/auth/users/" + env.adminUser.ID + "/active"},
+		{"GET", "/api/auth/users/" + env.adminUser.ID + "/agents"},
+		{"PATCH", "/api/auth/users/" + env.adminUser.ID + "/agents"},
+	}
+
+	for _, tc := range adminPaths {
+		rr := doBearerRequest(t, env.srv, userToken, tc.method, tc.path, nil)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("%s %s: status = %d, want %d (body: %s)",
+				tc.method, tc.path, rr.Code, http.StatusForbidden, rr.Body.String())
+		}
+	}
+}
+
+func TestNonAdminCanAccessOwnProfile(t *testing.T) {
+	env := setupAdmin(t)
+
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "normaluser", auth.RoleUser)
+
+	rr := doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var me struct {
+		Role    string `json:"role"`
+		IsAdmin bool   `json:"is_admin"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &me); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if me.Role != "user" {
+		t.Errorf("role = %q, want %q", me.Role, "user")
+	}
+	if me.IsAdmin {
+		t.Error("expected is_admin = false for regular user")
+	}
+}
+
+func TestRoleDemotionInvalidatesSessions(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	// Set up session-based auth.
+	svc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key-32bytes!!!!!!!!")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+	env.srv.SetOIDCAuth(&oidc.SetupResult{
+		AuthSvc:    svc,
+		SessionMgr: sessionMgr,
+	})
+
+	// Create an admin user via OIDC flow.
+	result, err := svc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{
+		Provider: "test",
+		Subject:  "sub-admin-demote",
+		Email:    "demote@test.local",
+		Name:     "Admin Demote",
+	}, sessionMgr)
+	if err != nil {
+		t.Fatalf("ProcessOIDCLogin: %v", err)
+	}
+	if err := env.oidcStore.UpdateUserRole(ctx, result.User.ID, auth.RoleAdmin); err != nil {
+		t.Fatalf("promote to admin: %v", err)
+	}
+
+	// Session should work.
+	rr := doSessionRequest(t, env.srv, result.SessionToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("before demotion: status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	// Demote via the admin API (using the original admin's bearer token).
+	body := map[string]string{"role": "user"}
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/role", body)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("demote: status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+
+	// The demoted user's session should be invalidated.
+	rr = doSessionRequest(t, env.srv, result.SessionToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("after demotion: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+}
+
+func TestDeactivationInvalidatesSessions(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	svc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key-32bytes!!!!!!!!")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+	env.srv.SetOIDCAuth(&oidc.SetupResult{
+		AuthSvc:    svc,
+		SessionMgr: sessionMgr,
+	})
+
+	result, err := svc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{
+		Provider: "test",
+		Subject:  "sub-deactivate-session",
+		Email:    "deactivatesession@test.local",
+		Name:     "Deactivate Session",
+	}, sessionMgr)
+	if err != nil {
+		t.Fatalf("ProcessOIDCLogin: %v", err)
+	}
+
+	// Session works.
+	rr := doSessionRequest(t, env.srv, result.SessionToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("before deactivation: status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	// Deactivate via admin API.
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/active", map[string]any{"is_active": false})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("deactivate: status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+
+	// Session should be invalidated.
+	rr = doSessionRequest(t, env.srv, result.SessionToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("after deactivation: status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestSeedDataPresent(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	// Default agent "Stella" should exist.
+	agents, err := env.store.ListAgents(ctx)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	var foundStella bool
+	for _, a := range agents {
+		if a.Name == "Stella" {
+			foundStella = true
+			if !a.Enabled {
+				t.Error("Stella agent should be enabled")
+			}
+		}
+	}
+	if !foundStella {
+		t.Error("expected seeded Stella agent")
+	}
+
+	// Default providers should exist.
+	providers, err := env.store.ListProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if len(providers) == 0 {
+		t.Fatal("expected at least one seeded provider")
+	}
+	providerTypes := make(map[string]bool)
+	for _, p := range providers {
+		providerTypes[p.Type] = true
+	}
+	if !providerTypes["anthropic"] {
+		t.Error("expected seeded anthropic provider")
+	}
+
+	// Default channels should exist.
+	channels, err := env.store.ListChannels(ctx)
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+	if len(channels) == 0 {
+		t.Fatal("expected at least one seeded channel")
+	}
+}
+
+func TestSeedDataAccessibleViaAPI(t *testing.T) {
+	env := setupAdmin(t)
+
+	// Agents via API.
+	rr := doRequest(t, env, "GET", "/api/agents", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/agents: status = %d", rr.Code)
+	}
+	var agents []config.Agent
+	if err := json.Unmarshal(parseListItems(t, rr), &agents); err != nil {
+		t.Fatalf("unmarshal agents: %v", err)
+	}
+	if len(agents) == 0 {
+		t.Fatal("no agents returned from API")
+	}
+
+	// Providers via API.
+	rr = doRequest(t, env, "GET", "/api/providers", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/providers: status = %d", rr.Code)
+	}
+	var providers []config.Provider
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &providers); err != nil {
+		t.Fatalf("unmarshal providers: %v", err)
+	}
+	if len(providers) == 0 {
+		t.Fatal("no providers returned from API")
+	}
+}
+
+func TestFullUserLifecycle(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	// 1. Create a regular user.
+	user, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "lifecycle", auth.RoleUser)
+
+	// 2. User can access their own profile.
+	rr := doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("step 2: status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	// 3. User cannot access admin endpoints.
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/users", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("step 3: status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+
+	// 4. Admin promotes user to admin.
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "admin"})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("step 4 promote: status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 5. Since role change invalidates sessions, the old bearer token (not a session)
+	// still works because bearer tokens authenticate directly against user record.
+	// Verify the user record now has admin role.
+	updated, err := env.oidcStore.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("step 5: GetUser: %v", err)
+	}
+	if updated.Role != auth.RoleAdmin {
+		t.Fatalf("step 5: role = %q, want %q", updated.Role, auth.RoleAdmin)
+	}
+
+	// 6. Admin can now access admin endpoints with their bearer token.
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/users", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("step 6: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// 7. Demote back to user.
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "user"})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("step 7 demote: status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 8. Can no longer access admin endpoints.
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/users", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("step 8: status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+
+	// 9. Deactivate user.
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": false})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("step 9 deactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 10. Bearer auth completely blocked.
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("step 10: status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+
+	// 11. Reactivate user.
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": true})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("step 11 reactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 12. Bearer auth works again.
+	rr = doBearerRequest(t, env.srv, userToken, "GET", "/api/auth/me", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("step 12: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestAgentAssignmentLifecycle(t *testing.T) {
+	env := setupAdmin(t)
+
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "agentlifecycle", auth.RoleUser)
+	stellaID := findStellaID(t, env)
+
+	// Initially no agents assigned.
+	rr := doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: status = %d", rr.Code)
+	}
+	var ids []string
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	if len(ids) != 0 {
+		t.Fatalf("expected 0 agents, got %d", len(ids))
+	}
+
+	// Assign Stella.
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID}})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("assign: status = %d", rr.Code)
+	}
+
+	// Verify.
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	if len(ids) != 1 || ids[0] != stellaID {
+		t.Fatalf("expected [%s], got %v", stellaID, ids)
+	}
+
+	// Create a second agent and assign both.
+	secondAgent := createTestAgent(t, env, config.Agent{
+		Name:    "TestBot",
+		Enabled: true,
+		Scope:   "system",
+	})
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID, secondAgent}})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("assign both: status = %d", rr.Code)
+	}
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 agents, got %d", len(ids))
+	}
+
+	// Remove all.
+	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{}})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("remove all: status = %d", rr.Code)
+	}
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	if len(ids) != 0 {
+		t.Fatalf("expected 0 agents after removal, got %d", len(ids))
+	}
+}
+
+func TestIdentityManagementLifecycle(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "identuser", auth.RoleUser)
+
+	// Link a login identity.
+	body := map[string]string{
+		"provider":         "github",
+		"provider_subject": "gh-12345",
+		"email":            "identuser@github.com",
+		"name":             "identuser",
+	}
+	rr := doRequest(t, env, "POST", "/api/auth/users/"+user.ID+"/identities/login", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("link login identity: status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// List login identities.
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/identities/login", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list login identities: status = %d", rr.Code)
+	}
+	var loginIdents []auth.LoginIdentity
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &loginIdents)
+	if len(loginIdents) != 1 || loginIdents[0].Provider != "github" {
+		t.Fatalf("unexpected login identities: %v", loginIdents)
+	}
+
+	// Link a channel identity directly in DB.
+	chanIdent, err := env.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
+		UserID:     user.ID,
+		Platform:   "telegram",
+		ExternalID: "tg-99999",
+		Name:       "TG identuser",
+	})
+	if err != nil {
+		t.Fatalf("CreateChannelIdentity: %v", err)
+	}
+
+	// List channel identities.
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/identities/channel", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list channel identities: status = %d", rr.Code)
+	}
+	var chanIdents []auth.ChannelIdentity
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &chanIdents)
+	if len(chanIdents) != 1 || chanIdents[0].Platform != "telegram" {
+		t.Fatalf("unexpected channel identities: %v", chanIdents)
+	}
+
+	// Delete channel identity.
+	rr = doRequest(t, env, "DELETE", "/api/auth/users/"+user.ID+"/identities/"+chanIdent.ID, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete identity: status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// Verify deleted.
+	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/identities/channel", nil)
+	_ = json.Unmarshal(parseResponse(t, rr).Data, &chanIdents)
+	if len(chanIdents) != 0 {
+		t.Fatalf("expected 0 channel identities after deletion, got %d", len(chanIdents))
+	}
+}
+
+// --- helpers for session-based auth tests ---
+
+// doSessionRequest makes a request with a session cookie (not a bearer token).
+func doSessionRequest(t *testing.T, srv *server.Server, sessionToken, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode body: %v", err)
+		}
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionToken})
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	return rr
+}

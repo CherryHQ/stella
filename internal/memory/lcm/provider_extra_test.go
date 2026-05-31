@@ -15,8 +15,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-const testOrgID = "test-org-id"
-
 func newLCMTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dir := t.TempDir()
@@ -27,14 +25,8 @@ func newLCMTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("open db: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
-	if err != nil {
-		_ = db.Close()
-		t.Fatalf("seed org: %v", err)
-	}
-
-	_, err = db.Exec(`INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, org_id)
-		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1, ?)`, testOrgID)
+	_, err = db.Exec(`INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
+		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', '', 1)`)
 	if err != nil {
 		_ = db.Close()
 		t.Fatalf("seed agent: %v", err)
@@ -63,7 +55,6 @@ func newLCMTestSession(suffix string) memory.Session {
 		AgentID: "test",
 		UserID:  "1",
 		Channel: "cli",
-		OrgID:   testOrgID,
 	}
 }
 

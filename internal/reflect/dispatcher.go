@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/scheduler"
 )
 
@@ -14,11 +13,7 @@ import (
 const BuiltinJobName = "reflect-review"
 
 // NewBuiltinHandler returns a scheduler.OnJobFunc that runs one reflect
-// review cycle per fire, scoped to the job's OrgID. The supplied Config
-// holds the process-global deps; org context is the only thing that
-// varies per fire.
-//
-// Cycle-level failures (missing OrgID, store errors, ctx cancellation)
+// review cycle per fire. Cycle-level failures (store errors, ctx cancellation)
 // surface as errors so the scheduler marks the run errored. Per-agent
 // failures are still logged inside the service and do not fail the run.
 func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
@@ -38,11 +33,7 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 		cfg.Log = slog.Default()
 	}
 	return func(ctx context.Context, job scheduler.Job) error {
-		if job.OrgID == "" {
-			return fmt.Errorf("reflect: scheduler job %q has no OrgID", job.Name)
-		}
 		perFire := cfg
-		perFire.Log = cfg.Log.With("org_id", job.OrgID)
-		return New(perFire).RunOnce(config.WithOrgID(ctx, job.OrgID))
+		return New(perFire).RunOnce(ctx)
 	}, nil
 }

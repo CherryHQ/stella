@@ -40,7 +40,7 @@ func (s *Service) updateJob(ctx context.Context, job Job) error {
 }
 
 // recordJobRun persists execution metadata for a job.
-func (s *Service) recordJobRun(ctx context.Context, id, orgID string, ranAt time.Time, runErr error) error {
+func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, runErr error) error {
 	lastError := ""
 	if runErr != nil {
 		lastError = runErr.Error()
@@ -50,13 +50,12 @@ func (s *Service) recordJobRun(ctx context.Context, id, orgID string, ranAt time
 		LastError: lastError,
 		UpdatedAt: ranAt.UTC().Format(dbTimeLayout),
 		ID:        id,
-		OrgID:     orgID,
 	})
 }
 
 // deleteJob removes a job from the database.
-func (s *Service) deleteJob(ctx context.Context, id, orgID string) error {
-	return s.q.DeleteSchedulerJob(ctx, sqlc.DeleteSchedulerJobParams{ID: id, OrgID: orgID})
+func (s *Service) deleteJob(ctx context.Context, id string) error {
+	return s.q.DeleteSchedulerJob(ctx, id)
 }
 
 func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
@@ -90,7 +89,6 @@ func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
 		Enabled:       enabled,
 		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
 		UserID:        sql.NullString{String: job.UserID, Valid: job.UserID != ""},
-		OrgID:         job.OrgID,
 		CreatedAt:     createdAt.UTC().Format(dbTimeLayout),
 		UpdatedAt:     updatedAt.UTC().Format(dbTimeLayout),
 		LastRunAt:     nullableTime(job.LastRunAt),
@@ -128,7 +126,6 @@ func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
 		LastRunAt:     nullableTime(job.LastRunAt),
 		LastError:     job.LastError,
 		ID:            job.ID,
-		OrgID:         job.OrgID,
 	}
 }
 
@@ -157,7 +154,6 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 		UpdatedAt:   updatedAt,
 		LastError:   r.LastError,
 	}
-	j.OrgID = r.OrgID
 	if r.AgentID.Valid {
 		j.AgentID = r.AgentID.String
 	}

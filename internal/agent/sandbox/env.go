@@ -87,7 +87,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// PATH, so they need the mise env pointed at the org's config. Docker carries
 	// its own in-image mise tree and PATH, so host-side paths must not leak in.
 	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
-		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, cfg.OrgID))
+		maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome))
 	}
 
 	return env, nil

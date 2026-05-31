@@ -122,10 +122,10 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize per-org runtime for returning users with an existing membership.
-	if result.Membership != nil {
-		if err := s.authSvc.InitOrg(r.Context(), result.Membership.OrganizationID); err != nil {
-			slog.Warn("oidc: org runtime init failed", "org_id", result.Membership.OrganizationID, "error", err)
+	// Ensure every user has an auto-generated API token (idempotent).
+	if s.tokenSvc != nil {
+		if err := s.tokenSvc.EnsureAutoToken(r.Context(), result.User.ID); err != nil {
+			slog.Warn("oidc: ensure auto token failed", "user_id", result.User.ID, "error", err)
 		}
 	}
 
@@ -139,17 +139,10 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Invite cookie is preserved for the onboarding page to read — don't
-	// auto-redeem here. The user will confirm on the onboarding page.
-
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	s.sessionMgr.SetCookie(w, result.SessionToken, secure)
 
-	if result.Membership != nil {
-		http.Redirect(w, r, "/", http.StatusFound)
-	} else {
-		http.Redirect(w, r, "/onboarding", http.StatusFound)
-	}
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *Server) findProvider(name string) auth.AuthProvider {

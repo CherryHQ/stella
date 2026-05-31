@@ -17,10 +17,8 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
-	"github.com/CherryHQ/stella/internal/orgruntime"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -101,7 +99,6 @@ type setupResult struct {
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               pkgplugins.SkillStore
-	orgRuntimeManager        *orgruntime.Manager
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
 	backgroundTasks          *sync.WaitGroup
@@ -238,14 +235,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
 
-	orgRtMgr := orgruntime.NewManager(orgruntime.ManagerDeps{
-		Store:    store,
-		Syncer:   poolMgr,
-		Channels: nil, // Channels wired later in runServer
-		Jobs:     schedulerSvc,
-		CLITools: manifestplugins.NewOrgCLISyncer(store, config.StellaHome()),
-	})
-
 	backgroundTasks := &sync.WaitGroup{}
 	if ps.manifestToReconcile != nil {
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
@@ -268,7 +257,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,
 		skillStore:               skillStoreAdapter,
-		orgRuntimeManager:        orgRtMgr,
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,

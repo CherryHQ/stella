@@ -30,7 +30,6 @@ type Provider struct {
 	APIKey  string                   `json:"api_key"`
 	BaseURL string                   `json:"base_url"`
 	Models  map[string]ProviderModel `json:"models,omitempty"`
-	OrgID   string                   `json:"org_id,omitempty"`
 }
 
 // AgentScope constants define the access scope for an agent.
@@ -54,7 +53,6 @@ type Agent struct {
 	Scope        string        `json:"scope"`
 	CreatorID    string        `json:"creator_id"`
 	Enabled      bool          `json:"enabled"`
-	OrgID        string        `json:"org_id,omitempty"`
 }
 
 // Channel represents a platform channel configuration.
@@ -64,11 +62,9 @@ type Channel struct {
 	AgentID string `json:"agent_id,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
-	OrgID   string `json:"org_id,omitempty"`
 }
 
 // Store provides typed access to configuration stored in the database.
-// List methods read orgID from context via OrgIDFromContext.
 type Store interface {
 	// Providers
 	ListProviders(ctx context.Context) ([]Provider, error)
@@ -76,7 +72,6 @@ type Store interface {
 	CreateProvider(ctx context.Context, p Provider) error
 	UpdateProvider(ctx context.Context, p Provider) error
 	DeleteProvider(ctx context.Context, id string) error
-	SetProviderOrg(ctx context.Context, providerID, orgID string) error
 
 	// Agents
 	ListAgents(ctx context.Context) ([]Agent, error)
@@ -86,7 +81,6 @@ type Store interface {
 	CreateAgent(ctx context.Context, a Agent) error
 	UpdateAgent(ctx context.Context, a Agent) error
 	DeleteAgent(ctx context.Context, id string) error
-	SetAgentOrg(ctx context.Context, agentID, orgID string) error
 
 	// Channels
 	ListChannels(ctx context.Context) ([]Channel, error)
@@ -94,9 +88,8 @@ type Store interface {
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
-	SetChannelOrg(ctx context.Context, channelID, orgID string) error
 
-	// Manifest plugin overrides — per-org tunables for manifest-declared plugins.
+	// Manifest plugin overrides — tunables for manifest-declared plugins.
 	// Reads merge the builtin manifest defaults with these rows.
 	GetManifestPluginOverride(ctx context.Context, pluginID string) (ManifestPluginOverride, bool, error)
 	ListManifestPluginOverrides(ctx context.Context) ([]ManifestPluginOverride, error)
@@ -126,6 +119,6 @@ type Store interface {
 	// Snapshot assembles a read-only config snapshot for an agent.
 	Snapshot(ctx context.Context, agentID string) (*Snapshot, error)
 
-	// Bootstrap
-	SeedNewOrg(ctx context.Context, orgID string) error
+	// Bootstrap seeds default config for a fresh install.
+	Seed(ctx context.Context) error
 }

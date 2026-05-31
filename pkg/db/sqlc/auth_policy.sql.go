@@ -10,9 +10,9 @@ import (
 )
 
 const createAuthPolicy = `-- name: CreateAuthPolicy :one
-INSERT INTO auth_policy (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id, created_at
+INSERT INTO auth_policy (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at
 `
 
 type CreateAuthPolicyParams struct {
@@ -26,7 +26,6 @@ type CreateAuthPolicyParams struct {
 	Priority   int64  `json:"priority"`
 	IsSystem   int64  `json:"is_system"`
 	Enabled    int64  `json:"enabled"`
-	OrgID      string `json:"org_id"`
 }
 
 func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyParams) (AuthPolicy, error) {
@@ -41,7 +40,6 @@ func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyPara
 		arg.Priority,
 		arg.IsSystem,
 		arg.Enabled,
-		arg.OrgID,
 	)
 	var i AuthPolicy
 	err := row.Scan(
@@ -55,37 +53,26 @@ func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyPara
 		&i.Priority,
 		&i.IsSystem,
 		&i.Enabled,
-		&i.OrgID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const deleteAuthPolicy = `-- name: DeleteAuthPolicy :exec
-DELETE FROM auth_policy WHERE id = ? AND org_id = ?
+DELETE FROM auth_policy WHERE id = ?
 `
 
-type DeleteAuthPolicyParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteAuthPolicy(ctx context.Context, arg DeleteAuthPolicyParams) error {
-	_, err := q.db.ExecContext(ctx, deleteAuthPolicy, arg.ID, arg.OrgID)
+func (q *Queries) DeleteAuthPolicy(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteAuthPolicy, id)
 	return err
 }
 
 const getAuthPolicy = `-- name: GetAuthPolicy :one
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id, created_at FROM auth_policy WHERE id = ? AND org_id = ?
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at FROM auth_policy WHERE id = ?
 `
 
-type GetAuthPolicyParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetAuthPolicy(ctx context.Context, arg GetAuthPolicyParams) (AuthPolicy, error) {
-	row := q.db.QueryRowContext(ctx, getAuthPolicy, arg.ID, arg.OrgID)
+func (q *Queries) GetAuthPolicy(ctx context.Context, id string) (AuthPolicy, error) {
+	row := q.db.QueryRowContext(ctx, getAuthPolicy, id)
 	var i AuthPolicy
 	err := row.Scan(
 		&i.ID,
@@ -98,18 +85,17 @@ func (q *Queries) GetAuthPolicy(ctx context.Context, arg GetAuthPolicyParams) (A
 		&i.Priority,
 		&i.IsSystem,
 		&i.Enabled,
-		&i.OrgID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listAuthPolicies = `-- name: ListAuthPolicies :many
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id, created_at FROM auth_policy WHERE org_id = ? ORDER BY priority DESC, name
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at FROM auth_policy ORDER BY priority DESC, name
 `
 
-func (q *Queries) ListAuthPolicies(ctx context.Context, orgID string) ([]AuthPolicy, error) {
-	rows, err := q.db.QueryContext(ctx, listAuthPolicies, orgID)
+func (q *Queries) ListAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
+	rows, err := q.db.QueryContext(ctx, listAuthPolicies)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +114,6 @@ func (q *Queries) ListAuthPolicies(ctx context.Context, orgID string) ([]AuthPol
 			&i.Priority,
 			&i.IsSystem,
 			&i.Enabled,
-			&i.OrgID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -145,11 +130,11 @@ func (q *Queries) ListAuthPolicies(ctx context.Context, orgID string) ([]AuthPol
 }
 
 const listEnabledAuthPolicies = `-- name: ListEnabledAuthPolicies :many
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, org_id, created_at FROM auth_policy WHERE org_id = ? AND enabled = 1 ORDER BY priority DESC, name
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at FROM auth_policy WHERE enabled = 1 ORDER BY priority DESC, name
 `
 
-func (q *Queries) ListEnabledAuthPolicies(ctx context.Context, orgID string) ([]AuthPolicy, error) {
-	rows, err := q.db.QueryContext(ctx, listEnabledAuthPolicies, orgID)
+func (q *Queries) ListEnabledAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledAuthPolicies)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +153,6 @@ func (q *Queries) ListEnabledAuthPolicies(ctx context.Context, orgID string) ([]
 			&i.Priority,
 			&i.IsSystem,
 			&i.Enabled,
-			&i.OrgID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -194,7 +178,7 @@ UPDATE auth_policy SET
     conditions = ?,
     priority = ?,
     enabled = ?
-WHERE id = ? AND org_id = ?
+WHERE id = ?
 `
 
 type UpdateAuthPolicyParams struct {
@@ -207,7 +191,6 @@ type UpdateAuthPolicyParams struct {
 	Priority   int64  `json:"priority"`
 	Enabled    int64  `json:"enabled"`
 	ID         string `json:"id"`
-	OrgID      string `json:"org_id"`
 }
 
 func (q *Queries) UpdateAuthPolicy(ctx context.Context, arg UpdateAuthPolicyParams) error {
@@ -221,7 +204,6 @@ func (q *Queries) UpdateAuthPolicy(ctx context.Context, arg UpdateAuthPolicyPara
 		arg.Priority,
 		arg.Enabled,
 		arg.ID,
-		arg.OrgID,
 	)
 	return err
 }

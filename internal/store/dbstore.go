@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -28,22 +27,10 @@ func NewDBStore(db *sql.DB) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
-func requireOrgID(ctx context.Context) (string, error) {
-	orgID := orgctx.OrgIDFromContext(ctx)
-	if orgID == "" {
-		return "", fmt.Errorf("org_id is required in context")
-	}
-	return orgID, nil
-}
-
 // --- Providers (backed by settings_provider) ---
 
 func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListProviders(ctx, orgID)
+	rows, err := s.q.ListProviders(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
@@ -56,11 +43,7 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) 
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return config.Provider{}, err
-	}
-	r, err := s.q.GetProvider(ctx, sqlc.GetProviderParams{ID: id, OrgID: orgID})
+	r, err := s.q.GetProvider(ctx, id)
 	if err != nil {
 		return config.Provider{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
@@ -70,10 +53,6 @@ func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, 
 }
 
 func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	if p.ID == "" {
 		p.ID = uuid.NewString()
 	}
@@ -88,7 +67,6 @@ func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 		Name:    providerName(p),
 		Enabled: enabled,
 		Config:  string(configJSON),
-		OrgID:   orgID,
 	}); err != nil {
 		return fmt.Errorf("create provider %q: %w", p.ID, err)
 	}
@@ -96,10 +74,6 @@ func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 }
 
 func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	configJSON, err := json.Marshal(providerConfig(p))
 	if err != nil {
 		return fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
@@ -114,36 +88,20 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 		Enabled: enabled,
 		Config:  string(configJSON),
 		ID:      p.ID,
-		OrgID:   orgID,
 	}); err != nil {
 		return fmt.Errorf("update provider %q: %w", p.ID, err)
 	}
 	return nil
 }
 
-func (s *DBStore) SetProviderOrg(ctx context.Context, providerID, orgID string) error {
-	return s.q.SetProviderOrg(ctx, sqlc.SetProviderOrgParams{
-		OrgID: orgID,
-		ID:    providerID,
-	})
-}
-
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
-	return s.q.DeleteProvider(ctx, sqlc.DeleteProviderParams{ID: id, OrgID: orgID})
+	return s.q.DeleteProvider(ctx, id)
 }
 
 // --- Agents ---
 
 func (s *DBStore) ListAgents(ctx context.Context) ([]config.Agent, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListAgents(ctx, orgID)
+	rows, err := s.q.ListAgents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
@@ -159,11 +117,7 @@ func (s *DBStore) ListAgents(ctx context.Context) ([]config.Agent, error) {
 }
 
 func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]config.Agent, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListEnabledAgents(ctx, orgID)
+	rows, err := s.q.ListEnabledAgents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled agents: %w", err)
 	}
@@ -179,14 +133,7 @@ func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]config.Agent, error)
 }
 
 func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]config.Agent, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListAccessibleAgents(ctx, sqlc.ListAccessibleAgentsParams{
-		OrgID:  orgID,
-		UserID: userID,
-	})
+	rows, err := s.q.ListAccessibleAgents(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list accessible agents: %w", err)
 	}
@@ -202,11 +149,7 @@ func (s *DBStore) ListAccessibleAgents(ctx context.Context, userID string) ([]co
 }
 
 func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return config.Agent{}, err
-	}
-	r, err := s.q.GetAgent(ctx, sqlc.GetAgentParams{ID: id, OrgID: orgID})
+	r, err := s.q.GetAgent(ctx, id)
 	if err != nil {
 		return config.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
@@ -218,10 +161,6 @@ func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error)
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	if a.ID == "" {
 		a.ID = uuid.NewString()
 	}
@@ -254,7 +193,6 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		Scope:                scope,
 		CreatorID:            a.CreatorID,
 		Enabled:              enabled,
-		OrgID:                orgID,
 	})
 	if err != nil {
 		return fmt.Errorf("create agent %q: %w", a.ID, err)
@@ -263,10 +201,6 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 }
 
 func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	enabled := int64(0)
 	if a.Enabled {
 		enabled = 1
@@ -284,7 +218,6 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 	}
 	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
 		ID:                   a.ID,
-		OrgID:                orgID,
 		Name:                 a.Name,
 		Model:                a.Model,
 		ModelStrong:          a.ModelStrong,
@@ -303,29 +236,14 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 	return nil
 }
 
-func (s *DBStore) SetAgentOrg(ctx context.Context, agentID, orgID string) error {
-	return s.q.SetAgentOrg(ctx, sqlc.SetAgentOrgParams{
-		OrgID: orgID,
-		ID:    agentID,
-	})
-}
-
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
-	return s.q.DeleteAgent(ctx, sqlc.DeleteAgentParams{ID: id, OrgID: orgID})
+	return s.q.DeleteAgent(ctx, id)
 }
 
 // --- Channels ---
 
 func (s *DBStore) ListChannels(ctx context.Context) ([]config.Channel, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListChannels(ctx, orgID)
+	rows, err := s.q.ListChannels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
@@ -337,14 +255,7 @@ func (s *DBStore) ListChannels(ctx context.Context) ([]config.Channel, error) {
 }
 
 func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([]config.Channel, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListChannelsByType(ctx, sqlc.ListChannelsByTypeParams{
-		Type:  channelType,
-		OrgID: orgID,
-	})
+	rows, err := s.q.ListChannelsByType(ctx, channelType)
 	if err != nil {
 		return nil, fmt.Errorf("list %s channels: %w", channelType, err)
 	}
@@ -356,11 +267,7 @@ func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([
 }
 
 func (s *DBStore) GetChannel(ctx context.Context, id string) (config.Channel, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return config.Channel{}, err
-	}
-	r, err := s.q.GetChannel(ctx, sqlc.GetChannelParams{ID: id, OrgID: orgID})
+	r, err := s.q.GetChannel(ctx, id)
 	if err != nil {
 		return config.Channel{}, fmt.Errorf("get channel %q: %w", id, err)
 	}
@@ -368,10 +275,6 @@ func (s *DBStore) GetChannel(ctx context.Context, id string) (config.Channel, er
 }
 
 func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	if ch.ID == "" {
 		ch.ID = uuid.NewString()
 	}
@@ -385,46 +288,21 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		AgentID: sql.NullString{String: ch.AgentID, Valid: ch.AgentID != ""},
 		Enabled: boolToInt64(ch.Enabled),
 		Config:  ch.Config,
-		OrgID:   orgID,
-	})
-}
-
-func (s *DBStore) SetChannelOrg(ctx context.Context, channelID, orgID string) error {
-	currentOrgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
-	return s.q.SetChannelOrg(ctx, sqlc.SetChannelOrgParams{
-		OrgID:        orgID,
-		ID:           channelID,
-		CurrentOrgID: currentOrgID,
 	})
 }
 
 func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
-	return s.q.DeleteChannel(ctx, sqlc.DeleteChannelParams{ID: id, OrgID: orgID})
+	return s.q.DeleteChannel(ctx, id)
 }
 
 // --- Plugins ---
 
 func (s *DBStore) ListPlugins(ctx context.Context) ([]config.Plugin, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.mergedPlugins(ctx, orgID, nil)
+	return s.mergedPlugins(ctx, nil)
 }
 
 func (s *DBStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListPluginOverrides(ctx, orgID)
+	rows, err := s.q.ListPluginOverrides(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list plugin overrides: %w", err)
 	}
@@ -436,30 +314,18 @@ func (s *DBStore) ListPluginOverrides(ctx context.Context) ([]config.Plugin, err
 }
 
 func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]config.Plugin, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
 	filter := func(p config.Plugin) bool { return p.Kind == kind }
-	return s.mergedPlugins(ctx, orgID, filter)
+	return s.mergedPlugins(ctx, filter)
 }
 
 func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]config.Plugin, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
 	filter := func(p config.Plugin) bool { return p.Enabled }
-	return s.mergedPlugins(ctx, orgID, filter)
+	return s.mergedPlugins(ctx, filter)
 }
 
 func (s *DBStore) GetPlugin(ctx context.Context, id string) (config.Plugin, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return config.Plugin{}, err
-	}
 	builtin, isBuiltin := config.BuiltinPluginByID(id)
-	r, dbErr := s.q.GetPlugin(ctx, sqlc.GetPluginParams{ID: id, OrgID: orgID})
+	r, dbErr := s.q.GetPlugin(ctx, id)
 	if dbErr == nil {
 		p := pluginFromDB(r)
 		if isBuiltin {
@@ -475,17 +341,12 @@ func (s *DBStore) GetPlugin(ctx context.Context, id string) (config.Plugin, erro
 			Name:    builtin.Name,
 			Enabled: builtin.DefaultEnabled,
 			Config:  map[string]any{},
-			OrgID:   orgID,
 		}, nil
 	}
 	return config.Plugin{}, fmt.Errorf("get plugin %q: %w", id, dbErr)
 }
 
 func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	configJSON, err := json.Marshal(p.Config)
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", p.ID, err)
@@ -500,7 +361,6 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
 		Name:    p.Name,
 		Enabled: enabled,
 		Config:  string(configJSON),
-		OrgID:   orgID,
 	})
 }
 
@@ -523,21 +383,13 @@ func (s *DBStore) SetPluginConfig(ctx context.Context, id string, cfg map[string
 }
 
 func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
-	return s.q.DeletePlugin(ctx, sqlc.DeletePluginParams{ID: id, OrgID: orgID})
+	return s.q.DeletePlugin(ctx, id)
 }
 
 // --- Manifest plugin overrides ---
 
 func (s *DBStore) GetManifestPluginOverride(ctx context.Context, pluginID string) (config.ManifestPluginOverride, bool, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return config.ManifestPluginOverride{}, false, err
-	}
-	row, err := s.q.GetManifestPluginOverride(ctx, sqlc.GetManifestPluginOverrideParams{PluginID: pluginID, OrgID: orgID})
+	row, err := s.q.GetManifestPluginOverride(ctx, pluginID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return config.ManifestPluginOverride{}, false, nil
 	}
@@ -548,11 +400,7 @@ func (s *DBStore) GetManifestPluginOverride(ctx context.Context, pluginID string
 }
 
 func (s *DBStore) ListManifestPluginOverrides(ctx context.Context) ([]config.ManifestPluginOverride, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.q.ListManifestPluginOverrides(ctx, orgID)
+	rows, err := s.q.ListManifestPluginOverrides(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list manifest overrides: %w", err)
 	}
@@ -564,10 +412,6 @@ func (s *DBStore) ListManifestPluginOverrides(ctx context.Context) ([]config.Man
 }
 
 func (s *DBStore) UpsertManifestPluginOverride(ctx context.Context, ov config.ManifestPluginOverride) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	var enabled sql.NullInt64
 	if ov.Enabled != nil {
 		v := int64(0)
@@ -578,24 +422,18 @@ func (s *DBStore) UpsertManifestPluginOverride(ctx context.Context, ov config.Ma
 	}
 	return s.q.UpsertManifestPluginOverride(ctx, sqlc.UpsertManifestPluginOverrideParams{
 		PluginID:           ov.PluginID,
-		OrgID:              orgID,
 		Enabled:            enabled,
 		SessionEnvVaultKey: ov.SessionEnvVaultKey,
 	})
 }
 
 func (s *DBStore) DeleteManifestPluginOverride(ctx context.Context, pluginID string) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
-	return s.q.DeleteManifestPluginOverride(ctx, sqlc.DeleteManifestPluginOverrideParams{PluginID: pluginID, OrgID: orgID})
+	return s.q.DeleteManifestPluginOverride(ctx, pluginID)
 }
 
 func manifestOverrideFromDB(r sqlc.SettingsManifestPluginOverride) config.ManifestPluginOverride {
 	out := config.ManifestPluginOverride{
 		PluginID:           r.PluginID,
-		OrgID:              r.OrgID,
 		SessionEnvVaultKey: r.SessionEnvVaultKey,
 		UpdatedAt:          r.UpdatedAt,
 	}
@@ -607,8 +445,8 @@ func manifestOverrideFromDB(r sqlc.SettingsManifestPluginOverride) config.Manife
 }
 
 // mergedPlugins returns builtins merged with DB overrides, optionally filtered.
-func (s *DBStore) mergedPlugins(ctx context.Context, orgID string, filter func(config.Plugin) bool) ([]config.Plugin, error) {
-	rows, err := s.q.ListPluginOverrides(ctx, orgID)
+func (s *DBStore) mergedPlugins(ctx context.Context, filter func(config.Plugin) bool) ([]config.Plugin, error) {
+	rows, err := s.q.ListPluginOverrides(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list plugin overrides: %w", err)
 	}
@@ -627,7 +465,6 @@ func (s *DBStore) mergedPlugins(ctx context.Context, orgID string, filter func(c
 			Name:    b.Name,
 			Enabled: b.DefaultEnabled,
 			Config:  map[string]any{},
-			OrgID:   orgID,
 		}
 		if ov, ok := overrides[b.ID]; ok {
 			p.Enabled = ov.Enabled == 1
@@ -664,15 +501,10 @@ func (s *DBStore) GetChatAgent(ctx context.Context, channelID, platform, chatID 
 	if channelID == "" {
 		channelID = platform
 	}
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return "", err
-	}
 	r, err := s.q.GetChatAgent(ctx, sqlc.GetChatAgentParams{
 		ChannelID: channelID,
 		Platform:  platform,
 		ChatID:    chatID,
-		OrgID:     orgID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("get chat agent: %w", err)
@@ -684,16 +516,11 @@ func (s *DBStore) SetChatAgent(ctx context.Context, channelID, platform, chatID,
 	if channelID == "" {
 		channelID = platform
 	}
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	return s.q.UpsertChatAgent(ctx, sqlc.UpsertChatAgentParams{
 		ChannelID: channelID,
 		Platform:  platform,
 		ChatID:    chatID,
 		AgentID:   agentID,
-		OrgID:     orgID,
 	})
 }
 
@@ -701,26 +528,17 @@ func (s *DBStore) DeleteChatAgent(ctx context.Context, channelID, platform, chat
 	if channelID == "" {
 		channelID = platform
 	}
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	return s.q.DeleteChatAgent(ctx, sqlc.DeleteChatAgentParams{
 		ChannelID: channelID,
 		Platform:  platform,
 		ChatID:    chatID,
-		OrgID:     orgID,
 	})
 }
 
 // --- Settings ---
 
 func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return "", err
-	}
-	r, err := s.q.GetSetting(ctx, sqlc.GetSettingParams{Key: key, OrgID: orgID})
+	r, err := s.q.GetSetting(ctx, key)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil
@@ -731,35 +549,26 @@ func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
 }
 
 func (s *DBStore) SetSetting(ctx context.Context, key, value string) error {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return err
-	}
 	return s.q.UpsertSetting(ctx, sqlc.UpsertSettingParams{
 		Key:   key,
 		Value: value,
-		OrgID: orgID,
 	})
 }
 
 // --- Snapshot ---
 
 func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapshot, error) {
-	orgID, err := requireOrgID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	ag, err := s.q.GetAgent(ctx, sqlc.GetAgentParams{ID: agentID, OrgID: orgID})
+	ag, err := s.q.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
 
-	plugins, err := s.mergedPlugins(ctx, orgID, nil)
+	plugins, err := s.mergedPlugins(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
 	}
 
-	providers, defaultCreds, err := s.resolveProviders(ctx, orgID, ag.Model, ag.ModelStrong, ag.ModelFast)
+	providers, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast)
 	if err != nil {
 		return nil, err
 	}
@@ -809,9 +618,9 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	return snap, nil
 }
 
-func (s *DBStore) resolveProviders(ctx context.Context, orgID string, models ...string) (map[string]config.ProviderCreds, config.ProviderCreds, error) {
+func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[string]config.ProviderCreds, config.ProviderCreds, error) {
 	provIDs := collectProviderIDs(models...)
-	rows, err := s.q.ListProviders(ctx, orgID)
+	rows, err := s.q.ListProviders(ctx)
 	if err != nil {
 		return nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
 	}
@@ -862,16 +671,15 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 - Own your mistakes quickly. No hedging or over-apologizing.
 - Use humor sparingly and naturally — never forced.`
 
-func (s *DBStore) SeedNewOrg(ctx context.Context, orgID string) error {
-	ctx = config.WithOrgID(ctx, orgID)
-	if err := s.seedChannelInstances(ctx, orgID); err != nil {
+func (s *DBStore) Seed(ctx context.Context) error {
+	if err := s.seedChannelInstances(ctx); err != nil {
 		return err
 	}
-	if err := s.seedProviders(ctx, orgID); err != nil {
+	if err := s.seedProviders(ctx); err != nil {
 		return err
 	}
 
-	agents, err := s.q.ListAgents(ctx, orgID)
+	agents, err := s.q.ListAgents(ctx)
 	if err != nil {
 		return fmt.Errorf("seed: list agents: %w", err)
 	}
@@ -897,7 +705,6 @@ func (s *DBStore) SeedNewOrg(ctx context.Context, orgID string) error {
 		EnabledBuiltinSkills: "[]",
 		Scope:                config.AgentScopeSystem,
 		Enabled:              1,
-		OrgID:                orgID,
 	})
 	if err != nil {
 		return fmt.Errorf("seed: create stella agent: %w", err)
@@ -906,8 +713,8 @@ func (s *DBStore) SeedNewOrg(ctx context.Context, orgID string) error {
 	return nil
 }
 
-func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error {
-	rows, err := s.q.ListChannels(ctx, orgID)
+func (s *DBStore) seedChannelInstances(ctx context.Context) error {
+	rows, err := s.q.ListChannels(ctx)
 	if err != nil {
 		return fmt.Errorf("seed: list channel instances: %w", err)
 	}
@@ -928,7 +735,6 @@ func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error 
 			Type:    name,
 			Enabled: true,
 			Config:  "{}",
-			OrgID:   orgID,
 		}); err != nil {
 			return fmt.Errorf("seed: default channel instance %q: %w", name, err)
 		}
@@ -936,8 +742,8 @@ func (s *DBStore) seedChannelInstances(ctx context.Context, orgID string) error 
 	return nil
 }
 
-func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
-	existing, err := s.q.ListProviders(ctx, orgID)
+func (s *DBStore) seedProviders(ctx context.Context) error {
+	existing, err := s.q.ListProviders(ctx)
 	if err != nil {
 		return fmt.Errorf("seed: list providers: %w", err)
 	}
@@ -965,7 +771,6 @@ func (s *DBStore) seedProviders(ctx context.Context, orgID string) error {
 			Name:    provider.Name,
 			Enabled: 1,
 			Config:  string(configJSON),
-			OrgID:   orgID,
 		}); err != nil {
 			return fmt.Errorf("seed: provider %q: %w", name, err)
 		}
@@ -1012,7 +817,6 @@ func providerFromDB(r sqlc.SettingsProvider) config.Provider {
 		APIKey:  apiKey,
 		BaseURL: baseURL,
 		Models:  providerModelsFromAny(cfg["models"]),
-		OrgID:   r.OrgID,
 	}
 }
 
@@ -1155,7 +959,6 @@ func agentFromDB(r sqlc.SettingsAgent) (config.Agent, error) {
 		Scope:        scope,
 		CreatorID:    r.CreatorID,
 		Enabled:      r.Enabled == 1,
-		OrgID:        r.OrgID,
 	}, nil
 }
 
@@ -1189,7 +992,6 @@ func pluginFromDB(r sqlc.SettingsPlugin) config.Plugin {
 		Name:    r.Name,
 		Enabled: r.Enabled == 1,
 		Config:  cfg,
-		OrgID:   r.OrgID,
 	}
 }
 
@@ -1208,6 +1010,5 @@ func channelFromDB(r sqlc.SettingsChannel) config.Channel {
 		AgentID: agentID,
 		Enabled: r.Enabled == 1,
 		Config:  r.Config,
-		OrgID:   r.OrgID,
 	}
 }

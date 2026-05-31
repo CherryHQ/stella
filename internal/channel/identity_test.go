@@ -22,11 +22,10 @@ type testStores struct {
 	authStore *appdb.AuthStore // policy/token store
 	oidcStore *appdb.OIDCStore // user/identity/session store
 	db        *sql.DB
-	orgID     string
 }
 
 func (ts testStores) ctx() context.Context {
-	return config.WithOrgID(context.Background(), ts.orgID)
+	return context.Background()
 }
 
 func (ts testStores) stellaAgentID(t *testing.T) string {
@@ -53,20 +52,16 @@ func setupStores(t *testing.T) testStores {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
 	store := cfgstore.NewDBStore(db)
-	ctx := config.WithOrgID(context.Background(), orgID)
-	if err := store.SeedNewOrg(ctx, orgID); err != nil {
-		t.Fatalf("SeedNewOrg: %v", err)
+	ctx := context.Background()
+	if err := store.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
 	}
 
 	as := appdb.NewAuthStore(db)
 	oidcStore := appdb.NewOIDCStore(db)
 
-	return testStores{store: store, authStore: as, oidcStore: oidcStore, db: db, orgID: orgID}
+	return testStores{store: store, authStore: as, oidcStore: oidcStore, db: db}
 }
 
 // createTestUser creates a user in the OIDC store for tests.

@@ -10,20 +10,6 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
-// requireSameOrg verifies the target user belongs to the admin's org.
-// Returns false and writes 404 if the target user is not in the admin's org.
-func (s *Server) requireSameOrg(w http.ResponseWriter, r *http.Request, info *AuthInfo, targetUserID string) bool {
-	if s.memberships == nil || info.OrgID == "" {
-		return true
-	}
-	m, err := s.memberships.GetUserMembership(r.Context(), targetUserID)
-	if err != nil || m.OrganizationID != info.OrgID {
-		writeError(w, http.StatusNotFound, "user not found")
-		return false
-	}
-	return true
-}
-
 // --- Auth User Management API (admin-only) ---
 
 // authUserResponse is the response shape for auth user endpoints.
@@ -48,21 +34,12 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserRe
 		}
 	}
 
-	role := auth.RoleUser
-	isActive := u.IsActive
-	if s.memberships != nil {
-		if m, err := s.memberships.GetUserMembership(r.Context(), u.ID); err == nil {
-			role = m.Role
-			isActive = m.IsActive
-		}
-	}
-
 	return authUserResponse{
 		ID:         u.ID,
 		Email:      u.Email,
 		Name:       u.Name,
-		Role:       role,
-		IsActive:   isActive,
+		Role:       u.Role,
+		IsActive:   u.IsActive,
 		Identities: identities,
 		CreatedAt:  u.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt:  u.UpdatedAt.Format("2006-01-02 15:04:05"),
@@ -75,7 +52,7 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 	if info == nil {
 		return
 	}
-	users, err := s.users.ListUsers(r.Context(), info.OrgID)
+	users, err := s.users.ListUsers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users: "+err.Error())
 		return
@@ -96,11 +73,7 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 
 // GetAuthUser handles GET /api/auth/users/{id}.
 func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) {
-	info := requireAdmin(w, r)
-	if info == nil {
-		return
-	}
-	if !s.requireSameOrg(w, r, info, id) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	u, err := s.users.GetUser(r.Context(), id)
@@ -142,20 +115,14 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	if s.memberships == nil {
-		writeError(w, http.StatusServiceUnavailable, "membership store not configured")
-		return
-	}
-
-	m, err := s.memberships.GetUserMembership(r.Context(), id)
-	if err != nil || m.OrganizationID != info.OrgID {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	if err := s.memberships.UpdateMembershipRole(r.Context(), m.ID, body.Role); err != nil {
+	if err := s.users.UpdateUserRole(r.Context(), id, body.Role); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update role: "+err.Error())
 		return
+	}
+
+	// Force re-authentication so new role takes effect in tokens.
+	if s.sessions != nil {
+		_ = s.sessions.DeleteUserSessions(r.Context(), id)
 	}
 
 	writeNoContent(w)
@@ -163,11 +130,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 
 // ListAuthUserAgents handles GET /api/auth/users/{id}/agents.
 func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
-	info := requireAdmin(w, r)
-	if info == nil {
-		return
-	}
-	if !s.requireSameOrg(w, r, info, id) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	agentIDs, err := s.authStore.ListUserAgentIDs(r.Context(), id)
@@ -181,11 +144,7 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 
 // UpdateAuthUserAgents handles PATCH /api/auth/users/{id}/agents.
 func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
-	info := requireAdmin(w, r)
-	if info == nil {
-		return
-	}
-	if !s.requireSameOrg(w, r, info, id) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	var body struct {
@@ -243,11 +202,7 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 
 // DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
 func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, id string, identityId string) {
-	info := requireAdmin(w, r)
-	if info == nil {
-		return
-	}
-	if !s.requireSameOrg(w, r, info, id) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if s.users == nil {
@@ -283,9 +238,6 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 	if info == nil {
 		return
 	}
-	if !s.requireSameOrg(w, r, info, id) {
-		return
-	}
 	var body struct {
 		IsActive bool `json:"is_active"`
 	}
@@ -304,10 +256,9 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	if s.memberships != nil {
-		if m, err := s.memberships.GetUserMembership(r.Context(), id); err == nil {
-			_ = s.memberships.UpdateMembershipActive(r.Context(), m.ID, body.IsActive)
-		}
+	if err := s.users.UpdateUserActive(r.Context(), id, body.IsActive); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update active status: "+err.Error())
+		return
 	}
 
 	// If deactivating, delete all their sessions to force logout.
@@ -320,11 +271,7 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 
 // ListAuthUserLoginIdentities handles GET /api/auth/users/{id}/identities/login.
 func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Request, id string) {
-	info := requireAdmin(w, r)
-	if info == nil {
-		return
-	}
-	if !s.requireSameOrg(w, r, info, id) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if s.logins == nil {
@@ -345,11 +292,7 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 
 // LinkAuthUserLoginIdentity handles POST /api/auth/users/{id}/identities/login.
 func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	info := requireAdmin(w, r)
-	if info == nil {
-		return
-	}
-	if !s.requireSameOrg(w, r, info, id) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if s.logins == nil {
@@ -412,11 +355,7 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 
 // ListAuthUserChannelIdentities handles GET /api/auth/users/{id}/identities/channel.
 func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Request, id string) {
-	info := requireAdmin(w, r)
-	if info == nil {
-		return
-	}
-	if !s.requireSameOrg(w, r, info, id) {
+	if requireAdmin(w, r) == nil {
 		return
 	}
 	if _, err := s.users.GetUser(r.Context(), id); err != nil {

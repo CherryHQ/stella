@@ -19,7 +19,6 @@ type Config struct {
 	SandboxConfig    config.SandboxConfig
 	SandboxBackendFn func(ctx context.Context) string
 	Paths            Paths
-	OrgID            string
 	UserID           string
 	AgentID          string
 	SessionID        string

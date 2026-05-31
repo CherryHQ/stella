@@ -3,7 +3,6 @@ package tasks
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,30 +11,20 @@ import (
 )
 
 // rollupGoals iterates non-terminal goals and applies RollupGoal's verdict.
-// Driven from the dispatcher tick. We deliberately list by org to keep the
-// per-tick work bounded; sorting/limit follow ListAgentGoalsByOrg.
+// Driven from the dispatcher tick.
 func (d *Dispatcher) rollupGoals(ctx context.Context, _ time.Time) {
-	// SQLite has no cheap "all non-terminal goals" index, so scan each org via
-	// the existing per-org list. Small cost at MVP scale (few orgs, few open
-	// goals per org); revisit when we have a profile pointing here.
-	orgs, err := d.listActiveOrgs(ctx)
+	goals, err := d.cfg.Queries.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{
+		Limit: int64(d.cfg.BatchLimit), Offset: 0,
+	})
 	if err != nil {
-		d.cfg.Logger.Warn("dispatcher: list orgs", "err", err)
+		d.cfg.Logger.Warn("dispatcher: list goals", "err", err)
 		return
 	}
-	for _, orgID := range orgs {
-		goals, err := d.cfg.Queries.ListAgentGoalsByOrg(ctx, sqlc.ListAgentGoalsByOrgParams{
-			OrgID: orgID, Limit: int64(d.cfg.BatchLimit), Offset: 0,
-		})
-		if err != nil {
+	for _, g := range goals {
+		if isTerminalGoalStatus(g.Status) {
 			continue
 		}
-		for _, g := range goals {
-			if isTerminalGoalStatus(g.Status) {
-				continue
-			}
-			d.rollupOneGoal(ctx, g)
-		}
+		d.rollupOneGoal(ctx, g)
 	}
 }
 
@@ -127,7 +116,7 @@ func (d *Dispatcher) scanAndDispatchReviewers(ctx context.Context, now time.Time
 // path used by planner and synthesizer scans. The noop runner immediately
 // fails the run with a protocol_error.
 func (d *Dispatcher) dispatchGoalRun(ctx context.Context, g sqlc.AgentGoal, kind, executorAgentID string, now time.Time) {
-	sessionID, err := d.cfg.NewSession(ctx, sqlc.AgentTask{OrgID: g.OrgID, UserID: g.UserID, AgentID: nullable(executorAgentID)})
+	sessionID, err := d.cfg.NewSession(ctx, sqlc.AgentTask{UserID: g.UserID, AgentID: nullable(executorAgentID)})
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: mint goal session", "goal", g.ID, "err", err)
 		return
@@ -145,7 +134,6 @@ func (d *Dispatcher) dispatchGoalRun(ctx context.Context, g sqlc.AgentGoal, kind
 		ID:              runID,
 		TaskID:          sql.NullString{},
 		GoalID:          nullable(g.ID),
-		OrgID:           g.OrgID,
 		UserID:          g.UserID,
 		AgentID:         nullable(executorAgentID),
 		ExecutorAgentID: nullable(executorAgentID),
@@ -178,7 +166,7 @@ func (d *Dispatcher) dispatchGoalRun(ctx context.Context, g sqlc.AgentGoal, kind
 // dispatchReviewerRun spawns a reviewer run for an open agent review and
 // repoints the review at it.
 func (d *Dispatcher) dispatchReviewerRun(ctx context.Context, rev sqlc.AgentReview, now time.Time) {
-	orgID, userID := "", ""
+	userID := ""
 	executorAgentID := ""
 	switch {
 	case rev.TaskID.Valid:
@@ -186,7 +174,7 @@ func (d *Dispatcher) dispatchReviewerRun(ctx context.Context, rev sqlc.AgentRevi
 		if err != nil {
 			return
 		}
-		orgID, userID = task.OrgID, task.UserID
+		userID = task.UserID
 		if task.AgentID.Valid {
 			executorAgentID = task.AgentID.String
 		}
@@ -195,7 +183,7 @@ func (d *Dispatcher) dispatchReviewerRun(ctx context.Context, rev sqlc.AgentRevi
 		if err != nil {
 			return
 		}
-		orgID, userID = goal.OrgID, goal.UserID
+		userID = goal.UserID
 		if goal.AgentID.Valid {
 			executorAgentID = goal.AgentID.String
 		}
@@ -208,7 +196,7 @@ func (d *Dispatcher) dispatchReviewerRun(ctx context.Context, rev sqlc.AgentRevi
 	}
 	// Mint a fresh session — reviewer runs are a different conversation than
 	// the worker run that produced the output.
-	stub := sqlc.AgentTask{OrgID: orgID, UserID: userID, AgentID: nullable(executorAgentID)}
+	stub := sqlc.AgentTask{UserID: userID, AgentID: nullable(executorAgentID)}
 	sessionID, err := d.cfg.NewSession(ctx, stub)
 	if err != nil {
 		return
@@ -239,7 +227,6 @@ func (d *Dispatcher) dispatchReviewerRun(ctx context.Context, rev sqlc.AgentRevi
 		ID:              runID,
 		TaskID:          rev.TaskID,
 		GoalID:          rev.GoalID,
-		OrgID:           orgID,
 		UserID:          userID,
 		AgentID:         nullable(executorAgentID),
 		ExecutorAgentID: nullable(executorAgentID),
@@ -349,26 +336,4 @@ func (d *Dispatcher) emitGoalProtocolError(ctx context.Context, goalID, reason s
 		ActorType: ActorSystem,
 		Detail:    detailJSON(map[string]any{"reason": reason}),
 	})
-}
-
-// listActiveOrgs returns the distinct set of org IDs with at least one
-// non-terminal goal. Helper for rollupGoals — keeps the per-tick scan
-// bounded by goal-bearing orgs instead of every org in the system.
-func (d *Dispatcher) listActiveOrgs(ctx context.Context) ([]string, error) {
-	rows, err := d.cfg.Service.db.QueryContext(ctx, `
-		SELECT DISTINCT org_id FROM agent_goal
-		WHERE status NOT IN ('done','failed','cancelled')`)
-	if err != nil {
-		return nil, fmt.Errorf("list goal orgs: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	out := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }

@@ -2,11 +2,11 @@
 
 -- name: CreateAgentTaskRun :one
 INSERT INTO agent_task_run (
-    id, task_id, goal_id, org_id, user_id, agent_id, executor_agent_id,
+    id, task_id, goal_id, user_id, agent_id, executor_agent_id,
     kind, attempt_no, status, session_id, input, lease_expires_at, worker_id,
     started_at, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTaskRun :one

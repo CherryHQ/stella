@@ -38,7 +38,7 @@ goal ──rolls up from──▶ task ──one attempt──▶ run
 - **Blocker** — why a task is paused; at most one open per task.
 - **Review** — approval gate before `done`; the task's policy decides who reviews.
 
-Tasks are owned by the resolved org, not nested under an agent.
+Tasks are not nested under an agent — they are top-level resources.
 
 ## Lifecycle
 
@@ -62,9 +62,9 @@ All of these are `stella task ...` (or `stella task goal ...`) commands; run `--
 
 **Build a dependency graph (DAG).** Create the upstream tasks first (note their IDs), then `create` the downstream with one or more `--dep <upstream-id>` edges, then `activate` everything. To add an edge after the fact, use `dep add`. Default edge is `hard` + `block`: the downstream waits for the upstream to _succeed_.
 
-**Check on work.** `list` to scan org tasks (filter by status/agent); `get <id>` for full detail including status, review policy, and the `active_blocker` / `active_review` / `active_run` IDs you'll need for follow-up commands. `events` is the audit trail; `runs` is the per-attempt history.
+**Check on work.** `list` to scan tasks (filter by status/agent); `get <id>` for full detail including status, review policy, and the `active_blocker` / `active_review` / `active_run` IDs you'll need for follow-up commands. `events` is the audit trail; `runs` is the per-attempt history.
 
-**"Why isn't this running?"** Don't trust status alone — run `readiness <id>`. It prints `dispatchable: true/false` and the reason, so you can tell "waiting on an upstream" (`waiting_deps`) apart from "needs input" (`blocked`), "scheduled for later" (`deferred`), "org cap hit" (`throttled`), or "no executor".
+**"Why isn't this running?"** Don't trust status alone — run `readiness <id>`. It prints `dispatchable: true/false` and the reason, so you can tell "waiting on an upstream" (`waiting_deps`) apart from "needs input" (`blocked`), "scheduled for later" (`deferred`), "cap hit" (`throttled`), or "no executor".
 
 **Answer a worker that blocked.** A worker pauses by raising a blocker (a question or an external dependency). To resume it: `get <id>` to read the question and grab the `active_blocker` ID, then `blocker resolve <id> <blocker-id> --resolution "..."`. Your resolution text is the answer the worker sees on resume.
 

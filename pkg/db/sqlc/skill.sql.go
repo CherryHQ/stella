@@ -11,9 +11,9 @@ import (
 )
 
 const createSkill = `-- name: CreateSkill :one
-INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at
+INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at
 `
 
 type CreateSkillParams struct {
@@ -26,7 +26,6 @@ type CreateSkillParams struct {
 	Status                 string         `json:"status"`
 	DisableModelInvocation int64          `json:"disable_model_invocation"`
 	Metadata               string         `json:"metadata"`
-	OrgID                  string         `json:"org_id"`
 }
 
 func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill, error) {
@@ -40,7 +39,6 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 		arg.Status,
 		arg.DisableModelInvocation,
 		arg.Metadata,
-		arg.OrgID,
 	)
 	var i Skill
 	err := row.Scan(
@@ -53,7 +51,6 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 		&i.Status,
 		&i.DisableModelInvocation,
 		&i.Metadata,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -63,25 +60,18 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 const deleteSkill = `-- name: DeleteSkill :exec
 DELETE FROM skill
 WHERE id = ?1
-  AND org_id = ?2
-  AND ((scope='agent' AND agent_id=?3)
-    OR (scope='user' AND user_id=?4))
+  AND ((scope='agent' AND agent_id=?2)
+    OR (scope='user' AND user_id=?3))
 `
 
 type DeleteSkillParams struct {
 	ID      string         `json:"id"`
-	OrgID   string         `json:"org_id"`
 	AgentID sql.NullString `json:"agent_id"`
 	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSkill,
-		arg.ID,
-		arg.OrgID,
-		arg.AgentID,
-		arg.UserID,
-	)
+	_, err := q.db.ExecContext(ctx, deleteSkill, arg.ID, arg.AgentID, arg.UserID)
 	return err
 }
 
@@ -100,16 +90,11 @@ func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams
 }
 
 const deleteSystemSkill = `-- name: DeleteSystemSkill :exec
-DELETE FROM skill WHERE id = ? AND scope = 'system' AND org_id = ?
+DELETE FROM skill WHERE id = ? AND scope = 'system'
 `
 
-type DeleteSystemSkillParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteSystemSkill(ctx context.Context, arg DeleteSystemSkillParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSystemSkill, arg.ID, arg.OrgID)
+func (q *Queries) DeleteSystemSkill(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteSystemSkill, id)
 	return err
 }
 
@@ -118,17 +103,11 @@ UPDATE skill
 SET status = 'deprecated', updated_at = datetime('now')
 WHERE status = 'draft'
   AND disable_model_invocation = 0
-  AND org_id = ?
   AND json_extract(metadata, '$."created-at"') < ?
 `
 
-type DeprecateExpiredDraftsParams struct {
-	OrgID    string `json:"org_id"`
-	Metadata string `json:"metadata"`
-}
-
-func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, arg DeprecateExpiredDraftsParams) error {
-	_, err := q.db.ExecContext(ctx, deprecateExpiredDrafts, arg.OrgID, arg.Metadata)
+func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, metadata string) error {
+	_, err := q.db.ExecContext(ctx, deprecateExpiredDrafts, metadata)
 	return err
 }
 
@@ -137,34 +116,31 @@ UPDATE skill
 SET status = 'deprecated', updated_at = datetime('now')
 WHERE status = 'draft'
   AND disable_model_invocation = 1
-  AND org_id = ?1
-  AND metadata LIKE '%"knowledge_type":"' || ?2 || '"%'
-  AND json_extract(metadata, '$."created-at"') < ?3
+  AND metadata LIKE '%"knowledge_type":"' || ?1 || '"%'
+  AND json_extract(metadata, '$."created-at"') < ?2
 `
 
 type ExpireKnowledgeDraftsByTypeParams struct {
-	OrgID         string         `json:"org_id"`
 	KnowledgeType sql.NullString `json:"knowledge_type"`
 	Cutoff        string         `json:"cutoff"`
 }
 
 func (q *Queries) ExpireKnowledgeDraftsByType(ctx context.Context, arg ExpireKnowledgeDraftsByTypeParams) error {
-	_, err := q.db.ExecContext(ctx, expireKnowledgeDraftsByType, arg.OrgID, arg.KnowledgeType, arg.Cutoff)
+	_, err := q.db.ExecContext(ctx, expireKnowledgeDraftsByType, arg.KnowledgeType, arg.Cutoff)
 	return err
 }
 
 const getAgentSkillByName = `-- name: GetAgentSkillByName :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ? AND org_id = ?
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill WHERE scope = 'agent' AND agent_id = ? AND name = ?
 `
 
 type GetAgentSkillByNameParams struct {
 	AgentID sql.NullString `json:"agent_id"`
 	Name    string         `json:"name"`
-	OrgID   string         `json:"org_id"`
 }
 
 func (q *Queries) GetAgentSkillByName(ctx context.Context, arg GetAgentSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getAgentSkillByName, arg.AgentID, arg.Name, arg.OrgID)
+	row := q.db.QueryRowContext(ctx, getAgentSkillByName, arg.AgentID, arg.Name)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -176,7 +152,6 @@ func (q *Queries) GetAgentSkillByName(ctx context.Context, arg GetAgentSkillByNa
 		&i.Status,
 		&i.DisableModelInvocation,
 		&i.Metadata,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -184,26 +159,19 @@ func (q *Queries) GetAgentSkillByName(ctx context.Context, arg GetAgentSkillByNa
 }
 
 const getSkill = `-- name: GetSkill :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
 WHERE id = ?1
-  AND org_id = ?2
-  AND ((?3 IS NULL AND ?4 IS NULL) OR scope='system' OR (scope='agent' AND agent_id=?3) OR (scope='user' AND user_id=?4))
+  AND ((?2 IS NULL AND ?3 IS NULL) OR scope='system' OR (scope='agent' AND agent_id=?2) OR (scope='user' AND user_id=?3))
 `
 
 type GetSkillParams struct {
 	ID      string      `json:"id"`
-	OrgID   string      `json:"org_id"`
 	AgentID interface{} `json:"agent_id"`
 	UserID  interface{} `json:"user_id"`
 }
 
 func (q *Queries) GetSkill(ctx context.Context, arg GetSkillParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getSkill,
-		arg.ID,
-		arg.OrgID,
-		arg.AgentID,
-		arg.UserID,
-	)
+	row := q.db.QueryRowContext(ctx, getSkill, arg.ID, arg.AgentID, arg.UserID)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -215,7 +183,6 @@ func (q *Queries) GetSkill(ctx context.Context, arg GetSkillParams) (Skill, erro
 		&i.Status,
 		&i.DisableModelInvocation,
 		&i.Metadata,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -239,16 +206,11 @@ func (q *Queries) GetSkillFile(ctx context.Context, arg GetSkillFileParams) (Ski
 }
 
 const getSystemSkillByName = `-- name: GetSystemSkillByName :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE scope = 'system' AND name = ? AND org_id = ?
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill WHERE scope = 'system' AND name = ?
 `
 
-type GetSystemSkillByNameParams struct {
-	Name  string `json:"name"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetSystemSkillByName(ctx context.Context, arg GetSystemSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getSystemSkillByName, arg.Name, arg.OrgID)
+func (q *Queries) GetSystemSkillByName(ctx context.Context, name string) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getSystemSkillByName, name)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -260,7 +222,6 @@ func (q *Queries) GetSystemSkillByName(ctx context.Context, arg GetSystemSkillBy
 		&i.Status,
 		&i.DisableModelInvocation,
 		&i.Metadata,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -268,17 +229,16 @@ func (q *Queries) GetSystemSkillByName(ctx context.Context, arg GetSystemSkillBy
 }
 
 const getUserSkillByName = `-- name: GetUserSkillByName :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE scope = 'user' AND user_id = ? AND name = ? AND org_id = ?
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill WHERE scope = 'user' AND user_id = ? AND name = ?
 `
 
 type GetUserSkillByNameParams struct {
 	UserID sql.NullString `json:"user_id"`
 	Name   string         `json:"name"`
-	OrgID  string         `json:"org_id"`
 }
 
 func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByNameParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, getUserSkillByName, arg.UserID, arg.Name, arg.OrgID)
+	row := q.db.QueryRowContext(ctx, getUserSkillByName, arg.UserID, arg.Name)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -290,7 +250,6 @@ func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByName
 		&i.Status,
 		&i.DisableModelInvocation,
 		&i.Metadata,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -298,33 +257,26 @@ func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByName
 }
 
 const listActiveKnowledgeByType = `-- name: ListActiveKnowledgeByType :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill
-WHERE org_id = ?1
-  AND disable_model_invocation = 1
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE disable_model_invocation = 1
   AND status = 'active'
   AND (
     scope = 'system'
-    OR (scope = 'agent' AND agent_id = ?2)
-    OR (scope = 'user'  AND user_id  = ?3 AND agent_id = ?2)
+    OR (scope = 'agent' AND agent_id = ?1)
+    OR (scope = 'user'  AND user_id  = ?2 AND agent_id = ?1)
   )
-  AND (?4 = '' OR metadata LIKE '%"knowledge_type":"' || ?4 || '"%')
+  AND (?3 = '' OR metadata LIKE '%"knowledge_type":"' || ?3 || '"%')
 ORDER BY created_at DESC
 `
 
 type ListActiveKnowledgeByTypeParams struct {
-	OrgID         string         `json:"org_id"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        sql.NullString `json:"user_id"`
 	KnowledgeType interface{}    `json:"knowledge_type"`
 }
 
 func (q *Queries) ListActiveKnowledgeByType(ctx context.Context, arg ListActiveKnowledgeByTypeParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listActiveKnowledgeByType,
-		arg.OrgID,
-		arg.AgentID,
-		arg.UserID,
-		arg.KnowledgeType,
-	)
+	rows, err := q.db.QueryContext(ctx, listActiveKnowledgeByType, arg.AgentID, arg.UserID, arg.KnowledgeType)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +294,6 @@ func (q *Queries) ListActiveKnowledgeByType(ctx context.Context, arg ListActiveK
 			&i.Status,
 			&i.DisableModelInvocation,
 			&i.Metadata,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -360,11 +311,11 @@ func (q *Queries) ListActiveKnowledgeByType(ctx context.Context, arg ListActiveK
 }
 
 const listAllSkills = `-- name: ListAllSkills :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill WHERE org_id = ? ORDER BY scope, created_at
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill ORDER BY scope, created_at
 `
 
-func (q *Queries) ListAllSkills(ctx context.Context, orgID string) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listAllSkills, orgID)
+func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
+	rows, err := q.db.QueryContext(ctx, listAllSkills)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +333,6 @@ func (q *Queries) ListAllSkills(ctx context.Context, orgID string) ([]Skill, err
 			&i.Status,
 			&i.DisableModelInvocation,
 			&i.Metadata,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -427,20 +377,14 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 }
 
 const listSkillsForAdmin = `-- name: ListSkillsForAdmin :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill
-WHERE org_id = ?1
-  AND (scope != 'user'
-       OR user_id = ?2)
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE scope != 'user'
+      OR user_id = ?1
 ORDER BY scope, created_at
 `
 
-type ListSkillsForAdminParams struct {
-	OrgID  string         `json:"org_id"`
-	UserID sql.NullString `json:"user_id"`
-}
-
-func (q *Queries) ListSkillsForAdmin(ctx context.Context, arg ListSkillsForAdminParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsForAdmin, arg.OrgID, arg.UserID)
+func (q *Queries) ListSkillsForAdmin(ctx context.Context, userID sql.NullString) ([]Skill, error) {
+	rows, err := q.db.QueryContext(ctx, listSkillsForAdmin, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +402,6 @@ func (q *Queries) ListSkillsForAdmin(ctx context.Context, arg ListSkillsForAdmin
 			&i.Status,
 			&i.DisableModelInvocation,
 			&i.Metadata,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -476,25 +419,23 @@ func (q *Queries) ListSkillsForAdmin(ctx context.Context, arg ListSkillsForAdmin
 }
 
 const listSkillsForAgentContext = `-- name: ListSkillsForAgentContext :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill
-WHERE org_id = ?1
-  AND status != 'deprecated'
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE status != 'deprecated'
   AND (
     scope = 'system'
-    OR (scope = 'agent' AND agent_id = ?2)
-    OR (scope = 'user' AND user_id = ?3 AND agent_id = ?2)
+    OR (scope = 'agent' AND agent_id = ?1)
+    OR (scope = 'user' AND user_id = ?2 AND agent_id = ?1)
   )
 ORDER BY scope, created_at
 `
 
 type ListSkillsForAgentContextParams struct {
-	OrgID   string         `json:"org_id"`
 	AgentID sql.NullString `json:"agent_id"`
 	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) ListSkillsForAgentContext(ctx context.Context, arg ListSkillsForAgentContextParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsForAgentContext, arg.OrgID, arg.AgentID, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listSkillsForAgentContext, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -512,7 +453,6 @@ func (q *Queries) ListSkillsForAgentContext(ctx context.Context, arg ListSkillsF
 			&i.Status,
 			&i.DisableModelInvocation,
 			&i.Metadata,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -530,28 +470,26 @@ func (q *Queries) ListSkillsForAgentContext(ctx context.Context, arg ListSkillsF
 }
 
 const listSkillsForUser = `-- name: ListSkillsForUser :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill
-WHERE org_id = ?1
-  AND status != 'deprecated'
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE status != 'deprecated'
   AND (
     scope = 'system'
-    OR (scope = 'agent' AND instr(',' || ?2 || ',', ',' || agent_id || ',') > 0)
-    OR (scope = 'user' AND user_id = ?3 AND (
+    OR (scope = 'agent' AND instr(',' || ?1 || ',', ',' || agent_id || ',') > 0)
+    OR (scope = 'user' AND user_id = ?2 AND (
       agent_id IS NULL
-      OR instr(',' || ?2 || ',', ',' || agent_id || ',') > 0
+      OR instr(',' || ?1 || ',', ',' || agent_id || ',') > 0
     ))
   )
 ORDER BY scope, created_at
 `
 
 type ListSkillsForUserParams struct {
-	OrgID       string         `json:"org_id"`
 	AgentIdsCsv sql.NullString `json:"agent_ids_csv"`
 	UserID      sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) ListSkillsForUser(ctx context.Context, arg ListSkillsForUserParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsForUser, arg.OrgID, arg.AgentIdsCsv, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listSkillsForUser, arg.AgentIdsCsv, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +507,6 @@ func (q *Queries) ListSkillsForUser(ctx context.Context, arg ListSkillsForUserPa
 			&i.Status,
 			&i.DisableModelInvocation,
 			&i.Metadata,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -587,29 +524,27 @@ func (q *Queries) ListSkillsForUser(ctx context.Context, arg ListSkillsForUserPa
 }
 
 const listSkillsVisible = `-- name: ListSkillsVisible :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill
-WHERE org_id = ?1
-  AND status != 'deprecated'
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE status != 'deprecated'
   AND disable_model_invocation = 0
   AND (
     scope = 'system'
-    OR (scope = 'agent'   AND agent_id = ?2)
-    OR (scope = 'user'    AND user_id = ?3 AND (
-      (?2 IS NULL AND agent_id IS NULL)
-      OR agent_id = ?2
+    OR (scope = 'agent'   AND agent_id = ?1)
+    OR (scope = 'user'    AND user_id = ?2 AND (
+      (?1 IS NULL AND agent_id IS NULL)
+      OR agent_id = ?1
     ))
   )
 ORDER BY created_at
 `
 
 type ListSkillsVisibleParams struct {
-	OrgID   string         `json:"org_id"`
 	AgentID sql.NullString `json:"agent_id"`
 	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisibleParams) ([]Skill, error) {
-	rows, err := q.db.QueryContext(ctx, listSkillsVisible, arg.OrgID, arg.AgentID, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listSkillsVisible, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +562,6 @@ func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisiblePa
 			&i.Status,
 			&i.DisableModelInvocation,
 			&i.Metadata,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -645,17 +579,16 @@ func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisiblePa
 }
 
 const resolveSkill = `-- name: ResolveSkill :one
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, org_id, created_at, updated_at FROM skill
-WHERE org_id = ?1
-  AND name = ?2
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skill
+WHERE name = ?1
   AND status != 'deprecated'
   AND disable_model_invocation = 0
   AND (
     scope = 'system'
-    OR (scope = 'agent'   AND agent_id = ?3)
-    OR (scope = 'user'    AND user_id = ?4 AND (
-      (?3 IS NULL AND agent_id IS NULL)
-      OR agent_id = ?3
+    OR (scope = 'agent'   AND agent_id = ?2)
+    OR (scope = 'user'    AND user_id = ?3 AND (
+      (?2 IS NULL AND agent_id IS NULL)
+      OR agent_id = ?2
     ))
   )
 ORDER BY
@@ -668,19 +601,13 @@ LIMIT 1
 `
 
 type ResolveSkillParams struct {
-	OrgID   string         `json:"org_id"`
 	Name    string         `json:"name"`
 	AgentID sql.NullString `json:"agent_id"`
 	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) ResolveSkill(ctx context.Context, arg ResolveSkillParams) (Skill, error) {
-	row := q.db.QueryRowContext(ctx, resolveSkill,
-		arg.OrgID,
-		arg.Name,
-		arg.AgentID,
-		arg.UserID,
-	)
+	row := q.db.QueryRowContext(ctx, resolveSkill, arg.Name, arg.AgentID, arg.UserID)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -692,7 +619,6 @@ func (q *Queries) ResolveSkill(ctx context.Context, arg ResolveSkillParams) (Ski
 		&i.Status,
 		&i.DisableModelInvocation,
 		&i.Metadata,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -707,9 +633,8 @@ SET description              = ?1,
     metadata                 = ?4,
     updated_at               = datetime('now')
 WHERE id = ?5
-  AND org_id = ?6
-  AND ((scope='agent' AND agent_id=?7)
-    OR (scope='user' AND user_id=?8))
+  AND ((scope='agent' AND agent_id=?6)
+    OR (scope='user' AND user_id=?7))
 `
 
 type UpdateSkillMetadataParams struct {
@@ -718,7 +643,6 @@ type UpdateSkillMetadataParams struct {
 	DisableModelInvocation int64          `json:"disable_model_invocation"`
 	Metadata               string         `json:"metadata"`
 	ID                     string         `json:"id"`
-	OrgID                  string         `json:"org_id"`
 	AgentID                sql.NullString `json:"agent_id"`
 	UserID                 sql.NullString `json:"user_id"`
 }
@@ -730,7 +654,6 @@ func (q *Queries) UpdateSkillMetadata(ctx context.Context, arg UpdateSkillMetada
 		arg.DisableModelInvocation,
 		arg.Metadata,
 		arg.ID,
-		arg.OrgID,
 		arg.AgentID,
 		arg.UserID,
 	)
@@ -744,7 +667,7 @@ SET description              = ?1,
     disable_model_invocation = ?3,
     metadata                 = ?4,
     updated_at               = datetime('now')
-WHERE id = ?5 AND scope = 'system' AND org_id = ?6
+WHERE id = ?5 AND scope = 'system'
 `
 
 type UpdateSystemSkillMetadataParams struct {
@@ -753,7 +676,6 @@ type UpdateSystemSkillMetadataParams struct {
 	DisableModelInvocation int64  `json:"disable_model_invocation"`
 	Metadata               string `json:"metadata"`
 	ID                     string `json:"id"`
-	OrgID                  string `json:"org_id"`
 }
 
 func (q *Queries) UpdateSystemSkillMetadata(ctx context.Context, arg UpdateSystemSkillMetadataParams) error {
@@ -763,7 +685,6 @@ func (q *Queries) UpdateSystemSkillMetadata(ctx context.Context, arg UpdateSyste
 		arg.DisableModelInvocation,
 		arg.Metadata,
 		arg.ID,
-		arg.OrgID,
 	)
 	return err
 }

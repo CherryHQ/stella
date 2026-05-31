@@ -243,7 +243,7 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 
 	agents, err := pm.store.ListEnabledAgents(ctx)
 	if err != nil {
-		pm.log.Warn("could not list agents at startup (org context may not be available yet)", "error", err)
+		pm.log.Warn("could not list agents at startup", "error", err)
 		return nil
 	}
 	if len(agents) == 0 {
@@ -285,7 +285,6 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 
 	poolOpts := []PoolOption{
 		WithAgentID(ag.ID),
-		WithOrgID(ag.OrgID),
 		WithIdleTimeout(pm.idleTimeout),
 		WithCompaction(pm.compaction.WithDefaults()),
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),

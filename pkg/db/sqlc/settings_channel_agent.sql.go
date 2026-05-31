@@ -10,62 +10,49 @@ import (
 )
 
 const deleteChatAgent = `-- name: DeleteChatAgent :exec
-DELETE FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ? AND org_id = ?
+DELETE FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
 `
 
 type DeleteChatAgentParams struct {
 	ChannelID string `json:"channel_id"`
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
-	OrgID     string `json:"org_id"`
 }
 
 func (q *Queries) DeleteChatAgent(ctx context.Context, arg DeleteChatAgentParams) error {
-	_, err := q.db.ExecContext(ctx, deleteChatAgent,
-		arg.ChannelID,
-		arg.Platform,
-		arg.ChatID,
-		arg.OrgID,
-	)
+	_, err := q.db.ExecContext(ctx, deleteChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
 	return err
 }
 
 const getChatAgent = `-- name: GetChatAgent :one
-SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ? AND org_id = ?
+SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
 `
 
 type GetChatAgentParams struct {
 	ChannelID string `json:"channel_id"`
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
-	OrgID     string `json:"org_id"`
 }
 
 func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (SettingsChannelAgent, error) {
-	row := q.db.QueryRowContext(ctx, getChatAgent,
-		arg.ChannelID,
-		arg.Platform,
-		arg.ChatID,
-		arg.OrgID,
-	)
+	row := q.db.QueryRowContext(ctx, getChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
 	var i SettingsChannelAgent
 	err := row.Scan(
 		&i.ChannelID,
 		&i.Platform,
 		&i.ChatID,
 		&i.AgentID,
-		&i.OrgID,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listChatAgents = `-- name: ListChatAgents :many
-SELECT channel_id, platform, chat_id, agent_id, org_id, updated_at FROM settings_channel_agent WHERE org_id = ? ORDER BY channel_id, platform, chat_id
+SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agent ORDER BY channel_id, platform, chat_id
 `
 
-func (q *Queries) ListChatAgents(ctx context.Context, orgID string) ([]SettingsChannelAgent, error) {
-	rows, err := q.db.QueryContext(ctx, listChatAgents, orgID)
+func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, error) {
+	rows, err := q.db.QueryContext(ctx, listChatAgents)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +65,6 @@ func (q *Queries) ListChatAgents(ctx context.Context, orgID string) ([]SettingsC
 			&i.Platform,
 			&i.ChatID,
 			&i.AgentID,
-			&i.OrgID,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -95,9 +81,9 @@ func (q *Queries) ListChatAgents(ctx context.Context, orgID string) ([]SettingsC
 }
 
 const upsertChatAgent = `-- name: UpsertChatAgent :exec
-INSERT INTO settings_channel_agent (channel_id, platform, chat_id, agent_id, org_id, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(channel_id, platform, chat_id, org_id) DO UPDATE SET
+INSERT INTO settings_channel_agent (channel_id, platform, chat_id, agent_id, updated_at)
+VALUES (?, ?, ?, ?, datetime('now'))
+ON CONFLICT(channel_id, platform, chat_id) DO UPDATE SET
     agent_id = excluded.agent_id,
     updated_at = datetime('now')
 `
@@ -107,7 +93,6 @@ type UpsertChatAgentParams struct {
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
 	AgentID   string `json:"agent_id"`
-	OrgID     string `json:"org_id"`
 }
 
 func (q *Queries) UpsertChatAgent(ctx context.Context, arg UpsertChatAgentParams) error {
@@ -116,7 +101,6 @@ func (q *Queries) UpsertChatAgent(ctx context.Context, arg UpsertChatAgentParams
 		arg.Platform,
 		arg.ChatID,
 		arg.AgentID,
-		arg.OrgID,
 	)
 	return err
 }

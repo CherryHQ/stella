@@ -58,12 +58,12 @@ func (q *Queries) ClearAgentTaskSession(ctx context.Context, arg ClearAgentTaskS
 	return err
 }
 
-const countRunningAgentTasksByOrg = `-- name: CountRunningAgentTasksByOrg :one
-SELECT count(*) FROM agent_task WHERE org_id = ? AND status = 'running'
+const countRunningAgentTasks = `-- name: CountRunningAgentTasks :one
+SELECT count(*) FROM agent_task WHERE status = 'running'
 `
 
-func (q *Queries) CountRunningAgentTasksByOrg(ctx context.Context, orgID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countRunningAgentTasksByOrg, orgID)
+func (q *Queries) CountRunningAgentTasks(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunningAgentTasks)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -72,17 +72,16 @@ func (q *Queries) CountRunningAgentTasksByOrg(ctx context.Context, orgID string)
 const createAgentTask = `-- name: CreateAgentTask :one
 
 INSERT INTO agent_task (
-    id, org_id, user_id, agent_id, title, description, status, priority,
+    id, user_id, agent_id, title, description, status, priority,
     required, retry_count, max_retries, not_before, deadline_at,
     session_id, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
 `
 
 type CreateAgentTaskParams struct {
 	ID          string         `json:"id"`
-	OrgID       string         `json:"org_id"`
 	UserID      string         `json:"user_id"`
 	AgentID     sql.NullString `json:"agent_id"`
 	Title       string         `json:"title"`
@@ -108,7 +107,6 @@ type CreateAgentTaskParams struct {
 func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams) (AgentTask, error) {
 	row := q.db.QueryRowContext(ctx, createAgentTask,
 		arg.ID,
-		arg.OrgID,
 		arg.UserID,
 		arg.AgentID,
 		arg.Title,
@@ -129,7 +127,6 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 	var i AgentTask
 	err := row.Scan(
 		&i.ID,
-		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
 		&i.GoalID,
@@ -158,21 +155,16 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 }
 
 const deleteAgentTask = `-- name: DeleteAgentTask :exec
-DELETE FROM agent_task WHERE id = ? AND org_id = ?
+DELETE FROM agent_task WHERE id = ?
 `
 
-type DeleteAgentTaskParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteAgentTask(ctx context.Context, arg DeleteAgentTaskParams) error {
-	_, err := q.db.ExecContext(ctx, deleteAgentTask, arg.ID, arg.OrgID)
+func (q *Queries) DeleteAgentTask(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteAgentTask, id)
 	return err
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
 `
 
 func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
@@ -180,49 +172,6 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 	var i AgentTask
 	err := row.Scan(
 		&i.ID,
-		&i.OrgID,
-		&i.UserID,
-		&i.AgentID,
-		&i.GoalID,
-		&i.Title,
-		&i.Description,
-		&i.Status,
-		&i.Priority,
-		&i.ReviewPolicy,
-		&i.ActiveReviewID,
-		&i.Required,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.NotBefore,
-		&i.DeadlineAt,
-		&i.SessionID,
-		&i.ActiveRunID,
-		&i.ActiveBlockerID,
-		&i.Context,
-		&i.Output,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CompletedAt,
-		&i.CancelledAt,
-	)
-	return i, err
-}
-
-const getAgentTaskForOrg = `-- name: GetAgentTaskForOrg :one
-SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ? AND org_id = ?
-`
-
-type GetAgentTaskForOrgParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetAgentTaskForOrg(ctx context.Context, arg GetAgentTaskForOrgParams) (AgentTask, error) {
-	row := q.db.QueryRowContext(ctx, getAgentTaskForOrg, arg.ID, arg.OrgID)
-	var i AgentTask
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
 		&i.UserID,
 		&i.AgentID,
 		&i.GoalID,
@@ -266,18 +215,17 @@ func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgen
 	return err
 }
 
-const listAgentTasksByOrg = `-- name: ListAgentTasksByOrg :many
-SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+const listAgentTasks = `-- name: ListAgentTasks :many
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC LIMIT ? OFFSET ?
 `
 
-type ListAgentTasksByOrgParams struct {
-	OrgID  string `json:"org_id"`
-	Limit  int64  `json:"limit"`
-	Offset int64  `json:"offset"`
+type ListAgentTasksParams struct {
+	Limit  int64 `json:"limit"`
+	Offset int64 `json:"offset"`
 }
 
-func (q *Queries) ListAgentTasksByOrg(ctx context.Context, arg ListAgentTasksByOrgParams) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTasksByOrg, arg.OrgID, arg.Limit, arg.Offset)
+func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTasks, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +235,6 @@ func (q *Queries) ListAgentTasksByOrg(ctx context.Context, arg ListAgentTasksByO
 		var i AgentTask
 		if err := rows.Scan(
 			&i.ID,
-			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
 			&i.GoalID,
@@ -326,23 +273,17 @@ func (q *Queries) ListAgentTasksByOrg(ctx context.Context, arg ListAgentTasksByO
 }
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE org_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentTasksByUserParams struct {
-	OrgID  string `json:"org_id"`
 	UserID string `json:"user_id"`
 	Limit  int64  `json:"limit"`
 	Offset int64  `json:"offset"`
 }
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser,
-		arg.OrgID,
-		arg.UserID,
-		arg.Limit,
-		arg.Offset,
-	)
+	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +293,6 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 		var i AgentTask
 		if err := rows.Scan(
 			&i.ID,
-			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
 			&i.GoalID,
@@ -391,7 +331,7 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 }
 
 const listReadyCandidates = `-- name: ListReadyCandidates :many
-SELECT id, org_id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
 WHERE status = 'ready'
   AND active_run_id IS NULL
   AND (not_before IS NULL OR not_before <= ?)
@@ -417,7 +357,6 @@ func (q *Queries) ListReadyCandidates(ctx context.Context, arg ListReadyCandidat
 		var i AgentTask
 		if err := rows.Scan(
 			&i.ID,
-			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
 			&i.GoalID,

@@ -60,14 +60,9 @@ func ensureTemplateDB() string {
 		if err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: OpenDB: %v", err))
 		}
-		ctx := context.Background()
-		orgID, err := appdb.EnsureDefaultOrg(ctx, db)
-		if err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: EnsureDefaultOrg: %v", err))
-		}
 		store := cfgstore.NewDBStore(db)
-		if err := store.SeedNewOrg(ctx, orgID); err != nil {
-			panic(fmt.Sprintf("ensureTemplateDB: SeedNewOrg: %v", err))
+		if err := store.Seed(context.Background()); err != nil {
+			panic(fmt.Sprintf("ensureTemplateDB: Seed: %v", err))
 		}
 		if err := db.Close(); err != nil {
 			panic(fmt.Sprintf("ensureTemplateDB: Close: %v", err))
@@ -107,7 +102,6 @@ type testEnv struct {
 	mem         memory.Provider
 	adminUser   auth.User
 	bearerToken string
-	orgID       string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
@@ -123,15 +117,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	t.Cleanup(func() { _ = db.Close() })
 
 	store := cfgstore.NewDBStore(db)
-	orgID, err := appdb.EnsureDefaultOrg(context.Background(), db)
-	if err != nil {
-		t.Fatalf("EnsureDefaultOrg: %v", err)
-	}
-	orgCtx := config.WithOrgID(context.Background(), orgID)
-	_ = store.SeedNewOrg(orgCtx, orgID)
+	ctx := context.Background()
+	_ = store.Seed(ctx)
 	as := appdb.NewAuthStore(db)
 
-	engine, err := auth.NewEngine(orgCtx, as)
+	engine, err := auth.NewEngine(ctx, as)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -196,19 +186,18 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	skillStore := skills.New(db)
 	phost.SetSkillStore(skillStore)
-	srv := server.New(orgCtx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
+	srv := server.New(ctx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	oidcStore := appdb.NewOIDCStore(db)
 	tokenSvc := auth.NewTokenService(as, nil)
 	srv.SetTokenService(tokenSvc)
 	srv.SetUserStore(oidcStore)
-	srv.SetMembershipStore(oidcStore)
 	srv.SetLoginIdentityStore(oidcStore)
 	srv.SetSessionStore(oidcStore)
 	srv.SetCredentialStore(oidcStore)
 
 	// Create an admin user for authenticated requests.
-	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin, orgID)
+	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin)
 
 	// Seed a password credential for the admin user so change-password tests work.
 	hash, err := auth.HashPassword("testpassword")
@@ -233,47 +222,22 @@ func setupAdmin(t *testing.T) *testEnv {
 		mem:         mem,
 		adminUser:   adminUser,
 		bearerToken: bearerToken,
-		orgID:       orgID,
 	}
 }
 
-// createTestUserWithToken creates a user, organization, membership, and bearer token for testing.
-func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string, orgIDs ...string) (auth.User, string) {
+// createTestUserWithToken creates a user and bearer token for testing.
+func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb.OIDCStore, name, role string) (auth.User, string) {
 	t.Helper()
 	ctx := context.Background()
 	user, err := oidcStore.CreateUser(ctx, auth.User{
 		ID:       uuid.NewString(),
 		Email:    name + "@test.local",
 		Name:     name,
+		Role:     role,
 		IsActive: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateUser %q: %v", name, err)
-	}
-	orgID := ""
-	if len(orgIDs) > 0 && orgIDs[0] != "" {
-		orgID = orgIDs[0]
-	} else {
-		org, err := oidcStore.CreateOrganization(ctx, auth.Organization{
-			ID:         uuid.NewString(),
-			Name:       name + "-org",
-			Source:     "test",
-			ExternalID: uuid.NewString(),
-		})
-		if err != nil {
-			t.Fatalf("CreateOrganization %q: %v", name, err)
-		}
-		orgID = org.ID
-	}
-	_, err = oidcStore.CreateMembership(ctx, auth.Membership{
-		ID:             uuid.NewString(),
-		UserID:         user.ID,
-		OrganizationID: orgID,
-		Role:           role,
-		IsActive:       true,
-	})
-	if err != nil {
-		t.Fatalf("CreateMembership %q: %v", name, err)
 	}
 	rawToken := "stella_test_" + uuid.NewString()
 	sum := sha256.Sum256([]byte(rawToken))
@@ -806,7 +770,7 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 
 func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	env := setupAdmin(t)
-	octx := config.WithOrgID(context.Background(), env.orgID)
+	octx := context.Background()
 	stellaID := findStellaID(t, env)
 
 	if err := env.store.UpsertChannel(octx, config.Channel{
@@ -883,7 +847,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 
 func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	env := setupAdmin(t)
-	octx := config.WithOrgID(context.Background(), env.orgID)
+	octx := context.Background()
 
 	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
@@ -926,26 +890,8 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	}
 }
 
-func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
-	env := setupAdmin(t)
-
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser, env.orgID)
-
-	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/channels", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("channels page status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/channels/public", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("public channels status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/channels", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("channel config status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
-	}
-}
+// TestNonAdminCanOpenChannelsPageButNotChannelConfig removed: single-tenant mode
+// grants admin to all authenticated users.
 
 func TestCreateAgent(t *testing.T) {
 	env := setupAdmin(t)
@@ -1094,25 +1040,8 @@ func TestUnauthenticatedPageRedirectsToLogin(t *testing.T) {
 	}
 }
 
-func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
-	env := setupAdmin(t)
-
-	// Create a non-admin user.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser", auth.RoleUser, env.orgID)
-
-	// Admin-only API should return 403.
-	rr := doRequestWithSession(t, env.srv, userToken, "GET", "/api/providers", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
-	}
-
-	// All page routes serve the SPA shell regardless of admin status;
-	// access control is enforced client-side and via the API.
-	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/providers", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-}
+// TestNonAdminCannotAccessAdminRoutes removed: single-tenant mode grants admin
+// to all authenticated users.
 
 // --- Skills tests ---
 
@@ -1130,7 +1059,7 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 	}
 
 	// Authenticated non-admin with missing q → 400, proving search is no longer admin-only.
-	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser, env.orgID)
+	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regularuser-search", auth.RoleUser)
 	rr = doRequestWithSession(t, env.srv, userToken, "GET", "/api/skills/search", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("user missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
@@ -1144,12 +1073,12 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 }
 
 // TestSaveManifestPluginsPreservesSessionEnvVaultKey guards against the enable
-// toggle clobbering the per-org session_env_vault_key. The Save payload only
-// carries the enable flag, so the handler must read the existing override row
-// and preserve any session env binding instead of overwriting it with "".
+// toggle clobbering the session_env_vault_key. The Save payload only carries
+// the enable flag, so the handler must read the existing override row and
+// preserve any session env binding instead of overwriting it with "".
 func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 	env := setupAdmin(t)
-	octx := config.WithOrgID(context.Background(), env.orgID)
+	octx := context.Background()
 
 	// tool/mise defaults to enabled=true in the builtin manifest. Pre-seed an
 	// override row that binds a session env vault key.

@@ -114,8 +114,7 @@ var builtinPolicies = []Policy{
 }
 
 // BuiltinPolicies returns the authoritative list of system policies.
-// These are org-agnostic (OrgID is empty) and merged with custom DB
-// policies at query time by ListEnabledPolicies.
+// These are merged with custom DB policies at query time by ListEnabledPolicies.
 func BuiltinPolicies() []Policy {
 	out := make([]Policy, len(builtinPolicies))
 	copy(out, builtinPolicies)

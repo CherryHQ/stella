@@ -1,10 +1,10 @@
 -- name: GetChannel :one
-SELECT * FROM settings_channel WHERE id = ? AND org_id = ?;
+SELECT * FROM settings_channel WHERE id = ?;
 
 -- name: UpsertChannel :exec
-INSERT INTO settings_channel (id, type, agent_id, enabled, config, org_id, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-ON CONFLICT(id, org_id) DO UPDATE SET
+INSERT INTO settings_channel (id, type, agent_id, enabled, config, updated_at)
+VALUES (?, ?, ?, ?, ?, datetime('now'))
+ON CONFLICT(id) DO UPDATE SET
     type = excluded.type,
     agent_id = excluded.agent_id,
     enabled = excluded.enabled,
@@ -12,13 +12,10 @@ ON CONFLICT(id, org_id) DO UPDATE SET
     updated_at = datetime('now');
 
 -- name: ListChannels :many
-SELECT * FROM settings_channel WHERE org_id = ? ORDER BY type, id;
+SELECT * FROM settings_channel ORDER BY type, id;
 
 -- name: ListChannelsByType :many
-SELECT * FROM settings_channel WHERE type = ? AND org_id = ? ORDER BY id;
+SELECT * FROM settings_channel WHERE type = ? ORDER BY id;
 
 -- name: DeleteChannel :exec
-DELETE FROM settings_channel WHERE id = ? AND org_id = ?;
-
--- name: SetChannelOrg :exec
-UPDATE settings_channel SET org_id = sqlc.arg(org_id) WHERE id = sqlc.arg(id) AND org_id = sqlc.arg(current_org_id);
+DELETE FROM settings_channel WHERE id = ?;

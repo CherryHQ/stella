@@ -13,23 +13,13 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// builtinScope is the scope name for the manifest-wide (all-org) base config.
+// builtinScope is the scope name for the global base config.
 const builtinScope = "_builtin"
 
 // miseInstallMu serializes installs into the shared MISE_DATA_DIR. mise reshim
-// rewrites the whole shims directory, so concurrent scope installs (different
-// orgs starting at once, or an org start overlapping the builtin reconcile)
-// must not run in parallel or they clobber each other's shims.
+// rewrites the whole shims directory, so concurrent installs must not run in
+// parallel or they clobber each other's shims.
 var miseInstallMu sync.Mutex
-
-// scopeForOrg maps an org ID to its mise config scope. The empty org (default /
-// no-org) resolves to the builtin base config.
-func scopeForOrg(orgID string) string {
-	if orgID == "" {
-		return builtinScope
-	}
-	return orgID
-}
 
 // miseBaseEnv returns the mise env entries shared by every Stella mise
 // invocation — the isolated data-dir layout plus the non-interactive flags.
@@ -49,33 +39,38 @@ func miseBaseEnv(stellaHome string) map[string]string {
 }
 
 // runtimeScopeConfigPath returns the mise config the sandbox resolves against.
-// It points at the org's own scope, but falls back to the builtin base when the
-// org config was never written (e.g. org CLI sync failed and was logged
-// non-fatally) so builtin tools still resolve instead of mise running against a
-// missing global config.
-func runtimeScopeConfigPath(stellaHome, orgID string) string {
-	orgPath := ScopeConfigPath(stellaHome, scopeForOrg(orgID))
-	if _, err := os.Stat(orgPath); err == nil {
-		return orgPath
-	}
+func runtimeScopeConfigPath(stellaHome string) string {
 	return ScopeConfigPath(stellaHome, builtinScope)
 }
 
 // RuntimeMiseEnv returns the mise environment variables a sandbox needs so its
-// shims resolve tool versions from the org's persisted config against the shared
+// shims resolve tool versions from the persisted config against the shared
 // install dir. HOME/XDG are intentionally left untouched — the sandbox owns
 // those. Auto-install is disabled so runtime never reaches the network.
-func RuntimeMiseEnv(stellaHome, orgID string) map[string]string {
+func RuntimeMiseEnv(stellaHome string) map[string]string {
 	env := miseBaseEnv(stellaHome)
-	configPath := runtimeScopeConfigPath(stellaHome, orgID)
+	configPath := runtimeScopeConfigPath(stellaHome)
 	env["MISE_GLOBAL_CONFIG_FILE"] = configPath
 	env["MISE_TRUSTED_CONFIG_PATHS"] = configPath
 	env["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
 	return env
 }
 
-// miseTool is a single entry rendered into a mise config. Both manifest
-// binaries and per-org CLI tools collapse to this shape before install.
+// enabledBuiltinTools collects all mise tools from enabled manifest plugins.
+func enabledBuiltinTools(m *Manifest) []miseTool {
+	var tools []miseTool
+	for _, p := range m.Plugins {
+		if !p.Enabled {
+			continue
+		}
+		for _, b := range p.Binaries {
+			tools = append(tools, miseToolFromBinary(b))
+		}
+	}
+	return tools
+}
+
+// miseTool is a single entry rendered into a mise config.
 type miseTool struct {
 	Key     string         // mise tool key, e.g. "github:cli/cli", "npm:serve", "uv"
 	Version string         // version spec; empty means "latest"
@@ -89,17 +84,15 @@ func miseConfigsDir(stellaHome string) string {
 	return filepath.Join(miseToolsDir(stellaHome), "configs")
 }
 
-// ScopeConfigPath returns the persisted mise config path for a scope. The
-// builtin base uses builtinScope; per-org configs use the org ID.
+// ScopeConfigPath returns the persisted mise config path for a scope.
 func ScopeConfigPath(stellaHome, scope string) string {
 	return filepath.Join(miseConfigsDir(stellaHome), scope+".toml")
 }
 
 // renderMiseTOML builds a mise.toml [tools] table from the given tools. On a
-// duplicate key the last entry wins, letting org tools override builtins. Two
-// different keys exposing the same shim name (Lookup) are rejected: shims live
-// in one shared directory, so the collision would non-deterministically shadow
-// one tool with the other.
+// duplicate key the last entry wins. Two different keys exposing the same shim
+// name (Lookup) are rejected: shims live in one shared directory, so the
+// collision would non-deterministically shadow one tool with the other.
 func renderMiseTOML(tools []miseTool) (string, error) {
 	out := make(map[string]any, len(tools))
 	lookupKey := make(map[string]string, len(tools))

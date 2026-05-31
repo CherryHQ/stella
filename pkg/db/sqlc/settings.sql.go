@@ -10,46 +10,31 @@ import (
 )
 
 const deleteSetting = `-- name: DeleteSetting :exec
-DELETE FROM settings WHERE key = ? AND org_id = ?
+DELETE FROM settings WHERE key = ?
 `
 
-type DeleteSettingParams struct {
-	Key   string `json:"key"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteSetting(ctx context.Context, arg DeleteSettingParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSetting, arg.Key, arg.OrgID)
+func (q *Queries) DeleteSetting(ctx context.Context, key string) error {
+	_, err := q.db.ExecContext(ctx, deleteSetting, key)
 	return err
 }
 
 const getSetting = `-- name: GetSetting :one
-SELECT "key", value, org_id, updated_at FROM settings WHERE key = ? AND org_id = ?
+SELECT "key", value, updated_at FROM settings WHERE key = ?
 `
 
-type GetSettingParams struct {
-	Key   string `json:"key"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetSetting(ctx context.Context, arg GetSettingParams) (Setting, error) {
-	row := q.db.QueryRowContext(ctx, getSetting, arg.Key, arg.OrgID)
+func (q *Queries) GetSetting(ctx context.Context, key string) (Setting, error) {
+	row := q.db.QueryRowContext(ctx, getSetting, key)
 	var i Setting
-	err := row.Scan(
-		&i.Key,
-		&i.Value,
-		&i.OrgID,
-		&i.UpdatedAt,
-	)
+	err := row.Scan(&i.Key, &i.Value, &i.UpdatedAt)
 	return i, err
 }
 
 const listSettings = `-- name: ListSettings :many
-SELECT "key", value, org_id, updated_at FROM settings WHERE org_id = ? ORDER BY key
+SELECT "key", value, updated_at FROM settings ORDER BY key
 `
 
-func (q *Queries) ListSettings(ctx context.Context, orgID string) ([]Setting, error) {
-	rows, err := q.db.QueryContext(ctx, listSettings, orgID)
+func (q *Queries) ListSettings(ctx context.Context) ([]Setting, error) {
+	rows, err := q.db.QueryContext(ctx, listSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -57,12 +42,7 @@ func (q *Queries) ListSettings(ctx context.Context, orgID string) ([]Setting, er
 	items := []Setting{}
 	for rows.Next() {
 		var i Setting
-		if err := rows.Scan(
-			&i.Key,
-			&i.Value,
-			&i.OrgID,
-			&i.UpdatedAt,
-		); err != nil {
+		if err := rows.Scan(&i.Key, &i.Value, &i.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -77,9 +57,9 @@ func (q *Queries) ListSettings(ctx context.Context, orgID string) ([]Setting, er
 }
 
 const upsertSetting = `-- name: UpsertSetting :exec
-INSERT INTO settings (key, value, org_id, updated_at)
-VALUES (?, ?, ?, datetime('now'))
-ON CONFLICT(key, org_id) DO UPDATE SET
+INSERT INTO settings (key, value, updated_at)
+VALUES (?, ?, datetime('now'))
+ON CONFLICT(key) DO UPDATE SET
     value = excluded.value,
     updated_at = datetime('now')
 `
@@ -87,10 +67,9 @@ ON CONFLICT(key, org_id) DO UPDATE SET
 type UpsertSettingParams struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
-	OrgID string `json:"org_id"`
 }
 
 func (q *Queries) UpsertSetting(ctx context.Context, arg UpsertSettingParams) error {
-	_, err := q.db.ExecContext(ctx, upsertSetting, arg.Key, arg.Value, arg.OrgID)
+	_, err := q.db.ExecContext(ctx, upsertSetting, arg.Key, arg.Value)
 	return err
 }

@@ -68,19 +68,6 @@ func TestMeUnauthenticated(t *testing.T) {
 	}
 }
 
-func TestFirstUserGetsAdminRole(t *testing.T) {
-	env := setupAdmin(t)
-
-	// Second user should get user role (admin role only for first user).
-	_, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "seconduser", auth.RoleUser)
-
-	// Verify the second user cannot access admin endpoints.
-	rr := doRequestWithSession(t, env.srv, token, "GET", "/api/auth/users", nil)
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("second user should not have admin role, got status %d", rr.Code)
-	}
-}
-
 func TestExpiredTokenDenied(t *testing.T) {
 	env := setupAdmin(t)
 
@@ -179,30 +166,6 @@ func TestBearerAuthRejectsRevokedToken(t *testing.T) {
 	}
 
 	rr := doBearerRequest(t, env.srv, rawToken, "GET", "/api/agents", nil)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestBearerAuthRejectsInactiveUser(t *testing.T) {
-	env := setupAdmin(t)
-	vault := newAdminTokenVault()
-	tokenSvc := auth.NewTokenService(env.authStore, vault)
-	env.srv.SetTokenService(tokenSvc)
-	if err := tokenSvc.EnsureAutoToken(context.Background(), env.adminUser.ID); err != nil {
-		t.Fatalf("EnsureAutoToken: %v", err)
-	}
-
-	// Deactivate the admin's membership so bearer auth is rejected.
-	m, err := env.oidcStore.GetUserMembership(context.Background(), env.adminUser.ID)
-	if err != nil {
-		t.Fatalf("GetUserMembership: %v", err)
-	}
-	if err := env.oidcStore.UpdateMembershipActive(context.Background(), m.ID, false); err != nil {
-		t.Fatalf("UpdateMembershipActive: %v", err)
-	}
-
-	rr := doBearerRequest(t, env.srv, vault.env[env.adminUser.ID][auth.StellaTokenName], "GET", "/api/agents", nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}

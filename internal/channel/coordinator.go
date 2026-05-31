@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"filippo.io/age"
@@ -12,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/orgctx"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -22,7 +20,6 @@ import (
 type channelAuthStore interface {
 	auth.UserStore
 	auth.ChannelIdentityStore
-	auth.MembershipStore
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 }
 
@@ -31,11 +28,6 @@ type channelAuthStore interface {
 // management, command handling, account linking, and model/agent switching.
 // A per-session message queue ensures that only one chat turn runs at a time
 // per resolved Stella session; later messages are serialised in arrival order.
-// OrgRuntimeInitializer ensures per-org runtime is started before processing messages.
-type OrgRuntimeInitializer interface {
-	EnsureStarted(ctx context.Context, orgID string) error
-}
-
 type Coordinator struct {
 	poolManager      *agent.PoolManager
 	store            config.Store
@@ -48,7 +40,6 @@ type Coordinator struct {
 	switchFn         func(provider, model string) error
 	queue            *sessionQueue
 	intentClassifier IntentClassifier
-	orgInit          OrgRuntimeInitializer
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -105,33 +96,11 @@ func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
 	}
 }
 
-// WithOrgRuntimeInitializer sets the org runtime initializer for lazy per-org startup.
-func WithOrgRuntimeInitializer(init OrgRuntimeInitializer) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.orgInit = init
-	}
-}
-
 // resolve performs the full user -> agent -> pool -> session key resolution.
-// If an org runtime initializer is set, it ensures the user's org runtime is
-// started before resolving the agent pool (which requires synced agents).
-// The org init only fires for users with an existing membership — unregistered
-// senders are skipped.
 func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
 	channelID := msg.ChannelID
 	if channelID == "" {
 		channelID = msg.Platform
-	}
-
-	if c.orgInit != nil && c.auth != nil {
-		resolved, _, err := ResolveUserCandidates(ctx, c.auth, msg.Platform, append([]string{msg.SenderID}, msg.SenderIDs...))
-		if err == nil && resolved.User.ID != "" {
-			if membership, err := c.auth.GetUserMembership(ctx, resolved.User.ID); err == nil {
-				if err := c.orgInit.EnsureStarted(ctx, membership.OrganizationID); err != nil {
-					slog.Warn("channel: org runtime init failed", "org_id", membership.OrganizationID, "error", err)
-				}
-			}
-		}
 	}
 
 	return ResolveWithChannel(ctx, c.poolManager, c.store, c.auth, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
@@ -141,12 +110,6 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 // command is not handled, streams a chat response. This avoids double
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
-	if orgctx.OrgIDFromContext(ctx) == "" {
-		slog.Error("coordinator: inbound message dropped: orgID missing from ctx; the channel runtime was built without an org, so HandlerWithOrgID degraded to passthrough — check this channel's OrgID",
-			"platform", msg.Platform, "channel_id", msg.ChannelID, "sender", msg.SenderID)
-		return "", false, nil, fmt.Errorf("coordinator: orgID missing from context (channel %s built without org)", msg.ChannelID)
-	}
-
 	// Try link code first (before auth resolution, since it creates identity).
 	if c.auth != nil && c.linkCodes != nil {
 		fullText := command

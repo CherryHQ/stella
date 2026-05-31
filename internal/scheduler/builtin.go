@@ -69,10 +69,10 @@ func validateBuiltin(job BuiltinJob) error {
 	return nil
 }
 
-// EnsureBuiltinJobs creates or updates all registered builtin jobs for the
-// given org. For ExecScopeAllUsers jobs the scheduler fans out to all
+// EnsureBuiltinJobs creates or updates all registered builtin jobs.
+// For ExecScopeAllUsers jobs the scheduler fans out to all
 // active users at execution time.
-func (s *Service) EnsureBuiltinJobs(orgID string) {
+func (s *Service) EnsureBuiltinJobs() {
 	s.mu.Lock()
 	jobs := make([]BuiltinJob, 0, len(s.runtimeBuiltins))
 	for _, j := range s.runtimeBuiltins {
@@ -81,8 +81,8 @@ func (s *Service) EnsureBuiltinJobs(orgID string) {
 	s.mu.Unlock()
 
 	for _, j := range jobs {
-		if _, err := s.EnsureJob(j.Name, j.Message, j.Schedule, j.SessionMode, j.AgentID, j.ExecScope, orgID); err != nil {
-			s.log.Warn("failed to ensure builtin job", "name", j.Name, "org_id", orgID, "error", err)
+		if _, err := s.EnsureJob(j.Name, j.Message, j.Schedule, j.SessionMode, j.AgentID, j.ExecScope); err != nil {
+			s.log.Warn("failed to ensure builtin job", "name", j.Name, "error", err)
 		}
 	}
 }

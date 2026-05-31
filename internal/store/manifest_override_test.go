@@ -24,7 +24,7 @@ func TestManifestPluginOverrideRoundtrip(t *testing.T) {
 	if err := s.UpsertManifestPluginOverride(ctx, config.ManifestPluginOverride{
 		PluginID:           "tool/webfetch",
 		Enabled:            &enabled,
-		SessionEnvVaultKey: "manifest/" + testOrgID + "/tool/webfetch/session_env",
+		SessionEnvVaultKey: "manifest/tool/webfetch/session_env",
 	}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -68,19 +68,5 @@ func TestManifestPluginOverrideRoundtrip(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("expected override gone after Delete")
-	}
-}
-
-func TestManifestPluginOverrideRequiresOrgID(t *testing.T) {
-	s := setupDBStore(t)
-	// no orgID in ctx
-	if _, _, err := s.GetManifestPluginOverride(t.Context(), "tool/webfetch"); err == nil {
-		t.Fatal("Get without orgID: expected error")
-	}
-	if err := s.UpsertManifestPluginOverride(t.Context(), config.ManifestPluginOverride{PluginID: "tool/webfetch"}); err == nil {
-		t.Fatal("Upsert without orgID: expected error")
-	}
-	if err := s.DeleteManifestPluginOverride(t.Context(), "tool/webfetch"); err == nil {
-		t.Fatal("Delete without orgID: expected error")
 	}
 }

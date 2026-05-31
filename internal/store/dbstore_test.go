@@ -11,10 +11,8 @@ import (
 	"github.com/CherryHQ/stella/internal/store"
 )
 
-const testOrgID = "test-org-id"
-
 func testCtx() context.Context {
-	return config.WithOrgID(context.Background(), testOrgID)
+	return context.Background()
 }
 
 func setupDBStore(t *testing.T) *store.DBStore {
@@ -31,20 +29,16 @@ func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *sql.DB) {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	_, err = db.Exec(`INSERT OR IGNORE INTO auth_organization (id, name, source) VALUES (?, ?, ?)`, testOrgID, "Test Org", "test")
-	if err != nil {
-		t.Fatalf("create test org: %v", err)
-	}
 	s := store.NewDBStore(db)
 	return s, db
 }
 
-func TestSeedNewOrg(t *testing.T) {
+func TestSeed(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
-		t.Fatalf("SeedNewOrg: %v", err)
+	if err := s.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
 	}
 
 	providers, err := s.ListProviders(ctx)
@@ -76,15 +70,15 @@ func TestSeedNewOrg(t *testing.T) {
 	}
 }
 
-func TestSeedNewOrgUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
+func TestSeedUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
 	if err := s.CreateProvider(ctx, config.Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
 	}
-	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
-		t.Fatalf("SeedNewOrg: %v", err)
+	if err := s.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
 	}
 
 	agents, err := s.ListAgents(ctx)
@@ -99,15 +93,15 @@ func TestSeedNewOrgUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
 	}
 }
 
-func TestSeedNewOrgIdempotent(t *testing.T) {
+func TestSeedIdempotent(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
-		t.Fatalf("first SeedNewOrg: %v", err)
+	if err := s.Seed(ctx); err != nil {
+		t.Fatalf("first Seed: %v", err)
 	}
-	if err := s.SeedNewOrg(ctx, testOrgID); err != nil {
-		t.Fatalf("second SeedNewOrg: %v", err)
+	if err := s.Seed(ctx); err != nil {
+		t.Fatalf("second Seed: %v", err)
 	}
 
 	providers, _ := s.ListProviders(ctx)
@@ -370,71 +364,6 @@ func TestChannelCRUD(t *testing.T) {
 	}
 }
 
-func TestChannelSameIDIsOrgScoped(t *testing.T) {
-	s, db := setupDBStoreWithDB(t)
-	ctx1 := testCtx()
-	ctx2 := config.WithOrgID(context.Background(), "org-2")
-	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, "org-2", "Org 2", "org-2", "test"); err != nil {
-		t.Fatalf("create org 2: %v", err)
-	}
-
-	if err := s.UpsertChannel(ctx1, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org1"}`}); err != nil {
-		t.Fatalf("UpsertChannel org1: %v", err)
-	}
-	if err := s.UpsertChannel(ctx2, config.Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"org2"}`}); err != nil {
-		t.Fatalf("UpsertChannel org2: %v", err)
-	}
-	if err := s.SetChannelOrg(ctx2, "telegram", "org-2"); err != nil {
-		t.Fatalf("SetChannelOrg org2 no-op: %v", err)
-	}
-
-	got1, err := s.GetChannel(ctx1, "telegram")
-	if err != nil {
-		t.Fatalf("GetChannel org1: %v", err)
-	}
-	got2, err := s.GetChannel(ctx2, "telegram")
-	if err != nil {
-		t.Fatalf("GetChannel org2: %v", err)
-	}
-	if got1.Config != `{"token":"org1"}` || got2.Config != `{"token":"org2"}` {
-		t.Fatalf("channels crossed orgs: org1=%+v org2=%+v", got1, got2)
-	}
-}
-
-func TestChatAgentSameChatIsOrgScoped(t *testing.T) {
-	s, db := setupDBStoreWithDB(t)
-	ctx1 := testCtx()
-	ctx2 := config.WithOrgID(context.Background(), "org-2")
-	if _, err := db.Exec(`INSERT INTO auth_organization (id, name, external_id, source) VALUES (?, ?, ?, ?)`, "org-2", "Org 2", "org-2", "test"); err != nil {
-		t.Fatalf("create org 2: %v", err)
-	}
-	if err := s.CreateAgent(ctx1, config.Agent{ID: "agent-org-1", Name: "Agent 1", Model: "p/m", Enabled: true}); err != nil {
-		t.Fatalf("CreateAgent org1: %v", err)
-	}
-	if err := s.CreateAgent(ctx2, config.Agent{ID: "agent-org-2", Name: "Agent 2", Model: "p/m", Enabled: true}); err != nil {
-		t.Fatalf("CreateAgent org2: %v", err)
-	}
-
-	if err := s.SetChatAgent(ctx1, "telegram", "telegram", "chat-1", "agent-org-1"); err != nil {
-		t.Fatalf("SetChatAgent org1: %v", err)
-	}
-	if err := s.SetChatAgent(ctx2, "telegram", "telegram", "chat-1", "agent-org-2"); err != nil {
-		t.Fatalf("SetChatAgent org2: %v", err)
-	}
-
-	got1, err := s.GetChatAgent(ctx1, "telegram", "telegram", "chat-1")
-	if err != nil {
-		t.Fatalf("GetChatAgent org1: %v", err)
-	}
-	got2, err := s.GetChatAgent(ctx2, "telegram", "telegram", "chat-1")
-	if err != nil {
-		t.Fatalf("GetChatAgent org2: %v", err)
-	}
-	if got1 != "agent-org-1" || got2 != "agent-org-2" {
-		t.Fatalf("chat agents crossed orgs: org1=%q org2=%q", got1, got2)
-	}
-}
-
 func TestChatAgentCRUD(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
@@ -495,7 +424,7 @@ func TestSnapshot(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = s.SeedNewOrg(ctx, testOrgID)
+	_ = s.Seed(ctx)
 
 	agents, err := s.ListAgents(ctx)
 	if err != nil || len(agents) == 0 {
@@ -618,7 +547,7 @@ func TestSnapshotDefaults(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	_ = s.SeedNewOrg(ctx, testOrgID)
+	_ = s.Seed(ctx)
 	_ = s.CreateAgent(ctx, config.Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
 
 	snap, err := s.Snapshot(ctx, "a")

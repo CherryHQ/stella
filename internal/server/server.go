@@ -53,14 +53,10 @@ type Server struct {
 	authSvc       *auth.AuthService
 	sessionMgr    *auth.SessionManager
 	stateMgr      *oidc.StateManager
-	// organizations provides access to auth_organization (optional).
-	organizations auth.OrganizationStore
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
 	baseURL string
 	// logins provides access to OIDC login identities (optional).
 	logins auth.LoginIdentityStore
-	// memberships provides access to auth_membership (optional).
-	memberships auth.MembershipStore
 	// users provides access to auth_user and plugin_channel_identity via the OIDC store (optional).
 	users interface {
 		auth.UserStore
@@ -80,7 +76,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		panic("admin: plugin host is required")
 	}
 
-	// Read CORS origin once at startup (uses org context for settings scoping).
+	// Read CORS origin once at startup.
 	corsOrigin := "http://localhost:8080"
 	if val, err := store.GetSetting(ctx, "admin.cors_origin"); err == nil && val != "" {
 		corsOrigin = val
@@ -145,12 +141,7 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
 }
 
-// SetOrganizationStore wires the organization store into the admin server.
-func (s *Server) SetOrganizationStore(store auth.OrganizationStore) {
-	s.organizations = store
-}
-
-// SetBaseURL sets the public base URL for invite links and similar.
+// SetBaseURL sets the public base URL.
 func (s *Server) SetBaseURL(url string) {
 	s.baseURL = url
 }
@@ -159,12 +150,6 @@ func (s *Server) SetBaseURL(url string) {
 // can list and link login identities. Call before serving requests.
 func (s *Server) SetLoginIdentityStore(store auth.LoginIdentityStore) {
 	s.logins = store
-}
-
-// SetMembershipStore wires the membership store so role and active writes
-// propagate to auth_membership. Call before serving requests.
-func (s *Server) SetMembershipStore(store auth.MembershipStore) {
-	s.memberships = store
 }
 
 // SetUserStore wires the OIDC user+identity store into the admin server.

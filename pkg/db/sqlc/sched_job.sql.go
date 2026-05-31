@@ -15,10 +15,10 @@ INSERT INTO sched_job (
     id, owner_kind, exec_scope, plugin_id, job_key, runtime_name,
     name, description, schedule_cron, schedule_every, schedule_at,
     message, payload, session_mode, enabled, agent_id, user_id,
-    org_id, created_at, updated_at, last_run_at, last_error
+    created_at, updated_at, last_run_at, last_error
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, org_id, created_at, updated_at, last_run_at, last_error
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error
 `
 
 type CreateSchedulerJobParams struct {
@@ -39,7 +39,6 @@ type CreateSchedulerJobParams struct {
 	Enabled       int64          `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        sql.NullString `json:"user_id"`
-	OrgID         string         `json:"org_id"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
 	LastRunAt     sql.NullString `json:"last_run_at"`
@@ -65,7 +64,6 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 		arg.Enabled,
 		arg.AgentID,
 		arg.UserID,
-		arg.OrgID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.LastRunAt,
@@ -90,7 +88,6 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 		&i.Enabled,
 		&i.AgentID,
 		&i.UserID,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastRunAt,
@@ -100,30 +97,20 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 }
 
 const deleteSchedulerJob = `-- name: DeleteSchedulerJob :exec
-DELETE FROM sched_job WHERE id = ? AND org_id = ?
+DELETE FROM sched_job WHERE id = ?
 `
 
-type DeleteSchedulerJobParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) DeleteSchedulerJob(ctx context.Context, arg DeleteSchedulerJobParams) error {
-	_, err := q.db.ExecContext(ctx, deleteSchedulerJob, arg.ID, arg.OrgID)
+func (q *Queries) DeleteSchedulerJob(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteSchedulerJob, id)
 	return err
 }
 
 const getSchedulerJob = `-- name: GetSchedulerJob :one
-SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, org_id, created_at, updated_at, last_run_at, last_error FROM sched_job WHERE id = ? AND org_id = ?
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job WHERE id = ?
 `
 
-type GetSchedulerJobParams struct {
-	ID    string `json:"id"`
-	OrgID string `json:"org_id"`
-}
-
-func (q *Queries) GetSchedulerJob(ctx context.Context, arg GetSchedulerJobParams) (SchedJob, error) {
-	row := q.db.QueryRowContext(ctx, getSchedulerJob, arg.ID, arg.OrgID)
+func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedJob, error) {
+	row := q.db.QueryRowContext(ctx, getSchedulerJob, id)
 	var i SchedJob
 	err := row.Scan(
 		&i.ID,
@@ -143,7 +130,6 @@ func (q *Queries) GetSchedulerJob(ctx context.Context, arg GetSchedulerJobParams
 		&i.Enabled,
 		&i.AgentID,
 		&i.UserID,
-		&i.OrgID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastRunAt,
@@ -153,7 +139,7 @@ func (q *Queries) GetSchedulerJob(ctx context.Context, arg GetSchedulerJobParams
 }
 
 const listAllSchedulerJobs = `-- name: ListAllSchedulerJobs :many
-SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, org_id, created_at, updated_at, last_run_at, last_error FROM sched_job ORDER BY created_at
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job ORDER BY created_at
 `
 
 func (q *Queries) ListAllSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
@@ -183,7 +169,6 @@ func (q *Queries) ListAllSchedulerJobs(ctx context.Context) ([]SchedJob, error) 
 			&i.Enabled,
 			&i.AgentID,
 			&i.UserID,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastRunAt,
@@ -203,11 +188,11 @@ func (q *Queries) ListAllSchedulerJobs(ctx context.Context) ([]SchedJob, error) 
 }
 
 const listSchedulerJobs = `-- name: ListSchedulerJobs :many
-SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, org_id, created_at, updated_at, last_run_at, last_error FROM sched_job WHERE org_id = ? ORDER BY created_at
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job ORDER BY created_at
 `
 
-func (q *Queries) ListSchedulerJobs(ctx context.Context, orgID string) ([]SchedJob, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedulerJobs, orgID)
+func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedJob, error) {
+	rows, err := q.db.QueryContext(ctx, listSchedulerJobs)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +218,6 @@ func (q *Queries) ListSchedulerJobs(ctx context.Context, orgID string) ([]SchedJ
 			&i.Enabled,
 			&i.AgentID,
 			&i.UserID,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastRunAt,
@@ -253,21 +237,19 @@ func (q *Queries) ListSchedulerJobs(ctx context.Context, orgID string) ([]SchedJ
 }
 
 const listSchedulerJobsByAgent = `-- name: ListSchedulerJobsByAgent :many
-SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, org_id, created_at, updated_at, last_run_at, last_error FROM sched_job
-WHERE org_id = ?
-  AND (owner_kind IN ('plugin', 'system')
-       OR (agent_id = ? AND user_id = ?))
+SELECT id, owner_kind, exec_scope, plugin_id, job_key, runtime_name, name, description, schedule_cron, schedule_every, schedule_at, message, payload, session_mode, enabled, agent_id, user_id, created_at, updated_at, last_run_at, last_error FROM sched_job
+WHERE owner_kind IN ('plugin', 'system')
+      OR (agent_id = ? AND user_id = ?)
 ORDER BY created_at
 `
 
 type ListSchedulerJobsByAgentParams struct {
-	OrgID   string         `json:"org_id"`
 	AgentID sql.NullString `json:"agent_id"`
 	UserID  sql.NullString `json:"user_id"`
 }
 
 func (q *Queries) ListSchedulerJobsByAgent(ctx context.Context, arg ListSchedulerJobsByAgentParams) ([]SchedJob, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedulerJobsByAgent, arg.OrgID, arg.AgentID, arg.UserID)
+	rows, err := q.db.QueryContext(ctx, listSchedulerJobsByAgent, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +275,6 @@ func (q *Queries) ListSchedulerJobsByAgent(ctx context.Context, arg ListSchedule
 			&i.Enabled,
 			&i.AgentID,
 			&i.UserID,
-			&i.OrgID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastRunAt,
@@ -315,7 +296,7 @@ func (q *Queries) ListSchedulerJobsByAgent(ctx context.Context, arg ListSchedule
 const recordSchedulerJobRun = `-- name: RecordSchedulerJobRun :exec
 UPDATE sched_job
 SET last_run_at = ?, last_error = ?, updated_at = ?
-WHERE id = ? AND org_id = ?
+WHERE id = ?
 `
 
 type RecordSchedulerJobRunParams struct {
@@ -323,7 +304,6 @@ type RecordSchedulerJobRunParams struct {
 	LastError string         `json:"last_error"`
 	UpdatedAt string         `json:"updated_at"`
 	ID        string         `json:"id"`
-	OrgID     string         `json:"org_id"`
 }
 
 func (q *Queries) RecordSchedulerJobRun(ctx context.Context, arg RecordSchedulerJobRunParams) error {
@@ -332,7 +312,6 @@ func (q *Queries) RecordSchedulerJobRun(ctx context.Context, arg RecordScheduler
 		arg.LastError,
 		arg.UpdatedAt,
 		arg.ID,
-		arg.OrgID,
 	)
 	return err
 }
@@ -343,7 +322,7 @@ SET owner_kind = ?, exec_scope = ?, plugin_id = ?, job_key = ?, runtime_name = ?
     name = ?, description = ?, schedule_cron = ?, schedule_every = ?, schedule_at = ?,
     message = ?, payload = ?, session_mode = ?, enabled = ?, agent_id = ?, user_id = ?,
     updated_at = ?, last_run_at = ?, last_error = ?
-WHERE id = ? AND org_id = ?
+WHERE id = ?
 `
 
 type UpdateSchedulerJobParams struct {
@@ -367,7 +346,6 @@ type UpdateSchedulerJobParams struct {
 	LastRunAt     sql.NullString `json:"last_run_at"`
 	LastError     string         `json:"last_error"`
 	ID            string         `json:"id"`
-	OrgID         string         `json:"org_id"`
 }
 
 func (q *Queries) UpdateSchedulerJob(ctx context.Context, arg UpdateSchedulerJobParams) error {
@@ -392,7 +370,6 @@ func (q *Queries) UpdateSchedulerJob(ctx context.Context, arg UpdateSchedulerJob
 		arg.LastRunAt,
 		arg.LastError,
 		arg.ID,
-		arg.OrgID,
 	)
 	return err
 }

@@ -20,7 +20,7 @@ func (s *stubStore) GetProvider(context.Context, string) (config.Provider, error
 func (s *stubStore) CreateProvider(context.Context, config.Provider) error     { return nil }
 func (s *stubStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
 func (s *stubStore) DeleteProvider(context.Context, string) error              { return nil }
-func (s *stubStore) SetProviderOrg(context.Context, string, string) error      { return nil }
+func (s *stubStore) Seed(context.Context) error                                { return nil }
 func (s *stubStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
 func (s *stubStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
 func (s *stubStore) ListAccessibleAgents(context.Context, string) ([]config.Agent, error) {
@@ -33,7 +33,6 @@ func (s *stubStore) GetAgent(context.Context, string) (config.Agent, error) {
 func (s *stubStore) CreateAgent(context.Context, config.Agent) error        { return nil }
 func (s *stubStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
 func (s *stubStore) DeleteAgent(context.Context, string) error              { return nil }
-func (s *stubStore) SetAgentOrg(context.Context, string, string) error      { return nil }
 func (s *stubStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
 func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
 	return nil, nil
@@ -44,7 +43,6 @@ func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) 
 }
 func (s *stubStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) DeleteChannel(context.Context, string) error         { return nil }
-func (s *stubStore) SetChannelOrg(context.Context, string, string) error { return nil }
 func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	plugins := make([]config.Plugin, 0, len(s.plugins))
 	for _, plugin := range s.plugins {
@@ -112,7 +110,6 @@ func (s *stubStore) DeleteChatAgent(context.Context, string, string, string) err
 func (s *stubStore) GetSetting(context.Context, string) (string, error)                 { return "", nil }
 func (s *stubStore) SetSetting(context.Context, string, string) error                   { return nil }
 func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)         { return nil, nil }
-func (s *stubStore) SeedNewOrg(context.Context, string) error                           { return nil }
 
 func TestConfigServiceUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/test": {ID: "tool/test", Enabled: true, Config: map[string]any{"x": 1}}}}
@@ -436,7 +433,7 @@ func TestRuntimeApplyCreatesAndApplies(t *testing.T) {
 			return nil
 		}}, nil
 	}})
-	if err := host.ApplyPlugin(ctxWithOrg(testOrg), "tool/test"); err != nil {
+	if err := host.ApplyPlugin(context.Background(), "tool/test"); err != nil {
 		t.Fatal(err)
 	}
 	if called != 1 {

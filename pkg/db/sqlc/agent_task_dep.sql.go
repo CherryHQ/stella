@@ -192,7 +192,7 @@ WITH RECURSIVE downstream(id, depth) AS (
     JOIN downstream ds ON atd.dep_task_id = ds.id
     WHERE ds.depth < 1000
 )
-SELECT t.id, t.org_id, t.user_id, t.agent_id, t.goal_id, t.title, t.description, t.status, t.priority, t.review_policy, t.active_review_id, t.required, t.retry_count, t.max_retries, t.not_before, t.deadline_at, t.session_id, t.active_run_id, t.active_blocker_id, t.context, t.output, t.created_at, t.updated_at, t.completed_at, t.cancelled_at FROM agent_task t JOIN downstream ds ON t.id = ds.id
+SELECT t.id, t.user_id, t.agent_id, t.goal_id, t.title, t.description, t.status, t.priority, t.review_policy, t.active_review_id, t.required, t.retry_count, t.max_retries, t.not_before, t.deadline_at, t.session_id, t.active_run_id, t.active_blocker_id, t.context, t.output, t.created_at, t.updated_at, t.completed_at, t.cancelled_at FROM agent_task t JOIN downstream ds ON t.id = ds.id
 `
 
 // Reachable downstream tasks of a given task (Slice 4 reopen cascade).
@@ -210,7 +210,6 @@ func (q *Queries) ListReachableDownstream(ctx context.Context, depTaskID string)
 		var i AgentTask
 		if err := rows.Scan(
 			&i.ID,
-			&i.OrgID,
 			&i.UserID,
 			&i.AgentID,
 			&i.GoalID,
