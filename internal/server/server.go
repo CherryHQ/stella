@@ -57,7 +57,7 @@ type Server struct {
 	baseURL string
 	// logins provides access to OIDC login identities (optional).
 	logins auth.LoginIdentityStore
-	// users provides access to auth_user and plugin_channel_identity via the OIDC store (optional).
+	// users provides access to auth_user and channel_identity via the OIDC store (optional).
 	users interface {
 		auth.UserStore
 		auth.ChannelIdentityStore

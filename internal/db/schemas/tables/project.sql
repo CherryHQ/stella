@@ -1,7 +1,7 @@
-CREATE TABLE settings_project (
+CREATE TABLE project (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     base_dir TEXT NOT NULL,
     description TEXT,

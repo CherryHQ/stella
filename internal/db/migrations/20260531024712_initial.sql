@@ -1,12 +1,12 @@
--- Create "settings" table
-CREATE TABLE `settings` (
+-- Create "app_setting" table
+CREATE TABLE `app_setting` (
   `key` text NOT NULL,
   `value` text NOT NULL DEFAULT '{}',
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`key`)
 );
--- Create "settings_agent" table
-CREATE TABLE `settings_agent` (
+-- Create "agent" table
+CREATE TABLE `agent` (
   `id` text NULL,
   `name` text NOT NULL,
   `model` text NOT NULL DEFAULT '',
@@ -24,8 +24,8 @@ CREATE TABLE `settings_agent` (
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`)
 );
--- Create "settings_channel" table
-CREATE TABLE `settings_channel` (
+-- Create "channel" table
+CREATE TABLE `channel` (
   `id` text NOT NULL,
   `type` text NOT NULL DEFAULT '',
   `agent_id` text NULL,
@@ -34,10 +34,10 @@ CREATE TABLE `settings_channel` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL
 );
--- Create "settings_plugin" table
-CREATE TABLE `settings_plugin` (
+-- Create "plugin" table
+CREATE TABLE `plugin` (
   `id` text NOT NULL,
   `kind` text NOT NULL,
   `name` text NOT NULL,
@@ -47,8 +47,8 @@ CREATE TABLE `settings_plugin` (
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`)
 );
--- Create "settings_provider" table
-CREATE TABLE `settings_provider` (
+-- Create "provider" table
+CREATE TABLE `provider` (
   `id` text NULL,
   `type` text NOT NULL,
   `name` text NOT NULL,
@@ -58,15 +58,15 @@ CREATE TABLE `settings_provider` (
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`)
 );
--- Create "settings_channel_agent" table
-CREATE TABLE `settings_channel_agent` (
+-- Create "channel_agent" table
+CREATE TABLE `channel_agent` (
   `channel_id` text NOT NULL DEFAULT '',
   `platform` text NOT NULL,
   `chat_id` text NOT NULL,
   `agent_id` text NOT NULL,
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`channel_id`, `platform`, `chat_id`),
-  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 -- Create "ctx_agent_memory" table
 CREATE TABLE `ctx_agent_memory` (
@@ -78,7 +78,8 @@ CREATE TABLE `ctx_agent_memory` (
   `constraints` text NOT NULL DEFAULT '[]',
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`user_id`, `agent_id`),
-  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create "ctx_agent_memory_changelog" table
 CREATE TABLE `ctx_agent_memory_changelog` (
@@ -97,18 +98,20 @@ CREATE TABLE `ctx_agent_memory_changelog` (
   `metadata` text NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (scope IN ('profile', 'soul', 'constraint', 'skill', 'compaction')),
   CHECK (action IN ('create', 'update', 'delete', 'compact')),
   CHECK (source IN ('user', 'agent', 'reflect', 'system'))
 );
--- Create index "idx_memory_changelog_user_agent" to table: "ctx_agent_memory_changelog"
-CREATE INDEX `idx_memory_changelog_user_agent` ON `ctx_agent_memory_changelog` (`user_id`, `agent_id`, `scope`);
--- Create index "idx_memory_changelog_version" to table: "ctx_agent_memory_changelog"
-CREATE INDEX `idx_memory_changelog_version` ON `ctx_agent_memory_changelog` (`user_id`, `agent_id`, `scope`, `memory_version_after`);
--- Create index "idx_memory_changelog_session" to table: "ctx_agent_memory_changelog"
-CREATE INDEX `idx_memory_changelog_session` ON `ctx_agent_memory_changelog` (`session_id`);
--- Create index "idx_memory_changelog_created" to table: "ctx_agent_memory_changelog"
-CREATE INDEX `idx_memory_changelog_created` ON `ctx_agent_memory_changelog` (`created_at`);
+-- Create index "idx_ctx_agent_memory_changelog_user_agent" to table: "ctx_agent_memory_changelog"
+CREATE INDEX `idx_ctx_agent_memory_changelog_user_agent` ON `ctx_agent_memory_changelog` (`user_id`, `agent_id`, `scope`);
+-- Create index "idx_ctx_agent_memory_changelog_version" to table: "ctx_agent_memory_changelog"
+CREATE INDEX `idx_ctx_agent_memory_changelog_version` ON `ctx_agent_memory_changelog` (`user_id`, `agent_id`, `scope`, `memory_version_after`);
+-- Create index "idx_ctx_agent_memory_changelog_session" to table: "ctx_agent_memory_changelog"
+CREATE INDEX `idx_ctx_agent_memory_changelog_session` ON `ctx_agent_memory_changelog` (`session_id`);
+-- Create index "idx_ctx_agent_memory_changelog_created" to table: "ctx_agent_memory_changelog"
+CREATE INDEX `idx_ctx_agent_memory_changelog_created` ON `ctx_agent_memory_changelog` (`created_at`);
 -- Create "ctx_agent_memory_snapshot" table
 CREATE TABLE `ctx_agent_memory_snapshot` (
   `session_id` text NOT NULL,
@@ -117,10 +120,12 @@ CREATE TABLE `ctx_agent_memory_snapshot` (
   `version` integer NOT NULL DEFAULT 0,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`session_id`, `user_id`, `agent_id`)
+  PRIMARY KEY (`session_id`, `user_id`, `agent_id`),
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "idx_memory_snapshots_user_agent" to table: "ctx_agent_memory_snapshot"
-CREATE INDEX `idx_memory_snapshots_user_agent` ON `ctx_agent_memory_snapshot` (`user_id`, `agent_id`);
+-- Create index "idx_ctx_agent_memory_snapshot_user_agent" to table: "ctx_agent_memory_snapshot"
+CREATE INDEX `idx_ctx_agent_memory_snapshot_user_agent` ON `ctx_agent_memory_snapshot` (`user_id`, `agent_id`);
 -- Create "ctx_conversation" table
 CREATE TABLE `ctx_conversation` (
   `id` text NULL,
@@ -160,8 +165,8 @@ CREATE TABLE `ctx_message` (
 );
 -- Create index "ctx_message_conversation_id_seq" to table: "ctx_message"
 CREATE UNIQUE INDEX `ctx_message_conversation_id_seq` ON `ctx_message` (`conversation_id`, `seq`);
--- Create index "idx_ctx_messages_conv_seq" to table: "ctx_message"
-CREATE INDEX `idx_ctx_messages_conv_seq` ON `ctx_message` (`conversation_id`, `seq`);
+-- Create index "idx_ctx_message_conv_seq" to table: "ctx_message"
+CREATE INDEX `idx_ctx_message_conv_seq` ON `ctx_message` (`conversation_id`, `seq`);
 -- Create "ctx_message_part" table
 CREATE TABLE `ctx_message_part` (
   `id` text NULL,
@@ -198,8 +203,8 @@ CREATE TABLE `ctx_summary` (
   CONSTRAINT `0` FOREIGN KEY (`conversation_id`) REFERENCES `ctx_conversation` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (kind IN ('leaf', 'condensed'))
 );
--- Create index "idx_ctx_summaries_conv" to table: "ctx_summary"
-CREATE INDEX `idx_ctx_summaries_conv` ON `ctx_summary` (`conversation_id`, `created_at`);
+-- Create index "idx_ctx_summary_conv" to table: "ctx_summary"
+CREATE INDEX `idx_ctx_summary_conv` ON `ctx_summary` (`conversation_id`, `created_at`);
 -- Create "ctx_summary_message" table
 CREATE TABLE `ctx_summary_message` (
   `summary_id` text NOT NULL,
@@ -236,8 +241,8 @@ CREATE TABLE `ctx_item` (
         (item_type = 'summary' AND summary_id IS NOT NULL AND message_id IS NULL)
     )
 );
--- Create index "idx_ctx_items_conv" to table: "ctx_item"
-CREATE INDEX `idx_ctx_items_conv` ON `ctx_item` (`conversation_id`, `ordinal`);
+-- Create index "idx_ctx_item_conv" to table: "ctx_item"
+CREATE INDEX `idx_ctx_item_conv` ON `ctx_item` (`conversation_id`, `ordinal`);
 -- Create "sched_job" table
 CREATE TABLE `sched_job` (
   `id` text NULL,
@@ -263,8 +268,8 @@ CREATE TABLE `sched_job` (
   `last_error` text NOT NULL DEFAULT '',
   PRIMARY KEY (`id`)
 );
--- Create index "idx_sched_jobs_owner" to table: "sched_job"
-CREATE INDEX `idx_sched_jobs_owner` ON `sched_job` (`owner_kind`, `plugin_id`, `job_key`);
+-- Create index "idx_sched_job_owner" to table: "sched_job"
+CREATE INDEX `idx_sched_job_owner` ON `sched_job` (`owner_kind`, `plugin_id`, `job_key`);
 -- Create "sched_job_run" table
 CREATE TABLE `sched_job_run` (
   `id` text NOT NULL,
@@ -278,8 +283,8 @@ CREATE TABLE `sched_job_run` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`job_id`) REFERENCES `sched_job` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "idx_sched_job_runs_job_id" to table: "sched_job_run"
-CREATE INDEX `idx_sched_job_runs_job_id` ON `sched_job_run` (`job_id`, `started_at` DESC);
+-- Create index "idx_sched_job_run_job_id" to table: "sched_job_run"
+CREATE INDEX `idx_sched_job_run_job_id` ON `sched_job_run` (`job_id`, `started_at` DESC);
 -- Create "auth_policy" table
 CREATE TABLE `auth_policy` (
   `id` text NULL,
@@ -301,7 +306,7 @@ CREATE TABLE `auth_user_agent` (
   `user_id` text NOT NULL,
   `agent_id` text NOT NULL,
   PRIMARY KEY (`user_id`, `agent_id`),
-  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create "auth_user_token" table
@@ -323,8 +328,8 @@ CREATE TABLE `auth_user_token` (
 );
 -- Create index "auth_user_token_token_hash" to table: "auth_user_token"
 CREATE UNIQUE INDEX `auth_user_token_token_hash` ON `auth_user_token` (`token_hash`);
--- Create index "idx_auth_user_tokens_auto_active" to table: "auth_user_token"
-CREATE UNIQUE INDEX `idx_auth_user_tokens_auto_active` ON `auth_user_token` (`user_id`) WHERE auto_generated = 1 AND revoked_at IS NULL;
+-- Create index "idx_auth_user_token_auto_active" to table: "auth_user_token"
+CREATE UNIQUE INDEX `idx_auth_user_token_auto_active` ON `auth_user_token` (`user_id`) WHERE auto_generated = 1 AND revoked_at IS NULL;
 -- Create "auth_user" table
 CREATE TABLE `auth_user` (
   `id` text NOT NULL,
@@ -340,15 +345,15 @@ CREATE TABLE `auth_user` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`notify_identity_id`) REFERENCES `plugin_channel_identity` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `1` FOREIGN KEY (`default_agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
+  CONSTRAINT `0` FOREIGN KEY (`notify_identity_id`) REFERENCES `channel_identity` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`default_agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 -- Create index "auth_user_email" to table: "auth_user"
 CREATE UNIQUE INDEX `auth_user_email` ON `auth_user` (`email`);
 -- Create index "idx_auth_user_email" to table: "auth_user"
 CREATE INDEX `idx_auth_user_email` ON `auth_user` (`email`);
--- Create "plugin_channel_identity" table
-CREATE TABLE `plugin_channel_identity` (
+-- Create "channel_identity" table
+CREATE TABLE `channel_identity` (
   `id` text NOT NULL,
   `user_id` text NOT NULL,
   `platform` text NOT NULL,
@@ -359,10 +364,10 @@ CREATE TABLE `plugin_channel_identity` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "plugin_channel_identity_platform_external_id" to table: "plugin_channel_identity"
-CREATE UNIQUE INDEX `plugin_channel_identity_platform_external_id` ON `plugin_channel_identity` (`platform`, `external_id`);
--- Create index "idx_channel_identity_user_id" to table: "plugin_channel_identity"
-CREATE INDEX `idx_channel_identity_user_id` ON `plugin_channel_identity` (`user_id`);
+-- Create index "channel_identity_platform_external_id" to table: "channel_identity"
+CREATE UNIQUE INDEX `channel_identity_platform_external_id` ON `channel_identity` (`platform`, `external_id`);
+-- Create index "idx_channel_identity_user_id" to table: "channel_identity"
+CREATE INDEX `idx_channel_identity_user_id` ON `channel_identity` (`user_id`);
 -- Create "auth_identity" table
 CREATE TABLE `auth_identity` (
   `id` text NOT NULL,
@@ -413,8 +418,8 @@ CREATE TABLE `auth_credential` (
 CREATE UNIQUE INDEX `auth_credential_user_id` ON `auth_credential` (`user_id`);
 -- Create index "idx_auth_credential_user_id" to table: "auth_credential"
 CREATE INDEX `idx_auth_credential_user_id` ON `auth_credential` (`user_id`);
--- Create "oidc_code" table
-CREATE TABLE `oidc_code` (
+-- Create "auth_oidc_code" table
+CREATE TABLE `auth_oidc_code` (
   `id` text NOT NULL,
   `code_hash` text NOT NULL,
   `user_id` text NOT NULL,
@@ -430,14 +435,14 @@ CREATE TABLE `oidc_code` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "oidc_code_code_hash" to table: "oidc_code"
-CREATE UNIQUE INDEX `oidc_code_code_hash` ON `oidc_code` (`code_hash`);
--- Create index "idx_auth_oidc_codes_code_hash" to table: "oidc_code"
-CREATE INDEX `idx_auth_oidc_codes_code_hash` ON `oidc_code` (`code_hash`);
--- Create index "idx_auth_oidc_codes_user_id" to table: "oidc_code"
-CREATE INDEX `idx_auth_oidc_codes_user_id` ON `oidc_code` (`user_id`);
--- Create "oidc_access_token" table
-CREATE TABLE `oidc_access_token` (
+-- Create index "auth_oidc_code_code_hash" to table: "auth_oidc_code"
+CREATE UNIQUE INDEX `auth_oidc_code_code_hash` ON `auth_oidc_code` (`code_hash`);
+-- Create index "idx_auth_oidc_code_code_hash" to table: "auth_oidc_code"
+CREATE INDEX `idx_auth_oidc_code_code_hash` ON `auth_oidc_code` (`code_hash`);
+-- Create index "idx_auth_oidc_code_user_id" to table: "auth_oidc_code"
+CREATE INDEX `idx_auth_oidc_code_user_id` ON `auth_oidc_code` (`user_id`);
+-- Create "auth_oidc_access_token" table
+CREATE TABLE `auth_oidc_access_token` (
   `id` text NOT NULL,
   `token_hash` text NOT NULL,
   `user_id` text NOT NULL,
@@ -448,12 +453,12 @@ CREATE TABLE `oidc_access_token` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "oidc_access_token_token_hash" to table: "oidc_access_token"
-CREATE UNIQUE INDEX `oidc_access_token_token_hash` ON `oidc_access_token` (`token_hash`);
--- Create index "idx_auth_oidc_access_tokens_token_hash" to table: "oidc_access_token"
-CREATE INDEX `idx_auth_oidc_access_tokens_token_hash` ON `oidc_access_token` (`token_hash`);
--- Create index "idx_auth_oidc_access_tokens_user_id" to table: "oidc_access_token"
-CREATE INDEX `idx_auth_oidc_access_tokens_user_id` ON `oidc_access_token` (`user_id`);
+-- Create index "auth_oidc_access_token_token_hash" to table: "auth_oidc_access_token"
+CREATE UNIQUE INDEX `auth_oidc_access_token_token_hash` ON `auth_oidc_access_token` (`token_hash`);
+-- Create index "idx_auth_oidc_access_token_token_hash" to table: "auth_oidc_access_token"
+CREATE INDEX `idx_auth_oidc_access_token_token_hash` ON `auth_oidc_access_token` (`token_hash`);
+-- Create index "idx_auth_oidc_access_token_user_id" to table: "auth_oidc_access_token"
+CREATE INDEX `idx_auth_oidc_access_token_user_id` ON `auth_oidc_access_token` (`user_id`);
 -- Create "share" table
 CREATE TABLE `share` (
   `id` text NULL,
@@ -472,8 +477,8 @@ CREATE TABLE `share` (
 CREATE UNIQUE INDEX `share_token_hash` ON `share` (`token_hash`);
 -- Create index "idx_share_user" to table: "share"
 CREATE INDEX `idx_share_user` ON `share` (`user_id`, `created_at` DESC);
--- Create "settings_plugin_state" table
-CREATE TABLE `settings_plugin_state` (
+-- Create "plugin_state" table
+CREATE TABLE `plugin_state` (
   `plugin_id` text NOT NULL,
   `scope_kind` text NOT NULL,
   `scope_id` text NOT NULL DEFAULT '',
@@ -497,7 +502,7 @@ CREATE TABLE `skill` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (scope IN ('system','agent','user')),
   CHECK (status IN ('draft','active','deprecated')),
@@ -507,10 +512,10 @@ CREATE TABLE `skill` (
         (scope='user'    AND user_id IS NOT NULL)
     )
 );
--- Create index "idx_skills_owner_name" to table: "skill"
-CREATE UNIQUE INDEX `idx_skills_owner_name` ON `skill` (`name`, `scope`, (ifnull(user_id, 0)), (ifnull(agent_id, '')));
--- Create index "idx_skills_visibility" to table: "skill"
-CREATE INDEX `idx_skills_visibility` ON `skill` (`scope`, `user_id`, `agent_id`);
+-- Create index "idx_skill_owner_name" to table: "skill"
+CREATE UNIQUE INDEX `idx_skill_owner_name` ON `skill` (`name`, `scope`, (ifnull(user_id, 0)), (ifnull(agent_id, '')));
+-- Create index "idx_skill_visibility" to table: "skill"
+CREATE INDEX `idx_skill_visibility` ON `skill` (`scope`, `user_id`, `agent_id`);
 -- Create "skill_file" table
 CREATE TABLE `skill_file` (
   `skill_id` text NOT NULL,
@@ -567,21 +572,21 @@ CREATE TABLE `recally_article` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (source_type IN ('web','twitter','youtube','github','rss','pdf')),
   CHECK (status IN ('unread','read','archived'))
 );
--- Create index "idx_articles_user_canonical" to table: "recally_article"
-CREATE UNIQUE INDEX `idx_articles_user_canonical` ON `recally_article` (`user_id`, `canonical_url`);
--- Create index "idx_articles_user_status" to table: "recally_article"
-CREATE INDEX `idx_articles_user_status` ON `recally_article` (`user_id`, `status`);
--- Create index "idx_articles_user_source" to table: "recally_article"
-CREATE INDEX `idx_articles_user_source` ON `recally_article` (`user_id`, `source_type`);
--- Create index "idx_articles_user_starred" to table: "recally_article"
-CREATE INDEX `idx_articles_user_starred` ON `recally_article` (`user_id`, `starred`) WHERE starred = 1;
--- Create index "idx_articles_saved_at" to table: "recally_article"
-CREATE INDEX `idx_articles_saved_at` ON `recally_article` (`saved_at`);
+-- Create index "idx_recally_article_user_canonical" to table: "recally_article"
+CREATE UNIQUE INDEX `idx_recally_article_user_canonical` ON `recally_article` (`user_id`, `canonical_url`);
+-- Create index "idx_recally_article_user_status" to table: "recally_article"
+CREATE INDEX `idx_recally_article_user_status` ON `recally_article` (`user_id`, `status`);
+-- Create index "idx_recally_article_user_source" to table: "recally_article"
+CREATE INDEX `idx_recally_article_user_source` ON `recally_article` (`user_id`, `source_type`);
+-- Create index "idx_recally_article_user_starred" to table: "recally_article"
+CREATE INDEX `idx_recally_article_user_starred` ON `recally_article` (`user_id`, `starred`) WHERE starred = 1;
+-- Create index "idx_recally_article_saved_at" to table: "recally_article"
+CREATE INDEX `idx_recally_article_saved_at` ON `recally_article` (`saved_at`);
 -- Create "recally_rss_feed" table
 CREATE TABLE `recally_rss_feed` (
   `id` text NULL,
@@ -598,13 +603,13 @@ CREATE TABLE `recally_rss_feed` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "idx_rss_feeds_user_url" to table: "recally_rss_feed"
-CREATE UNIQUE INDEX `idx_rss_feeds_user_url` ON `recally_rss_feed` (`user_id`, `url`);
--- Create "rss_feed_entries" table
-CREATE TABLE `rss_feed_entries` (
+-- Create index "idx_recally_rss_feed_user_url" to table: "recally_rss_feed"
+CREATE UNIQUE INDEX `idx_recally_rss_feed_user_url` ON `recally_rss_feed` (`user_id`, `url`);
+-- Create "recally_rss_feed_entry" table
+CREATE TABLE `recally_rss_feed_entry` (
   `id` text NULL,
   `feed_id` text NOT NULL,
   `guid` text NOT NULL,
@@ -621,10 +626,10 @@ CREATE TABLE `rss_feed_entries` (
   CONSTRAINT `1` FOREIGN KEY (`feed_id`) REFERENCES `recally_rss_feed` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (status IN ('pending','saved','skipped','error'))
 );
--- Create index "idx_rss_entries_feed_guid" to table: "rss_feed_entries"
-CREATE UNIQUE INDEX `idx_rss_entries_feed_guid` ON `rss_feed_entries` (`feed_id`, `guid`);
--- Create index "idx_rss_entries_status" to table: "rss_feed_entries"
-CREATE INDEX `idx_rss_entries_status` ON `rss_feed_entries` (`status`);
+-- Create index "idx_recally_rss_feed_entry_feed_guid" to table: "recally_rss_feed_entry"
+CREATE UNIQUE INDEX `idx_recally_rss_feed_entry_feed_guid` ON `recally_rss_feed_entry` (`feed_id`, `guid`);
+-- Create index "idx_recally_rss_feed_entry_status" to table: "recally_rss_feed_entry"
+CREATE INDEX `idx_recally_rss_feed_entry_status` ON `recally_rss_feed_entry` (`status`);
 -- Create "recally_digest" table
 CREATE TABLE `recally_digest` (
   `id` text NOT NULL,
@@ -644,12 +649,12 @@ CREATE TABLE `recally_digest` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "idx_recally_digests_user_date" to table: "recally_digest"
-CREATE UNIQUE INDEX `idx_recally_digests_user_date` ON `recally_digest` (`user_id`, `date`);
--- Create index "idx_recally_digests_user_id" to table: "recally_digest"
-CREATE INDEX `idx_recally_digests_user_id` ON `recally_digest` (`user_id`);
--- Create "recally_digest_articles" table
-CREATE TABLE `recally_digest_articles` (
+-- Create index "idx_recally_digest_user_date" to table: "recally_digest"
+CREATE UNIQUE INDEX `idx_recally_digest_user_date` ON `recally_digest` (`user_id`, `date`);
+-- Create index "idx_recally_digest_user_id" to table: "recally_digest"
+CREATE INDEX `idx_recally_digest_user_id` ON `recally_digest` (`user_id`);
+-- Create "recally_digest_article" table
+CREATE TABLE `recally_digest_article` (
   `digest_id` text NOT NULL,
   `article_id` text NOT NULL,
   `section` text NOT NULL,
@@ -659,8 +664,8 @@ CREATE TABLE `recally_digest_articles` (
   CONSTRAINT `1` FOREIGN KEY (`digest_id`) REFERENCES `recally_digest` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (section IN ('saved_yesterday', 'worth_revisiting'))
 );
--- Create index "idx_recally_digest_articles_digest" to table: "recally_digest_articles"
-CREATE INDEX `idx_recally_digest_articles_digest` ON `recally_digest_articles` (`digest_id`);
+-- Create index "idx_recally_digest_article_digest" to table: "recally_digest_article"
+CREATE INDEX `idx_recally_digest_article_digest` ON `recally_digest_article` (`digest_id`);
 -- Create "agent_goal" table
 CREATE TABLE `agent_goal` (
   `id` text NOT NULL,
@@ -680,7 +685,7 @@ CREATE TABLE `agent_goal` (
   `cancelled_at` text NULL,
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`active_review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
-  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (status IN ('draft','planning','running','blocked','reviewing','done','failed','cancelled')),
   CHECK (priority IN ('routine','urgent')),
@@ -709,8 +714,8 @@ CREATE TABLE `agent_task_run` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`executor_agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `0` FOREIGN KEY (`executor_agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `4` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
@@ -861,7 +866,7 @@ CREATE TABLE `agent_task` (
   CONSTRAINT `1` FOREIGN KEY (`active_run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
   CONSTRAINT `2` FOREIGN KEY (`active_review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
   CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `4` FOREIGN KEY (`agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+  CONSTRAINT `4` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `5` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (status IN ('draft','ready','running','blocked','reviewing','done','failed','cancelled')),
   CHECK (priority IN ('routine','urgent')),
@@ -903,7 +908,7 @@ CREATE TABLE `agent_task_dispatch_hint` (
   `consumed_at` text NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`executor_agent_id`) REFERENCES `settings_agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `0` FOREIGN KEY (`executor_agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `1` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `2` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CHECK (kind IN ('worker','reviewer','planner','synthesizer')),
@@ -946,8 +951,8 @@ CREATE INDEX `idx_agent_task_event_task` ON `agent_task_event` (`task_id`, `crea
 CREATE INDEX `idx_agent_task_event_goal` ON `agent_task_event` (`goal_id`, `created_at` DESC);
 -- Create index "idx_agent_task_event_run" to table: "agent_task_event"
 CREATE INDEX `idx_agent_task_event_run` ON `agent_task_event` (`run_id`);
--- Create "settings_project" table
-CREATE TABLE `settings_project` (
+-- Create "project" table
+CREATE TABLE `project` (
   `id` text NULL,
   `agent_id` text NOT NULL,
   `user_id` text NOT NULL,
@@ -957,12 +962,14 @@ CREATE TABLE `settings_project` (
   `archived` integer NOT NULL DEFAULT 0,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  CONSTRAINT `0` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
--- Create index "settings_project_agent_id_user_id_name" to table: "settings_project"
-CREATE UNIQUE INDEX `settings_project_agent_id_user_id_name` ON `settings_project` (`agent_id`, `user_id`, `name`);
--- Create "settings_manifest_plugin_override" table
-CREATE TABLE `settings_manifest_plugin_override` (
+-- Create index "project_agent_id_user_id_name" to table: "project"
+CREATE UNIQUE INDEX `project_agent_id_user_id_name` ON `project` (`agent_id`, `user_id`, `name`);
+-- Create "plugin_override" table
+CREATE TABLE `plugin_override` (
   `plugin_id` text NOT NULL,
   `enabled` integer NULL,
   `session_env_vault_key` text NOT NULL DEFAULT '',

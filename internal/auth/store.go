@@ -29,7 +29,7 @@ type LoginIdentityStore interface {
 	UpdateLoginIdentity(ctx context.Context, i LoginIdentity) error
 }
 
-// ChannelIdentityStore provides CRUD for plugin_channel_identity (messaging platform identities).
+// ChannelIdentityStore provides CRUD for channel_identity (messaging platform identities).
 type ChannelIdentityStore interface {
 	CreateChannelIdentity(ctx context.Context, i ChannelIdentity) (ChannelIdentity, error)
 	GetChannelIdentity(ctx context.Context, id string) (ChannelIdentity, error)

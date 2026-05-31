@@ -25,11 +25,15 @@ func newLCMTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("open db: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO settings_agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
+	_, err = db.Exec(`INSERT INTO agent (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
 		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', '', 1)`)
 	if err != nil {
 		_ = db.Close()
 		t.Fatalf("seed agent: %v", err)
+	}
+	if _, err = db.Exec(`INSERT INTO auth_user (id, email) VALUES ('1', 'user-1@test.local')`); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed user: %v", err)
 	}
 	return db
 }
@@ -148,7 +152,7 @@ func TestLCMProvider_CompactSummarizerCanReadDB(t *testing.T) {
 
 	p, err := lcm.New(db, func(ctx context.Context, _ string) (string, error) {
 		var count int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings_agent`).Scan(&count); err != nil {
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent`).Scan(&count); err != nil {
 			return "", err
 		}
 		return "summary from db-backed summarizer", nil

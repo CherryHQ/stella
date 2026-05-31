@@ -3,7 +3,7 @@ package config
 import "log/slog"
 
 // CLITool is a CLI tool provisioned through mise. It is stored as a
-// settings_plugin row with kind=cli; the mise-specific fields live in the
+// plugin row with kind=cli; the mise-specific fields live in the
 // plugin's Config JSON under "mise_tool", "version", and "options".
 //
 // Unlike builtin tool plugins, cli plugins are purely DB-driven —

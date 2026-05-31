@@ -156,11 +156,11 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	}
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	// Seed a settings_agent row so the FK on the hint is satisfiable. (The hint
-	// table FK is ON DELETE CASCADE → settings_agent; we just need any agent id
+	// Seed a agent row so the FK on the hint is satisfiable. (The hint
+	// table FK is ON DELETE CASCADE → agent; we just need any agent id
 	// to exist.)
 	hintAgent := uuid.NewString()
-	if _, err := h.db.Exec(`INSERT INTO settings_agent (id, name, workspace) VALUES (?, 'hint-agent', '/tmp')`,
+	if _, err := h.db.Exec(`INSERT INTO agent (id, name, workspace) VALUES (?, 'hint-agent', '/tmp')`,
 		hintAgent); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}

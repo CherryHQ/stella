@@ -1,7 +1,7 @@
-CREATE TABLE settings_plugin (
+CREATE TABLE channel (
     id         TEXT NOT NULL PRIMARY KEY,
-    kind       TEXT NOT NULL,
-    name       TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT '',
+    agent_id   TEXT REFERENCES agent(id) ON DELETE SET NULL,
     enabled    INTEGER NOT NULL DEFAULT 1,
     config     TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),

@@ -38,16 +38,16 @@ LIMIT ?2 OFFSET ?3;
 SELECT COUNT(*) FROM recally_digest WHERE user_id = ?;
 
 -- name: AddDigestArticle :exec
-INSERT INTO recally_digest_articles (digest_id, article_id, section, position)
+INSERT INTO recally_digest_article (digest_id, article_id, section, position)
 VALUES (?, ?, ?, ?)
 ON CONFLICT(digest_id, article_id, section) DO NOTHING;
 
 -- name: DeleteDigestArticles :exec
-DELETE FROM recally_digest_articles WHERE digest_id = ? AND section = ?;
+DELETE FROM recally_digest_article WHERE digest_id = ? AND section = ?;
 
 -- name: ListDigestArticles :many
 SELECT a.*
-FROM recally_digest_articles da
+FROM recally_digest_article da
 JOIN recally_article a ON a.id = da.article_id
 WHERE da.digest_id = ? AND da.section = ?
 ORDER BY da.position ASC;

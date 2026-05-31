@@ -13,6 +13,6 @@ CREATE TABLE auth_user_token (
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX idx_auth_user_tokens_auto_active
+CREATE UNIQUE INDEX idx_auth_user_token_auto_active
 ON auth_user_token(user_id)
 WHERE auto_generated = 1 AND revoked_at IS NULL;

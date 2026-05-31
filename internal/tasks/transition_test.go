@@ -41,7 +41,7 @@ func newHarness(t *testing.T) *testHarness {
 	}
 	agentID := uuid.NewString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO settings_agent (id, name, workspace) VALUES (?, 'test-agent', '/tmp')`,
+		`INSERT INTO agent (id, name, workspace) VALUES (?, 'test-agent', '/tmp')`,
 		agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}

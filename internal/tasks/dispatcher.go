@@ -18,7 +18,7 @@ type SchedulerLike interface {
 	ScheduleEvery(ctx context.Context, every string, fn func(ctx context.Context)) error
 }
 
-// ExecutorResolver decides which settings_agent should execute a given run.
+// ExecutorResolver decides which agent should execute a given run.
 // Resolution per D13: live dispatch hint -> session-derived -> creator
 // fallback. The function may return ("", false) if it cannot resolve; the
 // dispatcher will refuse the claim and emit a protocol_error event.

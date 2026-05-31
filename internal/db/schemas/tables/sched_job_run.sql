@@ -9,4 +9,4 @@ CREATE TABLE sched_job_run (
     user_id TEXT
 );
 
-CREATE INDEX idx_sched_job_runs_job_id ON sched_job_run(job_id, started_at DESC);
+CREATE INDEX idx_sched_job_run_job_id ON sched_job_run(job_id, started_at DESC);

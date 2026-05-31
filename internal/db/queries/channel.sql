@@ -1,8 +1,8 @@
 -- name: GetChannel :one
-SELECT * FROM settings_channel WHERE id = ?;
+SELECT * FROM channel WHERE id = ?;
 
 -- name: UpsertChannel :exec
-INSERT INTO settings_channel (id, type, agent_id, enabled, config, updated_at)
+INSERT INTO channel (id, type, agent_id, enabled, config, updated_at)
 VALUES (?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(id) DO UPDATE SET
     type = excluded.type,
@@ -12,10 +12,10 @@ ON CONFLICT(id) DO UPDATE SET
     updated_at = datetime('now');
 
 -- name: ListChannels :many
-SELECT * FROM settings_channel ORDER BY type, id;
+SELECT * FROM channel ORDER BY type, id;
 
 -- name: ListChannelsByType :many
-SELECT * FROM settings_channel WHERE type = ? ORDER BY id;
+SELECT * FROM channel WHERE type = ? ORDER BY id;
 
 -- name: DeleteChannel :exec
-DELETE FROM settings_channel WHERE id = ?;
+DELETE FROM channel WHERE id = ?;

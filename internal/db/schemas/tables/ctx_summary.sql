@@ -13,4 +13,4 @@ CREATE TABLE ctx_summary (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_ctx_summaries_conv ON ctx_summary(conversation_id, created_at);
+CREATE INDEX idx_ctx_summary_conv ON ctx_summary(conversation_id, created_at);

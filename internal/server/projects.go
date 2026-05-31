@@ -36,7 +36,7 @@ func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID st
 
 	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
 
-	var projects []sqlc.SettingsProject
+	var projects []sqlc.Project
 	var err error
 	if includeArchived {
 		projects, err = s.q.ListProjectsAll(r.Context(), sqlc.ListProjectsAllParams{
@@ -226,7 +226,7 @@ type projectResponse struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
-func toProjectResponse(p sqlc.SettingsProject) projectResponse {
+func toProjectResponse(p sqlc.Project) projectResponse {
 	r := projectResponse{
 		ID:        p.ID,
 		AgentID:   p.AgentID,

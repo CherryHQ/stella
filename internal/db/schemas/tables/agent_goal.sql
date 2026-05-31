@@ -6,7 +6,7 @@
 CREATE TABLE agent_goal (
     id              TEXT NOT NULL PRIMARY KEY,
     user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id        TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,
+    agent_id        TEXT REFERENCES agent(id) ON DELETE SET NULL,
     title           TEXT NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
     status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','planning','running','blocked','reviewing','done','failed','cancelled')),

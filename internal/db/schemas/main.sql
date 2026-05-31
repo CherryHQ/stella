@@ -1,9 +1,9 @@
--- atlas:import tables/settings.sql
--- atlas:import tables/settings_agent.sql
--- atlas:import tables/settings_channel.sql
--- atlas:import tables/settings_plugin.sql
--- atlas:import tables/settings_provider.sql
--- atlas:import tables/settings_channel_agent.sql
+-- atlas:import tables/app_setting.sql
+-- atlas:import tables/agent.sql
+-- atlas:import tables/channel.sql
+-- atlas:import tables/plugin.sql
+-- atlas:import tables/provider.sql
+-- atlas:import tables/channel_agent.sql
 -- atlas:import tables/ctx_agent_memory.sql
 -- atlas:import tables/ctx_agent_memory_changelog.sql
 -- atlas:import tables/ctx_agent_memory_snapshot.sql
@@ -20,15 +20,15 @@
 -- atlas:import tables/auth_user_agent.sql
 -- atlas:import tables/auth_user_token.sql
 -- atlas:import tables/auth_user.sql
--- atlas:import tables/plugin_channel_identity.sql
+-- atlas:import tables/channel_identity.sql
 -- atlas:import tables/auth_identity.sql
 -- atlas:import tables/auth_session.sql
 -- atlas:import tables/auth_credential.sql
 -- Local OIDC provider tables
--- atlas:import tables/oidc_code.sql
--- atlas:import tables/oidc_access_token.sql
+-- atlas:import tables/auth_oidc_code.sql
+-- atlas:import tables/auth_oidc_access_token.sql
 -- atlas:import tables/share.sql
--- atlas:import tables/settings_plugin_state.sql
+-- atlas:import tables/plugin_state.sql
 -- atlas:import tables/skill.sql
 -- atlas:import tables/skill_file.sql
 -- atlas:import tables/vault_entry.sql
@@ -48,5 +48,5 @@
 -- atlas:import tables/agent_task_dep.sql
 -- atlas:import tables/agent_task_dispatch_hint.sql
 -- atlas:import tables/agent_task_event.sql
--- atlas:import tables/settings_project.sql
--- atlas:import tables/settings_manifest_plugin_override.sql
+-- atlas:import tables/project.sql
+-- atlas:import tables/plugin_override.sql

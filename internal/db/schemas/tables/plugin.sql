@@ -1,6 +1,6 @@
-CREATE TABLE settings_provider (
-    id         TEXT PRIMARY KEY,
-    type       TEXT NOT NULL,
+CREATE TABLE plugin (
+    id         TEXT NOT NULL PRIMARY KEY,
+    kind       TEXT NOT NULL,
     name       TEXT NOT NULL,
     enabled    INTEGER NOT NULL DEFAULT 1,
     config     TEXT NOT NULL DEFAULT '{}',
