@@ -110,8 +110,8 @@ paths:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries"
   /api/recally/feeds/{feedId}/entries/{id}:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1feeds~1{feedId}~1entries~1{id}"
-  /api/recally/digest:
-    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1digest"
+  /api/recally/digests/today:
+    $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1digests~1today"
   /api/recally/digests:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1digests"
   /api/recally/digests/{date}:

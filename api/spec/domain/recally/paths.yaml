@@ -353,10 +353,10 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/recally/digest:
+  /api/recally/digests/today:
     get:
       tags: [digest]
-      summary: Get the current user's reading digest
+      summary: Get the current user's reading digest for today
       operationId: getDigest
       responses:
         "200":
