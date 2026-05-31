@@ -10,11 +10,11 @@ import {
   Bot,
   Zap,
   BookOpen,
-  Lock,
   Plug,
   CalendarClock,
   ListTodo,
   Rss,
+  type LucideIcon,
 } from "lucide-react";
 import { siGithub } from "simple-icons";
 import { t } from "@/lib/docs/translations";
@@ -28,7 +28,7 @@ function useReveal() {
     const el = ref.current;
     if (!el) return;
     const targets = el.querySelectorAll(
-      ".home-pillar, .home-cap, .home-caps-header, .home-cta-copy, .home-terminal, .home-product, .home-product-features, .home-system, .home-system--hero",
+      ".home-pillar, .home-cap, .home-caps-header, .home-cta-copy, .home-terminal, .home-system, .home-system--hero",
     );
     const observer = new IntersectionObserver(
       (entries) => {
@@ -67,9 +67,9 @@ export const Route = createFileRoute("/")({ component: Home });
 const copy = {
   en: {
     heroEyebrow: "Shared AI coworkers",
-    heroTitle: ["Give every team", "professional", "agents."],
+    heroTitle: ["Skip specialist software.", "Give the goal", "to the agent that knows the work."],
     heroSub:
-      "Stella lets domain owners create shared agents with instructions, skills, tools, knowledge, and memory rules. Everyone else just chats, gives the agent a goal, and tracks the work.",
+      "Finance, HR, research, and engineering teams create shared agents with instructions, skills, tools, knowledge, and memory rules. Everyone else just chats with the right agent and gives it a goal.",
     productLabel: "stella — goal workspace",
     systemsTitle: "From shared expertise to finished work",
     systemsSub:
@@ -192,12 +192,39 @@ const copy = {
     ctaSub:
       "Start locally, create one shared professional agent, then add users, tools, tasks, and channels.",
     ctaAlt: "Also available via go install and direct binary download.",
+    workflowLabel: "How work moves",
+    workflowRows: [
+      {
+        owner: "HR",
+        ownerBody: "Defines referral rules, candidate screens, and interview steps.",
+        agent: "Referral Agent",
+        agentBody: "Reads candidate material, plans screening tasks, and routes follow-up.",
+        user: "Employee",
+        userBody: '"Help me process this referral."',
+      },
+      {
+        owner: "Finance",
+        ownerBody: "Maintains expense policy, invoice knowledge, and approval boundaries.",
+        agent: "Expense Agent",
+        agentBody: "Checks receipts, asks for missing details, and sends exceptions to review.",
+        user: "Sales",
+        userBody: '"Can this receipt be reimbursed?"',
+      },
+      {
+        owner: "Research",
+        ownerBody: "Subscribes to feeds, curates reading lists, and sets summary rules.",
+        agent: "Recally Agent",
+        agentBody: "Summarizes pages and PDFs, then keeps the conversation grounded.",
+        user: "Anyone",
+        userBody: '"What changed on this topic lately?"',
+      },
+    ],
   },
   zh: {
     heroEyebrow: "共享 AI 同事",
-    heroTitle: ["为每个团队创建", "专业", "Agent。"],
+    heroTitle: ["不用学习专业软件。", "把目标交给", "懂业务的 Agent。"],
     heroSub:
-      "Stella 让业务负责人创建带 instructions、skills、tools、knowledge 和记忆策略的共享 Agent。其他人只需要聊天、交付 goal，并追踪工作进展。",
+      "财务、HR、研究和工程团队创建带 instructions、skills、tools、knowledge 和记忆策略的共享 Agent。其他人只需要找到对应 Agent，像找同事一样说明目标。",
     productLabel: "stella — goal 工作区",
     systemsTitle: "从共享专业能力到完成工作",
     systemsSub: "一次创建专业 Agent，让组织像使用真正同事一样使用它。",
@@ -314,10 +341,37 @@ const copy = {
     ctaTitle: "自己运行",
     ctaSub: "从本地开始，创建一个共享专业 Agent，然后添加用户、tools、tasks 和渠道。",
     ctaAlt: "也支持 go install 和直接下载二进制文件。",
+    workflowLabel: "工作如何流转",
+    workflowRows: [
+      {
+        owner: "HR",
+        ownerBody: "定义内推规则、候选人筛选标准和面试流程。",
+        agent: "Referral Agent",
+        agentBody: "读取候选人材料，规划筛选任务，并安排下一步 follow-up。",
+        user: "员工",
+        userBody: "“帮我处理这个内推。”",
+      },
+      {
+        owner: "Finance",
+        ownerBody: "维护报销制度、发票知识库和审批边界。",
+        agent: "Expense Agent",
+        agentBody: "检查票据、拆任务、要求补充材料，并把例外送入 review。",
+        user: "销售",
+        userBody: "“这张票能报吗？”",
+      },
+      {
+        owner: "Research",
+        ownerBody: "订阅 RSS，维护主题、阅读列表和摘要规则。",
+        agent: "Recally Agent",
+        agentBody: "总结网页和 PDF，并围绕文章继续深入追问。",
+        user: "任何人",
+        userBody: "“这个主题最近有什么变化？”",
+      },
+    ],
   },
 };
 
-const ICON_MAP = {
+const ICON_MAP: Record<string, LucideIcon> = {
   brain: Brain,
   shield: Shield,
   message: MessageCircle,
@@ -326,7 +380,6 @@ const ICON_MAP = {
   bot: Bot,
   zap: Zap,
   book: BookOpen,
-  lock: Lock,
   plug: Plug,
   recally: Rss,
   scheduler: CalendarClock,
@@ -383,7 +436,7 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
           </span>
           <span>
             {isZh
-              ? "Multi-user / shared agents / reviewable work"
+              ? "多用户 / 共享 Agent / 可 review 的工作"
               : "Multi-user / shared agents / reviewable work"}
           </span>
         </div>
@@ -391,7 +444,9 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
           <div className="home-hero-copy">
             <span className="home-eyebrow">{c.heroEyebrow}</span>
             <h1 className="home-hero-title">
-              {c.heroTitle[0]} <em>{c.heroTitle[1]}</em> {c.heroTitle[2]}
+              <span>{c.heroTitle[0]}</span>
+              <em>{c.heroTitle[1]}</em>
+              <span>{c.heroTitle[2]}</span>
             </h1>
             <p className="home-hero-body">{c.heroSub}</p>
             <div className="home-actions">
@@ -424,150 +479,47 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
             </dl>
           </div>
 
-          <ProductPreview lang={lang} />
+          <WorkflowPreview lang={lang} />
         </div>
       </div>
     </section>
   );
 }
 
-function ProductPreview({ lang }: { lang: keyof typeof copy }) {
+function WorkflowPreview({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
   const isZh = lang === "zh";
-  const agents = isZh
-    ? [
-        ["Finance", "报销 / 发票 / 审批", "4.2k memories"],
-        ["HR", "内推 / 筛选 / 面试", "12 workflows"],
-        ["Engineering", "评审 / 发布 / 事故", "38 skills"],
-      ]
-    : [
-        ["Finance", "Reimbursements / invoices", "4.2k memories"],
-        ["HR", "Referrals / screening", "12 workflows"],
-        ["Engineering", "Review / release / incidents", "38 skills"],
-      ];
-  const tasks = isZh
-    ? [
-        ["01", "提取票据字段", "done"],
-        ["02", "检查报销制度", "done"],
-        ["03", "补齐参与人名单", "blocked"],
-        ["04", "财务 review", "review"],
-      ]
-    : [
-        ["01", "Extract receipt fields", "done"],
-        ["02", "Check reimbursement policy", "done"],
-        ["03", "Collect attendee details", "blocked"],
-        ["04", "Finance review", "review"],
-      ];
 
   return (
-    <div className="home-product" aria-label={c.productLabel}>
-      <div className="home-product-chrome">
-        <span className="home-product-status" />
-        <span className="home-product-chrome-label">{isZh ? "STELLA OS" : "STELLA OS"}</span>
-        <span className="home-product-title">{c.productLabel}</span>
+    <div className="home-workflow-preview" aria-label={c.workflowLabel}>
+      <div className="home-workflow-chrome" aria-hidden>
+        <span>Stella OS</span>
+        <span>{isZh ? "Shared agents" : "Shared agents"}</span>
       </div>
-      <div className="home-product-body">
-        <section className="home-product-panel home-product-panel-agents">
-          <div className="home-product-panel-head">
-            <span>{isZh ? "Apps" : "Apps"}</span>
-            <Bot className="size-4" />
-          </div>
-          <div
-            className="home-app-nav"
-            aria-label={isZh ? "Stella 应用导航" : "Stella app navigation"}
-          >
-            <span className="is-active">{isZh ? "Agents" : "Agents"}</span>
-            <span>Recally</span>
-            <span>{isZh ? "Tasks" : "Tasks"}</span>
-          </div>
-          <div className="home-product-panel-head home-product-panel-head-sub">
-            <span>{isZh ? "共享 Agent" : "Shared agents"}</span>
-          </div>
-          <div className="home-agent-list">
-            {agents.map(([name, desc, meta], index) => (
-              <div
-                key={name}
-                className={index === 0 ? "home-agent-row is-active" : "home-agent-row"}
-              >
-                <div>
-                  <strong>{name}</strong>
-                  <span>{desc}</span>
-                </div>
-                <small>{meta}</small>
-              </div>
-            ))}
-          </div>
-          <div className="home-agent-policy">
-            <Lock className="size-3.5" />
-            <span>
-              {isZh ? "每用户记忆 + 共享知识边界" : "Per-user memory + shared knowledge boundary"}
-            </span>
-          </div>
-        </section>
-
-        <section className="home-product-panel home-product-panel-work">
-          <div className="home-product-panel-head">
-            <span>{isZh ? "Goal intake" : "Goal intake"}</span>
-            <MessageCircle className="size-4" />
-          </div>
-          <div className="home-goal-card">
-            <p>
-              {isZh
-                ? "检查客户晚餐报销材料；缺什么告诉我，有例外就安排财务 review。"
-                : "Check this client dinner reimbursement. Tell me what is missing and route exceptions to finance review."}
-            </p>
-            <div className="home-goal-meta">
-              <span>{isZh ? "Agent: Finance" : "Agent: Finance"}</span>
-              <span>{isZh ? "Tools: files, policy, notify" : "Tools: files, policy, notify"}</span>
+      <div className="home-workflow-topline">
+        <span>{c.workflowLabel}</span>
+        <span>{isZh ? "Owner / Agent / User" : "Owner / Agent / User"}</span>
+      </div>
+      <div className="home-workflow-rows">
+        {c.workflowRows.map((row) => (
+          <div key={row.agent} className="home-workflow-row">
+            <div className="home-flow-cell">
+              <span className="home-flow-label">{isZh ? "Owner" : "Owner"}</span>
+              <strong>{row.owner}</strong>
+              <p>{row.ownerBody}</p>
+            </div>
+            <div className="home-flow-cell home-flow-agent">
+              <span className="home-flow-label">{isZh ? "Agent" : "Agent"}</span>
+              <strong>{row.agent}</strong>
+              <p>{row.agentBody}</p>
+            </div>
+            <div className="home-flow-cell">
+              <span className="home-flow-label">{isZh ? "User" : "User"}</span>
+              <strong>{row.user}</strong>
+              <p>{row.userBody}</p>
             </div>
           </div>
-          <div className="home-task-dag" aria-label={isZh ? "任务 DAG" : "Task DAG"}>
-            {tasks.map(([id, title, state]) => (
-              <div key={id} className={`home-task-node is-${state}`}>
-                <span>{id}</span>
-                <strong>{title}</strong>
-                <small>{state}</small>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="home-product-panel home-product-panel-review">
-          <div className="home-product-panel-head">
-            <span>{isZh ? "Review queue" : "Review queue"}</span>
-            <Shield className="size-4" />
-          </div>
-          <div className="home-review-card">
-            <span className="home-review-state">{isZh ? "NEEDS HUMAN" : "NEEDS HUMAN"}</span>
-            <strong>
-              {isZh ? "票据金额超出团队晚餐阈值" : "Receipt exceeds team dinner threshold"}
-            </strong>
-            <p>
-              {isZh
-                ? "Agent 已引用制度条款并准备 review packet。"
-                : "Agent cited the policy rule and prepared the review packet."}
-            </p>
-          </div>
-          <div className="home-review-actions">
-            <span>{isZh ? "验收标准 4/5" : "Criteria 4/5"}</span>
-            <span>{isZh ? "等待财务确认" : "Waiting on finance"}</span>
-          </div>
-        </section>
-      </div>
-
-      <div className="home-product-features">
-        <span className="home-product-badge home-product-badge-1">
-          <Brain className="size-3" />
-          {isZh ? "按用户记忆偏好" : "Per-user memory"}
-        </span>
-        <span className="home-product-badge home-product-badge-2">
-          <ListTodo className="size-3" />
-          {isZh ? "Goal 到任务 DAG" : "Goal to task DAG"}
-        </span>
-        <span className="home-product-badge home-product-badge-3">
-          <Lock className="size-3" />
-          {isZh ? "Review gate" : "Review gates"}
-        </span>
+        ))}
       </div>
     </div>
   );
