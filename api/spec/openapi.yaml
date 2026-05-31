@@ -181,51 +181,53 @@ paths:
   /api/users/{id}/memories/{agentId}:
     $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1memories~1{agentId}"
   # ── Auth Users ─────────────────────────────────────────────────────────────
-  /api/auth/users:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users"
-  /api/auth/users/{id}:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}"
-  /api/auth/users/{id}/role:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1role"
-  /api/auth/users/{id}/agents:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1agents"
-  /api/auth/users/{id}/identities/login:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1login"
-  /api/auth/users/{id}/identities/channel:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1channel"
-  /api/auth/users/{id}/identities/{identityId}:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1identities~1{identityId}"
-  /api/auth/users/{id}/active:
-    $ref: "./domain/users/paths.yaml#/paths/~1api~1auth~1users~1{id}~1active"
+  /api/users:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users"
+  /api/users/{id}:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}"
+  /api/users/{id}/role:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1role"
+  /api/users/{id}/agents:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1agents"
+  /api/users/{id}/identities/login:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1identities~1login"
+  /api/users/{id}/identities/channel:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1identities~1channel"
+  /api/users/{id}/identities/{identityId}:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1identities~1{identityId}"
+  /api/users/{id}/active:
+    $ref: "./domain/users/paths.yaml#/paths/~1api~1users~1{id}~1active"
   # ── Profile ────────────────────────────────────────────────────────────────
-  /api/auth/profile/identities:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities"
-  /api/auth/profile/identities/{id}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1identities~1{id}"
-  /api/auth/profile/password:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1password"
-  /api/auth/profile/link-code:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1link-code"
-  /api/auth/profile/memories:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories"
-  /api/auth/profile/memories/{agentId}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1memories~1{agentId}"
-  /api/auth/profile/soul/{agentId}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1soul~1{agentId}"
-  /api/auth/profile/vault:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault"
-  /api/auth/profile/vault/{name}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1vault~1{name}"
-  /api/auth/profile/oauth/providers:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1providers"
-  /api/auth/profile/oauth/{provider}/start:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1start"
-  /api/auth/profile/oauth/{provider}/status/{flowId}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1status~1{flowId}"
-  /api/auth/profile/oauth/{provider}/connected:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1connected"
-  /api/auth/profile/oauth/{provider}:
-    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}"
+  /api/users/me/identities:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1identities"
+  /api/users/me/identities/{id}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1identities~1{id}"
+  /api/users/me/password:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1password"
+  /api/users/me/link-code:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1link-code"
+  /api/users/me/memories:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories"
+  /api/users/me/memories/{agentId}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}"
+  /api/users/me/soul/{agentId}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1soul~1{agentId}"
+  /api/users/me/vault:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1vault"
+  /api/users/me/vault/{name}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1vault~1{name}"
+  /api/users/me/oauth/providers:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1providers"
+  /api/users/me/oauth/{provider}/start:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1{provider}~1start"
+  /api/users/me/oauth/{provider}/status/{flowId}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1{provider}~1status~1{flowId}"
+  /api/users/me/oauth/{provider}/connected:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1{provider}~1connected"
+  /api/users/me/oauth/{provider}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1{provider}"
+  /api/auth/oauth/{provider}/callback:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1oauth~1{provider}~1callback"
   /api/auth/profile/oauth/{provider}/callback:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1auth~1profile~1oauth~1{provider}~1callback"
   # ── Admin: OAuth provider config ───────────────────────────────────────────

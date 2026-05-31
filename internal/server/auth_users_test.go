@@ -15,7 +15,7 @@ import (
 func TestListAuthUsers(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/auth/users", nil)
+	rr := doRequest(t, env, "GET", "/api/users", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -56,7 +56,7 @@ func TestListAuthUsers(t *testing.T) {
 func TestGetAuthUser(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID, nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+env.adminUser.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -81,7 +81,7 @@ func TestGetAuthUser(t *testing.T) {
 func TestGetAuthUserNotFound(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/auth/users/99999", nil)
+	rr := doRequest(t, env, "GET", "/api/users/99999", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
@@ -93,7 +93,7 @@ func TestUpdateAuthUserRolePromote(t *testing.T) {
 	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular1", auth.RoleUser)
 
 	body := map[string]string{"role": "admin"}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -105,7 +105,7 @@ func TestUpdateAuthUserRoleDemote(t *testing.T) {
 	user, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "admin2", auth.RoleAdmin)
 
 	body := map[string]string{"role": "user"}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -115,7 +115,7 @@ func TestCannotDemoteSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]string{"role": "user"}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+env.adminUser.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/"+env.adminUser.ID+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -125,7 +125,7 @@ func TestUpdateAuthUserRoleInvalid(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]string{"role": "superadmin"}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+env.adminUser.ID+"/role", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/"+env.adminUser.ID+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -139,7 +139,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	uid := user.ID
 
 	// List agents - initially empty.
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+uid+"/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -151,13 +151,13 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	stellaID := findStellaID(t, env)
 	body := map[string]any{"agent_ids": []string{stellaID}}
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
+	rr = doRequest(t, env, "PATCH", "/api/users/"+uid+"/agents", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify assignment.
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+uid+"/agents", nil)
 	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 1 || agentIDs[0] != stellaID {
 		t.Errorf("expected [%s], got %v", stellaID, agentIDs)
@@ -165,13 +165,13 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	// Remove by setting empty.
 	body = map[string]any{"agent_ids": []string{}}
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
+	rr = doRequest(t, env, "PATCH", "/api/users/"+uid+"/agents", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Verify empty.
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+uid+"/agents", nil)
 	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 0 {
 		t.Errorf("expected 0 agents after removal, got %d", len(agentIDs))
@@ -185,13 +185,13 @@ func TestUpdateAuthUserActive(t *testing.T) {
 
 	// Deactivate.
 	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/active", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify deactivated.
-	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID, nil)
+	rr = doRequest(t, env, "GET", "/api/users/"+user.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -208,7 +208,7 @@ func TestUpdateAuthUserActive(t *testing.T) {
 
 	// Reactivate.
 	body = map[string]any{"is_active": true}
-	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
+	rr = doRequest(t, env, "PATCH", "/api/users/"+user.ID+"/active", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("reactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -218,7 +218,7 @@ func TestCannotDeactivateSelf(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]any{"is_active": false}
-	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+env.adminUser.ID+"/active", body)
+	rr := doRequest(t, env, "PATCH", "/api/users/"+env.adminUser.ID+"/active", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
@@ -240,7 +240,7 @@ func TestListAuthUserLoginIdentitiesEmpty(t *testing.T) {
 	env := setupAdmin(t)
 	setupOIDCStore(t, env)
 
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID+"/identities/login", nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+env.adminUser.ID+"/identities/login", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -255,7 +255,7 @@ func TestListAuthUserLoginIdentitiesUserNotFound(t *testing.T) {
 	env := setupAdmin(t)
 	setupOIDCStore(t, env)
 
-	rr := doRequest(t, env, "GET", "/api/auth/users/nonexistent/identities/login", nil)
+	rr := doRequest(t, env, "GET", "/api/users/nonexistent/identities/login", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
@@ -282,7 +282,7 @@ func TestLinkAuthUserLoginIdentity(t *testing.T) {
 		"email":            "testadmin@example.com",
 		"name":             "Test Admin",
 	}
-	rr := doRequest(t, env, "POST", "/api/auth/users/"+env.adminUser.ID+"/identities/login", body)
+	rr := doRequest(t, env, "POST", "/api/users/"+env.adminUser.ID+"/identities/login", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -335,7 +335,7 @@ func TestLinkLoginIdentityOwnedByAnotherUserIsConflict(t *testing.T) {
 		"provider_subject": "sub-abc",
 		"email":            "shared@example.com",
 	}
-	rr := doRequest(t, env, "POST", "/api/auth/users/"+u2.ID+"/identities/login", body)
+	rr := doRequest(t, env, "POST", "/api/users/"+u2.ID+"/identities/login", body)
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusConflict, rr.Body.String())
 	}
@@ -366,7 +366,7 @@ func TestLinkLoginIdentityIdempotent(t *testing.T) {
 		"provider_subject": u.ID,
 		"email":            u.Email,
 	}
-	rr := doRequest(t, env, "POST", "/api/auth/users/"+u.ID+"/identities/login", body)
+	rr := doRequest(t, env, "POST", "/api/users/"+u.ID+"/identities/login", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -389,7 +389,7 @@ func TestListAuthUserChannelIdentities(t *testing.T) {
 		t.Fatalf("CreateChannelIdentity: %v", err)
 	}
 
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID+"/identities/channel", nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+env.adminUser.ID+"/identities/channel", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -409,7 +409,7 @@ func TestListAuthUserChannelIdentitiesUserNotFound(t *testing.T) {
 	env := setupAdmin(t)
 	setupOIDCStore(t, env)
 
-	rr := doRequest(t, env, "GET", "/api/auth/users/nonexistent/identities/channel", nil)
+	rr := doRequest(t, env, "GET", "/api/users/nonexistent/identities/channel", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
@@ -432,7 +432,7 @@ func TestAuthUserWithLinkedIdentities(t *testing.T) {
 	}
 
 	// Get user details — should include the identity.
-	rr := doRequest(t, env, "GET", "/api/auth/users/"+env.adminUser.ID, nil)
+	rr := doRequest(t, env, "GET", "/api/users/"+env.adminUser.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}

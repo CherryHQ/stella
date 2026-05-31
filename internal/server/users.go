@@ -3,13 +3,36 @@ package server
 import (
 	"net/http"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+func resolveTargetUserID(info *AuthInfo, id string) string {
+	if id == "me" {
+		return info.UserID
+	}
+	return id
+}
+
+// requireUserTarget resolves the users/me alias and permits access only to the
+// current user or admins. Cross-user IDs return 404 to avoid leaking existence.
+func (s *Server) requireUserTarget(w http.ResponseWriter, r *http.Request, id string) (*AuthInfo, string, bool) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return nil, "", false
+	}
+	targetUserID := resolveTargetUserID(info, id)
+	if targetUserID == info.UserID || info.IsAdmin {
+		return info, targetUserID, true
+	}
+	writeError(w, http.StatusNotFound, "user not found")
+	return nil, "", false
+}
+
 func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	info, targetUserID, ok := s.requireUserTarget(w, r, id)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -19,15 +42,22 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.users.UpdateUserDefaultAgent(r.Context(), id, body.DefaultAgentID); err != nil {
+	if !info.IsAdmin {
+		if _, code, msg := s.requireAgentAccess(r.Context(), body.DefaultAgentID); code != 0 {
+			writeError(w, code, msg)
+			return
+		}
+	}
+	if err := s.users.UpdateUserDefaultAgent(r.Context(), targetUserID, body.DefaultAgentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.writeAuthUser(w, r, id)
+	s.writeAuthUser(w, r, targetUserID)
 }
 
 func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	_, targetUserID, ok := s.requireUserTarget(w, r, id)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -37,27 +67,50 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.users.UpdateUserNotifyIdentity(r.Context(), id, body.NotifyIdentityID); err != nil {
+	if body.NotifyIdentityID != nil {
+		identity, err := s.users.GetChannelIdentity(r.Context(), *body.NotifyIdentityID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "identity not found")
+			return
+		}
+		if identity.UserID != targetUserID {
+			writeError(w, http.StatusBadRequest, "identity does not belong to this user")
+			return
+		}
+	}
+	if err := s.users.UpdateUserNotifyIdentity(r.Context(), targetUserID, body.NotifyIdentityID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.writeAuthUser(w, r, id)
+	s.writeAuthUser(w, r, targetUserID)
 }
 
 func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	_, targetUserID, ok := s.requireUserTarget(w, r, id)
+	if !ok {
 		return
 	}
-	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), id)
+	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), targetUserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	defaultSoul := prompt.DefaultAgentSoul()
+	for i := range memories {
+		if memories[i].Soul == "" {
+			memories[i].Soul = defaultSoul
+		}
 	}
 	writeData(w, http.StatusOK, map[string]any{"memories": memories})
 }
 
 func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	if requireAdmin(w, r) == nil {
+	info, targetUserID, ok := s.requireUserTarget(w, r, id)
+	if !ok {
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 	var body struct {
@@ -67,25 +120,33 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
-	if err := memorywrite.SetProfile(ctx, s.db, s.q, id, agentID, body.Content); err != nil {
+	source := memory.SourceSystem
+	if !info.IsAdmin || targetUserID == info.UserID {
+		source = memory.SourceUser
+	}
+	ctx := memory.WithChangeSource(r.Context(), source)
+	if err := memorywrite.SetProfile(ctx, s.db, s.q, targetUserID, agentID, body.Content); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: id, AgentID: agentID})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeData(w, http.StatusOK, mem)
+	s.writeProfileMemory(w, r, targetUserID, agentID)
 }
 
 func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
-	if requireAdmin(w, r) == nil {
+	info, targetUserID, ok := s.requireUserTarget(w, r, id)
+	if !ok {
 		return
 	}
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
-	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, id, agentID); err != nil {
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+	source := memory.SourceSystem
+	if !info.IsAdmin || targetUserID == info.UserID {
+		source = memory.SourceUser
+	}
+	ctx := memory.WithChangeSource(r.Context(), source)
+	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, targetUserID, agentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

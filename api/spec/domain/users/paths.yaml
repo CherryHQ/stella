@@ -6,10 +6,12 @@ paths:
           in: path,
           required: true,
           schema: { type: string },
+          description: Canonical user ID,
+          or `me` for the current user.,
         }
     patch:
       tags: [users]
-      summary: Update the default agent for a user (admin only)
+      summary: Update the default agent for a user (admin or current user)
       operationId: updateUserDefaultAgent
       requestBody:
         required: true
@@ -33,6 +35,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/users/{id}/notify-identity:
     parameters:
@@ -41,10 +44,12 @@ paths:
           in: path,
           required: true,
           schema: { type: string },
+          description: Canonical user ID,
+          or `me` for the current user.,
         }
     patch:
       tags: [users]
-      summary: Update the notify identity for a user (admin only)
+      summary: Update the notify identity for a user (admin or current user)
       operationId: updateUserNotifyIdentity
       requestBody:
         required: true
@@ -68,6 +73,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/users/{id}/memories:
     parameters:
@@ -76,10 +82,12 @@ paths:
           in: path,
           required: true,
           schema: { type: string },
+          description: Canonical user ID,
+          or `me` for the current user.,
         }
     get:
       tags: [users]
-      summary: List memories for a user (admin only)
+      summary: List memories for a user (admin or current user)
       operationId: listUserMemories
       responses:
         "200":
@@ -96,6 +104,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/users/{id}/memories/{agentId}:
     parameters:
@@ -104,11 +113,13 @@ paths:
           in: path,
           required: true,
           schema: { type: string },
+          description: Canonical user ID,
+          or `me` for the current user.,
         }
       - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
       tags: [users]
-      summary: Set memory for a user and agent (admin only)
+      summary: Set memory for a user and agent (admin or current user)
       operationId: setUserMemory
       requestBody:
         required: true
@@ -132,9 +143,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [users]
-      summary: Delete memory for a user and agent (admin only)
+      summary: Delete memory for a user and agent (admin or current user)
       operationId: deleteUserMemory
       responses:
         "204":
@@ -143,11 +155,12 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/auth/users:
+  /api/users:
     get:
-      tags: [auth-users]
-      summary: List all auth users (admin only)
+      tags: [users]
+      summary: List users (admin only)
       operationId: listAuthUsers
       parameters:
         - {
@@ -175,7 +188,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/auth/users/{id}:
+  /api/users/{id}:
     parameters:
       - {
           name: id,
@@ -184,8 +197,8 @@ paths:
           schema: { type: string },
         }
     get:
-      tags: [auth-users]
-      summary: Get an auth user by ID (admin only)
+      tags: [users]
+      summary: Get a user by ID (admin or current user)
       operationId: getAuthUser
       responses:
         "200":
@@ -201,7 +214,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/auth/users/{id}/role:
+  /api/users/{id}/role:
     parameters:
       - {
           name: id,
@@ -210,8 +223,8 @@ paths:
           schema: { type: string },
         }
     patch:
-      tags: [auth-users]
-      summary: Update the role of an auth user (admin only)
+      tags: [users]
+      summary: Update the role of a user (admin only)
       operationId: updateAuthUserRole
       requestBody:
         required: true
@@ -236,7 +249,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/auth/users/{id}/agents:
+  /api/users/{id}/agents:
     parameters:
       - {
           name: id,
@@ -245,8 +258,8 @@ paths:
           schema: { type: string },
         }
     get:
-      tags: [auth-users]
-      summary: List agents assigned to an auth user (admin only)
+      tags: [users]
+      summary: List agents assigned to a user (admin only)
       operationId: listAuthUserAgents
       responses:
         "200":
@@ -261,8 +274,8 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     patch:
-      tags: [auth-users]
-      summary: Update agents assigned to an auth user (admin only)
+      tags: [users]
+      summary: Update agents assigned to a user (admin only)
       operationId: updateAuthUserAgents
       requestBody:
         required: true
@@ -287,12 +300,12 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/auth/users/{id}/identities/login:
+  /api/users/{id}/identities/login:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
-      tags: [auth-users]
-      summary: List OIDC login identities for an auth user (admin only)
+      tags: [users]
+      summary: List OIDC login identities for a user (admin only)
       operationId: listAuthUserLoginIdentities
       responses:
         "200":
@@ -308,8 +321,8 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     post:
-      tags: [auth-users]
-      summary: Link an OIDC login identity to an auth user (admin only)
+      tags: [users]
+      summary: Link an OIDC login identity to a user (admin only)
       operationId: linkAuthUserLoginIdentity
       requestBody:
         required: true
@@ -336,12 +349,12 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/auth/users/{id}/identities/channel:
+  /api/users/{id}/identities/channel:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
-      tags: [auth-users]
-      summary: List channel identities for an auth user (admin only)
+      tags: [users]
+      summary: List channel identities for a user (admin only)
       operationId: listAuthUserChannelIdentities
       responses:
         "200":
@@ -357,7 +370,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/auth/users/{id}/identities/{identityId}:
+  /api/users/{id}/identities/{identityId}:
     parameters:
       - {
           name: id,
@@ -372,8 +385,8 @@ paths:
           schema: { type: string },
         }
     delete:
-      tags: [auth-users]
-      summary: Delete an identity linked to an auth user (admin only)
+      tags: [users]
+      summary: Delete an identity linked to a user (admin only)
       operationId: deleteAuthUserIdentity
       responses:
         "204":
@@ -387,7 +400,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/auth/users/{id}/active:
+  /api/users/{id}/active:
     parameters:
       - {
           name: id,
@@ -396,8 +409,8 @@ paths:
           schema: { type: string },
         }
     patch:
-      tags: [auth-users]
-      summary: Update the active status of an auth user (admin only)
+      tags: [users]
+      summary: Update the active status of a user (admin only)
       operationId: updateAuthUserActive
       requestBody:
         required: true
