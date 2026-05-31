@@ -102,10 +102,7 @@ CREATE TABLE `ctx_agent_memory_changelog` (
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (scope IN ('profile', 'soul', 'constraint', 'skill', 'compaction')),
-  CHECK (action IN ('create', 'update', 'delete', 'compact')),
-  CHECK (source IN ('user', 'agent', 'reflect', 'system'))
+  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_ctx_agent_memory_changelog_user_agent" to table: "ctx_agent_memory_changelog"
 CREATE INDEX `idx_ctx_agent_memory_changelog_user_agent` ON `ctx_agent_memory_changelog` (`user_id`, `agent_id`, `scope`);
@@ -163,8 +160,7 @@ CREATE TABLE `ctx_message` (
   `token_count` integer NOT NULL,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`conversation_id`) REFERENCES `ctx_conversation` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (role IN ('user', 'assistant', 'tool'))
+  CONSTRAINT `0` FOREIGN KEY (`conversation_id`) REFERENCES `ctx_conversation` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "ctx_message_conversation_id_seq" to table: "ctx_message"
 CREATE UNIQUE INDEX `ctx_message_conversation_id_seq` ON `ctx_message` (`conversation_id`, `seq`);
@@ -183,8 +179,7 @@ CREATE TABLE `ctx_message_part` (
   `tool_output` text NULL,
   `metadata` text NULL,
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`message_id`) REFERENCES `ctx_message` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (part_type IN ('text', 'reasoning', 'tool'))
+  CONSTRAINT `0` FOREIGN KEY (`message_id`) REFERENCES `ctx_message` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "ctx_message_part_message_id_ordinal" to table: "ctx_message_part"
 CREATE UNIQUE INDEX `ctx_message_part_message_id_ordinal` ON `ctx_message_part` (`message_id`, `ordinal`);
@@ -203,8 +198,7 @@ CREATE TABLE `ctx_summary` (
   `source_message_token_count` integer NOT NULL DEFAULT 0,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
-  CONSTRAINT `0` FOREIGN KEY (`conversation_id`) REFERENCES `ctx_conversation` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (kind IN ('leaf', 'condensed'))
+  CONSTRAINT `0` FOREIGN KEY (`conversation_id`) REFERENCES `ctx_conversation` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_ctx_summary_conv" to table: "ctx_summary"
 CREATE INDEX `idx_ctx_summary_conv` ON `ctx_summary` (`conversation_id`, `created_at`);
@@ -238,7 +232,6 @@ CREATE TABLE `ctx_item` (
   CONSTRAINT `0` FOREIGN KEY (`summary_id`) REFERENCES `ctx_summary` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
   CONSTRAINT `1` FOREIGN KEY (`message_id`) REFERENCES `ctx_message` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
   CONSTRAINT `2` FOREIGN KEY (`conversation_id`) REFERENCES `ctx_conversation` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (item_type IN ('message', 'summary')),
   CHECK (
         (item_type = 'message' AND message_id IS NOT NULL AND summary_id IS NULL) OR
         (item_type = 'summary' AND summary_id IS NOT NULL AND message_id IS NULL)
@@ -302,8 +295,7 @@ CREATE TABLE `auth_policy` (
   `enabled` integer NOT NULL DEFAULT 1,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`),
-  CHECK (effect IN ('allow', 'deny'))
+  PRIMARY KEY (`id`)
 );
 -- Create "auth_user_agent" table
 CREATE TABLE `auth_user_agent` (
@@ -508,8 +500,6 @@ CREATE TABLE `skill` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (scope IN ('system','agent','user')),
-  CHECK (status IN ('draft','active','deprecated')),
   CHECK (
         (scope='system'  AND user_id IS NULL     AND agent_id IS NULL) OR
         (scope='agent'   AND user_id IS NULL     AND agent_id IS NOT NULL) OR
@@ -577,9 +567,7 @@ CREATE TABLE `recally_article` (
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (source_type IN ('web','twitter','youtube','github','rss','pdf')),
-  CHECK (status IN ('unread','read','archived'))
+  CONSTRAINT `1` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_recally_article_user_canonical" to table: "recally_article"
 CREATE UNIQUE INDEX `idx_recally_article_user_canonical` ON `recally_article` (`user_id`, `canonical_url`);
@@ -627,8 +615,7 @@ CREATE TABLE `recally_rss_feed_entry` (
   `processed_at` text NULL,
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`article_id`) REFERENCES `recally_article` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `1` FOREIGN KEY (`feed_id`) REFERENCES `recally_rss_feed` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (status IN ('pending','saved','skipped','error'))
+  CONSTRAINT `1` FOREIGN KEY (`feed_id`) REFERENCES `recally_rss_feed` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_recally_rss_feed_entry_feed_guid" to table: "recally_rss_feed_entry"
 CREATE UNIQUE INDEX `idx_recally_rss_feed_entry_feed_guid` ON `recally_rss_feed_entry` (`feed_id`, `guid`);
@@ -665,8 +652,7 @@ CREATE TABLE `recally_digest_article` (
   `position` integer NOT NULL DEFAULT 0,
   PRIMARY KEY (`digest_id`, `article_id`, `section`),
   CONSTRAINT `0` FOREIGN KEY (`article_id`) REFERENCES `recally_article` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `1` FOREIGN KEY (`digest_id`) REFERENCES `recally_digest` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (section IN ('saved_yesterday', 'worth_revisiting'))
+  CONSTRAINT `1` FOREIGN KEY (`digest_id`) REFERENCES `recally_digest` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_recally_digest_article_digest" to table: "recally_digest_article"
 CREATE INDEX `idx_recally_digest_article_digest` ON `recally_digest_article` (`digest_id`);
@@ -690,10 +676,7 @@ CREATE TABLE `agent_goal` (
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`active_review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
   CONSTRAINT `1` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (status IN ('draft','planning','running','blocked','reviewing','done','failed','cancelled')),
-  CHECK (priority IN ('routine','urgent')),
-  CHECK (review_policy IN ('none','auto','agent','human'))
+  CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create "agent_task_run" table
 CREATE TABLE `agent_task_run` (
@@ -723,8 +706,6 @@ CREATE TABLE `agent_task_run` (
   CONSTRAINT `2` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `4` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (kind IN ('worker','reviewer','planner','synthesizer')),
-  CHECK (status IN ('queued','running','completed','failed','cancelled','interrupted','timed_out')),
   CHECK (
       (task_id IS NOT NULL AND goal_id IS NULL     AND kind IN ('worker','reviewer'))
       OR
@@ -765,9 +746,7 @@ CREATE TABLE `agent_task_blocker` (
   `resolved_at` text NULL,
   PRIMARY KEY (`id`),
   CONSTRAINT `0` FOREIGN KEY (`created_by_run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `1` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (kind IN ('user_input','external_dependency','tool_error','policy_hold','dep_failure')),
-  CHECK (status IN ('open','resolved','cancelled'))
+  CONSTRAINT `1` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_agent_task_blocker_task_open" to table: "agent_task_blocker"
 CREATE INDEX `idx_agent_task_blocker_task_open` ON `agent_task_blocker` (`task_id`) WHERE status='open';
@@ -809,8 +788,6 @@ CREATE TABLE `agent_review` (
   CONSTRAINT `3` FOREIGN KEY (`submitted_run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `4` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `5` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (reviewer_type IN ('system','agent','human')),
-  CHECK (status IN ('requested','in_progress','approved','changes_requested','rejected','escalated','cancelled')),
   CHECK (
       (task_id IS NOT NULL AND goal_id IS NULL)
       OR
@@ -871,10 +848,7 @@ CREATE TABLE `agent_task` (
   CONSTRAINT `2` FOREIGN KEY (`active_review_id`) REFERENCES `agent_review` (`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
   CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `4` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
-  CONSTRAINT `5` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (status IN ('draft','ready','running','blocked','reviewing','done','failed','cancelled')),
-  CHECK (priority IN ('routine','urgent')),
-  CHECK (review_policy IN ('none','auto','agent','human'))
+  CONSTRAINT `5` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_agent_task_status_not_before" to table: "agent_task"
 CREATE INDEX `idx_agent_task_status_not_before` ON `agent_task` (`status`, `not_before`);
@@ -896,8 +870,6 @@ CREATE TABLE `agent_task_dep` (
   CONSTRAINT `0` FOREIGN KEY (`waived_by_user`) REFERENCES `auth_user` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `1` FOREIGN KEY (`dep_task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `2` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (dep_kind IN ('hard','soft')),
-  CHECK (on_failure IN ('block','fail','ignore')),
   CHECK (task_id != dep_task_id)
 );
 -- Create index "idx_agent_task_dep_dep" to table: "agent_task_dep"
@@ -915,7 +887,6 @@ CREATE TABLE `agent_task_dispatch_hint` (
   CONSTRAINT `0` FOREIGN KEY (`executor_agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `1` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
   CONSTRAINT `2` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (kind IN ('worker','reviewer','planner','synthesizer')),
   CHECK (
       (task_id IS NOT NULL AND goal_id IS NULL     AND kind IN ('worker','reviewer'))
       OR
@@ -946,8 +917,7 @@ CREATE TABLE `agent_task_event` (
   CONSTRAINT `1` FOREIGN KEY (`blocker_id`) REFERENCES `agent_task_blocker` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `2` FOREIGN KEY (`run_id`) REFERENCES `agent_task_run` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
   CONSTRAINT `3` FOREIGN KEY (`goal_id`) REFERENCES `agent_goal` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CONSTRAINT `4` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-  CHECK (actor_type IN ('system','user','agent','worker','reviewer','planner','synthesizer'))
+  CONSTRAINT `4` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_agent_task_event_task" to table: "agent_task_event"
 CREATE INDEX `idx_agent_task_event_task` ON `agent_task_event` (`task_id`, `created_at` DESC);

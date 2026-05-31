@@ -5,8 +5,8 @@
 CREATE TABLE agent_task_blocker (
     id                  TEXT NOT NULL PRIMARY KEY,
     task_id             TEXT NOT NULL REFERENCES agent_task(id) ON DELETE CASCADE,
-    kind                TEXT NOT NULL CHECK (kind IN ('user_input','external_dependency','tool_error','policy_hold','dep_failure')),
-    status              TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved','cancelled')),
+    kind                TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open',
     question            TEXT NOT NULL DEFAULT '',
     detail              TEXT NOT NULL DEFAULT '{}',
     resolution          TEXT NOT NULL DEFAULT '{}',

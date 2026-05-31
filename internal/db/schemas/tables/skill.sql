@@ -1,12 +1,11 @@
 CREATE TABLE skill (
     id          TEXT PRIMARY KEY,
-    scope       TEXT NOT NULL CHECK (scope IN ('system','agent','user')),
+    scope       TEXT NOT NULL,
     user_id     TEXT    REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id    TEXT    REFERENCES agent(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
     description TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'active'
-                CHECK (status IN ('draft','active','deprecated')),
+    status      TEXT NOT NULL DEFAULT 'active',
     disable_model_invocation INTEGER NOT NULL DEFAULT 0,
     metadata    TEXT NOT NULL DEFAULT '{}',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),

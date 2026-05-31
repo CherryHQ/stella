@@ -9,7 +9,7 @@ CREATE TABLE agent_task_dispatch_hint (
     id                  TEXT NOT NULL PRIMARY KEY,
     task_id             TEXT REFERENCES agent_task(id) ON DELETE CASCADE,
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,
-    kind                TEXT NOT NULL CHECK (kind IN ('worker','reviewer','planner','synthesizer')),
+    kind                TEXT NOT NULL,
     executor_agent_id   TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
     consumed_at         TEXT,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),

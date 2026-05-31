@@ -22,8 +22,7 @@ CREATE TABLE recally_rss_feed_entry (
     guid       TEXT NOT NULL,
     url        TEXT NOT NULL DEFAULT '',
     title      TEXT NOT NULL DEFAULT '',
-    status     TEXT NOT NULL DEFAULT 'pending'
-               CHECK (status IN ('pending','saved','skipped','error')),
+    status     TEXT NOT NULL DEFAULT 'pending',
     article_id TEXT REFERENCES recally_article(id) ON DELETE SET NULL,
     attempts   INTEGER NOT NULL DEFAULT 0,
     error_msg  TEXT NOT NULL DEFAULT '',

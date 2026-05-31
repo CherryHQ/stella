@@ -9,9 +9,9 @@ CREATE TABLE agent_task (
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,        -- Slice 3
     title               TEXT NOT NULL,
     description         TEXT NOT NULL DEFAULT '',
-    status              TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready','running','blocked','reviewing','done','failed','cancelled')),
-    priority            TEXT NOT NULL DEFAULT 'routine' CHECK (priority IN ('routine','urgent')),
-    review_policy       TEXT NOT NULL DEFAULT 'none' CHECK (review_policy IN ('none','auto','agent','human')),
+    status              TEXT NOT NULL DEFAULT 'draft',
+    priority            TEXT NOT NULL DEFAULT 'routine',
+    review_policy       TEXT NOT NULL DEFAULT 'none',
     active_review_id    TEXT REFERENCES agent_review(id) ON DELETE RESTRICT,
     required            INTEGER NOT NULL DEFAULT 1,
     retry_count         INTEGER NOT NULL DEFAULT 0,

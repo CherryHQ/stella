@@ -85,13 +85,17 @@ Checklist:
   deliberately.
 - Composite unique constraints for multi-column uniqueness.
 
-**On enum-like `CHECK` constraints:** the general guidance is to keep
-_extensible_ value lists in code so adding a value doesn't require a migration.
-Stella, however, **does** use `CHECK (col IN (...))` for genuinely closed,
-slow-moving state machines (e.g. `agent_goal.status`, `priority`,
-`review_policy`). The rule of thumb: a `CHECK IN` set is fine when the states
-are a deliberate, bounded part of the design and you're willing to migrate to
-add one; keep it in code when the set is open-ended or grows with features.
+**Do not use enum-like `CHECK (col IN (...))` constraints.** Keep the set of
+valid values in Go (typed constants), not in the schema. A value list in a
+`CHECK` constraint can only change with a migration, and these sets — statuses,
+kinds, scopes, roles — grow as features land. Stella enforces them in code and
+keeps the column a plain `TEXT`.
+
+This is _not_ a ban on `CHECK`. Structural invariants stay in the database:
+range checks (`price_cents >= 0`), XOR/coupling rules (a run belongs to a task
+_or_ a goal, never both), and self-reference guards (`task_id != dep_task_id`).
+Those encode relationships between columns, not an enumeration of one column's
+allowed values, and they don't churn when you add a new status.
 
 ## Normalization
 
@@ -193,7 +197,7 @@ migration workflow in the project `CLAUDE.md`).
 | Timestamps      | `TIMESTAMPTZ DEFAULT now()`      | `TEXT NOT NULL DEFAULT (datetime('now'))` (UTC)             |
 | Boolean         | `BOOLEAN`                        | `INTEGER NOT NULL DEFAULT 0` (0/1)                          |
 | Money           | `INTEGER` cents / `NUMERIC`      | `INTEGER` cents                                             |
-| Enum/state      | `TEXT` (+ optional `CHECK`)      | `TEXT` with `CHECK (col IN (...))` for closed sets          |
+| Enum/state      | `TEXT` (+ optional `CHECK`)      | plain `TEXT`; valid values enforced in Go, not `CHECK`      |
 | Structured blob | `JSONB`                          | `TEXT` (often `NOT NULL DEFAULT '{}'`); query with `json_*` |
 
 SQLite has no native `UUID`, `TIMESTAMPTZ`, `BOOLEAN`, or `JSONB` type, and no
@@ -205,8 +209,7 @@ SQLite has no native `UUID`, `TIMESTAMPTZ`, `BOOLEAN`, or `JSONB` type, and no
 CREATE TABLE agent_goal (
     id          TEXT NOT NULL PRIMARY KEY,
     user_id     TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    status      TEXT NOT NULL DEFAULT 'draft'
-                CHECK (status IN ('draft','planning','running','done','failed')),
+    status      TEXT NOT NULL DEFAULT 'draft',  -- valid values enforced in Go
     context     TEXT NOT NULL DEFAULT '{}',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
