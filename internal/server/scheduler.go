@@ -128,7 +128,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	nowT := parseDBTime(now)
+	nowT := ptrTime(parseTime(now))
 	resp := apiserver.Job{
 		Id:          id,
 		OwnerKind:   ptrStr(scheduler.JobOwnerUser),
@@ -284,9 +284,9 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		Enabled:     enabled != 0,
 		AgentId:     ptrStr(agentID),
 		UserId:      ptrStr(userID),
-		CreatedAt:   parseDBTime(existing.CreatedAt),
-		UpdatedAt:   parseDBTime(now),
-		LastRunAt:   parseDBTimeNullable(existing.LastRunAt),
+		CreatedAt:   ptrTime(parseTime(existing.CreatedAt)),
+		UpdatedAt:   ptrTime(parseTime(now)),
+		LastRunAt:   parseTimePtr(existing.LastRunAt),
 		LastError:   ptrStr(existing.LastError),
 	}
 	writeData(w, http.StatusOK, resp)
@@ -446,8 +446,8 @@ func dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 		Message:     row.Message,
 		SessionMode: row.SessionMode,
 		Enabled:     row.Enabled != 0,
-		CreatedAt:   parseDBTime(row.CreatedAt),
-		UpdatedAt:   parseDBTime(row.UpdatedAt),
+		CreatedAt:   ptrTime(parseTime(row.CreatedAt)),
+		UpdatedAt:   ptrTime(parseTime(row.UpdatedAt)),
 		LastError:   ptrStr(row.LastError),
 	}
 	if payload := decodeSchedulerPayload(row.Payload); len(payload) > 0 {
@@ -459,9 +459,7 @@ func dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 	if row.UserID.Valid {
 		j.UserId = ptrStr(row.UserID.String)
 	}
-	if row.LastRunAt.Valid {
-		j.LastRunAt = parseDBTime(row.LastRunAt.String)
-	}
+	j.LastRunAt = parseTimePtr(row.LastRunAt)
 	return j
 }
 
@@ -507,13 +505,10 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 	if row.UserID.Valid {
 		j.UserId = ptrStr(row.UserID.String)
 	}
-	if row.FinishedAt.Valid {
-		finished := parseTime(row.FinishedAt.String)
-		j.FinishedAt = &finished
-		startedAt, err1 := time.Parse(adminDBTimeLayout, row.StartedAt)
-		finishedAt, err2 := time.Parse(adminDBTimeLayout, row.FinishedAt.String)
-		if err1 == nil && err2 == nil {
-			dur := finishedAt.Sub(startedAt).Truncate(time.Second).String()
+	if finished := parseTimePtr(row.FinishedAt); finished != nil {
+		j.FinishedAt = finished
+		if started := parseTime(row.StartedAt); !started.IsZero() {
+			dur := finished.Sub(started).Truncate(time.Second).String()
 			j.Duration = &dur
 		}
 	}
@@ -521,26 +516,6 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 }
 
 // --------------- helpers ---------------
-
-func parseDBTime(value string) *time.Time {
-	if value == "" {
-		return nil
-	}
-	if t, err := time.Parse(time.RFC3339, value); err == nil {
-		return &t
-	}
-	if t, err := time.Parse(adminDBTimeLayout, value); err == nil {
-		return &t
-	}
-	return nil
-}
-
-func parseDBTimeNullable(ns sql.NullString) *time.Time {
-	if !ns.Valid {
-		return nil
-	}
-	return parseDBTime(ns.String)
-}
 
 func ptrTime(t time.Time) *time.Time {
 	if t.IsZero() {

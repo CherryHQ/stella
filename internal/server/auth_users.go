@@ -21,8 +21,8 @@ type authUserResponse struct {
 	Role       string                 `json:"role"`
 	IsActive   bool                   `json:"is_active"`
 	Identities []auth.ChannelIdentity `json:"identities"`
-	CreatedAt  string                 `json:"created_at"`
-	UpdatedAt  string                 `json:"updated_at"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
 }
 
 func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserResponse, error) {
@@ -42,8 +42,8 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserRe
 		Role:       u.Role,
 		IsActive:   u.IsActive,
 		Identities: identities,
-		CreatedAt:  u.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:  u.UpdatedAt.UTC().Format(time.RFC3339),
+		CreatedAt:  u.CreatedAt.UTC(),
+		UpdatedAt:  u.UpdatedAt.UTC(),
 	}, nil
 }
 

@@ -34,8 +34,8 @@ func TestToSessionResponse(t *testing.T) {
 	if !resp.Archived {
 		t.Error("Archived should be true")
 	}
-	if resp.CreatedAt != now.Format(time.RFC3339) {
-		t.Errorf("CreatedAt = %q", resp.CreatedAt)
+	if !resp.CreatedAt.Equal(now) {
+		t.Errorf("CreatedAt = %v", resp.CreatedAt)
 	}
 }
 

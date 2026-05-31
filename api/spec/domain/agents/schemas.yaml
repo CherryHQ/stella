@@ -90,8 +90,8 @@ components:
         status: { type: string }
         disable_model_invocation: { type: boolean }
         files: { type: array, items: { type: string } }
-        created_at: { type: string }
-        updated_at: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
     SkillList:
       type: object

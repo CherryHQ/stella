@@ -49,7 +49,7 @@ func TestShareArtifactPrintsURL(t *testing.T) {
 			t.Fatalf("unexpected body: %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"share-1","url":"https://example.com/s/token","title":"report.html","media_type":"text/html; charset=utf-8","created_at":"2026-05-19 00:00:00"}`))
+		_, _ = w.Write([]byte(`{"id":"share-1","url":"https://example.com/s/token","title":"report.html","media_type":"text/html; charset=utf-8","created_at":"2026-05-19T00:00:00Z"}`))
 	}))
 	defer server.Close()
 	t.Setenv("STELLA_SERVER_URL", server.URL)
@@ -86,7 +86,7 @@ func TestShareArticlePrintsURL(t *testing.T) {
 			t.Fatalf("unexpected body: %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"share-2","url":"https://example.com/s/abc","title":"My Article","media_type":"text/markdown; charset=utf-8","created_at":"2026-05-20 00:00:00"}`))
+		_, _ = w.Write([]byte(`{"id":"share-2","url":"https://example.com/s/abc","title":"My Article","media_type":"text/markdown; charset=utf-8","created_at":"2026-05-20T00:00:00Z"}`))
 	}))
 	defer server.Close()
 	t.Setenv("STELLA_SERVER_URL", server.URL)

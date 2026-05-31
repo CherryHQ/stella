@@ -84,8 +84,8 @@ components:
         session_id: { type: string }
         user_id: { type: string }
         status: { type: string }
-        started_at: { type: string }
-        finished_at: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
         error: { type: string }
         duration: { type: string }
 

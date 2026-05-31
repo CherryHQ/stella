@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -214,15 +215,15 @@ func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID s
 }
 
 type projectResponse struct {
-	ID          string `json:"id"`
-	AgentID     string `json:"agent_id"`
-	UserID      string `json:"user_id"`
-	Name        string `json:"name"`
-	BaseDir     string `json:"base_dir"`
-	Description string `json:"description,omitempty"`
-	Archived    bool   `json:"archived"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID          string    `json:"id"`
+	AgentID     string    `json:"agent_id"`
+	UserID      string    `json:"user_id"`
+	Name        string    `json:"name"`
+	BaseDir     string    `json:"base_dir"`
+	Description string    `json:"description,omitempty"`
+	Archived    bool      `json:"archived"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func toProjectResponse(p sqlc.Project) projectResponse {
