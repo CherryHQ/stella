@@ -2,7 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
-  Sparkles,
   Shield,
   MessageCircle,
   Clock,
@@ -11,11 +10,11 @@ import {
   Bot,
   Zap,
   BookOpen,
-  Lock,
   Plug,
   CalendarClock,
   ListTodo,
   Rss,
+  type LucideIcon,
 } from "lucide-react";
 import { siGithub } from "simple-icons";
 import { t } from "@/lib/docs/translations";
@@ -29,7 +28,7 @@ function useReveal() {
     const el = ref.current;
     if (!el) return;
     const targets = el.querySelectorAll(
-      ".home-pillar, .home-cap, .home-caps-header, .home-cta-copy, .home-terminal, .home-product, .home-product-features, .home-system, .home-system--hero",
+      ".home-pillar, .home-cap, .home-caps-header, .home-cta-copy, .home-terminal, .home-system, .home-system--hero",
     );
     const observer = new IntersectionObserver(
       (entries) => {
@@ -67,271 +66,320 @@ export const Route = createFileRoute("/")({ component: Home });
 
 const copy = {
   en: {
-    heroEyebrow: "AI partner infrastructure",
-    heroTitle: ["Your people deserve", "their own", "AI."],
+    heroEyebrow: "Shared AI coworkers",
+    heroTitle: ["Skip specialist software.", "Give the goal", "to the agent that knows the work."],
     heroSub:
-      "Stella is a self-hosted AI partner system — memory belongs to the person, work belongs to the agent, execution stays inside boundaries you choose.",
-    productLabel: "stella — sessions",
-    systemsTitle: "What Stella does for you",
+      "Finance, HR, research, and engineering teams create shared agents with instructions, skills, tools, knowledge, and memory rules. Everyone else just chats with the right agent and gives it a goal.",
+    productLabel: "stella — goal workspace",
+    systemsTitle: "From shared expertise to finished work",
     systemsSub:
-      "Not just a chatbot. A system that reads, remembers, schedules, and follows through.",
+      "Create professional agents once. Let the organization use them like real coworkers.",
     systems: [
       {
-        icon: "zap",
-        title: "Skills that grow with you",
-        desc: "Teach Stella new workflows by installing skill bundles — code review, content writing, incident response, or anything you build. Each skill brings its own prompts, tools, and working style so the agent gets better at what your team actually does.",
-        highlights: ["Browse a shared registry", "Install in one step", "Write your own"],
-      },
-      {
-        icon: "recally",
-        title: "A reading habit that keeps up",
-        desc: "Drop a link and Stella saves, summarizes, and indexes it. Subscribe to RSS feeds and get daily digests that surface what matters. Your personal library that reads everything so you can focus on what's worth your time.",
-        highlights: ["Save any article", "Subscribe to RSS feeds", "Daily AI-generated digests"],
-      },
-      {
-        icon: "scheduler",
-        title: "Schedules that actually run",
-        desc: "Set up morning briefings, recurring health checks, or one-time reminders. Stella runs the instruction on schedule, uses the right tools, and notifies you with results — no cron tab to babysit.",
+        icon: "bot",
+        title: "Create shared professional agents",
+        desc: "Finance, HR, engineering, research, and operations teams can create agents that know their work. Each agent has its own role, instructions, knowledge, skills, tools, and channels.",
         highlights: [
-          "Cron, interval, or one-shot",
-          "Agent runs the task autonomously",
-          "Results sent to your channel",
+          "Owned by domain experts",
+          "Shared across the organization",
+          "Personalized per user",
         ],
       },
       {
         icon: "task",
-        title: "Tasks with a real lifecycle",
-        desc: "Create tasks that the agent tracks from start to finish. Tasks flow through pending, running, review, and done — with priorities, dependencies, and human-in-the-loop checkpoints when the agent needs your call.",
-        highlights: [
-          "Priority and dependency tracking",
-          "Human approval gates",
-          "Status across restarts",
-        ],
+        title: "Turn goals into task DAGs",
+        desc: "Give an agent a goal. Stella can plan the work, split it into tasks, connect dependencies, define acceptance criteria, track blockers, and route results through review.",
+        highlights: ["Goal to plan", "Dependencies and blockers", "Acceptance criteria and review"],
+      },
+      {
+        icon: "recally",
+        title: "Read the web with Recally",
+        desc: "Save web pages and PDFs, get AI summaries, chat with articles, subscribe to RSS feeds, and maintain a reading list that keeps up with what matters.",
+        highlights: ["Web pages and PDFs", "RSS feeds and digests", "Chat with articles"],
+      },
+      {
+        icon: "message",
+        title: "Use agents in daily workflow",
+        desc: "Talk to agents from the Web UI, terminal, Telegram, QQ, Feishu, or WeChat. Users do not need to learn the specialist software behind each workflow.",
+        highlights: ["Chat-native interface", "Shared channels", "Tools stay behind the agent"],
       },
     ],
     pillars: [
       {
-        title: "Memory has ownership",
-        body: "Each user-agent relationship gets dedicated memory. Your coding partner learns how you work; the same agent understands a teammate on their own terms.",
+        title: "Agents are owned by the domain",
+        body: "The people who know the workflow create the agent, write its instructions, attach knowledge, and decide review boundaries.",
       },
       {
-        title: "Work has boundaries",
-        body: "Agents run in sandboxed workspaces with controlled tool access and network policy. Useful work, clear limits.",
+        title: "Everyone uses the same expert",
+        body: "A shared Finance agent or HR agent gives the organization one consistent professional coworker instead of scattered personal prompts.",
       },
       {
-        title: "Channels are just doors",
-        body: "Telegram, QQ, Feishu, WeChat, Web UI, and terminal all connect to the same partner system.",
+        title: "Every agent can know you",
+        body: "Agents keep per-user memory and can also use shared user memory when you want your preferences to travel across agents.",
       },
       {
-        title: "Routines keep moving",
-        body: "Schedules, reminders, reading digests, and background tasks persist across restarts and notify the right people.",
+        title: "Goals become accountable work",
+        body: "Plans, task DAGs, acceptance criteria, blockers, and review states make agent work inspectable instead of buried in chat.",
       },
       {
-        title: "Agents have roles",
-        body: "Create agents for coding, writing, operations, family routines. Each gets its own model, tools, skills, and working style.",
+        title: "Reading becomes a system",
+        body: "Recally turns web pages, PDFs, RSS feeds, summaries, and article chat into a living knowledge stream.",
       },
     ],
     capGroups: [
       {
-        label: "Identity & Access",
+        label: "Organization",
         items: [
           {
             icon: "users",
-            title: "Multi-tenant identity",
-            desc: "One Stella instance serves many people with isolated secrets, memories, and agent relationships.",
+            title: "Multi-tenant, multi-user",
+            desc: "Run Stella for an organization with scoped users, shared agents, and isolated data boundaries.",
           },
           {
-            icon: "lock",
-            title: "Secrets vault",
-            desc: "API keys and tokens stored encrypted. Available at runtime, never exposed in conversations.",
+            icon: "bot",
+            title: "Shared agent catalog",
+            desc: "Create agents for Finance, HR, Engineering, Research, Operations, or any repeatable professional workflow.",
           },
           {
-            icon: "shield",
-            title: "Sandboxed execution",
-            desc: "Per-agent workspaces with explicit network policy and tool boundaries.",
+            icon: "message",
+            title: "Chat channels",
+            desc: "Use the same agents from Web UI, terminal, Telegram, QQ, Feishu, and WeChat.",
           },
         ],
       },
       {
-        label: "Agents & Skills",
+        label: "Agent capability",
         items: [
           {
-            icon: "bot",
-            title: "Specialized agents",
-            desc: "Pre-built templates for coding, research, writing, and review. Focused agents in seconds.",
-          },
-          {
             icon: "zap",
-            title: "Skills system",
-            desc: "Installable playbooks that teach Stella new workflows. Browse registries or write your own.",
+            title: "Skills",
+            desc: "Reusable playbooks teach agents consistent methods for review, screening, reporting, and follow-up.",
           },
           {
             icon: "plug",
-            title: "Plugins",
-            desc: "Extend Stella with custom code through the plugin system.",
+            title: "Tools and OAuth",
+            desc: "Agents can use connected services, APIs, files, notifications, and plugin-provided tools.",
+          },
+          {
+            icon: "brain",
+            title: "Memory and knowledge",
+            desc: "Combine professional reference material with per-user memory and shared preference context.",
           },
         ],
       },
       {
-        label: "Productivity",
+        label: "Execution",
         items: [
           {
-            icon: "book",
-            title: "Reading assistant",
-            desc: "Save articles, subscribe to RSS, get daily digests. Your personal library that summarizes everything.",
+            icon: "task",
+            title: "Task system",
+            desc: "Plan goals, track dependencies, define acceptance criteria, and route work through review.",
           },
           {
-            icon: "sparkles",
-            title: "Multi-provider models",
-            desc: "Anthropic, OpenAI, or any compatible API. Switch models per agent, per task.",
+            icon: "recally",
+            title: "Recally",
+            desc: "Save web pages and PDFs, subscribe to RSS, summarize, chat, and generate digests.",
           },
           {
-            icon: "clock",
-            title: "Proactive notifications",
-            desc: "Stella reaches out when something needs attention. Task done, job failed, or something you should know.",
+            icon: "shield",
+            title: "Sandbox and secrets",
+            desc: "Keep execution, network access, credentials, and workspaces inside controlled boundaries.",
           },
         ],
       },
     ],
     ctaTitle: "Run it yourself",
-    ctaSub: "Start locally, then add people, agents, tools, and channels as you grow.",
+    ctaSub:
+      "Start locally, create one shared professional agent, then add users, tools, tasks, and channels.",
     ctaAlt: "Also available via go install and direct binary download.",
+    workflowLabel: "How work moves",
+    workflowRows: [
+      {
+        owner: "HR",
+        ownerBody: "Defines referral rules, candidate screens, and interview steps.",
+        agent: "Referral Agent",
+        agentBody: "Reads candidate material, plans screening tasks, and routes follow-up.",
+        user: "Employee",
+        userBody: '"Help me process this referral."',
+      },
+      {
+        owner: "Finance",
+        ownerBody: "Maintains expense policy, invoice knowledge, and approval boundaries.",
+        agent: "Expense Agent",
+        agentBody: "Checks receipts, asks for missing details, and sends exceptions to review.",
+        user: "Sales",
+        userBody: '"Can this receipt be reimbursed?"',
+      },
+      {
+        owner: "Research",
+        ownerBody: "Subscribes to feeds, curates reading lists, and sets summary rules.",
+        agent: "Recally Agent",
+        agentBody: "Summarizes pages and PDFs, then keeps the conversation grounded.",
+        user: "Anyone",
+        userBody: '"What changed on this topic lately?"',
+      },
+    ],
   },
   zh: {
-    heroEyebrow: "AI 伙伴基础设施",
-    heroTitle: ["你的团队值得拥有", "专属", "AI。"],
+    heroEyebrow: "共享 AI 同事",
+    heroTitle: ["不用学习专业软件。", "把目标交给", "懂业务的 Agent。"],
     heroSub:
-      "Stella 是一套自托管的 AI 伙伴系统——记忆属于正确的人，工作属于正确的 agent，执行发生在你选择的边界内。",
-    productLabel: "stella — 会话",
-    systemsTitle: "Stella 为你做什么",
-    systemsSub: "不只是聊天机器人。一个能阅读、记忆、调度、持续执行的系统。",
+      "财务、HR、研究和工程团队创建带 instructions、skills、tools、knowledge 和记忆策略的共享 Agent。其他人只需要找到对应 Agent，像找同事一样说明目标。",
+    productLabel: "stella — goal 工作区",
+    systemsTitle: "从共享专业能力到完成工作",
+    systemsSub: "一次创建专业 Agent，让组织像使用真正同事一样使用它。",
     systems: [
       {
-        icon: "zap",
-        title: "与你一起成长的技能",
-        desc: "通过安装技能包来教 Stella 新的工作流——代码审查、内容写作、事故响应，或任何你自己构建的流程。每个技能带有自己的 prompt、工具和工作方式，让 agent 越来越擅长你团队真正在做的事。",
-        highlights: ["浏览共享注册表", "一步安装", "自定义编写"],
-      },
-      {
-        icon: "recally",
-        title: "跟得上你的阅读习惯",
-        desc: "丢一个链接，Stella 就会保存、总结并索引它。订阅 RSS 源，获取每日摘要，呈现真正重要的内容。你的个人图书馆会读完一切，让你专注于值得花时间的内容。",
-        highlights: ["保存任何文章", "订阅 RSS 源", "AI 生成的每日摘要"],
-      },
-      {
-        icon: "scheduler",
-        title: "真正会执行的日程",
-        desc: "设置晨报简报、定期健康检查或一次性提醒。Stella 按时执行指令、使用合适的工具，并将结果通知你——无需操心 cron 任务。",
-        highlights: ["Cron、间隔或一次性", "agent 自主执行任务", "结果推送到你的渠道"],
+        icon: "bot",
+        title: "创建共享专业 Agent",
+        desc: "财务、HR、工程、研究和运营团队都可以创建懂自己工作的 Agent。每个 Agent 都有自己的角色、instructions、knowledge、skills、tools 和渠道。",
+        highlights: ["由业务专家负责", "组织内共享使用", "按用户个性化"],
       },
       {
         icon: "task",
-        title: "有完整生命周期的任务",
-        desc: "创建 agent 从头到尾跟踪的任务。任务流经 pending、running、review、done——支持优先级、依赖关系，以及在 agent 需要你决策时的人工审批节点。",
-        highlights: ["优先级和依赖跟踪", "人工审批门控", "跨重启保持状态"],
+        title: "把 goal 变成任务 DAG",
+        desc: "给 Agent 一个 goal。Stella 可以规划工作、拆分 tasks、连接依赖、定义验收标准、追踪 blocker，并把结果送入 review。",
+        highlights: ["Goal 到 plan", "依赖和 blocker", "验收标准和 review"],
+      },
+      {
+        icon: "recally",
+        title: "用 Recally 阅读世界",
+        desc: "保存网页和 PDF，获取 AI 总结，围绕文章聊天，订阅 RSS，并维护一个持续跟进重点主题的阅读列表。",
+        highlights: ["网页和 PDF", "RSS 和 digests", "围绕文章聊天"],
+      },
+      {
+        icon: "message",
+        title: "在日常工作流中使用 Agent",
+        desc: "从 Web UI、终端、Telegram、QQ、飞书或微信和 Agent 对话。用户不需要学习每个工作流背后的专业软件。",
+        highlights: ["聊天式入口", "共享渠道", "工具藏在 Agent 后面"],
       },
     ],
     pillars: [
       {
-        title: "记忆有归属",
-        body: "每个用户与 agent 的关系都有专属记忆。你的编程伙伴可以学习你的方式，同一个 agent 也能以另一套上下文理解队友。",
+        title: "Agent 由业务领域负责",
+        body: "懂工作流的人创建 Agent，编写 instructions，挂载 knowledge，并决定 review 边界。",
       },
       {
-        title: "工作有边界",
-        body: "agent 在沙箱工作区中运行，拥有受控的工具访问和网络策略。有用的工作，清晰的限制。",
+        title: "所有人使用同一个专家",
+        body: "共享财务 Agent 或 HR Agent 给组织一个一致的专业同事，而不是到处散落的个人 prompts。",
       },
       {
-        title: "渠道只是入口",
-        body: "Telegram、QQ、飞书、微信、Web UI 和终端都连接到同一套伙伴系统。",
+        title: "每个 Agent 都可以认识你",
+        body: "Agent 保留每用户记忆，也可以在需要时使用共享用户记忆，让偏好跨 Agent 延续。",
       },
       {
-        title: "日程持续运行",
-        body: "定时任务、提醒、阅读摘要和后台任务跨重启保留，并通知正确的人。",
+        title: "Goal 变成可负责的工作",
+        body: "Plan、任务 DAG、验收标准、blocker 和 review 状态让 Agent 工作可检查，而不是埋在聊天里。",
       },
       {
-        title: "agent 各司其职",
-        body: "为编程、写作、运营、家庭事务创建不同 agent。每个都有自己的模型、工具、技能和工作方式。",
+        title: "阅读成为系统",
+        body: "Recally 把网页、PDF、RSS、总结和文章聊天变成持续更新的知识流。",
       },
     ],
     capGroups: [
       {
-        label: "身份与访问",
+        label: "组织",
         items: [
           {
             icon: "users",
-            title: "多用户身份",
-            desc: "一套 Stella 服务多人，每人拥有独立的密钥、记忆和 agent 关系。",
+            title: "多租户、多用户",
+            desc: "为组织运行 Stella，管理用户、共享 Agent 和隔离的数据边界。",
           },
           {
-            icon: "lock",
-            title: "密钥保险库",
-            desc: "API 密钥和令牌加密存储。运行时可用，对话中不会暴露。",
+            icon: "bot",
+            title: "共享 Agent 目录",
+            desc: "为财务、HR、工程、研究、运营或任何可重复的专业工作流创建 Agent。",
           },
           {
-            icon: "shield",
-            title: "沙箱执行",
-            desc: "按 agent 配置工作区，拥有明确的网络策略和工具边界。",
+            icon: "message",
+            title: "聊天渠道",
+            desc: "从 Web UI、终端、Telegram、QQ、飞书和微信使用同一批 Agent。",
           },
         ],
       },
       {
-        label: "智能体与技能",
+        label: "Agent 能力",
         items: [
           {
-            icon: "bot",
-            title: "专业智能体",
-            desc: "预建编程、研究、写作和审查模板。几秒钟内创建专注的智能体。",
-          },
-          {
             icon: "zap",
-            title: "技能系统",
-            desc: "可安装的工作流剧本，教 Stella 学习新流程。浏览注册表或自己编写。",
+            title: "Skills",
+            desc: "可复用 playbooks 教 Agent 稳定执行 review、筛选、报告和 follow-up。",
           },
           {
             icon: "plug",
-            title: "插件系统",
-            desc: "用自定义代码扩展 Stella。",
+            title: "Tools 和 OAuth",
+            desc: "Agent 可以使用连接服务、API、文件、通知和 plugin 提供的 tools。",
+          },
+          {
+            icon: "brain",
+            title: "Memory 和 knowledge",
+            desc: "把专业参考资料、每用户记忆和共享偏好上下文结合起来。",
           },
         ],
       },
       {
-        label: "生产力",
+        label: "执行",
         items: [
           {
-            icon: "book",
-            title: "阅读助手",
-            desc: "保存文章、订阅 RSS、获取每日摘要。你的个人图书馆，自动总结一切。",
+            icon: "task",
+            title: "任务系统",
+            desc: "规划 goal，追踪依赖，定义验收标准，并把工作送入 review。",
           },
           {
-            icon: "sparkles",
-            title: "多供应商模型",
-            desc: "Anthropic、OpenAI 或任何兼容 API。按智能体、按任务切换模型。",
+            icon: "recally",
+            title: "Recally",
+            desc: "保存网页和 PDF，订阅 RSS，总结、聊天并生成 digests。",
           },
           {
-            icon: "clock",
-            title: "主动通知",
-            desc: "需要你关注时 Stella 会主动联系你。任务完成、作业失败或你应该知道的事。",
+            icon: "shield",
+            title: "沙箱和密钥",
+            desc: "把执行、网络访问、凭证和工作区限制在受控边界内。",
           },
         ],
       },
     ],
     ctaTitle: "自己运行",
-    ctaSub: "从本地开始，然后按需添加用户、agent、工具和渠道。",
+    ctaSub: "从本地开始，创建一个共享专业 Agent，然后添加用户、tools、tasks 和渠道。",
     ctaAlt: "也支持 go install 和直接下载二进制文件。",
+    workflowLabel: "工作如何流转",
+    workflowRows: [
+      {
+        owner: "HR",
+        ownerBody: "定义内推规则、候选人筛选标准和面试流程。",
+        agent: "Referral Agent",
+        agentBody: "读取候选人材料，规划筛选任务，并安排下一步 follow-up。",
+        user: "员工",
+        userBody: "“帮我处理这个内推。”",
+      },
+      {
+        owner: "Finance",
+        ownerBody: "维护报销制度、发票知识库和审批边界。",
+        agent: "Expense Agent",
+        agentBody: "检查票据、拆任务、要求补充材料，并把例外送入 review。",
+        user: "销售",
+        userBody: "“这张票能报吗？”",
+      },
+      {
+        owner: "Research",
+        ownerBody: "订阅 RSS，维护主题、阅读列表和摘要规则。",
+        agent: "Recally Agent",
+        agentBody: "总结网页和 PDF，并围绕文章继续深入追问。",
+        user: "任何人",
+        userBody: "“这个主题最近有什么变化？”",
+      },
+    ],
   },
 };
 
-const ICON_MAP = {
+const ICON_MAP: Record<string, LucideIcon> = {
   brain: Brain,
   shield: Shield,
   message: MessageCircle,
   clock: Clock,
-  sparkles: Sparkles,
   users: Users,
   bot: Bot,
   zap: Zap,
   book: BookOpen,
-  lock: Lock,
   plug: Plug,
   recally: Rss,
   scheduler: CalendarClock,
@@ -365,17 +413,40 @@ function Home() {
 function HeroSection({ lang }: { lang: keyof typeof copy }) {
   const tr = t(lang);
   const c = copy[lang];
+  const isZh = lang === "zh";
+  const metrics = isZh
+    ? [
+        ["Agent", "财务 / HR / 工程"],
+        ["Work", "Goal 到任务 DAG"],
+        ["Review", "验收 + 人工确认"],
+      ]
+    : [
+        ["Agent", "Finance / HR / Eng"],
+        ["Work", "Goal to task DAG"],
+        ["Review", "Criteria + approval"],
+      ];
 
   return (
     <section className="home-hero">
-      <div className="home-hero-orb" />
       <div className="home-hero-grain" />
       <div className="home-shell">
+        <div className="home-hero-frame">
+          <span>
+            {isZh ? "Self-hosted agent operating surface" : "Self-hosted agent operating surface"}
+          </span>
+          <span>
+            {isZh
+              ? "多用户 / 共享 Agent / 可 review 的工作"
+              : "Multi-user / shared agents / reviewable work"}
+          </span>
+        </div>
         <div className="home-hero-layout">
           <div className="home-hero-copy">
             <span className="home-eyebrow">{c.heroEyebrow}</span>
             <h1 className="home-hero-title">
-              {c.heroTitle[0]} <em>{c.heroTitle[1]}</em> {c.heroTitle[2]}
+              <span>{c.heroTitle[0]}</span>
+              <em>{c.heroTitle[1]}</em>
+              <span>{c.heroTitle[2]}</span>
             </h1>
             <p className="home-hero-body">{c.heroSub}</p>
             <div className="home-actions">
@@ -395,118 +466,60 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
                 {tr.sourceOnGithub}
               </a>
             </div>
+            <dl
+              className="home-hero-metrics"
+              aria-label={isZh ? "Stella 核心模型" : "Stella operating model"}
+            >
+              {metrics.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
 
-          <ProductPreview lang={lang} />
+          <WorkflowPreview lang={lang} />
         </div>
       </div>
     </section>
   );
 }
 
-function ProductPreview({ lang }: { lang: keyof typeof copy }) {
+function WorkflowPreview({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
   const isZh = lang === "zh";
 
   return (
-    <div className="home-product" aria-label={c.productLabel}>
-      <div className="home-product-chrome">
-        <span className="home-product-dot" />
-        <span className="home-product-dot" />
-        <span className="home-product-dot" />
-        <span className="home-product-title">{c.productLabel}</span>
+    <div className="home-workflow-preview" aria-label={c.workflowLabel}>
+      <div className="home-workflow-chrome" aria-hidden>
+        <span>Stella OS</span>
+        <span>{isZh ? "Shared agents" : "Shared agents"}</span>
       </div>
-      <div className="home-product-body">
-        <div className="home-product-sidebar">
-          <div className="home-product-nav-item home-product-nav-active">
-            <MessageCircle className="size-3.5" />
-            <span>{isZh ? "会话" : "Sessions"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <Bot className="size-3.5" />
-            <span>{isZh ? "智能体" : "Agents"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <BookOpen className="size-3.5" />
-            <span>{isZh ? "阅读" : "Recally"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <CalendarClock className="size-3.5" />
-            <span>{isZh ? "调度" : "Scheduler"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <ListTodo className="size-3.5" />
-            <span>{isZh ? "任务" : "Tasks"}</span>
-          </div>
-        </div>
-
-        <div className="home-product-chat">
-          <div className="home-product-msg home-product-msg-user">
-            <p>
-              {isZh
-                ? "帮我审查这个 PR 的安全性，重点关注 auth 中间件的改动"
-                : "Review this PR for security issues, focus on the auth middleware changes"}
-            </p>
-          </div>
-          <div className="home-product-msg home-product-msg-assistant">
-            <div className="home-product-avatar">S</div>
-            <div className="home-product-msg-content">
-              <div className="home-product-tool">
-                <Zap className="size-3" />
-                <span>read_file</span>
-                <span className="home-product-tool-status">✓</span>
-              </div>
-              <div className="home-product-tool">
-                <Zap className="size-3" />
-                <span>github_pr_diff</span>
-                <span className="home-product-tool-status">✓</span>
-              </div>
-              <p>
-                {isZh
-                  ? "发现两个问题：1) session token 未设置 httpOnly 标志 2) CORS 配置允许通配符来源..."
-                  : "Found 2 issues: 1) session token missing httpOnly flag 2) CORS config allows wildcard origins..."}
-              </p>
+      <div className="home-workflow-topline">
+        <span>{c.workflowLabel}</span>
+        <span>{isZh ? "Owner / Agent / User" : "Owner / Agent / User"}</span>
+      </div>
+      <div className="home-workflow-rows">
+        {c.workflowRows.map((row) => (
+          <div key={row.agent} className="home-workflow-row">
+            <div className="home-flow-cell">
+              <span className="home-flow-label">{isZh ? "Owner" : "Owner"}</span>
+              <strong>{row.owner}</strong>
+              <p>{row.ownerBody}</p>
+            </div>
+            <div className="home-flow-cell home-flow-agent">
+              <span className="home-flow-label">{isZh ? "Agent" : "Agent"}</span>
+              <strong>{row.agent}</strong>
+              <p>{row.agentBody}</p>
+            </div>
+            <div className="home-flow-cell">
+              <span className="home-flow-label">{isZh ? "User" : "User"}</span>
+              <strong>{row.user}</strong>
+              <p>{row.userBody}</p>
             </div>
           </div>
-          <div className="home-product-msg home-product-msg-user">
-            <p>{isZh ? "修复它们并提交" : "Fix them and commit"}</p>
-          </div>
-          <div className="home-product-msg home-product-msg-assistant">
-            <div className="home-product-avatar">S</div>
-            <div className="home-product-msg-content">
-              <div className="home-product-tool home-product-tool-running">
-                <Zap className="size-3" />
-                <span>edit_file</span>
-                <span className="home-product-dots">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="home-product-input">
-            <span className="home-product-input-placeholder">
-              {isZh ? "发送消息..." : "Send a message..."}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="home-product-features">
-        <span className="home-product-badge home-product-badge-1">
-          <Brain className="size-3" />
-          {isZh ? "记住你的偏好" : "Remembers your style"}
-        </span>
-        <span className="home-product-badge home-product-badge-2">
-          <Shield className="size-3" />
-          {isZh ? "沙箱执行" : "Sandboxed execution"}
-        </span>
-        <span className="home-product-badge home-product-badge-3">
-          <Lock className="size-3" />
-          {isZh ? "自托管" : "Self-hosted"}
-        </span>
+        ))}
       </div>
     </div>
   );

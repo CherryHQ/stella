@@ -1,106 +1,66 @@
 ---
 title: Stella
-description: AI partners for every person.
+description: Shared AI coworkers for every team.
 icon: Bot
 ---
 
 import { Cards, Card } from "@/components/docs/mdx-components";
 
-Stella gives every person an AI partner that remembers them, works through trusted tools, and shows up where they already chat.
+Stella helps organizations create shared professional AI agents. Domain owners give an agent instructions, skills, tools, knowledge, and memory rules. Everyone else just chats with that agent, gives it a goal, and lets Stella turn the goal into tracked work.
 
-Use Stella as a teammate at work, a manager for home routines, or a private assistant for personal projects. Each user-agent relationship has its own memory, workspace, tools, schedules, and sandbox boundaries.
+Use Stella when a team needs a repeatable expert: a Finance agent for reimbursement work, an HR agent for referrals and hiring, an Engineering agent for reviews and releases, or a Research agent that keeps reading and summarizing the web for you.
 
-Stella is built for multiple tenants, multiple users, and multiple agents from the start. Deploy her where you want, use your own model API keys, and talk to her from Telegram, QQ, Feishu, WeChat, the Web UI, or the terminal.
-
-## Quick Start
-
-```bash
-# Install
-brew install CherryHQ/tap/stella
-
-# Start the server — Web UI at http://localhost:25678
-stella server
-```
-
-## Getting Started
+## Start Here
 
 <Cards>
   <Card
-    title="Quick Start"
-    description="Install, configure, and have your first conversation in 5 minutes"
-    href="/docs/getting-started/quickstart"
+    title="Start Here"
+    description="Learn what Stella is and how shared agents fit into daily work"
+    href="/docs/start-here"
   />
   <Card
-    title="Deployment"
-    description="Run as a service, Docker, systemd"
-    href="/docs/getting-started/deployment"
+    title="Work with Agents"
+    description="Chat with shared agents, give them goals, and use their memory"
+    href="/docs/work-with-agents"
   />
   <Card
-    title="Configuration"
-    description="Web UI settings, providers, agents"
-    href="/docs/getting-started/configuration"
+    title="Build Shared Agents"
+    description="Create professional agents with instructions, skills, tools, and knowledge"
+    href="/docs/build-shared-agents"
   />
 </Cards>
 
-## Guides
+## Core Systems
 
 <Cards>
   <Card
-    title="Memory"
-    description="How Stella remembers your conversations and preferences"
-    href="/docs/guides/memory"
+    title="Task System"
+    description="Turn goals into plans, task DAGs, acceptance criteria, and reviews"
+    href="/docs/task-system"
   />
   <Card
-    title="Scheduling"
-    description="Set up reminders and recurring tasks"
-    href="/docs/guides/scheduling"
+    title="Recally"
+    description="Read web pages and PDFs, subscribe to RSS, summarize, and chat with articles"
+    href="/docs/recally"
   />
   <Card
-    title="Models"
-    description="Providers, model tiers, and switching models"
-    href="/docs/guides/models"
-  />
-  <Card
-    title="Skills"
-    description="Browse and install reusable skill bundles"
-    href="/docs/guides/skills"
-  />
-  <Card
-    title="Reading Assistant"
-    description="Save articles, RSS feeds, and daily digests"
-    href="/docs/guides/reading-assistant"
-  />
-  <Card
-    title="Secrets & Keys"
-    description="Store API keys and tokens securely"
-    href="/docs/guides/secrets-and-keys"
+    title="Channels"
+    description="Use Stella from Telegram, QQ, Feishu, WeChat, Web UI, and the terminal"
+    href="/docs/channels"
   />
 </Cards>
 
-## Channels
+## Operate and Extend
 
 <Cards>
   <Card
-    title="Telegram"
-    description="Long polling, streaming, groups"
-    href="/docs/channels/telegram"
-  />
-  <Card title="QQ" description="WebSocket, native streaming" href="/docs/channels/qq" />
-  <Card title="Feishu" description="WebSocket, auto-provisioning" href="/docs/channels/feishu" />
-  <Card title="WeChat" description="iLink Bot, QR login" href="/docs/channels/weixin" />
-</Cards>
-
-## Development
-
-<Cards>
-  <Card
-    title="Architecture"
-    description="System design, packages, internals"
-    href="/docs/development/architecture"
+    title="Admin"
+    description="Run Stella for an organization: users, providers, secrets, channels, and safety"
+    href="/docs/admin"
   />
   <Card
-    title="Plugin System"
-    description="Build and extend with plugins"
-    href="/docs/development/plugin-system"
+    title="Extend Stella"
+    description="Build skills, plugins, integrations, and developer workflows"
+    href="/docs/extend-stella"
   />
 </Cards>
