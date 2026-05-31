@@ -1,4 +1,15 @@
 {
   "title": "文档",
-  "pages": ["index", "getting-started", "guides", "channels", "development", "plugins", "changelog"]
+  "pages": [
+    "index",
+    "start-here",
+    "work-with-agents",
+    "build-shared-agents",
+    "task-system",
+    "recally",
+    "channels",
+    "admin",
+    "extend-stella",
+    "changelog"
+  ]
 }

@@ -1,82 +1,66 @@
 ---
 title: Stella
-description: 给每个人一个 AI 伙伴
+description: 为每个团队创建共享的 AI 同事
 icon: Bot
 ---
 
 import { Cards, Card } from "@/components/docs/mdx-components";
 
-Stella 为每个人提供一个会记住你、能使用可信工具做事、并出现在常用聊天工具里的 AI 伙伴。
+Stella 帮助组织创建共享的专业 AI Agent。业务负责人为 Agent 配置 instructions、skills、tools、knowledge 和记忆策略；其他人只需要像找同事一样聊天，把 goal 交给它，Stella 会把 goal 推进成可追踪的工作。
 
-你可以把 Stella 用作公司的同事、家庭事务的管家，或个人项目的私人助手。每个用户和每个 agent 之间都有独立的记忆、工作区、工具、定时任务和沙箱边界。
+当团队需要一个可复用的专家时，就应该使用 Stella：财务 Agent 处理报销，HR Agent 处理内推和招聘，工程 Agent 处理代码审查和发布，研究 Agent 持续阅读并总结网页和 PDF。
 
-Stella 从一开始就是多租户、多用户、多 agent 系统。你可以把她部署在自己选择的环境里，使用自己的模型 API 密钥，并从 Telegram、QQ、飞书、微信、Web UI 或终端与她对话。
-
-## 快速开始
-
-```bash
-# 安装
-brew install CherryHQ/tap/stella
-
-# 启动服务器 —— Web UI：http://localhost:25678
-stella server
-```
-
-## 入门
+## 从这里开始
 
 <Cards>
   <Card
-    title="快速开始"
-    description="5 分钟内完成安装、配置并开始第一次对话"
-    href="/docs/getting-started/quickstart"
+    title="从这里开始"
+    description="了解 Stella 是什么，以及共享 Agent 如何进入日常工作"
+    href="/docs/start-here"
   />
   <Card
-    title="部署"
-    description="后台服务、Docker、systemd"
-    href="/docs/getting-started/deployment"
+    title="使用 Agent 工作"
+    description="与共享 Agent 聊天，交付 goal，并使用它对你的记忆"
+    href="/docs/work-with-agents"
   />
   <Card
-    title="配置"
-    description="Web UI设置、提供商、代理"
-    href="/docs/getting-started/configuration"
+    title="创建共享 Agent"
+    description="用 instructions、skills、tools 和 knowledge 创建专业 Agent"
+    href="/docs/build-shared-agents"
   />
 </Cards>
 
-## 使用指南
+## 核心系统
 
 <Cards>
-  <Card title="记忆" description="Stella 如何记住你的对话和偏好" href="/docs/guides/memory" />
-  <Card title="定时任务" description="设置提醒和周期性任务" href="/docs/guides/scheduling" />
-  <Card title="模型" description="提供商、模型分层和切换模型" href="/docs/guides/models" />
-  <Card title="技能" description="浏览和安装可复用的技能包" href="/docs/guides/skills" />
   <Card
-    title="阅读助手"
-    description="保存文章、RSS 订阅和每日摘要"
-    href="/docs/guides/reading-assistant"
+    title="任务系统"
+    description="把 goal 转成 plan、任务 DAG、验收标准和 review 流程"
+    href="/docs/task-system"
   />
   <Card
-    title="密钥管理"
-    description="安全存储 API 密钥和令牌"
-    href="/docs/guides/secrets-and-keys"
+    title="Recally"
+    description="阅读网页和 PDF，订阅 RSS，自动总结，并围绕文章继续聊天"
+    href="/docs/recally"
+  />
+  <Card
+    title="渠道"
+    description="通过 Telegram、QQ、飞书、微信、Web UI 和终端使用 Stella"
+    href="/docs/channels"
   />
 </Cards>
 
-## 渠道
-
-<Cards>
-  <Card title="Telegram" description="长轮询、流式响应、群组" href="/docs/channels/telegram" />
-  <Card title="QQ" description="WebSocket、原生流式" href="/docs/channels/qq" />
-  <Card title="飞书" description="WebSocket、自动配置" href="/docs/channels/feishu" />
-  <Card title="微信" description="iLink Bot、扫码登录" href="/docs/channels/weixin" />
-</Cards>
-
-## 开发
+## 运行和扩展
 
 <Cards>
   <Card
-    title="架构"
-    description="系统设计、包结构、内部实现"
-    href="/docs/development/architecture"
+    title="管理"
+    description="为组织运行 Stella：用户、模型、密钥、渠道和安全边界"
+    href="/docs/admin"
   />
-  <Card title="插件系统" description="构建和扩展插件" href="/docs/development/plugin-system" />
+  <Card
+    title="扩展 Stella"
+    description="构建 skills、plugins、集成和开发者工作流"
+    href="/docs/extend-stella"
+  />
 </Cards>
