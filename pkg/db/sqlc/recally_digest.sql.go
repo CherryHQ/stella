@@ -10,7 +10,7 @@ import (
 )
 
 const addDigestArticle = `-- name: AddDigestArticle :exec
-INSERT INTO recally_digest_articles (digest_id, article_id, section, position)
+INSERT INTO recally_digest_article (digest_id, article_id, section, position)
 VALUES (?, ?, ?, ?)
 ON CONFLICT(digest_id, article_id, section) DO NOTHING
 `
@@ -103,7 +103,7 @@ func (q *Queries) CreateDigest(ctx context.Context, arg CreateDigestParams) (Rec
 }
 
 const deleteDigestArticles = `-- name: DeleteDigestArticles :exec
-DELETE FROM recally_digest_articles WHERE digest_id = ? AND section = ?
+DELETE FROM recally_digest_article WHERE digest_id = ? AND section = ?
 `
 
 type DeleteDigestArticlesParams struct {
@@ -149,7 +149,7 @@ func (q *Queries) GetDigestByDate(ctx context.Context, arg GetDigestByDateParams
 
 const listDigestArticles = `-- name: ListDigestArticles :many
 SELECT a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at
-FROM recally_digest_articles da
+FROM recally_digest_article da
 JOIN recally_article a ON a.id = da.article_id
 WHERE da.digest_id = ? AND da.section = ?
 ORDER BY da.position ASC

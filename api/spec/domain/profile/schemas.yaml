@@ -36,8 +36,8 @@ components:
       required: [name, created_at, updated_at]
       properties:
         name: { type: string }
-        created_at: { type: string }
-        updated_at: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
     SetVaultEntryRequest:
       type: object
@@ -88,7 +88,7 @@ components:
         flow_id: { type: string }
         verification_uri: { type: string }
         user_code: { type: string }
-        expires_at: { type: string }
+        expires_at: { type: string, format: date-time }
         state: { type: string }
 
     OAuthConnectedResponse:

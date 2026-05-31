@@ -24,7 +24,7 @@ func (q *Queries) DeleteUserAgentMemory(ctx context.Context, arg DeleteUserAgent
 }
 
 const getUserAgentMemory = `-- name: GetUserAgentMemory :one
-SELECT user_id, agent_id, content, soul, version, constraints, updated_at FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
+SELECT user_id, agent_id, content, soul, version, constraints, created_at, updated_at FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
 `
 
 type GetUserAgentMemoryParams struct {
@@ -42,13 +42,14 @@ func (q *Queries) GetUserAgentMemory(ctx context.Context, arg GetUserAgentMemory
 		&i.Soul,
 		&i.Version,
 		&i.Constraints,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listUserAgentMemoriesByUser = `-- name: ListUserAgentMemoriesByUser :many
-SELECT user_id, agent_id, content, soul, version, constraints, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
+SELECT user_id, agent_id, content, soul, version, constraints, created_at, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
 `
 
 func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID string) ([]CtxAgentMemory, error) {
@@ -67,6 +68,7 @@ func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID string
 			&i.Soul,
 			&i.Version,
 			&i.Constraints,
+			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -89,7 +91,7 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
     constraints = excluded.constraints,
     version = ctx_agent_memory.version + 1,
     updated_at = datetime('now')
-RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
+RETURNING user_id, agent_id, content, soul, version, constraints, created_at, updated_at
 `
 
 type UpsertAgentConstraintsParams struct {
@@ -108,6 +110,7 @@ func (q *Queries) UpsertAgentConstraints(ctx context.Context, arg UpsertAgentCon
 		&i.Soul,
 		&i.Version,
 		&i.Constraints,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -139,7 +142,7 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
     soul = excluded.soul,
     version = ctx_agent_memory.version + 1,
     updated_at = datetime('now')
-RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
+RETURNING user_id, agent_id, content, soul, version, constraints, created_at, updated_at
 `
 
 type UpsertAgentSoulVersionedParams struct {
@@ -158,6 +161,7 @@ func (q *Queries) UpsertAgentSoulVersioned(ctx context.Context, arg UpsertAgentS
 		&i.Soul,
 		&i.Version,
 		&i.Constraints,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -189,7 +193,7 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
     content = excluded.content,
     version = ctx_agent_memory.version + 1,
     updated_at = datetime('now')
-RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
+RETURNING user_id, agent_id, content, soul, version, constraints, created_at, updated_at
 `
 
 type UpsertUserAgentMemoryVersionedParams struct {
@@ -208,6 +212,7 @@ func (q *Queries) UpsertUserAgentMemoryVersioned(ctx context.Context, arg Upsert
 		&i.Soul,
 		&i.Version,
 		&i.Constraints,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err

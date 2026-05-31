@@ -15,17 +15,17 @@ import (
 
 // skillView is the JSON representation of a skill returned by the API.
 type skillView struct {
-	ID                     string   `json:"id"`
-	Scope                  string   `json:"scope"`
-	UserID                 string   `json:"user_id,omitempty"`
-	AgentID                string   `json:"agent_id,omitempty"`
-	Name                   string   `json:"name"`
-	Description            string   `json:"description"`
-	Status                 string   `json:"status"`
-	DisableModelInvocation bool     `json:"disable_model_invocation"`
-	Files                  []string `json:"files"`
-	CreatedAt              string   `json:"created_at"`
-	UpdatedAt              string   `json:"updated_at"`
+	ID                     string    `json:"id"`
+	Scope                  string    `json:"scope"`
+	UserID                 string    `json:"user_id,omitempty"`
+	AgentID                string    `json:"agent_id,omitempty"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description"`
+	Status                 string    `json:"status"`
+	DisableModelInvocation bool      `json:"disable_model_invocation"`
+	Files                  []string  `json:"files"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 func (s *Server) skillStore() skills.Store {

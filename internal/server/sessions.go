@@ -380,16 +380,16 @@ func detectMIME(name string) string {
 
 // sessionResponse is a JSON-friendly representation of memory.SessionInfo.
 type sessionResponse struct {
-	ID         string `json:"id"`
-	Channel    string `json:"channel"`
-	Kind       string `json:"kind"`
-	ProjectID  string `json:"project_id,omitempty"`
-	Title      string `json:"title"`
-	AgentID    string `json:"agent_id"`
-	UserID     string `json:"user_id"`
-	CreatedAt  string `json:"created_at"`
-	LastActive string `json:"last_active"`
-	Archived   bool   `json:"archived"`
+	ID         string    `json:"id"`
+	Channel    string    `json:"channel"`
+	Kind       string    `json:"kind"`
+	ProjectID  string    `json:"project_id,omitempty"`
+	Title      string    `json:"title"`
+	AgentID    string    `json:"agent_id"`
+	UserID     string    `json:"user_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastActive time.Time `json:"last_active"`
+	Archived   bool      `json:"archived"`
 }
 
 // sessionDetailResponse extends sessionResponse with resolved names.
@@ -408,8 +408,8 @@ func toSessionResponse(info memory.SessionInfo) sessionResponse {
 		Title:      info.Title,
 		AgentID:    info.AgentID,
 		UserID:     info.UserID,
-		CreatedAt:  info.CreatedAt.Format(time.RFC3339),
-		LastActive: info.LastActive.Format(time.RFC3339),
+		CreatedAt:  info.CreatedAt.UTC(),
+		LastActive: info.LastActive.UTC(),
 		Archived:   info.Archived,
 	}
 }

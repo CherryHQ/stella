@@ -27,7 +27,7 @@ func NewDBStore(db *sql.DB) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
-// --- Providers (backed by settings_provider) ---
+// --- Providers (backed by provider) ---
 
 func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) {
 	rows, err := s.q.ListProviders(ctx)
@@ -431,7 +431,7 @@ func (s *DBStore) DeleteManifestPluginOverride(ctx context.Context, pluginID str
 	return s.q.DeleteManifestPluginOverride(ctx, pluginID)
 }
 
-func manifestOverrideFromDB(r sqlc.SettingsManifestPluginOverride) config.ManifestPluginOverride {
+func manifestOverrideFromDB(r sqlc.PluginOverride) config.ManifestPluginOverride {
 	out := config.ManifestPluginOverride{
 		PluginID:           r.PluginID,
 		SessionEnvVaultKey: r.SessionEnvVaultKey,
@@ -450,7 +450,7 @@ func (s *DBStore) mergedPlugins(ctx context.Context, filter func(config.Plugin) 
 	if err != nil {
 		return nil, fmt.Errorf("list plugin overrides: %w", err)
 	}
-	overrides := make(map[string]sqlc.SettingsPlugin, len(rows))
+	overrides := make(map[string]sqlc.Plugin, len(rows))
 	for _, r := range rows {
 		overrides[r.ID] = r
 	}
@@ -802,7 +802,7 @@ func parseSandboxConfig(raw string) (config.SandboxConfig, error) {
 	return cfg, nil
 }
 
-func providerFromDB(r sqlc.SettingsProvider) config.Provider {
+func providerFromDB(r sqlc.Provider) config.Provider {
 	cfg := map[string]any{}
 	if r.Config != "" {
 		_ = json.Unmarshal([]byte(r.Config), &cfg)
@@ -937,7 +937,7 @@ func envFallback(dst *string, envKey string) {
 	}
 }
 
-func agentFromDB(r sqlc.SettingsAgent) (config.Agent, error) {
+func agentFromDB(r sqlc.Agent) (config.Agent, error) {
 	scope := r.Scope
 	if scope == "" {
 		scope = config.AgentScopeSystem
@@ -978,7 +978,7 @@ func collectProviderIDs(models ...string) []string {
 	return out
 }
 
-func pluginFromDB(r sqlc.SettingsPlugin) config.Plugin {
+func pluginFromDB(r sqlc.Plugin) config.Plugin {
 	var cfg map[string]any
 	if r.Config != "" && r.Config != "{}" {
 		_ = json.Unmarshal([]byte(r.Config), &cfg)
@@ -995,7 +995,7 @@ func pluginFromDB(r sqlc.SettingsPlugin) config.Plugin {
 	}
 }
 
-func channelFromDB(r sqlc.SettingsChannel) config.Channel {
+func channelFromDB(r sqlc.Channel) config.Channel {
 	agentID := ""
 	if r.AgentID.Valid {
 		agentID = r.AgentID.String

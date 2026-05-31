@@ -36,7 +36,7 @@ func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID st
 
 	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
 
-	var projects []sqlc.SettingsProject
+	var projects []sqlc.Project
 	var err error
 	if includeArchived {
 		projects, err = s.q.ListProjectsAll(r.Context(), sqlc.ListProjectsAllParams{
@@ -215,18 +215,18 @@ func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID s
 }
 
 type projectResponse struct {
-	ID          string `json:"id"`
-	AgentID     string `json:"agent_id"`
-	UserID      string `json:"user_id"`
-	Name        string `json:"name"`
-	BaseDir     string `json:"base_dir"`
-	Description string `json:"description,omitempty"`
-	Archived    bool   `json:"archived"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID          string    `json:"id"`
+	AgentID     string    `json:"agent_id"`
+	UserID      string    `json:"user_id"`
+	Name        string    `json:"name"`
+	BaseDir     string    `json:"base_dir"`
+	Description string    `json:"description,omitempty"`
+	Archived    bool      `json:"archived"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func toProjectResponse(p sqlc.SettingsProject) projectResponse {
+func toProjectResponse(p sqlc.Project) projectResponse {
 	r := projectResponse{
 		ID:        p.ID,
 		AgentID:   p.AgentID,
@@ -234,19 +234,11 @@ func toProjectResponse(p sqlc.SettingsProject) projectResponse {
 		Name:      p.Name,
 		BaseDir:   p.BaseDir,
 		Archived:  p.Archived != 0,
-		CreatedAt: parseProjectTime(p.CreatedAt),
-		UpdatedAt: parseProjectTime(p.UpdatedAt),
+		CreatedAt: parseTime(p.CreatedAt),
+		UpdatedAt: parseTime(p.UpdatedAt),
 	}
 	if p.Description.Valid {
 		r.Description = p.Description.String
 	}
 	return r
-}
-
-func parseProjectTime(s string) string {
-	t, err := time.Parse("2006-01-02 15:04:05", s)
-	if err != nil {
-		return s
-	}
-	return t.UTC().Format(time.RFC3339)
 }

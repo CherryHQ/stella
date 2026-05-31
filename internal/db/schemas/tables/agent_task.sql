@@ -5,7 +5,7 @@
 CREATE TABLE agent_task (
     id                  TEXT NOT NULL PRIMARY KEY,
     user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id            TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,  -- D12: creator, NOT assignee
+    agent_id            TEXT REFERENCES agent(id) ON DELETE SET NULL,  -- D12: creator, NOT assignee
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,        -- Slice 3
     title               TEXT NOT NULL,
     description         TEXT NOT NULL DEFAULT '',

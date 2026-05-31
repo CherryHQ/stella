@@ -69,7 +69,7 @@ func vaultListCommand() *ucli.Command {
 			fmt.Printf("%-30s  %-20s  %-20s\n", "NAME", "CREATED", "UPDATED")
 			for _, e := range entries {
 				fmt.Printf("%-30s  %-20s  %-20s\n",
-					truncate(e.Name, 30), truncate(e.CreatedAt, 20), truncate(e.UpdatedAt, 20))
+					truncate(e.Name, 30), e.CreatedAt.Format("2006-01-02 15:04:05"), e.UpdatedAt.Format("2006-01-02 15:04:05"))
 			}
 			return nil
 		},

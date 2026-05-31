@@ -161,8 +161,8 @@ func resolvedSkillToView(rs skillstool.ResolvedSkill) skillView {
 		Status:                 rs.Status,
 		DisableModelInvocation: rs.DisableModelInvocation,
 		Files:                  files,
-		CreatedAt:              rs.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:              rs.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		CreatedAt:              rs.CreatedAt.UTC(),
+		UpdatedAt:              rs.UpdatedAt.UTC(),
 	}
 }
 

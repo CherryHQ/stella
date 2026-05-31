@@ -28,8 +28,8 @@ components:
         title: { type: string }
         agent_id: { type: string }
         user_id: { type: string }
-        created_at: { type: string }
-        last_active: { type: string }
+        created_at: { type: string, format: date-time }
+        last_active: { type: string, format: date-time }
         archived: { type: boolean }
 
     SessionDetail:

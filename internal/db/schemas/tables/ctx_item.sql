@@ -12,4 +12,4 @@ CREATE TABLE ctx_item (
     )
 );
 
-CREATE INDEX idx_ctx_items_conv ON ctx_item(conversation_id, ordinal);
+CREATE INDEX idx_ctx_item_conv ON ctx_item(conversation_id, ordinal);

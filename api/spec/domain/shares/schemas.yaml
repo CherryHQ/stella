@@ -13,8 +13,8 @@ components:
         url: { type: string }
         title: { type: string }
         media_type: { type: string }
-        expires_at: { type: string, nullable: true }
-        created_at: { type: string }
+        expires_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
 
     CreateShareRequest:
       type: object

@@ -10,8 +10,8 @@ CREATE TABLE agent_task_run (
     task_id             TEXT REFERENCES agent_task(id) ON DELETE CASCADE,
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,
     user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id            TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,   -- delegator (creator of this run)
-    executor_agent_id   TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,   -- D13: resolved at claim
+    agent_id            TEXT REFERENCES agent(id) ON DELETE SET NULL,   -- delegator (creator of this run)
+    executor_agent_id   TEXT REFERENCES agent(id) ON DELETE SET NULL,   -- D13: resolved at claim
     kind                TEXT NOT NULL DEFAULT 'worker' CHECK (kind IN ('worker','reviewer','planner','synthesizer')),
     attempt_no          INTEGER NOT NULL DEFAULT 1,
     status              TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','failed','cancelled','interrupted','timed_out')),

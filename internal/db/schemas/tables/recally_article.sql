@@ -1,7 +1,7 @@
 CREATE TABLE recally_article (
     id            TEXT NOT NULL PRIMARY KEY,
     user_id       TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id      TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,
+    agent_id      TEXT REFERENCES agent(id) ON DELETE SET NULL,
     url           TEXT NOT NULL,
     canonical_url TEXT NOT NULL,
     source_type   TEXT NOT NULL DEFAULT 'web'
@@ -22,11 +22,11 @@ CREATE TABLE recally_article (
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX idx_articles_user_canonical ON recally_article (user_id, canonical_url);
-CREATE INDEX idx_articles_user_status ON recally_article (user_id, status);
-CREATE INDEX idx_articles_user_source ON recally_article (user_id, source_type);
-CREATE INDEX idx_articles_user_starred ON recally_article (user_id, starred) WHERE starred = 1;
-CREATE INDEX idx_articles_saved_at ON recally_article (saved_at);
+CREATE UNIQUE INDEX idx_recally_article_user_canonical ON recally_article (user_id, canonical_url);
+CREATE INDEX idx_recally_article_user_status ON recally_article (user_id, status);
+CREATE INDEX idx_recally_article_user_source ON recally_article (user_id, source_type);
+CREATE INDEX idx_recally_article_user_starred ON recally_article (user_id, starred) WHERE starred = 1;
+CREATE INDEX idx_recally_article_saved_at ON recally_article (saved_at);
 
 -- TODO: Add FTS5 virtual table for full-text search in a future phase.
 -- FTS5 requires a compiled SQLite extension that may not be available in Atlas.

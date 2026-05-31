@@ -45,8 +45,8 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request) {
 			Id:        row.ID,
 			Title:     row.Title,
 			MediaType: row.MediaType,
-			ExpiresAt: nullStringPtr(row.ExpiresAt),
-			CreatedAt: row.CreatedAt,
+			ExpiresAt: parseTimePtr(row.ExpiresAt),
+			CreatedAt: parseTime(row.CreatedAt),
 		})
 	}
 	writeData(w, http.StatusOK, out)
@@ -98,8 +98,8 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		Url:       shareURL(r, token),
 		Title:     share.Title,
 		MediaType: share.MediaType,
-		ExpiresAt: nullStringPtr(share.ExpiresAt),
-		CreatedAt: share.CreatedAt,
+		ExpiresAt: parseTimePtr(share.ExpiresAt),
+		CreatedAt: parseTime(share.CreatedAt),
 	})
 }
 
@@ -350,13 +350,6 @@ func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share, effectiveMe
 	default:
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
 	}
-}
-
-func nullStringPtr(v sql.NullString) *string {
-	if !v.Valid {
-		return nil
-	}
-	return &v.String
 }
 
 var _ apiserver.ServerInterface = (*Server)(nil)

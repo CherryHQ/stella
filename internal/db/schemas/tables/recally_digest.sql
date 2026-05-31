@@ -15,10 +15,10 @@ CREATE TABLE recally_digest (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX idx_recally_digests_user_date ON recally_digest (user_id, date);
-CREATE INDEX idx_recally_digests_user_id ON recally_digest (user_id);
+CREATE UNIQUE INDEX idx_recally_digest_user_date ON recally_digest (user_id, date);
+CREATE INDEX idx_recally_digest_user_id ON recally_digest (user_id);
 
-CREATE TABLE recally_digest_articles (
+CREATE TABLE recally_digest_article (
     digest_id  TEXT NOT NULL REFERENCES recally_digest(id) ON DELETE CASCADE,
     article_id TEXT NOT NULL REFERENCES recally_article(id) ON DELETE CASCADE,
     section    TEXT NOT NULL CHECK (section IN ('saved_yesterday', 'worth_revisiting')),
@@ -26,4 +26,4 @@ CREATE TABLE recally_digest_articles (
     PRIMARY KEY (digest_id, article_id, section)
 );
 
-CREATE INDEX idx_recally_digest_articles_digest ON recally_digest_articles (digest_id);
+CREATE INDEX idx_recally_digest_article_digest ON recally_digest_article (digest_id);

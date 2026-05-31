@@ -2,7 +2,7 @@ CREATE TABLE skill (
     id          TEXT PRIMARY KEY,
     scope       TEXT NOT NULL CHECK (scope IN ('system','agent','user')),
     user_id     TEXT    REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id    TEXT    REFERENCES settings_agent(id) ON DELETE CASCADE,
+    agent_id    TEXT    REFERENCES agent(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
     description TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'active'
@@ -19,8 +19,8 @@ CREATE TABLE skill (
     )
 );
 
-CREATE UNIQUE INDEX idx_skills_owner_name
+CREATE UNIQUE INDEX idx_skill_owner_name
     ON skill (name, scope, ifnull(user_id, 0), ifnull(agent_id, ''));
 
-CREATE INDEX idx_skills_visibility
+CREATE INDEX idx_skill_visibility
     ON skill (scope, user_id, agent_id);

@@ -15,8 +15,8 @@ import (
 const oidcTimeLayout = "2006-01-02 15:04:05"
 
 // OIDCStore implements auth store interfaces using raw SQL against the OIDC
-// tables (auth_user, auth_identity, auth_session, plugin_channel_identity,
-// auth_credential, oidc_code, oidc_access_token).
+// tables (auth_user, auth_identity, auth_session, channel_identity,
+// auth_credential, auth_oidc_code, auth_oidc_access_token).
 type OIDCStore struct {
 	db    dbQuerier
 	rawDB *sql.DB // non-nil only for the root store; nil for tx-scoped copies
@@ -375,7 +375,7 @@ func scanLoginIdentity(r rowScanner) (auth.LoginIdentity, error) {
 // ---- ChannelIdentityStore ----
 
 func (s *OIDCStore) CreateChannelIdentity(ctx context.Context, i auth.ChannelIdentity) (auth.ChannelIdentity, error) {
-	const q = `INSERT INTO plugin_channel_identity (id, user_id, platform, external_id, name)
+	const q = `INSERT INTO channel_identity (id, user_id, platform, external_id, name)
 	           VALUES (?, ?, ?, ?, ?)
 	           RETURNING id, user_id, platform, external_id, name, created_at, updated_at`
 	row := s.db.QueryRowContext(ctx, q, i.ID, i.UserID, i.Platform, i.ExternalID, i.Name)
@@ -384,21 +384,21 @@ func (s *OIDCStore) CreateChannelIdentity(ctx context.Context, i auth.ChannelIde
 
 func (s *OIDCStore) GetChannelIdentity(ctx context.Context, id string) (auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM plugin_channel_identity WHERE id=?`
+	           FROM channel_identity WHERE id=?`
 	row := s.db.QueryRowContext(ctx, q, id)
 	return scanChannelIdentity(row)
 }
 
 func (s *OIDCStore) GetChannelIdentityByPlatform(ctx context.Context, platform, externalID string) (auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM plugin_channel_identity WHERE platform=? AND external_id=?`
+	           FROM channel_identity WHERE platform=? AND external_id=?`
 	row := s.db.QueryRowContext(ctx, q, platform, externalID)
 	return scanChannelIdentity(row)
 }
 
 func (s *OIDCStore) ListChannelIdentitiesByUser(ctx context.Context, userID string) ([]auth.ChannelIdentity, error) {
 	const q = `SELECT id, user_id, platform, external_id, name, created_at, updated_at
-	           FROM plugin_channel_identity WHERE user_id=? ORDER BY created_at ASC`
+	           FROM channel_identity WHERE user_id=? ORDER BY created_at ASC`
 	rows, err := s.db.QueryContext(ctx, q, userID)
 	if err != nil {
 		return nil, err
@@ -416,13 +416,13 @@ func (s *OIDCStore) ListChannelIdentitiesByUser(ctx context.Context, userID stri
 }
 
 func (s *OIDCStore) UpdateChannelIdentityExternalID(ctx context.Context, id, externalID string) error {
-	const q = `UPDATE plugin_channel_identity SET external_id=?, updated_at=datetime('now') WHERE id=?`
+	const q = `UPDATE channel_identity SET external_id=?, updated_at=datetime('now') WHERE id=?`
 	_, err := s.db.ExecContext(ctx, q, externalID, id)
 	return err
 }
 
 func (s *OIDCStore) DeleteChannelIdentity(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM plugin_channel_identity WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM channel_identity WHERE id=?`, id)
 	return err
 }
 
@@ -431,7 +431,7 @@ func scanChannelIdentity(r rowScanner) (auth.ChannelIdentity, error) {
 	var createdAt, updatedAt string
 	err := r.Scan(&ci.ID, &ci.UserID, &ci.Platform, &ci.ExternalID, &ci.Name, &createdAt, &updatedAt)
 	if err != nil {
-		return auth.ChannelIdentity{}, fmt.Errorf("plugin_channel_identity scan: %w", err)
+		return auth.ChannelIdentity{}, fmt.Errorf("channel_identity scan: %w", err)
 	}
 	ci.CreatedAt = parseOIDCTime(createdAt)
 	ci.UpdatedAt = parseOIDCTime(updatedAt)
@@ -568,9 +568,9 @@ func scanCredential(r rowScanner) (auth.Credential, error) {
 func (s *OIDCStore) CreateOIDCCode(ctx context.Context, c auth.OIDCCode) (auth.OIDCCode, error) {
 	scopesJSON, err := json.Marshal(c.Scopes)
 	if err != nil {
-		return auth.OIDCCode{}, fmt.Errorf("oidc_code: marshal scopes: %w", err)
+		return auth.OIDCCode{}, fmt.Errorf("auth_oidc_code: marshal scopes: %w", err)
 	}
-	const q = `INSERT INTO oidc_code
+	const q = `INSERT INTO auth_oidc_code
 		(id, code_hash, user_id, client_id, redirect_uri, scopes, nonce,
 		 pkce_challenge, pkce_method, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -586,7 +586,7 @@ func (s *OIDCStore) CreateOIDCCode(ctx context.Context, c auth.OIDCCode) (auth.O
 
 func (s *OIDCStore) ConsumeOIDCCode(ctx context.Context, codeHash string) (auth.OIDCCode, error) {
 	now := time.Now().UTC().Format(oidcTimeLayout)
-	const q = `UPDATE oidc_code SET consumed_at = ?
+	const q = `UPDATE auth_oidc_code SET consumed_at = ?
 		WHERE code_hash = ? AND consumed_at IS NULL AND expires_at > ?
 		RETURNING id, code_hash, user_id, client_id, redirect_uri, scopes, nonce,
 		          pkce_challenge, pkce_method, expires_at, consumed_at, created_at`
@@ -596,7 +596,7 @@ func (s *OIDCStore) ConsumeOIDCCode(ctx context.Context, codeHash string) (auth.
 		// Distinguish "already consumed" from "not found" / "expired".
 		var dummy string
 		checkErr := s.db.QueryRowContext(ctx,
-			`SELECT id FROM oidc_code WHERE code_hash = ?`, codeHash,
+			`SELECT id FROM auth_oidc_code WHERE code_hash = ?`, codeHash,
 		).Scan(&dummy)
 		if errors.Is(checkErr, sql.ErrNoRows) {
 			return auth.OIDCCode{}, auth.ErrNotFound
@@ -605,7 +605,7 @@ func (s *OIDCStore) ConsumeOIDCCode(ctx context.Context, codeHash string) (auth.
 		var consumedAt *string
 		var expiresAt string
 		_ = s.db.QueryRowContext(ctx,
-			`SELECT consumed_at, expires_at FROM oidc_code WHERE code_hash = ?`, codeHash,
+			`SELECT consumed_at, expires_at FROM auth_oidc_code WHERE code_hash = ?`, codeHash,
 		).Scan(&consumedAt, &expiresAt)
 		if consumedAt != nil {
 			return auth.OIDCCode{}, auth.ErrAlreadyConsumed
@@ -624,10 +624,10 @@ func scanOIDCCode(r rowScanner) (auth.OIDCCode, error) {
 		&scopesJSON, &c.Nonce, &c.PKCEChallenge, &c.PKCEMethod,
 		&expiresAt, &consumedAt, &createdAt,
 	); err != nil {
-		return auth.OIDCCode{}, fmt.Errorf("oidc_code scan: %w", err)
+		return auth.OIDCCode{}, fmt.Errorf("auth_oidc_code scan: %w", err)
 	}
 	if err := json.Unmarshal([]byte(scopesJSON), &c.Scopes); err != nil {
-		return auth.OIDCCode{}, fmt.Errorf("oidc_code: unmarshal scopes: %w", err)
+		return auth.OIDCCode{}, fmt.Errorf("auth_oidc_code: unmarshal scopes: %w", err)
 	}
 	c.ExpiresAt = parseOIDCTime(expiresAt)
 	c.CreatedAt = parseOIDCTime(createdAt)
@@ -643,9 +643,9 @@ func scanOIDCCode(r rowScanner) (auth.OIDCCode, error) {
 func (s *OIDCStore) CreateOIDCAccessToken(ctx context.Context, t auth.OIDCAccessToken) (auth.OIDCAccessToken, error) {
 	scopesJSON, err := json.Marshal(t.Scopes)
 	if err != nil {
-		return auth.OIDCAccessToken{}, fmt.Errorf("oidc_access_token: marshal scopes: %w", err)
+		return auth.OIDCAccessToken{}, fmt.Errorf("auth_oidc_access_token: marshal scopes: %w", err)
 	}
-	const q = `INSERT INTO oidc_access_token
+	const q = `INSERT INTO auth_oidc_access_token
 		(id, token_hash, user_id, client_id, scopes, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 		RETURNING id, token_hash, user_id, client_id, scopes, expires_at, created_at`
@@ -658,7 +658,7 @@ func (s *OIDCStore) CreateOIDCAccessToken(ctx context.Context, t auth.OIDCAccess
 
 func (s *OIDCStore) GetOIDCAccessTokenByHash(ctx context.Context, tokenHash string) (auth.OIDCAccessToken, error) {
 	const q = `SELECT id, token_hash, user_id, client_id, scopes, expires_at, created_at
-		FROM oidc_access_token WHERE token_hash = ?`
+		FROM auth_oidc_access_token WHERE token_hash = ?`
 	row := s.db.QueryRowContext(ctx, q, tokenHash)
 	t, err := scanOIDCAccessToken(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -669,7 +669,7 @@ func (s *OIDCStore) GetOIDCAccessTokenByHash(ctx context.Context, tokenHash stri
 
 func (s *OIDCStore) DeleteExpiredOIDCAccessTokens(ctx context.Context) error {
 	now := time.Now().UTC().Format(oidcTimeLayout)
-	_, err := s.db.ExecContext(ctx, `DELETE FROM oidc_access_token WHERE expires_at <= ?`, now)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_oidc_access_token WHERE expires_at <= ?`, now)
 	return err
 }
 
@@ -680,10 +680,10 @@ func scanOIDCAccessToken(r rowScanner) (auth.OIDCAccessToken, error) {
 		&t.ID, &t.TokenHash, &t.UserID, &t.ClientID,
 		&scopesJSON, &expiresAt, &createdAt,
 	); err != nil {
-		return auth.OIDCAccessToken{}, fmt.Errorf("oidc_access_token scan: %w", err)
+		return auth.OIDCAccessToken{}, fmt.Errorf("auth_oidc_access_token scan: %w", err)
 	}
 	if err := json.Unmarshal([]byte(scopesJSON), &t.Scopes); err != nil {
-		return auth.OIDCAccessToken{}, fmt.Errorf("oidc_access_token: unmarshal scopes: %w", err)
+		return auth.OIDCAccessToken{}, fmt.Errorf("auth_oidc_access_token: unmarshal scopes: %w", err)
 	}
 	t.ExpiresAt = parseOIDCTime(expiresAt)
 	t.CreatedAt = parseOIDCTime(createdAt)

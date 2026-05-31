@@ -1,4 +1,4 @@
-CREATE TABLE oidc_access_token (
+CREATE TABLE auth_oidc_access_token (
     id         TEXT NOT NULL PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,
     user_id    TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
@@ -8,5 +8,5 @@ CREATE TABLE oidc_access_token (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_auth_oidc_access_tokens_token_hash ON oidc_access_token(token_hash);
-CREATE INDEX idx_auth_oidc_access_tokens_user_id ON oidc_access_token(user_id);
+CREATE INDEX idx_auth_oidc_access_token_token_hash ON auth_oidc_access_token(token_hash);
+CREATE INDEX idx_auth_oidc_access_token_user_id ON auth_oidc_access_token(user_id);

@@ -67,7 +67,7 @@ func (q *Queries) CreateRSSFeed(ctx context.Context, arg CreateRSSFeedParams) (R
 }
 
 const createRSSFeedEntry = `-- name: CreateRSSFeedEntry :one
-INSERT INTO rss_feed_entries (
+INSERT INTO recally_rss_feed_entry (
     id, feed_id, guid, url, title, status, article_id, attempts, error_msg,
     discovered_at, processed_at
 )
@@ -90,7 +90,7 @@ type CreateRSSFeedEntryParams struct {
 	ProcessedAt  sql.NullString `json:"processed_at"`
 }
 
-func (q *Queries) CreateRSSFeedEntry(ctx context.Context, arg CreateRSSFeedEntryParams) (RssFeedEntry, error) {
+func (q *Queries) CreateRSSFeedEntry(ctx context.Context, arg CreateRSSFeedEntryParams) (RecallyRssFeedEntry, error) {
 	row := q.db.QueryRowContext(ctx, createRSSFeedEntry,
 		arg.ID,
 		arg.FeedID,
@@ -104,7 +104,7 @@ func (q *Queries) CreateRSSFeedEntry(ctx context.Context, arg CreateRSSFeedEntry
 		arg.DiscoveredAt,
 		arg.ProcessedAt,
 	)
-	var i RssFeedEntry
+	var i RecallyRssFeedEntry
 	err := row.Scan(
 		&i.ID,
 		&i.FeedID,
@@ -122,7 +122,7 @@ func (q *Queries) CreateRSSFeedEntry(ctx context.Context, arg CreateRSSFeedEntry
 }
 
 const deleteOldRSSEntries = `-- name: DeleteOldRSSEntries :exec
-DELETE FROM rss_feed_entries
+DELETE FROM recally_rss_feed_entry
 WHERE feed_id = ?
   AND status IN ('skipped', 'error')
   AND processed_at < datetime('now', '-30 days')
@@ -208,7 +208,7 @@ func (q *Queries) GetRSSFeedByURL(ctx context.Context, arg GetRSSFeedByURLParams
 }
 
 const getRSSFeedEntry = `-- name: GetRSSFeedEntry :one
-SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM rss_feed_entries WHERE id = ? AND feed_id = ?
+SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM recally_rss_feed_entry WHERE id = ? AND feed_id = ?
 `
 
 type GetRSSFeedEntryParams struct {
@@ -216,9 +216,9 @@ type GetRSSFeedEntryParams struct {
 	FeedID string `json:"feed_id"`
 }
 
-func (q *Queries) GetRSSFeedEntry(ctx context.Context, arg GetRSSFeedEntryParams) (RssFeedEntry, error) {
+func (q *Queries) GetRSSFeedEntry(ctx context.Context, arg GetRSSFeedEntryParams) (RecallyRssFeedEntry, error) {
 	row := q.db.QueryRowContext(ctx, getRSSFeedEntry, arg.ID, arg.FeedID)
-	var i RssFeedEntry
+	var i RecallyRssFeedEntry
 	err := row.Scan(
 		&i.ID,
 		&i.FeedID,
@@ -236,7 +236,7 @@ func (q *Queries) GetRSSFeedEntry(ctx context.Context, arg GetRSSFeedEntryParams
 }
 
 const listPendingRSSEntries = `-- name: ListPendingRSSEntries :many
-SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM rss_feed_entries
+SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM recally_rss_feed_entry
 WHERE feed_id = ?1
   AND status IN ('pending', 'error')
   AND attempts < 3
@@ -249,15 +249,15 @@ type ListPendingRSSEntriesParams struct {
 	Limit  int64  `json:"limit"`
 }
 
-func (q *Queries) ListPendingRSSEntries(ctx context.Context, arg ListPendingRSSEntriesParams) ([]RssFeedEntry, error) {
+func (q *Queries) ListPendingRSSEntries(ctx context.Context, arg ListPendingRSSEntriesParams) ([]RecallyRssFeedEntry, error) {
 	rows, err := q.db.QueryContext(ctx, listPendingRSSEntries, arg.FeedID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []RssFeedEntry{}
+	items := []RecallyRssFeedEntry{}
 	for rows.Next() {
-		var i RssFeedEntry
+		var i RecallyRssFeedEntry
 		if err := rows.Scan(
 			&i.ID,
 			&i.FeedID,
@@ -285,7 +285,7 @@ func (q *Queries) ListPendingRSSEntries(ctx context.Context, arg ListPendingRSSE
 }
 
 const listRSSFeedEntries = `-- name: ListRSSFeedEntries :many
-SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM rss_feed_entries
+SELECT id, feed_id, guid, url, title, status, article_id, attempts, error_msg, discovered_at, processed_at FROM recally_rss_feed_entry
 WHERE feed_id = ?1
   AND (?2 = '' OR status = ?2)
 ORDER BY discovered_at DESC
@@ -298,15 +298,15 @@ type ListRSSFeedEntriesParams struct {
 	Limit  int64       `json:"limit"`
 }
 
-func (q *Queries) ListRSSFeedEntries(ctx context.Context, arg ListRSSFeedEntriesParams) ([]RssFeedEntry, error) {
+func (q *Queries) ListRSSFeedEntries(ctx context.Context, arg ListRSSFeedEntriesParams) ([]RecallyRssFeedEntry, error) {
 	rows, err := q.db.QueryContext(ctx, listRSSFeedEntries, arg.FeedID, arg.Status, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []RssFeedEntry{}
+	items := []RecallyRssFeedEntry{}
 	for rows.Next() {
-		var i RssFeedEntry
+		var i RecallyRssFeedEntry
 		if err := rows.Scan(
 			&i.ID,
 			&i.FeedID,
@@ -434,7 +434,7 @@ func (q *Queries) UpdateRSSFeed(ctx context.Context, arg UpdateRSSFeedParams) (R
 }
 
 const updateRSSFeedEntry = `-- name: UpdateRSSFeedEntry :one
-UPDATE rss_feed_entries
+UPDATE recally_rss_feed_entry
 SET status       = ?1,
     article_id   = ?2,
     attempts     = attempts + 1,
@@ -452,7 +452,7 @@ type UpdateRSSFeedEntryParams struct {
 	FeedID    string         `json:"feed_id"`
 }
 
-func (q *Queries) UpdateRSSFeedEntry(ctx context.Context, arg UpdateRSSFeedEntryParams) (RssFeedEntry, error) {
+func (q *Queries) UpdateRSSFeedEntry(ctx context.Context, arg UpdateRSSFeedEntryParams) (RecallyRssFeedEntry, error) {
 	row := q.db.QueryRowContext(ctx, updateRSSFeedEntry,
 		arg.Status,
 		arg.ArticleID,
@@ -460,7 +460,7 @@ func (q *Queries) UpdateRSSFeedEntry(ctx context.Context, arg UpdateRSSFeedEntry
 		arg.ID,
 		arg.FeedID,
 	)
-	var i RssFeedEntry
+	var i RecallyRssFeedEntry
 	err := row.Scan(
 		&i.ID,
 		&i.FeedID,

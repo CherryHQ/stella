@@ -1,7 +1,7 @@
 CREATE TABLE recally_rss_feed (
     id              TEXT PRIMARY KEY,
     user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id        TEXT REFERENCES settings_agent(id) ON DELETE SET NULL,
+    agent_id        TEXT REFERENCES agent(id) ON DELETE SET NULL,
     url             TEXT NOT NULL,
     title           TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
@@ -14,9 +14,9 @@ CREATE TABLE recally_rss_feed (
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX idx_rss_feeds_user_url ON recally_rss_feed (user_id, url);
+CREATE UNIQUE INDEX idx_recally_rss_feed_user_url ON recally_rss_feed (user_id, url);
 
-CREATE TABLE rss_feed_entries (
+CREATE TABLE recally_rss_feed_entry (
     id         TEXT PRIMARY KEY,
     feed_id    TEXT NOT NULL REFERENCES recally_rss_feed(id) ON DELETE CASCADE,
     guid       TEXT NOT NULL,
@@ -31,5 +31,5 @@ CREATE TABLE rss_feed_entries (
     processed_at  TEXT
 );
 
-CREATE UNIQUE INDEX idx_rss_entries_feed_guid ON rss_feed_entries (feed_id, guid);
-CREATE INDEX idx_rss_entries_status ON rss_feed_entries (status);
+CREATE UNIQUE INDEX idx_recally_rss_feed_entry_feed_guid ON recally_rss_feed_entry (feed_id, guid);
+CREATE INDEX idx_recally_rss_feed_entry_status ON recally_rss_feed_entry (status);

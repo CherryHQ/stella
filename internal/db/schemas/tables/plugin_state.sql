@@ -1,4 +1,4 @@
-CREATE TABLE settings_plugin_state (
+CREATE TABLE plugin_state (
     plugin_id  TEXT NOT NULL,
     scope_kind TEXT NOT NULL,
     scope_id   TEXT NOT NULL DEFAULT '',

@@ -1,4 +1,4 @@
-CREATE TABLE plugin_channel_identity (
+CREATE TABLE channel_identity (
     id          TEXT NOT NULL PRIMARY KEY,
     user_id     TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     platform    TEXT NOT NULL,
@@ -9,4 +9,4 @@ CREATE TABLE plugin_channel_identity (
     UNIQUE(platform, external_id)
 );
 
-CREATE INDEX idx_channel_identity_user_id ON plugin_channel_identity(user_id);
+CREATE INDEX idx_channel_identity_user_id ON channel_identity(user_id);

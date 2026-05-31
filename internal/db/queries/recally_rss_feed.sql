@@ -34,7 +34,7 @@ RETURNING *;
 DELETE FROM recally_rss_feed WHERE id = ? AND user_id = ?;
 
 -- name: CreateRSSFeedEntry :one
-INSERT INTO rss_feed_entries (
+INSERT INTO recally_rss_feed_entry (
     id, feed_id, guid, url, title, status, article_id, attempts, error_msg,
     discovered_at, processed_at
 )
@@ -43,17 +43,17 @@ ON CONFLICT(feed_id, guid) DO NOTHING
 RETURNING *;
 
 -- name: GetRSSFeedEntry :one
-SELECT * FROM rss_feed_entries WHERE id = ? AND feed_id = ?;
+SELECT * FROM recally_rss_feed_entry WHERE id = ? AND feed_id = ?;
 
 -- name: ListRSSFeedEntries :many
-SELECT * FROM rss_feed_entries
+SELECT * FROM recally_rss_feed_entry
 WHERE feed_id = sqlc.arg('feed_id')
   AND (sqlc.arg('status') = '' OR status = sqlc.arg('status'))
 ORDER BY discovered_at DESC
 LIMIT sqlc.arg('limit');
 
 -- name: ListPendingRSSEntries :many
-SELECT * FROM rss_feed_entries
+SELECT * FROM recally_rss_feed_entry
 WHERE feed_id = sqlc.arg('feed_id')
   AND status IN ('pending', 'error')
   AND attempts < 3
@@ -61,7 +61,7 @@ ORDER BY discovered_at ASC
 LIMIT sqlc.arg('limit');
 
 -- name: UpdateRSSFeedEntry :one
-UPDATE rss_feed_entries
+UPDATE recally_rss_feed_entry
 SET status       = sqlc.arg('status'),
     article_id   = sqlc.arg('article_id'),
     attempts     = attempts + 1,
@@ -71,7 +71,7 @@ WHERE id = sqlc.arg('id') AND feed_id = sqlc.arg('feed_id')
 RETURNING *;
 
 -- name: DeleteOldRSSEntries :exec
-DELETE FROM rss_feed_entries
+DELETE FROM recally_rss_feed_entry
 WHERE feed_id = ?
   AND status IN ('skipped', 'error')
   AND processed_at < datetime('now', '-30 days');

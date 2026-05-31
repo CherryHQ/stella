@@ -1,4 +1,4 @@
-CREATE TABLE settings_agent (
+CREATE TABLE agent (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL,
     model         TEXT NOT NULL DEFAULT '',

@@ -22,4 +22,4 @@ CREATE TABLE sched_job (
     last_error TEXT NOT NULL DEFAULT ''
 );
 
-CREATE INDEX idx_sched_jobs_owner ON sched_job(owner_kind, plugin_id, job_key);
+CREATE INDEX idx_sched_job_owner ON sched_job(owner_kind, plugin_id, job_key);

@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS recally_rss_feed (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_rss_feed_user_url ON recally_rss_feed (user_id, url);
 
-CREATE TABLE IF NOT EXISTS rss_feed_entries (
+CREATE TABLE IF NOT EXISTS recally_rss_feed_entry (
     id TEXT PRIMARY KEY,
     feed_id TEXT NOT NULL,
     guid TEXT NOT NULL,
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS rss_feed_entries (
     processed_at TEXT
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rss_entries_feed_guid ON rss_feed_entries (feed_id, guid);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_rss_feed_entry_feed_guid ON recally_rss_feed_entry (feed_id, guid);
 `
 
 	if _, err := db.Exec(schema); err != nil {

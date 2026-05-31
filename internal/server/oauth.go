@@ -3,18 +3,19 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/credentials"
 )
 
 // flowStatusJSON is the wire representation of an in-flight OAuth flow.
 type flowStatusJSON struct {
-	Provider        string `json:"provider"`
-	FlowID          string `json:"flow_id"`
-	VerificationURI string `json:"verification_uri"`
-	UserCode        string `json:"user_code,omitempty"`
-	ExpiresAt       string `json:"expires_at"`
-	State           string `json:"state"`
+	Provider        string    `json:"provider"`
+	FlowID          string    `json:"flow_id"`
+	VerificationURI string    `json:"verification_uri"`
+	UserCode        string    `json:"user_code,omitempty"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	State           string    `json:"state"`
 }
 
 func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
@@ -23,7 +24,7 @@ func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
 		FlowID:          fs.FlowID,
 		VerificationURI: fs.VerificationURI,
 		UserCode:        fs.UserCode,
-		ExpiresAt:       fs.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ExpiresAt:       fs.ExpiresAt.UTC(),
 		State:           fs.State,
 	}
 }

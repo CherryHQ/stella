@@ -255,7 +255,7 @@ func (f *Feed) FromSQLCFeed(sf sqlc.RecallyRssFeed) {
 }
 
 // FromSQLCFeedEntry populates a FeedEntry from a sqlc RssFeedEntry.
-func (e *FeedEntry) FromSQLCFeedEntry(se sqlc.RssFeedEntry) {
+func (e *FeedEntry) FromSQLCFeedEntry(se sqlc.RecallyRssFeedEntry) {
 	e.ID = se.ID
 	e.FeedID = se.FeedID
 	e.GUID = se.Guid

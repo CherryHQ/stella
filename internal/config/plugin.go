@@ -13,7 +13,7 @@ const (
 	PluginKindAuth     = "auth"
 )
 
-// Plugin represents a unified plugin entry stored in settings_plugin.
+// Plugin represents a unified plugin entry stored in plugin.
 // IDs follow "kind/name" format, e.g. "tool/webfetch" or "channel/telegram".
 // ManifestPluginOverride is an override of a manifest-declared plugin.
 // Both Enabled and SessionEnvVaultKey are nullable / empty-as-sentinel so the
@@ -61,7 +61,7 @@ type BuiltinPlugin struct {
 }
 
 // BuiltinPlugins returns the authoritative list of code-defined plugins.
-// DB rows in settings_plugin are optional overrides of enabled/config.
+// DB rows in plugin are optional overrides of enabled/config.
 func BuiltinPlugins() []BuiltinPlugin {
 	var out []BuiltinPlugin
 
@@ -83,7 +83,7 @@ func BuiltinPlugins() []BuiltinPlugin {
 }
 
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
-// Provider instances are stored separately in settings_provider.
+// Provider instances are stored separately in provider.
 func BuiltinPluginIDs() []string {
 	builtins := BuiltinPlugins()
 	ids := make([]string, len(builtins))

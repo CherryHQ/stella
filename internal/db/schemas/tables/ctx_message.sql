@@ -10,4 +10,4 @@ CREATE TABLE ctx_message (
     UNIQUE (conversation_id, seq)
 );
 
-CREATE INDEX idx_ctx_messages_conv_seq ON ctx_message(conversation_id, seq);
+CREATE INDEX idx_ctx_message_conv_seq ON ctx_message(conversation_id, seq);

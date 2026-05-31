@@ -12,7 +12,7 @@ import (
 const createAuthPolicy = `-- name: CreateAuthPolicy :one
 INSERT INTO auth_policy (id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at
+RETURNING id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at
 `
 
 type CreateAuthPolicyParams struct {
@@ -54,6 +54,7 @@ func (q *Queries) CreateAuthPolicy(ctx context.Context, arg CreateAuthPolicyPara
 		&i.IsSystem,
 		&i.Enabled,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -68,7 +69,7 @@ func (q *Queries) DeleteAuthPolicy(ctx context.Context, id string) error {
 }
 
 const getAuthPolicy = `-- name: GetAuthPolicy :one
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at FROM auth_policy WHERE id = ?
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at FROM auth_policy WHERE id = ?
 `
 
 func (q *Queries) GetAuthPolicy(ctx context.Context, id string) (AuthPolicy, error) {
@@ -86,12 +87,13 @@ func (q *Queries) GetAuthPolicy(ctx context.Context, id string) (AuthPolicy, err
 		&i.IsSystem,
 		&i.Enabled,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listAuthPolicies = `-- name: ListAuthPolicies :many
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at FROM auth_policy ORDER BY priority DESC, name
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at FROM auth_policy ORDER BY priority DESC, name
 `
 
 func (q *Queries) ListAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
@@ -115,6 +117,7 @@ func (q *Queries) ListAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
 			&i.IsSystem,
 			&i.Enabled,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -130,7 +133,7 @@ func (q *Queries) ListAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
 }
 
 const listEnabledAuthPolicies = `-- name: ListEnabledAuthPolicies :many
-SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at FROM auth_policy WHERE enabled = 1 ORDER BY priority DESC, name
+SELECT id, name, effect, subjects, actions, resources, conditions, priority, is_system, enabled, created_at, updated_at FROM auth_policy WHERE enabled = 1 ORDER BY priority DESC, name
 `
 
 func (q *Queries) ListEnabledAuthPolicies(ctx context.Context) ([]AuthPolicy, error) {
@@ -154,6 +157,7 @@ func (q *Queries) ListEnabledAuthPolicies(ctx context.Context) ([]AuthPolicy, er
 			&i.IsSystem,
 			&i.Enabled,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

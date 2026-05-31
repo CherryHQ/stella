@@ -1,4 +1,4 @@
-CREATE TABLE oidc_code (
+CREATE TABLE auth_oidc_code (
     id             TEXT NOT NULL PRIMARY KEY,
     code_hash      TEXT NOT NULL UNIQUE,
     user_id        TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
@@ -13,5 +13,5 @@ CREATE TABLE oidc_code (
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_auth_oidc_codes_code_hash ON oidc_code(code_hash);
-CREATE INDEX idx_auth_oidc_codes_user_id ON oidc_code(user_id);
+CREATE INDEX idx_auth_oidc_code_code_hash ON auth_oidc_code(code_hash);
+CREATE INDEX idx_auth_oidc_code_user_id ON auth_oidc_code(user_id);
