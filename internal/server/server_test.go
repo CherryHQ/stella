@@ -1037,9 +1037,21 @@ func TestLoginPageAccessible(t *testing.T) {
 func TestUnauthenticatedAPIReturns401(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doUnauthRequest(t, env.srv, "GET", "/api/agents", nil)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	checks := []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{"GET", "/api/agents", nil},
+		{"POST", "/api/agents", map[string]any{"name": "Nope"}},
+		{"GET", "/api/agents/nope", nil},
+		{"GET", "/api/agents/nope/sessions/nope", nil},
+	}
+	for _, tc := range checks {
+		rr := doUnauthRequest(t, env.srv, tc.method, tc.path, tc.body)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s: status = %d, want %d (body: %s)", tc.method, tc.path, rr.Code, http.StatusUnauthorized, rr.Body.String())
+		}
 	}
 }
 

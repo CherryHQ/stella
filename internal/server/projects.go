@@ -33,6 +33,10 @@ func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID st
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
 
@@ -65,6 +69,10 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 	auth := UserFromContext(r.Context())
 	if auth == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -109,6 +117,10 @@ func (s *Server) GetProject(w http.ResponseWriter, r *http.Request, agentID stri
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	p, err := s.q.GetProject(r.Context(), sqlc.GetProjectParams{
 		ID:     projectID,
@@ -122,6 +134,10 @@ func (s *Server) GetProject(w http.ResponseWriter, r *http.Request, agentID stri
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if p.AgentID != agentID {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
 
 	writeData(w, http.StatusOK, toProjectResponse(p))
 }
@@ -130,6 +146,10 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 	auth := UserFromContext(r.Context())
 	if auth == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -143,6 +163,10 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if existing.AgentID != agentID {
+		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
 
@@ -189,8 +213,12 @@ func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID s
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
-	_, err := s.q.GetProject(r.Context(), sqlc.GetProjectParams{
+	existing, err := s.q.GetProject(r.Context(), sqlc.GetProjectParams{
 		ID:     projectID,
 		UserID: auth.UserID,
 	})
@@ -200,6 +228,10 @@ func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID s
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if existing.AgentID != agentID {
+		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
 

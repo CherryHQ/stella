@@ -5,10 +5,10 @@ import {
   createSchedulerJob,
   deleteSchedulerJob,
   getSchedulerJob,
-  listSchedulerJobRuns,
   triggerSchedulerJob,
   updateSchedulerJob,
 } from "@/lib/api-client";
+import { fetchAllSchedulerJobRuns } from "@/lib/paginated";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
@@ -168,15 +168,12 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     if (!jobId) return;
     setLoading(true);
     try {
-      const [{ data: jRaw }, { data: jobRuns }] = await Promise.all([
+      const [{ data: jRaw }, jobRuns] = await Promise.all([
         getSchedulerJob({
           path: { agentId: agentId, jobId: jobId },
           throwOnError: true,
         }),
-        listSchedulerJobRuns({
-          path: { agentId: agentId, jobId: jobId },
-          throwOnError: true,
-        }).catch(() => ({ data: [] as SchedulerJobRun[] })),
+        fetchAllSchedulerJobRuns(agentId, jobId).catch(() => [] as SchedulerJobRun[]),
       ]);
       const j = jRaw as SchedulerJob;
       const f: Form = {
@@ -191,7 +188,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
       setJob(j);
       setForm(f);
       setSavedForm(f);
-      setRuns((jobRuns ?? []) as SchedulerJobRun[]);
+      setRuns(jobRuns as SchedulerJobRun[]);
     } catch (e) {
       console.error(e);
     } finally {

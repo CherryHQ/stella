@@ -576,6 +576,9 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+		return
+	}
 	entry, err := h.store.GetFeedEntry(r.Context(), feedId, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
@@ -583,9 +586,6 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	}
 	if entry.FeedID != feedId {
 		writeError(w, http.StatusNotFound, "entry not found in this feed")
-		return
-	}
-	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	var body apiserver.UpdateFeedEntryRequest

@@ -7,7 +7,6 @@ import {
   getSessionMessages,
   getSessionSystemPrompt,
   listAgentSkills,
-  listTasks,
   listTools,
 } from "@/lib/api-client";
 import {
@@ -16,6 +15,7 @@ import {
   agentSkillsOptions,
 } from "@/lib/queries/agents";
 import { formatTime } from "@/lib/time";
+import { fetchAllTasks } from "@/lib/paginated";
 import type { Message, Session, Skill, Tool, Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -745,11 +745,7 @@ function useWorkData(agentID: string) {
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
-      const { data } = await listTasks({
-        query: { agent_id: agentID },
-        throwOnError: true,
-      });
-      setTasks(data?.tasks ?? []);
+      setTasks(await fetchAllTasks(agentID));
     } catch (e) {
       console.error(e);
       setTasks([]);

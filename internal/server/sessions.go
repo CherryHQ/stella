@@ -488,19 +488,12 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 		return
 	}
 
-	authInfo := UserFromContext(r.Context())
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
+		return
+	}
 	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
-		return
-	}
-
-	if authInfo != nil && si.UserID != authInfo.UserID {
-		writeError(w, http.StatusForbidden, "access denied")
-		return
-	}
-	if agentID != "" && si.AgentID != agentID {
-		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -607,8 +600,13 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) error {
 	info := UserFromContext(r.Context())
 	sm, ok := s.mem.(memory.SessionManager)
-	if info == nil || !ok {
-		return nil
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return fmt.Errorf("authentication required")
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return fmt.Errorf("unsupported")
 	}
 	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {

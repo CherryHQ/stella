@@ -61,8 +61,9 @@ func taskError(w http.ResponseWriter, err error) {
 	}
 }
 
-// loadTask resolves a {taskID} path param to a task row.
-// Returns false (and writes an error) on miss.
+// loadTask resolves a {taskID} path param to a task row owned by the current
+// user. Other users' tasks are reported as 404 to avoid leaking existence.
+// Returns false (and writes an error) on miss or ownership mismatch.
 func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID string) (sqlc.AgentTask, bool) {
 	t, err := s.tasksSvc.Facade.GetTask(ctx, taskID)
 	if err != nil {
@@ -71,6 +72,15 @@ func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID str
 			return sqlc.AgentTask{}, false
 		}
 		taskError(w, err)
+		return sqlc.AgentTask{}, false
+	}
+	info := UserFromContext(ctx)
+	if info == nil || info.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return sqlc.AgentTask{}, false
+	}
+	if t.UserID != info.UserID {
+		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentTask{}, false
 	}
 	return t, true
@@ -413,6 +423,10 @@ func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID strin
 		writeError(w, http.StatusBadRequest, "dep_task_id_required")
 		return
 	}
+	dep, ok := s.loadTask(r.Context(), w, req.DepTaskId)
+	if !ok {
+		return
+	}
 	kind := ""
 	if req.Kind != nil {
 		kind = string(*req.Kind)
@@ -421,7 +435,7 @@ func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID strin
 	if req.OnFailure != nil {
 		onFailure = string(*req.OnFailure)
 	}
-	if err := s.tasksSvc.Facade.AddDep(r.Context(), t.ID, req.DepTaskId, kind, onFailure); err != nil {
+	if err := s.tasksSvc.Facade.AddDep(r.Context(), t.ID, dep.ID, kind, onFailure); err != nil {
 		taskError(w, err)
 		return
 	}
@@ -444,6 +458,9 @@ func (s *Server) WaiveTaskDep(w http.ResponseWriter, r *http.Request, taskID str
 	userID := ""
 	if info != nil {
 		userID = info.UserID
+	}
+	if _, ok := s.loadTask(r.Context(), w, depTaskID); !ok {
+		return
 	}
 	var req apitypes.WaiveDepRequest
 	_ = decodeJSON(r, &req)

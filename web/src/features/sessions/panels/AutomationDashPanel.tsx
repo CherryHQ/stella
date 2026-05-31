@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import type { SchedulerJob, SchedulerJobRun } from "@/lib/types";
-import { listSchedulerJobRuns, listTasks } from "@/lib/api-client";
+import { fetchAllSchedulerJobRuns, fetchAllTasks } from "@/lib/paginated";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
@@ -98,11 +98,8 @@ export function AutomationDashPanel({
       await Promise.all(
         schedulerJobs.slice(0, 10).map(async (job) => {
           try {
-            const { data } = await listSchedulerJobRuns({
-              path: { agentId: job.agent_id || agentId, jobId: job.id },
-              throwOnError: true,
-            });
-            for (const r of (data?.runs ?? []) as SchedulerJobRun[]) {
+            const runs = await fetchAllSchedulerJobRuns(job.agent_id || agentId, job.id);
+            for (const r of runs as SchedulerJobRun[]) {
               allRuns.push({
                 ...r,
                 job_name: job.name,
@@ -130,11 +127,7 @@ export function AutomationDashPanel({
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
-      const { data } = await listTasks({
-        query: { agent_id: agentId },
-        throwOnError: true,
-      });
-      setTasks(data?.tasks ?? []);
+      setTasks(await fetchAllTasks(agentId));
     } catch (e) {
       console.error(e);
       setTasks([]);
@@ -151,11 +144,8 @@ export function AutomationDashPanel({
     async (jobId: string) => {
       setJobRunsLoading(true);
       try {
-        const { data } = await listSchedulerJobRuns({
-          path: { agentId: selectedJob?.agent_id || agentId, jobId: jobId },
-          throwOnError: true,
-        });
-        setJobRuns((data?.runs ?? []) as SchedulerJobRun[]);
+        const runs = await fetchAllSchedulerJobRuns(selectedJob?.agent_id || agentId, jobId);
+        setJobRuns(runs as SchedulerJobRun[]);
       } catch {
         setJobRuns([]);
       } finally {

@@ -41,7 +41,6 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	var body struct {
 		CurrentPassword string `json:"current_password"`
 		NewPassword     string `json:"new_password"`
@@ -108,7 +107,6 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	var body struct {
 		Platform string `json:"platform"`
 	}
@@ -198,6 +196,10 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 
 	var body struct {
 		Content string `json:"content"`
@@ -219,6 +221,10 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -256,6 +262,10 @@ func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, age
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 

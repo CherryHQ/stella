@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/tasks"
 )
 
@@ -53,6 +54,74 @@ func TestTasks_GetUnknownReturns404(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
 	rr := doRequest(t, env, http.MethodGet, "/api/tasks/does-not-exist", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestTasks_OtherUserCannotAccessTaskByID(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+	_, ownerToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "task-owner", auth.RoleUser)
+	_, otherToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "task-other", auth.RoleUser)
+
+	active := true
+	rr := doBearerRequest(t, env.srv, ownerToken, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{
+		Title:            "owned",
+		ActivateOnCreate: &active,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var owned apitypes.Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &owned); err != nil {
+		t.Fatalf("decode task: %v", err)
+	}
+
+	checks := []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/api/tasks/" + owned.Id, nil},
+		{http.MethodPost, "/api/tasks/" + owned.Id + "/cancel", apitypes.CancelRequest{}},
+		{http.MethodPost, "/api/tasks/" + owned.Id + "/reopen", apitypes.ReopenRequest{}},
+		{http.MethodGet, "/api/tasks/" + owned.Id + "/readiness", nil},
+		{http.MethodGet, "/api/tasks/" + owned.Id + "/events", nil},
+		{http.MethodGet, "/api/tasks/" + owned.Id + "/runs", nil},
+		{http.MethodGet, "/api/tasks/" + owned.Id + "/deps", nil},
+		{http.MethodGet, "/api/tasks/" + owned.Id + "/reviews", nil},
+		{http.MethodPost, "/api/tasks/" + owned.Id + "/deps", apitypes.AddDepRequest{DepTaskId: owned.Id}},
+	}
+	for _, tc := range checks {
+		rr := doBearerRequest(t, env.srv, otherToken, tc.method, tc.path, tc.body)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("%s %s: status=%d body=%s", tc.method, tc.path, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+func TestTasks_CannotAddDependencyOnOtherUsersTask(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+	_, ownerToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "dep-owner", auth.RoleUser)
+	_, otherToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "dep-other", auth.RoleUser)
+
+	create := func(token, title string) apitypes.Task {
+		rr := doBearerRequest(t, env.srv, token, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{Title: title})
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("create %q: status=%d body=%s", title, rr.Code, rr.Body.String())
+		}
+		var task apitypes.Task
+		if err := json.Unmarshal(rr.Body.Bytes(), &task); err != nil {
+			t.Fatalf("decode %q: %v", title, err)
+		}
+		return task
+	}
+	downstream := create(ownerToken, "downstream")
+	upstream := create(otherToken, "upstream")
+
+	rr := doBearerRequest(t, env.srv, ownerToken, http.MethodPost, "/api/tasks/"+downstream.Id+"/deps", apitypes.AddDepRequest{DepTaskId: upstream.Id})
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}

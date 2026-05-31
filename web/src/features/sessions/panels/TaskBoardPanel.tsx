@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ComponentsReadiness, ComponentsTask } from "@/lib/api-client/types.gen";
-import { getTaskReadiness, listTasks } from "@/lib/api-client";
+import { getTaskReadiness } from "@/lib/api-client";
+import { fetchAllTasks } from "@/lib/paginated";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
@@ -58,11 +59,7 @@ export function TaskBoardPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await listTasks({
-        query: { agent_id: agentId },
-        throwOnError: true,
-      });
-      setTasks(data?.tasks ?? []);
+      setTasks(await fetchAllTasks(agentId));
     } catch (e) {
       console.error(e);
     } finally {

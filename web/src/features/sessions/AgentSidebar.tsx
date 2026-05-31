@@ -7,8 +7,8 @@ import {
   createSession as sdkCreateSession,
   deleteProject as sdkDeleteProject,
   getSessionWorkspace,
-  listTasks,
 } from "@/lib/api-client/sdk.gen";
+import { fetchAllTasks } from "@/lib/paginated";
 import { cn } from "@/lib/utils";
 import type { ComponentsSession, TaskList } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
@@ -449,8 +449,8 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
     queryFn: async () => {
-      const { data } = await listTasks({ query: { agent_id: agentId }, throwOnError: true });
-      return data as TaskList;
+      const tasks = await fetchAllTasks(agentId);
+      return { tasks } as TaskList;
     },
   });
   const taskAttentionCount =

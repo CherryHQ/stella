@@ -1,22 +1,20 @@
 import { queryOptions } from "@tanstack/react-query";
-import {
-  getGoal,
-  getTaskReadiness,
-  listGoals,
-  listGoalTasks,
-  listTaskDeps,
-  listTaskEvents,
-  listTaskReviews,
-  listTaskRuns,
-} from "@/lib/api-client";
+import { getGoal, getTaskReadiness } from "@/lib/api-client";
 import type { ComponentsDep, ComponentsGoal, ComponentsTask } from "@/lib/api-client/types.gen";
+import {
+  fetchAllGoalTasks,
+  fetchAllGoals,
+  fetchAllTaskDeps,
+  fetchAllTaskEvents,
+  fetchAllTaskReviews,
+  fetchAllTaskRuns,
+} from "@/lib/paginated";
 
 export function goalsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["goals", agentId],
     queryFn: async () => {
-      const { data } = await listGoals({ throwOnError: true });
-      const items = data?.goals ?? [];
+      const items = await fetchAllGoals();
       return items.filter((g) => !agentId || g.agent_id === agentId);
     },
     enabled: !!agentId,
@@ -46,17 +44,9 @@ export function goalGraphOptions(goalId: string) {
   return queryOptions({
     queryKey: ["goal-graph", goalId],
     queryFn: async (): Promise<GoalGraph> => {
-      const { data } = await listGoalTasks({
-        path: { goalId: goalId },
-        throwOnError: true,
-      });
-      const tasks = data?.tasks ?? [];
+      const tasks = await fetchAllGoalTasks(goalId);
       const depLists = await Promise.all(
-        tasks.map((t) =>
-          listTaskDeps({ path: { taskId: t.id }, throwOnError: true })
-            .then((r) => r.data?.deps ?? [])
-            .catch(() => [] as ComponentsDep[]),
-        ),
+        tasks.map((t) => fetchAllTaskDeps(t.id).catch(() => [] as ComponentsDep[])),
       );
       return { tasks, deps: depLists.flat() };
     },
@@ -82,11 +72,7 @@ export function taskRunsOptions(taskId: string | undefined) {
   return queryOptions({
     queryKey: ["task-runs", taskId],
     queryFn: async () => {
-      const { data } = await listTaskRuns({
-        path: { taskId: taskId! },
-        throwOnError: true,
-      });
-      return data?.runs ?? [];
+      return fetchAllTaskRuns(taskId!);
     },
     enabled: !!taskId,
   });
@@ -96,11 +82,7 @@ export function taskReviewsOptions(taskId: string | undefined) {
   return queryOptions({
     queryKey: ["task-reviews", taskId],
     queryFn: async () => {
-      const { data } = await listTaskReviews({
-        path: { taskId: taskId! },
-        throwOnError: true,
-      });
-      return data?.reviews ?? [];
+      return fetchAllTaskReviews(taskId!);
     },
     enabled: !!taskId,
   });
@@ -110,11 +92,7 @@ export function taskEventsOptions(taskId: string | undefined) {
   return queryOptions({
     queryKey: ["task-events", taskId],
     queryFn: async () => {
-      const { data } = await listTaskEvents({
-        path: { taskId: taskId! },
-        throwOnError: true,
-      });
-      return data?.events ?? [];
+      return fetchAllTaskEvents(taskId!);
     },
     enabled: !!taskId,
   });

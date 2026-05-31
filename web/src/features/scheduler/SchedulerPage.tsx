@@ -5,11 +5,11 @@ import {
   createSchedulerJob,
   deleteSchedulerJob,
   listAgents,
-  listSchedulerJobRuns,
   listSchedulerJobs,
   triggerSchedulerJob,
   updateSchedulerJob,
 } from "@/lib/api-client/sdk.gen";
+import { fetchAllSchedulerJobRuns } from "@/lib/paginated";
 import { meQueryOptions } from "@/lib/queries/me";
 import { formatTime } from "@/lib/time";
 import type { ComponentsJobInput } from "@/lib/api-client/types.gen";
@@ -137,11 +137,8 @@ export function SchedulerPage() {
       try {
         const job = jobs.find((item) => item.id === jobId);
         if (!job?.agent_id) return;
-        const { data } = await listSchedulerJobRuns({
-          path: { agentId: job.agent_id, jobId: jobId },
-          throwOnError: true,
-        });
-        setRunHistories((prev) => ({ ...prev, [jobId]: (data?.runs ?? []) as SchedulerJobRun[] }));
+        const runs = await fetchAllSchedulerJobRuns(job.agent_id, jobId);
+        setRunHistories((prev) => ({ ...prev, [jobId]: runs as SchedulerJobRun[] }));
       } catch (e) {
         console.error(e);
       }
