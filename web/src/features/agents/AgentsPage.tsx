@@ -14,7 +14,6 @@ import {
   listAgents,
   listAgentSkills,
   listAgentUsers,
-  listAuthUsers,
   listBuiltinResources,
   listChannels,
   listModels,
@@ -42,6 +41,7 @@ import type {
   Skill,
   User,
 } from "@/lib/types";
+import { fetchAllAuthUsers } from "@/lib/auth-users";
 import { Button } from "@/components/ui/button";
 import { AgentList } from "./AgentList";
 import { AgentForm } from "./AgentForm";
@@ -188,11 +188,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
           .catch(() => [])) ?? []
       ).map(normalizeChannel)
     : [];
-  const allUsers = isAdmin
-    ? ((await listAuthUsers({ throwOnError: true })
-        .then(({ data }) => (data?.users ?? []) as User[])
-        .catch(() => [])) ?? [])
-    : [];
+  const allUsers = isAdmin ? await fetchAllAuthUsers().catch(() => []) : [];
   const agentSkills = (
     agentId
       ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })

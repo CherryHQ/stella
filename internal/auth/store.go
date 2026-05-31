@@ -11,6 +11,7 @@ type UserStore interface {
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListUsersPaged(ctx context.Context, limit, offset int64) ([]User, error)
 	UpdateUser(ctx context.Context, u User) error
 	DeleteUser(ctx context.Context, id string) error
 	CountUsers(ctx context.Context) (int64, error)

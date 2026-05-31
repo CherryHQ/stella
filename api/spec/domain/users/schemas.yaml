@@ -47,6 +47,10 @@ components:
         users:
           type: array
           items: { $ref: "#/components/schemas/AuthUser" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     UserMemory:
       type: object

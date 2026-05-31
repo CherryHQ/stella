@@ -134,6 +134,19 @@ paths:
       tags: [auth-users]
       summary: List all auth users (admin only)
       operationId: listAuthUsers
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok

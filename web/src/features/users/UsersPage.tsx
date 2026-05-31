@@ -6,7 +6,6 @@ import {
   getMe,
   listAgents,
   listAuthUserAgents,
-  listAuthUsers,
   listUserMemories,
   setUserMemory,
   updateAuthUserActive,
@@ -16,6 +15,7 @@ import {
   updateUserNotifyIdentity,
 } from "@/lib/api-client/sdk.gen";
 import type { Agent, ChannelIdentity, User, UserMemory } from "@/lib/types";
+import { fetchAllAuthUsers } from "@/lib/auth-users";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,8 +60,7 @@ export function UsersPage() {
 
   const loadAuthUsers = useCallback(async () => {
     try {
-      const { data } = await listAuthUsers({ throwOnError: true });
-      setAuthUsers((data?.users ?? []) as User[]);
+      setAuthUsers(await fetchAllAuthUsers());
     } catch (e) {
       console.error(e);
     }
@@ -222,8 +221,7 @@ export function UsersPage() {
 
   const loadLegacyUsers = useCallback(async () => {
     try {
-      const { data } = await listAuthUsers({ throwOnError: true });
-      const list = (data?.users ?? []) as User[];
+      const list = await fetchAllAuthUsers();
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
