@@ -66,7 +66,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 	}
 	var req updateSkillRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	patch := skills.UpdatePatch{
@@ -80,7 +80,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 			if errors.Is(err, sql.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "skill not found")
 			} else {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				s.writeInternalError(w, err)
 			}
 			return
 		}
@@ -89,7 +89,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 				UpdateSystemSkill(context.Context, string, skills.UpdatePatch) error
 			}); ok {
 				if err := systemStore.UpdateSystemSkill(r.Context(), id, patch); err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
+					s.writeInternalError(w, err)
 					return
 				}
 				s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
@@ -99,7 +99,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		vc = skillOwnerViewContext(*sk)
 	}
 	if err := store.Update(r.Context(), id, vc, patch); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
@@ -108,7 +108,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx context.Context, id string, files map[string]string) {
 	for path, content := range files {
 		if err := store.UpsertFile(ctx, id, path, content); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 	}
@@ -139,7 +139,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 			if errors.Is(err, sql.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "skill not found")
 			} else {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				s.writeInternalError(w, err)
 			}
 			return
 		}
@@ -148,7 +148,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 				DeleteSystemSkill(context.Context, string) error
 			}); ok {
 				if err := systemStore.DeleteSystemSkill(r.Context(), id); err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
+					s.writeInternalError(w, err)
 					return
 				}
 				writeNoContent(w)
@@ -158,7 +158,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 		vc = skillOwnerViewContext(*sk)
 	}
 	if err := store.Delete(r.Context(), id, vc); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeNoContent(w)
@@ -180,7 +180,7 @@ func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, p
 		return
 	}
 	if err := store.DeleteFile(r.Context(), id, path); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeNoContent(w)
@@ -202,7 +202,7 @@ func (s *Server) SearchSkills(w http.ResponseWriter, r *http.Request, params api
 
 	results, err := mcpskills.Search(ctx, q, limit)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		s.writeBadGatewayError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"skills": results})

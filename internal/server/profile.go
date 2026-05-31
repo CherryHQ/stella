@@ -46,7 +46,7 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword     string `json:"new_password"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -111,7 +111,7 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 		Platform string `json:"platform"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -193,12 +193,12 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		Soul string `json:"soul"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
 	if err := memorywrite.SetAgentSoul(ctx, s.db, s.q, info.UserID, agentID, body.Soul); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.writeProfileMemory(w, r, info.UserID, agentID)
@@ -209,7 +209,7 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 func (s *Server) writeProfileMemory(w http.ResponseWriter, r *http.Request, userID, agentID string) {
 	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if mem.Soul == "" {

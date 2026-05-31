@@ -21,7 +21,7 @@ func validateBaseDir(w http.ResponseWriter, agentID, userID, baseDir string) boo
 		return false
 	}
 	if err := agent.ValidateProjectDir(baseDir, userRoot); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid base_dir: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid base_dir")
 		return false
 	}
 	return true
@@ -54,7 +54,7 @@ func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID st
 		})
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -78,7 +78,7 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 
 	var body apiserver.CreateProjectJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 		Description: sql.NullString{String: derefStr(body.Description), Valid: body.Description != nil},
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -131,7 +131,7 @@ func (s *Server) GetProject(w http.ResponseWriter, r *http.Request, agentID stri
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if p.AgentID != agentID {
@@ -162,7 +162,7 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if existing.AgentID != agentID {
@@ -172,7 +172,7 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 
 	var body apiserver.UpdateProjectJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -200,7 +200,7 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 		UserID:      auth.UserID,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -227,7 +227,7 @@ func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if existing.AgentID != agentID {
@@ -239,7 +239,7 @@ func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID s
 		ID:     projectID,
 		UserID: auth.UserID,
 	}); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 

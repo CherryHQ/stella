@@ -65,7 +65,7 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
 		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -84,7 +84,7 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	var req createAgentRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	a := req.Agent
@@ -93,12 +93,12 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := applyTemplate(&a, req.TemplateID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	// backend is global; only network is per-agent (no Backend field to clear)
 	if err := a.Sandbox.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -135,7 +135,7 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.CreateAgent(ctx, a); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -179,7 +179,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 
 	var a config.Agent
 	if err := decodeJSON(r, &a); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	a.ID = id
@@ -188,7 +188,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	}
 	// backend is global; only network is per-agent (no Backend field to clear)
 	if err := a.Sandbox.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -206,7 +206,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	}
 
 	if err := s.store.UpdateAgent(ctx, a); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if s.poolManager != nil {
@@ -225,7 +225,7 @@ func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) 
 	}
 
 	if err := s.store.DeleteAgent(ctx, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if s.poolManager != nil {

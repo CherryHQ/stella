@@ -70,7 +70,7 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 	}
 	skillID, err := s.skillStore().Create(r.Context(), sk, up.files)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, map[string]string{"id": skillID, "name": up.name})

@@ -282,12 +282,12 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	projectRoot, err := s.projectRootForSession(memoryContext(r, agentID), agentID, params.SessionId)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	dbSkills, err := s.skillStore().ListForAgentContext(r.Context(), info.UserID, agentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	merged := s.skillService().ListMergedWithDB(dbSkillsToPluginSkills(dbSkills), projectRoot)
@@ -305,7 +305,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	agentID := id
 	var req createSkillRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Name == "" {
@@ -342,7 +342,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	}
 	createdID, err := s.skillStore().Create(r.Context(), sk, files)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, map[string]string{"id": createdID, "name": req.Name})
@@ -386,7 +386,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		}
 		var req updateSkillRequest
 		if err := decodeJSON(r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		for p, content := range req.Files {
@@ -396,11 +396,11 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 				return
 			}
 			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				s.writeInternalError(w, err)
 				return
 			}
 			if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				s.writeInternalError(w, err)
 				return
 			}
 		}
@@ -434,7 +434,7 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 			return
 		}
 		if err := os.RemoveAll(rs.Dir); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 		writeNoContent(w)
@@ -468,7 +468,7 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 	}
 	content, err := s.loadSkillFile(r.Context(), rs, params.Path)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"path": params.Path, "content": content})
@@ -496,7 +496,7 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 			return
 		}
 		if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 		writeNoContent(w)
@@ -519,7 +519,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	agentID := id
 	var req installSkillRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Source == "" {
@@ -541,7 +541,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, map[string]string{"name": name})

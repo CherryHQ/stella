@@ -14,7 +14,7 @@ func (s *Server) GetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 	}
 	cfg, err := s.credSvc.GetOAuthProviderConfig(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIProviderConfig(cfg))
@@ -26,7 +26,7 @@ func (s *Server) DeleteOAuthProviderConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.credSvc.DeleteOAuthProviderConfig(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -39,7 +39,7 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 	}
 	var body apiserver.SetOAuthProviderConfigJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if body.ClientId == "" {
@@ -53,12 +53,12 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 		RedirectURL:  stringVal(body.RedirectUrl),
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	cfg, err := s.credSvc.GetOAuthProviderConfig(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIProviderConfig(cfg))

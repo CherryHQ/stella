@@ -99,7 +99,7 @@ func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 		Value string `json:"value"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if body.Value == "" {
@@ -109,7 +109,7 @@ func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 
 	if err := s.vaultSvc.Set(r.Context(), info.UserID, name, body.Value); err != nil {
 		s.log.Error("set vault entry", "user_id", info.UserID, "name", name, "error", err)
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 )
@@ -65,6 +66,21 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 			"status":  statusName(status),
 		},
 	})
+}
+
+func writeLoggedError(w http.ResponseWriter, log *slog.Logger, status int, clientMessage string, err error) {
+	if log != nil {
+		log.Error("http handler error", "status", status, "error", err)
+	}
+	writeError(w, status, clientMessage)
+}
+
+func (s *Server) writeInternalError(w http.ResponseWriter, err error) {
+	writeLoggedError(w, s.log, http.StatusInternalServerError, "internal error", err)
+}
+
+func (s *Server) writeBadGatewayError(w http.ResponseWriter, err error) {
+	writeLoggedError(w, s.log, http.StatusBadGateway, "upstream service error", err)
 }
 
 // statusName maps an HTTP status code to its canonical AIP status name.

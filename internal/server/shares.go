@@ -75,7 +75,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 
 	var body apitypes.CreateShareRequest
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -86,12 +86,12 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 
 	token, tokenHash, err := newShareToken()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	expiresAt, err := shareExpiry(body.ExpiresIn)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	share, err := s.q.CreateShare(r.Context(), sqlc.CreateShareParams{
@@ -104,7 +104,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: expiresAt,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, apitypes.Share{
@@ -152,12 +152,12 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 	}
 	abs, err := safePath(root, path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return "", "", nil, err
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return "", "", nil, err
 	}
 	if fi.IsDir() {
@@ -175,7 +175,7 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return "", "", nil, err
 	}
 	return filepath.Base(path), mt, data, nil
@@ -232,7 +232,7 @@ func (s *Server) RevokeShare(w http.ResponseWriter, r *http.Request, id string) 
 	}
 	rows, err := s.q.DeleteShareByUser(r.Context(), sqlc.DeleteShareByUserParams{ID: id, UserID: info.UserID})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if rows == 0 {
