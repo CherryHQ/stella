@@ -77,9 +77,7 @@ func (t *TaskControlTool) Block(ctx context.Context, kind, question string, deta
 	if kind == "" {
 		kind = BlockerKindUserInput
 	}
-	switch kind {
-	case BlockerKindUserInput, BlockerKindExternalDependency, BlockerKindToolError, BlockerKindPolicyHold, BlockerKindDepFailure:
-	default:
+	if !validBlockerKind(kind) {
 		return fmt.Errorf("task_control: invalid blocker kind %q", kind)
 	}
 	detailStr := detailJSON(detail)

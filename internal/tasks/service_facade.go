@@ -64,9 +64,9 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	}
 	priority := in.Priority
 	if priority == "" {
-		priority = "routine"
+		priority = PriorityRoutine
 	}
-	if priority != "routine" && priority != "urgent" {
+	if !validPriority(priority) {
 		return sqlc.AgentTask{}, fmt.Errorf("CreateTask: invalid priority %q", priority)
 	}
 	if in.MaxRetries <= 0 {
@@ -323,16 +323,16 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	}
 	priority := in.Priority
 	if priority == "" {
-		priority = "routine"
+		priority = PriorityRoutine
 	}
-	if priority != "routine" && priority != "urgent" {
+	if !validPriority(priority) {
 		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid priority %q", priority)
 	}
 	policy := in.ReviewPolicy
 	if policy == "" {
 		policy = ReviewPolicyNone
 	}
-	if policy != ReviewPolicyNone && policy != ReviewPolicyAuto && policy != ReviewPolicyAgent && policy != ReviewPolicyHuman {
+	if !validReviewPolicy(policy) {
 		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid review_policy %q", policy)
 	}
 	if in.Context == "" {

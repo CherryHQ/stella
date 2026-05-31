@@ -103,6 +103,11 @@ request bodies) must reject unknown values before persisting — return an
 invalid-argument error, don't silently store. Internal call sites that already
 pass typed constants are trusted and need no extra guard.
 
+Keep the allowed set in one place: a small `valid<Enum>` helper (or a `Valid()`
+method on a named type) colocated with the value constants. Validate by calling
+it — never re-list the literals in scattered `if x != "a" && x != "b"` chains,
+which drift the moment someone adds a value.
+
 This is _not_ a ban on `CHECK` generally. Structural invariants always stay in
 the database: range checks (`price_cents >= 0`), XOR/coupling rules (a run
 belongs to a task _or_ a goal, never both), and self-reference guards
