@@ -37,8 +37,8 @@ func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
 	for i, e := range entries {
 		resp[i] = vaultEntryResponse{
 			Name:      e.Name,
-			CreatedAt: e.CreatedAt,
-			UpdatedAt: e.UpdatedAt,
+			CreatedAt: parseTime(e.CreatedAt),
+			UpdatedAt: parseTime(e.UpdatedAt),
 		}
 	}
 	writeData(w, http.StatusOK, resp)

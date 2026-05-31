@@ -41,12 +41,17 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]apitypes.Share, 0, len(rows))
 	for _, row := range rows {
+		var expiresAt *string
+		if row.ExpiresAt.Valid {
+			v := parseTime(row.ExpiresAt.String)
+			expiresAt = &v
+		}
 		out = append(out, apitypes.Share{
 			Id:        row.ID,
 			Title:     row.Title,
 			MediaType: row.MediaType,
-			ExpiresAt: nullStringPtr(row.ExpiresAt),
-			CreatedAt: row.CreatedAt,
+			ExpiresAt: expiresAt,
+			CreatedAt: parseTime(row.CreatedAt),
 		})
 	}
 	writeData(w, http.StatusOK, out)
@@ -93,13 +98,18 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var expiresAtOut *string
+	if share.ExpiresAt.Valid {
+		v := parseTime(share.ExpiresAt.String)
+		expiresAtOut = &v
+	}
 	writeData(w, http.StatusCreated, apitypes.Share{
 		Id:        share.ID,
 		Url:       shareURL(r, token),
 		Title:     share.Title,
 		MediaType: share.MediaType,
-		ExpiresAt: nullStringPtr(share.ExpiresAt),
-		CreatedAt: share.CreatedAt,
+		ExpiresAt: expiresAtOut,
+		CreatedAt: parseTime(share.CreatedAt),
 	})
 }
 
@@ -350,13 +360,6 @@ func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share, effectiveMe
 	default:
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
 	}
-}
-
-func nullStringPtr(v sql.NullString) *string {
-	if !v.Valid {
-		return nil
-	}
-	return &v.String
 }
 
 var _ apiserver.ServerInterface = (*Server)(nil)

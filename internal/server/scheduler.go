@@ -499,7 +499,7 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 		JobId:     row.JobID,
 		SessionId: row.SessionID,
 		Status:    row.Status,
-		StartedAt: row.StartedAt,
+		StartedAt: parseTime(row.StartedAt),
 	}
 	if row.Error != "" {
 		j.Error = &row.Error
@@ -508,7 +508,8 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 		j.UserId = ptrStr(row.UserID.String)
 	}
 	if row.FinishedAt.Valid {
-		j.FinishedAt = &row.FinishedAt.String
+		finished := parseTime(row.FinishedAt.String)
+		j.FinishedAt = &finished
 		startedAt, err1 := time.Parse(adminDBTimeLayout, row.StartedAt)
 		finishedAt, err2 := time.Parse(adminDBTimeLayout, row.FinishedAt.String)
 		if err1 == nil && err2 == nil {

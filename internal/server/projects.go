@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -234,19 +233,11 @@ func toProjectResponse(p sqlc.Project) projectResponse {
 		Name:      p.Name,
 		BaseDir:   p.BaseDir,
 		Archived:  p.Archived != 0,
-		CreatedAt: parseProjectTime(p.CreatedAt),
-		UpdatedAt: parseProjectTime(p.UpdatedAt),
+		CreatedAt: parseTime(p.CreatedAt),
+		UpdatedAt: parseTime(p.UpdatedAt),
 	}
 	if p.Description.Valid {
 		r.Description = p.Description.String
 	}
 	return r
-}
-
-func parseProjectTime(s string) string {
-	t, err := time.Parse("2006-01-02 15:04:05", s)
-	if err != nil {
-		return s
-	}
-	return t.UTC().Format(time.RFC3339)
 }
