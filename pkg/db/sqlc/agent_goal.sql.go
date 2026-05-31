@@ -136,7 +136,7 @@ func (q *Queries) GoalChildCounts(ctx context.Context, goalID sql.NullString) (G
 }
 
 const listAgentGoals = `-- name: ListAgentGoals :many
-SELECT id, user_id, agent_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentGoalsParams struct {
@@ -146,6 +146,55 @@ type ListAgentGoalsParams struct {
 
 func (q *Queries) ListAgentGoals(ctx context.Context, arg ListAgentGoalsParams) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentGoals, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoal{}
+	for rows.Next() {
+		var i AgentGoal
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
+			&i.Context,
+			&i.Output,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentGoalsByUser = `-- name: ListAgentGoalsByUser :many
+SELECT id, user_id, agent_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+`
+
+type ListAgentGoalsByUserParams struct {
+	UserID string `json:"user_id"`
+	Limit  int64  `json:"limit"`
+	Offset int64  `json:"offset"`
+}
+
+func (q *Queries) ListAgentGoalsByUser(ctx context.Context, arg ListAgentGoalsByUserParams) ([]AgentGoal, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentGoalsByUser, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +285,7 @@ func (q *Queries) ListChildrenByGoal(ctx context.Context, goalID sql.NullString)
 }
 
 const listChildrenByGoalPaged = `-- name: ListChildrenByGoalPaged :many
-SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?
 `
 
 type ListChildrenByGoalPagedParams struct {

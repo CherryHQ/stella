@@ -254,7 +254,7 @@ WHERE user_id = ?1
   AND (?2 = '' OR status = ?2)
   AND (?3 = '' OR source_type = ?3)
   AND (?4 = 0 OR starred = ?4)
-ORDER BY saved_at DESC
+ORDER BY saved_at DESC, id DESC
 LIMIT ?6 OFFSET ?5
 `
 

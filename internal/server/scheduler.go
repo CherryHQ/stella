@@ -404,8 +404,17 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
+	// For global (plugin/system) jobs the caller only sees their own runs, so
+	// scope by user in SQL; for owned jobs access is already verified above and
+	// every run belongs to the owner. Filtering in the query keeps the limit+1
+	// page-size detection and next_page_token accurate.
+	var userFilter any
+	if isGlobal && info != nil {
+		userFilter = info.UserID
+	}
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
+		UserID: userFilter,
 		Limit:  int64(limit + 1),
 		Offset: int64(offset),
 	})
@@ -418,9 +427,6 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	sm, _ := s.mem.(memory.SessionManager)
 	runs := make([]apitypes.JobRun, 0, len(page))
 	for _, row := range page {
-		if info == nil || (row.UserID.Valid && row.UserID.String != info.UserID) {
-			continue
-		}
 		j := dbRowToAPIJobRun(row)
 		if j.SessionId != "" && sm != nil {
 			ctx := r.Context()

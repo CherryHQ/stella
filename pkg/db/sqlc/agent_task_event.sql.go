@@ -73,7 +73,7 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 }
 
 const listAgentTaskEvents = `-- name: ListAgentTaskEvents :many
-SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?
 `
 
 type ListAgentTaskEventsParams struct {

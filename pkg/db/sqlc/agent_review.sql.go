@@ -129,7 +129,7 @@ func (q *Queries) GetOpenReviewForTask(ctx context.Context, taskID sql.NullStrin
 }
 
 const listAgentReviewsByGoal = `-- name: ListAgentReviewsByGoal :many
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentReviewsByGoalParams struct {
@@ -177,7 +177,7 @@ func (q *Queries) ListAgentReviewsByGoal(ctx context.Context, arg ListAgentRevie
 }
 
 const listAgentReviewsByTask = `-- name: ListAgentReviewsByTask :many
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE task_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE task_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentReviewsByTaskParams struct {

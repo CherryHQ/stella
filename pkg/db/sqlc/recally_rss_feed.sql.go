@@ -337,7 +337,7 @@ func (q *Queries) ListRSSFeedEntries(ctx context.Context, arg ListRSSFeedEntries
 const listRSSFeeds = `-- name: ListRSSFeeds :many
 SELECT id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed
 WHERE user_id = ?1
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT ?3 OFFSET ?2
 `
 

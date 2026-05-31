@@ -18,10 +18,10 @@ WHERE task_id = ? AND status IN ('requested','in_progress')
 LIMIT 1;
 
 -- name: ListAgentReviewsByTask :many
-SELECT * FROM agent_review WHERE task_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_review WHERE task_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
 -- name: ListAgentReviewsByGoal :many
-SELECT * FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
 -- Reviews awaiting agent dispatch: open, reviewer_type='agent', reviewer_run_id unset.
 -- name: ListOpenAgentReviewsForDispatch :many

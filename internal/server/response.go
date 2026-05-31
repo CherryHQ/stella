@@ -8,6 +8,18 @@ import (
 	"strconv"
 )
 
+// Pagination tokens are deliberately offset-based, not keyset-based. The token
+// is base64(offset) and carries no filter fingerprint or expiry. This is a
+// pragmatic choice for an internal API served only to our own frontend + CLI:
+// it keeps every list handler a one-liner and is correct for the read-mostly
+// collections here. The known tradeoffs versus the keyset scheme in
+// rest-api-design/SKILL.md: (1) under concurrent inserts ahead of the cursor a
+// row can be skipped or duplicated at a page boundary — the per-query
+// `ORDER BY <ts>, id` tiebreaker makes the order stable but does not eliminate
+// offset drift; (2) a client may change filter params between pages without a
+// 400. Revisit (keyset + filter-bound, expiring tokens) if this API is ever
+// exposed to third parties.
+
 // encodeOffsetToken encodes an offset into an opaque page token (AIP-158).
 // Callers treat the result as opaque; clients must not parse it.
 func encodeOffsetToken(offset int) string {

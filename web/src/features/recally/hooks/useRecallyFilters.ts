@@ -97,7 +97,7 @@ export function useRecallyFilters() {
     digest,
     storedDigestsQuery,
     storedDigests: storedDigestsQuery.data?.digests ?? [],
-    storedDigestsTotal: storedDigestsQuery.data?.total ?? 0,
+    storedDigestsTotal: storedDigestsQuery.data?.total_size ?? 0,
     selectedDigestDate,
     setSelectedDigestDate,
     selectedDigestQuery,

@@ -98,7 +98,15 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, int64(limit+1), int64(offset))
+	agentID := ""
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
+	status := ""
+	if params.Status != nil {
+		status = *params.Status
+	}
+	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, status, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
@@ -106,12 +114,6 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Task, 0, len(rows))
 	for _, t := range rows {
-		if params.AgentId != nil && *params.AgentId != "" && t.AgentID.String != *params.AgentId {
-			continue
-		}
-		if params.Status != nil && *params.Status != "" && t.Status != *params.Status {
-			continue
-		}
 		out = append(out, taskToAPI(t))
 	}
 	list := apitypes.TaskList{Tasks: out}

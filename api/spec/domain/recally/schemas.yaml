@@ -283,12 +283,12 @@ components:
 
     StoredDigestSummaryList:
       type: object
-      required: [digests, total]
+      required: [digests, total_size]
       properties:
         digests:
           type: array
           items: { $ref: "#/components/schemas/StoredDigestSummary" }
-        total: { type: integer, format: int64 }
+        total_size: { type: integer, format: int64 }
         next_page_token: { type: string, nullable: true }
 
     StoredDigest:

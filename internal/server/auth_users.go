@@ -71,7 +71,8 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request, params ap
 		resp, err := s.buildAuthUserResponse(r, u)
 		if err != nil {
 			s.log.Error("build auth user response", "user_id", u.ID, "error", err)
-			continue
+			writeError(w, http.StatusInternalServerError, "failed to list users")
+			return
 		}
 		result = append(result, resp)
 	}

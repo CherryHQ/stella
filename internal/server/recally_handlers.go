@@ -647,7 +647,7 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 	for _, s := range summaries {
 		items = append(items, toAPIStoredDigestSummary(s))
 	}
-	list := apitypes.StoredDigestSummaryList{Digests: items, Total: total}
+	list := apitypes.StoredDigestSummaryList{Digests: items, TotalSize: total}
 	if offset+int64(len(summaries)) < total {
 		tok := encodeOffsetToken(int(offset) + len(summaries))
 		list.NextPageToken = &tok

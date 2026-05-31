@@ -689,12 +689,16 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 }
 
 // ListJobRuns returns recent runs for a job.
+// ListJobRuns returns the latest `limit` runs for a job (first page only,
+// across all users). HTTP callers paginate via the handler's direct query
+// instead; this accessor is for internal callers that just want recent runs.
 func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]JobRun, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	rows, err := s.q.ListSchedJobRuns(ctx, sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
+		UserID: nil,
 		Limit:  int64(limit),
 		Offset: 0,
 	})

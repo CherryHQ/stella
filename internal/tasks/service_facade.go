@@ -148,13 +148,18 @@ func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentT
 	return t, nil
 }
 
-// ListTasksByUser returns paginated tasks owned by the given user.
-func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID string, limit, offset int64) ([]sqlc.AgentTask, error) {
+// ListTasksByUser returns paginated tasks owned by the given user, optionally
+// filtered by agent and status. Empty filter strings match all rows.
+func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, status string, limit, offset int64) ([]sqlc.AgentTask, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	return f.q.ListAgentTasksByUser(ctx, sqlc.ListAgentTasksByUserParams{
-		UserID: userID, Limit: limit, Offset: offset,
+		UserID:  userID,
+		AgentID: nilIfEmpty(agentID),
+		Status:  nilIfEmpty(status),
+		Limit:   limit,
+		Offset:  offset,
 	})
 }
 
@@ -359,12 +364,12 @@ func (f *ServiceFacade) GetGoal(ctx context.Context, goalID string) (sqlc.AgentG
 	return g, nil
 }
 
-// ListGoals returns goals, newest first.
-func (f *ServiceFacade) ListGoals(ctx context.Context, limit, offset int64) ([]sqlc.AgentGoal, error) {
+// ListGoals returns goals owned by the given user, newest first.
+func (f *ServiceFacade) ListGoals(ctx context.Context, userID string, limit, offset int64) ([]sqlc.AgentGoal, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{Limit: limit, Offset: offset})
+	return f.q.ListAgentGoalsByUser(ctx, sqlc.ListAgentGoalsByUserParams{UserID: userID, Limit: limit, Offset: offset})
 }
 
 // ActivateGoal / CancelGoal are thin shims over TransitionService.
@@ -405,4 +410,13 @@ func timeOrNull(t time.Time) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: t.UTC().Format(time.RFC3339Nano), Valid: true}
+}
+
+// nilIfEmpty returns nil for an empty string so a sqlc.narg filter matches all
+// rows; otherwise it returns the value to filter on.
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

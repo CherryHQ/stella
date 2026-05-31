@@ -10,9 +10,10 @@ WHERE id = ? AND job_id = ?;
 
 -- name: ListSchedJobRuns :many
 SELECT * FROM sched_job_run
-WHERE job_id = ?
-ORDER BY started_at DESC
-LIMIT ? OFFSET ?;
+WHERE job_id = sqlc.arg('job_id')
+  AND (sqlc.narg('user_id') IS NULL OR user_id = sqlc.narg('user_id'))
+ORDER BY started_at DESC, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: GetSchedJobRun :one
 SELECT * FROM sched_job_run WHERE id = ? AND job_id = ?;

@@ -11,8 +11,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// loadGoal fetches a goal by id. Returns false (after writing 404) on miss.
-func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, goalID string) (sqlc.AgentGoal, bool) {
+// loadGoal fetches a goal by id, enforcing that it belongs to userID. A goal
+// owned by another user is reported as 404 to avoid leaking its existence.
+// Returns false (after writing the error) on miss or ownership mismatch.
+func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, goalID string) (sqlc.AgentGoal, bool) {
 	g, err := s.tasksSvc.Facade.GetGoal(ctx, goalID)
 	if err != nil {
 		if errors.Is(err, tasks.ErrGoalNotFound) {
@@ -20,6 +22,10 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, goalID str
 			return sqlc.AgentGoal{}, false
 		}
 		taskError(w, err)
+		return sqlc.AgentGoal{}, false
+	}
+	if g.UserID != userID {
+		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentGoal{}, false
 	}
 	return g, true
@@ -31,7 +37,8 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -39,7 +46,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), int64(limit+1), int64(offset))
+	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
@@ -104,10 +111,11 @@ func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, goalID string) 
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -119,10 +127,11 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, goalID str
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -143,10 +152,11 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, goalID strin
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -169,7 +179,8 @@ func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID st
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -177,7 +188,7 @@ func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID st
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -203,7 +214,8 @@ func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID 
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -211,7 +223,7 @@ func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID 
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -249,10 +261,11 @@ func (s *Server) EscalateGoalReview(w http.ResponseWriter, r *http.Request, goal
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -280,10 +293,11 @@ func (s *Server) decideGoalReview(w http.ResponseWriter, r *http.Request, goalID
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}

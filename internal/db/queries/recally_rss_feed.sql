@@ -15,7 +15,7 @@ SELECT * FROM recally_rss_feed WHERE user_id = ? AND url = ?;
 -- name: ListRSSFeeds :many
 SELECT * FROM recally_rss_feed
 WHERE user_id = sqlc.arg('user_id')
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateRSSFeed :one

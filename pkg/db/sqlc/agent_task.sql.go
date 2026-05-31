@@ -216,7 +216,7 @@ func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgen
 }
 
 const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentTasksParams struct {
@@ -273,17 +273,30 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 }
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+WHERE user_id = ?1
+  AND (?2 IS NULL OR agent_id = ?2)
+  AND (?3 IS NULL OR status = ?3)
+ORDER BY created_at DESC, id DESC
+LIMIT ?5 OFFSET ?4
 `
 
 type ListAgentTasksByUserParams struct {
-	UserID string `json:"user_id"`
-	Limit  int64  `json:"limit"`
-	Offset int64  `json:"offset"`
+	UserID  string      `json:"user_id"`
+	AgentID interface{} `json:"agent_id"`
+	Status  interface{} `json:"status"`
+	Offset  int64       `json:"offset"`
+	Limit   int64       `json:"limit"`
 }
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser, arg.UserID, arg.Limit, arg.Offset)
+	rows, err := q.db.QueryContext(ctx, listAgentTasksByUser,
+		arg.UserID,
+		arg.AgentID,
+		arg.Status,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
