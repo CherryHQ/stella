@@ -34,20 +34,26 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if requireAuth(w, r) == nil {
 		return
 	}
-	var limit int64 = 50
-	if params.Limit != nil && *params.Limit > 0 {
-		limit = *params.Limit
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), limit)
+	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Goal, 0, len(rows))
 	for _, g := range rows {
 		out = append(out, goalToAPI(g))
 	}
-	writeData(w, http.StatusOK, apitypes.GoalList{Goals: out})
+	list := apitypes.GoalList{Goals: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +164,7 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, goalID strin
 	writeData(w, http.StatusOK, goalToAPI(fresh))
 }
 
-func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID string) {
+func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID string, params apiserver.ListGoalTasksParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -166,23 +172,33 @@ func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID st
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoalTasks(r.Context(), g.ID)
+	rows, err := s.tasksSvc.Facade.ListGoalTasks(r.Context(), g.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Task, 0, len(rows))
 	for _, t := range rows {
 		out = append(out, taskToAPI(t))
 	}
-	writeData(w, http.StatusOK, apitypes.TaskList{Tasks: out})
+	list := apitypes.TaskList{Tasks: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
-func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID string) {
+func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID string, params apiserver.ListGoalReviewsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -190,20 +206,30 @@ func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID 
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	g, ok := s.loadGoal(r.Context(), w, goalID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoalReviews(r.Context(), g.ID)
+	rows, err := s.tasksSvc.Facade.ListGoalReviews(r.Context(), g.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Review, 0, len(rows))
 	for _, rev := range rows {
 		out = append(out, reviewToAPI(rev))
 	}
-	writeData(w, http.StatusOK, apitypes.ReviewList{Reviews: out})
+	list := apitypes.ReviewList{Reviews: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) ApproveGoalReview(w http.ResponseWriter, r *http.Request, goalID string, reviewID string) {

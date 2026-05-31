@@ -339,6 +339,10 @@ components:
         reviews:
           type: array
           items: { $ref: "#/components/schemas/Review" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     ReviewDecisionRequest:
       type: object

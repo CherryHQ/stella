@@ -332,11 +332,11 @@ func (f *ServiceFacade) GetGoal(ctx context.Context, goalID string) (sqlc.AgentG
 }
 
 // ListGoals returns goals, newest first.
-func (f *ServiceFacade) ListGoals(ctx context.Context, limit int64) ([]sqlc.AgentGoal, error) {
+func (f *ServiceFacade) ListGoals(ctx context.Context, limit, offset int64) ([]sqlc.AgentGoal, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{Limit: limit, Offset: 0})
+	return f.q.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{Limit: limit, Offset: offset})
 }
 
 // ActivateGoal / CancelGoal are thin shims over TransitionService.
@@ -349,13 +349,27 @@ func (f *ServiceFacade) CancelGoal(ctx context.Context, goalID, reason string, a
 }
 
 // ListGoalTasks lists child tasks of a goal.
-func (f *ServiceFacade) ListGoalTasks(ctx context.Context, goalID string) ([]sqlc.AgentTask, error) {
-	return f.q.ListChildrenByGoal(ctx, nullable(goalID))
+func (f *ServiceFacade) ListGoalTasks(ctx context.Context, goalID string, limit, offset int64) ([]sqlc.AgentTask, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListChildrenByGoalPaged(ctx, sqlc.ListChildrenByGoalPagedParams{
+		GoalID: nullable(goalID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // ListGoalReviews lists reviews for a goal.
-func (f *ServiceFacade) ListGoalReviews(ctx context.Context, goalID string) ([]sqlc.AgentReview, error) {
-	return f.q.ListAgentReviewsByGoal(ctx, nullable(goalID))
+func (f *ServiceFacade) ListGoalReviews(ctx context.Context, goalID string, limit, offset int64) ([]sqlc.AgentReview, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentReviewsByGoal(ctx, sqlc.ListAgentReviewsByGoalParams{
+		GoalID: nullable(goalID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 func timeOrNull(t time.Time) sql.NullString {

@@ -21,7 +21,7 @@ LIMIT 1;
 SELECT * FROM agent_review WHERE task_id = ? ORDER BY created_at DESC;
 
 -- name: ListAgentReviewsByGoal :many
-SELECT * FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC;
+SELECT * FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
 -- Reviews awaiting agent dispatch: open, reviewer_type='agent', reviewer_run_id unset.
 -- name: ListOpenAgentReviewsForDispatch :many

@@ -129,11 +129,17 @@ func (q *Queries) GetOpenReviewForTask(ctx context.Context, taskID sql.NullStrin
 }
 
 const listAgentReviewsByGoal = `-- name: ListAgentReviewsByGoal :many
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
 `
 
-func (q *Queries) ListAgentReviewsByGoal(ctx context.Context, goalID sql.NullString) ([]AgentReview, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentReviewsByGoal, goalID)
+type ListAgentReviewsByGoalParams struct {
+	GoalID sql.NullString `json:"goal_id"`
+	Limit  int64          `json:"limit"`
+	Offset int64          `json:"offset"`
+}
+
+func (q *Queries) ListAgentReviewsByGoal(ctx context.Context, arg ListAgentReviewsByGoalParams) ([]AgentReview, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentReviewsByGoal, arg.GoalID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

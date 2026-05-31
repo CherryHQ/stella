@@ -41,7 +41,7 @@ func goalReviewsCmd() *ucli.Command {
 				return fmt.Errorf("goal id is required")
 			}
 			list, err := apiclient.Call[apitypes.ReviewList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListGoalReviews(c.Context, id)
+				return api.ListGoalReviews(c.Context, id, nil)
 			})
 			if err != nil {
 				return fmt.Errorf("goal reviews: %w", err)
@@ -57,13 +57,13 @@ func goalListCmd() *ucli.Command {
 		Name:  "list",
 		Usage: "List goals",
 		Flags: []ucli.Flag{
-			&ucli.Int64Flag{Name: "limit", Usage: "Maximum number of goals to return"},
+			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of goals to return"},
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListGoalsParams{}
 			if c.IsSet("limit") {
-				l := c.Int64("limit")
-				params.Limit = &l
+				l := c.Int("limit")
+				params.PageSize = &l
 			}
 			list, err := apiclient.Call[apitypes.GoalList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListGoals(c.Context, params)
@@ -209,7 +209,7 @@ func goalTasksCmd() *ucli.Command {
 				return fmt.Errorf("goal id is required")
 			}
 			list, err := apiclient.Call[apitypes.TaskList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListGoalTasks(c.Context, id)
+				return api.ListGoalTasks(c.Context, id, nil)
 			})
 			if err != nil {
 				return fmt.Errorf("goal tasks: %w", err)

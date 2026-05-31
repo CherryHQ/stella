@@ -28,6 +28,9 @@ UPDATE agent_goal SET output = ?, completed_at = ?, updated_at = ? WHERE id = ?;
 -- name: ListChildrenByGoal :many
 SELECT * FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC;
 
+-- name: ListChildrenByGoalPaged :many
+SELECT * FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?;
+
 -- Aggregate counts of children by required_flag + status for rollup logic.
 -- name: GoalChildCounts :one
 SELECT

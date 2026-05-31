@@ -235,6 +235,64 @@ func (q *Queries) ListChildrenByGoal(ctx context.Context, goalID sql.NullString)
 	return items, nil
 }
 
+const listChildrenByGoalPaged = `-- name: ListChildrenByGoalPaged :many
+SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?
+`
+
+type ListChildrenByGoalPagedParams struct {
+	GoalID sql.NullString `json:"goal_id"`
+	Limit  int64          `json:"limit"`
+	Offset int64          `json:"offset"`
+}
+
+func (q *Queries) ListChildrenByGoalPaged(ctx context.Context, arg ListChildrenByGoalPagedParams) ([]AgentTask, error) {
+	rows, err := q.db.QueryContext(ctx, listChildrenByGoalPaged, arg.GoalID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTask{}
+	for rows.Next() {
+		var i AgentTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.GoalID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ReviewPolicy,
+			&i.ActiveReviewID,
+			&i.Required,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.NotBefore,
+			&i.DeadlineAt,
+			&i.SessionID,
+			&i.ActiveRunID,
+			&i.ActiveBlockerID,
+			&i.Context,
+			&i.Output,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGoalPlanningCandidates = `-- name: ListGoalPlanningCandidates :many
 SELECT id, user_id, agent_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal
 WHERE status = 'draft'
