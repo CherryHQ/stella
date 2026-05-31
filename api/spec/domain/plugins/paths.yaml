@@ -46,7 +46,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/plugin-status/{kind}/{name}:
+  /api/plugins/{kind}/{name}/status:
     parameters:
       - { name: kind, in: path, required: true, schema: { type: string } }
       - { name: name, in: path, required: true, schema: { type: string } }
@@ -65,7 +65,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/plugin-config/{kind}/{name}:
+  /api/plugins/{kind}/{name}/config:
     parameters:
       - { name: kind, in: path, required: true, schema: { type: string } }
       - { name: name, in: path, required: true, schema: { type: string } }
@@ -111,7 +111,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/plugin-config-schema/{kind}/{name}:
+  /api/plugins/{kind}/{name}/config-schema:
     parameters:
       - { name: kind, in: path, required: true, schema: { type: string } }
       - { name: name, in: path, required: true, schema: { type: string } }

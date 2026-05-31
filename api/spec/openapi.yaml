@@ -297,12 +297,12 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
   /api/plugins/{kind}/{name}:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}"
-  /api/plugin-status/{kind}/{name}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugin-status~1{kind}~1{name}"
-  /api/plugin-config/{kind}/{name}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugin-config~1{kind}~1{name}"
-  /api/plugin-config-schema/{kind}/{name}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugin-config-schema~1{kind}~1{name}"
+  /api/plugins/{kind}/{name}/status:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1status"
+  /api/plugins/{kind}/{name}/config:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1config"
+  /api/plugins/{kind}/{name}/config-schema:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1config-schema"
   /api/manifest-plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins"
   /api/manifest-plugins:sync:

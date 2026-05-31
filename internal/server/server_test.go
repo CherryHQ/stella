@@ -476,7 +476,7 @@ func TestListAgents(t *testing.T) {
 func TestGetTelegramPluginConfigSchema(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/plugin-config-schema/channel/telegram", nil)
+	rr := doRequest(t, env, "GET", "/api/plugins/channel/telegram/config-schema", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -502,9 +502,9 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 		path         string
 		propertyName string
 	}{
-		{path: "/api/plugin-config-schema/channel/qq", propertyName: "app_id"},
-		{path: "/api/plugin-config-schema/channel/feishu", propertyName: "app_id"},
-		{path: "/api/plugin-config-schema/channel/weixin", propertyName: "bot_token"},
+		{path: "/api/plugins/channel/qq/config-schema", propertyName: "app_id"},
+		{path: "/api/plugins/channel/feishu/config-schema", propertyName: "app_id"},
+		{path: "/api/plugins/channel/weixin/config-schema", propertyName: "bot_token"},
 	}
 
 	for _, tt := range tests {
@@ -581,12 +581,12 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/plugin-config/channel/telegram", nil)
+	rr := doRequest(t, env, "GET", "/api/plugins/channel/telegram/config", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "PATCH", "/api/plugin-config/channel/telegram", map[string]any{
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram/config", map[string]any{
 		"config": map[string]any{"token": "telegram-secret"},
 	})
 	if rr.Code != http.StatusBadRequest {
@@ -605,7 +605,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/telegram/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -626,7 +626,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/telegram/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -650,7 +650,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/qq/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -671,7 +671,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/qq/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -695,7 +695,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/feishu/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -720,7 +720,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/feishu/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -744,7 +744,7 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/weixin/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -769,7 +769,7 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/weixin/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}

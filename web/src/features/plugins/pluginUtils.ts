@@ -37,11 +37,11 @@ export function pluginToggleURLByID(id: string, plugins: Plugin[]): string {
 }
 
 export function pluginSchemaPath(plugin: Plugin): string {
-  return `/api/plugin-config-schema/${encodeURIComponent(plugin.kind)}/${encodeURIComponent(plugin.name)}`;
+  return `/api/plugins/${encodeURIComponent(plugin.kind)}/${encodeURIComponent(plugin.name)}/config-schema`;
 }
 
 export function pluginConfigPath(plugin: Plugin): string {
-  return `/api/plugin-config/${encodeURIComponent(plugin.kind)}/${encodeURIComponent(plugin.name)}`;
+  return `/api/plugins/${encodeURIComponent(plugin.kind)}/${encodeURIComponent(plugin.name)}/config`;
 }
 
 export function withManifestMeta(
