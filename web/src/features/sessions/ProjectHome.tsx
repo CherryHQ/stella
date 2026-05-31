@@ -14,7 +14,7 @@ export function ProjectHome() {
   const creating = useRef(false);
 
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
-  const sessions = sessionsQuery.data?.pages.flat() ?? [];
+  const sessions = sessionsQuery.data?.pages.flatMap((p) => p.sessions) ?? [];
 
   const targetSession = useMemo(() => {
     return sessions.find((s) => s.project_id === projectId && !s.archived) ?? null;

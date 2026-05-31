@@ -13,13 +13,13 @@ paths:
             schema: { type: string },
           }
         - {
-            name: limit,
+            name: page_size,
             in: query,
             required: false,
             schema: { type: integer, format: int64 },
           }
         - {
-            name: cursor,
+            name: page_token,
             in: query,
             required: false,
             schema: { type: string },

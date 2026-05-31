@@ -611,20 +611,21 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	limit := int64(20)
-	if params.Limit != nil {
-		if *params.Limit < 1 || *params.Limit > 100 {
-			writeError(w, http.StatusBadRequest, "limit must be between 1 and 100")
+	if params.PageSize != nil {
+		if *params.PageSize < 1 || *params.PageSize > 100 {
+			writeError(w, http.StatusBadRequest, "page_size must be between 1 and 100")
 			return
 		}
-		limit = int64(*params.Limit)
+		limit = int64(*params.PageSize)
 	}
 	offset := int64(0)
-	if params.Offset != nil {
-		if *params.Offset < 0 {
-			writeError(w, http.StatusBadRequest, "offset must be greater than or equal to 0")
+	if params.PageToken != nil {
+		decoded, err := decodeOffsetToken(*params.PageToken)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid page_token")
 			return
 		}
-		offset = int64(*params.Offset)
+		offset = int64(decoded)
 	}
 	summaries, total, err := h.store.ListStoredDigests(r.Context(), userID, limit, offset)
 	if err != nil {
@@ -635,7 +636,12 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 	for _, s := range summaries {
 		items = append(items, toAPIStoredDigestSummary(s))
 	}
-	writeData(w, http.StatusOK, apitypes.StoredDigestSummaryList{Digests: items, Total: total})
+	list := apitypes.StoredDigestSummaryList{Digests: items, Total: total}
+	if offset+int64(len(summaries)) < total {
+		tok := encodeOffsetToken(int(offset) + len(summaries))
+		list.NextPageToken = &tok
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {

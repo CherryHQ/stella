@@ -443,12 +443,17 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	info := UserFromContext(r.Context())
 
 	limit := 10
-	if params.Limit != nil && *params.Limit >= 0 {
-		limit = *params.Limit
+	if params.PageSize != nil && *params.PageSize >= 0 {
+		limit = *params.PageSize
 	}
 	offset := 0
-	if params.Offset != nil && *params.Offset >= 0 {
-		offset = *params.Offset
+	if params.PageToken != nil {
+		decoded, err := decodeOffsetToken(*params.PageToken)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid page_token")
+			return
+		}
+		offset = decoded
 	}
 
 	opts := memory.ListOptions{IncludeArchived: true, Limit: limit, Offset: offset}
@@ -472,7 +477,11 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	for _, si := range sessions {
 		resp = append(resp, toSessionResponse(si))
 	}
-	writeData(w, http.StatusOK, map[string]any{"sessions": resp})
+	out := map[string]any{"sessions": resp}
+	if limit > 0 && len(sessions) == limit {
+		out["next_page_token"] = encodeOffsetToken(offset + limit)
+	}
+	writeData(w, http.StatusOK, out)
 }
 
 func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {

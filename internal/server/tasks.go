@@ -89,10 +89,19 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 	var limit int64 = 50
-	if params.Limit != nil && *params.Limit > 0 {
-		limit = *params.Limit
+	if params.PageSize != nil && *params.PageSize > 0 {
+		limit = *params.PageSize
 	}
-	rows, err := s.tasksSvc.Facade.ListTasks(r.Context(), limit, 0)
+	offset := 0
+	if params.PageToken != nil {
+		decoded, err := decodeOffsetToken(*params.PageToken)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid page_token")
+			return
+		}
+		offset = decoded
+	}
+	rows, err := s.tasksSvc.Facade.ListTasks(r.Context(), limit, int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
@@ -107,7 +116,12 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 		}
 		out = append(out, taskToAPI(t))
 	}
-	writeData(w, http.StatusOK, apitypes.TaskList{Tasks: out})
+	list := apitypes.TaskList{Tasks: out}
+	if limit > 0 && int64(len(rows)) == limit {
+		tok := encodeOffsetToken(offset + int(limit))
+		list.NextPageToken = &tok
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {

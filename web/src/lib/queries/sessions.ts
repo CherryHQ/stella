@@ -5,16 +5,18 @@ import type { Session } from "@/lib/types";
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {
   return infiniteQueryOptions({
     queryKey: ["sessions", agentId, kind],
-    initialPageParam: 0,
+    initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listSessions({
         path: { agentID: agentId },
-        query: { limit: 20, offset: pageParam as number, kind },
+        query: { page_size: 20, page_token: pageParam, kind },
         throwOnError: true,
       });
-      return (data?.sessions as Session[]) ?? [];
+      return {
+        sessions: (data?.sessions as Session[]) ?? [],
+        nextPageToken: data?.next_page_token ?? undefined,
+      };
     },
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === 20 ? allPages.reduce((sum, p) => sum + p.length, 0) : undefined,
+    getNextPageParam: (lastPage) => lastPage.nextPageToken,
   });
 }

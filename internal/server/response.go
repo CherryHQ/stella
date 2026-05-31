@@ -1,9 +1,30 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strconv"
 )
+
+// encodeOffsetToken encodes an offset into an opaque page token (AIP-158).
+// Callers treat the result as opaque; clients must not parse it.
+func encodeOffsetToken(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodeOffsetToken decodes an opaque page token back into an offset. An empty
+// token yields offset 0; a malformed token yields an error.
+func decodeOffsetToken(token string) (int, error) {
+	if token == "" {
+		return 0, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(string(raw))
+}
 
 // writeData writes a success JSON response with the given data.
 func writeData(w http.ResponseWriter, status int, data any) {

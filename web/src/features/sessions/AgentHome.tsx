@@ -12,7 +12,7 @@ export function AgentHome() {
   const creating = useRef(false);
 
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
-  const sessions = sessionsQuery.data?.pages.flat() ?? [];
+  const sessions = sessionsQuery.data?.pages.flatMap((p) => p.sessions) ?? [];
 
   const mainSession = useMemo(() => {
     const active = sessions.filter((s) => !s.archived);

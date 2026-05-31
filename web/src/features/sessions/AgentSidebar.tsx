@@ -443,7 +443,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── data ─────────────────────────────────────────────────────────────────
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
-  const sessions = sessionsQuery.data?.pages.flat() ?? [];
+  const sessions = sessionsQuery.data?.pages.flatMap((p) => p.sessions) ?? [];
 
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({

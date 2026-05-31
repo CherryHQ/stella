@@ -22,7 +22,7 @@ export function useRecallyFilters() {
   const [selectedDigestDate, setSelectedDigestDate] = useState<string | null>(null);
 
   const digestQuery = useQuery(getDigestOptions());
-  const storedDigestsQuery = useQuery(listStoredDigestsOptions({ query: { limit: 50 } }));
+  const storedDigestsQuery = useQuery(listStoredDigestsOptions({ query: { page_size: 50 } }));
   const selectedDigestQuery = useQuery({
     ...getStoredDigestOptions({ path: { date: selectedDigestDate ?? "" } }),
     enabled: !!selectedDigestDate,

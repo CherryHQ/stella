@@ -7,14 +7,14 @@ paths:
       summary: List sessions (all users see their own; admins see all)
       operationId: listSessions
       parameters:
-        - name: limit
+        - name: page_size
           in: query
           schema: { type: integer, default: 10 }
           description: Maximum number of sessions to return
-        - name: offset
+        - name: page_token
           in: query
-          schema: { type: integer, default: 0 }
-          description: Number of sessions to skip
+          schema: { type: string }
+          description: Opaque pagination token from a previous response
         - name: kind
           in: query
           schema: { type: string, enum: [main, chat, scheduler, task] }
