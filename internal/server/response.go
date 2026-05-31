@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 )
@@ -23,7 +24,14 @@ func decodeOffsetToken(token string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return strconv.Atoi(string(raw))
+	offset, err := strconv.Atoi(string(raw))
+	if err != nil {
+		return 0, err
+	}
+	if offset < 0 {
+		return 0, fmt.Errorf("negative offset in page token: %d", offset)
+	}
+	return offset, nil
 }
 
 // writeData writes a success JSON response with the given data.

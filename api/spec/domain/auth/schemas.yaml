@@ -54,7 +54,6 @@ components:
         sessions:
           type: array
           items: { $ref: "#/components/schemas/AuthSession" }
-        next_page_token: { type: string, nullable: true }
 
     OIDCProvider:
       type: object

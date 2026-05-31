@@ -15,7 +15,7 @@ import {
   updateUserDefaultAgent,
   updateUserNotifyIdentity,
 } from "@/lib/api-client/sdk.gen";
-import type { Agent, Identity, User, UserMemory } from "@/lib/types";
+import type { Agent, ChannelIdentity, User, UserMemory } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,7 +61,7 @@ export function UsersPage() {
   const loadAuthUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      setAuthUsers(((data as { items?: User[] })?.items ?? []) as User[]);
+      setAuthUsers((data?.users ?? []) as User[]);
     } catch (e) {
       console.error(e);
     }
@@ -223,7 +223,7 @@ export function UsersPage() {
   const loadLegacyUsers = useCallback(async () => {
     try {
       const { data } = await listAuthUsers({ throwOnError: true });
-      const list = ((data as { items?: User[] })?.items ?? []) as User[];
+      const list = (data?.users ?? []) as User[];
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
@@ -384,7 +384,7 @@ export function UsersPage() {
           onClick={() => void selectUser(u)}
           active={selectedUser?.id === u.id}
         >
-          <div className="truncate text-sm font-medium">{u.username}</div>
+          <div className="truncate text-sm font-medium">{u.name || u.email}</div>
           <div className="mt-0.5 font-mono text-xs text-muted-foreground">
             {u.role === "admin" ? (
               <span className="text-primary">{u.role}</span>
@@ -404,7 +404,7 @@ export function UsersPage() {
       {/* Detail header */}
       <div className="shrink-0 px-6 py-4 border-b border-border">
         <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-medium">{selectedUser.username}</h2>
+          <h2 className="text-lg font-medium">{selectedUser.name || selectedUser.email}</h2>
           <Badge variant={selectedUser.role === "admin" ? "default" : "outline"} size="sm">
             {selectedUser.role}
           </Badge>
@@ -499,7 +499,7 @@ export function UsersPage() {
                 <FormSectionTitle>Linked Identities</FormSectionTitle>
               </div>
               <div className="space-y-2">
-                {(selectedUser.identities || []).map((ident: Identity) => (
+                {(selectedUser.identities || []).map((ident: ChannelIdentity) => (
                   <div
                     key={ident.id}
                     className="flex items-center justify-between py-1 px-2 bg-muted rounded"
@@ -514,7 +514,7 @@ export function UsersPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{ident.linked_at}</span>
+                      <span className="text-xs text-muted-foreground">{ident.created_at}</span>
                       <Button
                         variant="ghost"
                         size="xs"
@@ -549,7 +549,7 @@ export function UsersPage() {
                   className="select select-bordered select-sm w-full text-sm"
                 >
                   <option value="">Auto (first linked)</option>
-                  {selectedUser.identities.map((ident: Identity) => (
+                  {selectedUser.identities.map((ident: ChannelIdentity) => (
                     <option key={ident.id} value={ident.id}>
                       {ident.platform}
                       {ident.name ? ` — ${ident.name}` : ` — ${ident.external_id}`}

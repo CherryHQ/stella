@@ -25,7 +25,6 @@ components:
           type: array,
           items: { $ref: "#/components/schemas/Channel" },
         }
-        next_page_token: { type: string, nullable: true }
 
     PublicChannel:
       type: object
@@ -46,7 +45,6 @@ components:
           type: array,
           items: { $ref: "#/components/schemas/PublicChannel" },
         }
-        next_page_token: { type: string, nullable: true }
 
     ChannelWriteRequest:
       type: object

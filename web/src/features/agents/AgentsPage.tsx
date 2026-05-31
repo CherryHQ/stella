@@ -190,7 +190,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     : [];
   const allUsers = isAdmin
     ? ((await listAuthUsers({ throwOnError: true })
-        .then(({ data }) => ((data as { items?: User[] })?.items ?? []) as User[])
+        .then(({ data }) => (data?.users ?? []) as User[])
         .catch(() => [])) ?? [])
     : [];
   const agentSkills = (
@@ -438,7 +438,9 @@ export function AgentsPage() {
   const loadAssignedUsers = useCallback(async (agentId: string) => {
     try {
       const { data } = await listAgentUsers({ path: { id: agentId }, throwOnError: true });
-      const assignedUsers = ((data as { items?: User[] })?.items ?? []) as User[];
+      const assignedUsers = (data?.users ?? []).map(
+        (u) => ({ id: u.id ?? "", email: u.username ?? "", name: "" }) as User,
+      );
       setState((prev) => ({ ...prev, assignedUsers }));
     } catch {
       setState((prev) => ({ ...prev, assignedUsers: [] }));

@@ -50,4 +50,3 @@ components:
         projects:
           type: array
           items: { $ref: "#/components/schemas/Project" }
-        next_page_token: { type: string, nullable: true }

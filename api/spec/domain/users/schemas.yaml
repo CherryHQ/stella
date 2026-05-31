@@ -20,7 +20,8 @@ components:
       type: object
       required: [
         id,
-        username,
+        email,
+        name,
         role,
         is_active,
         identities,
@@ -29,12 +30,13 @@ components:
       ]
       properties:
         id: { type: string }
-        username: { type: string }
+        email: { type: string }
+        name: { type: string }
         role: { type: string }
         is_active: { type: boolean }
         identities:
           type: array
-          items: { $ref: "#/components/schemas/Identity" }
+          items: { $ref: "#/components/schemas/ChannelIdentity" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -45,7 +47,6 @@ components:
         users:
           type: array
           items: { $ref: "#/components/schemas/AuthUser" }
-        next_page_token: { type: string, nullable: true }
 
     UserMemory:
       type: object
@@ -148,7 +149,6 @@ components:
         memories:
           type: array
           items: { $ref: "#/components/schemas/UserMemory" }
-        next_page_token: { type: string, nullable: true }
 
     IdentityList:
       type: object
@@ -157,7 +157,6 @@ components:
         identities:
           type: array
           items: { $ref: "#/components/schemas/Identity" }
-        next_page_token: { type: string, nullable: true }
 
     LoginIdentityList:
       type: object
@@ -166,7 +165,6 @@ components:
         identities:
           type: array
           items: { $ref: "#/components/schemas/LoginIdentity" }
-        next_page_token: { type: string, nullable: true }
 
     ChannelIdentityList:
       type: object
@@ -175,7 +173,6 @@ components:
         identities:
           type: array
           items: { $ref: "#/components/schemas/ChannelIdentity" }
-        next_page_token: { type: string, nullable: true }
 
     AuthUserAgentList:
       type: object
@@ -184,4 +181,3 @@ components:
         agent_ids:
           type: array
           items: { type: string }
-        next_page_token: { type: string, nullable: true }

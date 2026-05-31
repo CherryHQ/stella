@@ -44,4 +44,3 @@ components:
         resources:
           type: array
           items: { $ref: "#/components/schemas/BuiltinResource" }
-        next_page_token: { type: string, nullable: true }

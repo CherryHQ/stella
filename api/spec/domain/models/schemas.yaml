@@ -20,4 +20,3 @@ components:
         models:
           type: array
           items: { $ref: "#/components/schemas/CachedModel" }
-        next_page_token: { type: string, nullable: true }

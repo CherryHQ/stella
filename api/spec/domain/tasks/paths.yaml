@@ -16,7 +16,7 @@ paths:
             name: page_size,
             in: query,
             required: false,
-            schema: { type: integer, format: int64 },
+            schema: { type: integer, format: int64, minimum: 1 },
           }
         - {
             name: page_token,

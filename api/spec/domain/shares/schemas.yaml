@@ -39,4 +39,3 @@ components:
         shares:
           type: array
           items: { $ref: "#/components/schemas/Share" }
-        next_page_token: { type: string, nullable: true }

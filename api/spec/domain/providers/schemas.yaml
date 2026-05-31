@@ -73,7 +73,6 @@ components:
         providers:
           type: array
           items: { $ref: "#/components/schemas/Provider" }
-        next_page_token: { type: string, nullable: true }
 
     ProviderModelList:
       type: object
@@ -82,7 +81,6 @@ components:
         models:
           type: array
           items: { $ref: "#/components/schemas/ProviderModelItem" }
-        next_page_token: { type: string, nullable: true }
 
     ProviderTypeList:
       type: object
@@ -91,4 +89,3 @@ components:
         provider_types:
           type: array
           items: { $ref: "#/components/schemas/ProviderType" }
-        next_page_token: { type: string, nullable: true }

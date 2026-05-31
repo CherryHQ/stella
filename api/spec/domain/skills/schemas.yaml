@@ -22,4 +22,3 @@ components:
           type: array,
           items: { $ref: "#/components/schemas/SkillSearchResult" },
         }
-        next_page_token: { type: string, nullable: true }

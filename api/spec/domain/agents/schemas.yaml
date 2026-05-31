@@ -37,7 +37,6 @@ components:
       required: [agents]
       properties:
         agents: { type: array, items: { $ref: "#/components/schemas/Agent" } }
-        next_page_token: { type: string, nullable: true }
 
     CreateAgentRequest:
       type: object
@@ -70,7 +69,6 @@ components:
           type: array,
           items: { $ref: "#/components/schemas/AgentUser" },
         }
-        next_page_token: { type: string, nullable: true }
 
     AssignAgentUserRequest:
       type: object
@@ -100,7 +98,6 @@ components:
       required: [skills]
       properties:
         skills: { type: array, items: { $ref: "#/components/schemas/Skill" } }
-        next_page_token: { type: string, nullable: true }
 
     CreateSkillRequest:
       type: object

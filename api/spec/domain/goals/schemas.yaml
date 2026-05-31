@@ -62,7 +62,6 @@ components:
         goals:
           type: array
           items: { $ref: "#/components/schemas/Goal" }
-        next_page_token: { type: string, nullable: true }
 
     CreateGoalRequest:
       type: object

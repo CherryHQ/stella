@@ -443,7 +443,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	info := UserFromContext(r.Context())
 
 	limit := 10
-	if params.PageSize != nil && *params.PageSize >= 0 {
+	if params.PageSize != nil && *params.PageSize > 0 {
 		limit = *params.PageSize
 	}
 	offset := 0

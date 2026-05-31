@@ -56,7 +56,6 @@ components:
       required: [jobs]
       properties:
         jobs: { type: array, items: { $ref: "#/components/schemas/Job" } }
-        next_page_token: { type: string, nullable: true }
 
     JobInput:
       type: object
@@ -95,7 +94,6 @@ components:
       required: [runs]
       properties:
         runs: { type: array, items: { $ref: "#/components/schemas/JobRun" } }
-        next_page_token: { type: string, nullable: true }
 
     TriggerJobResult:
       type: object

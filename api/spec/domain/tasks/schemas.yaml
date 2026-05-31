@@ -213,7 +213,6 @@ components:
         runs:
           type: array
           items: { $ref: "#/components/schemas/Run" }
-        next_page_token: { type: string, nullable: true }
 
     Event:
       type: object
@@ -242,7 +241,6 @@ components:
         events:
           type: array
           items: { $ref: "#/components/schemas/Event" }
-        next_page_token: { type: string, nullable: true }
 
     Dep:
       type: object
@@ -271,7 +269,6 @@ components:
         deps:
           type: array
           items: { $ref: "#/components/schemas/Dep" }
-        next_page_token: { type: string, nullable: true }
 
     AddDepRequest:
       type: object
@@ -342,7 +339,6 @@ components:
         reviews:
           type: array
           items: { $ref: "#/components/schemas/Review" }
-        next_page_token: { type: string, nullable: true }
 
     ReviewDecisionRequest:
       type: object

@@ -9,7 +9,7 @@ paths:
       parameters:
         - name: page_size
           in: query
-          schema: { type: integer, default: 10 }
+          schema: { type: integer, default: 10, minimum: 1 }
           description: Maximum number of sessions to return
         - name: page_token
           in: query

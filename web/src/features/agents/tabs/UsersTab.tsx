@@ -23,7 +23,7 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
       <div className="divide-y divide-border">
         {assignedUsers.map((u) => (
           <div key={u.id} className="flex items-center justify-between py-2">
-            <span className="text-sm font-mono">{u.username}</span>
+            <span className="text-sm font-mono">{u.name || u.email}</span>
             <Button
               onClick={() => onRemoveUser(u.id)}
               variant="ghost"
@@ -47,7 +47,7 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
           <option value="">Select user...</option>
           {availableUsers.map((u) => (
             <option key={u.id} value={u.id}>
-              {u.username}
+              {u.name || u.email}
             </option>
           ))}
         </select>
