@@ -82,10 +82,13 @@ func TestVaultCRUD(t *testing.T) {
 		t.Fatalf("list status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
-	var entries []map[string]string
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	var wrapper struct {
+		Entries []map[string]string `json:"entries"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	entries := wrapper.Entries
 	if len(entries) != 0 {
 		t.Fatalf("expected 0 entries, got %d", len(entries))
 	}
@@ -101,8 +104,7 @@ func TestVaultCRUD(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	resp = parseResponse(t, rr)
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(entries) != 1 {
@@ -123,8 +125,8 @@ func TestVaultCRUD(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d", rr.Code)
 	}
-	resp = parseResponse(t, rr)
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	entries = nil
+	if err := json.Unmarshal(parseListItems(t, rr), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(entries) != 0 {
@@ -209,10 +211,13 @@ func TestVaultUpdateExisting(t *testing.T) {
 		t.Fatalf("list status = %d", rr.Code)
 	}
 	resp := parseResponse(t, rr)
-	var entries []map[string]string
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	var wrapper struct {
+		Entries []map[string]string `json:"entries"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	entries := wrapper.Entries
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry after update, got %d", len(entries))
 	}

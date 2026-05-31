@@ -437,7 +437,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	}
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
-		writeData(w, http.StatusOK, []any{})
+		writeData(w, http.StatusOK, map[string]any{"sessions": []any{}})
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -472,7 +472,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	for _, si := range sessions {
 		resp = append(resp, toSessionResponse(si))
 	}
-	writeData(w, http.StatusOK, resp)
+	writeData(w, http.StatusOK, map[string]any{"sessions": resp})
 }
 
 func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -597,7 +597,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 		}
 	}
 
-	writeData(w, http.StatusOK, all)
+	writeData(w, http.StatusOK, map[string]any{"messages": all})
 }
 
 // checkSessionAccess verifies the current user has access to the session.

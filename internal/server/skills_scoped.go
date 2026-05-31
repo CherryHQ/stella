@@ -298,7 +298,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		}
 		out = append(out, resolvedSkillToView(rs))
 	}
-	writeListData(w, http.StatusOK, out)
+	writeData(w, http.StatusOK, map[string]any{"skills": out})
 }
 
 func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id string) {

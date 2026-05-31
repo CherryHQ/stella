@@ -97,3 +97,21 @@ components:
       properties:
         connected: { type: boolean }
         username: { type: string }
+
+    VaultEntryList:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/VaultEntry" }
+        next_page_token: { type: string, nullable: true }
+
+    OAuthProviderStatusList:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/OAuthProviderStatus" }
+        next_page_token: { type: string, nullable: true }

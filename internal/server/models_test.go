@@ -87,10 +87,13 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var models []config.CachedModel
-	if err := json.Unmarshal(rec.Body.Bytes(), &models); err != nil {
+	var resp struct {
+		Models []config.CachedModel `json:"models"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+	models := resp.Models
 
 	got := make(map[string]bool, len(models))
 	for _, model := range models {

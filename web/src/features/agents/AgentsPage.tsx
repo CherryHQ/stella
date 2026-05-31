@@ -29,7 +29,6 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type {
   CreateAgentData,
-  ComponentsCachedModel,
   InstallAgentSkillData,
   UpdateAgentData,
   UpdateAgentSkillData,
@@ -161,17 +160,17 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
       .then(({ data }) => data?.agents ?? [])
       .catch(() => []),
     listModels({ throwOnError: true })
-      .then(({ data }) => (data as ComponentsCachedModel[]) ?? [])
+      .then(({ data }) => data?.models ?? [])
       .catch(() => []),
     getMe({ throwOnError: true })
       .then(({ data }) => data)
       .catch(() => null),
     Promise.all([
       listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
-        .then(({ data }) => (data as BuiltinItem[]) ?? [])
+        .then(({ data }) => (data?.resources as BuiltinItem[]) ?? [])
         .catch(() => []),
       listBuiltinResources({ path: { kind: "soul" }, throwOnError: true })
-        .then(({ data }) => (data as BuiltinItem[]) ?? [])
+        .then(({ data }) => (data?.resources as BuiltinItem[]) ?? [])
         .catch(() => []),
     ]),
   ]);

@@ -113,7 +113,7 @@ export function PluginsPage() {
   const loadPlugins = useCallback(async () => {
     try {
       const { data } = await listPlugins({ throwOnError: true });
-      const raw = (data as Plugin[]) ?? [];
+      const raw = (data?.plugins as Plugin[]) ?? [];
       const pluginList = raw.map((p) => ({
         ...p,
         capabilities: Array.isArray(p.capabilities) ? p.capabilities : [],

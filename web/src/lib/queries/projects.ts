@@ -6,7 +6,7 @@ export function agentProjectsOptions(agentId: string) {
     queryKey: ["projects", agentId],
     queryFn: async () => {
       const { data } = await listProjects({ path: { agentID: agentId }, throwOnError: true });
-      return data ?? [];
+      return data?.projects ?? [];
     },
     enabled: !!agentId,
   });

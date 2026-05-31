@@ -9,11 +9,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/Tool",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ToolList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

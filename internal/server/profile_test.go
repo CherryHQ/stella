@@ -21,10 +21,13 @@ func TestListProfileIdentitiesEmpty(t *testing.T) {
 	}
 
 	resp := parseResponse(t, rr)
-	var identities []auth.ChannelIdentity
-	if err := json.Unmarshal(resp.Data, &identities); err != nil {
+	var wrapper struct {
+		Identities []auth.ChannelIdentity `json:"identities"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	identities := wrapper.Identities
 	if len(identities) != 0 {
 		t.Errorf("expected 0 identities, got %d", len(identities))
 	}
@@ -52,10 +55,13 @@ func TestListProfileIdentitiesWithLink(t *testing.T) {
 	}
 
 	resp := parseResponse(t, rr)
-	var identities []auth.ChannelIdentity
-	if err := json.Unmarshal(resp.Data, &identities); err != nil {
+	var wrapper struct {
+		Identities []auth.ChannelIdentity `json:"identities"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	identities := wrapper.Identities
 	if len(identities) != 1 {
 		t.Fatalf("expected 1 identity, got %d", len(identities))
 	}

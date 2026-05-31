@@ -20,7 +20,7 @@ func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, pList)
+	writeData(w, http.StatusOK, map[string]any{"providers": pList})
 }
 
 func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +141,7 @@ func (s *Server) ListProviderModels(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	writeData(w, http.StatusOK, s.mergedProviderModels(provider))
+	writeData(w, http.StatusOK, map[string]any{"models": s.mergedProviderModels(provider)})
 }
 
 func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id string) {
@@ -225,7 +225,7 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
-	writeData(w, http.StatusOK, s.mergedProviderModels(providerCfg))
+	writeData(w, http.StatusOK, map[string]any{"models": s.mergedProviderModels(providerCfg)})
 }
 
 func (s *Server) mergedProviderModels(provider config.Provider) []providerModelItem {
@@ -320,5 +320,5 @@ func (s *Server) ListProviderTypes(w http.ResponseWriter, r *http.Request) {
 			DefaultURL: provider.DefaultURL,
 		})
 	}
-	writeData(w, http.StatusOK, types)
+	writeData(w, http.StatusOK, map[string]any{"provider_types": types})
 }

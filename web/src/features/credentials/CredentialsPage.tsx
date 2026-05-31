@@ -87,7 +87,7 @@ export function CredentialsPage() {
     setVaultLoading(true);
     try {
       const { data } = await listVaultEntries({ throwOnError: true });
-      const entries = (data as VaultEntry[]) ?? [];
+      const entries = (data?.entries as VaultEntry[]) ?? [];
       setVaultEntries(entries);
     } catch {
       setVaultEntries([]);
@@ -99,7 +99,7 @@ export function CredentialsPage() {
   const loadOAuthProviders = useCallback(async () => {
     try {
       const { data } = await listOAuthProviders({ throwOnError: true });
-      const providers = (data as OAuthProvider[]) ?? [];
+      const providers = (data?.providers as OAuthProvider[]) ?? [];
       setOauthProviders(providers);
       setOauthStatus((prev) => {
         const next = { ...prev };

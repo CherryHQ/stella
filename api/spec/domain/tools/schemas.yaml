@@ -15,3 +15,12 @@ components:
           type: object
           additionalProperties: true
         category: { type: string }
+
+    ToolList:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/Tool" }
+        next_page_token: { type: string, nullable: true }

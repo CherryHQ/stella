@@ -73,7 +73,7 @@ export function UsersPage() {
         path: { id: userId },
         throwOnError: true,
       });
-      const ids = (data as string[]) ?? [];
+      const ids = (data?.agent_ids as string[]) ?? [];
       setUserAgentIds(ids);
       setAddAgentId("");
     } catch {
@@ -251,7 +251,7 @@ export function UsersPage() {
           path: { id: userId },
           throwOnError: true,
         });
-        const mems = (data as UserMemory[]) ?? [];
+        const mems = (data?.memories as UserMemory[]) ?? [];
         setUserMemories((prev) => ({
           ...prev,
           [userId]: mems.map((m) => ({ ...m, _content: m.content })),

@@ -57,3 +57,12 @@ components:
         oauth_providers:
           type: array
           items: { $ref: "#/components/schemas/ManifestOAuthProvider" }
+
+    PluginViewList:
+      type: object
+      required: [plugins]
+      properties:
+        plugins:
+          type: array
+          items: { $ref: "#/components/schemas/PluginView" }
+        next_page_token: { type: string, nullable: true }

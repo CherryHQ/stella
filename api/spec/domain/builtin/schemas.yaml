@@ -36,3 +36,12 @@ components:
           additionalProperties: true
         hash: { type: string }
         content: { type: string }
+
+    BuiltinResourceList:
+      type: object
+      required: [resources]
+      properties:
+        resources:
+          type: array
+          items: { $ref: "#/components/schemas/BuiltinResource" }
+        next_page_token: { type: string, nullable: true }

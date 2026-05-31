@@ -49,7 +49,7 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: parseTime(row.CreatedAt),
 		})
 	}
-	writeData(w, http.StatusOK, out)
+	writeData(w, http.StatusOK, map[string]any{"shares": out})
 }
 
 func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {

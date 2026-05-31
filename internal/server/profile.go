@@ -20,7 +20,7 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.users == nil {
-		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
+		writeData(w, http.StatusOK, map[string]any{"identities": []auth.ChannelIdentity{}})
 		return
 	}
 	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), info.UserID)
@@ -30,7 +30,7 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, identities)
+	writeData(w, http.StatusOK, map[string]any{"identities": identities})
 }
 
 // ChangePassword handles PATCH /api/auth/profile/password.
@@ -187,7 +187,7 @@ func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 			memories[i].Soul = defaultSoul
 		}
 	}
-	writeData(w, http.StatusOK, memories)
+	writeData(w, http.StatusOK, map[string]any{"memories": memories})
 }
 
 // SetProfileMemory handles PATCH /api/auth/profile/memories/{agentID}.

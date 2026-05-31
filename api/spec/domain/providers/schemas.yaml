@@ -65,3 +65,30 @@ components:
       properties:
         api_key: { type: string }
         base_url: { type: string }
+
+    ProviderList:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+        next_page_token: { type: string, nullable: true }
+
+    ProviderModelList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderModelItem" }
+        next_page_token: { type: string, nullable: true }
+
+    ProviderTypeList:
+      type: object
+      required: [provider_types]
+      properties:
+        provider_types:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderType" }
+        next_page_token: { type: string, nullable: true }

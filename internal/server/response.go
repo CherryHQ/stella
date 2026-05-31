@@ -12,11 +12,6 @@ func writeData(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-// writeListData writes a success JSON response wrapping items in {"items": ...}.
-func writeListData(w http.ResponseWriter, status int, items any) {
-	writeData(w, status, map[string]any{"items": items})
-}
-
 // writeError writes a structured error response per AIP-193:
 // {"error": {"code", "message", "status"}}.
 func writeError(w http.ResponseWriter, status int, msg string) {

@@ -69,7 +69,7 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
 		result = append(result, resp)
 	}
 
-	writeListData(w, http.StatusOK, result)
+	writeData(w, http.StatusOK, map[string]any{"users": result})
 }
 
 // GetAuthUser handles GET /api/auth/users/{id}.
@@ -140,7 +140,7 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	writeData(w, http.StatusOK, agentIDs)
+	writeData(w, http.StatusOK, map[string]any{"agent_ids": agentIDs})
 }
 
 // UpdateAuthUserAgents handles PATCH /api/auth/users/{id}/agents.
@@ -276,7 +276,7 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if s.logins == nil {
-		writeData(w, http.StatusOK, []auth.LoginIdentity{})
+		writeData(w, http.StatusOK, map[string]any{"identities": []auth.LoginIdentity{}})
 		return
 	}
 	if _, err := s.users.GetUser(r.Context(), id); err != nil {
@@ -288,7 +288,7 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "failed to list login identities: "+err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, identities)
+	writeData(w, http.StatusOK, map[string]any{"identities": identities})
 }
 
 // LinkAuthUserLoginIdentity handles POST /api/auth/users/{id}/identities/login.
@@ -364,7 +364,7 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if s.users == nil {
-		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
+		writeData(w, http.StatusOK, map[string]any{"identities": []auth.ChannelIdentity{}})
 		return
 	}
 	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), id)
@@ -372,5 +372,5 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, "failed to list channel identities: "+err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, identities)
+	writeData(w, http.StatusOK, map[string]any{"identities": identities})
 }

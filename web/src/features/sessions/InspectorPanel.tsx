@@ -335,7 +335,7 @@ function ContextPanel({
     setToolsLoading(true);
     try {
       const { data } = await listTools({ throwOnError: true });
-      setTools((data as Tool[]) ?? []);
+      setTools((data?.tools as Tool[]) ?? []);
     } finally {
       setToolsLoading(false);
     }

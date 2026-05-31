@@ -63,7 +63,7 @@ func (s *Server) ListBuiltinResources(w http.ResponseWriter, r *http.Request, ki
 	for i, res := range resources {
 		out[i] = toSummary(res)
 	}
-	writeData(w, http.StatusOK, out)
+	writeData(w, http.StatusOK, map[string]any{"resources": out})
 }
 
 func (s *Server) GetBuiltinResource(w http.ResponseWriter, r *http.Request, kindStr string, id string) {

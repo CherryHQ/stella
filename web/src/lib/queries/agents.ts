@@ -50,7 +50,7 @@ export function agentMemoriesOptions(agentId: string) {
     queryKey: ["agent-memories", agentId],
     queryFn: async () => {
       const { data } = await listProfileMemories({ throwOnError: true });
-      return ((data as UserMemory[]) ?? []).filter((m) => m.agent_id === agentId);
+      return ((data?.memories as UserMemory[]) ?? []).filter((m) => m.agent_id === agentId);
     },
     enabled: !!agentId,
   });

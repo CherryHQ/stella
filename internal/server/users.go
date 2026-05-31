@@ -52,7 +52,7 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, memories)
+	writeData(w, http.StatusOK, map[string]any{"memories": memories})
 }
 
 func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {

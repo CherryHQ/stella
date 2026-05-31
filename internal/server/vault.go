@@ -42,7 +42,7 @@ func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt: parseTime(e.UpdatedAt),
 		}
 	}
-	writeData(w, http.StatusOK, resp)
+	writeData(w, http.StatusOK, map[string]any{"entries": resp})
 }
 
 // GetVaultEntry handles GET /api/auth/profile/vault/{name}.

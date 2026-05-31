@@ -172,3 +172,23 @@ components:
         path:
           type: string
           description: Relative path of the uploaded file within the workspace
+
+    SessionList:
+      type: object
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/Session" }
+        next_page_token: { type: string, nullable: true }
+
+    SessionMessageList:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        next_page_token: { type: string, nullable: true }

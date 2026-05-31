@@ -12,7 +12,7 @@ export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["ki
         query: { limit: 20, offset: pageParam as number, kind },
         throwOnError: true,
       });
-      return (data as Session[]) ?? [];
+      return (data?.sessions as Session[]) ?? [];
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, p) => sum + p.length, 0) : undefined,

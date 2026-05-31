@@ -205,5 +205,5 @@ func (s *Server) SearchSkills(w http.ResponseWriter, r *http.Request, params api
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeListData(w, http.StatusOK, results)
+	writeData(w, http.StatusOK, map[string]any{"skills": results})
 }

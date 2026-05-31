@@ -24,7 +24,7 @@ export function MemoryPanel({ agentId }: Props) {
     setLoading(true);
     try {
       const { data } = await listProfileMemories({ throwOnError: true });
-      const memories = (data as UserMemory[]) ?? [];
+      const memories = (data?.memories as UserMemory[]) ?? [];
       const mem = memories.find((m) => m.agent_id === agentId);
       setContent(mem?.content ?? "");
       setUpdatedAt(mem?.updated_at ?? "");

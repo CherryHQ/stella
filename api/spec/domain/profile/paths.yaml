@@ -10,11 +10,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/Identity",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/IdentityList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -103,11 +101,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/UserMemory",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemoryList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -182,11 +178,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/VaultEntry",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/VaultEntryList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -252,11 +246,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/OAuthProviderStatus",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthProviderStatusList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

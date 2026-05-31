@@ -58,7 +58,7 @@ func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID st
 	for _, p := range projects {
 		resp = append(resp, toProjectResponse(p))
 	}
-	writeData(w, http.StatusOK, resp)
+	writeData(w, http.StatusOK, map[string]any{"projects": resp})
 }
 
 func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID string) {

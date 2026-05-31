@@ -143,9 +143,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	resp := parseResponse(t, rr)
 	var agentIDs []string
-	_ = json.Unmarshal(resp.Data, &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr), &agentIDs)
 	if len(agentIDs) != 0 {
 		t.Errorf("expected 0 agents, got %d", len(agentIDs))
 	}
@@ -159,8 +158,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	// Verify assignment.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
-	resp = parseResponse(t, rr)
-	_ = json.Unmarshal(resp.Data, &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr), &agentIDs)
 	if len(agentIDs) != 1 || agentIDs[0] != stellaID {
 		t.Errorf("expected [%s], got %v", stellaID, agentIDs)
 	}
@@ -174,8 +172,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	// Verify empty.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
-	resp = parseResponse(t, rr)
-	_ = json.Unmarshal(resp.Data, &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr), &agentIDs)
 	if len(agentIDs) != 0 {
 		t.Errorf("expected 0 agents after removal, got %d", len(agentIDs))
 	}
@@ -247,9 +244,8 @@ func TestListAuthUserLoginIdentitiesEmpty(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	resp := parseResponse(t, rr)
 	var identities []any
-	_ = json.Unmarshal(resp.Data, &identities)
+	_ = json.Unmarshal(parseListItems(t, rr), &identities)
 	if len(identities) != 0 {
 		t.Errorf("expected 0 login identities, got %d", len(identities))
 	}
@@ -397,12 +393,11 @@ func TestListAuthUserChannelIdentities(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	resp := parseResponse(t, rr)
 	var identities []struct {
 		Platform   string `json:"platform"`
 		ExternalID string `json:"external_id"`
 	}
-	if err := json.Unmarshal(resp.Data, &identities); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr), &identities); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(identities) != 1 || identities[0].Platform != "telegram" {

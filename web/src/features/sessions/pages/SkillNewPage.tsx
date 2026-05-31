@@ -55,7 +55,7 @@ export function SkillNewPage() {
     setSearching(true);
     try {
       const { data } = await sdkSearchSkills({ query: { q, limit: 20 }, throwOnError: true });
-      setSearchResults((data as SkillSearchResult[]) ?? []);
+      setSearchResults((data?.skills as SkillSearchResult[]) ?? []);
       setInstallError("");
     } catch (e) {
       setInstallError((e as Error).message);

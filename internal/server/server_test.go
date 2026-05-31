@@ -361,7 +361,11 @@ func parseListItems(t *testing.T, rr *httptest.ResponseRecorder) json.RawMessage
 		if key == "next_page_token" || key == "total" {
 			continue
 		}
-		if trimmed := bytes.TrimSpace(val); len(trimmed) > 0 && trimmed[0] == '[' {
+		trimmed := bytes.TrimSpace(val)
+		if string(trimmed) == "null" {
+			return json.RawMessage("[]")
+		}
+		if len(trimmed) > 0 && trimmed[0] == '[' {
 			return val
 		}
 	}
@@ -406,9 +410,8 @@ func TestListProviders(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	resp := parseResponse(t, rr)
 	var providers []config.Provider
-	if err := json.Unmarshal(resp.Data, &providers); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr), &providers); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(providers) == 0 {
@@ -436,9 +439,8 @@ func TestCreateProvider(t *testing.T) {
 
 	// Verify it appears in list.
 	rr = doRequest(t, env, "GET", "/api/providers", nil)
-	resp := parseResponse(t, rr)
 	var providers []config.Provider
-	_ = json.Unmarshal(resp.Data, &providers)
+	_ = json.Unmarshal(parseListItems(t, rr), &providers)
 	found := false
 	for _, p := range providers {
 		if p.ID == "openai-main" {
@@ -536,7 +538,6 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	resp := parseResponse(t, rr)
 	type pluginListItem struct {
 		ID           string         `json:"id"`
 		Kind         string         `json:"kind"`
@@ -551,7 +552,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		Capabilities []string       `json:"capabilities"`
 	}
 	var plugins []pluginListItem
-	if err := json.Unmarshal(resp.Data, &plugins); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr), &plugins); err != nil {
 		t.Fatalf("unmarshal plugins: %v", err)
 	}
 
