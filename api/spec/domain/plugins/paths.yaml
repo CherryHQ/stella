@@ -177,7 +177,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/manifest-plugins/sync:
+  /api/manifest-plugins:sync:
     post:
       tags: [plugins]
       summary: Sync manifest plugins (admin only)
