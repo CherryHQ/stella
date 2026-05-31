@@ -1,13 +1,14 @@
 {
   "title": "开发",
   "pages": [
+    "rules/api-design",
+    "rules/schema-design",
     "architecture",
     "cli-as-client",
     "sandbox",
     "memory-internals",
     "session-compaction",
     "plugin-system",
-    "plugin-org-isolation",
     "task-system",
     "goal-system"
   ]
