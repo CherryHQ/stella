@@ -336,10 +336,12 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 	t.Helper()
 	body := rr.Body.Bytes()
 	var errResp struct {
-		Error string `json:"error"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
-	if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
-		return apiResponse{Error: errResp.Error}
+	if json.Unmarshal(body, &errResp) == nil && errResp.Error.Message != "" {
+		return apiResponse{Error: errResp.Error.Message}
 	}
 	return apiResponse{Data: json.RawMessage(body)}
 }
