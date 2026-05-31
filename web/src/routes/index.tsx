@@ -2,7 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
-  Sparkles,
   Shield,
   MessageCircle,
   Clock,
@@ -323,7 +322,6 @@ const ICON_MAP = {
   shield: Shield,
   message: MessageCircle,
   clock: Clock,
-  sparkles: Sparkles,
   users: Users,
   bot: Bot,
   zap: Zap,
@@ -362,12 +360,33 @@ function Home() {
 function HeroSection({ lang }: { lang: keyof typeof copy }) {
   const tr = t(lang);
   const c = copy[lang];
+  const isZh = lang === "zh";
+  const metrics = isZh
+    ? [
+        ["Agent", "财务 / HR / 工程"],
+        ["Work", "Goal 到任务 DAG"],
+        ["Review", "验收 + 人工确认"],
+      ]
+    : [
+        ["Agent", "Finance / HR / Eng"],
+        ["Work", "Goal to task DAG"],
+        ["Review", "Criteria + approval"],
+      ];
 
   return (
     <section className="home-hero">
-      <div className="home-hero-orb" />
       <div className="home-hero-grain" />
       <div className="home-shell">
+        <div className="home-hero-frame">
+          <span>
+            {isZh ? "Self-hosted agent operating surface" : "Self-hosted agent operating surface"}
+          </span>
+          <span>
+            {isZh
+              ? "Multi-user / shared agents / reviewable work"
+              : "Multi-user / shared agents / reviewable work"}
+          </span>
+        </div>
         <div className="home-hero-layout">
           <div className="home-hero-copy">
             <span className="home-eyebrow">{c.heroEyebrow}</span>
@@ -392,6 +411,17 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
                 {tr.sourceOnGithub}
               </a>
             </div>
+            <dl
+              className="home-hero-metrics"
+              aria-label={isZh ? "Stella 核心模型" : "Stella operating model"}
+            >
+              {metrics.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
 
           <ProductPreview lang={lang} />
@@ -404,95 +434,116 @@ function HeroSection({ lang }: { lang: keyof typeof copy }) {
 function ProductPreview({ lang }: { lang: keyof typeof copy }) {
   const c = copy[lang];
   const isZh = lang === "zh";
+  const agents = isZh
+    ? [
+        ["Finance", "报销 / 发票 / 审批", "4.2k memories"],
+        ["HR", "内推 / 筛选 / 面试", "12 workflows"],
+        ["Engineering", "评审 / 发布 / 事故", "38 skills"],
+      ]
+    : [
+        ["Finance", "Reimbursements / invoices", "4.2k memories"],
+        ["HR", "Referrals / screening", "12 workflows"],
+        ["Engineering", "Review / release / incidents", "38 skills"],
+      ];
+  const tasks = isZh
+    ? [
+        ["01", "提取票据字段", "done"],
+        ["02", "检查报销制度", "done"],
+        ["03", "补齐参与人名单", "blocked"],
+        ["04", "财务 review", "review"],
+      ]
+    : [
+        ["01", "Extract receipt fields", "done"],
+        ["02", "Check reimbursement policy", "done"],
+        ["03", "Collect attendee details", "blocked"],
+        ["04", "Finance review", "review"],
+      ];
 
   return (
     <div className="home-product" aria-label={c.productLabel}>
       <div className="home-product-chrome">
-        <span className="home-product-dot" />
-        <span className="home-product-dot" />
-        <span className="home-product-dot" />
+        <span className="home-product-status" />
+        <span className="home-product-chrome-label">
+          {isZh ? "ORG WORKBENCH" : "ORG WORKBENCH"}
+        </span>
         <span className="home-product-title">{c.productLabel}</span>
       </div>
       <div className="home-product-body">
-        <div className="home-product-sidebar">
-          <div className="home-product-nav-item home-product-nav-active">
-            <Bot className="size-3.5" />
-            <span>{isZh ? "财务 Agent" : "Finance Agent"}</span>
+        <section className="home-product-panel home-product-panel-agents">
+          <div className="home-product-panel-head">
+            <span>{isZh ? "共享 Agent" : "Shared agents"}</span>
+            <Bot className="size-4" />
           </div>
-          <div className="home-product-nav-item">
-            <ListTodo className="size-3.5" />
-            <span>{isZh ? "任务 DAG" : "Task DAG"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <BookOpen className="size-3.5" />
-            <span>{isZh ? "阅读" : "Recally"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <CalendarClock className="size-3.5" />
-            <span>{isZh ? "调度" : "Scheduler"}</span>
-          </div>
-          <div className="home-product-nav-item">
-            <ListTodo className="size-3.5" />
-            <span>{isZh ? "任务" : "Tasks"}</span>
-          </div>
-        </div>
-
-        <div className="home-product-chat">
-          <div className="home-product-msg home-product-msg-user">
-            <p>
-              {isZh
-                ? "帮我处理这次客户晚餐报销。检查材料是否完整，需要 review 的地方请建任务"
-                : "Help me prepare this client dinner reimbursement. Check what is missing and create review tasks if needed"}
-            </p>
-          </div>
-          <div className="home-product-msg home-product-msg-assistant">
-            <div className="home-product-avatar">S</div>
-            <div className="home-product-msg-content">
-              <div className="home-product-tool">
-                <Zap className="size-3" />
-                <span>{isZh ? "读取票据和制度" : "read receipts and policy"}</span>
-                <span className="home-product-tool-status">✓</span>
+          <div className="home-agent-list">
+            {agents.map(([name, desc, meta], index) => (
+              <div
+                key={name}
+                className={index === 0 ? "home-agent-row is-active" : "home-agent-row"}
+              >
+                <div>
+                  <strong>{name}</strong>
+                  <span>{desc}</span>
+                </div>
+                <small>{meta}</small>
               </div>
-              <div className="home-product-tool">
-                <Zap className="size-3" />
-                <span>{isZh ? "生成任务 DAG" : "create task DAG"}</span>
-                <span className="home-product-tool-status">✓</span>
-              </div>
-              <p>
-                {isZh
-                  ? "我已拆成 4 个任务：提取票据信息、检查报销制度、补齐参与人名单、提交财务 review。"
-                  : "I split this into 4 tasks: extract receipt data, check policy, collect attendee details, and route finance review."}
-              </p>
-            </div>
+            ))}
           </div>
-          <div className="home-product-msg home-product-msg-user">
-            <p>
-              {isZh
-                ? "把例外项发给财务，其他材料先准备好"
-                : "Send exceptions to finance and prepare the rest of the packet"}
-            </p>
-          </div>
-          <div className="home-product-msg home-product-msg-assistant">
-            <div className="home-product-avatar">S</div>
-            <div className="home-product-msg-content">
-              <div className="home-product-tool home-product-tool-running">
-                <Zap className="size-3" />
-                <span>{isZh ? "等待财务 review" : "waiting for finance review"}</span>
-                <span className="home-product-dots">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="home-product-input">
-            <span className="home-product-input-placeholder">
-              {isZh ? "发送消息..." : "Send a message..."}
+          <div className="home-agent-policy">
+            <Lock className="size-3.5" />
+            <span>
+              {isZh ? "每用户记忆 + 共享知识边界" : "Per-user memory + shared knowledge boundary"}
             </span>
           </div>
-        </div>
+        </section>
+
+        <section className="home-product-panel home-product-panel-work">
+          <div className="home-product-panel-head">
+            <span>{isZh ? "Goal intake" : "Goal intake"}</span>
+            <MessageCircle className="size-4" />
+          </div>
+          <div className="home-goal-card">
+            <p>
+              {isZh
+                ? "检查客户晚餐报销材料；缺什么告诉我，有例外就安排财务 review。"
+                : "Check this client dinner reimbursement. Tell me what is missing and route exceptions to finance review."}
+            </p>
+            <div className="home-goal-meta">
+              <span>{isZh ? "Agent: Finance" : "Agent: Finance"}</span>
+              <span>{isZh ? "Tools: files, policy, notify" : "Tools: files, policy, notify"}</span>
+            </div>
+          </div>
+          <div className="home-task-dag" aria-label={isZh ? "任务 DAG" : "Task DAG"}>
+            {tasks.map(([id, title, state]) => (
+              <div key={id} className={`home-task-node is-${state}`}>
+                <span>{id}</span>
+                <strong>{title}</strong>
+                <small>{state}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="home-product-panel home-product-panel-review">
+          <div className="home-product-panel-head">
+            <span>{isZh ? "Review queue" : "Review queue"}</span>
+            <Shield className="size-4" />
+          </div>
+          <div className="home-review-card">
+            <span className="home-review-state">{isZh ? "NEEDS HUMAN" : "NEEDS HUMAN"}</span>
+            <strong>
+              {isZh ? "票据金额超出团队晚餐阈值" : "Receipt exceeds team dinner threshold"}
+            </strong>
+            <p>
+              {isZh
+                ? "Agent 已引用制度条款并准备 review packet。"
+                : "Agent cited the policy rule and prepared the review packet."}
+            </p>
+          </div>
+          <div className="home-review-actions">
+            <span>{isZh ? "验收标准 4/5" : "Criteria 4/5"}</span>
+            <span>{isZh ? "等待财务确认" : "Waiting on finance"}</span>
+          </div>
+        </section>
       </div>
 
       <div className="home-product-features">
