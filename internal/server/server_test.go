@@ -350,27 +350,29 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 // response wraps results in a resource-named field (e.g. {"tasks":[...]})
 // alongside optional pagination metadata, so this returns the first
 // array-valued field regardless of its name.
-func parseListItems(t *testing.T, rr *httptest.ResponseRecorder) json.RawMessage {
+// parseListItems extracts the array stored under the explicit resource key
+// (e.g. "sessions", "users") from a list response envelope. Asserting the
+// known key — rather than scanning for the first array field — ensures tests
+// fail when the response is shaped wrong, the failure mode behind C1.
+func parseListItems(t *testing.T, rr *httptest.ResponseRecorder, key string) json.RawMessage {
 	t.Helper()
 	resp := parseResponse(t, rr)
 	var wrapper map[string]json.RawMessage
 	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal list wrapper: %v", err)
 	}
-	for key, val := range wrapper {
-		if key == "next_page_token" || key == "total" {
-			continue
-		}
-		trimmed := bytes.TrimSpace(val)
-		if string(trimmed) == "null" {
-			return json.RawMessage("[]")
-		}
-		if len(trimmed) > 0 && trimmed[0] == '[' {
-			return val
-		}
+	val, ok := wrapper[key]
+	if !ok {
+		t.Fatalf("list response missing %q key: %s", key, resp.Data)
 	}
-	t.Fatalf("no array field in list response: %s", resp.Data)
-	return nil
+	trimmed := bytes.TrimSpace(val)
+	if string(trimmed) == "null" {
+		return json.RawMessage("[]")
+	}
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		t.Fatalf("%q is not an array in list response: %s", key, resp.Data)
+	}
+	return val
 }
 
 type testChannel struct {
@@ -411,7 +413,7 @@ func TestListProviders(t *testing.T) {
 	}
 
 	var providers []config.Provider
-	if err := json.Unmarshal(parseListItems(t, rr), &providers); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "providers"), &providers); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(providers) == 0 {
@@ -440,7 +442,7 @@ func TestCreateProvider(t *testing.T) {
 	// Verify it appears in list.
 	rr = doRequest(t, env, "GET", "/api/providers", nil)
 	var providers []config.Provider
-	_ = json.Unmarshal(parseListItems(t, rr), &providers)
+	_ = json.Unmarshal(parseListItems(t, rr, "providers"), &providers)
 	found := false
 	for _, p := range providers {
 		if p.ID == "openai-main" {
@@ -460,7 +462,7 @@ func TestListAgents(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	items := parseListItems(t, rr)
+	items := parseListItems(t, rr, "agents")
 	var agents []config.Agent
 	if err := json.Unmarshal(items, &agents); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -552,7 +554,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		Capabilities []string       `json:"capabilities"`
 	}
 	var plugins []pluginListItem
-	if err := json.Unmarshal(parseListItems(t, rr), &plugins); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "plugins"), &plugins); err != nil {
 		t.Fatalf("unmarshal plugins: %v", err)
 	}
 
@@ -835,7 +837,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 		Enabled   bool   `json:"enabled"`
 	}
 	var channels []publicChannelPayload
-	if err := json.Unmarshal(parseListItems(t, rr), &channels); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "channels"), &channels); err != nil {
 		t.Fatalf("unmarshal public channels: %v", err)
 	}
 	byID := make(map[string]publicChannelPayload, len(channels))

@@ -119,7 +119,7 @@ func doMultipartRequestWithSession(t *testing.T, srv http.Handler, bearerToken, 
 func decodeSkillList(t *testing.T, rr *httptest.ResponseRecorder) []map[string]any {
 	t.Helper()
 	var list []map[string]any
-	if err := json.Unmarshal(parseListItems(t, rr), &list); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "skills"), &list); err != nil {
 		t.Fatalf("unmarshal list: %v", err)
 	}
 	return list

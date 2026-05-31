@@ -104,7 +104,7 @@ func TestVaultCRUD(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if err := json.Unmarshal(parseListItems(t, rr), &entries); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "entries"), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(entries) != 1 {
@@ -126,7 +126,7 @@ func TestVaultCRUD(t *testing.T) {
 		t.Fatalf("list status = %d", rr.Code)
 	}
 	entries = nil
-	if err := json.Unmarshal(parseListItems(t, rr), &entries); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "entries"), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(entries) != 0 {

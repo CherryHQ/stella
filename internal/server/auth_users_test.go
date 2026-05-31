@@ -29,7 +29,7 @@ func TestListAuthUsers(t *testing.T) {
 		Identities []any  `json:"identities"`
 		CreatedAt  string `json:"created_at"`
 	}
-	if err := json.Unmarshal(parseListItems(t, rr), &users); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "users"), &users); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(users) == 0 {
@@ -144,7 +144,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
 	var agentIDs []string
-	_ = json.Unmarshal(parseListItems(t, rr), &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 0 {
 		t.Errorf("expected 0 agents, got %d", len(agentIDs))
 	}
@@ -158,7 +158,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	// Verify assignment.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
-	_ = json.Unmarshal(parseListItems(t, rr), &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 1 || agentIDs[0] != stellaID {
 		t.Errorf("expected [%s], got %v", stellaID, agentIDs)
 	}
@@ -172,7 +172,7 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 
 	// Verify empty.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
-	_ = json.Unmarshal(parseListItems(t, rr), &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 0 {
 		t.Errorf("expected 0 agents after removal, got %d", len(agentIDs))
 	}
@@ -245,7 +245,7 @@ func TestListAuthUserLoginIdentitiesEmpty(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	var identities []any
-	_ = json.Unmarshal(parseListItems(t, rr), &identities)
+	_ = json.Unmarshal(parseListItems(t, rr, "identities"), &identities)
 	if len(identities) != 0 {
 		t.Errorf("expected 0 login identities, got %d", len(identities))
 	}
@@ -397,7 +397,7 @@ func TestListAuthUserChannelIdentities(t *testing.T) {
 		Platform   string `json:"platform"`
 		ExternalID string `json:"external_id"`
 	}
-	if err := json.Unmarshal(parseListItems(t, rr), &identities); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "identities"), &identities); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(identities) != 1 || identities[0].Platform != "telegram" {
