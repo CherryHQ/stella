@@ -93,16 +93,17 @@ const listSchedJobRuns = `-- name: ListSchedJobRuns :many
 SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_run
 WHERE job_id = ?
 ORDER BY started_at DESC
-LIMIT ?
+LIMIT ? OFFSET ?
 `
 
 type ListSchedJobRunsParams struct {
-	JobID string `json:"job_id"`
-	Limit int64  `json:"limit"`
+	JobID  string `json:"job_id"`
+	Limit  int64  `json:"limit"`
+	Offset int64  `json:"offset"`
 }
 
 func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsParams) ([]SchedJobRun, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedJobRuns, arg.JobID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listSchedJobRuns, arg.JobID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

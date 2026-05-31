@@ -694,8 +694,9 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 		limit = 20
 	}
 	rows, err := s.q.ListSchedJobRuns(ctx, sqlc.ListSchedJobRunsParams{
-		JobID: jobID,
-		Limit: int64(limit),
+		JobID:  jobID,
+		Limit:  int64(limit),
+		Offset: 0,
 	})
 	if err != nil {
 		return nil, err

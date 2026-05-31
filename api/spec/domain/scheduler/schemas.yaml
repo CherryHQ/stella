@@ -94,6 +94,10 @@ components:
       required: [runs]
       properties:
         runs: { type: array, items: { $ref: "#/components/schemas/JobRun" } }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     TriggerJobResult:
       type: object

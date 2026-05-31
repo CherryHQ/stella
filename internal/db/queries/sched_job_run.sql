@@ -12,7 +12,7 @@ WHERE id = ? AND job_id = ?;
 SELECT * FROM sched_job_run
 WHERE job_id = ?
 ORDER BY started_at DESC
-LIMIT ?;
+LIMIT ? OFFSET ?;
 
 -- name: GetSchedJobRun :one
 SELECT * FROM sched_job_run WHERE id = ? AND job_id = ?;

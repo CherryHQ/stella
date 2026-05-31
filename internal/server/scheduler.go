@@ -30,7 +30,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 		UserID:  sql.NullString{String: info.UserID, Valid: info.UserID != ""},
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to list scheduler jobs")
 		return
 	}
 
@@ -376,7 +376,7 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 	writeData(w, http.StatusAccepted, resp)
 }
 
-func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
+func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, agentID string, jobID string, params apiserver.ListSchedulerJobRunsParams) {
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -399,18 +399,25 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		return
 	}
 
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
-		JobID: jobID,
-		Limit: 20,
+		JobID:  jobID,
+		Limit:  int64(limit + 1),
+		Offset: int64(offset),
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to list job runs")
 		return
 	}
 
+	page, nextToken := nextPageTokenForRows(rows, limit, offset)
 	sm, _ := s.mem.(memory.SessionManager)
-	runs := make([]apitypes.JobRun, 0, len(rows))
-	for _, row := range rows {
+	runs := make([]apitypes.JobRun, 0, len(page))
+	for _, row := range page {
 		if info == nil || (row.UserID.Valid && row.UserID.String != info.UserID) {
 			continue
 		}
@@ -426,7 +433,11 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		}
 		runs = append(runs, j)
 	}
-	writeData(w, http.StatusOK, apitypes.JobRunList{Runs: runs})
+	out := apitypes.JobRunList{Runs: runs}
+	if nextToken != "" {
+		out.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, out)
 }
 
 // --------------- converter functions ---------------
