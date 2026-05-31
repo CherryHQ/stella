@@ -207,7 +207,7 @@ function FolderTree({
 
   useEffect(() => {
     getSessionWorkspace({
-      path: { agentID: agentId, sessionID: sessionId },
+      path: { agentId: agentId, sessionId: sessionId },
       query: { depth: 4 },
       throwOnError: true,
     }).then(
@@ -325,7 +325,7 @@ function CreateProjectDialog({
     try {
       const baseDir = `${userRoot}/${selectedDir}`;
       await createProject({
-        path: { agentID: agentId },
+        path: { agentId: agentId },
         body: { name: effectiveName, base_dir: baseDir },
         throwOnError: true,
       });
@@ -479,7 +479,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
     const { data } = await sdkCreateSession({
-      path: { agentID: agentId },
+      path: { agentId: agentId },
       throwOnError: true,
     });
     const sess = data as ComponentsSession;
@@ -514,7 +514,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
     async (projectId: string) => {
       if (!window.confirm("Delete this project? Sessions will be kept.")) return;
       await sdkDeleteProject({
-        path: { agentID: agentId, projectId },
+        path: { agentId: agentId, projectId },
         throwOnError: true,
       });
       await queryClient.invalidateQueries({ queryKey: ["projects", agentId] });

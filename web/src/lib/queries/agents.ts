@@ -19,7 +19,7 @@ export function agentSchedulerJobsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["agent-scheduler-jobs", agentId],
     queryFn: async () => {
-      const { data } = await listSchedulerJobs({ path: { agentID: agentId }, throwOnError: true });
+      const { data } = await listSchedulerJobs({ path: { agentId: agentId }, throwOnError: true });
       return data?.jobs ?? [];
     },
     enabled: !!agentId,

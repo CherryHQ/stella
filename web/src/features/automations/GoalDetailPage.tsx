@@ -51,7 +51,7 @@ export function GoalDetailPage() {
     });
 
   const activate = useMutation({
-    mutationFn: () => activateGoal({ path: { goalID: goalId }, throwOnError: true }),
+    mutationFn: () => activateGoal({ path: { goalId: goalId }, throwOnError: true }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["goal", goalId] });
       void qc.invalidateQueries({ queryKey: ["goals", agentId] });
@@ -496,7 +496,7 @@ function ReviewsTab({ task }: { task: ComponentsTask }) {
     mutationFn: async (kind: "approve" | "reject" | "changes") => {
       if (!active) return;
       const opts = {
-        path: { taskID: task.id, reviewID: active.id },
+        path: { taskId: task.id, reviewId: active.id },
         body: { feedback: feedback.trim() || undefined },
         throwOnError: true as const,
       };
@@ -588,7 +588,7 @@ function BlockerTab({ task }: { task: ComponentsTask }) {
   const resolve = useMutation({
     mutationFn: () =>
       resolveTaskBlocker({
-        path: { taskID: task.id, blockerID: task.active_blocker_id! },
+        path: { taskId: task.id, blockerId: task.active_blocker_id! },
         body: { resolution: resolution.trim() || undefined },
         throwOnError: true,
       }),

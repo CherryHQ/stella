@@ -53,7 +53,7 @@ export function MemoryPanel({ agentId }: Props) {
     setSaving(true);
     try {
       await setProfileMemory({
-        path: { agentID: agentId },
+        path: { agentId: agentId },
         body: { content: draft },
         throwOnError: true,
       });

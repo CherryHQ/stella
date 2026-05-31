@@ -292,12 +292,12 @@ function ContextPanel({
     let cancelled = false;
     setMessagesLoading(true);
     getSessionMessages({
-      path: { agentID: session.agent_id, sessionID: session.id },
+      path: { agentId: session.agent_id, sessionId: session.id },
       query: { limit: 1000 },
       throwOnError: true,
     })
       .then(({ data }) => {
-        if (!cancelled) setMessages((data as unknown as Message[]) ?? []);
+        if (!cancelled) setMessages((data?.messages as unknown as Message[] | undefined) ?? []);
       })
       .catch((e) => {
         console.error(e);
@@ -309,7 +309,7 @@ function ContextPanel({
 
     setPromptLoading(true);
     getSessionSystemPrompt({
-      path: { agentID: session.agent_id, sessionID: session.id },
+      path: { agentId: session.agent_id, sessionId: session.id },
       throwOnError: true,
     })
       .then(({ data }) => {

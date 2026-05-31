@@ -67,7 +67,7 @@ export function SessionView() {
     const load = async () => {
       try {
         const { data: detail } = await getSession({
-          path: { agentID: agentId, sessionID: sessionId },
+          path: { agentId: agentId, sessionId: sessionId },
           throwOnError: true,
         });
         if (!cancelled) setSessionDetail(detail);
@@ -86,7 +86,7 @@ export function SessionView() {
       setWorkspaceLoading(true);
       try {
         const { data } = await getSessionWorkspace({
-          path: { agentID: agentId, sessionID: sid },
+          path: { agentId: agentId, sessionId: sid },
           query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : {}) },
           throwOnError: true,
         });
@@ -148,7 +148,7 @@ export function SessionView() {
 
   const createTemporarySession = useCallback(async () => {
     const { data } = await createSession({
-      path: { agentID: agentId },
+      path: { agentId: agentId },
       body: { kind: "chat", ...(projectId ? { project_id: projectId } : {}) },
       throwOnError: true,
     });

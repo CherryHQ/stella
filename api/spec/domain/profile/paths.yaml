@@ -108,9 +108,9 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/memories/{agentID}:
+  /api/auth/profile/memories/{agentId}:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
       tags: [profile]
       summary: Set the memory for a specific agent
@@ -143,9 +143,9 @@ paths:
         }
 
   # ── Soul ────────────────────────────────────────────────────────────────────
-  /api/auth/profile/soul/{agentID}:
+  /api/auth/profile/soul/{agentId}:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
       tags: [profile]
       summary: Set the soul for a specific agent
@@ -275,10 +275,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/oauth/{provider}/status/{flowID}:
+  /api/auth/profile/oauth/{provider}/status/{flowId}:
     parameters:
       - { name: provider, in: path, required: true, schema: { type: string } }
-      - { name: flowID, in: path, required: true, schema: { type: string } }
+      - { name: flowId, in: path, required: true, schema: { type: string } }
     get:
       tags: [profile]
       summary: Poll the status of an OAuth flow

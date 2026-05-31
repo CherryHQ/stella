@@ -326,7 +326,7 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 	}
 
 	// Install as agent scope (default)
-	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills:install", map[string]any{
+	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
 		"source": source,
 		"scope":  "agent",
 	})
@@ -335,7 +335,7 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 	}
 
 	// Cannot install as system scope
-	rr = doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills:install", map[string]any{
+	rr = doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
 		"source": source,
 		"scope":  "system",
 	})
@@ -354,7 +354,7 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 		"bundle/uploaded-skill/reference.md": "notes",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.zip", archive, "scope", "user")
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), creatorSID, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive, "scope", "user")
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -423,7 +423,7 @@ func TestAgentSkills_UploadZipRejectsInvalidExtension(t *testing.T) {
 		"wrapper/uploaded-skill/SKILL.md": "---\nname: uploaded-skill\ndescription: Uploaded profile skill\n---\n# Uploaded\n",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.tar", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.tar", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -437,7 +437,7 @@ func TestAgentSkills_UploadZipRejectsMissingSkillMD(t *testing.T) {
 		"wrapper/uploaded-skill/reference.md": "reference",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.zip", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -452,7 +452,7 @@ func TestAgentSkills_UploadZipRejectsMultipleSkillRoots(t *testing.T) {
 		"wrapper/skill-two/SKILL.md": "---\nname: skill-two\ndescription: two\n---\n# Two\n",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "multi.zip", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "multi.zip", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -466,7 +466,7 @@ func TestAgentSkills_UploadZipRejectsPathTraversal(t *testing.T) {
 		"../uploaded-skill/SKILL.md": "---\nname: uploaded-skill\ndescription: Uploaded profile skill\n---\n# Uploaded\n",
 	})
 
-	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills:upload", "file", "uploaded-skill.zip", archive)
+	rr := doMultipartRequestWithSession(t, env.srv.Handler(), sid, "POST", "/api/agents/"+agentID+"/skills/upload", "file", "uploaded-skill.zip", archive)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}

@@ -442,21 +442,13 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	}
 	info := UserFromContext(r.Context())
 
-	limit := 10
-	if params.PageSize != nil && *params.PageSize > 0 {
-		limit = *params.PageSize
-	}
-	offset := 0
-	if params.PageToken != nil {
-		decoded, err := decodeOffsetToken(*params.PageToken)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid page_token")
-			return
-		}
-		offset = decoded
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
 	}
 
-	opts := memory.ListOptions{IncludeArchived: true, Limit: limit, Offset: offset}
+	opts := memory.ListOptions{IncludeArchived: true, Limit: limit + 1, Offset: offset}
 	if info != nil {
 		opts.UserID = info.UserID
 	}
@@ -473,13 +465,14 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 		return
 	}
 
+	sessions, nextToken := nextPageTokenForRows(sessions, limit, offset)
 	resp := make([]sessionResponse, 0, len(sessions))
 	for _, si := range sessions {
 		resp = append(resp, toSessionResponse(si))
 	}
 	out := map[string]any{"sessions": resp}
-	if limit > 0 && len(sessions) == limit {
-		out["next_page_token"] = encodeOffsetToken(offset + limit)
+	if nextToken != "" {
+		out["next_page_token"] = nextToken
 	}
 	writeData(w, http.StatusOK, out)
 }

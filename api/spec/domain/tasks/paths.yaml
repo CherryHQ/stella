@@ -16,7 +16,7 @@ paths:
             name: page_size,
             in: query,
             required: false,
-            schema: { type: integer, format: int64, minimum: 1 },
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
           }
         - {
             name: page_token,
@@ -59,9 +59,9 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}:
+  /api/tasks/{taskId}:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: Get a task
@@ -77,9 +77,9 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{taskID}/cancel:
+  /api/tasks/{taskId}/cancel:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Cancel a task
@@ -105,9 +105,9 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/reopen:
+  /api/tasks/{taskId}/reopen:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Reopen a done/failed task; optionally cascade-reset downstream
@@ -133,9 +133,9 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/readiness:
+  /api/tasks/{taskId}/readiness:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: Compute task readiness
@@ -151,9 +151,9 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{taskID}/events:
+  /api/tasks/{taskId}/events:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List task events
@@ -169,9 +169,9 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{taskID}/runs:
+  /api/tasks/{taskId}/runs:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List task runs
@@ -187,9 +187,9 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{taskID}/deps:
+  /api/tasks/{taskId}/deps:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List task deps
@@ -227,10 +227,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/deps/{depTaskID}/waive:
+  /api/tasks/{taskId}/deps/{depTaskId}/waive:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
-      - { name: depTaskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+      - { name: depTaskId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Waive a hard-dep failure
@@ -252,10 +252,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/blockers/{blockerID}/resolve:
+  /api/tasks/{taskId}/blockers/{blockerId}/resolve:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
-      - { name: blockerID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+      - { name: blockerId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Resolve a blocker
@@ -281,9 +281,9 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/reviews:
+  /api/tasks/{taskId}/reviews:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
     get:
       tags: [tasks]
       summary: List reviews for a task
@@ -299,10 +299,10 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/tasks/{taskID}/reviews/{reviewID}/approve:
+  /api/tasks/{taskId}/reviews/{reviewId}/approve:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Approve a review
@@ -328,10 +328,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/reviews/{reviewID}/reject:
+  /api/tasks/{taskId}/reviews/{reviewId}/reject:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Reject a review
@@ -357,10 +357,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/reviews/{reviewID}/request-changes:
+  /api/tasks/{taskId}/reviews/{reviewId}/request-changes:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Request changes on a review
@@ -386,10 +386,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/tasks/{taskID}/reviews/{reviewID}/escalate:
+  /api/tasks/{taskId}/reviews/{reviewId}/escalate:
     parameters:
-      - { name: taskID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [tasks]
       summary: Escalate an agent review to human

@@ -28,7 +28,7 @@ export function goalOptions(goalId: string) {
     queryKey: ["goal", goalId],
     queryFn: async () => {
       const { data } = await getGoal({
-        path: { goalID: goalId },
+        path: { goalId: goalId },
         throwOnError: true,
       });
       return data as ComponentsGoal;
@@ -47,13 +47,13 @@ export function goalGraphOptions(goalId: string) {
     queryKey: ["goal-graph", goalId],
     queryFn: async (): Promise<GoalGraph> => {
       const { data } = await listGoalTasks({
-        path: { goalID: goalId },
+        path: { goalId: goalId },
         throwOnError: true,
       });
       const tasks = data?.tasks ?? [];
       const depLists = await Promise.all(
         tasks.map((t) =>
-          listTaskDeps({ path: { taskID: t.id }, throwOnError: true })
+          listTaskDeps({ path: { taskId: t.id }, throwOnError: true })
             .then((r) => r.data?.deps ?? [])
             .catch(() => [] as ComponentsDep[]),
         ),
@@ -69,7 +69,7 @@ export function taskReadinessOptions(taskId: string | undefined) {
     queryKey: ["task-readiness", taskId],
     queryFn: async () => {
       const { data } = await getTaskReadiness({
-        path: { taskID: taskId! },
+        path: { taskId: taskId! },
         throwOnError: true,
       });
       return data ?? null;
@@ -83,7 +83,7 @@ export function taskRunsOptions(taskId: string | undefined) {
     queryKey: ["task-runs", taskId],
     queryFn: async () => {
       const { data } = await listTaskRuns({
-        path: { taskID: taskId! },
+        path: { taskId: taskId! },
         throwOnError: true,
       });
       return data?.runs ?? [];
@@ -97,7 +97,7 @@ export function taskReviewsOptions(taskId: string | undefined) {
     queryKey: ["task-reviews", taskId],
     queryFn: async () => {
       const { data } = await listTaskReviews({
-        path: { taskID: taskId! },
+        path: { taskId: taskId! },
         throwOnError: true,
       });
       return data?.reviews ?? [];
@@ -111,7 +111,7 @@ export function taskEventsOptions(taskId: string | undefined) {
     queryKey: ["task-events", taskId],
     queryFn: async () => {
       const { data } = await listTaskEvents({
-        path: { taskID: taskId! },
+        path: { taskId: taskId! },
         throwOnError: true,
       });
       return data?.events ?? [];

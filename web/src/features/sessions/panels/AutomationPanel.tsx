@@ -170,11 +170,11 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     try {
       const [{ data: jRaw }, { data: jobRuns }] = await Promise.all([
         getSchedulerJob({
-          path: { agentID: agentId, jobID: jobId },
+          path: { agentId: agentId, jobId: jobId },
           throwOnError: true,
         }),
         listSchedulerJobRuns({
-          path: { agentID: agentId, jobID: jobId },
+          path: { agentId: agentId, jobId: jobId },
           throwOnError: true,
         }).catch(() => ({ data: [] as SchedulerJobRun[] })),
       ]);
@@ -225,13 +225,13 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
       };
       if (isNew) {
         await createSchedulerJob({
-          path: { agentID: agentId },
+          path: { agentId: agentId },
           body: payload,
           throwOnError: true,
         });
       } else {
         await updateSchedulerJob({
-          path: { agentID: agentId, jobID: jobId! },
+          path: { agentId: agentId, jobId: jobId! },
           body: payload,
           throwOnError: true,
         });
@@ -250,7 +250,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     setDeleting(true);
     try {
       await deleteSchedulerJob({
-        path: { agentID: agentId, jobID: jobId },
+        path: { agentId: agentId, jobId: jobId },
         throwOnError: true,
       });
       onDeleted();
@@ -266,7 +266,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
     setRunning(true);
     try {
       await triggerSchedulerJob({
-        path: { agentID: agentId, jobID: jobId },
+        path: { agentId: agentId, jobId: jobId },
         throwOnError: true,
       });
       await load();

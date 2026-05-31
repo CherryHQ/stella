@@ -101,7 +101,7 @@ export function SchedulerPage() {
       }
       const lists = await Promise.all(
         agentList.map((agent) =>
-          listSchedulerJobs({ path: { agentID: agent.id }, throwOnError: true })
+          listSchedulerJobs({ path: { agentId: agent.id }, throwOnError: true })
             .then(({ data }) => ({
               items: ((data?.jobs ?? []) as SchedulerJob[]).map((job) => ({
                 ...job,
@@ -138,7 +138,7 @@ export function SchedulerPage() {
         const job = jobs.find((item) => item.id === jobId);
         if (!job?.agent_id) return;
         const { data } = await listSchedulerJobRuns({
-          path: { agentID: job.agent_id, jobID: jobId },
+          path: { agentId: job.agent_id, jobId: jobId },
           throwOnError: true,
         });
         setRunHistories((prev) => ({ ...prev, [jobId]: (data?.runs ?? []) as SchedulerJobRun[] }));
@@ -204,13 +204,13 @@ export function SchedulerPage() {
     try {
       if (editingJobId !== null) {
         await updateSchedulerJob({
-          path: { agentID: jobForm.agent_id, jobID: editingJobId },
+          path: { agentId: jobForm.agent_id, jobId: editingJobId },
           body: payload,
           throwOnError: true,
         });
       } else {
         await createSchedulerJob({
-          path: { agentID: jobForm.agent_id },
+          path: { agentId: jobForm.agent_id },
           body: payload,
           throwOnError: true,
         });
@@ -231,7 +231,7 @@ export function SchedulerPage() {
       if (job?.owner_kind !== "user") return;
       try {
         await deleteSchedulerJob({
-          path: { agentID: job.agent_id ?? "", jobID: id },
+          path: { agentId: job.agent_id ?? "", jobId: id },
           throwOnError: true,
         });
         if (selectedJobId === id) {
@@ -252,7 +252,7 @@ export function SchedulerPage() {
       setTriggeringJobId(j.id);
       try {
         await triggerSchedulerJob({
-          path: { agentID: j.agent_id ?? "", jobID: j.id },
+          path: { agentId: j.agent_id ?? "", jobId: j.id },
           throwOnError: true,
         });
         showToast("Job triggered");

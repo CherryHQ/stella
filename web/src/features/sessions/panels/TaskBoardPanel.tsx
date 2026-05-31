@@ -231,7 +231,7 @@ function TaskDetail({
     let cancelled = false;
     void (async () => {
       try {
-        const { data } = await getTaskReadiness({ path: { taskID: task.id }, throwOnError: true });
+        const { data } = await getTaskReadiness({ path: { taskId: task.id }, throwOnError: true });
         if (!cancelled) setReadiness(data ?? null);
       } catch (e) {
         console.error(e);

@@ -236,7 +236,7 @@ export function CredentialsPage() {
         let status: { state: string } | null = null;
         try {
           const { data } = await pollOAuthFlow({
-            path: { provider, flowID },
+            path: { provider, flowId: flowID },
             throwOnError: true,
           });
           status = data as { state: string };

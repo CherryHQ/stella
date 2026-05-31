@@ -99,7 +99,7 @@ export function AutomationDashPanel({
         schedulerJobs.slice(0, 10).map(async (job) => {
           try {
             const { data } = await listSchedulerJobRuns({
-              path: { agentID: job.agent_id || agentId, jobID: job.id },
+              path: { agentId: job.agent_id || agentId, jobId: job.id },
               throwOnError: true,
             });
             for (const r of (data?.runs ?? []) as SchedulerJobRun[]) {
@@ -152,7 +152,7 @@ export function AutomationDashPanel({
       setJobRunsLoading(true);
       try {
         const { data } = await listSchedulerJobRuns({
-          path: { agentID: selectedJob?.agent_id || agentId, jobID: jobId },
+          path: { agentId: selectedJob?.agent_id || agentId, jobId: jobId },
           throwOnError: true,
         });
         setJobRuns((data?.runs ?? []) as SchedulerJobRun[]);

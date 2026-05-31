@@ -8,7 +8,7 @@ export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["ki
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data } = await listSessions({
-        path: { agentID: agentId },
+        path: { agentId: agentId },
         query: { page_size: 20, page_token: pageParam, kind },
         throwOnError: true,
       });

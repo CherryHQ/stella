@@ -999,7 +999,7 @@ export function AgentsPage() {
     async (currentState: AgentsPageState) => {
       try {
         await setProfileSoul({
-          path: { agentID: currentState.editingId ?? "" },
+          path: { agentId: currentState.editingId ?? "" },
           body: { soul: currentState.personalisation.soulDraft },
           throwOnError: true,
         });
@@ -1019,7 +1019,7 @@ export function AgentsPage() {
     async (currentState: AgentsPageState) => {
       try {
         await setProfileMemory({
-          path: { agentID: currentState.editingId ?? "" },
+          path: { agentId: currentState.editingId ?? "" },
           body: { content: currentState.personalisation.profileDraft },
           throwOnError: true,
         });

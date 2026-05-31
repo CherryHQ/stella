@@ -86,11 +86,11 @@ export function SessionDetail({
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
-        path: { agentID: agentId, sessionID: sessionId },
+        path: { agentId: agentId, sessionId: sessionId },
         query: { limit: 20, skip: pageParam },
         throwOnError: true,
       });
-      return (data as unknown as Message[]) ?? [];
+      return (data?.messages as unknown as Message[] | undefined) ?? [];
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
@@ -162,7 +162,7 @@ export function SessionDetail({
         setAttachments((prev) => [...prev, placeholder]);
         try {
           const { data: res } = await uploadWorkspaceFile({
-            path: { agentID: agentId, sessionID: sessionId },
+            path: { agentId: agentId, sessionId: sessionId },
             body: { file },
             throwOnError: true,
           });

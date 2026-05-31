@@ -1,7 +1,7 @@
 paths:
-  /api/agents/{agentID}/scheduler/jobs:
+  /api/agents/{agentId}/scheduler/jobs:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
     get:
       tags: [jobs]
       summary: List scheduler jobs
@@ -41,10 +41,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/agents/{agentID}/scheduler/jobs/{jobID}:
+  /api/agents/{agentId}/scheduler/jobs/{jobId}:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: jobID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: jobId, in: path, required: true, schema: { type: string } }
     get:
       tags: [jobs]
       summary: Get a scheduler job
@@ -98,10 +98,10 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{agentID}/scheduler/jobs/{jobID}/run:
+  /api/agents/{agentId}/scheduler/jobs/{jobId}/run:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: jobID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: jobId, in: path, required: true, schema: { type: string } }
     post:
       tags: [jobs]
       summary: Trigger a scheduler job immediately
@@ -121,10 +121,10 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/agents/{agentID}/scheduler/jobs/{jobID}/runs:
+  /api/agents/{agentId}/scheduler/jobs/{jobId}/runs:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: jobID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: jobId, in: path, required: true, schema: { type: string } }
     get:
       tags: [jobs]
       summary: List scheduler job runs

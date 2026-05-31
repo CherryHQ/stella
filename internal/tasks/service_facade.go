@@ -148,13 +148,13 @@ func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentT
 	return t, nil
 }
 
-// ListTasks returns paginated tasks.
-func (f *ServiceFacade) ListTasks(ctx context.Context, limit, offset int64) ([]sqlc.AgentTask, error) {
+// ListTasksByUser returns paginated tasks owned by the given user.
+func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID string, limit, offset int64) ([]sqlc.AgentTask, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentTasks(ctx, sqlc.ListAgentTasksParams{
-		Limit: limit, Offset: offset,
+	return f.q.ListAgentTasksByUser(ctx, sqlc.ListAgentTasksByUserParams{
+		UserID: userID, Limit: limit, Offset: offset,
 	})
 }
 

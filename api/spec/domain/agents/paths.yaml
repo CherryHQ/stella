@@ -223,7 +223,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/agents/{id}/skills:install:
+  /api/agents/{id}/skills/install:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:
@@ -253,7 +253,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/agents/{id}/skills:upload:
+  /api/agents/{id}/skills/upload:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:

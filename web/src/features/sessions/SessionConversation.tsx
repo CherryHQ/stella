@@ -64,7 +64,7 @@ export function SessionConversation({
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
-        path: { agentID: agentId, sessionID: sessionId },
+        path: { agentId: agentId, sessionId: sessionId },
         query: {
           limit: 20,
           skip: pageParam,
@@ -73,7 +73,7 @@ export function SessionConversation({
         },
         throwOnError: true,
       });
-      return (data as unknown as Message[]) ?? [];
+      return (data?.messages as unknown as Message[] | undefined) ?? [];
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,

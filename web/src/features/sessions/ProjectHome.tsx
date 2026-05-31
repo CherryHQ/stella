@@ -33,7 +33,7 @@ export function ProjectHome() {
     if (creating.current) return;
     creating.current = true;
     createSession({
-      path: { agentID: agentId },
+      path: { agentId: agentId },
       body: { project_id: projectId },
       throwOnError: true,
     })

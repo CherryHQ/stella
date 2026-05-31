@@ -137,7 +137,7 @@ export function WorkspacePanel({
       }
       try {
         const { data } = await getWorkspaceFileContent({
-          path: { agentID, sessionID },
+          path: { agentId: agentID, sessionId: sessionID },
           query: { path },
           throwOnError: true,
         });
@@ -162,7 +162,7 @@ export function WorkspacePanel({
       setViewer((v) => (v ? { ...v, saving: true } : null));
       try {
         await updateWorkspaceFileContent({
-          path: { agentID, sessionID },
+          path: { agentId: agentID, sessionId: sessionID },
           body: { path: viewer.path, content },
           throwOnError: true,
         });
@@ -180,7 +180,7 @@ export function WorkspacePanel({
     if (!name) return;
     const fullPath = projectDir ? `${projectDir}/${name}` : name;
     await createWorkspaceFile({
-      path: { agentID, sessionID },
+      path: { agentId: agentID, sessionId: sessionID },
       body: { path: fullPath, is_dir: newItemType === "dir" },
       throwOnError: true,
     });
@@ -193,7 +193,7 @@ export function WorkspacePanel({
     async (path: string) => {
       if (!confirm(`Delete "${path}"?`)) return;
       await deleteWorkspaceFile({
-        path: { agentID, sessionID },
+        path: { agentId: agentID, sessionId: sessionID },
         body: { path },
         throwOnError: true,
       });
@@ -644,7 +644,7 @@ function TreeWithSearch({
       onRename: async ({ sourcePath, destinationPath }) => {
         try {
           await moveWorkspaceFile({
-            path: { agentID, sessionID },
+            path: { agentId: agentID, sessionId: sessionID },
             body: { path: toApi(sourcePath), new_path: toApi(destinationPath) },
             throwOnError: true,
           });
@@ -664,7 +664,7 @@ function TreeWithSearch({
             const destDir = (target.directoryPath ?? "").replace(/\/$/, "");
             const newPath = destDir ? `${destDir}/${filename}` : filename;
             await moveWorkspaceFile({
-              path: { agentID, sessionID },
+              path: { agentId: agentID, sessionId: sessionID },
               body: { path: toApi(src), new_path: toApi(newPath) },
               throwOnError: true,
             });
@@ -694,7 +694,7 @@ function TreeWithSearch({
       try {
         const apiDir = toApi(dir);
         const { data } = await getSessionWorkspace({
-          path: { agentID, sessionID },
+          path: { agentId: agentID, sessionId: sessionID },
           query: { show_hidden: true, depth: 2, path: apiDir },
           throwOnError: true,
         });

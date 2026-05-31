@@ -32,7 +32,7 @@ export function AgentHome() {
     if (creating.current) return;
     creating.current = true;
     createSession({
-      path: { agentID: agentId },
+      path: { agentId: agentId },
       body: { kind: "main" },
       throwOnError: true,
     })

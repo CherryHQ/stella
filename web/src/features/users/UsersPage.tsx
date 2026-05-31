@@ -289,7 +289,7 @@ export function UsersPage() {
     async (userId: string, agentId: string, content: string) => {
       try {
         await setUserMemory({
-          path: { id: userId, agentID: agentId },
+          path: { id: userId, agentId: agentId },
           body: { content },
           throwOnError: true,
         });
@@ -306,7 +306,7 @@ export function UsersPage() {
     async (userId: string, agentId: string) => {
       try {
         await deleteUserMemory({
-          path: { id: userId, agentID: agentId },
+          path: { id: userId, agentId: agentId },
           throwOnError: true,
         });
         await loadUserMemories(userId);
@@ -323,7 +323,7 @@ export function UsersPage() {
       if (!u._newMemoryAgent || !u._newMemoryContent) return;
       try {
         await setUserMemory({
-          path: { id: u.id, agentID: u._newMemoryAgent },
+          path: { id: u.id, agentId: u._newMemoryAgent },
           body: { content: u._newMemoryContent },
           throwOnError: true,
         });
