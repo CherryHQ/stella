@@ -213,6 +213,10 @@ components:
         runs:
           type: array
           items: { $ref: "#/components/schemas/Run" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     Event:
       type: object
@@ -241,6 +245,10 @@ components:
         events:
           type: array
           items: { $ref: "#/components/schemas/Event" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     Dep:
       type: object
@@ -269,6 +277,10 @@ components:
         deps:
           type: array
           items: { $ref: "#/components/schemas/Dep" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     AddDepRequest:
       type: object

@@ -177,11 +177,17 @@ func (q *Queries) ListAgentReviewsByGoal(ctx context.Context, arg ListAgentRevie
 }
 
 const listAgentReviewsByTask = `-- name: ListAgentReviewsByTask :many
-SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE task_id = ? ORDER BY created_at DESC
+SELECT id, task_id, goal_id, submitted_run_id, reviewer_run_id, reviewer_type, reviewer_user_id, escalated_from_review_id, status, summary, feedback, created_at, updated_at, resolved_at FROM agent_review WHERE task_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
 `
 
-func (q *Queries) ListAgentReviewsByTask(ctx context.Context, taskID sql.NullString) ([]AgentReview, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentReviewsByTask, taskID)
+type ListAgentReviewsByTaskParams struct {
+	TaskID sql.NullString `json:"task_id"`
+	Limit  int64          `json:"limit"`
+	Offset int64          `json:"offset"`
+}
+
+func (q *Queries) ListAgentReviewsByTask(ctx context.Context, arg ListAgentReviewsByTaskParams) ([]AgentReview, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentReviewsByTask, arg.TaskID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // setReviewPolicy is a test helper that sets the task's review_policy directly.
@@ -37,7 +39,7 @@ func TestReview_AutoPolicy_LogsReview_ThenDone(t *testing.T) {
 	if got := h.getTask(t, id).Status; got != StatusDone {
 		t.Errorf("status=%q want done (auto)", got)
 	}
-	rows, _ := h.q.ListAgentReviewsByTask(context.Background(), nullable(id))
+	rows, _ := h.q.ListAgentReviewsByTask(context.Background(), sqlc.ListAgentReviewsByTaskParams{TaskID: nullable(id), Limit: 100})
 	if len(rows) != 1 || rows[0].Status != ReviewApproved {
 		t.Errorf("expected 1 approved review, got %+v", rows)
 	}

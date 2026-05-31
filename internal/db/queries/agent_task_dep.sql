@@ -24,6 +24,16 @@ FROM agent_task_dep d
 JOIN agent_task t ON t.id = d.dep_task_id
 WHERE d.task_id = ?;
 
+-- name: ListAgentTaskDepsWithUpstreamPaged :many
+SELECT
+    sqlc.embed(d),
+    t.status AS upstream_status
+FROM agent_task_dep d
+JOIN agent_task t ON t.id = d.dep_task_id
+WHERE d.task_id = ?
+ORDER BY d.dep_task_id ASC
+LIMIT ? OFFSET ?;
+
 -- Reachable downstream tasks of a given task (Slice 4 reopen cascade).
 -- Bounded by SQLite's default recursive limit; we additionally cap depth at 1000
 -- in the CTE to prevent runaway cycles (cycles are forbidden by AddDep but the

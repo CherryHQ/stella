@@ -284,7 +284,7 @@ func (s *Server) GetTaskReadiness(w http.ResponseWriter, r *http.Request, taskID
 	writeData(w, http.StatusOK, readinessToAPI(rd))
 }
 
-func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskEventsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -292,23 +292,33 @@ func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID s
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListEvents(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListEvents(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Event, 0, len(rows))
 	for _, e := range rows {
 		out = append(out, eventToAPI(e))
 	}
-	writeData(w, http.StatusOK, apitypes.EventList{Events: out})
+	list := apitypes.EventList{Events: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
-func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskRunsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -316,27 +326,37 @@ func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID str
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListRuns(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListRuns(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Run, 0, len(rows))
 	for _, run := range rows {
 		out = append(out, runToAPI(run))
 	}
-	writeData(w, http.StatusOK, apitypes.RunList{Runs: out})
+	list := apitypes.RunList{Runs: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 // ---------------------------------------------------------------------------
 // Deps
 // ---------------------------------------------------------------------------
 
-func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskDepsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -344,20 +364,30 @@ func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID str
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListDeps(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListDeps(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Dep, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, depToAPI(row))
 	}
-	writeData(w, http.StatusOK, apitypes.DepList{Deps: out})
+	list := apitypes.DepList{Deps: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -465,7 +495,7 @@ func (s *Server) ResolveTaskBlocker(w http.ResponseWriter, r *http.Request, task
 // Reviews
 // ---------------------------------------------------------------------------
 
-func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskReviewsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -473,20 +503,30 @@ func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID 
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListReviews(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListReviews(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Review, 0, len(rows))
 	for _, rev := range rows {
 		out = append(out, reviewToAPI(rev))
 	}
-	writeData(w, http.StatusOK, apitypes.ReviewList{Reviews: out})
+	list := apitypes.ReviewList{Reviews: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) ApproveTaskReview(w http.ResponseWriter, r *http.Request, taskID string, reviewID string) {
@@ -734,7 +774,7 @@ func eventToAPI(e sqlc.AgentTaskEvent) apitypes.Event {
 	return out
 }
 
-func depToAPI(row sqlc.ListAgentTaskDepsWithUpstreamRow) apitypes.Dep {
+func depToAPI(row sqlc.ListAgentTaskDepsWithUpstreamPagedRow) apitypes.Dep {
 	out := apitypes.Dep{
 		TaskId:    row.AgentTaskDep.TaskID,
 		DepTaskId: row.AgentTaskDep.DepTaskID,

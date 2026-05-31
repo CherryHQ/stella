@@ -183,6 +183,61 @@ func (q *Queries) ListAgentTaskDepsWithUpstream(ctx context.Context, taskID stri
 	return items, nil
 }
 
+const listAgentTaskDepsWithUpstreamPaged = `-- name: ListAgentTaskDepsWithUpstreamPaged :many
+SELECT
+    d.task_id, d.dep_task_id, d.dep_kind, d.on_failure, d.waived_at, d.waived_by_user, d.waiver_reason, d.created_at,
+    t.status AS upstream_status
+FROM agent_task_dep d
+JOIN agent_task t ON t.id = d.dep_task_id
+WHERE d.task_id = ?
+ORDER BY d.dep_task_id ASC
+LIMIT ? OFFSET ?
+`
+
+type ListAgentTaskDepsWithUpstreamPagedParams struct {
+	TaskID string `json:"task_id"`
+	Limit  int64  `json:"limit"`
+	Offset int64  `json:"offset"`
+}
+
+type ListAgentTaskDepsWithUpstreamPagedRow struct {
+	AgentTaskDep   AgentTaskDep `json:"agent_task_dep"`
+	UpstreamStatus string       `json:"upstream_status"`
+}
+
+func (q *Queries) ListAgentTaskDepsWithUpstreamPaged(ctx context.Context, arg ListAgentTaskDepsWithUpstreamPagedParams) ([]ListAgentTaskDepsWithUpstreamPagedRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTaskDepsWithUpstreamPaged, arg.TaskID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentTaskDepsWithUpstreamPagedRow{}
+	for rows.Next() {
+		var i ListAgentTaskDepsWithUpstreamPagedRow
+		if err := rows.Scan(
+			&i.AgentTaskDep.TaskID,
+			&i.AgentTaskDep.DepTaskID,
+			&i.AgentTaskDep.DepKind,
+			&i.AgentTaskDep.OnFailure,
+			&i.AgentTaskDep.WaivedAt,
+			&i.AgentTaskDep.WaivedByUser,
+			&i.AgentTaskDep.WaiverReason,
+			&i.AgentTaskDep.CreatedAt,
+			&i.UpstreamStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReachableDownstream = `-- name: ListReachableDownstream :many
 WITH RECURSIVE downstream(id, depth) AS (
     SELECT atd.task_id, 1 FROM agent_task_dep atd WHERE atd.dep_task_id = ?

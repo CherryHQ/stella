@@ -18,7 +18,7 @@ WHERE task_id = ? AND status IN ('requested','in_progress')
 LIMIT 1;
 
 -- name: ListAgentReviewsByTask :many
-SELECT * FROM agent_review WHERE task_id = ? ORDER BY created_at DESC;
+SELECT * FROM agent_review WHERE task_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
 
 -- name: ListAgentReviewsByGoal :many
 SELECT * FROM agent_review WHERE goal_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;

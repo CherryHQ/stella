@@ -158,6 +158,13 @@ paths:
       tags: [tasks]
       summary: List task events
       operationId: listTaskEvents
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
       responses:
         "200":
           description: ok
@@ -176,6 +183,13 @@ paths:
       tags: [tasks]
       summary: List task runs
       operationId: listTaskRuns
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
       responses:
         "200":
           description: ok
@@ -194,6 +208,13 @@ paths:
       tags: [tasks]
       summary: List task deps
       operationId: listTaskDeps
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
       responses:
         "200":
           description: ok
@@ -288,6 +309,13 @@ paths:
       tags: [tasks]
       summary: List reviews for a task
       operationId: listTaskReviews
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
       responses:
         "200":
           description: ok

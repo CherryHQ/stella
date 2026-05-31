@@ -73,11 +73,17 @@ func (q *Queries) InsertAgentTaskEvent(ctx context.Context, arg InsertAgentTaskE
 }
 
 const listAgentTaskEvents = `-- name: ListAgentTaskEvents :many
-SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC
+SELECT id, task_id, goal_id, run_id, blocker_id, review_id, event_type, from_status, to_status, actor_type, actor_id, detail, created_at FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?
 `
 
-func (q *Queries) ListAgentTaskEvents(ctx context.Context, taskID sql.NullString) ([]AgentTaskEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTaskEvents, taskID)
+type ListAgentTaskEventsParams struct {
+	TaskID sql.NullString `json:"task_id"`
+	Limit  int64          `json:"limit"`
+	Offset int64          `json:"offset"`
+}
+
+func (q *Queries) ListAgentTaskEvents(ctx context.Context, arg ListAgentTaskEventsParams) ([]AgentTaskEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTaskEvents, arg.TaskID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

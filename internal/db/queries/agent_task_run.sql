@@ -13,7 +13,7 @@ RETURNING *;
 SELECT * FROM agent_task_run WHERE id = ?;
 
 -- name: ListAgentTaskRunsByTask :many
-SELECT * FROM agent_task_run WHERE task_id = ? ORDER BY attempt_no DESC;
+SELECT * FROM agent_task_run WHERE task_id = ? ORDER BY attempt_no DESC LIMIT ? OFFSET ?;
 
 -- name: LatestAgentTaskRunForTask :one
 SELECT * FROM agent_task_run

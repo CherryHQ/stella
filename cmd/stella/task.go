@@ -258,7 +258,7 @@ func taskEventsCmd() *ucli.Command {
 				return fmt.Errorf("task id is required")
 			}
 			list, err := apiclient.Call[apitypes.EventList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListTaskEvents(c.Context, id)
+				return api.ListTaskEvents(c.Context, id, nil)
 			})
 			if err != nil {
 				return fmt.Errorf("events: %w", err)
@@ -291,7 +291,7 @@ func taskDepsCmd() *ucli.Command {
 				return fmt.Errorf("task id is required")
 			}
 			list, err := apiclient.Call[apitypes.DepList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListTaskDeps(c.Context, id)
+				return api.ListTaskDeps(c.Context, id, nil)
 			})
 			if err != nil {
 				return fmt.Errorf("deps: %w", err)
@@ -360,7 +360,7 @@ func taskReviewsCmd() *ucli.Command {
 				return fmt.Errorf("task id is required")
 			}
 			list, err := apiclient.Call[apitypes.ReviewList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListTaskReviews(c.Context, id)
+				return api.ListTaskReviews(c.Context, id, nil)
 			})
 			if err != nil {
 				return fmt.Errorf("reviews: %w", err)
@@ -382,7 +382,7 @@ func taskRunsCmd() *ucli.Command {
 				return fmt.Errorf("task id is required")
 			}
 			list, err := apiclient.Call[apitypes.RunList](func(api *apiclient.Client) (*http.Response, error) {
-				return api.ListTaskRuns(c.Context, id)
+				return api.ListTaskRuns(c.Context, id, nil)
 			})
 			if err != nil {
 				return fmt.Errorf("runs: %w", err)

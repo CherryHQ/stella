@@ -184,19 +184,40 @@ func (f *ServiceFacade) GetReadiness(ctx context.Context, taskID string) (Readin
 	return Compute(t, views, time.Now().UTC()), nil
 }
 
-// ListEvents returns the full audit trail for a task.
-func (f *ServiceFacade) ListEvents(ctx context.Context, taskID string) ([]sqlc.AgentTaskEvent, error) {
-	return f.q.ListAgentTaskEvents(ctx, nullable(taskID))
+// ListEvents returns the audit trail for a task, oldest first.
+func (f *ServiceFacade) ListEvents(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.AgentTaskEvent, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentTaskEvents(ctx, sqlc.ListAgentTaskEventsParams{
+		TaskID: nullable(taskID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
-// ListRuns returns all runs for a task, newest attempt first.
-func (f *ServiceFacade) ListRuns(ctx context.Context, taskID string) ([]sqlc.AgentTaskRun, error) {
-	return f.q.ListAgentTaskRunsByTask(ctx, nullable(taskID))
+// ListRuns returns runs for a task, newest attempt first.
+func (f *ServiceFacade) ListRuns(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.AgentTaskRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentTaskRunsByTask(ctx, sqlc.ListAgentTaskRunsByTaskParams{
+		TaskID: nullable(taskID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // ListDeps returns the dep edges (with upstream status) for a task.
-func (f *ServiceFacade) ListDeps(ctx context.Context, taskID string) ([]sqlc.ListAgentTaskDepsWithUpstreamRow, error) {
-	return f.q.ListAgentTaskDepsWithUpstream(ctx, taskID)
+func (f *ServiceFacade) ListDeps(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.ListAgentTaskDepsWithUpstreamPagedRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentTaskDepsWithUpstreamPaged(ctx, sqlc.ListAgentTaskDepsWithUpstreamPagedParams{
+		TaskID: taskID,
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // AddDep is a thin shim over TransitionService.AddDep for caller ergonomics.
@@ -228,8 +249,15 @@ func (f *ServiceFacade) ReopenTask(ctx context.Context, taskID string, cascade b
 }
 
 // ListReviews returns the review history for a task, newest first.
-func (f *ServiceFacade) ListReviews(ctx context.Context, taskID string) ([]sqlc.AgentReview, error) {
-	return f.q.ListAgentReviewsByTask(ctx, nullable(taskID))
+func (f *ServiceFacade) ListReviews(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.AgentReview, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentReviewsByTask(ctx, sqlc.ListAgentReviewsByTaskParams{
+		TaskID: nullable(taskID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // ApproveReview exposes TransitionService.ApproveReview.

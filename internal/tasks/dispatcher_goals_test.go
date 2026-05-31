@@ -81,7 +81,7 @@ func TestDispatcher_ReviewerScan_AttachesRunToReview(t *testing.T) {
 	}
 	d.Tick(context.Background())
 	d.WaitIdle()
-	reviews, _ := h.q.ListAgentReviewsByTask(context.Background(), nullable(tid))
+	reviews, _ := h.q.ListAgentReviewsByTask(context.Background(), sqlc.ListAgentReviewsByTaskParams{TaskID: nullable(tid), Limit: 100})
 	if len(reviews) == 0 {
 		t.Fatalf("no review row created by submit")
 	}
