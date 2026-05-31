@@ -21,6 +21,16 @@ const (
 	SourceTypePDF     SourceType = "pdf"
 )
 
+// Valid reports whether s is a known source type.
+func (s SourceType) Valid() bool {
+	switch s {
+	case SourceTypeWeb, SourceTypeTwitter, SourceTypeYouTube, SourceTypeGitHub, SourceTypeRSS, SourceTypePDF:
+		return true
+	default:
+		return false
+	}
+}
+
 // ArticleStatus represents the reading status of an article.
 type ArticleStatus string
 
@@ -29,6 +39,16 @@ const (
 	StatusRead     ArticleStatus = "read"
 	StatusArchived ArticleStatus = "archived"
 )
+
+// Valid reports whether s is a known article status.
+func (s ArticleStatus) Valid() bool {
+	switch s {
+	case StatusUnread, StatusRead, StatusArchived:
+		return true
+	default:
+		return false
+	}
+}
 
 // RSSEntryStatus represents the processing status of an RSS feed entry.
 type RSSEntryStatus string

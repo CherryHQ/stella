@@ -1,7 +1,7 @@
 CREATE TABLE auth_policy (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
-    effect     TEXT NOT NULL,
+    effect     TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
     subjects   TEXT NOT NULL DEFAULT '{}',
     actions    TEXT NOT NULL DEFAULT '[]',
     resources  TEXT NOT NULL DEFAULT '[]',

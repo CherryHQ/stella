@@ -295,7 +295,8 @@ CREATE TABLE `auth_policy` (
   `enabled` integer NOT NULL DEFAULT 1,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  CHECK (effect IN ('allow', 'deny'))
 );
 -- Create "auth_user_agent" table
 CREATE TABLE `auth_user_agent` (

@@ -720,8 +720,14 @@ func (s *TransitionService) addDepInTx(ctx context.Context, q *sqlc.Queries, tas
 	if depKind == "" {
 		depKind = DepKindHard
 	}
+	if depKind != DepKindHard && depKind != DepKindSoft {
+		return fmt.Errorf("AddDep: invalid dep_kind %q", depKind)
+	}
 	if onFailure == "" {
 		onFailure = OnFailureBlock
+	}
+	if onFailure != OnFailureBlock && onFailure != OnFailureFail && onFailure != OnFailureIgnore {
+		return fmt.Errorf("AddDep: invalid on_failure %q", onFailure)
 	}
 	if reaches, err := reachable(ctx, q, depTaskID, taskID); err != nil {
 		return err

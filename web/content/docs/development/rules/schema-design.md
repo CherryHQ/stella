@@ -85,17 +85,30 @@ Checklist:
   deliberately.
 - Composite unique constraints for multi-column uniqueness.
 
-**Do not use enum-like `CHECK (col IN (...))` constraints.** Keep the set of
-valid values in Go (typed constants), not in the schema. A value list in a
-`CHECK` constraint can only change with a migration, and these sets — statuses,
-kinds, scopes, roles — grow as features land. Stella enforces them in code and
-keeps the column a plain `TEXT`.
+**Default: keep enum value sets in Go, not in a `CHECK (col IN (...))`
+constraint.** A value list in a `CHECK` can only change with a migration, and
+most of these sets — statuses, kinds, scopes, review policies — grow as features
+land. Stella enforces them in code (typed constants validated at the write
+boundary) and keeps the column a plain `TEXT`.
 
-This is _not_ a ban on `CHECK`. Structural invariants stay in the database:
-range checks (`price_cents >= 0`), XOR/coupling rules (a run belongs to a task
-_or_ a goal, never both), and self-reference guards (`task_id != dep_task_id`).
-Those encode relationships between columns, not an enumeration of one column's
-allowed values, and they don't churn when you add a new status.
+**Exception: a genuinely closed, immutable enum may use a `CHECK`.** If the set
+is fixed by an external contract and will never grow — `auth_policy.effect IN
+('allow', 'deny')` is the canonical case — the `CHECK` is a cheap, permanent
+safety net and belongs in the schema. The bar is "certain never to change," not
+"small today." When in doubt, enforce in Go.
+
+**Validate code-enforced enums at the write boundary.** Removing the `CHECK`
+removes the database's backstop, so every untrusted entry point (HTTP/CLI
+request bodies) must reject unknown values before persisting — return an
+invalid-argument error, don't silently store. Internal call sites that already
+pass typed constants are trusted and need no extra guard.
+
+This is _not_ a ban on `CHECK` generally. Structural invariants always stay in
+the database: range checks (`price_cents >= 0`), XOR/coupling rules (a run
+belongs to a task _or_ a goal, never both), and self-reference guards
+(`task_id != dep_task_id`). Those encode relationships between columns, not an
+enumeration of one column's allowed values, and they don't churn when you add a
+new status.
 
 ## Normalization
 
@@ -197,7 +210,7 @@ migration workflow in the project `CLAUDE.md`).
 | Timestamps      | `TIMESTAMPTZ DEFAULT now()`      | `TEXT NOT NULL DEFAULT (datetime('now'))` (UTC)             |
 | Boolean         | `BOOLEAN`                        | `INTEGER NOT NULL DEFAULT 0` (0/1)                          |
 | Money           | `INTEGER` cents / `NUMERIC`      | `INTEGER` cents                                             |
-| Enum/state      | `TEXT` (+ optional `CHECK`)      | plain `TEXT`; valid values enforced in Go, not `CHECK`      |
+| Enum/state      | `TEXT` (+ optional `CHECK`)      | plain `TEXT`, enforced in Go; `CHECK` only for closed enums |
 | Structured blob | `JSONB`                          | `TEXT` (often `NOT NULL DEFAULT '{}'`); query with `json_*` |
 
 SQLite has no native `UUID`, `TIMESTAMPTZ`, `BOOLEAN`, or `JSONB` type, and no

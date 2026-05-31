@@ -32,6 +32,9 @@ func generateID() string {
 
 // SaveArticle saves or updates an article by canonical URL.
 func (s *Store) SaveArticle(ctx context.Context, userID string, req SaveRequest) (*Article, bool, error) {
+	if req.SourceType != "" && !req.SourceType.Valid() {
+		return nil, false, fmt.Errorf("save article: invalid source_type %q", req.SourceType)
+	}
 	canonicalURL := req.CanonicalURL
 	if canonicalURL == "" {
 		canonicalURL = NormalizeURL(req.URL)
@@ -156,6 +159,9 @@ func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID stri
 		tags = encodeTags(v)
 	}
 	if v, ok := updates["status"].(string); ok {
+		if !ArticleStatus(v).Valid() {
+			return nil, fmt.Errorf("update article: invalid status %q", v)
+		}
 		status = v
 		if v == string(StatusRead) && current.Status != string(StatusRead) {
 			readAt = toNullTime(ptrTime(time.Now().UTC()))

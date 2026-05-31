@@ -153,6 +153,14 @@ func Compute(task sqlc.AgentTask, deps []DepEdgeView, now time.Time) Readiness {
 					Detail:     d.UpstreamStatus,
 				})
 			}
+		default:
+			// Unknown dep kind: fail-closed so a malformed edge never lets a
+			// downstream task dispatch before its upstream settles.
+			reasons = append(reasons, Reason{
+				Type:       "dependency_not_done",
+				UpstreamID: d.DepTaskID,
+				Detail:     d.UpstreamStatus,
+			})
 		}
 	}
 

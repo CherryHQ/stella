@@ -332,6 +332,9 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	if policy == "" {
 		policy = ReviewPolicyNone
 	}
+	if policy != ReviewPolicyNone && policy != ReviewPolicyAuto && policy != ReviewPolicyAgent && policy != ReviewPolicyHuman {
+		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid review_policy %q", policy)
+	}
 	if in.Context == "" {
 		in.Context = "{}"
 	}

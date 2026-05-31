@@ -92,6 +92,7 @@ func TestCompute_DepTable(t *testing.T) {
 		{"soft done", []DepEdgeView{soft(StatusDone)}, ReadinessDispatchable, true},
 		{"soft failed", []DepEdgeView{soft(StatusFailed)}, ReadinessDispatchable, true},
 		{"soft cancelled", []DepEdgeView{soft(StatusCancelled)}, ReadinessDispatchable, true},
+		{"unknown kind fails closed", []DepEdgeView{{DepTaskID: "u", Kind: "hrd", UpstreamStatus: StatusDone}}, ReadinessWaitingDeps, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
