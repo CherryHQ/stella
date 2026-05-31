@@ -13,7 +13,7 @@ import (
 // pragmatic choice for an internal API served only to our own frontend + CLI:
 // it keeps every list handler a one-liner and is correct for the read-mostly
 // collections here. The known tradeoffs versus the keyset scheme in
-// rest-api-design/SKILL.md: (1) under concurrent inserts ahead of the cursor a
+// web/content/docs/development/rules/api-design.md: (1) under concurrent inserts ahead of the cursor a
 // row can be skipped or duplicated at a page boundary — the per-query
 // `ORDER BY <ts>, id` tiebreaker makes the order stable but does not eliminate
 // offset drift; (2) a client may change filter params between pages without a

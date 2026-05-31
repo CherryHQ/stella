@@ -5,8 +5,8 @@
 CREATE TABLE agent_task_dep (
     task_id         TEXT NOT NULL REFERENCES agent_task(id) ON DELETE CASCADE,
     dep_task_id     TEXT NOT NULL REFERENCES agent_task(id) ON DELETE CASCADE,
-    dep_kind        TEXT NOT NULL DEFAULT 'hard' CHECK (dep_kind IN ('hard','soft')),
-    on_failure      TEXT NOT NULL DEFAULT 'block' CHECK (on_failure IN ('block','fail','ignore')),
+    dep_kind        TEXT NOT NULL DEFAULT 'hard',
+    on_failure      TEXT NOT NULL DEFAULT 'block',
     waived_at       TEXT,
     waived_by_user  TEXT REFERENCES auth_user(id) ON DELETE SET NULL,
     waiver_reason   TEXT NOT NULL DEFAULT '',

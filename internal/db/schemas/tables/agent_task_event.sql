@@ -12,7 +12,7 @@ CREATE TABLE agent_task_event (
     event_type      TEXT NOT NULL,
     from_status     TEXT,
     to_status       TEXT,
-    actor_type      TEXT NOT NULL CHECK (actor_type IN ('system','user','agent','worker','reviewer','planner','synthesizer')),
+    actor_type      TEXT NOT NULL,
     actor_id        TEXT,
     detail          TEXT NOT NULL DEFAULT '{}',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))

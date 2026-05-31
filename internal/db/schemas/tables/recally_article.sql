@@ -4,14 +4,12 @@ CREATE TABLE recally_article (
     agent_id      TEXT REFERENCES agent(id) ON DELETE SET NULL,
     url           TEXT NOT NULL,
     canonical_url TEXT NOT NULL,
-    source_type   TEXT NOT NULL DEFAULT 'web'
-                  CHECK (source_type IN ('web','twitter','youtube','github','rss','pdf')),
+    source_type   TEXT NOT NULL DEFAULT 'web',
     title         TEXT NOT NULL DEFAULT '',
     author        TEXT NOT NULL DEFAULT '',
     summary       TEXT NOT NULL DEFAULT '',
     tags          TEXT NOT NULL DEFAULT '[]',
-    status        TEXT NOT NULL DEFAULT 'unread'
-                  CHECK (status IN ('unread','read','archived')),
+    status        TEXT NOT NULL DEFAULT 'unread',
     starred       INTEGER NOT NULL DEFAULT 0,
     file_path     TEXT NOT NULL DEFAULT '',
     metadata      TEXT NOT NULL DEFAULT '{}',

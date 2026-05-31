@@ -2,6 +2,8 @@
 
 API changes are spec-first: design schemas and paths in the OpenAPI domain files, regenerate code, then implement the generated server methods.
 
+**Before adding or changing any endpoint, read `web/content/docs/development/rules/api-design.md`** — the binding API-design rule (resource modeling, standard/custom methods, pagination, structured errors, response shape). This file covers the _mechanics_ (spec layout + codegen); that rule covers the _design contract_.
+
 ## Layout
 
 ```

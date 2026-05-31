@@ -1,6 +1,8 @@
 {
   "title": "Development",
   "pages": [
+    "rules/api-design",
+    "rules/schema-design",
     "architecture",
     "cli-as-client",
     "sandbox",

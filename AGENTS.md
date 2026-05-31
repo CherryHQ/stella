@@ -25,6 +25,8 @@ You are working on **stella**, a Go CLI/service project. Act as an engineering c
 
 ## Database migrations
 
+**Before designing or changing any table, read `web/content/docs/development/rules/schema-design.md`** — it is the binding schema-design rule (naming, keys, types, the SQLite/Atlas mapping, and the review checklist).
+
 Schema source of truth: `internal/db/schemas/tables/*.sql`.
 
 Migration workflow:
@@ -47,6 +49,8 @@ Rules:
 - Keep timestamps as UTC end to end; convert to the user's local zone only at the presentation layer (the web UI renders the local time from the RFC3339 instant).
 
 ## API-first design
+
+**Before designing or changing any HTTP API, read `web/content/docs/development/rules/api-design.md`** — it is the binding API-design rule (resource modeling, standard/custom methods, pagination, structured errors, response shape, and the review checklist).
 
 For new or changed HTTP APIs, design from the OpenAPI spec first and follow `api/CLAUDE.md` for the full workflow, generated files, and API-specific rules.
 

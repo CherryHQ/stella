@@ -13,6 +13,17 @@ const (
 	StatusCancelled = "cancelled"
 )
 
+// Task priorities.
+const (
+	PriorityRoutine = "routine"
+	PriorityUrgent  = "urgent"
+)
+
+// validPriority reports whether p is a known task/goal priority.
+func validPriority(p string) bool {
+	return p == PriorityRoutine || p == PriorityUrgent
+}
+
 // Run lifecycle.
 const (
 	RunQueued      = "queued"
@@ -40,6 +51,16 @@ const (
 	BlockerKindDepFailure         = "dep_failure"
 )
 
+// validBlockerKind reports whether k is a known blocker kind.
+func validBlockerKind(k string) bool {
+	switch k {
+	case BlockerKindUserInput, BlockerKindExternalDependency, BlockerKindToolError, BlockerKindPolicyHold, BlockerKindDepFailure:
+		return true
+	default:
+		return false
+	}
+}
+
 // Dep edge kinds and failure policies.
 const (
 	DepKindHard = "hard"
@@ -49,6 +70,16 @@ const (
 	OnFailureFail   = "fail"
 	OnFailureIgnore = "ignore"
 )
+
+// validDepKind reports whether k is a known dependency kind.
+func validDepKind(k string) bool {
+	return k == DepKindHard || k == DepKindSoft
+}
+
+// validOnFailure reports whether p is a known dependency failure policy.
+func validOnFailure(p string) bool {
+	return p == OnFailureBlock || p == OnFailureFail || p == OnFailureIgnore
+}
 
 // Actor types written to agent_task_event. Schema CHECK mirrors run kinds for
 // the non-human originators.

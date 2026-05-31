@@ -21,7 +21,7 @@ CREATE INDEX idx_recally_digest_user_id ON recally_digest (user_id);
 CREATE TABLE recally_digest_article (
     digest_id  TEXT NOT NULL REFERENCES recally_digest(id) ON DELETE CASCADE,
     article_id TEXT NOT NULL REFERENCES recally_article(id) ON DELETE CASCADE,
-    section    TEXT NOT NULL CHECK (section IN ('saved_yesterday', 'worth_revisiting')),
+    section    TEXT NOT NULL,
     position   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (digest_id, article_id, section)
 );

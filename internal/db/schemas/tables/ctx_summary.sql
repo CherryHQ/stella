@@ -1,7 +1,7 @@
 CREATE TABLE ctx_summary (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL REFERENCES ctx_conversation(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('leaf', 'condensed')),
+    kind TEXT NOT NULL,
     depth INTEGER NOT NULL DEFAULT 0,
     content TEXT NOT NULL,
     token_count INTEGER NOT NULL,

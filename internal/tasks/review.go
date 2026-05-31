@@ -36,6 +36,16 @@ const (
 	ReviewPolicyHuman = "human"
 )
 
+// validReviewPolicy reports whether p is a known review policy.
+func validReviewPolicy(p string) bool {
+	switch p {
+	case ReviewPolicyNone, ReviewPolicyAuto, ReviewPolicyAgent, ReviewPolicyHuman:
+		return true
+	default:
+		return false
+	}
+}
+
 // Reviewer type constants (mirrors enum in schema).
 const (
 	ReviewerSystem = "system"
