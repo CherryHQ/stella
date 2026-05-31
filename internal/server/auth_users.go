@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -41,8 +42,8 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserRe
 		Role:       u.Role,
 		IsActive:   u.IsActive,
 		Identities: identities,
-		CreatedAt:  u.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:  u.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt:  u.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:  u.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
