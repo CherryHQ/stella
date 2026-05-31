@@ -5,6 +5,7 @@ CREATE TABLE ctx_agent_memory (
     soul        TEXT NOT NULL DEFAULT '',
     version     INTEGER NOT NULL DEFAULT 0,
     constraints TEXT NOT NULL DEFAULT '[]',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(user_id, agent_id)
 );

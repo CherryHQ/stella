@@ -2,6 +2,7 @@
 CREATE TABLE `app_setting` (
   `key` text NOT NULL,
   `value` text NOT NULL DEFAULT '{}',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`key`)
 );
@@ -64,6 +65,7 @@ CREATE TABLE `channel_agent` (
   `platform` text NOT NULL,
   `chat_id` text NOT NULL,
   `agent_id` text NOT NULL,
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`channel_id`, `platform`, `chat_id`),
   CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
@@ -76,6 +78,7 @@ CREATE TABLE `ctx_agent_memory` (
   `soul` text NOT NULL DEFAULT '',
   `version` integer NOT NULL DEFAULT 0,
   `constraints` text NOT NULL DEFAULT '[]',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`user_id`, `agent_id`),
   CONSTRAINT `0` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
@@ -298,6 +301,7 @@ CREATE TABLE `auth_policy` (
   `is_system` integer NOT NULL DEFAULT 0,
   `enabled` integer NOT NULL DEFAULT 1,
   `created_at` text NOT NULL DEFAULT (datetime('now')),
+  `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`id`),
   CHECK (effect IN ('allow', 'deny'))
 );
@@ -973,6 +977,7 @@ CREATE TABLE `plugin_override` (
   `plugin_id` text NOT NULL,
   `enabled` integer NULL,
   `session_env_vault_key` text NOT NULL DEFAULT '',
+  `created_at` text NOT NULL DEFAULT (datetime('now')),
   `updated_at` text NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (`plugin_id`)
 );

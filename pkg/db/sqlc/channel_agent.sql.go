@@ -25,7 +25,7 @@ func (q *Queries) DeleteChatAgent(ctx context.Context, arg DeleteChatAgentParams
 }
 
 const getChatAgent = `-- name: GetChatAgent :one
-SELECT channel_id, platform, chat_id, agent_id, updated_at FROM channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
+SELECT channel_id, platform, chat_id, agent_id, created_at, updated_at FROM channel_agent WHERE channel_id = ? AND platform = ? AND chat_id = ?
 `
 
 type GetChatAgentParams struct {
@@ -42,13 +42,14 @@ func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (Cha
 		&i.Platform,
 		&i.ChatID,
 		&i.AgentID,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listChatAgents = `-- name: ListChatAgents :many
-SELECT channel_id, platform, chat_id, agent_id, updated_at FROM channel_agent ORDER BY channel_id, platform, chat_id
+SELECT channel_id, platform, chat_id, agent_id, created_at, updated_at FROM channel_agent ORDER BY channel_id, platform, chat_id
 `
 
 func (q *Queries) ListChatAgents(ctx context.Context) ([]ChannelAgent, error) {
@@ -65,6 +66,7 @@ func (q *Queries) ListChatAgents(ctx context.Context) ([]ChannelAgent, error) {
 			&i.Platform,
 			&i.ChatID,
 			&i.AgentID,
+			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err

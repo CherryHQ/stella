@@ -21,7 +21,7 @@ func (q *Queries) DeleteManifestPluginOverride(ctx context.Context, pluginID str
 }
 
 const getManifestPluginOverride = `-- name: GetManifestPluginOverride :one
-SELECT plugin_id, enabled, session_env_vault_key, updated_at FROM plugin_override
+SELECT plugin_id, enabled, session_env_vault_key, created_at, updated_at FROM plugin_override
 WHERE plugin_id = ?
 `
 
@@ -32,13 +32,14 @@ func (q *Queries) GetManifestPluginOverride(ctx context.Context, pluginID string
 		&i.PluginID,
 		&i.Enabled,
 		&i.SessionEnvVaultKey,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listManifestPluginOverrides = `-- name: ListManifestPluginOverrides :many
-SELECT plugin_id, enabled, session_env_vault_key, updated_at FROM plugin_override
+SELECT plugin_id, enabled, session_env_vault_key, created_at, updated_at FROM plugin_override
 ORDER BY plugin_id
 `
 
@@ -55,6 +56,7 @@ func (q *Queries) ListManifestPluginOverrides(ctx context.Context) ([]PluginOver
 			&i.PluginID,
 			&i.Enabled,
 			&i.SessionEnvVaultKey,
+			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err

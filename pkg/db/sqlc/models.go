@@ -182,6 +182,7 @@ type AgentTaskRun struct {
 type AppSetting struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
+	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
 
@@ -243,6 +244,7 @@ type AuthPolicy struct {
 	IsSystem   int64  `json:"is_system"`
 	Enabled    int64  `json:"enabled"`
 	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 type AuthSession struct {
@@ -304,6 +306,7 @@ type ChannelAgent struct {
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
 	AgentID   string `json:"agent_id"`
+	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
 
@@ -324,6 +327,7 @@ type CtxAgentMemory struct {
 	Soul        string `json:"soul"`
 	Version     int64  `json:"version"`
 	Constraints string `json:"constraints"`
+	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }
 
@@ -453,6 +457,7 @@ type PluginOverride struct {
 	PluginID           string        `json:"plugin_id"`
 	Enabled            sql.NullInt64 `json:"enabled"`
 	SessionEnvVaultKey string        `json:"session_env_vault_key"`
+	CreatedAt          string        `json:"created_at"`
 	UpdatedAt          string        `json:"updated_at"`
 }
 
