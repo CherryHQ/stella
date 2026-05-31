@@ -1,0 +1,4 @@
+{
+  "title": "Build Shared Agents",
+  "pages": ["index", "create-professional-agent", "finance-agent", "hr-agent", "engineering-agent"]
+}
