@@ -463,16 +463,25 @@ function ProductPreview({ lang }: { lang: keyof typeof copy }) {
     <div className="home-product" aria-label={c.productLabel}>
       <div className="home-product-chrome">
         <span className="home-product-status" />
-        <span className="home-product-chrome-label">
-          {isZh ? "ORG WORKBENCH" : "ORG WORKBENCH"}
-        </span>
+        <span className="home-product-chrome-label">{isZh ? "STELLA OS" : "STELLA OS"}</span>
         <span className="home-product-title">{c.productLabel}</span>
       </div>
       <div className="home-product-body">
         <section className="home-product-panel home-product-panel-agents">
           <div className="home-product-panel-head">
-            <span>{isZh ? "共享 Agent" : "Shared agents"}</span>
+            <span>{isZh ? "Apps" : "Apps"}</span>
             <Bot className="size-4" />
+          </div>
+          <div
+            className="home-app-nav"
+            aria-label={isZh ? "Stella 应用导航" : "Stella app navigation"}
+          >
+            <span className="is-active">{isZh ? "Agents" : "Agents"}</span>
+            <span>Recally</span>
+            <span>{isZh ? "Tasks" : "Tasks"}</span>
+          </div>
+          <div className="home-product-panel-head home-product-panel-head-sub">
+            <span>{isZh ? "共享 Agent" : "Shared agents"}</span>
           </div>
           <div className="home-agent-list">
             {agents.map(([name, desc, meta], index) => (

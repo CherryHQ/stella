@@ -1,20 +1,18 @@
 .home-page {
-  --home-ink: oklch(22% 0.02 240);
-  --home-muted: oklch(50% 0.018 240);
-  --home-faint: oklch(96% 0.006 245);
-  --home-rule: oklch(90% 0.008 240);
-  --home-surface: oklch(100% 0 0);
-  --home-gold: oklch(58% 0.16 145);
-  --home-warn: oklch(70% 0.15 70);
-  --home-danger: oklch(62% 0.18 28);
-  --home-success: oklch(0.65 0.17 145);
-  --home-shadow: oklch(0.15 0.005 260);
   background:
-    linear-gradient(var(--home-rule) 1px, transparent 1px),
-    linear-gradient(90deg, var(--home-rule) 1px, transparent 1px), oklch(98% 0.005 250);
+    linear-gradient(
+      color-mix(in oklch, var(--stella-os-rule) 58%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--stella-os-rule) 58%, transparent) 1px,
+      transparent 1px
+    ),
+    var(--stella-os-canvas);
   background-size: 56px 56px;
-  color: var(--home-ink);
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  color: var(--stella-os-ink);
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -26,7 +24,7 @@
   left: 1rem;
   z-index: 200;
   padding: 0.5rem 1rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--foreground);
   color: var(--background);
   font-size: 0.85rem;
@@ -55,6 +53,8 @@
 /* ─── Shell ─── */
 
 .home-shell {
+  position: relative;
+  z-index: 1;
   width: min(100% - 3rem, 72rem);
   margin-inline: auto;
 }
@@ -64,11 +64,11 @@
 .home-eyebrow {
   display: inline-block;
   padding: 0.3rem 0.65rem;
-  border: 1px solid color-mix(in oklch, var(--home-gold) 32%, transparent);
-  border-radius: 6px;
-  background: color-mix(in oklch, var(--home-gold) 9%, white);
-  color: var(--home-gold);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  border: 1px solid color-mix(in oklch, var(--stella-os-accent) 32%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--stella-os-accent-soft) 74%, transparent);
+  color: var(--stella-os-accent);
+  font-family: var(--font-mono);
   font-size: 0.7rem;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -86,7 +86,11 @@
 .home-hero-grain {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, color-mix(in oklch, white 78%, transparent), transparent 42%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--stella-os-surface) 78%, transparent),
+    transparent 42%
+  );
   opacity: 0.75;
   pointer-events: none;
 }
@@ -99,9 +103,9 @@
   gap: 1rem;
   margin-bottom: 2rem;
   padding: 0.7rem 0;
-  border-block: 1px solid var(--home-rule);
-  color: var(--home-muted);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  border-block: 1px solid var(--stella-os-rule);
+  color: var(--stella-os-muted);
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -125,13 +129,13 @@
   font-size: clamp(3rem, 7.2vw, 6.9rem);
   font-weight: 760;
   line-height: 0.88;
-  letter-spacing: -0.055em;
-  color: var(--home-ink);
+  letter-spacing: var(--letter-spacing);
+  color: var(--stella-os-ink);
 }
 
 .home-hero-title em {
   font-style: normal;
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
   position: relative;
 }
 
@@ -142,14 +146,14 @@
   right: -0.05em;
   bottom: 0.02em;
   height: 0.08em;
-  background: color-mix(in oklch, var(--home-gold) 22%, transparent);
+  background: color-mix(in oklch, var(--stella-os-accent) 22%, transparent);
   border-radius: 0.06em;
 }
 
 .home-hero-body {
   max-width: 33rem;
   margin: 0;
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
   font-size: 1rem;
   font-weight: 400;
   line-height: 1.7;
@@ -167,7 +171,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.7rem 1.25rem;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 0.88rem;
   font-weight: 600;
   text-decoration: none;
@@ -182,13 +186,13 @@
 }
 
 .home-btn:focus-visible {
-  outline: 2px solid var(--home-gold);
+  outline: 2px solid var(--stella-os-accent);
   outline-offset: 2px;
 }
 
 .home-btn-primary {
-  background: var(--home-gold);
-  color: white;
+  background: var(--stella-os-accent);
+  color: var(--primary-foreground);
   box-shadow: none;
 }
 
@@ -197,13 +201,13 @@
 }
 
 .home-btn-ghost {
-  border: 1px solid var(--home-rule);
-  color: var(--home-ink);
-  background: var(--home-surface);
+  border: 1px solid var(--stella-os-rule);
+  color: var(--stella-os-ink);
+  background: var(--stella-os-surface);
 }
 
 .home-btn-ghost:hover {
-  background: var(--home-faint);
+  background: var(--stella-os-canvas-muted);
   transform: translateY(-1px);
 }
 
@@ -212,14 +216,16 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   margin: 2rem 0 0;
-  border: 1px solid var(--home-rule);
-  background: color-mix(in oklch, white 82%, transparent);
+  border: 1px solid var(--stella-os-rule);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--stella-os-surface) 82%, transparent);
+  overflow: hidden;
 }
 
 .home-hero-metrics div {
   min-width: 0;
   padding: 0.85rem;
-  border-right: 1px solid var(--home-rule);
+  border-right: 1px solid var(--stella-os-rule);
 }
 
 .home-hero-metrics div:last-child {
@@ -228,8 +234,8 @@
 
 .home-hero-metrics dt {
   margin: 0 0 0.35rem;
-  color: var(--home-muted);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color: var(--stella-os-muted);
+  font-family: var(--font-mono);
   font-size: 0.64rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -237,7 +243,7 @@
 
 .home-hero-metrics dd {
   margin: 0;
-  color: var(--home-ink);
+  color: var(--stella-os-ink);
   font-size: 0.78rem;
   font-weight: 650;
   line-height: 1.35;
@@ -247,11 +253,11 @@
 
 .home-product {
   position: relative;
-  border: 1px solid var(--home-rule);
-  border-radius: 10px;
-  background: var(--home-surface);
+  border: 1px solid var(--stella-os-rule);
+  border-radius: var(--radius-xl);
+  background: var(--stella-os-surface);
   overflow: hidden;
-  box-shadow: 0 18px 44px color-mix(in oklch, var(--home-shadow) 10%, transparent);
+  box-shadow: var(--shadow-xl);
   animation: fade-up 900ms cubic-bezier(0.16, 1, 0.3, 1) 300ms both;
 }
 
@@ -260,21 +266,21 @@
   align-items: center;
   gap: 0.55rem;
   padding: 0.7rem 0.85rem;
-  border-bottom: 1px solid var(--home-rule);
-  background: oklch(97% 0.004 250);
+  border-bottom: 1px solid var(--stella-os-rule);
+  background: var(--stella-os-canvas-muted);
 }
 
 .home-product-status {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--home-success);
-  box-shadow: 0 0 0 4px color-mix(in oklch, var(--home-success) 14%, transparent);
+  background: var(--stella-os-success);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--stella-os-success) 14%, transparent);
 }
 
 .home-product-chrome-label {
-  color: var(--home-muted);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color: var(--stella-os-muted);
+  font-family: var(--font-mono);
   font-size: 0.64rem;
   font-weight: 650;
   letter-spacing: 0.06em;
@@ -282,10 +288,10 @@
 
 .home-product-title {
   margin: 0 0 0 auto;
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
   font-weight: 500;
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
   letter-spacing: 0.02em;
 }
 
@@ -299,8 +305,8 @@
 .home-product-panel {
   min-width: 0;
   padding: 1rem;
-  border-right: 1px solid var(--home-rule);
-  background: var(--home-surface);
+  border-right: 1px solid var(--stella-os-rule);
+  background: var(--stella-os-surface);
 }
 
 .home-product-panel:last-child {
@@ -313,12 +319,39 @@
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 0.9rem;
-  color: var(--home-muted);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color: var(--stella-os-muted);
+  font-family: var(--font-mono);
   font-size: 0.68rem;
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.home-product-panel-head-sub {
+  margin: 1rem 0 0.7rem;
+  color: color-mix(in oklch, var(--stella-os-muted) 78%, transparent);
+  font-size: 0.62rem;
+}
+
+.home-app-nav {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.home-app-nav span {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-md);
+  color: var(--stella-os-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.home-app-nav span.is-active {
+  background: var(--stella-os-accent-soft);
+  color: var(--stella-os-accent);
 }
 
 .home-agent-list {
@@ -328,14 +361,14 @@
 
 .home-agent-row {
   padding: 0.72rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 8px;
-  background: oklch(99% 0.002 250);
+  border: 1px solid var(--stella-os-rule);
+  border-radius: var(--radius-md);
+  background: var(--stella-os-surface-raised);
 }
 
 .home-agent-row.is-active {
-  border-color: color-mix(in oklch, var(--home-gold) 44%, var(--home-rule));
-  background: color-mix(in oklch, var(--home-gold) 8%, white);
+  border-color: color-mix(in oklch, var(--stella-os-accent) 44%, var(--stella-os-rule));
+  background: var(--stella-os-accent-soft);
 }
 
 .home-agent-row div {
@@ -344,13 +377,13 @@
 }
 
 .home-agent-row strong {
-  color: var(--home-ink);
+  color: var(--stella-os-ink);
   font-size: 0.82rem;
 }
 
 .home-agent-row span,
 .home-agent-row small {
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
   font-size: 0.68rem;
   line-height: 1.35;
 }
@@ -358,7 +391,7 @@
 .home-agent-row small {
   display: inline-block;
   margin-top: 0.55rem;
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .home-agent-policy {
@@ -367,29 +400,37 @@
   gap: 0.45rem;
   margin-top: 1rem;
   padding-top: 0.9rem;
-  border-top: 1px dashed var(--home-rule);
-  color: var(--home-gold);
+  border-top: 1px dashed var(--stella-os-rule);
+  color: var(--stella-os-accent);
   font-size: 0.72rem;
   line-height: 1.45;
 }
 
 .home-product-panel-work {
   background:
-    linear-gradient(var(--home-rule) 1px, transparent 1px),
-    linear-gradient(90deg, var(--home-rule) 1px, transparent 1px), oklch(99% 0.002 250);
+    linear-gradient(
+      color-mix(in oklch, var(--stella-os-rule) 42%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--stella-os-rule) 42%, transparent) 1px,
+      transparent 1px
+    ),
+    var(--stella-os-canvas);
   background-size: 28px 28px;
 }
 
 .home-goal-card {
   padding: 0.9rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 8px;
-  background: var(--home-surface);
+  border: 1px solid var(--stella-os-rule);
+  border-radius: var(--radius-md);
+  background: var(--stella-os-surface);
 }
 
 .home-goal-card p {
   margin: 0;
-  color: var(--home-ink);
+  color: var(--stella-os-ink);
   font-size: 0.83rem;
   line-height: 1.55;
 }
@@ -403,11 +444,11 @@
 
 .home-goal-meta span {
   padding: 0.25rem 0.45rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 5px;
-  background: oklch(98% 0.004 250);
-  color: var(--home-muted);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  border: 1px solid var(--stella-os-rule);
+  border-radius: calc(var(--radius-sm) * 0.72);
+  background: var(--stella-os-canvas-muted);
+  color: var(--stella-os-muted);
+  font-family: var(--font-mono);
   font-size: 0.61rem;
 }
 
@@ -426,9 +467,9 @@
   align-items: center;
   min-height: 2.65rem;
   padding: 0.62rem 0.7rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 8px;
-  background: var(--home-surface);
+  border: 1px solid var(--stella-os-rule);
+  border-radius: var(--radius-md);
+  background: var(--stella-os-surface);
 }
 
 .home-task-node::before {
@@ -438,7 +479,7 @@
   top: -0.64rem;
   width: 1px;
   height: 0.64rem;
-  background: var(--home-rule);
+  background: var(--stella-os-rule);
 }
 
 .home-task-node:first-child::before {
@@ -447,56 +488,56 @@
 
 .home-task-node span,
 .home-task-node small {
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.64rem;
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
 }
 
 .home-task-node strong {
   min-width: 0;
-  color: var(--home-ink);
+  color: var(--stella-os-ink);
   font-size: 0.78rem;
   line-height: 1.35;
 }
 
 .home-task-node.is-done {
-  border-color: color-mix(in oklch, var(--home-success) 34%, var(--home-rule));
+  border-color: color-mix(in oklch, var(--stella-os-success) 34%, var(--stella-os-rule));
 }
 
 .home-task-node.is-done small {
-  color: var(--home-success);
+  color: var(--stella-os-success);
 }
 
 .home-task-node.is-blocked {
-  border-color: color-mix(in oklch, var(--home-warn) 48%, var(--home-rule));
-  background: color-mix(in oklch, var(--home-warn) 6%, white);
+  border-color: color-mix(in oklch, var(--stella-os-warning) 48%, var(--stella-os-rule));
+  background: color-mix(in oklch, var(--stella-os-warning) 12%, var(--stella-os-surface));
 }
 
 .home-task-node.is-blocked small {
-  color: color-mix(in oklch, var(--home-warn) 70%, black);
+  color: color-mix(in oklch, var(--stella-os-warning) 82%, var(--stella-os-ink));
 }
 
 .home-task-node.is-review {
-  border-color: color-mix(in oklch, var(--home-gold) 42%, var(--home-rule));
-  background: color-mix(in oklch, var(--home-gold) 7%, white);
+  border-color: color-mix(in oklch, var(--stella-os-accent) 42%, var(--stella-os-rule));
+  background: var(--stella-os-accent-soft);
 }
 
 .home-task-node.is-review small {
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
 }
 
 .home-review-card {
   padding: 0.85rem;
-  border: 1px solid color-mix(in oklch, var(--home-warn) 48%, var(--home-rule));
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--home-warn) 7%, white);
+  border: 1px solid color-mix(in oklch, var(--stella-os-warning) 48%, var(--stella-os-rule));
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--stella-os-warning) 13%, var(--stella-os-surface));
 }
 
 .home-review-state {
   display: inline-flex;
   margin-bottom: 0.75rem;
-  color: color-mix(in oklch, var(--home-warn) 62%, black);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color: color-mix(in oklch, var(--stella-os-warning) 82%, var(--stella-os-ink));
+  font-family: var(--font-mono);
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -504,14 +545,14 @@
 
 .home-review-card strong {
   display: block;
-  color: var(--home-ink);
+  color: var(--stella-os-ink);
   font-size: 0.84rem;
   line-height: 1.35;
 }
 
 .home-review-card p {
   margin: 0.6rem 0 0;
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
   font-size: 0.72rem;
   line-height: 1.55;
 }
@@ -524,10 +565,10 @@
 
 .home-review-actions span {
   padding: 0.55rem 0.65rem;
-  border: 1px solid var(--home-rule);
-  border-radius: 7px;
-  background: oklch(99% 0.002 250);
-  color: var(--home-muted);
+  border: 1px solid var(--stella-os-rule);
+  border-radius: var(--radius-md);
+  background: var(--stella-os-surface-raised);
+  color: var(--stella-os-muted);
   font-size: 0.72rem;
 }
 
@@ -544,13 +585,13 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.3rem 0.65rem;
-  border-radius: 7px;
-  background: var(--card);
-  border: 1px solid var(--home-rule);
+  border-radius: var(--radius-md);
+  background: var(--stella-os-surface-raised);
+  border: 1px solid var(--stella-os-rule);
   font-size: 0.65rem;
   font-weight: 500;
-  color: var(--home-muted);
-  box-shadow: 0 10px 24px color-mix(in oklch, var(--home-shadow) 10%, transparent);
+  color: var(--stella-os-muted);
+  box-shadow: var(--shadow-lg);
   opacity: 0;
   animation: badge-in 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   white-space: nowrap;
@@ -578,8 +619,8 @@
 
 .home-systems {
   padding: clamp(4rem, 8vw, 8rem) 0;
-  border-top: 1px solid var(--home-rule);
-  background: oklch(96% 0.006 245);
+  border-top: 1px solid var(--stella-os-rule);
+  background: var(--stella-os-canvas-muted);
 }
 
 .home-system--hero {
@@ -604,9 +645,9 @@
 
 .home-system {
   padding: 1.35rem;
-  border-radius: 10px;
-  border: 1px solid var(--home-rule);
-  background: var(--home-surface);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--stella-os-rule);
+  background: var(--stella-os-surface);
   transition:
     border-color 200ms ease,
     box-shadow 200ms ease,
@@ -614,7 +655,8 @@
 }
 
 .home-system:hover {
-  border-color: color-mix(in oklch, var(--home-gold) 30%, transparent);
+  border-color: color-mix(in oklch, var(--stella-os-accent) 30%, transparent);
+  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
@@ -624,9 +666,9 @@
   justify-content: center;
   width: 2.5rem;
   height: 2.5rem;
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--home-gold) 10%, transparent);
-  color: var(--home-gold);
+  border-radius: var(--radius-md);
+  background: var(--stella-os-accent-soft);
+  color: var(--stella-os-accent);
   margin-bottom: 1rem;
 }
 
@@ -634,7 +676,7 @@
   margin: 0 0 0.6rem;
   font-size: 1.1rem;
   font-weight: 650;
-  color: var(--home-ink);
+  color: var(--stella-os-ink);
 }
 
 .home-system-desc {
@@ -642,7 +684,7 @@
   font-size: 0.88rem;
   font-weight: 400;
   line-height: 1.7;
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
 }
 
 .home-system-highlights {
@@ -656,9 +698,9 @@
 
 .home-system-highlights li {
   padding: 0.3rem 0.7rem;
-  border-radius: 6px;
-  background: color-mix(in oklch, var(--home-gold) 8%, transparent);
-  color: var(--home-gold);
+  border-radius: var(--radius-sm);
+  background: var(--stella-os-accent-soft);
+  color: var(--stella-os-accent);
   font-size: 0.72rem;
   font-weight: 500;
 }
@@ -667,19 +709,19 @@
 
 .home-pillars {
   padding: clamp(5rem, 9vw, 9rem) 0;
-  border-top: 1px solid var(--home-rule);
-  background: oklch(18% 0.018 245);
-  color: white;
+  border-top: 1px solid var(--stella-os-rule);
+  background: color-mix(in oklch, var(--stella-os-ink) 94%, var(--stella-os-accent) 6%);
+  color: var(--stella-os-surface);
 }
 
 .home-pillars-heading {
   margin: 0 0 3rem;
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
 }
 
 .home-pillars-list {
@@ -697,7 +739,7 @@
   gap: 1rem;
   align-items: baseline;
   padding: 2rem 0;
-  border-top: 1px solid color-mix(in oklch, white 12%, transparent);
+  border-top: 1px solid color-mix(in oklch, var(--stella-os-surface) 12%, transparent);
 }
 
 .home-pillar:last-child {
@@ -709,14 +751,14 @@
 }
 
 .home-pillar:hover .home-pillar-title {
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
 }
 
 .home-pillar-num {
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
   letter-spacing: 0.02em;
 }
 
@@ -725,8 +767,8 @@
   font-size: clamp(1.3rem, 2.5vw, 1.65rem);
   font-weight: 720;
   line-height: 1.15;
-  letter-spacing: -0.015em;
-  color: color-mix(in oklch, var(--background) 94%, transparent);
+  letter-spacing: var(--letter-spacing);
+  color: color-mix(in oklch, var(--stella-os-surface) 94%, transparent);
 }
 
 .home-pillar-body {
@@ -735,14 +777,14 @@
   font-size: 0.92rem;
   font-weight: 400;
   line-height: 1.8;
-  color: color-mix(in oklch, var(--background) 56%, transparent);
+  color: color-mix(in oklch, var(--stella-os-surface) 56%, transparent);
 }
 
 /* ─── Capabilities ─── */
 
 .home-caps {
   padding: clamp(4rem, 6vw, 6rem) 0;
-  border-top: 1px solid var(--home-rule);
+  border-top: 1px solid var(--stella-os-rule);
 }
 
 .home-caps-header {
@@ -754,14 +796,14 @@
   font-size: clamp(2rem, 4vw, 3.2rem);
   font-weight: 760;
   line-height: 1.1;
-  letter-spacing: -0.025em;
-  color: var(--home-ink);
+  letter-spacing: var(--letter-spacing);
+  color: var(--stella-os-ink);
 }
 
 .home-section-sub {
   margin: 1rem 0 0;
   max-width: 38rem;
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
   font-size: 1.05rem;
   font-weight: 400;
   line-height: 1.7;
@@ -776,13 +818,13 @@
 .home-cap-group-label {
   margin: 0 0 1.25rem;
   padding-bottom: 0.75rem;
-  border-bottom: 2px solid var(--home-gold);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  border-bottom: 2px solid var(--stella-os-accent);
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
 }
 
 .home-cap-group-items {
@@ -798,14 +840,14 @@
   margin: 0 0 0.3rem;
   font-size: 0.9rem;
   font-weight: 650;
-  color: var(--home-ink);
+  color: var(--stella-os-ink);
 }
 
 .home-cap-inline-icon {
   width: 0.9rem;
   height: 0.9rem;
   flex-shrink: 0;
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
 }
 
 .home-cap p {
@@ -813,15 +855,15 @@
   font-size: 0.82rem;
   font-weight: 400;
   line-height: 1.6;
-  color: var(--home-muted);
+  color: var(--stella-os-muted);
 }
 
 /* ─── CTA ─── */
 
 .home-cta {
   padding: clamp(5rem, 8vw, 8rem) 0;
-  border-top: 1px solid var(--home-rule);
-  background: oklch(96% 0.006 245);
+  border-top: 1px solid var(--stella-os-rule);
+  background: var(--stella-os-canvas-muted);
 }
 
 .home-cta-layout {
@@ -839,18 +881,18 @@
   display: grid;
   gap: 0.5rem;
   padding: 1.25rem;
-  border-radius: 10px;
-  background: oklch(18% 0.018 245);
-  color: white;
-  box-shadow: none;
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklch, var(--stella-os-ink) 94%, var(--stella-os-accent) 6%);
+  color: var(--stella-os-surface);
+  box-shadow: var(--shadow-lg);
 }
 
 .home-terminal code {
   display: block;
   padding: 0.7rem 0.9rem;
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--background) 8%, transparent);
-  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--stella-os-surface) 8%, transparent);
+  font-family: var(--font-mono);
   font-size: 0.82rem;
   line-height: 1.5;
   white-space: nowrap;
@@ -858,7 +900,7 @@
 }
 
 .home-terminal-prompt {
-  color: var(--home-gold);
+  color: var(--stella-os-accent);
   margin-right: 0.5rem;
 }
 
@@ -866,7 +908,7 @@
   margin: 0.25rem 0 0;
   padding-inline: 0.9rem;
   font-size: 0.76rem;
-  color: color-mix(in oklch, var(--background) 52%, transparent);
+  color: color-mix(in oklch, var(--stella-os-surface) 52%, transparent);
   line-height: 1.5;
 }
 
@@ -1028,7 +1070,7 @@
 
   .home-product-panel {
     border-right: 0;
-    border-bottom: 1px solid var(--home-rule);
+    border-bottom: 1px solid var(--stella-os-rule);
   }
 
   .home-product-panel:last-child {

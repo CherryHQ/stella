@@ -129,6 +129,18 @@
   --shadow-xl: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 8px 10px -1px hsl(0 0% 10.1961% / 0.1);
   --shadow-2xl: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.25);
   --tracking-normal: 0em;
+  --stella-os-canvas: var(--background);
+  --stella-os-canvas-muted: var(--secondary);
+  --stella-os-surface: var(--card);
+  --stella-os-surface-raised: var(--popover);
+  --stella-os-ink: var(--foreground);
+  --stella-os-muted: var(--muted-foreground);
+  --stella-os-rule: var(--border);
+  --stella-os-accent: var(--primary);
+  --stella-os-accent-soft: var(--accent);
+  --stella-os-warning: oklch(0.72 0.14 78);
+  --stella-os-success: oklch(0.62 0.15 150);
+  --stella-os-danger: var(--destructive);
 }
 
 .dark {
@@ -186,6 +198,18 @@
   --shadow-lg: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 4px 6px -1px hsl(0 0% 10.1961% / 0.1);
   --shadow-xl: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 8px 10px -1px hsl(0 0% 10.1961% / 0.1);
   --shadow-2xl: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.25);
+  --stella-os-canvas: var(--background);
+  --stella-os-canvas-muted: var(--secondary);
+  --stella-os-surface: var(--card);
+  --stella-os-surface-raised: var(--popover);
+  --stella-os-ink: var(--foreground);
+  --stella-os-muted: var(--muted-foreground);
+  --stella-os-rule: var(--border);
+  --stella-os-accent: var(--primary);
+  --stella-os-accent-soft: var(--accent);
+  --stella-os-warning: oklch(0.74 0.13 78);
+  --stella-os-success: oklch(0.7 0.13 150);
+  --stella-os-danger: var(--destructive);
 }
 
 @layer base {
