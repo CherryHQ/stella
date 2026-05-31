@@ -81,9 +81,10 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	ctx := r.Context()
-	limit := 50
-	if params.Limit != nil && *params.Limit > 0 {
-		limit = *params.Limit
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
 	}
 
 	if params.CanonicalUrl != nil && *params.CanonicalUrl != "" {
@@ -106,7 +107,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 
-	filter := recally.ArticleFilter{Limit: limit}
+	filter := recally.ArticleFilter{Limit: limit + 1, Offset: offset}
 	if params.Status != nil {
 		filter.Status = recally.ArticleStatus(*params.Status)
 	}
@@ -121,7 +122,12 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, apiserver.ArticleList{Articles: toAPIArticles(articles)})
+	articles, nextToken := nextPageTokenForRows(articles, limit, offset)
+	list := apiserver.ArticleList{Articles: toAPIArticles(articles)}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
@@ -343,16 +349,26 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 		writeData(w, http.StatusOK, apiserver.FeedList{Feeds: []apiserver.Feed{toAPIFeed(feed)}})
 		return
 	}
-	feeds, err := h.store.ListFeeds(r.Context(), userID)
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
+	feeds, err := h.store.ListFeeds(r.Context(), userID, limit+1, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	feeds, nextToken := nextPageTokenForRows(feeds, limit, offset)
 	items := make([]apiserver.Feed, 0, len(feeds))
 	for i := range feeds {
 		items = append(items, toAPIFeed(&feeds[i]))
 	}
-	writeData(w, http.StatusOK, apiserver.FeedList{Feeds: items})
+	list := apiserver.FeedList{Feeds: items}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
@@ -524,9 +540,10 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
 		return
 	}
-	limit := 20
-	if params.Limit != nil && *params.Limit > 0 {
-		limit = *params.Limit
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
 	}
 	status := recally.EntryStatusPending
 	if params.Status != nil {
@@ -537,16 +554,21 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "only status=pending is supported")
 		return
 	}
-	entries, err := h.store.ListPendingFeedEntries(r.Context(), feedId, limit)
+	entries, err := h.store.ListPendingFeedEntries(r.Context(), feedId, limit+1, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	entries, nextToken := nextPageTokenForRows(entries, limit, offset)
 	items := make([]apiserver.FeedEntry, 0, len(entries))
 	for i := range entries {
 		items = append(items, toAPIFeedEntry(&entries[i]))
 	}
-	writeData(w, http.StatusOK, apiserver.FeedEntryList{Entries: items})
+	list := apiserver.FeedEntryList{Entries: items}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
@@ -610,23 +632,12 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	limit := int64(20)
-	if params.PageSize != nil {
-		if *params.PageSize < 1 || *params.PageSize > 100 {
-			writeError(w, http.StatusBadRequest, "page_size must be between 1 and 100")
-			return
-		}
-		limit = int64(*params.PageSize)
+	limitInt, offsetInt, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
 	}
-	offset := int64(0)
-	if params.PageToken != nil {
-		decoded, err := decodeOffsetToken(*params.PageToken)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid page_token")
-			return
-		}
-		offset = int64(decoded)
-	}
+	limit, offset := int64(limitInt), int64(offsetInt)
 	summaries, total, err := h.store.ListStoredDigests(r.Context(), userID, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

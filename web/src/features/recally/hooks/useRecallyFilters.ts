@@ -34,7 +34,7 @@ export function useRecallyFilters() {
         ...(statusFilter ? { status: statusFilter } : {}),
         ...(sourceTypeFilter ? { source_type: sourceTypeFilter } : {}),
         ...(starredFilter !== null ? { starred: starredFilter } : {}),
-        limit: 50,
+        page_size: 50,
       },
     }),
   );

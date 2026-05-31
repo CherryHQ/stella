@@ -67,6 +67,7 @@ components:
           type: array,
           items: { $ref: "#/components/schemas/Article" },
         }
+        next_page_token: { type: string, nullable: true }
 
     SaveArticleRequest:
       type: object
@@ -137,6 +138,7 @@ components:
       required: [feeds]
       properties:
         feeds: { type: array, items: { $ref: "#/components/schemas/Feed" } }
+        next_page_token: { type: string, nullable: true }
 
     CreateFeedRequest:
       type: object
@@ -181,6 +183,7 @@ components:
           type: array,
           items: { $ref: "#/components/schemas/FeedEntry" },
         }
+        next_page_token: { type: string, nullable: true }
 
     UpdateFeedEntryRequest:
       type: object

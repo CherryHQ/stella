@@ -109,7 +109,7 @@ func recallyListCommand() *ucli.Command {
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListArticlesParams{
-				Limit: apiclient.Ptr(c.Int("limit")),
+				PageSize: apiclient.Ptr(c.Int("limit")),
 			}
 			if v := c.String("status"); v != "" {
 				st := apiclient.ArticleStatus(v)
@@ -160,8 +160,8 @@ func recallySearchCommand() *ucli.Command {
 			}
 			list, err := apiclient.Call[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, &apiclient.ListArticlesParams{
-					Q:     &query,
-					Limit: apiclient.Ptr(c.Int("limit")),
+					Q:        &query,
+					PageSize: apiclient.Ptr(c.Int("limit")),
 				})
 			})
 			if err != nil {

@@ -15,12 +15,12 @@ SELECT * FROM recally_article WHERE user_id = ? AND canonical_url = ?;
 
 -- name: ListArticles :many
 SELECT * FROM recally_article
-WHERE user_id = ?
+WHERE user_id = sqlc.arg('user_id')
   AND (sqlc.arg('status') = '' OR status = sqlc.arg('status'))
   AND (sqlc.arg('source_type') = '' OR source_type = sqlc.arg('source_type'))
   AND (sqlc.arg('starred') = 0 OR starred = sqlc.arg('starred'))
 ORDER BY saved_at DESC
-LIMIT sqlc.arg('limit');
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateArticle :one
 UPDATE recally_article

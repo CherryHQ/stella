@@ -250,12 +250,12 @@ func (q *Queries) GetArticlesSavedThisWeek(ctx context.Context, userID string) (
 
 const listArticles = `-- name: ListArticles :many
 SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
-WHERE user_id = ?
+WHERE user_id = ?1
   AND (?2 = '' OR status = ?2)
   AND (?3 = '' OR source_type = ?3)
   AND (?4 = 0 OR starred = ?4)
 ORDER BY saved_at DESC
-LIMIT ?5
+LIMIT ?6 OFFSET ?5
 `
 
 type ListArticlesParams struct {
@@ -263,6 +263,7 @@ type ListArticlesParams struct {
 	Status     interface{} `json:"status"`
 	SourceType interface{} `json:"source_type"`
 	Starred    interface{} `json:"starred"`
+	Offset     int64       `json:"offset"`
 	Limit      int64       `json:"limit"`
 }
 
@@ -272,6 +273,7 @@ func (q *Queries) ListArticles(ctx context.Context, arg ListArticlesParams) ([]R
 		arg.Status,
 		arg.SourceType,
 		arg.Starred,
+		arg.Offset,
 		arg.Limit,
 	)
 	if err != nil {

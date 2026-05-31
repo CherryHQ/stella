@@ -409,7 +409,7 @@ func TestStore_Feeds(t *testing.T) {
 	}
 
 	// List feeds
-	feeds, err := store.ListFeeds(ctx, "1")
+	feeds, err := store.ListFeeds(ctx, "1", 50, 0)
 	if err != nil {
 		t.Fatalf("ListFeeds failed: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestStore_FeedEntries(t *testing.T) {
 	}
 
 	// List pending entries
-	pending, err := store.ListPendingFeedEntries(ctx, feed.ID, 10)
+	pending, err := store.ListPendingFeedEntries(ctx, feed.ID, 10, 0)
 	if err != nil {
 		t.Fatalf("ListPendingFeedEntries failed: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestStore_FeedEntries(t *testing.T) {
 	}
 
 	// Check that error entry is still returned with attempts < 3
-	errPending, err := store.ListPendingFeedEntries(ctx, feed.ID, 10)
+	errPending, err := store.ListPendingFeedEntries(ctx, feed.ID, 10, 0)
 	if err != nil {
 		t.Fatalf("ListPendingFeedEntries failed: %v", err)
 	}
