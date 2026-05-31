@@ -54,6 +54,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/ChangePasswordRequest",
             }
       responses:
+        # 204 by design: the password is write-only and has no resource
+        # representation to return.
         "204":
           description: password changed
         "400": {
@@ -123,8 +125,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemory",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -158,8 +165,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetSoulRequest",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemory",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -216,8 +228,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetVaultEntryRequest",
             }
       responses:
-        "204":
-          description: no content
+        "200":
+          description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/VaultEntry",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -402,8 +419,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/OAuthProviderConfigInput",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthProviderConfig",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

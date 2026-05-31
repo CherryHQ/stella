@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // ListProfileIdentities handles GET /api/auth/profile/identities.
@@ -210,7 +211,7 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeNoContent(w)
+	s.writeProfileMemory(w, r, info.UserID, agentID)
 }
 
 // SetProfileSoul handles PATCH /api/auth/profile/soul/{agentID}.
@@ -233,7 +234,21 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeNoContent(w)
+	s.writeProfileMemory(w, r, info.UserID, agentID)
+}
+
+// writeProfileMemory loads the user/agent memory and writes the full resource,
+// applying the default soul when none is stored.
+func (s *Server) writeProfileMemory(w http.ResponseWriter, r *http.Request, userID, agentID string) {
+	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if mem.Soul == "" {
+		mem.Soul = prompt.DefaultAgentSoul()
+	}
+	writeData(w, http.StatusOK, mem)
 }
 
 // DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentID}.

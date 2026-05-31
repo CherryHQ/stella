@@ -95,8 +95,8 @@ func TestVaultCRUD(t *testing.T) {
 
 	// Set a secret.
 	rr = doRequest(t, env, "PUT", "/api/auth/profile/vault/GITHUB_TOKEN", map[string]string{"value": "ghp_test123"})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("set status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// List — one entry.
@@ -175,8 +175,8 @@ func TestVaultSetEmptyName(t *testing.T) {
 
 	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/", map[string]string{"value": "v"})
 	// Empty name in path — either 400 or 404 depending on router
-	if rr.Code == http.StatusNoContent {
-		t.Fatal("expected error for empty name, got 204")
+	if rr.Code == http.StatusOK {
+		t.Fatal("expected error for empty name, got 200")
 	}
 }
 
@@ -185,8 +185,8 @@ func TestVaultSetInvalidJSON(t *testing.T) {
 
 	rr := doRequestWithSession(t, env.srv, env.bearerToken, "PUT", "/api/auth/profile/vault/MY_KEY", nil)
 	// No body → JSON decode error or empty value
-	if rr.Code == http.StatusNoContent {
-		t.Fatal("expected error for nil body, got 204")
+	if rr.Code == http.StatusOK {
+		t.Fatal("expected error for nil body, got 200")
 	}
 }
 
@@ -195,14 +195,14 @@ func TestVaultUpdateExisting(t *testing.T) {
 
 	// Set initial value.
 	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_SECRET", map[string]string{"value": "v1"})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("set status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Update with new value.
 	rr = doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_SECRET", map[string]string{"value": "v2"})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// List — still one entry.

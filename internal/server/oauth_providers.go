@@ -56,7 +56,12 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	cfg, err := s.credSvc.GetOAuthProviderConfig(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, toAPIProviderConfig(cfg))
 }
 
 func toAPIProviderConfig(cfg credentials.OAuthProviderConfig) apiserver.OAuthProviderConfig {

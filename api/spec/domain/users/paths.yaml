@@ -19,8 +19,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateDefaultAgentRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -49,8 +54,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateNotifyIdentityRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -108,8 +118,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemory",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
