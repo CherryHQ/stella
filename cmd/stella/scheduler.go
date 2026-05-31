@@ -115,14 +115,14 @@ func schedulerListCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Items)
+				return printJSON(list.Jobs)
 			}
-			if len(list.Items) == 0 {
+			if len(list.Jobs) == 0 {
 				fmt.Println("No scheduled jobs.")
 				return nil
 			}
 			fmt.Printf("%-10s  %-20s  %-20s  %-8s  %s\n", "ID", "NAME", "SCHEDULE", "MODE", "LAST RUN")
-			for _, j := range list.Items {
+			for _, j := range list.Jobs {
 				sched := derefStr(j.Cron)
 				if sched == "" {
 					sched = derefStr(j.Every)

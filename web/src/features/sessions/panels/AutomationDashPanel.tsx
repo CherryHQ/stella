@@ -102,7 +102,7 @@ export function AutomationDashPanel({
               path: { agentID: job.agent_id || agentId, jobID: job.id },
               throwOnError: true,
             });
-            for (const r of (data?.items ?? []) as SchedulerJobRun[]) {
+            for (const r of (data?.runs ?? []) as SchedulerJobRun[]) {
               allRuns.push({
                 ...r,
                 job_name: job.name,
@@ -134,7 +134,7 @@ export function AutomationDashPanel({
         query: { agent_id: agentId },
         throwOnError: true,
       });
-      setTasks(data?.items ?? []);
+      setTasks(data?.tasks ?? []);
     } catch (e) {
       console.error(e);
       setTasks([]);
@@ -155,7 +155,7 @@ export function AutomationDashPanel({
           path: { agentID: selectedJob?.agent_id || agentId, jobID: jobId },
           throwOnError: true,
         });
-        setJobRuns((data?.items ?? []) as SchedulerJobRun[]);
+        setJobRuns((data?.runs ?? []) as SchedulerJobRun[]);
       } catch {
         setJobRuns([]);
       } finally {

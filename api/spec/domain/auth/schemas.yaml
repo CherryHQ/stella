@@ -49,11 +49,12 @@ components:
 
     AuthSessionList:
       type: object
-      required: [items]
+      required: [sessions]
       properties:
-        items:
+        sessions:
           type: array
           items: { $ref: "#/components/schemas/AuthSession" }
+        next_page_token: { type: string, nullable: true }
 
     OIDCProvider:
       type: object
@@ -71,9 +72,9 @@ components:
 
     OIDCProviderList:
       type: object
-      required: [items]
+      required: [providers]
       properties:
-        items:
+        providers:
           type: array
           items:
             $ref: "#/components/schemas/OIDCProvider"

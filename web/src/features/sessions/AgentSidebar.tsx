@@ -454,7 +454,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
     },
   });
   const taskAttentionCount =
-    taskList?.items?.filter(
+    taskList?.tasks?.filter(
       (task) =>
         task.status === "blocked" || task.status === "reviewing" || task.status === "failed",
     ).length ?? 0;

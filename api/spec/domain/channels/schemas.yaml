@@ -19,9 +19,13 @@ components:
 
     ChannelList:
       type: object
-      required: [items]
+      required: [channels]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+        channels: {
+          type: array,
+          items: { $ref: "#/components/schemas/Channel" },
+        }
+        next_page_token: { type: string, nullable: true }
 
     PublicChannel:
       type: object
@@ -36,12 +40,13 @@ components:
 
     PublicChannelList:
       type: object
-      required: [items]
+      required: [channels]
       properties:
-        items: {
+        channels: {
           type: array,
           items: { $ref: "#/components/schemas/PublicChannel" },
         }
+        next_page_token: { type: string, nullable: true }
 
     ChannelWriteRequest:
       type: object

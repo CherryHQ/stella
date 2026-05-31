@@ -47,7 +47,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	for _, g := range rows {
 		out = append(out, goalToAPI(g))
 	}
-	writeData(w, http.StatusOK, apitypes.GoalList{Items: out})
+	writeData(w, http.StatusOK, apitypes.GoalList{Goals: out})
 }
 
 func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +179,7 @@ func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID st
 	for _, t := range rows {
 		out = append(out, taskToAPI(t))
 	}
-	writeData(w, http.StatusOK, apitypes.TaskList{Items: out})
+	writeData(w, http.StatusOK, apitypes.TaskList{Tasks: out})
 }
 
 func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID string) {
@@ -203,7 +203,7 @@ func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID 
 	for _, rev := range rows {
 		out = append(out, reviewToAPI(rev))
 	}
-	writeData(w, http.StatusOK, apitypes.ReviewList{Items: out})
+	writeData(w, http.StatusOK, apitypes.ReviewList{Reviews: out})
 }
 
 func (s *Server) ApproveGoalReview(w http.ResponseWriter, r *http.Request, goalID string, reviewID string) {

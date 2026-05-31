@@ -38,7 +38,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 	for _, row := range rows {
 		jobs = append(jobs, dbRowToAPIJob(row))
 	}
-	writeData(w, http.StatusOK, apiserver.JobList{Items: jobs})
+	writeData(w, http.StatusOK, apiserver.JobList{Jobs: jobs})
 }
 
 func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string) {
@@ -426,7 +426,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		}
 		runs = append(runs, j)
 	}
-	writeData(w, http.StatusOK, apitypes.JobRunList{Items: runs})
+	writeData(w, http.StatusOK, apitypes.JobRunList{Runs: runs})
 }
 
 // --------------- converter functions ---------------

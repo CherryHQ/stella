@@ -71,7 +71,7 @@ func taskListCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("list tasks: %w", err)
 			}
-			for _, t := range list.Items {
+			for _, t := range list.Tasks {
 				fmt.Printf("%-36s  %-10s  %-8s  %s\n", t.Id, t.Status, t.Priority, t.Title)
 			}
 			return nil
@@ -263,7 +263,7 @@ func taskEventsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("events: %w", err)
 			}
-			for _, e := range list.Items {
+			for _, e := range list.Events {
 				from := ""
 				if e.FromStatus != nil {
 					from = *e.FromStatus
@@ -296,7 +296,7 @@ func taskDepsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("deps: %w", err)
 			}
-			for _, d := range list.Items {
+			for _, d := range list.Deps {
 				up := ""
 				if d.UpstreamStatus != nil {
 					up = *d.UpstreamStatus
@@ -365,7 +365,7 @@ func taskReviewsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("reviews: %w", err)
 			}
-			printReviewList(list.Items)
+			printReviewList(list.Reviews)
 			return nil
 		},
 	}
@@ -387,7 +387,7 @@ func taskRunsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("runs: %w", err)
 			}
-			for _, r := range list.Items {
+			for _, r := range list.Runs {
 				errStr := ""
 				if r.Error != nil {
 					errStr = *r.Error

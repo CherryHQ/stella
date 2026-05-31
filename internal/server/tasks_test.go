@@ -76,8 +76,8 @@ func TestTasks_ListReturnsCreatedTasks(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if len(list.Items) != 3 {
-		t.Fatalf("list length = %d, want 3", len(list.Items))
+	if len(list.Tasks) != 3 {
+		t.Fatalf("list length = %d, want 3", len(list.Tasks))
 	}
 }
 
@@ -175,7 +175,7 @@ func TestTasks_EventsListReturnsActivateEvent(t *testing.T) {
 	}
 	var events apitypes.EventList
 	_ = json.Unmarshal(rr.Body.Bytes(), &events)
-	if len(events.Items) == 0 {
+	if len(events.Events) == 0 {
 		t.Fatalf("expected at least one event, got none")
 	}
 }

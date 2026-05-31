@@ -350,7 +350,7 @@ function ContextPanel({
         query: { session_id: session.id },
         throwOnError: true,
       });
-      setSessionSkills((data?.items ?? []) as Skill[]);
+      setSessionSkills((data?.skills ?? []) as Skill[]);
     } finally {
       setSessionSkillsLoading(false);
     }
@@ -749,7 +749,7 @@ function useWorkData(agentID: string) {
         query: { agent_id: agentID },
         throwOnError: true,
       });
-      setTasks(data?.items ?? []);
+      setTasks(data?.tasks ?? []);
     } catch (e) {
       console.error(e);
       setTasks([]);

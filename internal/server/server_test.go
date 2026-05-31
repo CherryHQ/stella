@@ -346,16 +346,27 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 	return apiResponse{Data: json.RawMessage(body)}
 }
 
+// parseListItems extracts the array payload from an AIP list response. The
+// response wraps results in a resource-named field (e.g. {"tasks":[...]})
+// alongside optional pagination metadata, so this returns the first
+// array-valued field regardless of its name.
 func parseListItems(t *testing.T, rr *httptest.ResponseRecorder) json.RawMessage {
 	t.Helper()
 	resp := parseResponse(t, rr)
-	var wrapper struct {
-		Items json.RawMessage `json:"items"`
-	}
+	var wrapper map[string]json.RawMessage
 	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal list wrapper: %v", err)
 	}
-	return wrapper.Items
+	for key, val := range wrapper {
+		if key == "next_page_token" || key == "total" {
+			continue
+		}
+		if trimmed := bytes.TrimSpace(val); len(trimmed) > 0 && trimmed[0] == '[' {
+			return val
+		}
+	}
+	t.Fatalf("no array field in list response: %s", resp.Data)
+	return nil
 }
 
 type testChannel struct {

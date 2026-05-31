@@ -352,7 +352,7 @@ export function UsersPage() {
         .catch(() => {}),
       loadAuthUsers(),
       listAgents({ throwOnError: true })
-        .then(({ data }) => setAgents((data?.items ?? []) as Agent[]))
+        .then(({ data }) => setAgents((data?.agents ?? []) as Agent[]))
         .catch(() => {}),
     ]);
   }, [loadAuthUsers]);

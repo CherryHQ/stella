@@ -66,14 +66,14 @@ func recallyFeedListCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Items)
+				return printJSON(list.Feeds)
 			}
-			if len(list.Items) == 0 {
+			if len(list.Feeds) == 0 {
 				fmt.Println("No RSS feeds subscribed.")
 				return nil
 			}
-			fmt.Printf("Subscribed to %d feed(s):\n\n", len(list.Items))
-			for _, f := range list.Items {
+			fmt.Printf("Subscribed to %d feed(s):\n\n", len(list.Feeds))
+			for _, f := range list.Feeds {
 				enabledMark := "✓"
 				if !f.Enabled {
 					enabledMark = "✗"
@@ -139,7 +139,7 @@ func recallyFeedPollCommand() *ucli.Command {
 				if err := apiclient.DecodeJSON(resp, &list); err != nil {
 					return err
 				}
-				for _, f := range list.Items {
+				for _, f := range list.Feeds {
 					if f.Enabled {
 						feedIDs = append(feedIDs, f.Id)
 					}

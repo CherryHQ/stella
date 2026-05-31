@@ -46,7 +46,7 @@ func goalReviewsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("goal reviews: %w", err)
 			}
-			printReviewList(list.Items)
+			printReviewList(list.Reviews)
 			return nil
 		},
 	}
@@ -71,7 +71,7 @@ func goalListCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("list goals: %w", err)
 			}
-			for _, g := range list.Items {
+			for _, g := range list.Goals {
 				fmt.Printf("%-36s  %-10s  %-8s  %s\n", g.Id, g.Status, g.Priority, g.Title)
 			}
 			return nil
@@ -214,7 +214,7 @@ func goalTasksCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("goal tasks: %w", err)
 			}
-			for _, t := range list.Items {
+			for _, t := range list.Tasks {
 				fmt.Printf("%-36s  %-10s  %-8s  %s\n", t.Id, t.Status, t.Priority, t.Title)
 			}
 			return nil

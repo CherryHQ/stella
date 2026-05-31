@@ -66,14 +66,15 @@ components:
 
     TaskList:
       type: object
-      required: [items]
+      required: [tasks]
       properties:
-        items:
+        tasks:
           type: array
           items: { $ref: "#/components/schemas/Task" }
-        next_cursor:
+        next_page_token:
           type: string
-          description: Opaque pagination cursor; absent when no further pages.
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     DepInput:
       type: object
@@ -207,11 +208,12 @@ components:
 
     RunList:
       type: object
-      required: [items]
+      required: [runs]
       properties:
-        items:
+        runs:
           type: array
           items: { $ref: "#/components/schemas/Run" }
+        next_page_token: { type: string, nullable: true }
 
     Event:
       type: object
@@ -235,11 +237,12 @@ components:
 
     EventList:
       type: object
-      required: [items]
+      required: [events]
       properties:
-        items:
+        events:
           type: array
           items: { $ref: "#/components/schemas/Event" }
+        next_page_token: { type: string, nullable: true }
 
     Dep:
       type: object
@@ -263,11 +266,12 @@ components:
 
     DepList:
       type: object
-      required: [items]
+      required: [deps]
       properties:
-        items:
+        deps:
           type: array
           items: { $ref: "#/components/schemas/Dep" }
+        next_page_token: { type: string, nullable: true }
 
     AddDepRequest:
       type: object
@@ -333,11 +337,12 @@ components:
 
     ReviewList:
       type: object
-      required: [items]
+      required: [reviews]
       properties:
-        items:
+        reviews:
           type: array
           items: { $ref: "#/components/schemas/Review" }
+        next_page_token: { type: string, nullable: true }
 
     ReviewDecisionRequest:
       type: object

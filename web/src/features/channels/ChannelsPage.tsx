@@ -752,7 +752,7 @@ export function ChannelsPage() {
     setLoadingPlatforms(true);
     try {
       const { data } = await listPublicChannels({ throwOnError: true });
-      setPublicChannels(data?.items ?? []);
+      setPublicChannels(data?.channels ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
     } finally {
@@ -778,7 +778,7 @@ export function ChannelsPage() {
       setLoadingInstances(true);
       try {
         const { data } = await listChannels({ throwOnError: true });
-        const channels = data?.items ?? [];
+        const channels = data?.channels ?? [];
         const normalized = (channels || [])
           .map(normalizeChannel)
           .filter((ch) => currentEnabledIDs.includes(ch.type))

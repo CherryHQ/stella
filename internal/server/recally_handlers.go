@@ -89,10 +89,10 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	if params.CanonicalUrl != nil && *params.CanonicalUrl != "" {
 		article, err := h.store.GetArticleByCanonicalURL(ctx, userID, *params.CanonicalUrl)
 		if err != nil {
-			writeData(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{}})
+			writeData(w, http.StatusOK, apiserver.ArticleList{Articles: []apiserver.Article{}})
 			return
 		}
-		writeData(w, http.StatusOK, apiserver.ArticleList{Items: []apiserver.Article{toAPIArticle(article, "")}})
+		writeData(w, http.StatusOK, apiserver.ArticleList{Articles: []apiserver.Article{toAPIArticle(article, "")}})
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeData(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
+		writeData(w, http.StatusOK, apiserver.ArticleList{Articles: toAPIArticles(articles)})
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, apiserver.ArticleList{Items: toAPIArticles(articles)})
+	writeData(w, http.StatusOK, apiserver.ArticleList{Articles: toAPIArticles(articles)})
 }
 
 func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
@@ -337,10 +337,10 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 	if params.Url != nil && *params.Url != "" {
 		feed, err := h.store.GetFeedByURL(r.Context(), userID, *params.Url)
 		if err != nil {
-			writeData(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{}})
+			writeData(w, http.StatusOK, apiserver.FeedList{Feeds: []apiserver.Feed{}})
 			return
 		}
-		writeData(w, http.StatusOK, apiserver.FeedList{Items: []apiserver.Feed{toAPIFeed(feed)}})
+		writeData(w, http.StatusOK, apiserver.FeedList{Feeds: []apiserver.Feed{toAPIFeed(feed)}})
 		return
 	}
 	feeds, err := h.store.ListFeeds(r.Context(), userID)
@@ -352,7 +352,7 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 	for i := range feeds {
 		items = append(items, toAPIFeed(&feeds[i]))
 	}
-	writeData(w, http.StatusOK, apiserver.FeedList{Items: items})
+	writeData(w, http.StatusOK, apiserver.FeedList{Feeds: items})
 }
 
 func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
@@ -546,7 +546,7 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 	for i := range entries {
 		items = append(items, toAPIFeedEntry(&entries[i]))
 	}
-	writeData(w, http.StatusOK, apiserver.FeedEntryList{Items: items})
+	writeData(w, http.StatusOK, apiserver.FeedEntryList{Entries: items})
 }
 
 func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
@@ -635,7 +635,7 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 	for _, s := range summaries {
 		items = append(items, toAPIStoredDigestSummary(s))
 	}
-	writeData(w, http.StatusOK, apitypes.StoredDigestSummaryList{Items: items, Total: total})
+	writeData(w, http.StatusOK, apitypes.StoredDigestSummaryList{Digests: items, Total: total})
 }
 
 func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {

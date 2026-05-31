@@ -40,11 +40,12 @@ components:
 
     AuthUserList:
       type: object
-      required: [items]
+      required: [users]
       properties:
-        items:
+        users:
           type: array
           items: { $ref: "#/components/schemas/AuthUser" }
+        next_page_token: { type: string, nullable: true }
 
     UserMemory:
       type: object

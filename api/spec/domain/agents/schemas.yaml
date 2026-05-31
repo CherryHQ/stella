@@ -34,9 +34,10 @@ components:
 
     AgentList:
       type: object
-      required: [items]
+      required: [agents]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Agent" } }
+        agents: { type: array, items: { $ref: "#/components/schemas/Agent" } }
+        next_page_token: { type: string, nullable: true }
 
     CreateAgentRequest:
       type: object
@@ -63,12 +64,13 @@ components:
 
     AgentUserList:
       type: object
-      required: [items]
+      required: [users]
       properties:
-        items: {
+        users: {
           type: array,
           items: { $ref: "#/components/schemas/AgentUser" },
         }
+        next_page_token: { type: string, nullable: true }
 
     AssignAgentUserRequest:
       type: object
@@ -95,9 +97,10 @@ components:
 
     SkillList:
       type: object
-      required: [items]
+      required: [skills]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Skill" } }
+        skills: { type: array, items: { $ref: "#/components/schemas/Skill" } }
+        next_page_token: { type: string, nullable: true }
 
     CreateSkillRequest:
       type: object

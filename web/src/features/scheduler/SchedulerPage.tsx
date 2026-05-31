@@ -95,7 +95,7 @@ export function SchedulerPage() {
       let agentList = agentsRef.current;
       if (agentList.length === 0) {
         const { data } = await listAgents({ throwOnError: true });
-        agentList = (data?.items ?? []) as Agent[];
+        agentList = (data?.agents ?? []) as Agent[];
         agentsRef.current = agentList;
         setAgents(agentList);
       }
@@ -103,7 +103,7 @@ export function SchedulerPage() {
         agentList.map((agent) =>
           listSchedulerJobs({ path: { agentID: agent.id }, throwOnError: true })
             .then(({ data }) => ({
-              items: ((data?.items ?? []) as SchedulerJob[]).map((job) => ({
+              items: ((data?.jobs ?? []) as SchedulerJob[]).map((job) => ({
                 ...job,
                 agent_id: job.agent_id || agent.id,
               })),
@@ -120,7 +120,7 @@ export function SchedulerPage() {
   const loadAgents = useCallback(async () => {
     try {
       const { data } = await listAgents({ throwOnError: true });
-      const list = (data?.items ?? []) as Agent[];
+      const list = (data?.agents ?? []) as Agent[];
       agentsRef.current = list;
       setAgents(list);
     } catch (e) {
@@ -141,7 +141,7 @@ export function SchedulerPage() {
           path: { agentID: job.agent_id, jobID: jobId },
           throwOnError: true,
         });
-        setRunHistories((prev) => ({ ...prev, [jobId]: (data?.items ?? []) as SchedulerJobRun[] }));
+        setRunHistories((prev) => ({ ...prev, [jobId]: (data?.runs ?? []) as SchedulerJobRun[] }));
       } catch (e) {
         console.error(e);
       }

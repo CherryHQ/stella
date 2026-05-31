@@ -40,7 +40,7 @@ export function useRecallyFilters() {
   );
 
   const digest = digestQuery.data;
-  const articles = articlesQuery.data?.items ?? [];
+  const articles = articlesQuery.data?.articles ?? [];
 
   const displayArticles = useMemo(
     () => (tagFilter ? articles.filter((a) => a.tags?.includes(tagFilter)) : articles),
@@ -96,7 +96,7 @@ export function useRecallyFilters() {
     digestQuery,
     digest,
     storedDigestsQuery,
-    storedDigests: storedDigestsQuery.data?.items ?? [],
+    storedDigests: storedDigestsQuery.data?.digests ?? [],
     storedDigestsTotal: storedDigestsQuery.data?.total ?? 0,
     selectedDigestDate,
     setSelectedDigestDate,

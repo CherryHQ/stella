@@ -107,7 +107,7 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 		}
 		out = append(out, taskToAPI(t))
 	}
-	writeData(w, http.StatusOK, apitypes.TaskList{Items: out})
+	writeData(w, http.StatusOK, apitypes.TaskList{Tasks: out})
 }
 
 func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +294,7 @@ func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID s
 	for _, e := range rows {
 		out = append(out, eventToAPI(e))
 	}
-	writeData(w, http.StatusOK, apitypes.EventList{Items: out})
+	writeData(w, http.StatusOK, apitypes.EventList{Events: out})
 }
 
 func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -318,7 +318,7 @@ func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID str
 	for _, run := range rows {
 		out = append(out, runToAPI(run))
 	}
-	writeData(w, http.StatusOK, apitypes.RunList{Items: out})
+	writeData(w, http.StatusOK, apitypes.RunList{Runs: out})
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +346,7 @@ func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID str
 	for _, row := range rows {
 		out = append(out, depToAPI(row))
 	}
-	writeData(w, http.StatusOK, apitypes.DepList{Items: out})
+	writeData(w, http.StatusOK, apitypes.DepList{Deps: out})
 }
 
 func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -475,7 +475,7 @@ func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID 
 	for _, rev := range rows {
 		out = append(out, reviewToAPI(rev))
 	}
-	writeData(w, http.StatusOK, apitypes.ReviewList{Items: out})
+	writeData(w, http.StatusOK, apitypes.ReviewList{Reviews: out})
 }
 
 func (s *Server) ApproveTaskReview(w http.ResponseWriter, r *http.Request, taskID string, reviewID string) {

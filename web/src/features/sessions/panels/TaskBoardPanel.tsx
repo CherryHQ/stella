@@ -62,7 +62,7 @@ export function TaskBoardPanel({
         query: { agent_id: agentId },
         throwOnError: true,
       });
-      setTasks(data?.items ?? []);
+      setTasks(data?.tasks ?? []);
     } catch (e) {
       console.error(e);
     } finally {

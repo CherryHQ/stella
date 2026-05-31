@@ -158,7 +158,7 @@ export interface AgentsSettingsLoaderData {
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
     listAgents({ throwOnError: true })
-      .then(({ data }) => data?.items ?? [])
+      .then(({ data }) => data?.agents ?? [])
       .catch(() => []),
     listModels({ throwOnError: true })
       .then(({ data }) => (data as ComponentsCachedModel[]) ?? [])
@@ -185,7 +185,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const channels = isAdmin
     ? (
         (await listChannels({ throwOnError: true })
-          .then(({ data }) => data?.items ?? [])
+          .then(({ data }) => data?.channels ?? [])
           .catch(() => [])) ?? []
       ).map(normalizeChannel)
     : [];
@@ -197,7 +197,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const agentSkills = (
     agentId
       ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
-          .then(({ data }) => data?.items ?? [])
+          .then(({ data }) => data?.skills ?? [])
           .catch(() => [])) ?? [])
       : []
   ) as Skill[];
@@ -361,7 +361,7 @@ export function AgentsPage() {
     async (currentState?: AgentsPageState) => {
       try {
         const { data } = await listAgents({ throwOnError: true });
-        const agents = (data?.items ?? []).map((a) => ({
+        const agents = (data?.agents ?? []).map((a) => ({
           ...a,
           sandbox: normalizeSandbox(a.sandbox),
           _highlight: a.id === requestedAgentID(),
@@ -382,7 +382,7 @@ export function AgentsPage() {
   const loadChannels = useCallback(async () => {
     try {
       const { data } = await listChannels({ throwOnError: true });
-      const channels = ((data?.items ?? []) as Channel[]).map(normalizeChannel);
+      const channels = ((data?.channels ?? []) as Channel[]).map(normalizeChannel);
       setState((prev) => ({ ...prev, channels }));
       return channels;
     } catch {
@@ -399,7 +399,7 @@ export function AgentsPage() {
     setState((prev) => ({ ...prev, agentSkillsLoading: true }));
     try {
       const { data } = await listAgentSkills({ path: { id: agentId }, throwOnError: true });
-      const agentSkills = data?.items ?? [];
+      const agentSkills = data?.skills ?? [];
       setState((prev) => ({
         ...prev,
         agentSkills: agentSkills as Skill[],

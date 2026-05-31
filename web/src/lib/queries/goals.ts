@@ -16,7 +16,7 @@ export function goalsOptions(agentId: string) {
     queryKey: ["goals", agentId],
     queryFn: async () => {
       const { data } = await listGoals({ throwOnError: true });
-      const items = data?.items ?? [];
+      const items = data?.goals ?? [];
       return items.filter((g) => !agentId || g.agent_id === agentId);
     },
     enabled: !!agentId,
@@ -50,11 +50,11 @@ export function goalGraphOptions(goalId: string) {
         path: { goalID: goalId },
         throwOnError: true,
       });
-      const tasks = data?.items ?? [];
+      const tasks = data?.tasks ?? [];
       const depLists = await Promise.all(
         tasks.map((t) =>
           listTaskDeps({ path: { taskID: t.id }, throwOnError: true })
-            .then((r) => r.data?.items ?? [])
+            .then((r) => r.data?.deps ?? [])
             .catch(() => [] as ComponentsDep[]),
         ),
       );
@@ -86,7 +86,7 @@ export function taskRunsOptions(taskId: string | undefined) {
         path: { taskID: taskId! },
         throwOnError: true,
       });
-      return data?.items ?? [];
+      return data?.runs ?? [];
     },
     enabled: !!taskId,
   });
@@ -100,7 +100,7 @@ export function taskReviewsOptions(taskId: string | undefined) {
         path: { taskID: taskId! },
         throwOnError: true,
       });
-      return data?.items ?? [];
+      return data?.reviews ?? [];
     },
     enabled: !!taskId,
   });
@@ -114,7 +114,7 @@ export function taskEventsOptions(taskId: string | undefined) {
         path: { taskID: taskId! },
         throwOnError: true,
       });
-      return data?.items ?? [];
+      return data?.events ?? [];
     },
     enabled: !!taskId,
   });
