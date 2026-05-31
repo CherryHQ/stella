@@ -109,7 +109,7 @@ func recallyListCommand() *ucli.Command {
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListArticlesParams{
-				Limit: apiclient.Ptr(c.Int("limit")),
+				PageSize: apiclient.Ptr(c.Int("limit")),
 			}
 			if v := c.String("status"); v != "" {
 				st := apiclient.ArticleStatus(v)
@@ -129,14 +129,14 @@ func recallyListCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Items)
+				return printJSON(list.Articles)
 			}
-			if len(list.Items) == 0 {
+			if len(list.Articles) == 0 {
 				fmt.Println("No articles found.")
 				return nil
 			}
-			fmt.Printf("Found %d article(s):\n\n", len(list.Items))
-			for _, a := range list.Items {
+			fmt.Printf("Found %d article(s):\n\n", len(list.Articles))
+			for _, a := range list.Articles {
 				printArticleSummary(a, 100)
 			}
 			return nil
@@ -160,22 +160,22 @@ func recallySearchCommand() *ucli.Command {
 			}
 			list, err := apiclient.Call[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, &apiclient.ListArticlesParams{
-					Q:     &query,
-					Limit: apiclient.Ptr(c.Int("limit")),
+					Q:        &query,
+					PageSize: apiclient.Ptr(c.Int("limit")),
 				})
 			})
 			if err != nil {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Items)
+				return printJSON(list.Articles)
 			}
-			if len(list.Items) == 0 {
+			if len(list.Articles) == 0 {
 				fmt.Println("No articles found matching your query.")
 				return nil
 			}
-			fmt.Printf("Found %d article(s) matching %q:\n\n", len(list.Items), query)
-			for _, a := range list.Items {
+			fmt.Printf("Found %d article(s) matching %q:\n\n", len(list.Articles), query)
+			for _, a := range list.Articles {
 				printArticleSummary(a, 80)
 			}
 			return nil

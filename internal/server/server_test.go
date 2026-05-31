@@ -336,24 +336,43 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 	t.Helper()
 	body := rr.Body.Bytes()
 	var errResp struct {
-		Error string `json:"error"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
-	if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
-		return apiResponse{Error: errResp.Error}
+	if json.Unmarshal(body, &errResp) == nil && errResp.Error.Message != "" {
+		return apiResponse{Error: errResp.Error.Message}
 	}
 	return apiResponse{Data: json.RawMessage(body)}
 }
 
-func parseListItems(t *testing.T, rr *httptest.ResponseRecorder) json.RawMessage {
+// parseListItems extracts the array payload from an AIP list response. The
+// response wraps results in a resource-named field (e.g. {"tasks":[...]})
+// alongside optional pagination metadata, so this returns the first
+// array-valued field regardless of its name.
+// parseListItems extracts the array stored under the explicit resource key
+// (e.g. "sessions", "users") from a list response envelope. Asserting the
+// known key — rather than scanning for the first array field — ensures tests
+// fail when the response is shaped wrong, the failure mode behind C1.
+func parseListItems(t *testing.T, rr *httptest.ResponseRecorder, key string) json.RawMessage {
 	t.Helper()
 	resp := parseResponse(t, rr)
-	var wrapper struct {
-		Items json.RawMessage `json:"items"`
-	}
+	var wrapper map[string]json.RawMessage
 	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal list wrapper: %v", err)
 	}
-	return wrapper.Items
+	val, ok := wrapper[key]
+	if !ok {
+		t.Fatalf("list response missing %q key: %s", key, resp.Data)
+	}
+	trimmed := bytes.TrimSpace(val)
+	if string(trimmed) == "null" {
+		return json.RawMessage("[]")
+	}
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		t.Fatalf("%q is not an array in list response: %s", key, resp.Data)
+	}
+	return val
 }
 
 type testChannel struct {
@@ -393,9 +412,8 @@ func TestListProviders(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	resp := parseResponse(t, rr)
 	var providers []config.Provider
-	if err := json.Unmarshal(resp.Data, &providers); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "providers"), &providers); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(providers) == 0 {
@@ -423,9 +441,8 @@ func TestCreateProvider(t *testing.T) {
 
 	// Verify it appears in list.
 	rr = doRequest(t, env, "GET", "/api/providers", nil)
-	resp := parseResponse(t, rr)
 	var providers []config.Provider
-	_ = json.Unmarshal(resp.Data, &providers)
+	_ = json.Unmarshal(parseListItems(t, rr, "providers"), &providers)
 	found := false
 	for _, p := range providers {
 		if p.ID == "openai-main" {
@@ -445,7 +462,7 @@ func TestListAgents(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	items := parseListItems(t, rr)
+	items := parseListItems(t, rr, "agents")
 	var agents []config.Agent
 	if err := json.Unmarshal(items, &agents); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -461,7 +478,7 @@ func TestListAgents(t *testing.T) {
 func TestGetTelegramPluginConfigSchema(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/plugin-config-schema/channel/telegram", nil)
+	rr := doRequest(t, env, "GET", "/api/plugins/channel/telegram/config-schema", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -487,9 +504,9 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 		path         string
 		propertyName string
 	}{
-		{path: "/api/plugin-config-schema/channel/qq", propertyName: "app_id"},
-		{path: "/api/plugin-config-schema/channel/feishu", propertyName: "app_id"},
-		{path: "/api/plugin-config-schema/channel/weixin", propertyName: "bot_token"},
+		{path: "/api/plugins/channel/qq/config-schema", propertyName: "app_id"},
+		{path: "/api/plugins/channel/feishu/config-schema", propertyName: "app_id"},
+		{path: "/api/plugins/channel/weixin/config-schema", propertyName: "bot_token"},
 	}
 
 	for _, tt := range tests {
@@ -523,7 +540,6 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	resp := parseResponse(t, rr)
 	type pluginListItem struct {
 		ID           string         `json:"id"`
 		Kind         string         `json:"kind"`
@@ -538,7 +554,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		Capabilities []string       `json:"capabilities"`
 	}
 	var plugins []pluginListItem
-	if err := json.Unmarshal(resp.Data, &plugins); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "plugins"), &plugins); err != nil {
 		t.Fatalf("unmarshal plugins: %v", err)
 	}
 
@@ -567,12 +583,12 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/plugin-config/channel/telegram", nil)
+	rr := doRequest(t, env, "GET", "/api/plugins/channel/telegram/config", nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "PATCH", "/api/plugin-config/channel/telegram", map[string]any{
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram/config", map[string]any{
 		"config": map[string]any{"token": "telegram-secret"},
 	})
 	if rr.Code != http.StatusBadRequest {
@@ -591,7 +607,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/telegram/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -612,7 +628,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/telegram/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -636,7 +652,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/qq/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -657,7 +673,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/qq/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -681,7 +697,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/feishu/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -706,7 +722,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/feishu/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -730,7 +746,7 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/weixin/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -755,7 +771,7 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	rr = doRequest(t, env, "GET", "/api/plugins/channel/weixin/status", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -821,7 +837,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 		Enabled   bool   `json:"enabled"`
 	}
 	var channels []publicChannelPayload
-	if err := json.Unmarshal(parseListItems(t, rr), &channels); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "channels"), &channels); err != nil {
 		t.Fatalf("unmarshal public channels: %v", err)
 	}
 	byID := make(map[string]publicChannelPayload, len(channels))
@@ -1021,9 +1037,21 @@ func TestLoginPageAccessible(t *testing.T) {
 func TestUnauthenticatedAPIReturns401(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doUnauthRequest(t, env.srv, "GET", "/api/agents", nil)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	checks := []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{"GET", "/api/agents", nil},
+		{"POST", "/api/agents", map[string]any{"name": "Nope"}},
+		{"GET", "/api/agents/nope", nil},
+		{"GET", "/api/agents/nope/sessions/nope", nil},
+	}
+	for _, tc := range checks {
+		rr := doUnauthRequest(t, env.srv, tc.method, tc.path, tc.body)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s: status = %d, want %d (body: %s)", tc.method, tc.path, rr.Code, http.StatusUnauthorized, rr.Body.String())
+		}
 	}
 }
 

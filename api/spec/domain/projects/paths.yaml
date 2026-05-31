@@ -1,11 +1,11 @@
 paths:
-  /api/agents/{agentID}/projects:
+  /api/agents/{agentId}/projects:
     get:
       tags: [projects]
       summary: List projects for an agent
       operationId: listProjects
       parameters:
-        - name: agentID
+        - name: agentId
           in: path
           required: true
           schema: { type: string }
@@ -18,11 +18,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/Project",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProjectList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -31,7 +29,7 @@ paths:
       summary: Create a project
       operationId: createProject
       parameters:
-        - name: agentID
+        - name: agentId
           in: path
           required: true
           schema: { type: string }
@@ -57,13 +55,13 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/agents/{agentID}/projects/{projectId}:
+  /api/agents/{agentId}/projects/{projectId}:
     get:
       tags: [projects]
       summary: Get a project
       operationId: getProject
       parameters:
-        - name: agentID
+        - name: agentId
           in: path
           required: true
           schema: { type: string }
@@ -88,7 +86,7 @@ paths:
       summary: Update a project
       operationId: updateProject
       parameters:
-        - name: agentID
+        - name: agentId
           in: path
           required: true
           schema: { type: string }
@@ -123,7 +121,7 @@ paths:
       summary: Delete a project
       operationId: deleteProject
       parameters:
-        - name: agentID
+        - name: agentId
           in: path
           required: true
           schema: { type: string }

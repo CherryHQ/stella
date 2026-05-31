@@ -16,9 +16,9 @@ components:
 
     SkillSearchResultList:
       type: object
-      required: [items]
+      required: [skills]
       properties:
-        items: {
+        skills: {
           type: array,
           items: { $ref: "#/components/schemas/SkillSearchResult" },
         }

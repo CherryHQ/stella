@@ -146,6 +146,22 @@ func (s *Service) Get(ctx context.Context, userID string, name string) (string, 
 
 // List returns metadata for all vault entries owned by userID. Ciphertext is
 // never included in the result.
+// GetMeta returns non-sensitive metadata for a single vault entry by name.
+func (s *Service) GetMeta(ctx context.Context, userID string, name string) (EntryMeta, error) {
+	entry, err := s.db.GetVaultEntry(ctx, sqlc.GetVaultEntryParams{
+		UserID: userID,
+		Name:   name,
+	})
+	if err != nil {
+		return EntryMeta{}, fmt.Errorf("vault: get meta %q: %w", name, err)
+	}
+	return EntryMeta{
+		Name:      entry.Name,
+		CreatedAt: entry.CreatedAt,
+		UpdatedAt: entry.UpdatedAt,
+	}, nil
+}
+
 func (s *Service) List(ctx context.Context, userID string) ([]EntryMeta, error) {
 	entries, err := s.db.ListVaultEntriesByUser(ctx, userID)
 	if err != nil {

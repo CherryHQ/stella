@@ -20,7 +20,8 @@ components:
       type: object
       required: [
         id,
-        username,
+        email,
+        name,
         role,
         is_active,
         identities,
@@ -29,22 +30,27 @@ components:
       ]
       properties:
         id: { type: string }
-        username: { type: string }
+        email: { type: string }
+        name: { type: string }
         role: { type: string }
         is_active: { type: boolean }
         identities:
           type: array
-          items: { $ref: "#/components/schemas/Identity" }
+          items: { $ref: "#/components/schemas/ChannelIdentity" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
     AuthUserList:
       type: object
-      required: [items]
+      required: [users]
       properties:
-        items:
+        users:
           type: array
           items: { $ref: "#/components/schemas/AuthUser" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     UserMemory:
       type: object
@@ -139,3 +145,43 @@ components:
         provider_subject: { type: string }
         email: { type: string }
         name: { type: string }
+
+    UserMemoryList:
+      type: object
+      required: [memories]
+      properties:
+        memories:
+          type: array
+          items: { $ref: "#/components/schemas/UserMemory" }
+
+    IdentityList:
+      type: object
+      required: [identities]
+      properties:
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/Identity" }
+
+    LoginIdentityList:
+      type: object
+      required: [identities]
+      properties:
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/LoginIdentity" }
+
+    ChannelIdentityList:
+      type: object
+      required: [identities]
+      properties:
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/ChannelIdentity" }
+
+    AuthUserAgentList:
+      type: object
+      required: [agent_ids]
+      properties:
+        agent_ids:
+          type: array
+          items: { type: string }

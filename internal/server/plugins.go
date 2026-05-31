@@ -19,7 +19,7 @@ func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, flattenRegisteredPlugins(s, plugins))
+	writeData(w, http.StatusOK, map[string]any{"plugins": flattenRegisteredPlugins(s, plugins)})
 }
 
 type pluginView struct {

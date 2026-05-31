@@ -742,7 +742,7 @@ export function ChannelsPage() {
   const loadIdentities = useCallback(async () => {
     try {
       const { data } = await listProfileIdentities({ throwOnError: true });
-      setLinkedIdentities((data as Identity[]) ?? []);
+      setLinkedIdentities((data?.identities as Identity[]) ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -752,7 +752,7 @@ export function ChannelsPage() {
     setLoadingPlatforms(true);
     try {
       const { data } = await listPublicChannels({ throwOnError: true });
-      setPublicChannels(data?.items ?? []);
+      setPublicChannels(data?.channels ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
     } finally {
@@ -763,7 +763,7 @@ export function ChannelsPage() {
   const loadChannelPlugins = useCallback(async () => {
     try {
       const { data } = await listPlugins({ throwOnError: true });
-      const plugins = (data as Plugin[]) ?? [];
+      const plugins = (data?.plugins as Plugin[]) ?? [];
       const enabled = (plugins || [])
         .filter((p) => p.kind === "channel" && p.enabled)
         .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
@@ -778,7 +778,7 @@ export function ChannelsPage() {
       setLoadingInstances(true);
       try {
         const { data } = await listChannels({ throwOnError: true });
-        const channels = data?.items ?? [];
+        const channels = data?.channels ?? [];
         const normalized = (channels || [])
           .map(normalizeChannel)
           .filter((ch) => currentEnabledIDs.includes(ch.type))
@@ -812,7 +812,7 @@ export function ChannelsPage() {
             // loadChannelPlugins sets state async; we need the IDs for loadInstances
             try {
               const { data } = await listPlugins({ throwOnError: true });
-              const pluginList = (data as Plugin[]) ?? [];
+              const pluginList = (data?.plugins as Plugin[]) ?? [];
               const enabled = (pluginList || [])
                 .filter((p) => p.kind === "channel" && p.enabled)
                 .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));

@@ -39,8 +39,8 @@ func ReadBody(resp *http.Response) ([]byte, error) {
 	}
 	if resp.StatusCode >= 400 {
 		var apiErr apitypes.Error
-		if jerr := json.Unmarshal(body, &apiErr); jerr == nil && apiErr.Error != "" {
-			return nil, fmt.Errorf("stella server %d: %s", resp.StatusCode, apiErr.Error)
+		if jerr := json.Unmarshal(body, &apiErr); jerr == nil && apiErr.Error.Message != "" {
+			return nil, fmt.Errorf("stella server %d: %s", resp.StatusCode, apiErr.Error.Message)
 		}
 		snippet := strings.TrimSpace(string(body))
 		if len(snippet) > 200 {

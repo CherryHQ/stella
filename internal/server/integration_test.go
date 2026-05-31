@@ -242,8 +242,8 @@ func TestRoleDemotionInvalidatesSessions(t *testing.T) {
 	// Demote via the admin API (using the original admin's bearer token).
 	body := map[string]string{"role": "user"}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/role", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("demote: status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("demote: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// The demoted user's session should be invalidated.
@@ -285,8 +285,8 @@ func TestDeactivationInvalidatesSessions(t *testing.T) {
 
 	// Deactivate via admin API.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/active", map[string]any{"is_active": false})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("deactivate: status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("deactivate: status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Session should be invalidated.
@@ -353,7 +353,7 @@ func TestSeedDataAccessibleViaAPI(t *testing.T) {
 		t.Fatalf("GET /api/agents: status = %d", rr.Code)
 	}
 	var agents []config.Agent
-	if err := json.Unmarshal(parseListItems(t, rr), &agents); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "agents"), &agents); err != nil {
 		t.Fatalf("unmarshal agents: %v", err)
 	}
 	if len(agents) == 0 {
@@ -366,7 +366,7 @@ func TestSeedDataAccessibleViaAPI(t *testing.T) {
 		t.Fatalf("GET /api/providers: status = %d", rr.Code)
 	}
 	var providers []config.Provider
-	if err := json.Unmarshal(parseResponse(t, rr).Data, &providers); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "providers"), &providers); err != nil {
 		t.Fatalf("unmarshal providers: %v", err)
 	}
 	if len(providers) == 0 {
@@ -395,7 +395,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 4. Admin promotes user to admin.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "admin"})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 4 promote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -418,7 +418,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 7. Demote back to user.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "user"})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 7 demote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -430,7 +430,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 9. Deactivate user.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": false})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 9 deactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -442,7 +442,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 11. Reactivate user.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": true})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 11 reactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -465,20 +465,20 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 		t.Fatalf("list: status = %d", rr.Code)
 	}
 	var ids []string
-	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &ids)
 	if len(ids) != 0 {
 		t.Fatalf("expected 0 agents, got %d", len(ids))
 	}
 
 	// Assign Stella.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID}})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("assign: status = %d", rr.Code)
 	}
 
 	// Verify.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
-	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &ids)
 	if len(ids) != 1 || ids[0] != stellaID {
 		t.Fatalf("expected [%s], got %v", stellaID, ids)
 	}
@@ -490,22 +490,23 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 		Scope:   "system",
 	})
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID, secondAgent}})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("assign both: status = %d", rr.Code)
 	}
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
-	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &ids)
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 agents, got %d", len(ids))
 	}
 
 	// Remove all.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{}})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("remove all: status = %d", rr.Code)
 	}
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
-	_ = json.Unmarshal(parseResponse(t, rr).Data, &ids)
+	ids = nil
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &ids)
 	if len(ids) != 0 {
 		t.Fatalf("expected 0 agents after removal, got %d", len(ids))
 	}
@@ -535,7 +536,7 @@ func TestIdentityManagementLifecycle(t *testing.T) {
 		t.Fatalf("list login identities: status = %d", rr.Code)
 	}
 	var loginIdents []auth.LoginIdentity
-	_ = json.Unmarshal(parseResponse(t, rr).Data, &loginIdents)
+	_ = json.Unmarshal(parseListItems(t, rr, "identities"), &loginIdents)
 	if len(loginIdents) != 1 || loginIdents[0].Provider != "github" {
 		t.Fatalf("unexpected login identities: %v", loginIdents)
 	}
@@ -558,7 +559,7 @@ func TestIdentityManagementLifecycle(t *testing.T) {
 		t.Fatalf("list channel identities: status = %d", rr.Code)
 	}
 	var chanIdents []auth.ChannelIdentity
-	_ = json.Unmarshal(parseResponse(t, rr).Data, &chanIdents)
+	_ = json.Unmarshal(parseListItems(t, rr, "identities"), &chanIdents)
 	if len(chanIdents) != 1 || chanIdents[0].Platform != "telegram" {
 		t.Fatalf("unexpected channel identities: %v", chanIdents)
 	}
@@ -571,7 +572,8 @@ func TestIdentityManagementLifecycle(t *testing.T) {
 
 	// Verify deleted.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/identities/channel", nil)
-	_ = json.Unmarshal(parseResponse(t, rr).Data, &chanIdents)
+	chanIdents = nil
+	_ = json.Unmarshal(parseListItems(t, rr, "identities"), &chanIdents)
 	if len(chanIdents) != 0 {
 		t.Fatalf("expected 0 channel identities after deletion, got %d", len(chanIdents))
 	}

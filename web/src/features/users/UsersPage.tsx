@@ -6,7 +6,6 @@ import {
   getMe,
   listAgents,
   listAuthUserAgents,
-  listAuthUsers,
   listUserMemories,
   setUserMemory,
   updateAuthUserActive,
@@ -15,7 +14,8 @@ import {
   updateUserDefaultAgent,
   updateUserNotifyIdentity,
 } from "@/lib/api-client/sdk.gen";
-import type { Agent, Identity, User, UserMemory } from "@/lib/types";
+import type { Agent, ChannelIdentity, User, UserMemory } from "@/lib/types";
+import { fetchAllAuthUsers } from "@/lib/auth-users";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,8 +60,7 @@ export function UsersPage() {
 
   const loadAuthUsers = useCallback(async () => {
     try {
-      const { data } = await listAuthUsers({ throwOnError: true });
-      setAuthUsers(((data as { items?: User[] })?.items ?? []) as User[]);
+      setAuthUsers(await fetchAllAuthUsers());
     } catch (e) {
       console.error(e);
     }
@@ -73,7 +72,7 @@ export function UsersPage() {
         path: { id: userId },
         throwOnError: true,
       });
-      const ids = (data as string[]) ?? [];
+      const ids = (data?.agent_ids as string[]) ?? [];
       setUserAgentIds(ids);
       setAddAgentId("");
     } catch {
@@ -222,8 +221,7 @@ export function UsersPage() {
 
   const loadLegacyUsers = useCallback(async () => {
     try {
-      const { data } = await listAuthUsers({ throwOnError: true });
-      const list = ((data as { items?: User[] })?.items ?? []) as User[];
+      const list = await fetchAllAuthUsers();
       setLegacyUsers((prev) => {
         const prevMap = new Map(prev.map((u) => [u.id, u]));
         return list.map((u) => {
@@ -251,7 +249,7 @@ export function UsersPage() {
           path: { id: userId },
           throwOnError: true,
         });
-        const mems = (data as UserMemory[]) ?? [];
+        const mems = (data?.memories as UserMemory[]) ?? [];
         setUserMemories((prev) => ({
           ...prev,
           [userId]: mems.map((m) => ({ ...m, _content: m.content })),
@@ -289,7 +287,7 @@ export function UsersPage() {
     async (userId: string, agentId: string, content: string) => {
       try {
         await setUserMemory({
-          path: { id: userId, agentID: agentId },
+          path: { id: userId, agentId: agentId },
           body: { content },
           throwOnError: true,
         });
@@ -306,7 +304,7 @@ export function UsersPage() {
     async (userId: string, agentId: string) => {
       try {
         await deleteUserMemory({
-          path: { id: userId, agentID: agentId },
+          path: { id: userId, agentId: agentId },
           throwOnError: true,
         });
         await loadUserMemories(userId);
@@ -323,7 +321,7 @@ export function UsersPage() {
       if (!u._newMemoryAgent || !u._newMemoryContent) return;
       try {
         await setUserMemory({
-          path: { id: u.id, agentID: u._newMemoryAgent },
+          path: { id: u.id, agentId: u._newMemoryAgent },
           body: { content: u._newMemoryContent },
           throwOnError: true,
         });
@@ -352,7 +350,7 @@ export function UsersPage() {
         .catch(() => {}),
       loadAuthUsers(),
       listAgents({ throwOnError: true })
-        .then(({ data }) => setAgents((data?.items ?? []) as Agent[]))
+        .then(({ data }) => setAgents((data?.agents ?? []) as Agent[]))
         .catch(() => {}),
     ]);
   }, [loadAuthUsers]);
@@ -384,7 +382,7 @@ export function UsersPage() {
           onClick={() => void selectUser(u)}
           active={selectedUser?.id === u.id}
         >
-          <div className="truncate text-sm font-medium">{u.username}</div>
+          <div className="truncate text-sm font-medium">{u.name || u.email}</div>
           <div className="mt-0.5 font-mono text-xs text-muted-foreground">
             {u.role === "admin" ? (
               <span className="text-primary">{u.role}</span>
@@ -404,7 +402,7 @@ export function UsersPage() {
       {/* Detail header */}
       <div className="shrink-0 px-6 py-4 border-b border-border">
         <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-medium">{selectedUser.username}</h2>
+          <h2 className="text-lg font-medium">{selectedUser.name || selectedUser.email}</h2>
           <Badge variant={selectedUser.role === "admin" ? "default" : "outline"} size="sm">
             {selectedUser.role}
           </Badge>
@@ -499,7 +497,7 @@ export function UsersPage() {
                 <FormSectionTitle>Linked Identities</FormSectionTitle>
               </div>
               <div className="space-y-2">
-                {(selectedUser.identities || []).map((ident: Identity) => (
+                {(selectedUser.identities || []).map((ident: ChannelIdentity) => (
                   <div
                     key={ident.id}
                     className="flex items-center justify-between py-1 px-2 bg-muted rounded"
@@ -514,7 +512,7 @@ export function UsersPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{ident.linked_at}</span>
+                      <span className="text-xs text-muted-foreground">{ident.created_at}</span>
                       <Button
                         variant="ghost"
                         size="xs"
@@ -549,7 +547,7 @@ export function UsersPage() {
                   className="select select-bordered select-sm w-full text-sm"
                 >
                   <option value="">Auto (first linked)</option>
-                  {selectedUser.identities.map((ident: Identity) => (
+                  {selectedUser.identities.map((ident: ChannelIdentity) => (
                     <option key={ident.id} value={ident.id}>
                       {ident.platform}
                       {ident.name ? ` — ${ident.name}` : ` — ${ident.external_id}`}

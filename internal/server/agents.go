@@ -72,12 +72,15 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
 	for i := range agents {
 		fillAgentDefaults(&agents[i])
 	}
-	writeListData(w, http.StatusOK, agents)
+	writeData(w, http.StatusOK, map[string]any{"agents": agents})
 }
 
 func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	info := UserFromContext(ctx)
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
 
 	var req createAgentRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -116,13 +119,10 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	// Workspace is always the default path — never user-supplied.
 	a.Workspace = ""
 
-	// Set creator.
-	if info != nil {
-		a.CreatorID = info.UserID
-	}
+	a.CreatorID = info.UserID
 
 	// Non-admin users always get restricted scope, auto-assigned.
-	if info != nil && !info.IsAdmin {
+	if !info.IsAdmin {
 		a.Scope = config.AgentScopeRestricted
 	} else {
 		if a.Scope == "" {
@@ -146,7 +146,7 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auto-assign the creator if scope is restricted and user is non-admin.
-	if info != nil && !info.IsAdmin && a.Scope == config.AgentScopeRestricted {
+	if !info.IsAdmin && a.Scope == config.AgentScopeRestricted {
 		if err := s.authStore.AssignAgent(ctx, info.UserID, a.ID); err != nil {
 			s.log.Error("auto-assign agent to creator", "user_id", info.UserID, "agent_id", a.ID, "error", err)
 		}
@@ -157,20 +157,10 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
-	info := UserFromContext(ctx)
-
-	a, err := s.store.GetAgent(ctx, id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+	a, code, msg := s.requireAgentAccess(ctx, id)
+	if code != 0 {
+		writeError(w, code, msg)
 		return
-	}
-
-	// Non-admin users can only access system or assigned agents.
-	if info != nil && !info.IsAdmin {
-		if !s.canAccessAgent(ctx, info, a) {
-			writeError(w, http.StatusForbidden, "you don't have access to this agent")
-			return
-		}
 	}
 
 	fillAgentDefaults(&a)
@@ -181,14 +171,9 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
-	// Check access: admin or creator.
-	existing, err := s.store.GetAgent(ctx, id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
-		return
-	}
-	if info != nil && !info.IsAdmin && existing.CreatorID != info.UserID {
-		writeError(w, http.StatusForbidden, "only the creator can edit this agent")
+	existing, code, msg := s.requireAgentManage(ctx, id)
+	if code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -208,7 +193,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 	}
 
 	// Non-admin: keep scope as-is, don't allow changing it.
-	if info != nil && !info.IsAdmin {
+	if !info.IsAdmin {
 		a.Scope = existing.Scope
 	} else {
 		if a.Scope == "" {
@@ -234,16 +219,8 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 
 func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
-	info := UserFromContext(ctx)
-
-	// Check access: creator only.
-	existing, err := s.store.GetAgent(ctx, id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
-		return
-	}
-	if info != nil && existing.CreatorID != info.UserID {
-		writeError(w, http.StatusForbidden, "only the creator can delete this agent")
+	if _, code, msg := s.requireAgentManage(ctx, id); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 

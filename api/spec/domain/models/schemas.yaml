@@ -12,3 +12,11 @@ components:
         provider: { type: string }
         provider_name: { type: string }
         model: { type: string }
+
+    CachedModelList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/CachedModel" }

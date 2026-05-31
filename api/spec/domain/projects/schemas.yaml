@@ -42,3 +42,11 @@ components:
         name: { type: string }
         base_dir: { type: string }
         description: { type: string }
+
+    ProjectList:
+      type: object
+      required: [projects]
+      properties:
+        projects:
+          type: array
+          items: { $ref: "#/components/schemas/Project" }

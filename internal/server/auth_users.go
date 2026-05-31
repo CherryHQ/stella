@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
@@ -48,28 +49,39 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserRe
 }
 
 // ListAuthUsers handles GET /api/auth/users.
-func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request, params apiserver.ListAuthUsersParams) {
 	info := requireAdmin(w, r)
 	if info == nil {
 		return
 	}
-	users, err := s.users.ListUsers(r.Context())
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list users: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
+	users, err := s.users.ListUsersPaged(r.Context(), int64(limit+1), int64(offset))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list users")
+		return
+	}
+	page, nextToken := nextPageTokenForRows(users, limit, offset)
 
-	result := make([]authUserResponse, 0, len(users))
-	for _, u := range users {
+	result := make([]authUserResponse, 0, len(page))
+	for _, u := range page {
 		resp, err := s.buildAuthUserResponse(r, u)
 		if err != nil {
 			s.log.Error("build auth user response", "user_id", u.ID, "error", err)
-			continue
+			writeError(w, http.StatusInternalServerError, "failed to list users")
+			return
 		}
 		result = append(result, resp)
 	}
 
-	writeListData(w, http.StatusOK, result)
+	out := map[string]any{"users": result}
+	if nextToken != "" {
+		out["next_page_token"] = nextToken
+	}
+	writeData(w, http.StatusOK, out)
 }
 
 // GetAuthUser handles GET /api/auth/users/{id}.
@@ -77,6 +89,11 @@ func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) 
 	if requireAdmin(w, r) == nil {
 		return
 	}
+	s.writeAuthUser(w, r, id)
+}
+
+// writeAuthUser loads the auth user by ID and writes the full AuthUser resource.
+func (s *Server) writeAuthUser(w http.ResponseWriter, r *http.Request, id string) {
 	u, err := s.users.GetUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
@@ -126,7 +143,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		_ = s.sessions.DeleteUserSessions(r.Context(), id)
 	}
 
-	writeNoContent(w)
+	s.writeAuthUser(w, r, id)
 }
 
 // ListAuthUserAgents handles GET /api/auth/users/{id}/agents.
@@ -140,7 +157,7 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
-	writeData(w, http.StatusOK, agentIDs)
+	writeData(w, http.StatusOK, map[string]any{"agent_ids": agentIDs})
 }
 
 // UpdateAuthUserAgents handles PATCH /api/auth/users/{id}/agents.
@@ -198,7 +215,12 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 		}
 	}
 
-	writeNoContent(w)
+	updated, err := s.authStore.ListUserAgentIDs(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list user agents: "+err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"agent_ids": updated})
 }
 
 // DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
@@ -267,7 +289,7 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		_ = s.sessions.DeleteUserSessions(r.Context(), id)
 	}
 
-	writeNoContent(w)
+	s.writeAuthUser(w, r, id)
 }
 
 // ListAuthUserLoginIdentities handles GET /api/auth/users/{id}/identities/login.
@@ -276,7 +298,7 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if s.logins == nil {
-		writeData(w, http.StatusOK, []auth.LoginIdentity{})
+		writeData(w, http.StatusOK, map[string]any{"identities": []auth.LoginIdentity{}})
 		return
 	}
 	if _, err := s.users.GetUser(r.Context(), id); err != nil {
@@ -288,7 +310,7 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "failed to list login identities: "+err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, identities)
+	writeData(w, http.StatusOK, map[string]any{"identities": identities})
 }
 
 // LinkAuthUserLoginIdentity handles POST /api/auth/users/{id}/identities/login.
@@ -364,7 +386,7 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if s.users == nil {
-		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
+		writeData(w, http.StatusOK, map[string]any{"identities": []auth.ChannelIdentity{}})
 		return
 	}
 	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), id)
@@ -372,5 +394,5 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, "failed to list channel identities: "+err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, identities)
+	writeData(w, http.StatusOK, map[string]any{"identities": identities})
 }

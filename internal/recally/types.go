@@ -123,12 +123,14 @@ type ArticleFilter struct {
 	SourceType SourceType
 	Starred    *bool
 	Limit      int
+	Offset     int
 }
 
 // FeedEntryFilter provides filtering options for listing feed entries.
 type FeedEntryFilter struct {
 	Status RSSEntryStatus
 	Limit  int
+	Offset int
 }
 
 // ListResult contains pagination info for list operations.

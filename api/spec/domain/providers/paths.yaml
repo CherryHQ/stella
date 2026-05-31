@@ -9,11 +9,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/Provider",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProviderList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -117,11 +115,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/ProviderModelItem",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProviderModelList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -143,11 +139,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/ProviderModelItem",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProviderModelList",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -167,11 +161,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/ProviderType",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProviderTypeList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

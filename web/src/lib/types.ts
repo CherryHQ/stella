@@ -1,4 +1,5 @@
 import type {
+  ChannelIdentity as SdkChannelIdentity,
   ComponentsAgent,
   ComponentsAuthUser,
   ComponentsBuiltinResourceDetail,
@@ -30,6 +31,7 @@ export type Agent = ComponentsAgent & { id: string; name: string };
 export type Session = import("@/lib/api-client/types.gen").ComponentsSession;
 export type SessionDetail = import("@/lib/api-client/types.gen").ComponentsSessionDetail;
 export type Identity = ComponentsIdentity & { id: string };
+export type ChannelIdentity = SdkChannelIdentity & { id: string };
 export type Skill = ComponentsSkill & {
   id: string;
   scope: string;

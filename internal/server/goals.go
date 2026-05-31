@@ -11,8 +11,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// loadGoal fetches a goal by id. Returns false (after writing 404) on miss.
-func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, goalID string) (sqlc.AgentGoal, bool) {
+// loadGoal fetches a goal by id, enforcing that it belongs to userID. A goal
+// owned by another user is reported as 404 to avoid leaking its existence.
+// Returns false (after writing the error) on miss or ownership mismatch.
+func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, goalID string) (sqlc.AgentGoal, bool) {
 	g, err := s.tasksSvc.Facade.GetGoal(ctx, goalID)
 	if err != nil {
 		if errors.Is(err, tasks.ErrGoalNotFound) {
@@ -20,6 +22,10 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, goalID str
 			return sqlc.AgentGoal{}, false
 		}
 		taskError(w, err)
+		return sqlc.AgentGoal{}, false
+	}
+	if g.UserID != userID {
+		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentGoal{}, false
 	}
 	return g, true
@@ -31,23 +37,30 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	var limit int64 = 50
-	if params.Limit != nil && *params.Limit > 0 {
-		limit = *params.Limit
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), limit)
+	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Goal, 0, len(rows))
 	for _, g := range rows {
 		out = append(out, goalToAPI(g))
 	}
-	writeData(w, http.StatusOK, apitypes.GoalList{Items: out})
+	list := apitypes.GoalList{Goals: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
@@ -98,10 +111,11 @@ func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, goalID string) 
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -113,10 +127,11 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, goalID str
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -137,10 +152,11 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, goalID strin
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -158,52 +174,74 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, goalID strin
 	writeData(w, http.StatusOK, goalToAPI(fresh))
 }
 
-func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID string) {
+func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID string, params apiserver.ListGoalTasksParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoalTasks(r.Context(), g.ID)
+	rows, err := s.tasksSvc.Facade.ListGoalTasks(r.Context(), g.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Task, 0, len(rows))
 	for _, t := range rows {
 		out = append(out, taskToAPI(t))
 	}
-	writeData(w, http.StatusOK, apitypes.TaskList{Items: out})
+	list := apitypes.TaskList{Tasks: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
-func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID string) {
+func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID string, params apiserver.ListGoalReviewsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoalReviews(r.Context(), g.ID)
+	rows, err := s.tasksSvc.Facade.ListGoalReviews(r.Context(), g.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Review, 0, len(rows))
 	for _, rev := range rows {
 		out = append(out, reviewToAPI(rev))
 	}
-	writeData(w, http.StatusOK, apitypes.ReviewList{Items: out})
+	list := apitypes.ReviewList{Reviews: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) ApproveGoalReview(w http.ResponseWriter, r *http.Request, goalID string, reviewID string) {
@@ -223,10 +261,11 @@ func (s *Server) EscalateGoalReview(w http.ResponseWriter, r *http.Request, goal
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}
@@ -254,10 +293,11 @@ func (s *Server) decideGoalReview(w http.ResponseWriter, r *http.Request, goalID
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	g, ok := s.loadGoal(r.Context(), w, goalID)
+	g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
 	if !ok {
 		return
 	}

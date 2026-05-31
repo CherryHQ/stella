@@ -437,21 +437,18 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	}
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
-		writeData(w, http.StatusOK, []any{})
+		writeData(w, http.StatusOK, map[string]any{"sessions": []any{}})
 		return
 	}
 	info := UserFromContext(r.Context())
 
-	limit := 10
-	if params.Limit != nil && *params.Limit >= 0 {
-		limit = *params.Limit
-	}
-	offset := 0
-	if params.Offset != nil && *params.Offset >= 0 {
-		offset = *params.Offset
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
 	}
 
-	opts := memory.ListOptions{IncludeArchived: true, Limit: limit, Offset: offset}
+	opts := memory.ListOptions{IncludeArchived: true, Limit: limit + 1, Offset: offset}
 	if info != nil {
 		opts.UserID = info.UserID
 	}
@@ -468,11 +465,16 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 		return
 	}
 
+	sessions, nextToken := nextPageTokenForRows(sessions, limit, offset)
 	resp := make([]sessionResponse, 0, len(sessions))
 	for _, si := range sessions {
 		resp = append(resp, toSessionResponse(si))
 	}
-	writeData(w, http.StatusOK, resp)
+	out := map[string]any{"sessions": resp}
+	if nextToken != "" {
+		out["next_page_token"] = nextToken
+	}
+	writeData(w, http.StatusOK, out)
 }
 
 func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -486,19 +488,12 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 		return
 	}
 
-	authInfo := UserFromContext(r.Context())
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
+		return
+	}
 	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
-		return
-	}
-
-	if authInfo != nil && si.UserID != authInfo.UserID {
-		writeError(w, http.StatusForbidden, "access denied")
-		return
-	}
-	if agentID != "" && si.AgentID != agentID {
-		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -597,7 +592,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 		}
 	}
 
-	writeData(w, http.StatusOK, all)
+	writeData(w, http.StatusOK, map[string]any{"messages": all})
 }
 
 // checkSessionAccess verifies the current user has access to the session.
@@ -605,8 +600,13 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) error {
 	info := UserFromContext(r.Context())
 	sm, ok := s.mem.(memory.SessionManager)
-	if info == nil || !ok {
-		return nil
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return fmt.Errorf("authentication required")
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return fmt.Errorf("unsupported")
 	}
 	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {

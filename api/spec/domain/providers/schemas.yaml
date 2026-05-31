@@ -65,3 +65,27 @@ components:
       properties:
         api_key: { type: string }
         base_url: { type: string }
+
+    ProviderList:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+
+    ProviderModelList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderModelItem" }
+
+    ProviderTypeList:
+      type: object
+      required: [provider_types]
+      properties:
+        provider_types:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderType" }

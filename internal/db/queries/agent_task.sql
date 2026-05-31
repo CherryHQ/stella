@@ -16,10 +16,15 @@ RETURNING *;
 SELECT * FROM agent_task WHERE id = ?;
 
 -- name: ListAgentTasks :many
-SELECT * FROM agent_task ORDER BY created_at DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
 -- name: ListAgentTasksByUser :many
-SELECT * FROM agent_task WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_task
+WHERE user_id = sqlc.arg('user_id')
+  AND (sqlc.narg('agent_id') IS NULL OR agent_id = sqlc.narg('agent_id'))
+  AND (sqlc.narg('status') IS NULL OR status = sqlc.narg('status'))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountRunningAgentTasks :one
 SELECT count(*) FROM agent_task WHERE status = 'running';

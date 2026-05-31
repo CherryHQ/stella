@@ -5,6 +5,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -22,7 +23,7 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeNoContent(w)
+	s.writeAuthUser(w, r, id)
 }
 
 func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
@@ -40,7 +41,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeNoContent(w)
+	s.writeAuthUser(w, r, id)
 }
 
 func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {
@@ -52,7 +53,7 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, memories)
+	writeData(w, http.StatusOK, map[string]any{"memories": memories})
 }
 
 func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
@@ -71,7 +72,12 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeNoContent(w)
+	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: id, AgentID: agentID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, mem)
 }
 
 func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {

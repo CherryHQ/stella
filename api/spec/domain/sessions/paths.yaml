@@ -1,20 +1,20 @@
 paths:
-  /api/agents/{agentID}/sessions:
+  /api/agents/{agentId}/sessions:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
       summary: List sessions (all users see their own; admins see all)
       operationId: listSessions
       parameters:
-        - name: limit
+        - name: page_size
           in: query
-          schema: { type: integer, default: 10 }
+          schema: { type: integer, default: 20, minimum: 1, maximum: 500 }
           description: Maximum number of sessions to return
-        - name: offset
+        - name: page_token
           in: query
-          schema: { type: integer, default: 0 }
-          description: Number of sessions to skip
+          schema: { type: string }
+          description: Opaque pagination token from a previous response
         - name: kind
           in: query
           schema: { type: string, enum: [main, chat, scheduler, task] }
@@ -28,11 +28,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/Session",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -62,10 +60,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/agents/{agentID}/sessions/{sessionID}:
+  /api/agents/{agentId}/sessions/{sessionId}:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: sessionID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
       summary: Get session detail
@@ -84,10 +82,10 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{agentID}/sessions/{sessionID}/messages:
+  /api/agents/{agentId}/sessions/{sessionId}/messages:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: sessionID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
       summary: Get messages for a session
@@ -114,11 +112,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  additionalProperties: {}
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionMessageList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -149,10 +145,10 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/agents/{agentID}/sessions/{sessionID}/workspace:
+  /api/agents/{agentId}/sessions/{sessionId}/workspace:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: sessionID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
       summary: List workspace disk entries and usage
@@ -184,10 +180,10 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{agentID}/sessions/{sessionID}/workspace/files:
+  /api/agents/{agentId}/sessions/{sessionId}/workspace/files:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: sessionID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
     post:
       tags: [sessions]
       summary: Create a file or directory in the session workspace
@@ -265,10 +261,10 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{agentID}/sessions/{sessionID}/workspace/file-content:
+  /api/agents/{agentId}/sessions/{sessionId}/workspace/file-content:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: sessionID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
       summary: Get the content of a file in the session workspace
@@ -330,10 +326,10 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{agentID}/sessions/{sessionID}/workspace/upload:
+  /api/agents/{agentId}/sessions/{sessionId}/workspace/upload:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: sessionID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
     post:
       tags: [sessions]
       summary: Upload a file to the session workspace assets directory
@@ -367,10 +363,10 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/agents/{agentID}/sessions/{sessionID}/system-prompt:
+  /api/agents/{agentId}/sessions/{sessionId}/system-prompt:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
-      - { name: sessionID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
     get:
       tags: [sessions]
       summary: Get the system prompt for a session

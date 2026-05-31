@@ -66,14 +66,14 @@ func recallyFeedListCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Items)
+				return printJSON(list.Feeds)
 			}
-			if len(list.Items) == 0 {
+			if len(list.Feeds) == 0 {
 				fmt.Println("No RSS feeds subscribed.")
 				return nil
 			}
-			fmt.Printf("Subscribed to %d feed(s):\n\n", len(list.Items))
-			for _, f := range list.Items {
+			fmt.Printf("Subscribed to %d feed(s):\n\n", len(list.Feeds))
+			for _, f := range list.Feeds {
 				enabledMark := "✓"
 				if !f.Enabled {
 					enabledMark = "✗"
@@ -130,19 +130,27 @@ func recallyFeedPollCommand() *ucli.Command {
 			if id := c.Args().First(); id != "" {
 				feedIDs = append(feedIDs, id)
 			} else {
-				resp, err := api.ListFeeds(c.Context, &apiclient.ListFeedsParams{})
-				if err != nil {
-					return apiclient.WrapServerErr(err)
-				}
-				defer resp.Body.Close() //nolint:errcheck
-				var list apiclient.FeedList
-				if err := apiclient.DecodeJSON(resp, &list); err != nil {
-					return err
-				}
-				for _, f := range list.Items {
-					if f.Enabled {
-						feedIDs = append(feedIDs, f.Id)
+				var pageToken *string
+				for {
+					resp, err := api.ListFeeds(c.Context, &apiclient.ListFeedsParams{PageToken: pageToken})
+					if err != nil {
+						return apiclient.WrapServerErr(err)
 					}
+					var list apiclient.FeedList
+					decodeErr := apiclient.DecodeJSON(resp, &list)
+					_ = resp.Body.Close()
+					if decodeErr != nil {
+						return decodeErr
+					}
+					for _, f := range list.Feeds {
+						if f.Enabled {
+							feedIDs = append(feedIDs, f.Id)
+						}
+					}
+					if list.NextPageToken == nil || *list.NextPageToken == "" {
+						break
+					}
+					pageToken = list.NextPageToken
 				}
 			}
 

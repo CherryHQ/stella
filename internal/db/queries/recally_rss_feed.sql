@@ -14,8 +14,9 @@ SELECT * FROM recally_rss_feed WHERE user_id = ? AND url = ?;
 
 -- name: ListRSSFeeds :many
 SELECT * FROM recally_rss_feed
-WHERE user_id = ?
-ORDER BY created_at DESC;
+WHERE user_id = sqlc.arg('user_id')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateRSSFeed :one
 UPDATE recally_rss_feed
@@ -58,7 +59,7 @@ WHERE feed_id = sqlc.arg('feed_id')
   AND status IN ('pending', 'error')
   AND attempts < 3
 ORDER BY discovered_at ASC
-LIMIT sqlc.arg('limit');
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateRSSFeedEntry :one
 UPDATE recally_rss_feed_entry

@@ -131,14 +131,18 @@ DELETE /v1/publishers/123/books/456
 
 ### Custom methods
 
-When standard methods don't fit, use POST with a colon-separated verb suffix:
+When standard methods don't fit, append the action as a trailing path segment:
 
 ```
-POST /v1/publishers/123/books/456:archive
-POST /v1/documents:translate
+POST /api/publishers/123/books/456/archive
+POST /api/documents/translate
 ```
 
 Naming: verb + noun, camelCase, no prepositions. `archiveBook`, not `getBookForArchiving`.
+
+**Why a path segment, not AIP's colon (`:archive`).** This project routes with the Go 1.22 `http.ServeMux`. A wildcard like `{id}` must occupy a whole path segment, so `/books/{id}:archive` puts a colon inside the wildcard segment and the mux **panics at registration** (`bad wildcard segment must end with '}'`). The colon only works on a fully-literal segment (`/manifest-plugins:sync` would route, but `/books/{id}:archive` cannot). Rather than split convention — colon for collection-level actions, slash for per-id actions — or hand-parse the colon in a catch-all (which abandons the generated `HandlerFromMux` routing), we use **one rule everywhere**: the action is a trailing path segment. AIP itself accepts `/{id}/action` as the sub-resource fallback for custom methods.
+
+So: **`POST /collection[/{id}]/action`** for every custom method, no colons anywhere. If this project ever migrates off stdlib `ServeMux` to a router that handles `{id}:action` (e.g. chi), revisit and prefer AIP's colon form.
 
 ## Resource Names
 
@@ -344,4 +348,4 @@ Before approving any API change:
 7. Do Create and Update return the full resource?
 8. Does Delete return 204 with no body?
 9. Are collection names plural and resource IDs in the URL?
-10. Is the custom method using `POST /resource:verb`?
+10. Is the custom method using `POST /collection[/{id}]/action` (trailing path segment, no colon)?

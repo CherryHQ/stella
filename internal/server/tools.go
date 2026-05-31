@@ -50,7 +50,7 @@ func (s *Server) ListTools(w http.ResponseWriter, r *http.Request) {
 		return items[i].Name < items[j].Name
 	})
 
-	writeData(w, http.StatusOK, items)
+	writeData(w, http.StatusOK, map[string]any{"tools": items})
 }
 
 // builtinToolDefinitions returns the canonical definitions from each tool

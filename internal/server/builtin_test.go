@@ -14,10 +14,13 @@ func TestListBuiltinTemplates(t *testing.T) {
 		t.Fatalf("list: %d (%s)", rr.Code, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
-	var list []map[string]any
-	if err := json.Unmarshal(resp.Data, &list); err != nil {
+	var wrapper struct {
+		Resources []map[string]any `json:"resources"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	list := wrapper.Resources
 	if len(list) == 0 {
 		t.Fatalf("expected builtin templates, got none")
 	}

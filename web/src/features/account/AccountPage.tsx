@@ -83,9 +83,7 @@ export function AccountPage() {
       return data;
     },
   });
-  const sessions = (
-    sessionsData as { items?: Array<{ id: string; created_at: string; expires_at: string }> }
-  )?.items;
+  const sessions = sessionsData?.sessions;
 
   const revokeSession = useMutation({
     mutationFn: async (id: string) => {

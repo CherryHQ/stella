@@ -6,11 +6,11 @@ paths:
       operationId: listGoals
       parameters:
         - {
-            name: limit,
+            name: page_size,
             in: query,
-            required: false,
-            schema: { type: integer, format: int64 },
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
           }
+        - { name: page_token, in: query, schema: { type: string } }
       responses:
         "200":
           description: ok
@@ -44,9 +44,9 @@ paths:
         "401":
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
 
-  /api/goals/{goalID}:
+  /api/goals/{goalId}:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
     get:
       tags: [goals]
       summary: Get a goal
@@ -62,9 +62,9 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/goals/{goalID}/activate:
+  /api/goals/{goalId}/activate:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
       summary: Activate a goal (draft → running, promotes draft children to ready)
@@ -82,9 +82,9 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalID}/cancel:
+  /api/goals/{goalId}/cancel:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
       summary: Cancel a goal (cascades to non-terminal children)
@@ -110,13 +110,20 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalID}/tasks:
+  /api/goals/{goalId}/tasks:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
     get:
       tags: [goals]
       summary: List tasks owned by a goal
       operationId: listGoalTasks
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
       responses:
         "200":
           description: ok
@@ -128,13 +135,20 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/goals/{goalID}/reviews:
+  /api/goals/{goalId}/reviews:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
     get:
       tags: [goals]
       summary: List reviews for a goal
       operationId: listGoalReviews
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - { name: page_token, in: query, schema: { type: string } }
       responses:
         "200":
           description: ok
@@ -146,10 +160,10 @@ paths:
           { $ref: "../../components.yaml#/components/responses/Unauthorized" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/goals/{goalID}/reviews/{reviewID}/approve:
+  /api/goals/{goalId}/reviews/{reviewId}/approve:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
       summary: Approve a goal review
@@ -175,10 +189,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalID}/reviews/{reviewID}/reject:
+  /api/goals/{goalId}/reviews/{reviewId}/reject:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
       summary: Reject a goal review
@@ -204,10 +218,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalID}/reviews/{reviewID}/request-changes:
+  /api/goals/{goalId}/reviews/{reviewId}/request-changes:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
       summary: Request changes on a goal review (collapses to failed; documented gap)
@@ -233,10 +247,10 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/goals/{goalID}/reviews/{reviewID}/escalate:
+  /api/goals/{goalId}/reviews/{reviewId}/escalate:
     parameters:
-      - { name: goalID, in: path, required: true, schema: { type: string } }
-      - { name: reviewID, in: path, required: true, schema: { type: string } }
+      - { name: goalId, in: path, required: true, schema: { type: string } }
+      - { name: reviewId, in: path, required: true, schema: { type: string } }
     post:
       tags: [goals]
       summary: Escalate an agent goal review to human

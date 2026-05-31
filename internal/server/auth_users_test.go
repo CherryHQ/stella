@@ -29,7 +29,7 @@ func TestListAuthUsers(t *testing.T) {
 		Identities []any  `json:"identities"`
 		CreatedAt  string `json:"created_at"`
 	}
-	if err := json.Unmarshal(parseListItems(t, rr), &users); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "users"), &users); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(users) == 0 {
@@ -94,8 +94,8 @@ func TestUpdateAuthUserRolePromote(t *testing.T) {
 
 	body := map[string]string{"role": "admin"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -106,8 +106,8 @@ func TestUpdateAuthUserRoleDemote(t *testing.T) {
 
 	body := map[string]string{"role": "user"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -143,9 +143,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	resp := parseResponse(t, rr)
 	var agentIDs []string
-	_ = json.Unmarshal(resp.Data, &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 0 {
 		t.Errorf("expected 0 agents, got %d", len(agentIDs))
 	}
@@ -153,14 +152,13 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	stellaID := findStellaID(t, env)
 	body := map[string]any{"agent_ids": []string{stellaID}}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify assignment.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
-	resp = parseResponse(t, rr)
-	_ = json.Unmarshal(resp.Data, &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 1 || agentIDs[0] != stellaID {
 		t.Errorf("expected [%s], got %v", stellaID, agentIDs)
 	}
@@ -168,14 +166,13 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	// Remove by setting empty.
 	body = map[string]any{"agent_ids": []string{}}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Verify empty.
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+uid+"/agents", nil)
-	resp = parseResponse(t, rr)
-	_ = json.Unmarshal(resp.Data, &agentIDs)
+	_ = json.Unmarshal(parseListItems(t, rr, "agent_ids"), &agentIDs)
 	if len(agentIDs) != 0 {
 		t.Errorf("expected 0 agents after removal, got %d", len(agentIDs))
 	}
@@ -189,8 +186,8 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Deactivate.
 	body := map[string]any{"is_active": false}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify deactivated.
@@ -212,8 +209,8 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Reactivate.
 	body = map[string]any{"is_active": true}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("reactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -247,9 +244,8 @@ func TestListAuthUserLoginIdentitiesEmpty(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	resp := parseResponse(t, rr)
 	var identities []any
-	_ = json.Unmarshal(resp.Data, &identities)
+	_ = json.Unmarshal(parseListItems(t, rr, "identities"), &identities)
 	if len(identities) != 0 {
 		t.Errorf("expected 0 login identities, got %d", len(identities))
 	}
@@ -397,12 +393,11 @@ func TestListAuthUserChannelIdentities(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	resp := parseResponse(t, rr)
 	var identities []struct {
 		Platform   string `json:"platform"`
 		ExternalID string `json:"external_id"`
 	}
-	if err := json.Unmarshal(resp.Data, &identities); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "identities"), &identities); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(identities) != 1 || identities[0].Platform != "telegram" {

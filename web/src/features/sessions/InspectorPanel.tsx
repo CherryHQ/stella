@@ -7,7 +7,6 @@ import {
   getSessionMessages,
   getSessionSystemPrompt,
   listAgentSkills,
-  listTasks,
   listTools,
 } from "@/lib/api-client";
 import {
@@ -16,6 +15,7 @@ import {
   agentSkillsOptions,
 } from "@/lib/queries/agents";
 import { formatTime } from "@/lib/time";
+import { fetchAllTasks } from "@/lib/paginated";
 import type { Message, Session, Skill, Tool, Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -292,12 +292,12 @@ function ContextPanel({
     let cancelled = false;
     setMessagesLoading(true);
     getSessionMessages({
-      path: { agentID: session.agent_id, sessionID: session.id },
+      path: { agentId: session.agent_id, sessionId: session.id },
       query: { limit: 1000 },
       throwOnError: true,
     })
       .then(({ data }) => {
-        if (!cancelled) setMessages((data as unknown as Message[]) ?? []);
+        if (!cancelled) setMessages((data?.messages as unknown as Message[] | undefined) ?? []);
       })
       .catch((e) => {
         console.error(e);
@@ -309,7 +309,7 @@ function ContextPanel({
 
     setPromptLoading(true);
     getSessionSystemPrompt({
-      path: { agentID: session.agent_id, sessionID: session.id },
+      path: { agentId: session.agent_id, sessionId: session.id },
       throwOnError: true,
     })
       .then(({ data }) => {
@@ -335,7 +335,7 @@ function ContextPanel({
     setToolsLoading(true);
     try {
       const { data } = await listTools({ throwOnError: true });
-      setTools((data as Tool[]) ?? []);
+      setTools((data?.tools as Tool[]) ?? []);
     } finally {
       setToolsLoading(false);
     }
@@ -350,7 +350,7 @@ function ContextPanel({
         query: { session_id: session.id },
         throwOnError: true,
       });
-      setSessionSkills((data?.items ?? []) as Skill[]);
+      setSessionSkills((data?.skills ?? []) as Skill[]);
     } finally {
       setSessionSkillsLoading(false);
     }
@@ -745,11 +745,7 @@ function useWorkData(agentID: string) {
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
-      const { data } = await listTasks({
-        query: { agent_id: agentID },
-        throwOnError: true,
-      });
-      setTasks(data?.items ?? []);
+      setTasks(await fetchAllTasks(agentID));
     } catch (e) {
       console.error(e);
       setTasks([]);

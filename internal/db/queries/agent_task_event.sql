@@ -9,7 +9,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListAgentTaskEvents :many
-SELECT * FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC;
+SELECT * FROM agent_task_event WHERE task_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?;
 
 -- name: ListAgentTaskEventsByGoal :many
 SELECT * FROM agent_task_event WHERE goal_id = ? ORDER BY created_at ASC;

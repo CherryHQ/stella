@@ -222,7 +222,7 @@ func TestDispatcher_NoExecutorResolved_EmitsProtocolError(t *testing.T) {
 	if got := h.getTask(t, id).Status; got != StatusReady {
 		t.Errorf("status=%q want ready (claim refused)", got)
 	}
-	events, _ := h.q.ListAgentTaskEvents(context.Background(), nullable(id))
+	events, _ := h.q.ListAgentTaskEvents(context.Background(), sqlc.ListAgentTaskEventsParams{TaskID: nullable(id), Limit: 1000})
 	found := false
 	for _, e := range events {
 		if e.EventType == "protocol_error" {

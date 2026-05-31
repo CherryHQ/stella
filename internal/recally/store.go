@@ -224,6 +224,7 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 		SourceType: emptyOrString(string(filter.SourceType)),
 		Starred:    starred,
 		Limit:      limit,
+		Offset:     int64(filter.Offset),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list articles: %w", err)
@@ -317,8 +318,15 @@ func (s *Store) GetFeedByURL(ctx context.Context, userID string, feedURL string)
 }
 
 // ListFeeds lists all feeds for a user.
-func (s *Store) ListFeeds(ctx context.Context, userID string) ([]Feed, error) {
-	rows, err := s.q.ListRSSFeeds(ctx, userID)
+func (s *Store) ListFeeds(ctx context.Context, userID string, limit, offset int) ([]Feed, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.q.ListRSSFeeds(ctx, sqlc.ListRSSFeedsParams{
+		UserID: userID,
+		Limit:  int64(limit),
+		Offset: int64(offset),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list feeds: %w", err)
 	}
@@ -427,11 +435,11 @@ func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, tit
 }
 
 // ListPendingFeedEntries lists pending entries for processing.
-func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit int) ([]FeedEntry, error) {
+func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit, offset int) ([]FeedEntry, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := s.q.ListPendingRSSEntries(ctx, sqlc.ListPendingRSSEntriesParams{FeedID: feedID, Limit: int64(limit)})
+	rows, err := s.q.ListPendingRSSEntries(ctx, sqlc.ListPendingRSSEntriesParams{FeedID: feedID, Limit: int64(limit), Offset: int64(offset)})
 	if err != nil {
 		return nil, fmt.Errorf("list pending entries: %w", err)
 	}

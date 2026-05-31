@@ -5,11 +5,11 @@ import {
   createSchedulerJob,
   deleteSchedulerJob,
   listAgents,
-  listSchedulerJobRuns,
   listSchedulerJobs,
   triggerSchedulerJob,
   updateSchedulerJob,
 } from "@/lib/api-client/sdk.gen";
+import { fetchAllSchedulerJobRuns } from "@/lib/paginated";
 import { meQueryOptions } from "@/lib/queries/me";
 import { formatTime } from "@/lib/time";
 import type { ComponentsJobInput } from "@/lib/api-client/types.gen";
@@ -95,15 +95,15 @@ export function SchedulerPage() {
       let agentList = agentsRef.current;
       if (agentList.length === 0) {
         const { data } = await listAgents({ throwOnError: true });
-        agentList = (data?.items ?? []) as Agent[];
+        agentList = (data?.agents ?? []) as Agent[];
         agentsRef.current = agentList;
         setAgents(agentList);
       }
       const lists = await Promise.all(
         agentList.map((agent) =>
-          listSchedulerJobs({ path: { agentID: agent.id }, throwOnError: true })
+          listSchedulerJobs({ path: { agentId: agent.id }, throwOnError: true })
             .then(({ data }) => ({
-              items: ((data?.items ?? []) as SchedulerJob[]).map((job) => ({
+              items: ((data?.jobs ?? []) as SchedulerJob[]).map((job) => ({
                 ...job,
                 agent_id: job.agent_id || agent.id,
               })),
@@ -120,7 +120,7 @@ export function SchedulerPage() {
   const loadAgents = useCallback(async () => {
     try {
       const { data } = await listAgents({ throwOnError: true });
-      const list = (data?.items ?? []) as Agent[];
+      const list = (data?.agents ?? []) as Agent[];
       agentsRef.current = list;
       setAgents(list);
     } catch (e) {
@@ -137,11 +137,8 @@ export function SchedulerPage() {
       try {
         const job = jobs.find((item) => item.id === jobId);
         if (!job?.agent_id) return;
-        const { data } = await listSchedulerJobRuns({
-          path: { agentID: job.agent_id, jobID: jobId },
-          throwOnError: true,
-        });
-        setRunHistories((prev) => ({ ...prev, [jobId]: (data?.items ?? []) as SchedulerJobRun[] }));
+        const runs = await fetchAllSchedulerJobRuns(job.agent_id, jobId);
+        setRunHistories((prev) => ({ ...prev, [jobId]: runs as SchedulerJobRun[] }));
       } catch (e) {
         console.error(e);
       }
@@ -204,13 +201,13 @@ export function SchedulerPage() {
     try {
       if (editingJobId !== null) {
         await updateSchedulerJob({
-          path: { agentID: jobForm.agent_id, jobID: editingJobId },
+          path: { agentId: jobForm.agent_id, jobId: editingJobId },
           body: payload,
           throwOnError: true,
         });
       } else {
         await createSchedulerJob({
-          path: { agentID: jobForm.agent_id },
+          path: { agentId: jobForm.agent_id },
           body: payload,
           throwOnError: true,
         });
@@ -231,7 +228,7 @@ export function SchedulerPage() {
       if (job?.owner_kind !== "user") return;
       try {
         await deleteSchedulerJob({
-          path: { agentID: job.agent_id ?? "", jobID: id },
+          path: { agentId: job.agent_id ?? "", jobId: id },
           throwOnError: true,
         });
         if (selectedJobId === id) {
@@ -252,7 +249,7 @@ export function SchedulerPage() {
       setTriggeringJobId(j.id);
       try {
         await triggerSchedulerJob({
-          path: { agentID: j.agent_id ?? "", jobID: j.id },
+          path: { agentId: j.agent_id ?? "", jobId: j.id },
           throwOnError: true,
         });
         showToast("Job triggered");

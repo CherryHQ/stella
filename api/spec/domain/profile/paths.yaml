@@ -10,11 +10,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/Identity",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/IdentityList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -56,6 +54,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/ChangePasswordRequest",
             }
       responses:
+        # 204 by design: the password is write-only and has no resource
+        # representation to return.
         "204":
           description: password changed
         "400": {
@@ -103,18 +103,16 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/UserMemory",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemoryList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/memories/{agentID}:
+  /api/auth/profile/memories/{agentId}:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
       tags: [profile]
       summary: Set the memory for a specific agent
@@ -127,8 +125,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemory",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -147,9 +150,9 @@ paths:
         }
 
   # ── Soul ────────────────────────────────────────────────────────────────────
-  /api/auth/profile/soul/{agentID}:
+  /api/auth/profile/soul/{agentId}:
     parameters:
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
       tags: [profile]
       summary: Set the soul for a specific agent
@@ -162,8 +165,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetSoulRequest",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemory",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -182,11 +190,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/VaultEntry",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/VaultEntryList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -222,8 +228,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetVaultEntryRequest",
             }
       responses:
-        "204":
-          description: no content
+        "200":
+          description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/VaultEntry",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -252,11 +263,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/OAuthProviderStatus",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthProviderStatusList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -283,10 +292,10 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
-  /api/auth/profile/oauth/{provider}/status/{flowID}:
+  /api/auth/profile/oauth/{provider}/status/{flowId}:
     parameters:
       - { name: provider, in: path, required: true, schema: { type: string } }
-      - { name: flowID, in: path, required: true, schema: { type: string } }
+      - { name: flowId, in: path, required: true, schema: { type: string } }
     get:
       tags: [profile]
       summary: Poll the status of an OAuth flow
@@ -410,8 +419,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/OAuthProviderConfigInput",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/OAuthProviderConfig",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

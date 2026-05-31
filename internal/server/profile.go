@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // ListProfileIdentities handles GET /api/auth/profile/identities.
@@ -20,7 +21,7 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.users == nil {
-		writeData(w, http.StatusOK, []auth.ChannelIdentity{})
+		writeData(w, http.StatusOK, map[string]any{"identities": []auth.ChannelIdentity{}})
 		return
 	}
 	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), info.UserID)
@@ -30,7 +31,7 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, identities)
+	writeData(w, http.StatusOK, map[string]any{"identities": identities})
 }
 
 // ChangePassword handles PATCH /api/auth/profile/password.
@@ -40,7 +41,6 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	var body struct {
 		CurrentPassword string `json:"current_password"`
 		NewPassword     string `json:"new_password"`
@@ -107,7 +107,6 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
 	var body struct {
 		Platform string `json:"platform"`
 	}
@@ -187,7 +186,7 @@ func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 			memories[i].Soul = defaultSoul
 		}
 	}
-	writeData(w, http.StatusOK, memories)
+	writeData(w, http.StatusOK, map[string]any{"memories": memories})
 }
 
 // SetProfileMemory handles PATCH /api/auth/profile/memories/{agentID}.
@@ -195,6 +194,10 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -210,7 +213,7 @@ func (s *Server) SetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeNoContent(w)
+	s.writeProfileMemory(w, r, info.UserID, agentID)
 }
 
 // SetProfileSoul handles PATCH /api/auth/profile/soul/{agentID}.
@@ -218,6 +221,10 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 
@@ -233,7 +240,21 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeNoContent(w)
+	s.writeProfileMemory(w, r, info.UserID, agentID)
+}
+
+// writeProfileMemory loads the user/agent memory and writes the full resource,
+// applying the default soul when none is stored.
+func (s *Server) writeProfileMemory(w http.ResponseWriter, r *http.Request, userID, agentID string) {
+	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if mem.Soul == "" {
+		mem.Soul = prompt.DefaultAgentSoul()
+	}
+	writeData(w, http.StatusOK, mem)
 }
 
 // DeleteProfileMemory handles DELETE /api/auth/profile/memories/{agentID}.
@@ -241,6 +262,10 @@ func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, age
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 

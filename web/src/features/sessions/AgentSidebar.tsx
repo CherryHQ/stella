@@ -7,8 +7,8 @@ import {
   createSession as sdkCreateSession,
   deleteProject as sdkDeleteProject,
   getSessionWorkspace,
-  listTasks,
 } from "@/lib/api-client/sdk.gen";
+import { fetchAllTasks } from "@/lib/paginated";
 import { cn } from "@/lib/utils";
 import type { ComponentsSession, TaskList } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
@@ -207,7 +207,7 @@ function FolderTree({
 
   useEffect(() => {
     getSessionWorkspace({
-      path: { agentID: agentId, sessionID: sessionId },
+      path: { agentId: agentId, sessionId: sessionId },
       query: { depth: 4 },
       throwOnError: true,
     }).then(
@@ -325,7 +325,7 @@ function CreateProjectDialog({
     try {
       const baseDir = `${userRoot}/${selectedDir}`;
       await createProject({
-        path: { agentID: agentId },
+        path: { agentId: agentId },
         body: { name: effectiveName, base_dir: baseDir },
         throwOnError: true,
       });
@@ -443,18 +443,18 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
 
   // ── data ─────────────────────────────────────────────────────────────────
   const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
-  const sessions = sessionsQuery.data?.pages.flat() ?? [];
+  const sessions = sessionsQuery.data?.pages.flatMap((p) => p.sessions) ?? [];
 
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
     queryKey: ["tasks", agentId],
     queryFn: async () => {
-      const { data } = await listTasks({ query: { agent_id: agentId }, throwOnError: true });
-      return data as TaskList;
+      const tasks = await fetchAllTasks(agentId);
+      return { tasks } as TaskList;
     },
   });
   const taskAttentionCount =
-    taskList?.items?.filter(
+    taskList?.tasks?.filter(
       (task) =>
         task.status === "blocked" || task.status === "reviewing" || task.status === "failed",
     ).length ?? 0;
@@ -479,7 +479,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   // ── actions ──────────────────────────────────────────────────────────────
   const createSession = useCallback(async () => {
     const { data } = await sdkCreateSession({
-      path: { agentID: agentId },
+      path: { agentId: agentId },
       throwOnError: true,
     });
     const sess = data as ComponentsSession;
@@ -514,7 +514,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
     async (projectId: string) => {
       if (!window.confirm("Delete this project? Sessions will be kept.")) return;
       await sdkDeleteProject({
-        path: { agentID: agentId, projectId },
+        path: { agentId: agentId, projectId },
         throwOnError: true,
       });
       await queryClient.invalidateQueries({ queryKey: ["projects", agentId] });

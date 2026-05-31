@@ -11,11 +11,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/BuiltinResource",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/BuiltinResourceList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

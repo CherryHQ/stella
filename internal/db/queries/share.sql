@@ -16,7 +16,7 @@ SELECT id, token_hash, user_id, title,
 FROM share
 WHERE user_id = ?
 ORDER BY created_at DESC, id DESC
-LIMIT 200;
+LIMIT ? OFFSET ?;
 
 -- name: DeleteShareByUser :execrows
 DELETE FROM share

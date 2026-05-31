@@ -91,18 +91,26 @@ func (q *Queries) GetSchedJobRun(ctx context.Context, arg GetSchedJobRunParams) 
 
 const listSchedJobRuns = `-- name: ListSchedJobRuns :many
 SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_run
-WHERE job_id = ?
-ORDER BY started_at DESC
-LIMIT ?
+WHERE job_id = ?1
+  AND (?2 IS NULL OR user_id = ?2)
+ORDER BY started_at DESC, id DESC
+LIMIT ?4 OFFSET ?3
 `
 
 type ListSchedJobRunsParams struct {
-	JobID string `json:"job_id"`
-	Limit int64  `json:"limit"`
+	JobID  string      `json:"job_id"`
+	UserID interface{} `json:"user_id"`
+	Offset int64       `json:"offset"`
+	Limit  int64       `json:"limit"`
 }
 
 func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsParams) ([]SchedJobRun, error) {
-	rows, err := q.db.QueryContext(ctx, listSchedJobRuns, arg.JobID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listSchedJobRuns,
+		arg.JobID,
+		arg.UserID,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

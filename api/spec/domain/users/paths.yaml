@@ -19,8 +19,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateDefaultAgentRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -49,8 +54,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateNotifyIdentityRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -76,11 +86,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/UserMemory",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemoryList",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -89,7 +97,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
-  /api/users/{id}/memories/{agentID}:
+  /api/users/{id}/memories/{agentId}:
     parameters:
       - {
           name: id,
@@ -97,7 +105,7 @@ paths:
           required: true,
           schema: { type: string },
         }
-      - { name: agentID, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
     patch:
       tags: [users]
       summary: Set memory for a user and agent (admin only)
@@ -110,8 +118,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/SetMemoryRequest",
             }
       responses:
-        "204":
+        "200":
           description: saved
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemory",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -136,16 +149,27 @@ paths:
       tags: [auth-users]
       summary: List all auth users (admin only)
       operationId: listAuthUsers
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/AuthUser",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUserList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -197,8 +221,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateRoleRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -224,9 +253,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: { type: string }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUserAgentList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -243,8 +272,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateAgentsRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUserAgentList",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -265,11 +299,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/LoginIdentity",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LoginIdentityList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -316,11 +348,9 @@ paths:
           description: ok
           content:
             application/json:
-              schema:
-                type: array
-                items: {
-                  $ref: "../../components.yaml#/components/schemas/ChannelIdentity",
-                }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ChannelIdentityList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -377,8 +407,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateActiveRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

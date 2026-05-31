@@ -65,5 +65,5 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 		}
 		return filtered[i].Model < filtered[j].Model
 	})
-	writeData(w, http.StatusOK, filtered)
+	writeData(w, http.StatusOK, map[string]any{"models": filtered})
 }

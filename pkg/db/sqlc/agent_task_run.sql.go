@@ -252,11 +252,17 @@ func (q *Queries) LatestAgentTaskRunForTask(ctx context.Context, arg LatestAgent
 }
 
 const listAgentTaskRunsByTask = `-- name: ListAgentTaskRunsByTask :many
-SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE task_id = ? ORDER BY attempt_no DESC
+SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run WHERE task_id = ? ORDER BY attempt_no DESC LIMIT ? OFFSET ?
 `
 
-func (q *Queries) ListAgentTaskRunsByTask(ctx context.Context, taskID sql.NullString) ([]AgentTaskRun, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentTaskRunsByTask, taskID)
+type ListAgentTaskRunsByTaskParams struct {
+	TaskID sql.NullString `json:"task_id"`
+	Limit  int64          `json:"limit"`
+	Offset int64          `json:"offset"`
+}
+
+func (q *Queries) ListAgentTaskRunsByTask(ctx context.Context, arg ListAgentTaskRunsByTaskParams) ([]AgentTaskRun, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentTaskRunsByTask, arg.TaskID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

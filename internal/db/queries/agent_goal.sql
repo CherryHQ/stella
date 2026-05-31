@@ -12,7 +12,10 @@ RETURNING *;
 SELECT * FROM agent_goal WHERE id = ?;
 
 -- name: ListAgentGoals :many
-SELECT * FROM agent_goal ORDER BY created_at DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_goal ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
+
+-- name: ListAgentGoalsByUser :many
+SELECT * FROM agent_goal WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
 -- name: TransitionAgentGoalStatus :execrows
 UPDATE agent_goal
@@ -27,6 +30,9 @@ UPDATE agent_goal SET output = ?, completed_at = ?, updated_at = ? WHERE id = ?;
 
 -- name: ListChildrenByGoal :many
 SELECT * FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC;
+
+-- name: ListChildrenByGoalPaged :many
+SELECT * FROM agent_task WHERE goal_id = ? ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?;
 
 -- Aggregate counts of children by required_flag + status for rollup logic.
 -- name: GoalChildCounts :one

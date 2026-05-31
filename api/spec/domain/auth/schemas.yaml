@@ -49,9 +49,9 @@ components:
 
     AuthSessionList:
       type: object
-      required: [items]
+      required: [sessions]
       properties:
-        items:
+        sessions:
           type: array
           items: { $ref: "#/components/schemas/AuthSession" }
 
@@ -71,9 +71,9 @@ components:
 
     OIDCProviderList:
       type: object
-      required: [items]
+      required: [providers]
       properties:
-        items:
+        providers:
           type: array
           items:
             $ref: "#/components/schemas/OIDCProvider"

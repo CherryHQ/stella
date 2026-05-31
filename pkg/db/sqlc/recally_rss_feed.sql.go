@@ -241,16 +241,17 @@ WHERE feed_id = ?1
   AND status IN ('pending', 'error')
   AND attempts < 3
 ORDER BY discovered_at ASC
-LIMIT ?2
+LIMIT ?3 OFFSET ?2
 `
 
 type ListPendingRSSEntriesParams struct {
 	FeedID string `json:"feed_id"`
+	Offset int64  `json:"offset"`
 	Limit  int64  `json:"limit"`
 }
 
 func (q *Queries) ListPendingRSSEntries(ctx context.Context, arg ListPendingRSSEntriesParams) ([]RecallyRssFeedEntry, error) {
-	rows, err := q.db.QueryContext(ctx, listPendingRSSEntries, arg.FeedID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listPendingRSSEntries, arg.FeedID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -335,12 +336,19 @@ func (q *Queries) ListRSSFeedEntries(ctx context.Context, arg ListRSSFeedEntries
 
 const listRSSFeeds = `-- name: ListRSSFeeds :many
 SELECT id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed
-WHERE user_id = ?
-ORDER BY created_at DESC
+WHERE user_id = ?1
+ORDER BY created_at DESC, id DESC
+LIMIT ?3 OFFSET ?2
 `
 
-func (q *Queries) ListRSSFeeds(ctx context.Context, userID string) ([]RecallyRssFeed, error) {
-	rows, err := q.db.QueryContext(ctx, listRSSFeeds, userID)
+type ListRSSFeedsParams struct {
+	UserID string `json:"user_id"`
+	Offset int64  `json:"offset"`
+	Limit  int64  `json:"limit"`
+}
+
+func (q *Queries) ListRSSFeeds(ctx context.Context, arg ListRSSFeedsParams) ([]RecallyRssFeed, error) {
+	rows, err := q.db.QueryContext(ctx, listRSSFeeds, arg.UserID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

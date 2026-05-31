@@ -14,7 +14,7 @@ import (
 // Returns the list of configured OIDC providers so the frontend can build
 // login buttons. Public endpoint — no authentication required.
 func (s *Server) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
-	out := apitypes.OIDCProviderList{Items: []apitypes.OIDCProvider{}}
+	out := apitypes.OIDCProviderList{Providers: []apitypes.OIDCProvider{}}
 	for _, p := range s.authProviders {
 		prov := apitypes.OIDCProvider{
 			Name:     p.Name(),
@@ -24,7 +24,7 @@ func (s *Server) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
 			regURL := fmt.Sprintf("/auth/login/%s?mode=register", p.Name())
 			prov.RegisterUrl = &regURL
 		}
-		out.Items = append(out.Items, prov)
+		out.Providers = append(out.Providers, prov)
 	}
 	writeData(w, http.StatusOK, out)
 }

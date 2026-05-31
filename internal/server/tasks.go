@@ -61,8 +61,9 @@ func taskError(w http.ResponseWriter, err error) {
 	}
 }
 
-// loadTask resolves a {taskID} path param to a task row.
-// Returns false (and writes an error) on miss.
+// loadTask resolves a {taskID} path param to a task row owned by the current
+// user. Other users' tasks are reported as 404 to avoid leaking existence.
+// Returns false (and writes an error) on miss or ownership mismatch.
 func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID string) (sqlc.AgentTask, bool) {
 	t, err := s.tasksSvc.Facade.GetTask(ctx, taskID)
 	if err != nil {
@@ -71,6 +72,15 @@ func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID str
 			return sqlc.AgentTask{}, false
 		}
 		taskError(w, err)
+		return sqlc.AgentTask{}, false
+	}
+	info := UserFromContext(ctx)
+	if info == nil || info.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return sqlc.AgentTask{}, false
+	}
+	if t.UserID != info.UserID {
+		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentTask{}, false
 	}
 	return t, true
@@ -85,29 +95,42 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
 	}
-	if requireAuth(w, r) == nil {
+	info := requireAuth(w, r)
+	if info == nil {
 		return
 	}
-	var limit int64 = 50
-	if params.Limit != nil && *params.Limit > 0 {
-		limit = *params.Limit
+	if info.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "missing_user")
+		return
 	}
-	rows, err := s.tasksSvc.Facade.ListTasks(r.Context(), limit, 0)
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
+	agentID := ""
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
+	status := ""
+	if params.Status != nil {
+		status = *params.Status
+	}
+	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, status, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Task, 0, len(rows))
 	for _, t := range rows {
-		if params.AgentId != nil && *params.AgentId != "" && t.AgentID.String != *params.AgentId {
-			continue
-		}
-		if params.Status != nil && *params.Status != "" && t.Status != *params.Status {
-			continue
-		}
 		out = append(out, taskToAPI(t))
 	}
-	writeData(w, http.StatusOK, apitypes.TaskList{Items: out})
+	list := apitypes.TaskList{Tasks: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -273,7 +296,7 @@ func (s *Server) GetTaskReadiness(w http.ResponseWriter, r *http.Request, taskID
 	writeData(w, http.StatusOK, readinessToAPI(rd))
 }
 
-func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskEventsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -281,23 +304,33 @@ func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID s
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListEvents(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListEvents(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Event, 0, len(rows))
 	for _, e := range rows {
 		out = append(out, eventToAPI(e))
 	}
-	writeData(w, http.StatusOK, apitypes.EventList{Items: out})
+	list := apitypes.EventList{Events: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
-func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskRunsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -305,27 +338,37 @@ func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID str
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListRuns(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListRuns(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Run, 0, len(rows))
 	for _, run := range rows {
 		out = append(out, runToAPI(run))
 	}
-	writeData(w, http.StatusOK, apitypes.RunList{Items: out})
+	list := apitypes.RunList{Runs: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 // ---------------------------------------------------------------------------
 // Deps
 // ---------------------------------------------------------------------------
 
-func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskDepsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -333,20 +376,30 @@ func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID str
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListDeps(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListDeps(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Dep, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, depToAPI(row))
 	}
-	writeData(w, http.StatusOK, apitypes.DepList{Items: out})
+	list := apitypes.DepList{Deps: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -370,6 +423,10 @@ func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID strin
 		writeError(w, http.StatusBadRequest, "dep_task_id_required")
 		return
 	}
+	dep, ok := s.loadTask(r.Context(), w, req.DepTaskId)
+	if !ok {
+		return
+	}
 	kind := ""
 	if req.Kind != nil {
 		kind = string(*req.Kind)
@@ -378,7 +435,7 @@ func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID strin
 	if req.OnFailure != nil {
 		onFailure = string(*req.OnFailure)
 	}
-	if err := s.tasksSvc.Facade.AddDep(r.Context(), t.ID, req.DepTaskId, kind, onFailure); err != nil {
+	if err := s.tasksSvc.Facade.AddDep(r.Context(), t.ID, dep.ID, kind, onFailure); err != nil {
 		taskError(w, err)
 		return
 	}
@@ -401,6 +458,9 @@ func (s *Server) WaiveTaskDep(w http.ResponseWriter, r *http.Request, taskID str
 	userID := ""
 	if info != nil {
 		userID = info.UserID
+	}
+	if _, ok := s.loadTask(r.Context(), w, depTaskID); !ok {
+		return
 	}
 	var req apitypes.WaiveDepRequest
 	_ = decodeJSON(r, &req)
@@ -454,7 +514,7 @@ func (s *Server) ResolveTaskBlocker(w http.ResponseWriter, r *http.Request, task
 // Reviews
 // ---------------------------------------------------------------------------
 
-func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID string) {
+func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID string, params apiserver.ListTaskReviewsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
 		return
@@ -462,20 +522,30 @@ func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID 
 	if requireAuth(w, r) == nil {
 		return
 	}
+	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
+		return
+	}
 	t, ok := s.loadTask(r.Context(), w, taskID)
 	if !ok {
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListReviews(r.Context(), t.ID)
+	rows, err := s.tasksSvc.Facade.ListReviews(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
 		taskError(w, err)
 		return
 	}
+	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Review, 0, len(rows))
 	for _, rev := range rows {
 		out = append(out, reviewToAPI(rev))
 	}
-	writeData(w, http.StatusOK, apitypes.ReviewList{Items: out})
+	list := apitypes.ReviewList{Reviews: out}
+	if nextToken != "" {
+		list.NextPageToken = &nextToken
+	}
+	writeData(w, http.StatusOK, list)
 }
 
 func (s *Server) ApproveTaskReview(w http.ResponseWriter, r *http.Request, taskID string, reviewID string) {
@@ -723,7 +793,7 @@ func eventToAPI(e sqlc.AgentTaskEvent) apitypes.Event {
 	return out
 }
 
-func depToAPI(row sqlc.ListAgentTaskDepsWithUpstreamRow) apitypes.Dep {
+func depToAPI(row sqlc.ListAgentTaskDepsWithUpstreamPagedRow) apitypes.Dep {
 	out := apitypes.Dep{
 		TaskId:    row.AgentTaskDep.TaskID,
 		DepTaskId: row.AgentTaskDep.DepTaskID,

@@ -261,7 +261,7 @@ func TestAgentUserAssignment(t *testing.T) {
 		ID       string `json:"id"`
 		Username string `json:"username"`
 	}
-	_ = json.Unmarshal(parseListItems(t, rr), &users)
+	_ = json.Unmarshal(parseListItems(t, rr, "users"), &users)
 	if len(users) != 0 {
 		t.Errorf("expected 0 users, got %d", len(users))
 	}
@@ -274,7 +274,7 @@ func TestAgentUserAssignment(t *testing.T) {
 
 	// Verify user appears in list.
 	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
-	_ = json.Unmarshal(parseListItems(t, rr), &users)
+	_ = json.Unmarshal(parseListItems(t, rr, "users"), &users)
 	if len(users) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(users))
 	}
@@ -293,7 +293,7 @@ func TestAgentUserAssignment(t *testing.T) {
 
 	// Verify user removed.
 	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
-	_ = json.Unmarshal(parseListItems(t, rr), &users)
+	_ = json.Unmarshal(parseListItems(t, rr, "users"), &users)
 	if len(users) != 0 {
 		t.Errorf("expected 0 users after removal, got %d", len(users))
 	}

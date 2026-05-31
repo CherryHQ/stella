@@ -10,49 +10,48 @@ components:
       scheme: bearer
       description: STELLA_TOKEN bearer token (generated via vault)
 
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, status]
+          properties:
+            code:
+              type: integer
+              description: mirrors the HTTP status code
+            message:
+              type: string
+              description: human-readable, actionable description
+            status:
+              type: string
+              description: canonical status name (e.g. NOT_FOUND, INVALID_ARGUMENT)
+
   responses:
     Unauthorized:
       description: missing or invalid bearer token
       content:
         application/json:
-          schema:
-            type: object
-            required: [error]
-            properties:
-              error: { type: string }
+          schema: { $ref: "#/components/schemas/Error" }
     Forbidden:
       description: insufficient permissions
       content:
         application/json:
-          schema:
-            type: object
-            required: [error]
-            properties:
-              error: { type: string }
+          schema: { $ref: "#/components/schemas/Error" }
     NotFound:
       description: resource not found
       content:
         application/json:
-          schema:
-            type: object
-            required: [error]
-            properties:
-              error: { type: string }
+          schema: { $ref: "#/components/schemas/Error" }
     BadRequest:
       description: malformed request
       content:
         application/json:
-          schema:
-            type: object
-            required: [error]
-            properties:
-              error: { type: string }
+          schema: { $ref: "#/components/schemas/Error" }
     Conflict:
       description: request conflicts with current state
       content:
         application/json:
-          schema:
-            type: object
-            required: [error]
-            properties:
-              error: { type: string }
+          schema: { $ref: "#/components/schemas/Error" }

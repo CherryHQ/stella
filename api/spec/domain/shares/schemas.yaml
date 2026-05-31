@@ -31,3 +31,15 @@ components:
           type: string
           enum: [1h, 1d, 7d, never]
           default: 7d
+
+    ShareList:
+      type: object
+      required: [shares]
+      properties:
+        shares:
+          type: array
+          items: { $ref: "#/components/schemas/Share" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.

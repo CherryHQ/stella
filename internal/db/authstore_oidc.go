@@ -173,7 +173,18 @@ func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
 	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user ORDER BY created_at ASC`
-	rows, err := s.db.QueryContext(ctx, q)
+	return s.queryUsers(ctx, q)
+}
+
+func (s *OIDCStore) ListUsersPaged(ctx context.Context, limit, offset int64) ([]auth.User, error) {
+	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
+	           age_public_key, age_private_key, created_at, updated_at
+	           FROM auth_user ORDER BY created_at ASC LIMIT ? OFFSET ?`
+	return s.queryUsers(ctx, q, limit, offset)
+}
+
+func (s *OIDCStore) queryUsers(ctx context.Context, q string, args ...any) ([]auth.User, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

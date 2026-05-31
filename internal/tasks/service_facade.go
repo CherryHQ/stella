@@ -148,13 +148,18 @@ func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentT
 	return t, nil
 }
 
-// ListTasks returns paginated tasks.
-func (f *ServiceFacade) ListTasks(ctx context.Context, limit, offset int64) ([]sqlc.AgentTask, error) {
+// ListTasksByUser returns paginated tasks owned by the given user, optionally
+// filtered by agent and status. Empty filter strings match all rows.
+func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, status string, limit, offset int64) ([]sqlc.AgentTask, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentTasks(ctx, sqlc.ListAgentTasksParams{
-		Limit: limit, Offset: offset,
+	return f.q.ListAgentTasksByUser(ctx, sqlc.ListAgentTasksByUserParams{
+		UserID:  userID,
+		AgentID: nilIfEmpty(agentID),
+		Status:  nilIfEmpty(status),
+		Limit:   limit,
+		Offset:  offset,
 	})
 }
 
@@ -184,19 +189,40 @@ func (f *ServiceFacade) GetReadiness(ctx context.Context, taskID string) (Readin
 	return Compute(t, views, time.Now().UTC()), nil
 }
 
-// ListEvents returns the full audit trail for a task.
-func (f *ServiceFacade) ListEvents(ctx context.Context, taskID string) ([]sqlc.AgentTaskEvent, error) {
-	return f.q.ListAgentTaskEvents(ctx, nullable(taskID))
+// ListEvents returns the audit trail for a task, oldest first.
+func (f *ServiceFacade) ListEvents(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.AgentTaskEvent, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentTaskEvents(ctx, sqlc.ListAgentTaskEventsParams{
+		TaskID: nullable(taskID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
-// ListRuns returns all runs for a task, newest attempt first.
-func (f *ServiceFacade) ListRuns(ctx context.Context, taskID string) ([]sqlc.AgentTaskRun, error) {
-	return f.q.ListAgentTaskRunsByTask(ctx, nullable(taskID))
+// ListRuns returns runs for a task, newest attempt first.
+func (f *ServiceFacade) ListRuns(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.AgentTaskRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentTaskRunsByTask(ctx, sqlc.ListAgentTaskRunsByTaskParams{
+		TaskID: nullable(taskID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // ListDeps returns the dep edges (with upstream status) for a task.
-func (f *ServiceFacade) ListDeps(ctx context.Context, taskID string) ([]sqlc.ListAgentTaskDepsWithUpstreamRow, error) {
-	return f.q.ListAgentTaskDepsWithUpstream(ctx, taskID)
+func (f *ServiceFacade) ListDeps(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.ListAgentTaskDepsWithUpstreamPagedRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentTaskDepsWithUpstreamPaged(ctx, sqlc.ListAgentTaskDepsWithUpstreamPagedParams{
+		TaskID: taskID,
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // AddDep is a thin shim over TransitionService.AddDep for caller ergonomics.
@@ -228,8 +254,15 @@ func (f *ServiceFacade) ReopenTask(ctx context.Context, taskID string, cascade b
 }
 
 // ListReviews returns the review history for a task, newest first.
-func (f *ServiceFacade) ListReviews(ctx context.Context, taskID string) ([]sqlc.AgentReview, error) {
-	return f.q.ListAgentReviewsByTask(ctx, nullable(taskID))
+func (f *ServiceFacade) ListReviews(ctx context.Context, taskID string, limit, offset int64) ([]sqlc.AgentReview, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentReviewsByTask(ctx, sqlc.ListAgentReviewsByTaskParams{
+		TaskID: nullable(taskID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // ApproveReview exposes TransitionService.ApproveReview.
@@ -331,12 +364,12 @@ func (f *ServiceFacade) GetGoal(ctx context.Context, goalID string) (sqlc.AgentG
 	return g, nil
 }
 
-// ListGoals returns goals, newest first.
-func (f *ServiceFacade) ListGoals(ctx context.Context, limit int64) ([]sqlc.AgentGoal, error) {
+// ListGoals returns goals owned by the given user, newest first.
+func (f *ServiceFacade) ListGoals(ctx context.Context, userID string, limit, offset int64) ([]sqlc.AgentGoal, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	return f.q.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{Limit: limit, Offset: 0})
+	return f.q.ListAgentGoalsByUser(ctx, sqlc.ListAgentGoalsByUserParams{UserID: userID, Limit: limit, Offset: offset})
 }
 
 // ActivateGoal / CancelGoal are thin shims over TransitionService.
@@ -349,13 +382,27 @@ func (f *ServiceFacade) CancelGoal(ctx context.Context, goalID, reason string, a
 }
 
 // ListGoalTasks lists child tasks of a goal.
-func (f *ServiceFacade) ListGoalTasks(ctx context.Context, goalID string) ([]sqlc.AgentTask, error) {
-	return f.q.ListChildrenByGoal(ctx, nullable(goalID))
+func (f *ServiceFacade) ListGoalTasks(ctx context.Context, goalID string, limit, offset int64) ([]sqlc.AgentTask, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListChildrenByGoalPaged(ctx, sqlc.ListChildrenByGoalPagedParams{
+		GoalID: nullable(goalID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 // ListGoalReviews lists reviews for a goal.
-func (f *ServiceFacade) ListGoalReviews(ctx context.Context, goalID string) ([]sqlc.AgentReview, error) {
-	return f.q.ListAgentReviewsByGoal(ctx, nullable(goalID))
+func (f *ServiceFacade) ListGoalReviews(ctx context.Context, goalID string, limit, offset int64) ([]sqlc.AgentReview, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentReviewsByGoal(ctx, sqlc.ListAgentReviewsByGoalParams{
+		GoalID: nullable(goalID),
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 func timeOrNull(t time.Time) sql.NullString {
@@ -363,4 +410,13 @@ func timeOrNull(t time.Time) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: t.UTC().Format(time.RFC3339Nano), Valid: true}
+}
+
+// nilIfEmpty returns nil for an empty string so a sqlc.narg filter matches all
+// rows; otherwise it returns the value to filter on.
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

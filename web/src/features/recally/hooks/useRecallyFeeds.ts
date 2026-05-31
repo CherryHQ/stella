@@ -16,7 +16,7 @@ export function useRecallyFeeds(showToast: (message: string, type?: "success" | 
   >({});
 
   const feedsQuery = useQuery(listFeedsOptions());
-  const feeds = feedsQuery.data?.items ?? [];
+  const feeds = feedsQuery.data?.feeds ?? [];
 
   const createFeedMut = useMutation({
     ...createFeedMutation(),

@@ -57,11 +57,15 @@ components:
 
     GoalList:
       type: object
-      required: [items]
+      required: [goals]
       properties:
-        items:
+        goals:
           type: array
           items: { $ref: "#/components/schemas/Goal" }
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
 
     CreateGoalRequest:
       type: object

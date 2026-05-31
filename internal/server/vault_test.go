@@ -82,18 +82,21 @@ func TestVaultCRUD(t *testing.T) {
 		t.Fatalf("list status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
-	var entries []map[string]string
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	var wrapper struct {
+		Entries []map[string]string `json:"entries"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	entries := wrapper.Entries
 	if len(entries) != 0 {
 		t.Fatalf("expected 0 entries, got %d", len(entries))
 	}
 
 	// Set a secret.
 	rr = doRequest(t, env, "PUT", "/api/auth/profile/vault/GITHUB_TOKEN", map[string]string{"value": "ghp_test123"})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("set status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// List — one entry.
@@ -101,8 +104,7 @@ func TestVaultCRUD(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	resp = parseResponse(t, rr)
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	if err := json.Unmarshal(parseListItems(t, rr, "entries"), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(entries) != 1 {
@@ -123,8 +125,8 @@ func TestVaultCRUD(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list status = %d", rr.Code)
 	}
-	resp = parseResponse(t, rr)
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	entries = nil
+	if err := json.Unmarshal(parseListItems(t, rr, "entries"), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(entries) != 0 {
@@ -173,8 +175,8 @@ func TestVaultSetEmptyName(t *testing.T) {
 
 	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/", map[string]string{"value": "v"})
 	// Empty name in path — either 400 or 404 depending on router
-	if rr.Code == http.StatusNoContent {
-		t.Fatal("expected error for empty name, got 204")
+	if rr.Code == http.StatusOK {
+		t.Fatal("expected error for empty name, got 200")
 	}
 }
 
@@ -183,8 +185,8 @@ func TestVaultSetInvalidJSON(t *testing.T) {
 
 	rr := doRequestWithSession(t, env.srv, env.bearerToken, "PUT", "/api/auth/profile/vault/MY_KEY", nil)
 	// No body → JSON decode error or empty value
-	if rr.Code == http.StatusNoContent {
-		t.Fatal("expected error for nil body, got 204")
+	if rr.Code == http.StatusOK {
+		t.Fatal("expected error for nil body, got 200")
 	}
 }
 
@@ -193,14 +195,14 @@ func TestVaultUpdateExisting(t *testing.T) {
 
 	// Set initial value.
 	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_SECRET", map[string]string{"value": "v1"})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("set status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Update with new value.
 	rr = doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_SECRET", map[string]string{"value": "v2"})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// List — still one entry.
@@ -209,10 +211,13 @@ func TestVaultUpdateExisting(t *testing.T) {
 		t.Fatalf("list status = %d", rr.Code)
 	}
 	resp := parseResponse(t, rr)
-	var entries []map[string]string
-	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+	var wrapper struct {
+		Entries []map[string]string `json:"entries"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapper); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	entries := wrapper.Entries
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry after update, got %d", len(entries))
 	}

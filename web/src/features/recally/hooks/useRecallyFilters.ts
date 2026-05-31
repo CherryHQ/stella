@@ -22,7 +22,7 @@ export function useRecallyFilters() {
   const [selectedDigestDate, setSelectedDigestDate] = useState<string | null>(null);
 
   const digestQuery = useQuery(getDigestOptions());
-  const storedDigestsQuery = useQuery(listStoredDigestsOptions({ query: { limit: 50 } }));
+  const storedDigestsQuery = useQuery(listStoredDigestsOptions({ query: { page_size: 50 } }));
   const selectedDigestQuery = useQuery({
     ...getStoredDigestOptions({ path: { date: selectedDigestDate ?? "" } }),
     enabled: !!selectedDigestDate,
@@ -34,13 +34,13 @@ export function useRecallyFilters() {
         ...(statusFilter ? { status: statusFilter } : {}),
         ...(sourceTypeFilter ? { source_type: sourceTypeFilter } : {}),
         ...(starredFilter !== null ? { starred: starredFilter } : {}),
-        limit: 50,
+        page_size: 50,
       },
     }),
   );
 
   const digest = digestQuery.data;
-  const articles = articlesQuery.data?.items ?? [];
+  const articles = articlesQuery.data?.articles ?? [];
 
   const displayArticles = useMemo(
     () => (tagFilter ? articles.filter((a) => a.tags?.includes(tagFilter)) : articles),
@@ -96,8 +96,8 @@ export function useRecallyFilters() {
     digestQuery,
     digest,
     storedDigestsQuery,
-    storedDigests: storedDigestsQuery.data?.items ?? [],
-    storedDigestsTotal: storedDigestsQuery.data?.total ?? 0,
+    storedDigests: storedDigestsQuery.data?.digests ?? [],
+    storedDigestsTotal: storedDigestsQuery.data?.total_size ?? 0,
     selectedDigestDate,
     setSelectedDigestDate,
     selectedDigestQuery,

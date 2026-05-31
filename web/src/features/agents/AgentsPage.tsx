@@ -14,7 +14,6 @@ import {
   listAgents,
   listAgentSkills,
   listAgentUsers,
-  listAuthUsers,
   listBuiltinResources,
   listChannels,
   listModels,
@@ -29,7 +28,6 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type {
   CreateAgentData,
-  ComponentsCachedModel,
   InstallAgentSkillData,
   UpdateAgentData,
   UpdateAgentSkillData,
@@ -43,6 +41,7 @@ import type {
   Skill,
   User,
 } from "@/lib/types";
+import { fetchAllAuthUsers } from "@/lib/auth-users";
 import { Button } from "@/components/ui/button";
 import { AgentList } from "./AgentList";
 import { AgentForm } from "./AgentForm";
@@ -158,20 +157,20 @@ export interface AgentsSettingsLoaderData {
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
     listAgents({ throwOnError: true })
-      .then(({ data }) => data?.items ?? [])
+      .then(({ data }) => data?.agents ?? [])
       .catch(() => []),
     listModels({ throwOnError: true })
-      .then(({ data }) => (data as ComponentsCachedModel[]) ?? [])
+      .then(({ data }) => data?.models ?? [])
       .catch(() => []),
     getMe({ throwOnError: true })
       .then(({ data }) => data)
       .catch(() => null),
     Promise.all([
       listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
-        .then(({ data }) => (data as BuiltinItem[]) ?? [])
+        .then(({ data }) => (data?.resources as BuiltinItem[]) ?? [])
         .catch(() => []),
       listBuiltinResources({ path: { kind: "soul" }, throwOnError: true })
-        .then(({ data }) => (data as BuiltinItem[]) ?? [])
+        .then(({ data }) => (data?.resources as BuiltinItem[]) ?? [])
         .catch(() => []),
     ]),
   ]);
@@ -185,19 +184,15 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const channels = isAdmin
     ? (
         (await listChannels({ throwOnError: true })
-          .then(({ data }) => data?.items ?? [])
+          .then(({ data }) => data?.channels ?? [])
           .catch(() => [])) ?? []
       ).map(normalizeChannel)
     : [];
-  const allUsers = isAdmin
-    ? ((await listAuthUsers({ throwOnError: true })
-        .then(({ data }) => ((data as { items?: User[] })?.items ?? []) as User[])
-        .catch(() => [])) ?? [])
-    : [];
+  const allUsers = isAdmin ? await fetchAllAuthUsers().catch(() => []) : [];
   const agentSkills = (
     agentId
       ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
-          .then(({ data }) => data?.items ?? [])
+          .then(({ data }) => data?.skills ?? [])
           .catch(() => [])) ?? [])
       : []
   ) as Skill[];
@@ -361,7 +356,7 @@ export function AgentsPage() {
     async (currentState?: AgentsPageState) => {
       try {
         const { data } = await listAgents({ throwOnError: true });
-        const agents = (data?.items ?? []).map((a) => ({
+        const agents = (data?.agents ?? []).map((a) => ({
           ...a,
           sandbox: normalizeSandbox(a.sandbox),
           _highlight: a.id === requestedAgentID(),
@@ -382,7 +377,7 @@ export function AgentsPage() {
   const loadChannels = useCallback(async () => {
     try {
       const { data } = await listChannels({ throwOnError: true });
-      const channels = ((data?.items ?? []) as Channel[]).map(normalizeChannel);
+      const channels = ((data?.channels ?? []) as Channel[]).map(normalizeChannel);
       setState((prev) => ({ ...prev, channels }));
       return channels;
     } catch {
@@ -399,7 +394,7 @@ export function AgentsPage() {
     setState((prev) => ({ ...prev, agentSkillsLoading: true }));
     try {
       const { data } = await listAgentSkills({ path: { id: agentId }, throwOnError: true });
-      const agentSkills = data?.items ?? [];
+      const agentSkills = data?.skills ?? [];
       setState((prev) => ({
         ...prev,
         agentSkills: agentSkills as Skill[],
@@ -439,7 +434,9 @@ export function AgentsPage() {
   const loadAssignedUsers = useCallback(async (agentId: string) => {
     try {
       const { data } = await listAgentUsers({ path: { id: agentId }, throwOnError: true });
-      const assignedUsers = ((data as { items?: User[] })?.items ?? []) as User[];
+      const assignedUsers = (data?.users ?? []).map(
+        (u) => ({ id: u.id ?? "", email: u.username ?? "", name: "" }) as User,
+      );
       setState((prev) => ({ ...prev, assignedUsers }));
     } catch {
       setState((prev) => ({ ...prev, assignedUsers: [] }));
@@ -998,7 +995,7 @@ export function AgentsPage() {
     async (currentState: AgentsPageState) => {
       try {
         await setProfileSoul({
-          path: { agentID: currentState.editingId ?? "" },
+          path: { agentId: currentState.editingId ?? "" },
           body: { soul: currentState.personalisation.soulDraft },
           throwOnError: true,
         });
@@ -1018,7 +1015,7 @@ export function AgentsPage() {
     async (currentState: AgentsPageState) => {
       try {
         await setProfileMemory({
-          path: { agentID: currentState.editingId ?? "" },
+          path: { agentId: currentState.editingId ?? "" },
           body: { content: currentState.personalisation.profileDraft },
           throwOnError: true,
         });

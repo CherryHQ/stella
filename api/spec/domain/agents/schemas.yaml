@@ -34,9 +34,9 @@ components:
 
     AgentList:
       type: object
-      required: [items]
+      required: [agents]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Agent" } }
+        agents: { type: array, items: { $ref: "#/components/schemas/Agent" } }
 
     CreateAgentRequest:
       type: object
@@ -63,9 +63,9 @@ components:
 
     AgentUserList:
       type: object
-      required: [items]
+      required: [users]
       properties:
-        items: {
+        users: {
           type: array,
           items: { $ref: "#/components/schemas/AgentUser" },
         }
@@ -95,9 +95,9 @@ components:
 
     SkillList:
       type: object
-      required: [items]
+      required: [skills]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Skill" } }
+        skills: { type: array, items: { $ref: "#/components/schemas/Skill" } }
 
     CreateSkillRequest:
       type: object

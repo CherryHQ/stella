@@ -1,9 +1,50 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 )
+
+// Pagination tokens are deliberately offset-based, not keyset-based. The token
+// is base64(offset) and carries no filter fingerprint or expiry. This is a
+// pragmatic choice for an internal API served only to our own frontend + CLI:
+// it keeps every list handler a one-liner and is correct for the read-mostly
+// collections here. The known tradeoffs versus the keyset scheme in
+// rest-api-design/SKILL.md: (1) under concurrent inserts ahead of the cursor a
+// row can be skipped or duplicated at a page boundary — the per-query
+// `ORDER BY <ts>, id` tiebreaker makes the order stable but does not eliminate
+// offset drift; (2) a client may change filter params between pages without a
+// 400. Revisit (keyset + filter-bound, expiring tokens) if this API is ever
+// exposed to third parties.
+
+// encodeOffsetToken encodes an offset into an opaque page token (AIP-158).
+// Callers treat the result as opaque; clients must not parse it.
+func encodeOffsetToken(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// decodeOffsetToken decodes an opaque page token back into an offset. An empty
+// token yields offset 0; a malformed token yields an error.
+func decodeOffsetToken(token string) (int, error) {
+	if token == "" {
+		return 0, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return 0, err
+	}
+	offset, err := strconv.Atoi(string(raw))
+	if err != nil {
+		return 0, err
+	}
+	if offset < 0 {
+		return 0, fmt.Errorf("negative offset in page token: %d", offset)
+	}
+	return offset, nil
+}
 
 // writeData writes a success JSON response with the given data.
 func writeData(w http.ResponseWriter, status int, data any) {
@@ -12,16 +53,44 @@ func writeData(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-// writeListData writes a success JSON response wrapping items in {"items": ...}.
-func writeListData(w http.ResponseWriter, status int, items any) {
-	writeData(w, status, map[string]any{"items": items})
-}
-
-// writeError writes an error JSON response.
+// writeError writes a structured error response per AIP-193:
+// {"error": {"code", "message", "status"}}.
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{
+			"code":    status,
+			"message": msg,
+			"status":  statusName(status),
+		},
+	})
+}
+
+// statusName maps an HTTP status code to its canonical AIP status name.
+func statusName(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "INVALID_ARGUMENT"
+	case http.StatusUnauthorized:
+		return "UNAUTHENTICATED"
+	case http.StatusForbidden:
+		return "PERMISSION_DENIED"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "ABORTED"
+	case http.StatusTooManyRequests:
+		return "RESOURCE_EXHAUSTED"
+	case http.StatusServiceUnavailable:
+		return "UNAVAILABLE"
+	case http.StatusBadGateway:
+		return "UNAVAILABLE"
+	case http.StatusInternalServerError:
+		return "INTERNAL"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 // writeNoContent writes a 204 No Content response with no body.

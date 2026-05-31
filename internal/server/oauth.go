@@ -38,7 +38,7 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providers := s.credSvc.GetProviderStatuses(r.Context(), info.UserID)
-	writeData(w, http.StatusOK, providers)
+	writeData(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
 // StartOAuthFlow handles POST /api/auth/profile/oauth/{provider}/start.

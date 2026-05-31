@@ -5,13 +5,6 @@ info:
 paths: {}
 components:
   schemas:
-    # ── Shared ─────────────────────────────────────────────────────────────────
-    Error:
-      type: object
-      required: [error]
-      properties:
-        error: { type: string }
-
     # ── Recally ────────────────────────────────────────────────────────────────
     ArticleStatus:
       type: string
@@ -68,9 +61,13 @@ components:
 
     ArticleList:
       type: object
-      required: [items]
+      required: [articles]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Article" } }
+        articles: {
+          type: array,
+          items: { $ref: "#/components/schemas/Article" },
+        }
+        next_page_token: { type: string, nullable: true }
 
     SaveArticleRequest:
       type: object
@@ -138,9 +135,10 @@ components:
 
     FeedList:
       type: object
-      required: [items]
+      required: [feeds]
       properties:
-        items: { type: array, items: { $ref: "#/components/schemas/Feed" } }
+        feeds: { type: array, items: { $ref: "#/components/schemas/Feed" } }
+        next_page_token: { type: string, nullable: true }
 
     CreateFeedRequest:
       type: object
@@ -179,12 +177,13 @@ components:
 
     FeedEntryList:
       type: object
-      required: [items]
+      required: [entries]
       properties:
-        items: {
+        entries: {
           type: array,
           items: { $ref: "#/components/schemas/FeedEntry" },
         }
+        next_page_token: { type: string, nullable: true }
 
     UpdateFeedEntryRequest:
       type: object
@@ -284,12 +283,13 @@ components:
 
     StoredDigestSummaryList:
       type: object
-      required: [items, total]
+      required: [digests, total_size]
       properties:
-        items:
+        digests:
           type: array
           items: { $ref: "#/components/schemas/StoredDigestSummary" }
-        total: { type: integer, format: int64 }
+        total_size: { type: integer, format: int64 }
+        next_page_token: { type: string, nullable: true }
 
     StoredDigest:
       type: object

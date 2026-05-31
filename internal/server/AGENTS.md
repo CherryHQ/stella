@@ -54,7 +54,9 @@ internal/server/
 - All API routes: `/api/*` with JSON `Content-Type`
 - All `/api/*` routes are generated from the OpenAPI spec via `apiserver.HandlerFromMux(s, s.mux)` in `routes.go`. Do not hand-register API routes.
 - To add a new API route: follow the spec-first workflow in `api/CLAUDE.md` (write spec → `mise run generate:api` → implement the generated `ServerInterface` method).
-- Success responses are bare JSON (no envelope), errors use `{"error": "message"}`
+- Single-resource responses return the resource directly (no envelope). List responses use a resource-named array field (e.g. `{"sessions": [...]}`); paginating lists add `next_page_token`.
+- Errors use a structured body: `{"error": {"code", "message", "status"}}` (see `writeError`).
+- Pagination is cursor-based: `page_size` / `page_token` in, `next_page_token` out; tokens are opaque offsets via `encodeOffsetToken` / `decodeOffsetToken`.
 - Handler helpers: `writeData(w, status, data)`, `writeError(w, status, msg)`, `decodeJSON(r, &dst)`
 - `GET /api/auth/me` returns `{ id, username, role, is_admin }` (snake_case `is_admin`)
 

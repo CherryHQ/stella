@@ -42,7 +42,7 @@ func (s *Server) ListVaultEntries(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt: parseTime(e.UpdatedAt),
 		}
 	}
-	writeData(w, http.StatusOK, resp)
+	writeData(w, http.StatusOK, map[string]any{"entries": resp})
 }
 
 // GetVaultEntry handles GET /api/auth/profile/vault/{name}.
@@ -113,7 +113,17 @@ func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	meta, err := s.vaultSvc.GetMeta(r.Context(), info.UserID, name)
+	if err != nil {
+		s.log.Error("get vault entry meta", "user_id", info.UserID, "name", name, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeData(w, http.StatusOK, vaultEntryResponse{
+		Name:      meta.Name,
+		CreatedAt: parseTime(meta.CreatedAt),
+		UpdatedAt: parseTime(meta.UpdatedAt),
+	})
 }
 
 // DeleteVaultEntry handles DELETE /api/auth/profile/vault/{name}.
