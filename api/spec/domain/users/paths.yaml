@@ -193,8 +193,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateRoleRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -239,8 +244,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateAgentsRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUserAgentList",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -369,8 +379,13 @@ paths:
               $ref: "../../components.yaml#/components/schemas/UpdateActiveRequest",
             }
       responses:
-        "204":
+        "200":
           description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AuthUser",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

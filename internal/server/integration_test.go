@@ -242,8 +242,8 @@ func TestRoleDemotionInvalidatesSessions(t *testing.T) {
 	// Demote via the admin API (using the original admin's bearer token).
 	body := map[string]string{"role": "user"}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/role", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("demote: status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("demote: status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// The demoted user's session should be invalidated.
@@ -285,8 +285,8 @@ func TestDeactivationInvalidatesSessions(t *testing.T) {
 
 	// Deactivate via admin API.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+result.User.ID+"/active", map[string]any{"is_active": false})
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("deactivate: status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("deactivate: status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Session should be invalidated.
@@ -395,7 +395,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 4. Admin promotes user to admin.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "admin"})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 4 promote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -418,7 +418,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 7. Demote back to user.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", map[string]string{"role": "user"})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 7 demote: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -430,7 +430,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 9. Deactivate user.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": false})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 9 deactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -442,7 +442,7 @@ func TestFullUserLifecycle(t *testing.T) {
 
 	// 11. Reactivate user.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", map[string]any{"is_active": true})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("step 11 reactivate: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -472,7 +472,7 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 
 	// Assign Stella.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID}})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("assign: status = %d", rr.Code)
 	}
 
@@ -490,7 +490,7 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 		Scope:   "system",
 	})
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{stellaID, secondAgent}})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("assign both: status = %d", rr.Code)
 	}
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)
@@ -501,7 +501,7 @@ func TestAgentAssignmentLifecycle(t *testing.T) {
 
 	// Remove all.
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/agents", map[string]any{"agent_ids": []string{}})
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusOK {
 		t.Fatalf("remove all: status = %d", rr.Code)
 	}
 	rr = doRequest(t, env, "GET", "/api/auth/users/"+user.ID+"/agents", nil)

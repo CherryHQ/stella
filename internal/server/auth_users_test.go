@@ -94,8 +94,8 @@ func TestUpdateAuthUserRolePromote(t *testing.T) {
 
 	body := map[string]string{"role": "admin"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -106,8 +106,8 @@ func TestUpdateAuthUserRoleDemote(t *testing.T) {
 
 	body := map[string]string{"role": "user"}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/role", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -152,8 +152,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	stellaID := findStellaID(t, env)
 	body := map[string]any{"agent_ids": []string{stellaID}}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify assignment.
@@ -166,8 +166,8 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	// Remove by setting empty.
 	body = map[string]any{"agent_ids": []string{}}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+uid+"/agents", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusNoContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Verify empty.
@@ -186,8 +186,8 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Deactivate.
 	body := map[string]any{"is_active": false}
 	rr := doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("deactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	// Verify deactivated.
@@ -209,8 +209,8 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Reactivate.
 	body = map[string]any{"is_active": true}
 	rr = doRequest(t, env, "PATCH", "/api/auth/users/"+user.ID+"/active", body)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("reactivate status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reactivate status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 

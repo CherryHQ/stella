@@ -77,6 +77,11 @@ func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) 
 	if requireAdmin(w, r) == nil {
 		return
 	}
+	s.writeAuthUser(w, r, id)
+}
+
+// writeAuthUser loads the auth user by ID and writes the full AuthUser resource.
+func (s *Server) writeAuthUser(w http.ResponseWriter, r *http.Request, id string) {
 	u, err := s.users.GetUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
@@ -126,7 +131,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		_ = s.sessions.DeleteUserSessions(r.Context(), id)
 	}
 
-	writeNoContent(w)
+	s.writeAuthUser(w, r, id)
 }
 
 // ListAuthUserAgents handles GET /api/auth/users/{id}/agents.
@@ -198,7 +203,12 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 		}
 	}
 
-	writeNoContent(w)
+	updated, err := s.authStore.ListUserAgentIDs(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list user agents: "+err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"agent_ids": updated})
 }
 
 // DeleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
@@ -267,7 +277,7 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		_ = s.sessions.DeleteUserSessions(r.Context(), id)
 	}
 
-	writeNoContent(w)
+	s.writeAuthUser(w, r, id)
 }
 
 // ListAuthUserLoginIdentities handles GET /api/auth/users/{id}/identities/login.
