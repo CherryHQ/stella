@@ -225,10 +225,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
 			return as.ListActiveUserIDs(ctx)
 		})
-		s.schedulerSvc.EnsureBuiltinJobs()
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
+		s.schedulerSvc.EnsureBuiltinJobs()
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
 
