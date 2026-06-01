@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -142,6 +144,7 @@ func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
 	pools                    map[string]*Pool
+	services                 map[string]*Service // mirrors pools; one Service per agent
 	store                    config.Store
 	mem                      memory.Provider
 	mu                       sync.RWMutex
@@ -169,6 +172,7 @@ type PoolManager struct {
 func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManagerOption) *PoolManager {
 	pm := &PoolManager{
 		pools:       make(map[string]*Pool),
+		services:    make(map[string]*Service),
 		store:       store,
 		mem:         mem,
 		idleTimeout: 10 * time.Minute,
@@ -298,12 +302,48 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	pool.SetHooks(pm.HookPlugins)
 	go pool.StartReaper(ctx)
 
+	svc, err := pm.buildService(ctx, ag.ID, factory, snap)
+	if err != nil {
+		pm.log.Warn("failed to build service for agent", "agent_id", ag.ID, "error", err)
+		// Service failure is non-fatal; pool still works.
+	}
+
 	pm.mu.Lock()
 	pm.pools[ag.ID] = pool
+	if svc != nil {
+		pm.services[ag.ID] = svc
+	}
 	pm.mu.Unlock()
 
 	pm.log.Info("agent started", "agent_id", ag.ID, "workspace", workspace)
 	return nil
+}
+
+// buildService creates a Service for an agent, wrapping session.Registry and runtime.Runtime.
+func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory NewRunnerFunc, snap *config.Snapshot) (*Service, error) {
+	reg, err := session.NewRegistry(pm.mem, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("build session registry for %q: %w", agentID, err)
+	}
+
+	cfg := agentruntime.Config{
+		Factory:      factory,
+		Memory:       pm.mem,
+		IdleTimeout:  pm.idleTimeout,
+		DefaultModel: snap.ResolveModelID(config.ModelTierStrong),
+		HooksFn:      pm.HookPlugins,
+		Compaction: agentruntime.CompactionConfig{
+			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
+			KeepTail:  pm.compaction.WithDefaults().KeepTail,
+		},
+	}
+	rt, err := agentruntime.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build runtime for %q: %w", agentID, err)
+	}
+	go rt.StartReaper(ctx)
+
+	return &Service{Sessions: reg, Runtime: rt, AgentID: agentID}, nil
 }
 
 // DefaultPool returns the first pool found in the map, or nil if empty.
@@ -313,6 +353,24 @@ func (pm *PoolManager) DefaultPool() *Pool {
 	defer pm.mu.RUnlock()
 	for _, p := range pm.pools {
 		return p
+	}
+	return nil
+}
+
+// GetService returns the Service for the given agent ID, or nil if not found.
+// Implements ServiceManager.
+func (pm *PoolManager) GetService(agentID string) *Service {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.services[agentID]
+}
+
+// Default returns any service (first found). Implements ServiceManager.
+func (pm *PoolManager) Default() *Service {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	for _, svc := range pm.services {
+		return svc
 	}
 	return nil
 }
@@ -437,7 +495,12 @@ func (pm *PoolManager) removeAgentPool(agentID string) error {
 	pm.mu.Lock()
 	pool := pm.pools[agentID]
 	delete(pm.pools, agentID)
+	svc := pm.services[agentID]
+	delete(pm.services, agentID)
 	pm.mu.Unlock()
+	if svc != nil {
+		_ = svc.Runtime.Close()
+	}
 	if pool == nil {
 		return nil
 	}

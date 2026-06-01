@@ -8,6 +8,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // Service is a thin composition facade over session.Registry and runtime.Runtime.
@@ -61,8 +62,8 @@ type DelegateResult struct {
 // ServiceManager provides multi-agent Service lookup.
 // It replaces PoolManager for callers migrated to the new model.
 type ServiceManager interface {
-	// Get returns the Service for the given agent ID, or nil if not found.
-	Get(agentID string) *Service
+	// GetService returns the Service for the given agent ID, or nil if not found.
+	GetService(agentID string) *Service
 	// Default returns any service (first found). Useful for single-agent deployments.
 	Default() *Service
 }
@@ -166,4 +167,59 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 		Output:    res.Output,
 		Complete:  res.Complete,
 	}, err
+}
+
+// ResolveMainSession resolves the main session for a user+agent pair, creating
+// one if missing. It is the canonical replacement for Pool.ResolveSession on
+// private user channels.
+func (s *Service) ResolveMainSession(ctx context.Context, userID, agentID string) (session.Info, error) {
+	if agentID == "" {
+		agentID = s.AgentID
+	}
+	return s.Sessions.ResolveMain(ctx, session.MainRequest{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+}
+
+// CompactSession runs full compaction on the session identified by sessionID.
+// This is a best-effort operation: it returns the compaction summary or an error.
+func (s *Service) CompactSession(ctx context.Context, info session.Info) (string, error) {
+	mem := s.Runtime.Memory()
+	if mem == nil {
+		return "", fmt.Errorf("no memory provider")
+	}
+	c, ok := mem.(interface {
+		Compact(ctx context.Context, session memory.Session, mode memory.CompactionMode) (*memory.CompactionResult, error)
+	})
+	if !ok {
+		return "", fmt.Errorf("memory provider does not support compaction")
+	}
+	memSess := s.Sessions.MemoryScope(info)
+	result, err := c.Compact(ctx, memSess, memory.CompactionFull)
+	if err != nil {
+		return "", fmt.Errorf("compact: %w", err)
+	}
+	return fmt.Sprintf("compacted: %d leaf + %d condensed summaries, %d→%d tokens",
+		result.LeafSummariesCreated, result.CondensedSummariesCreated,
+		result.TokensBefore, result.TokensAfter), nil
+}
+
+// History returns the raw message history for the given session.
+func (s *Service) History(ctx context.Context, info session.Info) []ai.Message {
+	mem := s.Runtime.Memory()
+	if mem == nil {
+		return nil
+	}
+	sm, ok := mem.(memory.SessionManager)
+	if !ok {
+		return nil
+	}
+	saveCtx := memory.WithUserID(ctx, info.UserID)
+	saveCtx = memory.WithAgentID(saveCtx, info.AgentID)
+	msgs, err := sm.LoadHistory(saveCtx, info.ID)
+	if err != nil {
+		return nil
+	}
+	return msgs
 }

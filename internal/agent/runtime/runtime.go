@@ -135,6 +135,11 @@ func (rt *Runtime) ResetRunnersForUser(userID string) error {
 	return lastErr
 }
 
+// Memory returns the memory provider backing this runtime.
+func (rt *Runtime) Memory() memory.Provider {
+	return rt.mem
+}
+
 // Chat executes a user message inside the given session and streams events back.
 // info must have been obtained from session.Registry — this method does not
 // create or repair session metadata.

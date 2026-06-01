@@ -5,23 +5,24 @@ import (
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/memory"
 )
 
 type ResolvedChat struct {
-	Pool       *agent.Pool
+	Service    *agent.Service
 	User       auth.User
 	AgentID    string
 	SessionKey string
+	Channel    session.Channel
 	ChatCtx    ChatContext
 }
 
 func (rc *ResolvedChat) UserID() string { return rc.User.ID }
 
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (agent.SessionInfo, error) {
-	return rc.Pool.ResolveSession(ctx, rc.SessionKey, rc.User.ID)
+	return rc.Service.ResolveMainSession(ctx, rc.User.ID, rc.AgentID)
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
@@ -29,31 +30,35 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve session: %w", err)
 	}
-	ctx = memory.WithUserID(ctx, rc.User.ID)
-	return rc.Pool.CompactSession(ctx, info.ID)
+	return rc.Service.CompactSession(ctx, info)
 }
 
-func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent, opts ...agent.ChatOption) (<-chan agent.Event, string, error) {
+func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
 	if rc.User.ID == "" {
 		return nil, "", fmt.Errorf("missing user context")
 	}
 	if rc.AgentID == "" {
 		return nil, "", fmt.Errorf("missing agent context")
 	}
-	ctx = memory.WithUserID(ctx, rc.User.ID)
-	ctx = memory.WithAgentID(ctx, rc.AgentID)
 	info, err := rc.ResolveSession(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
-	return rc.Pool.Chat(ctx, info.ID, message, opts...), info.ID, nil
+	stream := rc.Service.Chat(ctx, agent.ChatRequest{
+		SessionID: info.ID,
+		UserID:    rc.User.ID,
+		AgentID:   rc.AgentID,
+		Channel:   rc.Channel,
+		Message:   message,
+	})
+	return stream, info.ID, nil
 }
 
-func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
-	return ResolveWithChannel(ctx, pm, store, authStore, engine, platform, platform, senderID, nil, senderName, chatID, isGroup)
+func Resolve(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+	return ResolveWithChannel(ctx, sm, store, authStore, engine, platform, platform, senderID, nil, senderName, chatID, isGroup)
 }
 
-func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, channelID, senderID string, senderIDs []string, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, channelID, senderID string, senderIDs []string, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
 	if channelID == "" {
 		channelID = platform
 	}
@@ -76,9 +81,9 @@ func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config
 		return nil, fmt.Errorf("resolve agent: %w", err)
 	}
 
-	pool := pm.Get(agentID)
-	if pool == nil {
-		return nil, fmt.Errorf("agent pool %q not found", agentID)
+	svc := sm.GetService(agentID)
+	if svc == nil {
+		return nil, fmt.Errorf("agent service %q not found", agentID)
 	}
 
 	channelCtx := "private"
@@ -97,10 +102,11 @@ func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config
 	}
 
 	return &ResolvedChat{
-		Pool:       pool,
+		Service:    svc,
 		User:       resolved.User,
 		AgentID:    agentID,
 		SessionKey: sessionKey,
+		Channel:    session.Channel(platform),
 		ChatCtx:    chatCtx,
 	}, nil
 }
