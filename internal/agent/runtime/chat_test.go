@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -68,5 +70,57 @@ func TestStreamEventsDoesNotDuplicateBufferedAssistantStore(t *testing.T) {
 	}
 	if got := msg.Content[1].(ai.TextContent).Text; got != "answer" {
 		t.Fatalf("text = %q", got)
+	}
+}
+
+func TestStreamEvents_TimeoutDoesNotForwardError(t *testing.T) {
+	mem := &recordingMemory{}
+	rt := &Runtime{mem: mem, log: slog.Default()}
+
+	stream := make(chan Event, 3)
+	out := make(chan Event, 10)
+	stream <- Event{Text: "partial"}
+	stream <- Event{Err: ErrChatTimeout}
+	close(stream)
+
+	rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now())
+
+	var events []Event
+	for evt := range out {
+		events = append(events, evt)
+	}
+
+	// Should have: text "partial", then the timeout notice text.
+	// Should NOT have an Err event.
+	for _, evt := range events {
+		if evt.Err != nil {
+			t.Fatalf("timeout should not forward error to caller, got: %v", evt.Err)
+		}
+	}
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events (partial + notice), got %d", len(events))
+	}
+}
+
+func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
+	mem := &recordingMemory{}
+	rt := &Runtime{mem: mem, log: slog.Default()}
+
+	stream := make(chan Event, 2)
+	out := make(chan Event, 10)
+	realErr := fmt.Errorf("provider error")
+	stream <- Event{Err: realErr}
+	close(stream)
+
+	rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now())
+
+	var gotErr bool
+	for evt := range out {
+		if evt.Err != nil && errors.Is(evt.Err, realErr) {
+			gotErr = true
+		}
+	}
+	if !gotErr {
+		t.Fatal("non-timeout errors should be forwarded to caller")
 	}
 }

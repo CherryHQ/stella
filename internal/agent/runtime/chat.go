@@ -245,7 +245,6 @@ func (rt *Runtime) streamEvents(
 					rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
 				}
 				out <- Event{Text: notice}
-				out <- Event{Err: evt.Err}
 				return
 			}
 			out <- evt
