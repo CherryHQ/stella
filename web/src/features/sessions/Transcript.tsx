@@ -52,7 +52,7 @@ function UserMessage({ msg }: { msg: ProcessedMessage }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] min-w-0">
-        <div className="rounded-[20px] rounded-tr-[4px] bg-muted/65 border border-border/50 px-4 py-2.5 text-foreground">
+        <div className="rounded-[20px] rounded-tr-[4px] bg-muted/65 border border-border/50 px-4 py-2.5 text-foreground break-words">
           <div className="prose prose-sm max-w-none text-foreground [&_*]:text-foreground">
             <Streamdown>{extractUserText(msg)}</Streamdown>
           </div>
@@ -134,7 +134,7 @@ function AssistantMessage({ msg }: { msg: ProcessedMessage }) {
 function BlockRenderer({ block }: { block: ContentBlock }) {
   if (block.type === "text")
     return (
-      <div className="prose prose-sm max-w-none rounded-[20px] rounded-tl-[4px] border border-border/60 bg-card/45 px-5 py-3.5 text-foreground shadow-xs">
+      <div className="prose prose-sm max-w-none break-words rounded-[20px] rounded-tl-[4px] border border-border/60 bg-card/45 px-5 py-3.5 text-foreground shadow-xs">
         <Streamdown>{block.text}</Streamdown>
       </div>
     );
@@ -297,9 +297,52 @@ interface ProcessedMessage extends Message {
   sameRoleAsPrev: boolean;
 }
 
+function mergeConsecutiveMessages(messages: Message[]): Message[] {
+  const result: Message[] = [];
+
+  for (const msg of messages) {
+    if (
+      result.length > 0 &&
+      result[result.length - 1].role === "assistant" &&
+      msg.role === "assistant"
+    ) {
+      const prev = result[result.length - 1];
+      const prevBlocks = prev.blocks ?? [];
+      const currBlocks = msg.blocks ?? [];
+
+      let mergedBlocks = [...prevBlocks];
+      if (currBlocks.length > 0) {
+        mergedBlocks.push(...currBlocks);
+      } else if (msg.content) {
+        mergedBlocks.push({ type: "text", text: msg.content });
+      }
+
+      result[result.length - 1] = {
+        ...prev,
+        blocks: mergedBlocks,
+        token_count: (prev.token_count ?? 0) + (msg.token_count ?? 0),
+        timestamp: msg.timestamp,
+        model: msg.model || prev.model,
+      };
+    } else {
+      const blocks = msg.blocks ?? [];
+      if (blocks.length === 0 && msg.content && msg.role !== "tool") {
+        result.push({
+          ...msg,
+          blocks: [{ type: "text", text: msg.content }],
+        });
+      } else {
+        result.push({ ...msg });
+      }
+    }
+  }
+
+  return result;
+}
+
 function processMessages(messages: Message[]): ProcessedMessage[] {
-  // Tool results are merged upstream by mergeToolResults; filter any stragglers.
-  const msgs = messages.filter((m) => m.role !== "tool");
+  const filtered = messages.filter((m) => m.role !== "tool");
+  const msgs = mergeConsecutiveMessages(filtered);
   return msgs.map((msg, i) => ({
     ...msg,
     showTimestamp: i === msgs.length - 1 || msgs[i + 1].role !== msg.role,
