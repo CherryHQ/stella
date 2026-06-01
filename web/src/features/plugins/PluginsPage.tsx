@@ -234,8 +234,15 @@ export function PluginsPage() {
         throwOnError: true,
       });
       const updated = data as Plugin;
-      updatePluginEnabled(updated.id || id, !!updated.enabled);
-      showToast(enabled ? id + " set as active sandbox" : id + " disabled");
+      const updatedEnabled = !!updated.enabled;
+      updatePluginEnabled(updated.id || id, updatedEnabled);
+      showToast(
+        enabled
+          ? id + " set as active sandbox"
+          : updatedEnabled
+            ? "At least one sandbox must stay active"
+            : id + " disabled",
+      );
       void loadPlugins();
     } catch (e) {
       for (const [pluginID, wasEnabled] of previous) {

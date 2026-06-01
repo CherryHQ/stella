@@ -91,11 +91,30 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		}
 	}
 
+	plugins, err := h.store.ListPlugins(ctx)
+	if err != nil {
+		return nil, err
+	}
 	overrides, err := h.store.ListPluginOverrides(ctx)
 	if err != nil {
 		return nil, err
 	}
+	persisted := make(map[string]bool, len(overrides))
 	for _, plugin := range overrides {
+		persisted[plugin.ID] = true
+	}
+
+	sandboxEnabled := false
+	for _, plugin := range plugins {
+		if plugin.Kind == config.PluginKindSandbox && plugin.Enabled {
+			sandboxEnabled = true
+			break
+		}
+	}
+	for _, plugin := range plugins {
+		if plugin.ID == config.PluginID(config.PluginKindSandbox, config.SandboxBackendLocal) && !sandboxEnabled {
+			plugin.Enabled = true
+		}
 		entry, ok := registered[plugin.ID]
 		if !ok {
 			entry = pkgplugins.RegisteredPlugin{
@@ -108,8 +127,10 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		hasConfig, stateConfig := adminVisiblePluginConfig(entry.Kind, entry.HasConfig, cloneMap(plugin.Config))
 		entry.HasConfig = hasConfig
 		entry.State = pkgplugins.PluginState{ID: plugin.ID, Enabled: plugin.Enabled, Config: stateConfig}
-		entry.Persisted = true
-		entry.PersistedID = plugin.ID
+		entry.Persisted = persisted[plugin.ID]
+		if entry.Persisted || !config.IsBuiltinPlugin(plugin.ID) {
+			entry.PersistedID = plugin.ID
+		}
 		registered[plugin.ID] = entry
 	}
 
