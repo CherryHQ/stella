@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 type recordingMemory struct {
+	mu       sync.Mutex
 	messages []ai.Message
 }
 
@@ -22,7 +24,9 @@ func (m *recordingMemory) Name() string { return "recording" }
 func (m *recordingMemory) Bootstrap(context.Context, memory.Session) error { return nil }
 
 func (m *recordingMemory) Append(_ context.Context, _ memory.Session, msgs ...ai.Message) error {
+	m.mu.Lock()
 	m.messages = append(m.messages, msgs...)
+	m.mu.Unlock()
 	return nil
 }
 
