@@ -31,8 +31,11 @@ type ChatRequest struct {
 	AgentID   string
 	ProjectID string
 	Channel   session.Channel
-	Message   MessageContent
-	Model     string
+	// Kind overrides the default session kind (KindChat). Used by non-chat
+	// callers such as the scheduler (KindScheduler).
+	Kind    session.Kind
+	Message MessageContent
+	Model   string
 	// RuntimeOpts are forwarded verbatim to Runtime.Chat.
 	RuntimeOpts []agentruntime.Option
 }
@@ -71,14 +74,19 @@ type ServiceManager interface {
 // Chat resolves (or creates) a session and executes a chat turn.
 // For private user channels, it calls Sessions.ResolveMain automatically.
 func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
+	kind := req.Kind
+	if kind == "" {
+		kind = session.KindChat
+	}
 	info, err := s.Sessions.Ensure(ctx, session.Request{
-		ID:              req.SessionID,
-		UserID:          req.UserID,
-		AgentID:         req.AgentID,
-		ProjectID:       req.ProjectID,
-		Kind:            session.KindChat,
-		Channel:         req.Channel,
-		CreateIfMissing: true,
+		ID:                 req.SessionID,
+		UserID:             req.UserID,
+		AgentID:            req.AgentID,
+		ProjectID:          req.ProjectID,
+		Kind:               kind,
+		Channel:            req.Channel,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: req.SessionID != "",
 	})
 	if err != nil {
 		out := make(chan Event, 1)

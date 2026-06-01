@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -297,16 +298,24 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		if job.OwnerKind == scheduler.JobOwnerPlugin {
 			return nil
 		}
-		pool := poolMgr.Get(job.AgentID)
-		if pool == nil {
-			pool = poolMgr.DefaultPool()
+		agentSvc := poolMgr.GetService(job.AgentID)
+		if agentSvc == nil {
+			agentSvc = poolMgr.Default()
 		}
-		if pool == nil {
-			slog.Warn("scheduler: no pool available for job", "job_id", job.ID, "agent_id", job.AgentID)
-			return fmt.Errorf("no agent pool available for job %s", job.ID)
+		if agentSvc == nil {
+			slog.Warn("scheduler: no service available for job", "job_id", job.ID, "agent_id", job.AgentID)
+			return fmt.Errorf("no agent service available for job %s", job.ID)
 		}
+		agentID := agentSvc.AgentID
 		sessionID := job.SessionID()
-		ch := pool.Chat(schedulerJobContext(ctx, pool, job), sessionID, schedulerJobMessage(job))
+		ch := agentSvc.Chat(schedulerJobContext(ctx, agentID, job), agent.ChatRequest{
+			SessionID: sessionID,
+			UserID:    job.UserID,
+			AgentID:   agentID,
+			Channel:   agentsession.ChannelScheduler,
+			Kind:      agentsession.KindScheduler,
+			Message:   schedulerJobMessage(job),
+		})
 		var runErr error
 		for evt := range ch {
 			if evt.Err != nil {
