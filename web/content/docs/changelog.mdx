@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-06-01
+
+### 🔒 Security
+
+- **Sandbox**: Restrict STELLA_HOME mounts to only required subdirectories (`bin`, `.mise-tools`, `.agents/skills`), preventing sandbox agents from reading `stella.db` and `.env` via the Docker mount table.
+
+### 🐛 Bug Fixes
+
+- **Sandbox**: Mount `.mise-tools` into the bwrap sandbox so mise-installed tool shims are accessible.
+- **Sandbox**: Skip non-existent STELLA_HOME subdirectories during Docker session creation to avoid failures on fresh installs.
+- **Sandbox**: Decouple `STELLA_HOME` env translation from the mount table so the variable is correctly rewritten inside Docker containers.
+- **Docker**: Generate TypeScript API client (`openapi-ts`) during Docker image build to fix missing `sdk.gen` / `types.gen` modules.
+
+### ♻️ Refactoring
+
+- **Sandbox**: Extract `StellaHomeSandboxDirs()` as a single source of truth for the STELLA_HOME subdirectory allowlist shared across all sandbox backends.
+
+**Full Changelog**: [v0.38.0...v0.38.1](https://github.com/CherryHQ/stella/compare/v0.38.0...v0.38.1)
+
 ## [0.38.0] - 2026-06-01
 
 ### ⚠️ Breaking Changes

@@ -11,6 +11,25 @@ icon: History
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-06-01
+
+### 🔒 安全
+
+- **沙盒**：限制 STELLA_HOME 仅挂载所需子目录（`bin`、`.mise-tools`、`.agents/skills`），防止沙盒 Agent 通过 Docker 挂载表读取 `stella.db` 和 `.env`。
+
+### 🐛 修复
+
+- **沙盒**：将 `.mise-tools` 挂载进 bwrap 沙盒，使 mise 安装的工具 shim 可访问。
+- **沙盒**：Docker 会话创建时跳过不存在的 STELLA_HOME 子目录，避免全新安装时启动失败。
+- **沙盒**：将 `STELLA_HOME` 环境变量翻译与挂载表解耦，确保变量在 Docker 容器内正确重写。
+- **Docker**：在 Docker 镜像构建时生成 TypeScript API 客户端（`openapi-ts`），修复缺失 `sdk.gen` / `types.gen` 模块的问题。
+
+### ♻️ 重构
+
+- **沙盒**：提取 `StellaHomeSandboxDirs()` 作为 STELLA_HOME 子目录允许列表的唯一数据源，供所有沙盒后端共享。
+
+**完整变更日志**：[v0.38.0...v0.38.1](https://github.com/CherryHQ/stella/compare/v0.38.0...v0.38.1)
+
 ## [0.38.0] - 2026-06-01
 
 ### ⚠️ 破坏性变更
