@@ -175,7 +175,6 @@ export function PluginsPage() {
     void (async () => {
       await loadPlugins();
       await loadManifestPlugins();
-      await syncManifest(true);
     })();
   }, [loadPlugins, loadManifestPlugins]);
 
