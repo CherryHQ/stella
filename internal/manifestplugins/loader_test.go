@@ -21,8 +21,8 @@ func TestLoadBuiltinLarkCLIOAuthProvider(t *testing.T) {
 		if p.ID != "tool/lark-cli" {
 			continue
 		}
-		if p.OAuthProvider != "lark" {
-			t.Fatalf("OAuthProvider = %q, want lark", p.OAuthProvider)
+		if p.OAuthProvider != "feishu" {
+			t.Fatalf("OAuthProvider = %q, want feishu", p.OAuthProvider)
 		}
 		for _, se := range p.SessionEnvs {
 			if se.EnvVar == "LARKSUITE_CLI_BRAND" && se.Source != "oauth.brand" {

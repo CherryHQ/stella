@@ -85,11 +85,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
         <div>
           <p className="text-sm font-semibold">Edit definition</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Written to{" "}
-            <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">
-              $STELLA_HOME/plugins.yaml
-            </code>
-            . Binaries sync on save.
+            Override the manifest definition. Binaries sync on save.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">

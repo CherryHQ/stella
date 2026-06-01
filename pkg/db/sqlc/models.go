@@ -457,6 +457,7 @@ type PluginOverride struct {
 	PluginID           string        `json:"plugin_id"`
 	Enabled            sql.NullInt64 `json:"enabled"`
 	SessionEnvVaultKey string        `json:"session_env_vault_key"`
+	Config             string        `json:"config"`
 	CreatedAt          string        `json:"created_at"`
 	UpdatedAt          string        `json:"updated_at"`
 }
