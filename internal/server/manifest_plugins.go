@@ -44,7 +44,9 @@ func (s *Server) resolveManifestPlugins(r *http.Request) (*manifestplugins.Manif
 		}
 		if ov.Config != "" {
 			var p manifestplugins.ManifestPlugin
-			if err := json.Unmarshal([]byte(ov.Config), &p); err == nil {
+			if err := json.Unmarshal([]byte(ov.Config), &p); err != nil {
+				s.log.Warn("ignoring corrupt plugin config override", "plugin", id, "error", err)
+			} else {
 				p.ID = id
 				builtin.Plugins[i] = p
 			}
@@ -59,6 +61,7 @@ func (s *Server) resolveManifestPlugins(r *http.Request) (*manifestplugins.Manif
 		}
 		var p manifestplugins.ManifestPlugin
 		if err := json.Unmarshal([]byte(ov.Config), &p); err != nil {
+			s.log.Warn("ignoring corrupt custom plugin config", "plugin", ov.PluginID, "error", err)
 			continue
 		}
 		p.ID = ov.PluginID
@@ -113,8 +116,12 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// A toggle-only request sends {id, enabled} with zero-valued Kind.
+		// Don't treat that as a config override — it would clobber the builtin definition.
+		isFullDefinition := plugin.Kind != ""
+
 		configJSON := manifestPluginConfigJSON(plugin)
-		hasConfigOverride := !isBuiltin || configJSON != manifestPluginConfigJSON(def)
+		hasConfigOverride := isFullDefinition && (!isBuiltin || configJSON != manifestPluginConfigJSON(def))
 
 		enabledDiffers := isBuiltin && plugin.Enabled != def.Enabled
 		var enabled *bool
@@ -182,15 +189,29 @@ func manifestPluginConfigJSON(p manifestplugins.ManifestPlugin) string {
 		SessionEnvs   []manifestplugins.ManifestSessionEnv `json:"session_env,omitempty"`
 		OAuthProvider string                               `json:"oauth_provider,omitempty"`
 	}
+	// Normalize empty slices to nil so omitempty produces stable JSON
+	// regardless of whether the source was nil or [].
+	binaries := p.Binaries
+	if len(binaries) == 0 {
+		binaries = nil
+	}
+	skills := p.Skills
+	if len(skills) == 0 {
+		skills = nil
+	}
+	sessionEnvs := p.SessionEnvs
+	if len(sessionEnvs) == 0 {
+		sessionEnvs = nil
+	}
 	data, _ := json.Marshal(configOnly{
 		Kind:          p.Kind,
 		Name:          p.Name,
 		DisplayName:   p.DisplayName,
 		Description:   p.Description,
 		Prompt:        p.Prompt,
-		Binaries:      p.Binaries,
-		Skills:        p.Skills,
-		SessionEnvs:   p.SessionEnvs,
+		Binaries:      binaries,
+		Skills:        skills,
+		SessionEnvs:   sessionEnvs,
 		OAuthProvider: p.OAuthProvider,
 	})
 	return string(data)

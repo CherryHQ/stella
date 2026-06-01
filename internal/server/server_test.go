@@ -1152,6 +1152,9 @@ func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 	if ov.Enabled == nil || *ov.Enabled != false {
 		t.Fatalf("enabled override not persisted: got %v, want explicit false", ov.Enabled)
 	}
+	if ov.Config != "" {
+		t.Fatalf("toggle-only save must not store config override: got %q", ov.Config)
+	}
 
 	// Toggle back to the default (enabled=true). The row must survive because a
 	// session env binding still exists; only the enable override clears to nil.

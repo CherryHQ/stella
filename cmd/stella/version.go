@@ -389,6 +389,7 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 
 	if runtime.GOOS != "windows" {
 		if err := renameFile(tmpPath, targetPath); err != nil {
+			_ = os.Remove(tmpPath)
 			return fmt.Errorf("install binary: %w", err)
 		}
 		return nil
