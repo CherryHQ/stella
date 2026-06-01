@@ -1,5 +1,5 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+
 import {
   SlidersHorizontal,
   Search,
@@ -11,9 +11,8 @@ import {
   History,
   ChevronDown,
   Tag,
-  Settings,
 } from "lucide-react";
-import { ThemeSelector, UserMenu } from "@/components/SiteHeader";
+import { SidebarHeader, SidebarFooter } from "@/components/AppSidebar";
 import type {
   Article,
   ArticleStatus,
@@ -33,6 +32,8 @@ export function RecallyArticleList({
   articlesQuery,
   selectedId,
   setSelectedId,
+
+  sidebarOpen,
 
   // Filters State
   searchText,
@@ -122,11 +123,10 @@ export function RecallyArticleList({
     variables?: { path: { id: string } };
   };
   feedPollResults: Record<string, { newCount: number; error?: string }>;
+  sidebarOpen: boolean;
 }) {
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [refinementsOpen, setRefinementsOpen] = useState(false);
-  const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const hasMoreTags = sortedTags.length > 10;
 
   // Active filter checks for badge count
@@ -207,69 +207,15 @@ export function RecallyArticleList({
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden border-r border-border bg-card/40">
-      {/* App Navigation Header */}
-      <div className="shrink-0 border-b border-border bg-card/70 px-3 py-2.5 backdrop-blur-xl">
-        <div className="flex items-center justify-between">
-          <Link
-            to="/agents"
-            className="flex items-center gap-2 select-none"
-            aria-label="Stella home"
-          >
-            <img src="/stella-monogram.svg" alt="" width={20} height={20} className="rounded-sm" />
-            <span className="font-serif text-base italic tracking-tight text-foreground">
-              stella
-            </span>
-          </Link>
-          <div className="flex items-center rounded-lg bg-muted/40 border border-border/30 p-0.5">
-            <button
-              onClick={() => void navigate({ to: "/agents" })}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer",
-                pathname.startsWith("/agents")
-                  ? "bg-background text-primary shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <svg
-                className="size-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="M16 21v-2a4 4 0 0 0-8 0v2" />
-                <circle cx="12" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              <span>{t("nav.sessions")}</span>
-            </button>
-            <button
-              onClick={() => void navigate({ to: "/recally" })}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer",
-                pathname.startsWith("/recally")
-                  ? "bg-background text-primary shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <svg
-                className="size-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 1 4 16.5v-11Z" />
-                <path d="M8 7h8M8 11h6" />
-                <path d="M4 16.5A2.5 2.5 0 0 1 6.5 14H20" />
-              </svg>
-              <span>{t("nav.recally")}</span>
-            </button>
-          </div>
-        </div>
-      </div>
+    <section
+      className={cn(
+        "flex min-h-0 flex-col overflow-hidden bg-card/40 transition-[width,opacity] duration-200 ease-out",
+        sidebarOpen
+          ? "border-r border-border w-[var(--recally-center-width)]"
+          : "w-0 opacity-0 pointer-events-none border-r-0",
+      )}
+    >
+      <SidebarHeader />
 
       {/* Source Selector + Search + Filters Toolbar */}
       <div className="shrink-0 border-b border-border bg-card/65 px-3 py-2 backdrop-blur-xl">
@@ -666,31 +612,7 @@ export function RecallyArticleList({
         )}
       </div>
 
-      {/* Bottom Bar: Settings + Theme + User */}
-      <div className="shrink-0 border-t border-border/60 bg-card/60 px-3 py-1.5 backdrop-blur-xl">
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => void navigate({ to: "/settings" })}
-            className={cn(
-              "flex h-7 min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 text-left text-xs font-medium tracking-[-0.01em] transition-colors cursor-pointer",
-              pathname.startsWith("/settings")
-                ? "bg-accent text-primary"
-                : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
-            )}
-          >
-            <Settings
-              className={cn(
-                "size-3.5 shrink-0",
-                pathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground/70",
-              )}
-            />
-            <span className="truncate">{t("nav.settings")}</span>
-          </button>
-          <ThemeSelector />
-          <UserMenu />
-        </div>
-      </div>
+      <SidebarFooter />
     </section>
   );
 }

@@ -4,14 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { AppSidebar } from "@/components/AppSidebar";
-import {
-  Sidebar,
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
+import { SidebarContainer, SidebarHeader, SidebarFooter } from "@/components/AppSidebar";
 
 const settingsNav: {
   section: string;
@@ -248,13 +241,14 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
 }
 
 function SettingsNavSidebar({ isAdmin }: { isAdmin: boolean }) {
-  const { setOpenMobile } = useSidebar();
   return (
-    <AppSidebar>
+    <SidebarContainer>
+      <SidebarHeader />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-        <NavItems isAdmin={isAdmin} onItemClick={() => setOpenMobile(false)} />
+        <NavItems isAdmin={isAdmin} />
       </div>
-    </AppSidebar>
+      <SidebarFooter />
+    </SidebarContainer>
   );
 }
 
@@ -269,17 +263,10 @@ export function SettingsLayout() {
   const activeLabel = activeItem ? t(activeItem.label) : "";
 
   return (
-    <SidebarProvider
-      className="h-full min-h-0"
-      style={{ "--sidebar-width": "260px" } as React.CSSProperties}
-    >
-      <Sidebar className="sticky top-0 h-full">
-        <SettingsNavSidebar isAdmin={isAdmin} />
-      </Sidebar>
-
-      <SidebarInset className="flex flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden">
+      <SettingsNavSidebar isAdmin={isAdmin} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
-          <SidebarTrigger />
           {activeLabel && <span className="text-sm font-semibold">{activeLabel}</span>}
         </header>
         <div className="flex-1 overflow-y-auto">
@@ -287,7 +274,7 @@ export function SettingsLayout() {
             <Outlet />
           </div>
         </div>
-      </SidebarInset>
-    </SidebarProvider>
+      </div>
+    </div>
   );
 }

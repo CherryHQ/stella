@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { useI18n } from "@/lib/i18n";
-import { X } from "lucide-react";
+import { X, PanelLeftOpen, PanelLeftClose } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { CENTER_WIDTH_DEFAULT, CENTER_WIDTH_MIN, CENTER_WIDTH_MAX } from "./constants";
 import { useRecallyFilters } from "./hooks/useRecallyFilters";
 import { useRecallyMutations } from "./hooks/useRecallyMutations";
@@ -17,6 +18,7 @@ export function RecallyPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [centerWidth, setCenterWidth] = useState(CENTER_WIDTH_DEFAULT);
   const [chatOpen, setChatOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const filters = useRecallyFilters();
   const mutations = useRecallyMutations(selectedId, setSelectedId);
@@ -63,7 +65,7 @@ export function RecallyPage() {
             ? "xl:grid-cols-[var(--recally-center-width)_1fr_340px]"
             : "xl:grid-cols-[var(--recally-center-width)_1fr]",
         )}
-        style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
+        style={{ "--recally-center-width": `${sidebarOpen ? centerWidth : 0}px` } as CSSProperties}
       >
         {/* Column 1: Unified sidebar + reading list */}
         <RecallyArticleList
@@ -72,6 +74,7 @@ export function RecallyPage() {
           articlesQuery={filters.articlesQuery}
           selectedId={selectedId}
           setSelectedId={setSelectedId}
+          sidebarOpen={sidebarOpen}
           // Filters states
           searchText={filters.searchText}
           setSearchText={filters.setSearchText}
@@ -115,18 +118,51 @@ export function RecallyPage() {
             onMouseDown={startResize}
             className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border/70 transition-colors hover:bg-accent"
           />
-          {showDigestDetail ? (
-            <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
-          ) : (
-            <RecallyReader
-              t={t}
-              selectedId={selectedId}
-              chatOpen={chatOpen}
-              onToggleChat={() => setChatOpen(!chatOpen)}
-              updateArticleMut={mutations.updateArticleMut}
-              deleteArticleMut={mutations.deleteArticleMut}
-            />
-          )}
+
+          {/* Sticky Top Header Bar */}
+          <div className="flex h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl">
+            <div className="flex items-center gap-2.5 w-full min-w-0">
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground inline-flex"
+                title={!sidebarOpen ? "Show sidebar" : "Hide sidebar"}
+              >
+                {!sidebarOpen ? (
+                  <PanelLeftOpen className="size-3.5" />
+                ) : (
+                  <PanelLeftClose className="size-3.5" />
+                )}
+              </Button>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground/80">
+                  {showDigestDetail
+                    ? `${t("recally.nav.digest")} — ${filters.selectedDigestDate}`
+                    : t("recally.title")}
+                </h1>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {showDigestDetail ? (
+              <DigestDetail
+                t={t}
+                digest={filters.selectedDigest!}
+                onSelectArticle={setSelectedId}
+              />
+            ) : (
+              <RecallyReader
+                t={t}
+                selectedId={selectedId}
+                chatOpen={chatOpen}
+                onToggleChat={() => setChatOpen(!chatOpen)}
+                updateArticleMut={mutations.updateArticleMut}
+                deleteArticleMut={mutations.deleteArticleMut}
+              />
+            )}
+          </div>
         </aside>
 
         {/* Column 3: AI Chat Workspace */}
