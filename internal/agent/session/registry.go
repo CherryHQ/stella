@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +33,7 @@ var ErrArchived = errors.New("session is archived")
 type Registry struct {
 	store   store
 	agentID string // optional: scopes all operations to this agent when set
+	mainMu  keyedMutex
 }
 
 // NewRegistry creates a Registry backed by the given memory.Provider.
@@ -154,6 +156,8 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 		return Info{}, fmt.Errorf("ResolveMain requires UserID and AgentID")
 	}
 	agentID := r.resolveAgentID(req.AgentID)
+	unlock := r.mainMu.lock(agentID + "\x00" + req.UserID)
+	defer unlock()
 
 	// Look for an existing main-kind session.
 	mains, err := r.store.list(ctx, req.UserID, agentID, memory.ListOptions{
@@ -278,6 +282,12 @@ func (r *Registry) validateScopeObj(scope Scope) error {
 }
 
 func (r *Registry) validateResume(info Info, req Request) (Info, error) {
+	if req.UserID != "" && info.UserID != req.UserID {
+		return Info{}, fmt.Errorf("%w: %s", ErrForbidden, info.ID)
+	}
+	if agentID := r.resolveAgentID(req.AgentID); agentID != "" && info.AgentID != agentID {
+		return Info{}, fmt.Errorf("%w: %s", ErrForbidden, info.ID)
+	}
 	if info.Archived {
 		return Info{}, fmt.Errorf("%w: %s", ErrArchived, info.ID)
 	}
@@ -337,4 +347,25 @@ func defaultChannel(ch Channel, kind Kind) string {
 
 func (ch Channel) isZero() bool {
 	return strings.TrimSpace(string(ch)) == ""
+}
+
+type keyedMutex struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+func (m *keyedMutex) lock(key string) func() {
+	m.mu.Lock()
+	if m.locks == nil {
+		m.locks = make(map[string]*sync.Mutex)
+	}
+	lock := m.locks[key]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		m.locks[key] = lock
+	}
+	m.mu.Unlock()
+
+	lock.Lock()
+	return lock.Unlock
 }

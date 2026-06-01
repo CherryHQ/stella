@@ -14,8 +14,6 @@ type Request struct {
 	Kind Kind
 	// Channel is the originating channel (e.g. ChannelWeb, ChannelDelegate).
 	Channel Channel
-	// ParentSessionID is the parent session that spawned this one (delegate/task).
-	ParentSessionID string
 	// Title is optional; pool_chat auto-derives it from the first message.
 	Title string
 	// CreateIfMissing creates a new session if none matches.

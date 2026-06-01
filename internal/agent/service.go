@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -44,15 +45,14 @@ type ChatRequest struct {
 type DelegateRequest struct {
 	// SessionID, when non-empty, resumes an existing delegate session.
 	// When empty, a new delegate session is created.
-	SessionID       string
-	UserID          string
-	AgentID         string
-	ParentSessionID string
-	ProjectID       string
-	Task            string
-	System          string
-	Model           string
-	ExcludedTools   []string
+	SessionID     string
+	UserID        string
+	AgentID       string
+	ProjectID     string
+	Task          string
+	System        string
+	Model         string
+	ExcludedTools []string
 }
 
 // DelegateResult is the output of a delegate turn.
@@ -111,7 +111,6 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 		UserID:             req.UserID,
 		AgentID:            req.AgentID,
 		ProjectID:          req.ProjectID,
-		ParentSessionID:    req.ParentSessionID,
 		Kind:               session.KindDelegate,
 		Channel:            session.ChannelDelegate,
 		CreateIfMissing:    true,
@@ -136,18 +135,16 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 
 	stream := s.Runtime.Chat(ctx, info, req.Task, opts...)
 	result := DelegateResult{SessionID: info.ID}
-	var sb fmt.Stringer
-	_ = sb
-	var output string
+	var output strings.Builder
 	for ev := range stream {
 		if ev.Text != "" {
-			output += ev.Text
+			output.WriteString(ev.Text)
 		}
 		if ev.Err != nil {
-			return DelegateResult{SessionID: info.ID, Output: output}, ev.Err
+			return DelegateResult{SessionID: info.ID, Output: output.String()}, ev.Err
 		}
 	}
-	result.Output = output
+	result.Output = output.String()
 	result.Complete = true
 	return result, nil
 }

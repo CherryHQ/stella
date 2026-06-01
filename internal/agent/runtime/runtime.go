@@ -119,6 +119,11 @@ func (rt *Runtime) StartReaper(ctx context.Context) {
 	rt.cache.StartReaper(ctx)
 }
 
+// ResetRunners closes all live runners while keeping session metadata in storage.
+func (rt *Runtime) ResetRunners() error {
+	return rt.cache.reset()
+}
+
 // ResetRunnersForUser closes live runners for a specific user.
 func (rt *Runtime) ResetRunnersForUser(userID string) error {
 	rt.cache.mu.Lock()

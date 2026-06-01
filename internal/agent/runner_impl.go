@@ -2,13 +2,13 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
@@ -289,7 +289,7 @@ func buildHookSet(cfg runnerConfig) *hooks.HookSet {
 const defaultChatTimeout = 30 * time.Minute
 
 // ErrChatTimeout is returned when the main agent chat exceeds its wall-clock timeout.
-var ErrChatTimeout = errors.New("chat timeout exceeded")
+var ErrChatTimeout = agenterr.ErrChatTimeout
 
 // Chat runs the Engine agent loop with the provided history and forwards events.
 func (r *runner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {

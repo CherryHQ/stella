@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -14,8 +16,7 @@ import (
 )
 
 // ErrChatTimeout is emitted when a chat turn exceeds its deadline.
-// It matches the sentinel from internal/agent for compatibility.
-var ErrChatTimeout = errors.New("chat timeout")
+var ErrChatTimeout = agenterr.ErrChatTimeout
 
 const autoCompactionTimeout = 2 * time.Minute
 
@@ -218,6 +219,7 @@ func (rt *Runtime) streamEvents(
 					rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
 				}
 				out <- Event{Text: notice}
+				out <- Event{Err: evt.Err}
 				return
 			}
 			out <- evt
@@ -285,29 +287,14 @@ func autoTitle(msgText string) string {
 
 // --- context helpers --------------------------------------------------------
 
-type (
-	systemOverrideKey struct{}
-	channelKey        struct{}
-	excludedToolsKey  struct{}
-)
-
 func withSystemOverride(ctx context.Context, system string) context.Context {
-	if system == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, systemOverrideKey{}, system)
+	return agentctx.WithSystemOverride(ctx, system)
 }
 
 func withChannel(ctx context.Context, channel string) context.Context {
-	if channel == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, channelKey{}, channel)
+	return agentctx.WithChannel(ctx, channel)
 }
 
 func withExcludedTools(ctx context.Context, names ...string) context.Context {
-	if len(names) == 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, excludedToolsKey{}, names)
+	return agentctx.WithExcludedTools(ctx, names...)
 }

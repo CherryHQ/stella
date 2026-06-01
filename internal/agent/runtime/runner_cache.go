@@ -69,15 +69,16 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		c.sessions[info.ID] = cs
 	}
 
+	var stale Runner
 	if cs.r != nil {
 		switch {
 		case !cs.r.Alive():
 			c.log.Warn("replacing dead runner", "session_id", info.ID)
-			_ = cs.r.Close()
+			stale = cs.r
 			cs.r = nil
 		case model != "" && cs.model != model:
 			c.log.Info("switching model", "session_id", info.ID, "from", cs.model, "to", model)
-			_ = cs.r.Close()
+			stale = cs.r
 			cs.r = nil
 		default:
 			r := cs.r
@@ -90,11 +91,16 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	hooksFn := c.hooksFn
 	defaultModel := c.defaultModel
 	delegateRunner := c.delegateRunner
+	cachedModel := cs.model
 	c.mu.Unlock()
+
+	if stale != nil {
+		_ = stale.Close()
+	}
 
 	effectiveModel := model
 	if effectiveModel == "" {
-		effectiveModel = cs.model
+		effectiveModel = cachedModel
 	}
 	if effectiveModel == "" {
 		effectiveModel = defaultModel
@@ -111,15 +117,21 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		DelegateRunner: delegateRunner,
 	})
 	if err != nil {
+		c.mu.Lock()
+		if current := c.sessions[info.ID]; current == cs && cs.r == nil {
+			delete(c.sessions, info.ID)
+		}
+		c.mu.Unlock()
 		return nil, nil, err
 	}
 
 	c.mu.Lock()
 	if cs.r != nil {
 		// Another goroutine installed a runner; discard ours.
+		existing := cs.r
 		c.mu.Unlock()
 		_ = r.Close()
-		return cs, cs.r, nil
+		return cs, existing, nil
 	}
 	cs.r = r
 	cs.model = effectiveModel
@@ -154,6 +166,27 @@ func (c *runnerCache) close(sessionID string) error {
 	return nil
 }
 
+func (c *runnerCache) reset() error {
+	c.mu.Lock()
+	runners := make([]Runner, 0, len(c.sessions))
+	for _, cs := range c.sessions {
+		if cs.r != nil {
+			runners = append(runners, cs.r)
+			cs.r = nil
+		}
+		cs.model = ""
+	}
+	c.mu.Unlock()
+
+	var lastErr error
+	for _, r := range runners {
+		if err := r.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
 // closeAll shuts down all runners.
 func (c *runnerCache) closeAll() error {
 	c.mu.Lock()
@@ -175,25 +208,31 @@ func (c *runnerCache) closeAll() error {
 // reap closes runners that are idle or dead.
 func (c *runnerCache) reap() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	now := time.Now()
+	var closing []Runner
 	for id, cs := range c.sessions {
 		if cs.r == nil || cs.r.Busy() {
 			continue
 		}
+		lastActivity := cs.r.LastActivity()
 		if !cs.r.Alive() {
 			c.log.Warn("removing dead runner", "session_id", id)
-			_ = cs.r.Close()
+			closing = append(closing, cs.r)
 			cs.r = nil
 			continue
 		}
-		if now.Sub(cs.r.LastActivity()) > c.idleTimeout {
+		if now.Sub(lastActivity) > c.idleTimeout {
 			c.log.Info("reaping idle runner",
 				"session_id", id,
-				"idle_duration", now.Sub(cs.r.LastActivity()).Round(time.Second))
-			_ = cs.r.Close()
+				"idle_duration", now.Sub(lastActivity).Round(time.Second))
+			closing = append(closing, cs.r)
 			cs.r = nil
 		}
+	}
+	c.mu.Unlock()
+
+	for _, r := range closing {
+		_ = r.Close()
 	}
 }
 

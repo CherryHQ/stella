@@ -106,7 +106,7 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		User:       resolved.User,
 		AgentID:    agentID,
 		SessionKey: sessionKey,
-		Channel:    session.Channel(platform),
+		Channel:    session.Channel(sessionKey),
 		ChatCtx:    chatCtx,
 	}, nil
 }

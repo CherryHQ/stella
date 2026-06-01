@@ -56,6 +56,10 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 	kind := session.KindChat
 	if body.Kind != nil {
 		kind = session.Kind(*body.Kind)
+		if kind != session.KindChat {
+			writeError(w, http.StatusBadRequest, "unsupported session kind")
+			return
+		}
 	}
 	projectID := ""
 	if body.ProjectId != nil {

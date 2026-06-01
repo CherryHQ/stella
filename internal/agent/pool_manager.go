@@ -414,10 +414,15 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	pm.hookPlugins = hookPlugins
 	pools := make(map[string]*Pool, len(pm.pools))
 	maps.Copy(pools, pm.pools)
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
 	pm.mu.Unlock()
 
 	for _, pool := range pools {
 		pool.SetHooks(pm.HookPlugins)
+	}
+	for _, svc := range services {
+		svc.Runtime.SetHooks(pm.HookPlugins)
 	}
 
 	// Close old hook plugins that implement io.Closer (e.g. OTel exporter).
@@ -457,9 +462,19 @@ func (pm *PoolManager) rebuildPoolFactory(ctx context.Context, agentID string, p
 	if err != nil {
 		return err
 	}
+	defaultModel := snap.ResolveModelID(config.ModelTierStrong)
 	pool.SetFactory(factory)
-	pool.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong))
+	pool.SetDefaultModel(defaultModel)
 	pool.SetFastModel(snap.ResolveModelID(config.ModelTierFast))
+
+	pm.mu.RLock()
+	svc := pm.services[agentID]
+	pm.mu.RUnlock()
+	if svc != nil {
+		svc.Runtime.SetFactory(factory)
+		svc.Runtime.SetDefaultModel(defaultModel)
+		svc.Runtime.SetHooks(pm.HookPlugins)
+	}
 	return nil
 }
 
@@ -488,6 +503,14 @@ func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
 	}
 	if err := pool.ResetRunners(); err != nil {
 		pm.log.Warn("failed to reset agent runners after sync", "agent_id", agentID, "error", err)
+	}
+	pm.mu.RLock()
+	svc := pm.services[agentID]
+	pm.mu.RUnlock()
+	if svc != nil {
+		if err := svc.Runtime.ResetRunners(); err != nil {
+			pm.log.Warn("failed to reset agent service runners after sync", "agent_id", agentID, "error", err)
+		}
 	}
 	pm.log.Info("agent pool reloaded", "agent_id", agentID)
 	return nil
@@ -629,12 +652,20 @@ func (pm *PoolManager) InvalidateUser(userID string) error {
 	pm.mu.RLock()
 	pools := make(map[string]*Pool, len(pm.pools))
 	maps.Copy(pools, pm.pools)
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
 	pm.mu.RUnlock()
 
 	var lastErr error
 	for _, pool := range pools {
 		if err := pool.ResetRunnersForUser(userID); err != nil {
 			pm.log.Error("reset runners for user", "user_id", userID, "error", err)
+			lastErr = err
+		}
+	}
+	for _, svc := range services {
+		if err := svc.Runtime.ResetRunnersForUser(userID); err != nil {
+			pm.log.Error("reset service runners for user", "user_id", userID, "error", err)
 			lastErr = err
 		}
 	}
@@ -646,11 +677,20 @@ func (pm *PoolManager) Close() error {
 	pm.mu.Lock()
 	pools := pm.pools
 	pm.pools = make(map[string]*Pool)
+	services := pm.services
+	pm.services = make(map[string]*Service)
 	hookPlugins := pm.hookPlugins
 	pm.hookPlugins = nil
 	pm.mu.Unlock()
 
 	var lastErr error
+	for id, svc := range services {
+		pm.log.Info("closing agent service", "agent_id", id)
+		if err := svc.Runtime.Close(); err != nil {
+			pm.log.Error("failed to close service runtime", "agent_id", id, "error", err)
+			lastErr = err
+		}
+	}
 	for id, pool := range pools {
 		pm.log.Info("closing agent pool", "agent_id", id)
 		if err := pool.closeSessions(); err != nil {
