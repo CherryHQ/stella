@@ -52,7 +52,7 @@ function UserMessage({ msg }: { msg: ProcessedMessage }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] min-w-0">
-        <div className="rounded-[20px] rounded-tr-[4px] bg-muted/65 border border-border/50 px-4 py-2.5 text-foreground break-all">
+        <div className="rounded-[20px] rounded-tr-[4px] bg-primary/[0.04] dark:bg-primary/[0.08] border border-primary/10 dark:border-primary/20 px-4 py-2.5 text-foreground break-all shadow-2xs">
           <div className="prose prose-sm max-w-none text-foreground [&_*]:text-foreground">
             <Streamdown>{extractUserText(msg)}</Streamdown>
           </div>
