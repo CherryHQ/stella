@@ -49,6 +49,7 @@ func (s *Server) resolveManifestPlugins(r *http.Request) (*manifestplugins.Manif
 				s.log.Warn("ignoring corrupt plugin config override", "plugin", id, "error", err)
 			} else {
 				p.ID = id
+				p.Enabled = builtin.Plugins[i].Enabled
 				builtin.Plugins[i] = p
 			}
 		}
