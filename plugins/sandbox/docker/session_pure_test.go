@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -35,14 +37,21 @@ func TestMergeEnv(t *testing.T) {
 }
 
 func TestBuildMountTable(t *testing.T) {
+	stellaHome := t.TempDir()
+	for _, name := range []string{"bin", ".mise-tools", filepath.Join(".agents", "skills")} {
+		if err := os.MkdirAll(filepath.Join(stellaHome, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	table := buildMountTable(mountTableOptions{
 		WorkspaceHost:       "/host/ws",
 		WorkspaceMount:      "/container/ws",
-		StellaHomeHost:      "/host/.stella",
+		StellaHomeHost:      stellaHome,
 		StellaHomeContainer: "/home/stella/.stella",
 	})
-	if len(table) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(table))
+	if len(table) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(table))
 	}
 	if table[0].HostPath != "/host/ws" || table[0].ContainerPath != "/container/ws" {
 		t.Fatalf("unexpected workspace mount: %+v", table[0])
@@ -50,12 +59,31 @@ func TestBuildMountTable(t *testing.T) {
 	if table[0].ReadOnly {
 		t.Fatal("workspace should be read-write")
 	}
-	if table[1].HostPath != "/host/.stella" || table[1].ContainerPath != "/home/stella/.stella" || !table[1].ReadOnly {
-		t.Fatalf("unexpected stella home synthetic mount: %+v", table[1])
+	if table[1].HostPath != filepath.Join(stellaHome, "bin") || table[1].ContainerPath != "/home/stella/.stella/bin" || !table[1].ReadOnly {
+		t.Fatalf("unexpected stella bin mount: %+v", table[1])
 	}
-	if table[2].HostPath != "/host/.stella/.agents/skills" || table[2].ContainerPath != "/home/stella/.stella/.agents/skills" || !table[2].ReadOnly {
-		t.Fatalf("unexpected stella skills mount: %+v", table[2])
+	if table[2].HostPath != filepath.Join(stellaHome, ".mise-tools") || table[2].ContainerPath != "/home/stella/.stella/.mise-tools" || !table[2].ReadOnly {
+		t.Fatalf("unexpected stella mise-tools mount: %+v", table[2])
 	}
+	if table[3].HostPath != filepath.Join(stellaHome, ".agents/skills") || table[3].ContainerPath != "/home/stella/.stella/.agents/skills" || !table[3].ReadOnly {
+		t.Fatalf("unexpected stella skills mount: %+v", table[3])
+	}
+	// Verify that missing subdirs are skipped — fresh install without .mise-tools.
+	partialHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(partialHome, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tablePartial := buildMountTable(mountTableOptions{
+		WorkspaceHost:       "/host/ws",
+		WorkspaceMount:      "/container/ws",
+		StellaHomeHost:      partialHome,
+		StellaHomeContainer: "/home/stella/.stella",
+	})
+	// workspace + bin only (no .mise-tools, no .agents/skills)
+	if len(tablePartial) != 2 {
+		t.Fatalf("expected 2 entries for partial stella home, got %d", len(tablePartial))
+	}
+
 	tableExtra := buildMountTable(mountTableOptions{
 		WorkspaceHost:       "/host/ws",
 		WorkspaceMount:      "/container/ws",

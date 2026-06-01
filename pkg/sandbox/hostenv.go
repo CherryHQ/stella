@@ -7,6 +7,19 @@ import (
 	"strings"
 )
 
+// StellaHomeSandboxDirs returns the subdirectory names (relative to STELLA_HOME)
+// that sandbox backends must expose. Every backend — bwrap, Docker, none — should
+// derive its mount list from this slice so adding a new directory is a one-line
+// change. The returned names use filepath.Separator and are safe to join with
+// any absolute root.
+func StellaHomeSandboxDirs() []string {
+	return []string{
+		"bin",
+		".mise-tools",
+		filepath.Join(".agents", "skills"),
+	}
+}
+
 // MiseToolsDir returns the root MISE_DATA_DIR for Stella-managed mise installs.
 // This is the single source of truth for the on-disk layout: the manifest/org
 // reconcilers install into it and the sandbox PATH is built from it, so both

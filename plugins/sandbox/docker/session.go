@@ -183,12 +183,16 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}
 
 	if stellaHome != "" {
-		opts.ExtraMounts = []dockerclient.Mount{
-			{
-				HostPath:      filepath.Join(stellaHome, ".agents", "skills"),
-				ContainerPath: filepath.Join(stellaHomeMount, ".agents", "skills"),
+		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
+			hostPath := filepath.Join(stellaHome, name)
+			if _, err := os.Stat(hostPath); err != nil {
+				continue
+			}
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      hostPath,
+				ContainerPath: filepath.Join(stellaHomeMount, name),
 				ReadOnly:      true,
-			},
+			})
 		}
 	}
 	if policy.Filesystem.TempDirHost != "" {
@@ -256,12 +260,21 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		TempDirHost:         policy.Filesystem.TempDirHost,
 	})
 
+	var envMaps []envPathMap
+	if hostHome := policy.Env["STELLA_HOME"]; hostHome != "" {
+		envMaps = append(envMaps, envPathMap{
+			HostPrefix:      hostHome,
+			ContainerPrefix: stellaHomeMount,
+		})
+	}
+
 	session := &dockerSession{
 		id:           sessionID,
 		policy:       policy,
 		client:       client,
 		containerID:  containerID,
 		mountTable:   mountTable,
+		envPathMaps:  envMaps,
 		toolBinPaths: toolBinPaths,
 		done:         make(chan struct{}),
 		traceSpan:    span,
@@ -305,18 +318,17 @@ func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 		},
 	}
 	if opts.StellaHomeHost != "" && opts.StellaHomeContainer != "" {
-		mounts = append(mounts,
-			dockerclient.Mount{
-				HostPath:      opts.StellaHomeHost,
-				ContainerPath: opts.StellaHomeContainer,
+		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
+			hostPath := filepath.Join(opts.StellaHomeHost, name)
+			if _, err := os.Stat(hostPath); err != nil {
+				continue
+			}
+			mounts = append(mounts, dockerclient.Mount{
+				HostPath:      hostPath,
+				ContainerPath: filepath.Join(opts.StellaHomeContainer, name),
 				ReadOnly:      true,
-			},
-			dockerclient.Mount{
-				HostPath:      filepath.Join(opts.StellaHomeHost, ".agents", "skills"),
-				ContainerPath: filepath.Join(opts.StellaHomeContainer, ".agents", "skills"),
-				ReadOnly:      true,
-			},
-		)
+			})
+		}
 	}
 	for _, hostPath := range opts.ExtraReadOnlyMounts {
 		mounts = append(mounts, dockerclient.Mount{
@@ -363,7 +375,11 @@ var hostOnlyEnvKeys = map[string]struct{}{
 // exist in the container and would mislead tools that read it.
 // Keys in hostOnlyEnvKeys are dropped wholesale.
 // Non-path values (TERM, LANG, …) pass through unchanged.
-func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) map[string]string {
+//
+// envMaps provides extra prefix translations for paths that need env rewriting
+// but must not appear in the mount table (e.g. STELLA_HOME — agents must not
+// get file access to the entire directory).
+func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount, envMaps []envPathMap) map[string]string {
 	out := make(map[string]string, len(env))
 	for k, v := range env {
 		if _, drop := hostOnlyEnvKeys[k]; drop {
@@ -374,13 +390,28 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) m
 			continue
 		}
 		container, err := toContainerPath(mountTable, v)
-		if err != nil {
-			// Absolute host path not in any mount — drop rather than pass a stale path.
+		if err == nil {
+			out[k] = container
 			continue
 		}
-		out[k] = container
+		if mapped, ok := applyEnvPathMaps(envMaps, v); ok {
+			out[k] = mapped
+			continue
+		}
 	}
 	return out
+}
+
+func applyEnvPathMaps(maps []envPathMap, hostPath string) (string, bool) {
+	for _, m := range maps {
+		if hostPath == m.HostPrefix {
+			return m.ContainerPrefix, true
+		}
+		if strings.HasPrefix(hostPath, m.HostPrefix+string(filepath.Separator)) {
+			return m.ContainerPrefix + hostPath[len(m.HostPrefix):], true
+		}
+	}
+	return "", false
 }
 
 // containerDefaultPATH is the image-baked PATH from the Dockerfile ENV directive.
@@ -407,6 +438,15 @@ func injectToolPaths(env map[string]string, toolBinPaths []string) map[string]st
 	return env
 }
 
+// envPathMap is an extra host→container path translation that translateEnvPaths
+// applies before consulting the mount table. Used for STELLA_HOME which needs
+// env translation but must NOT be in the mount table (that would allow file
+// reads across the entire directory).
+type envPathMap struct {
+	HostPrefix      string
+	ContainerPrefix string
+}
+
 // dockerSession is a docker-backed sandbox session backed by a single container.
 type dockerSession struct {
 	id           string
@@ -414,6 +454,7 @@ type dockerSession struct {
 	client       *dockerclient.Client
 	containerID  string
 	mountTable   []dockerclient.Mount
+	envPathMaps  []envPathMap
 	toolBinPaths []string
 	host         *dockerHost
 	done         chan struct{}
@@ -727,7 +768,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	env := injectToolPaths(translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable), h.session.toolBinPaths)
+	env := injectToolPaths(translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable, h.session.envPathMaps), h.session.toolBinPaths)
 
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -772,7 +813,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	env := injectToolPaths(translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable), h.session.toolBinPaths)
+	env := injectToolPaths(translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable, h.session.envPathMaps), h.session.toolBinPaths)
 
 	timeout := req.Timeout
 	if timeout == 0 {

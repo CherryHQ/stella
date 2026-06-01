@@ -202,20 +202,23 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 func TestTranslateEnvPaths(t *testing.T) {
 	mounts := []dockerclient.Mount{
 		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
-		{HostPath: "/host/.stella", ContainerPath: "/home/stella/.stella", ReadOnly: true},
+		{HostPath: "/host/.stella/bin", ContainerPath: "/home/stella/.stella/bin", ReadOnly: true},
 		{HostPath: "/host/.stella/skills", ContainerPath: "/home/stella/.stella/skills", ReadOnly: true},
+	}
+	envMaps := []envPathMap{
+		{HostPrefix: "/host/.stella", ContainerPrefix: "/home/stella/.stella"},
 	}
 
 	env := map[string]string{
 		"PATH":        "/host/tools/bin:/usr/bin", // host-only — should drop
 		"HOME":        "/host/workspace",          // host-only — should drop even if mounted
-		"STELLA_HOME": "/host/.stella",            // mounted — should translate
+		"STELLA_HOME": "/host/.stella",            // envMap — should translate
 		"WORKING_DIR": "/host/workspace",          // mounted — should translate
 		"TERM":        "xterm-256color",           // non-path — pass through
 		"LANG":        "en_US.UTF-8",              // non-path — pass through
 	}
 
-	got := translateEnvPaths(env, mounts)
+	got := translateEnvPaths(env, mounts, envMaps)
 
 	for _, k := range []string{"PATH", "HOME"} {
 		if v, ok := got[k]; ok {
