@@ -62,15 +62,25 @@ func (s *Service) runCycle(ctx context.Context) error {
 }
 
 func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, error) {
-	sm, ok := s.memory.(memory.SessionManager)
-	if !ok {
-		return 0, nil
-	}
-
 	ctx, span := startAgentSpan(ctx, snap.AgentID)
 	defer span.End()
 
-	candidates, err := s.listUnreviewed(ctx, sm, snap.AgentID)
+	var candidates []candidate
+	var err error
+
+	if s.services != nil {
+		if svc := s.services.GetService(snap.AgentID); svc != nil {
+			candidates, err = s.listUnreviewedFromRegistry(ctx, svc.Sessions, snap.AgentID)
+		}
+	}
+	if candidates == nil && err == nil {
+		// Fallback: use direct SessionManager if services not wired.
+		sm, ok := s.memory.(memory.SessionManager)
+		if !ok {
+			return 0, nil
+		}
+		candidates, err = s.listUnreviewed(ctx, sm, snap.AgentID)
+	}
 	if err != nil {
 		recordError(span, err)
 		return 0, fmt.Errorf("list unreviewed: %w", err)

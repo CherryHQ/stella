@@ -171,6 +171,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		StateStore: pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
 		Workspace:  config.StellaHome(),
 		Providers:  providerStreamBuilder,
+		Services:   &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 	}); err != nil {
 		return nil, err
 	}
