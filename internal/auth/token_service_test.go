@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -206,7 +207,7 @@ func TestTokenServiceEnsureAutoTokenRotates(t *testing.T) {
 	}
 }
 
-func TestTokenServiceAuthenticate(t *testing.T) {
+func TestTokenServiceEnsureAutoTokenEnvReturnsAuthenticatableToken(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)
 	store := newFakeTokenStore(func() time.Time { return now })
@@ -214,10 +215,11 @@ func TestTokenServiceAuthenticate(t *testing.T) {
 	svc := NewTokenService(store, vault)
 	svc.now = func() time.Time { return now }
 
-	if err := svc.EnsureAutoToken(ctx, "1"); err != nil {
-		t.Fatalf("EnsureAutoToken: %v", err)
+	env, err := svc.EnsureAutoTokenEnv(ctx, "1")
+	if err != nil {
+		t.Fatalf("EnsureAutoTokenEnv: %v", err)
 	}
-	user, err := svc.Authenticate(ctx, vault.env["1"][StellaTokenName])
+	user, err := svc.Authenticate(ctx, env[StellaTokenName])
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -226,5 +228,37 @@ func TestTokenServiceAuthenticate(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, "stella_wrong"); err == nil {
 		t.Fatal("Authenticate accepted wrong token")
+	}
+}
+
+func TestTokenServiceEnsureAutoTokenEnvSerializesConcurrentCallers(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)
+	store := newFakeTokenStore(func() time.Time { return now })
+	vault := newFakeVault()
+	svc := NewTokenService(store, vault)
+	svc.now = func() time.Time { return now }
+
+	const callers = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	for range callers {
+		wg.Go(func() {
+			env, err := svc.EnsureAutoTokenEnv(ctx, "1")
+			if err != nil {
+				errs <- err
+				return
+			}
+			if _, err := svc.Authenticate(ctx, env[StellaTokenName]); err != nil {
+				errs <- err
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent EnsureAutoTokenEnv: %v", err)
+		}
 	}
 }

@@ -148,6 +148,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			adminSrv.SetTokenService(tokenSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
 			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
+			s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
 			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
 			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
 		}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/vault"
@@ -47,6 +48,7 @@ type TokenService struct {
 	store tokenStore
 	vault VaultWriter
 	now   func() time.Time
+	mu    sync.Mutex
 }
 
 // NewTokenService creates a token service backed by auth persistence and vault writes.
@@ -54,12 +56,36 @@ func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
 	return &TokenService{store: store, vault: vault, now: time.Now}
 }
 
-// EnsureAutoToken ensures userID has one active auto-generated token in the vault and token table.
-// Concurrent calls for the same user are safe: the unique partial index on
-// (user_id) WHERE auto_generated=1 AND revoked_at IS NULL prevents duplicate
-// rows; the losing writer gets a constraint error that the caller is expected
-// to log and ignore (see buildSandboxEnv).
+// EnsureAutoToken ensures userID has one active auto-generated token whose
+// vault plaintext matches the DB token hash. Concurrent callers are serialized
+// so the vault never exposes an unrecorded loser token between ensure and env load.
 func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ensureAutoTokenLocked(ctx, userID)
+}
+
+// EnsureAutoTokenEnv ensures the auto token and returns the user's vault env
+// under the same lock, so sandbox env injection cannot observe a transient token
+// written by a concurrent loser.
+func (s *TokenService) EnsureAutoTokenEnv(ctx context.Context, userID string) (map[string]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureAutoTokenLocked(ctx, userID); err != nil {
+		return nil, err
+	}
+	loader, ok := s.vault.(vaultLoader)
+	if !ok {
+		return map[string]string{}, nil
+	}
+	env, err := loader.LoadEnv(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("token service: load env after ensure for user %s: %w", userID, err)
+	}
+	return env, nil
+}
+
+func (s *TokenService) ensureAutoTokenLocked(ctx context.Context, userID string) error {
 	token, err := s.store.GetActiveAutoUserToken(ctx, userID)
 	if err == nil {
 		if ok, err := s.activeVaultTokenValid(ctx, userID, token); err != nil {
@@ -83,7 +109,21 @@ func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error
 	if err := s.vault.SetReserved(ctx, userID, StellaTokenName, plaintext); err != nil {
 		return fmt.Errorf("token service: write auto token to vault: %w", err)
 	}
-	return s.createAutoTokenRecord(ctx, userID, plaintext)
+	if err := s.createAutoTokenRecord(ctx, userID, plaintext); err != nil {
+		return s.recoverFromCreateRace(ctx, userID)
+	}
+	return nil
+}
+
+// recoverFromCreateRace handles the case where a concurrent EnsureAutoToken
+// won the DB insert race. The vault may have been overwritten by the losing
+// goroutine, so we rotate the winning token to re-establish consistency.
+func (s *TokenService) recoverFromCreateRace(ctx context.Context, userID string) error {
+	winner, err := s.store.GetActiveAutoUserToken(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("token service: recover from race for user %s: %w", userID, err)
+	}
+	return s.rotateAutoToken(ctx, winner)
 }
 
 // Authenticate returns the active user identified by rawToken.
