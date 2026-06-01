@@ -57,15 +57,21 @@ func writeData(w http.ResponseWriter, status int, data any) {
 // writeError writes a structured error response per AIP-193:
 // {"error": {"code", "message", "status"}}.
 func writeError(w http.ResponseWriter, status int, msg string) {
+	writeErrorDetails(w, status, msg, nil)
+}
+
+func writeErrorDetails(w http.ResponseWriter, status int, msg string, details map[string]any) {
+	errorBody := map[string]any{
+		"code":    status,
+		"message": msg,
+		"status":  statusName(status),
+	}
+	if len(details) > 0 {
+		errorBody["details"] = details
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]any{
-			"code":    status,
-			"message": msg,
-			"status":  statusName(status),
-		},
-	})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": errorBody})
 }
 
 func writeLoggedError(w http.ResponseWriter, log *slog.Logger, status int, clientMessage string, err error) {
