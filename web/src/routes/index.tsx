@@ -1054,7 +1054,7 @@ function FooterCTA({ lang }: { lang: "en" | "zh" }) {
             </button>
           </div>
 
-          <div className="install-code-body">
+          <div key={activeTab} className="install-code-body">
             <div className="flex items-start gap-3">
               <Terminal className="size-4 text-primary mt-1 flex-shrink-0" />
               <pre className="install-pre-code">{selectedCode}</pre>
