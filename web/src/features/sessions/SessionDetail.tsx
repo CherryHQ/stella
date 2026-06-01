@@ -317,10 +317,10 @@ export function SessionDetail({
               />
               <div
                 className={cn(
-                  "relative mx-auto max-w-4xl overflow-hidden rounded-[22px] border bg-card shadow-[0_18px_42px_rgba(29,29,31,0.09)] transition-all duration-150",
+                  "relative mx-auto max-w-4xl overflow-hidden rounded-[24px] border bg-card/65 backdrop-blur-md shadow-xs transition-all duration-150",
                   isStreaming
-                    ? "border-primary/40"
-                    : "border-border/80 focus-within:border-primary/50 focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_10%,transparent),0_18px_42px_rgba(29,29,31,0.09)]",
+                    ? "border-primary/45"
+                    : "border-border/75 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20",
                 )}
                 onDragOver={(e) => {
                   e.preventDefault();
