@@ -706,7 +706,7 @@ function AgentExplorerSection({ lang }: { lang: "en" | "zh" }) {
           </div>
 
           {/* Details Panel */}
-          <div className="agent-panel">
+          <div key={activeAgent.id} className="agent-panel">
             <div className="agent-panel-header">
               <h3 className="agent-panel-title">{activeAgent.name[lang]}</h3>
               <p className="text-xs text-muted-foreground mt-0.5">{activeAgent.role[lang]}</p>

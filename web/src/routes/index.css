@@ -495,7 +495,9 @@
 }
 
 .dag-edge.active {
-  background: var(--stella-os-success);
+  background: linear-gradient(180deg, var(--stella-os-success) 50%, var(--stella-os-rule) 50%);
+  background-size: 100% 200%;
+  animation: flow-edge 0.5s linear infinite;
 }
 
 .simulator-terminal {
@@ -520,6 +522,7 @@
 .terminal-line {
   white-space: pre-wrap;
   word-break: break-all;
+  animation: log-line-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .terminal-cursor-blink {
@@ -617,6 +620,7 @@
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
+  animation: panel-fade-in 0.3s var(--ease-standard) both;
 }
 
 .agent-panel-header {
@@ -710,6 +714,14 @@
   background: var(--stella-os-surface);
   display: flex;
   flex-direction: column;
+  transition:
+    border-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.pipeline-step-card:hover {
+  border-color: var(--stella-os-accent);
+  transform: translateY(-2px);
 }
 
 .pipeline-step-header {
@@ -919,6 +931,7 @@
   font-size: 0.72rem;
   line-height: 1.5;
   max-width: 90%;
+  animation: bubble-in 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
 }
 
 .chat-bubble.user {
@@ -1153,7 +1166,11 @@
   .home-btn,
   .home-hero-copy,
   .simulator-approve-gate,
-  .dag-node {
+  .dag-node,
+  .agent-panel,
+  .terminal-line,
+  .chat-bubble,
+  .dag-edge.active {
     animation: none !important;
     transition: none !important;
   }
@@ -1166,5 +1183,47 @@
 
   .home-progress {
     display: none;
+  }
+}
+
+@keyframes panel-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes log-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flow-edge {
+  from {
+    background-position: 0 100%;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
