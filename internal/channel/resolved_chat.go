@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -22,7 +23,18 @@ type ResolvedChat struct {
 func (rc *ResolvedChat) UserID() string { return rc.User.ID }
 
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (agent.SessionInfo, error) {
-	return rc.Service.ResolveMainSession(ctx, rc.User.ID, rc.AgentID)
+	if rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:") {
+		return rc.Service.ResolveMainSession(ctx, rc.User.ID, rc.AgentID)
+	}
+	return rc.Service.Sessions.Ensure(ctx, session.Request{
+		ID:                 rc.SessionKey,
+		UserID:             rc.User.ID,
+		AgentID:            rc.AgentID,
+		Kind:               session.KindChat,
+		Channel:            rc.Channel,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+	})
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {

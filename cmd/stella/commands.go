@@ -305,7 +305,14 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 			return fmt.Errorf("no agent service available for job %s", job.ID)
 		}
 		agentID := agentSvc.AgentID
-		sessionID := job.SessionID()
+		sessionID := scheduler.RunSessionIDFromContext(ctx)
+		if sessionID == "" {
+			if job.UserID != "" {
+				sessionID = job.UserSessionID(job.UserID)
+			} else {
+				sessionID = job.SessionID()
+			}
+		}
 		ch := agentSvc.Chat(schedulerJobContext(ctx, agentID, job), agent.ChatRequest{
 			SessionID: sessionID,
 			UserID:    job.UserID,

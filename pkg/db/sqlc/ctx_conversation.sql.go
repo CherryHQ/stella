@@ -310,6 +310,50 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 	return items, nil
 }
 
+const listConversationsForReviewByAgent = `-- name: ListConversationsForReviewByAgent :many
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+WHERE agent_id = ?1
+  AND archived = 0
+ORDER BY last_active DESC
+`
+
+func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID sql.NullString) ([]CtxConversation, error) {
+	rows, err := q.db.QueryContext(ctx, listConversationsForReviewByAgent, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxConversation{}
+	for rows.Next() {
+		var i CtxConversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.Title,
+			&i.Channel,
+			&i.Kind,
+			&i.ProjectID,
+			&i.Archived,
+			&i.LastActive,
+			&i.BootstrappedAt,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateConversationArchived = `-- name: UpdateConversationArchived :exec
 UPDATE ctx_conversation SET archived = ?1, updated_at = datetime('now')
 WHERE session_id = ?2 AND user_id = ?3 AND agent_id IS ?4

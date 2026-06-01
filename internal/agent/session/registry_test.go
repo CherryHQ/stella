@@ -54,6 +54,10 @@ func (f *fakeStore) list(_ context.Context, userID, agentID string, opts memory.
 	return out, nil
 }
 
+func (f *fakeStore) listForReview(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error) {
+	return f.list(ctx, "", agentID, opts)
+}
+
 func newTestRegistry(t *testing.T) (*Registry, *fakeStore) {
 	t.Helper()
 	s := newFakeStore()
@@ -266,10 +270,7 @@ func TestListForReview(t *testing.T) {
 	archived.Archived = true
 	s.sessions["arch-1"] = archived
 
-	infos, err := r.ListForReview(context.Background(), ReviewRequest{
-		AgentID: "agent1",
-		Policy:  DefaultReviewPolicy(),
-	})
+	infos, err := r.ListForReview(context.Background(), ReviewRequest{AgentID: "agent1"})
 	if err != nil {
 		t.Fatalf("ListForReview: %v", err)
 	}

@@ -16,6 +16,7 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -250,6 +251,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		IdleTimeout:  pm.idleTimeout,
 		DefaultModel: snap.ResolveModelID(config.ModelTierStrong),
 		HooksFn:      pm.HookPlugins,
+		BeforeRun:    pm.runtimeBeforeRun,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -264,6 +266,29 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	svc := &Service{Sessions: reg, Runtime: rt, AgentID: agentID}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
+}
+
+func (pm *PoolManager) runtimeBeforeRun(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
+	if pm.beforeRunBuilder == nil {
+		return system, nil
+	}
+	result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
+		SessionID:    info.ID,
+		Channel:      info.Channel,
+		UserID:       info.UserID,
+		AgentID:      info.AgentID,
+		Model:        model,
+		MessageText:  msgText,
+		SystemPrompt: system,
+		History:      append([]ai.Message(nil), history...),
+	})
+	if err != nil {
+		return "", err
+	}
+	if result.SystemPrompt == "" {
+		return system, nil
+	}
+	return result.SystemPrompt, nil
 }
 
 // GetService returns the Service for the given agent ID, or nil if not found.

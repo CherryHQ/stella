@@ -39,3 +39,14 @@ func (a *memoryAdapter) list(ctx context.Context, userID, agentID string, opts m
 	ctx = memory.WithAgentID(ctx, agentID)
 	return a.sm.ListInfo(ctx, opts)
 }
+
+func (a *memoryAdapter) listForReview(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error) {
+	opts.AgentID = agentID
+	if lister, ok := a.sm.(interface {
+		ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)
+	}); ok {
+		return lister.ListInfoForReview(ctx, opts)
+	}
+	ctx = memory.WithAgentID(ctx, agentID)
+	return a.sm.ListInfo(ctx, opts)
+}

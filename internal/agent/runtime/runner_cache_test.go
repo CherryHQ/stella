@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -15,17 +16,19 @@ import (
 // --- fake runner ------------------------------------------------------------
 
 type fakeRunner struct {
-	alive    bool
-	busy     bool
-	closed   bool
-	lastAct  time.Time
-	system   string
-	closeErr error
+	alive      bool
+	busy       bool
+	closed     bool
+	lastAct    time.Time
+	system     string
+	chatSystem string
+	closeErr   error
 }
 
 func newFakeRunner() *fakeRunner { return &fakeRunner{alive: true, lastAct: time.Now()} }
 
-func (r *fakeRunner) Chat(_ context.Context, _ []ai.Message, _ MessageContent) <-chan Event {
+func (r *fakeRunner) Chat(ctx context.Context, _ []ai.Message, _ MessageContent) <-chan Event {
+	r.chatSystem, _ = agentctx.SystemOverrideFromContext(ctx)
 	ch := make(chan Event)
 	close(ch)
 	return ch
@@ -205,5 +208,42 @@ func TestRunnerCache_Reap(t *testing.T) {
 	cache.mu.Unlock()
 	if cs != nil && cs.r != nil {
 		t.Error("expected runner to be reaped")
+	}
+}
+
+// TestRuntimeChat_BeforeRunOverride verifies the lifecycle hook can update the
+// per-run system prompt before the runner sees the request.
+func TestRuntimeChat_BeforeRunOverride(t *testing.T) {
+	runner := newFakeRunner()
+	runner.system = "base"
+	rt, err := New(Config{
+		Factory: func(_ context.Context, _ RunnerParams) (Runner, error) {
+			return runner, nil
+		},
+		Memory: fakeMemory{},
+		BeforeRun: func(_ context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
+			if info.ID != "s1" {
+				t.Fatalf("session ID = %q, want s1", info.ID)
+			}
+			if msgText != "hello" {
+				t.Fatalf("message = %q, want hello", msgText)
+			}
+			if system != "base" {
+				t.Fatalf("system = %q, want base", system)
+			}
+			return system + " + hook", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	for ev := range rt.Chat(context.Background(), validInfo("s1"), "hello") {
+		if ev.Err != nil {
+			t.Fatalf("Chat event error: %v", ev.Err)
+		}
+	}
+	if runner.chatSystem != "base + hook" {
+		t.Fatalf("runner system = %q, want hook override", runner.chatSystem)
 	}
 }

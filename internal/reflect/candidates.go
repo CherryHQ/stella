@@ -45,7 +45,7 @@ func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, 
 // default review policy (excludes delegate/task/scheduler sessions) and
 // Registry.MemoryScope to build authorised memory.Session values.
 func (s *Service) listUnreviewedFromRegistry(ctx context.Context, reg *session.Registry, agentID string) ([]candidate, error) {
-	infos, err := reg.ListForReview(ctx, session.ReviewRequest{AgentID: agentID})
+	infos, err := reg.ListForReview(ctx, session.ReviewRequest{AgentID: agentID, Policy: session.DefaultReviewPolicy()})
 	if err != nil {
 		return nil, err
 	}

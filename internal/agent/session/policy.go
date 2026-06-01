@@ -22,6 +22,11 @@ func DefaultReviewPolicy() ReviewPolicy {
 	}
 }
 
+// IsZero reports whether no review policy was supplied.
+func (p ReviewPolicy) IsZero() bool {
+	return len(p.ExcludeKinds) == 0 && !p.RequirePrivateMain
+}
+
 // Includes reports whether a session with the given kind passes this policy.
 func (p ReviewPolicy) Includes(kind Kind) bool {
 	return !slices.Contains(p.ExcludeKinds, kind)

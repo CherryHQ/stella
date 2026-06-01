@@ -220,8 +220,12 @@ func (r *Registry) ListForReview(ctx context.Context, req ReviewRequest) ([]Info
 		return nil, fmt.Errorf("ListForReview requires AgentID")
 	}
 
-	// System-scoped: list all sessions for the agent (no user filter).
-	all, err := r.store.list(ctx, "", agentID, memory.ListOptions{
+	policy := req.Policy
+	if policy.IsZero() {
+		policy = DefaultReviewPolicy()
+	}
+
+	all, err := r.store.listForReview(ctx, agentID, memory.ListOptions{
 		AgentID: agentID,
 	})
 	if err != nil {
@@ -233,7 +237,7 @@ func (r *Registry) ListForReview(ctx context.Context, req ReviewRequest) ([]Info
 		if info.Archived {
 			continue
 		}
-		if !req.Policy.Includes(Kind(info.Kind)) {
+		if !policy.Includes(Kind(info.Kind)) {
 			continue
 		}
 		out = append(out, info)

@@ -16,10 +16,11 @@ import (
 // It owns the runner cache, runner factory, and event streaming.
 // It does NOT own session creation, kind validation, or list/archive APIs.
 type Runtime struct {
-	cache   *runnerCache
-	mem     memory.Provider
-	log     *slog.Logger
-	compact CompactionConfig
+	cache     *runnerCache
+	mem       memory.Provider
+	log       *slog.Logger
+	compact   CompactionConfig
+	beforeRun BeforeRunFunc
 }
 
 // CompactionConfig controls automatic compaction thresholds.
@@ -48,6 +49,7 @@ type Config struct {
 	DefaultModel string
 	FastModel    string
 	HooksFn      func() []hooks.HookPlugin
+	BeforeRun    BeforeRunFunc
 }
 
 // New creates a Runtime from the given config.
@@ -67,10 +69,11 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultModel = cfg.DefaultModel
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
-		cache:   cache,
-		mem:     cfg.Memory,
-		log:     log,
-		compact: cfg.Compaction.WithDefaults(),
+		cache:     cache,
+		mem:       cfg.Memory,
+		log:       log,
+		compact:   cfg.Compaction.WithDefaults(),
+		beforeRun: cfg.BeforeRun,
 	}, nil
 }
 

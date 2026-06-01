@@ -13,4 +13,5 @@ type store interface {
 	save(ctx context.Context, info Info) error
 	load(ctx context.Context, sessionID, userID, agentID string) (Info, error)
 	list(ctx context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error)
+	listForReview(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error)
 }

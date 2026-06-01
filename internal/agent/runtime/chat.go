@@ -115,6 +115,17 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	if baseSystem == "" {
 		baseSystem = r.SystemPrompt()
 	}
+	if rt.beforeRun != nil {
+		systemOut, err := rt.beforeRun(ctx, info, cs.model, msgText, baseSystem, history)
+		if err != nil {
+			out <- Event{Err: fmt.Errorf("before run: %w", err)}
+			close(out)
+			return
+		}
+		if systemOut != "" {
+			baseSystem = systemOut
+		}
+	}
 	if baseSystem != "" {
 		ctx = withSystemOverride(ctx, baseSystem)
 	}
@@ -131,7 +142,6 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	}
 
 	stream := r.Chat(ctx, history, userMsg)
-	_ = cs // cs used above to signal cache hit
 	go rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart)
 }
 
