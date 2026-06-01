@@ -237,7 +237,10 @@ func (rt *Runtime) streamEvents(
 		}
 
 		if evt.Store != nil {
-			if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
+			if _, ok := evt.Store.(ai.AssistantMessage); ok {
+				textBuf.Reset()
+				reasoningBuf.Reset()
+			} else if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
 				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
 				if err := rt.mem.Append(persistCtx, memSess, flush); err != nil {
 					rt.log.Warn("memory append text-flush failed", "session_id", sessionID, "error", err)
