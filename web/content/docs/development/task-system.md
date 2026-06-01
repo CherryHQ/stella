@@ -226,12 +226,12 @@ authenticated session.
 
 Typed error codes:
 
-| Condition                        | HTTP | Code                                            |
-| -------------------------------- | ---- | ----------------------------------------------- |
-| Unknown task / blocker / review  | 404  | `not_found`                                     |
-| Invalid lifecycle transition     | 409  | `invalid_transition`                            |
-| Dep edge would close a cycle     | 409  | `dep_cycle`                                     |
-| Review already resolved          | 409  | `review_closed`                                 |
-| Dep-failure blocker (use waiver) | 409  | `dep_failure_requires_waiver`                   |
-| Blocker not open                 | 409  | `blocker_already_closed`                        |
-| Reopen would orphan downstream   | 409  | `reopen_conflict` (body lists `downstream_ids`) |
+| Condition                        | HTTP | Code                                                  |
+| -------------------------------- | ---- | ----------------------------------------------------- |
+| Unknown task / blocker / review  | 404  | `not_found`                                           |
+| Invalid lifecycle transition     | 409  | `invalid_transition`                                  |
+| Dep edge would close a cycle     | 409  | `dep_cycle`                                           |
+| Review already resolved          | 409  | `review_closed`                                       |
+| Dep-failure blocker (use waiver) | 409  | `dep_failure_requires_waiver`                         |
+| Blocker not open                 | 409  | `blocker_already_closed`                              |
+| Reopen would orphan downstream   | 409  | `reopen_conflict` with `error.details.downstream_ids` |

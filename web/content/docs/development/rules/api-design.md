@@ -300,9 +300,11 @@ Every error response uses HTTP status codes **and** this structured body
 }
 ```
 
-Every error uses this exact shape — **never the flat `{"error": "message"}`
+Every error uses this shape — **never the flat `{"error": "message"}`
 form**. The `code` mirrors the HTTP status, `status` is the canonical name,
-`message` is human-readable.
+`message` is human-readable. Some errors may include an optional `details`
+object for machine-readable context; detail keys use `snake_case` and must be
+safe to expose to clients.
 
 ### Status code reference
 
@@ -415,7 +417,8 @@ Before approving any API change:
 3. Is the resource schema consistent across all methods that return it?
 4. Do list endpoints return a resource-named array (not a bare array) and
    support `page_size` / `page_token` / `next_page_token` when paginated?
-5. Are errors returned with `{ "error": { "code", "message", "status" } }` and
+5. Are errors returned with `{ "error": { "code", "message", "status" } }`,
+   optional safe `details` only when clients need machine-readable context, and
    the correct HTTP status?
 6. Are field names `snake_case`?
 7. Do Create and Update return the full resource (Update with 200, not 204)?

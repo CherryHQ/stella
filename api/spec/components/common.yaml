@@ -28,6 +28,10 @@ components:
             status:
               type: string
               description: canonical status name (e.g. NOT_FOUND, INVALID_ARGUMENT)
+            details:
+              type: object
+              additionalProperties: true
+              description: optional machine-readable error details; keys use snake_case
 
   responses:
     Unauthorized:

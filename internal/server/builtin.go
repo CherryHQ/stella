@@ -55,7 +55,7 @@ func (s *Server) ListBuiltinResources(w http.ResponseWriter, r *http.Request, ki
 	}
 	reg, err := resources.Default()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	resources := reg.List(kind)
@@ -74,7 +74,7 @@ func (s *Server) GetBuiltinResource(w http.ResponseWriter, r *http.Request, kind
 	}
 	reg, err := resources.Default()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	res, ok := reg.Get(kind, id)

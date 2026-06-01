@@ -39,7 +39,7 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		DefaultAgentID string `json:"default_agent_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if !info.IsAdmin {
@@ -49,7 +49,7 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 	if err := s.users.UpdateUserDefaultAgent(r.Context(), targetUserID, body.DefaultAgentID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.writeAuthUser(w, r, targetUserID)
@@ -64,7 +64,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		NotifyIdentityID *string `json:"notify_identity_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if body.NotifyIdentityID != nil {
@@ -79,7 +79,7 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if err := s.users.UpdateUserNotifyIdentity(r.Context(), targetUserID, body.NotifyIdentityID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.writeAuthUser(w, r, targetUserID)
@@ -92,7 +92,7 @@ func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id str
 	}
 	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), targetUserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	defaultSoul := prompt.DefaultAgentSoul()
@@ -117,7 +117,7 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		Content string `json:"content"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	source := memory.SourceSystem
@@ -126,7 +126,7 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 	}
 	ctx := memory.WithChangeSource(r.Context(), source)
 	if err := memorywrite.SetProfile(ctx, s.db, s.q, targetUserID, agentID, body.Content); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.writeProfileMemory(w, r, targetUserID, agentID)
@@ -147,7 +147,7 @@ func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id str
 	}
 	ctx := memory.WithChangeSource(r.Context(), source)
 	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, targetUserID, agentID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeNoContent(w)

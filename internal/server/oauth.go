@@ -56,7 +56,7 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 	status, err := s.credSvc.StartFlowWithOrigin(r.Context(), info.UserID, provider, requestOrigin(r))
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "user_id", info.UserID, "error", err)
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	writeData(w, http.StatusOK, toFlowStatusJSON(status))
@@ -76,7 +76,8 @@ func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider 
 
 	status, _, err := s.credSvc.PollFlow(r.Context(), info.UserID, provider, flowID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.log.Error("poll oauth flow", "provider", provider, "flow_id", flowID, "error", err)
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	writeData(w, http.StatusOK, toFlowStatusJSON(status))
@@ -124,7 +125,7 @@ func (s *Server) DisconnectOAuth(w http.ResponseWriter, r *http.Request, provide
 
 	if err := s.credSvc.Disconnect(r.Context(), info.UserID, provider); err != nil {
 		s.log.Error("disconnect oauth", "provider", provider, "user_id", info.UserID, "error", err)
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

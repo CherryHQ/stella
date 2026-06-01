@@ -15,7 +15,7 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 
 	userIDs, err := s.authStore.ListAgentUserIDs(ctx, agentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list agent users: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -46,7 +46,7 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 		UserID string `json:"user_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if body.UserID == "" {
@@ -65,7 +65,7 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 	}
 
 	if err := s.authStore.AssignAgent(ctx, body.UserID, agentID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to assign user: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -80,7 +80,7 @@ func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id stri
 	ctx := r.Context()
 
 	if err := s.authStore.RemoveAgent(ctx, userId, agentID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to remove user: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 

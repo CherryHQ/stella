@@ -50,7 +50,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 
 	var body apiserver.JobInput
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if body.Name == nil || *body.Name == "" || body.Message == nil || *body.Message == "" {
@@ -58,7 +58,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 	if err := validateScheduleInput(body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	sessionMode := "reuse"
@@ -80,7 +80,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		}
 		job, err := s.schedulerSvc.AddJobWithOwner(*body.Name, *body.Message, sched, sessionMode, agentID, userID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 		writeData(w, http.StatusCreated, schedulerJobToAPI(job))
@@ -124,7 +124,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		LastError:     "",
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -203,7 +203,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 
 	var body apiserver.JobInput
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -264,7 +264,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		LastError:     existing.LastError,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -326,7 +326,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		deleteErr = s.q.DeleteSchedulerJob(r.Context(), jobID)
 	}
 	if deleteErr != nil {
-		writeError(w, http.StatusInternalServerError, deleteErr.Error())
+		s.writeInternalError(w, deleteErr)
 		return
 	}
 	writeNoContent(w)
@@ -368,7 +368,7 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 
 	runID, err := s.schedulerSvc.RunJobNow(r.Context(), jobID)
 	if err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+		writeError(w, http.StatusConflict, "resource conflict")
 		return
 	}
 

@@ -2,8 +2,8 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -28,10 +28,19 @@ type recallyHandlers struct {
 	store *recally.Store
 	files *recally.FileManager
 	feeds *gofeed.Parser
+	log   *slog.Logger
 }
 
-func newRecallyHandlers(store *recally.Store, files *recally.FileManager) *recallyHandlers {
-	return &recallyHandlers{store: store, files: files, feeds: gofeed.NewParser()}
+func newRecallyHandlers(store *recally.Store, files *recally.FileManager, log *slog.Logger) *recallyHandlers {
+	return &recallyHandlers{store: store, files: files, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
+}
+
+func (h *recallyHandlers) writeInternalError(w http.ResponseWriter, err error) {
+	writeLoggedError(w, h.log, http.StatusInternalServerError, "internal error", err)
+}
+
+func (h *recallyHandlers) writeBadGatewayError(w http.ResponseWriter, err error) {
+	writeLoggedError(w, h.log, http.StatusBadGateway, "upstream service error", err)
 }
 
 // requireUser enforces bearer/session auth and returns the user ID. It writes
@@ -50,7 +59,11 @@ func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (s
 func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
 	article, err := h.store.GetArticle(ctx, userID, articleID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not found")
+		} else {
+			h.writeInternalError(w, err)
+		}
 		return nil, false
 	}
 	if article.UserID != userID {
@@ -63,7 +76,11 @@ func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Contex
 func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
 	feed, err := h.store.GetFeed(ctx, userID, feedID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not found")
+		} else {
+			h.writeInternalError(w, err)
+		}
 		return nil, false
 	}
 	if feed.UserID != userID {
@@ -100,7 +117,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	if params.Q != nil && *params.Q != "" {
 		articles, err := h.store.SearchArticles(ctx, userID, *params.Q, limit)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			h.writeInternalError(w, err)
 			return
 		}
 		writeData(w, http.StatusOK, apiserver.ArticleList{Articles: toAPIArticles(articles)})
@@ -119,7 +136,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	}
 	articles, err := h.store.ListArticles(ctx, userID, filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	articles, nextToken := nextPageTokenForRows(articles, limit, offset)
@@ -179,7 +196,7 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 
 	article, isNew, err := h.store.SaveArticle(r.Context(), userID, req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 
@@ -207,12 +224,12 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		filePath = h.files.ArticlePath(userID, article.ID, article.Title, article.SavedAt)
 	}
 	if err := h.files.WriteArticle(filePath, article, content); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("write article file: %v", err))
+		h.writeInternalError(w, err)
 		return
 	}
 	relPath := h.files.RelativePath(filePath)
 	if err := h.store.UpdateArticleFilePath(r.Context(), userID, article.ID, relPath); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	article.FilePath = relPath
@@ -294,7 +311,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 	if len(updates) > 0 {
 		next, err := h.store.UpdateArticle(r.Context(), userID, id, updates)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			h.writeInternalError(w, err)
 			return
 		}
 		updated = next
@@ -302,7 +319,7 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 
 	if body.Content != nil || len(updates) > 0 {
 		if err := h.rewriteArticleFile(updated, strDeref(body.Content)); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			h.writeInternalError(w, err)
 			return
 		}
 	}
@@ -320,7 +337,7 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	if err := h.store.DeleteArticle(r.Context(), userID, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	if article.FilePath != "" {
@@ -356,7 +373,7 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 	}
 	feeds, err := h.store.ListFeeds(r.Context(), userID, limit+1, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	feeds, nextToken := nextPageTokenForRows(feeds, limit, offset)
@@ -395,7 +412,7 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 	parsed, err := h.feeds.ParseURLWithContext(body.Url, parseCtx)
 	cancel()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("fetch feed: %v", err))
+		h.writeBadGatewayError(w, err)
 		return
 	}
 	if title == "" {
@@ -405,7 +422,7 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 
 	feed, err := h.store.CreateFeed(r.Context(), userID, body.Url, title, description, body.AgentId)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	w.Header().Set("Location", "/api/recally/feeds/"+feed.ID)
@@ -452,7 +469,7 @@ func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id 
 	}
 	updated, err := h.store.UpdateFeed(r.Context(), userID, id, updates)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIFeed(updated))
@@ -467,7 +484,7 @@ func (h *recallyHandlers) DeleteFeed(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	if err := h.store.DeleteFeed(r.Context(), userID, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -496,7 +513,8 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	parsed, err := h.feeds.ParseURLWithContext(feed.URL, parseCtx)
 	cancel()
 	if err != nil {
-		msg := err.Error()
+		h.log.Warn("feed poll upstream error", "feed_id", feed.ID, "url", feed.URL, "error", err)
+		msg := "failed to fetch feed"
 		result.Error = &msg
 		writeData(w, http.StatusOK, result)
 		return
@@ -556,7 +574,7 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 	}
 	entries, err := h.store.ListPendingFeedEntries(r.Context(), feedId, limit+1, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	entries, nextToken := nextPageTokenForRows(entries, limit, offset)
@@ -581,7 +599,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	}
 	entry, err := h.store.GetFeedEntry(r.Context(), feedId, id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if entry.FeedID != feedId {
@@ -606,7 +624,7 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 	}
 	updated, err := h.store.MarkFeedEntry(r.Context(), feedId, id, status, body.ArticleId, strDeref(body.ErrorMsg))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIFeedEntry(updated))
@@ -621,7 +639,7 @@ func (h *recallyHandlers) GetDigest(w http.ResponseWriter, r *http.Request) {
 	}
 	digest, err := h.store.GetDigest(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIDigest(digest))
@@ -640,7 +658,7 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 	limit, offset := int64(limitInt), int64(offsetInt)
 	summaries, total, err := h.store.ListStoredDigests(r.Context(), userID, limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	items := make([]apitypes.StoredDigestSummary, 0, len(summaries))
@@ -662,7 +680,7 @@ func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
 	}
 	var body apitypes.SaveDigestRequest
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if body.Narrative == "" {
@@ -675,7 +693,7 @@ func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
 	}
 	stored, err := h.store.SaveDigest(r.Context(), userID, body.Narrative, date)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.writeInternalError(w, err)
 		return
 	}
 	w.Header().Set("Location", "/api/recally/digests/"+stored.Date)
@@ -689,7 +707,11 @@ func (h *recallyHandlers) GetStoredDigest(w http.ResponseWriter, r *http.Request
 	}
 	stored, err := h.store.GetStoredDigestByDate(r.Context(), userID, date)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "digest not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "digest not found")
+		} else {
+			h.writeInternalError(w, err)
+		}
 		return
 	}
 	writeData(w, http.StatusOK, toAPIStoredDigest(stored))

@@ -85,6 +85,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 	flowStore := oauth.NewFlowStore()
 	credSvc := credentials.NewService(nil, sqlc.New(db), flowStore, corsOrigin)
 
+	log := slog.With("component", "admin")
 	s := &Server{
 		store:       store,
 		authStore:   authStore,
@@ -97,10 +98,10 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		pluginHost:  pluginHost,
 		q:           sqlc.New(db),
 		mux:         http.NewServeMux(),
-		log:         slog.With("component", "admin"),
+		log:         log,
 		corsOriginV: corsOrigin,
 		credSvc:     credSvc,
-		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome())),
+		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome()), log),
 		startedAt:   time.Now(),
 	}
 

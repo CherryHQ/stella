@@ -58,7 +58,7 @@ func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	sessions, err := s.sessions.ListSessionsByUser(r.Context(), info.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	items := make([]map[string]any, len(sessions))
@@ -93,7 +93,7 @@ func (s *Server) DeleteAuthSession(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	if err := s.sessions.DeleteSession(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeNoContent(w)

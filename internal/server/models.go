@@ -17,7 +17,7 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	}
 	providers, err := s.store.ListProviders(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list provider config: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 

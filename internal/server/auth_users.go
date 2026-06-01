@@ -103,7 +103,7 @@ func (s *Server) writeAuthUser(w http.ResponseWriter, r *http.Request, id string
 
 	resp, err := s.buildAuthUserResponse(r, u)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load user details: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -120,7 +120,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		Role string `json:"role"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -136,7 +136,7 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 	}
 
 	if err := s.users.UpdateUserRole(r.Context(), targetUserID, body.Role); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update role: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -157,7 +157,7 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 	targetUserID := resolveTargetUserID(info, id)
 	agentIDs, err := s.authStore.ListUserAgentIDs(r.Context(), targetUserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list user agents: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -175,7 +175,7 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 		AgentIDs []string `json:"agent_ids"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -190,7 +190,7 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 	// Get current assignments.
 	currentIDs, err := s.authStore.ListUserAgentIDs(ctx, targetUserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list current agents: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -223,7 +223,7 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 
 	updated, err := s.authStore.ListUserAgentIDs(ctx, targetUserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list user agents: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"agent_ids": updated})
@@ -274,7 +274,7 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		IsActive bool `json:"is_active"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -289,7 +289,7 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 	}
 
 	if err := s.users.UpdateUserActive(r.Context(), targetUserID, body.IsActive); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update active status: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -318,7 +318,7 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 	}
 	identities, err := s.logins.ListLoginIdentitiesByUser(r.Context(), targetUserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list login identities: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"identities": identities})
@@ -343,7 +343,7 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 		Name            string `json:"name"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if body.Provider == "" || body.ProviderSubject == "" || body.Email == "" {
@@ -359,7 +359,7 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 	// Ensure the identity is not already owned by another user.
 	existing, err := s.logins.GetLoginIdentityByProvider(r.Context(), body.Provider, body.ProviderSubject)
 	if err != nil && !errors.Is(err, auth.ErrNotFound) {
-		writeError(w, http.StatusInternalServerError, "failed to check existing identity: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if err == nil && existing.UserID != targetUserID {
@@ -381,7 +381,7 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 	})
 	if err != nil {
 		s.log.Error("admin link login identity", "user_id", targetUserID, "provider", body.Provider, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to link identity: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -406,7 +406,7 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 	}
 	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), targetUserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list channel identities: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"identities": identities})

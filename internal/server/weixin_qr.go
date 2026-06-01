@@ -21,7 +21,7 @@ func (s *Server) StartWeixinQR(w http.ResponseWriter, r *http.Request) {
 	client := weixin.NewClient("", "", "", "")
 	qr, err := client.GetQRCode()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to get QR code: "+err.Error())
+		s.writeBadGatewayError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, qr)
@@ -47,7 +47,7 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 	client := weixin.NewClient("", "", "", "")
 	status, err := client.GetQRCodeStatus(qrcode)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to poll QR status: "+err.Error())
+		s.writeBadGatewayError(w, err)
 		return
 	}
 
@@ -55,7 +55,7 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 	if status.Status == "confirmed" && status.BotToken != "" {
 		if err := s.saveWeixinCredentials(r.Context(), status); err != nil {
 			s.log.Error("save weixin credentials", "error", err)
-			writeError(w, http.StatusInternalServerError, "QR confirmed but failed to save credentials: "+err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 

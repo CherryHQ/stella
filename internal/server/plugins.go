@@ -16,7 +16,7 @@ func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"plugins": flattenRegisteredPlugins(s, plugins)})
@@ -69,7 +69,7 @@ func (s *Server) GetPluginStatus(w http.ResponseWriter, r *http.Request, kind st
 	id := pluginRouteID(kind, name)
 	status, err := s.pluginHost.Status(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, status)
@@ -86,7 +86,7 @@ func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, kind st
 	id := pluginRouteID(kind, name)
 	state, err := s.pluginHost.Config().Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, state.Config)
@@ -109,17 +109,17 @@ func (s *Server) TogglePlugin(w http.ResponseWriter, r *http.Request, kind strin
 		Enabled bool `json:"enabled"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if err := s.pluginHost.SetEnabled(r.Context(), id, req.Enabled); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	// Re-fetch the updated plugin to return current state.
 	p, err := s.store.GetPlugin(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	// Hot-reload tool plugins so the change takes effect without restart.
@@ -159,7 +159,7 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		Config map[string]any `json:"config"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Config == nil {
@@ -170,16 +170,16 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		return
 	}
 	if err := s.pluginHost.ValidateConfig(id, req.Config); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if err := s.pluginHost.Config().Set(r.Context(), id, req.Config); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	p, err := s.store.GetPlugin(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {

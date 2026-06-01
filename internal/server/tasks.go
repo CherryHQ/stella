@@ -34,7 +34,7 @@ func authActor(r *http.Request) tasks.Actor {
 }
 
 // taskError centralizes the error → HTTP mapping (D4).
-func taskError(w http.ResponseWriter, err error) {
+func (s *Server) taskError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, tasks.ErrTaskNotFound), errors.Is(err, tasks.ErrBlockerNotFound), errors.Is(err, tasks.ErrReviewNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
@@ -51,13 +51,12 @@ func taskError(w http.ResponseWriter, err error) {
 	default:
 		var conflict *tasks.ErrReopenConflict
 		if errors.As(err, &conflict) {
-			writeData(w, http.StatusConflict, map[string]any{
-				"error":          "reopen_conflict",
+			writeErrorDetails(w, http.StatusConflict, "reopen_conflict", map[string]any{
 				"downstream_ids": conflict.DownstreamIDs,
 			})
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 	}
 }
 
@@ -71,7 +70,7 @@ func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID str
 			writeError(w, http.StatusNotFound, "not_found")
 			return sqlc.AgentTask{}, false
 		}
-		taskError(w, err)
+		s.taskError(w, err)
 		return sqlc.AgentTask{}, false
 	}
 	info := UserFromContext(ctx)
@@ -118,7 +117,7 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 	}
 	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, status, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -194,7 +193,7 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.tasksSvc.Facade.CreateTask(r.Context(), in)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, taskToAPI(t))
@@ -234,12 +233,12 @@ func (s *Server) CancelTask(w http.ResponseWriter, r *http.Request, taskID strin
 	var req apitypes.CancelRequest
 	_ = decodeJSON(r, &req) // body is optional
 	if err := s.tasksSvc.Facade.CancelTask(r.Context(), t.ID, strPtr(req.Reason), authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, taskToAPI(fresh))
@@ -261,12 +260,12 @@ func (s *Server) ReopenTask(w http.ResponseWriter, r *http.Request, taskID strin
 	_ = decodeJSON(r, &req)
 	cascade := req.Cascade != nil && *req.Cascade
 	if err := s.tasksSvc.Facade.ReopenTask(r.Context(), t.ID, cascade, authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, taskToAPI(fresh))
@@ -290,7 +289,7 @@ func (s *Server) GetTaskReadiness(w http.ResponseWriter, r *http.Request, taskID
 	}
 	rd, err := s.tasksSvc.Facade.GetReadiness(r.Context(), t.ID)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, readinessToAPI(rd))
@@ -315,7 +314,7 @@ func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskID s
 	}
 	rows, err := s.tasksSvc.Facade.ListEvents(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -349,7 +348,7 @@ func (s *Server) ListTaskRuns(w http.ResponseWriter, r *http.Request, taskID str
 	}
 	rows, err := s.tasksSvc.Facade.ListRuns(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -387,7 +386,7 @@ func (s *Server) ListTaskDeps(w http.ResponseWriter, r *http.Request, taskID str
 	}
 	rows, err := s.tasksSvc.Facade.ListDeps(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -436,7 +435,7 @@ func (s *Server) AddTaskDep(w http.ResponseWriter, r *http.Request, taskID strin
 		onFailure = string(*req.OnFailure)
 	}
 	if err := s.tasksSvc.Facade.AddDep(r.Context(), t.ID, dep.ID, kind, onFailure); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -465,7 +464,7 @@ func (s *Server) WaiveTaskDep(w http.ResponseWriter, r *http.Request, taskID str
 	var req apitypes.WaiveDepRequest
 	_ = decodeJSON(r, &req)
 	if err := s.tasksSvc.Facade.WaiveDep(r.Context(), t.ID, depTaskID, userID, strPtr(req.Reason), authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -499,12 +498,12 @@ func (s *Server) ResolveTaskBlocker(w http.ResponseWriter, r *http.Request, task
 	var req apitypes.ResolveBlockerRequest
 	_ = decodeJSON(r, &req)
 	if err := s.tasksSvc.Facade.ResolveBlocker(r.Context(), blockerID, strPtr(req.Resolution), authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, err := s.tasksSvc.Facade.GetTask(r.Context(), t.ID)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, taskToAPI(fresh))
@@ -533,7 +532,7 @@ func (s *Server) ListTaskReviews(w http.ResponseWriter, r *http.Request, taskID 
 	}
 	rows, err := s.tasksSvc.Facade.ListReviews(r.Context(), t.ID, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -580,7 +579,7 @@ func (s *Server) EscalateTaskReview(w http.ResponseWriter, r *http.Request, task
 	var req apitypes.EscalateReviewRequest
 	_ = decodeJSON(r, &req)
 	if err := s.tasksSvc.Facade.EscalateReview(r.Context(), reviewID, strPtr(req.Reason), authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, err := s.tasksSvc.Facade.GetReview(r.Context(), reviewID)
@@ -622,7 +621,7 @@ func (s *Server) decideReview(w http.ResponseWriter, r *http.Request, taskID, re
 		err = s.tasksSvc.Facade.RequestChanges(r.Context(), reviewID, strPtr(req.Summary), strPtr(req.Feedback), actor)
 	}
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, gerr := s.tasksSvc.Facade.GetReview(r.Context(), reviewID)

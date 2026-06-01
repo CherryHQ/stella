@@ -17,7 +17,7 @@ func (s *Server) ListProviders(w http.ResponseWriter, r *http.Request) {
 	}
 	pList, err := s.store.ListProviders(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"providers": pList})
@@ -29,7 +29,7 @@ func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	var p config.Provider
 	if err := decodeJSON(r, &p); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if p.ID == "" {
@@ -47,7 +47,7 @@ func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if err := s.store.CreateProvider(ctx, p); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.reloadProviders(ctx)
@@ -73,7 +73,7 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 	ctx := r.Context()
 	var p config.Provider
 	if err := decodeJSON(r, &p); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	existing, err := s.store.GetProvider(ctx, id)
@@ -89,7 +89,7 @@ func (s *Server) UpdateProvider(w http.ResponseWriter, r *http.Request, id strin
 		p.Name = id
 	}
 	if err := s.store.UpdateProvider(ctx, p); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.reloadProviders(ctx)
@@ -106,7 +106,7 @@ func (s *Server) DeleteProvider(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	if err := s.store.DeleteProvider(ctx, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.reloadProviders(ctx)
@@ -154,7 +154,7 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 		BaseURL string `json:"base_url"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -206,7 +206,7 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 
 	listed, err := lister.ListModels(fetchCtx)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "fetch failed: "+err.Error())
+		s.writeBadGatewayError(w, err)
 		return
 	}
 
@@ -221,7 +221,7 @@ func (s *Server) FetchProviderModels(w http.ResponseWriter, r *http.Request, id 
 
 	providerCfg, err = s.store.GetProvider(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "reload provider config: "+err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 

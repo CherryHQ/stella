@@ -42,7 +42,7 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 
 	var body apiserver.CreateSessionJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil && err.Error() != "EOF" {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -63,7 +63,7 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 
 	info, err := pool.CreateSessionWithKind("admin", kind, projectID, authInfo.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -84,7 +84,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 
 	var body apiserver.SendSessionMessageJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if len(body.Parts) == 0 {
@@ -101,7 +101,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	ctx := memoryContext(r, agentID)
 	si, err := sm.LoadInfo(ctx, sessionID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -461,7 +461,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	}
 	sessions, err := sm.ListInfo(memoryContext(r, agentID), opts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -493,7 +493,7 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	}
 	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -555,7 +555,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	}
 	rows, err := s.q.GetMessagesByConversation(r.Context(), conv.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -610,7 +610,7 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agen
 	}
 	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return err
 	}
 	if si.UserID != info.UserID {
@@ -639,7 +639,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 	}
 	info, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if info.UserID == "" || info.AgentID == "" {
@@ -648,7 +648,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 	}
 	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	root := userDir
@@ -663,7 +663,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 	}
 	diskInfo, err := collectWorkspaceDiskInfo(root, showHidden, listPath, depth)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, diskInfo)
@@ -757,7 +757,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 	}
 	info, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return "", err
 	}
 	if info.UserID == "" || info.AgentID == "" {
@@ -766,7 +766,7 @@ func (s *Server) sessionWorkspaceRoot(w http.ResponseWriter, r *http.Request, ag
 	}
 	userDir, err := agent.SetupUserWorkspace(info.AgentID, config.StellaHome(), info.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return "", err
 	}
 	return userDir, nil
@@ -790,7 +790,7 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	}
 	var body apiserver.CreateWorkspaceFileJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if body.Path == "" {
@@ -799,17 +799,17 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	}
 	abs, err := safePath(root, body.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if body.IsDir != nil && *body.IsDir {
 		if err := os.MkdirAll(abs, 0o755); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 	} else {
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 		content := ""
@@ -817,13 +817,13 @@ func (s *Server) CreateWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 			content = *body.Content
 		}
 		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 	}
 	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, diskInfo)
@@ -836,7 +836,7 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	}
 	var body apiserver.DeleteWorkspaceFileJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if body.Path == "" {
@@ -845,11 +845,11 @@ func (s *Server) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	}
 	abs, err := safePath(root, body.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if err := os.RemoveAll(abs); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeNoContent(w)
@@ -862,7 +862,7 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agent
 	}
 	var body apiserver.MoveWorkspaceFileJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if body.Path == "" || body.NewPath == "" {
@@ -871,25 +871,25 @@ func (s *Server) MoveWorkspaceFile(w http.ResponseWriter, r *http.Request, agent
 	}
 	src, err := safePath(root, body.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	dst, err := safePath(root, body.NewPath)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if err := os.Rename(src, dst); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	diskInfo, err := collectWorkspaceDiskInfo(root, false, "", 0)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, diskInfo)
@@ -906,12 +906,12 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 	}
 	abs, err := safePath(root, params.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if info.IsDir() {
@@ -925,7 +925,7 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	// Refuse binary files: check first 512 bytes for null byte.
@@ -952,7 +952,7 @@ func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Reque
 	}
 	var body apiserver.UpdateWorkspaceFileContentJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if body.Path == "" {
@@ -961,15 +961,15 @@ func (s *Server) UpdateWorkspaceFileContent(w http.ResponseWriter, r *http.Reque
 	}
 	abs, err := safePath(root, body.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if err := os.WriteFile(abs, []byte(body.Content), 0o644); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	lang := detectLanguage(body.Path)
@@ -986,19 +986,19 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "missing file field: "+err.Error())
+		writeError(w, http.StatusBadRequest, "missing file field")
 		return
 	}
 	defer func() { _ = file.Close() }()
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -1006,13 +1006,13 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
 	dir := filepath.Join(root, ".assets", now.Format("200601"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	name := fmt.Sprintf("%s-%s-%s", now.Format("20060102"), hash, filepath.Base(header.Filename))
 	abs := filepath.Join(dir, name)
 	if err := os.WriteFile(abs, data, 0o644); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	rel, _ := filepath.Rel(root, abs)
@@ -1086,7 +1086,7 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 
 	info, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -1103,13 +1103,13 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	}
 	projectRoot, err := s.projectRootForSession(memoryContext(r, agentID), agentID, &sessionID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	homeDir, _ := os.UserHomeDir()
 	pluginView, err := s.pluginHost.SessionPluginView(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	promptBuild := pkgplugins.SystemPromptContext{
@@ -1126,11 +1126,11 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	}
 	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), promptBuild)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	if skillsSection, err := skillstool.BuildPromptSection(r.Context(), promptBuild); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	} else if skillsSection.Title != "" && skillsSection.Content != "" {
 		promptSections = append(promptSections, skillsSection)

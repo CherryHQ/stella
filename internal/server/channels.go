@@ -67,19 +67,19 @@ func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 
 	enabledTypes, err := s.enabledChannelTypes(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
 	agentNames, err := s.accessibleAgentNames(r, info)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
 	channels, err := s.store.ListChannels(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -189,7 +189,7 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	channels, err := s.store.ListChannels(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	views := make([]channelView, len(channels))
@@ -217,7 +217,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	}
 	var req channelWriteRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	req.ID = id
@@ -226,7 +226,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	existing, existingErr := s.store.GetChannel(ctx, id)
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid config JSON")
 		return
 	}
 
@@ -240,7 +240,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	var req channelWriteRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	channelType := requestChannelType(req)
@@ -251,7 +251,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid config JSON")
 		return
 	}
 
@@ -312,17 +312,17 @@ func (s *Server) defaultChannelEnabled(r *http.Request, channelType string) bool
 func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
 	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
 	if err := s.pluginHost.ValidateConfig(pluginID, cfgMap); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request")
 		return false
 	}
 	cfgJSON, err := json.Marshal(cfgMap)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid config JSON")
 		return false
 	}
 	ch.Config = string(cfgJSON)
 	if err := s.store.UpsertChannel(r.Context(), ch); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return false
 	}
 	if ch.ID == ch.Type {
@@ -334,7 +334,7 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 			Enabled: pluginEnabled,
 			Config:  map[string]any{},
 		}); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return false
 		}
 	}
@@ -343,7 +343,7 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 	}
 	saved, err := s.store.GetChannel(r.Context(), ch.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return false
 	}
 	writeData(w, status, channelToView(saved))
@@ -378,7 +378,7 @@ func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string
 		s.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
 	}
 	if err := s.store.DeleteChannel(ctx, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeNoContent(w)

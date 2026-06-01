@@ -208,12 +208,12 @@ Slice 1(MVP)已落地:
 
 典型错误编码:
 
-| 条件                               | HTTP | code                                        |
-| ---------------------------------- | ---- | ------------------------------------------- |
-| 任务 / blocker / 评审不存在        | 404  | `not_found`                                 |
-| 非法状态迁移                       | 409  | `invalid_transition`                        |
-| 依赖边会形成环                     | 409  | `dep_cycle`                                 |
-| 评审已结束                         | 409  | `review_closed`                             |
-| dep_failure 类型 blocker(需要豁免) | 409  | `dep_failure_requires_waiver`               |
-| blocker 已关闭                     | 409  | `blocker_already_closed`                    |
-| reopen 会使下游孤立                | 409  | `reopen_conflict`(body 含 `downstream_ids`) |
+| 条件                               | HTTP | code                                                 |
+| ---------------------------------- | ---- | ---------------------------------------------------- |
+| 任务 / blocker / 评审不存在        | 404  | `not_found`                                          |
+| 非法状态迁移                       | 409  | `invalid_transition`                                 |
+| 依赖边会形成环                     | 409  | `dep_cycle`                                          |
+| 评审已结束                         | 409  | `review_closed`                                      |
+| dep_failure 类型 blocker(需要豁免) | 409  | `dep_failure_requires_waiver`                        |
+| blocker 已关闭                     | 409  | `blocker_already_closed`                             |
+| reopen 会使下游孤立                | 409  | `reopen_conflict`，含 `error.details.downstream_ids` |

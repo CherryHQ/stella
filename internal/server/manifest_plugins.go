@@ -46,7 +46,7 @@ func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 	merged, err := s.resolveManifestPlugins(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, manifestPluginsResponse{Plugins: merged.Plugins, OAuthProviders: merged.OAuthProviders})
@@ -60,13 +60,13 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		Plugins []manifestplugins.ManifestPlugin `json:"plugins"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
@@ -85,14 +85,14 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		// existing row so we preserve that binding instead of clobbering it.
 		existing, _, err := s.store.GetManifestPluginOverride(r.Context(), plugin.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 		// Drop the row only when nothing is left to override: the requested
 		// state matches the default and no session env binding is set.
 		if plugin.Enabled == def.Enabled && existing.SessionEnvVaultKey == "" {
 			if err := s.store.DeleteManifestPluginOverride(r.Context(), plugin.ID); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				s.writeInternalError(w, err)
 				return
 			}
 			continue
@@ -109,14 +109,14 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			Enabled:            enabled,
 			SessionEnvVaultKey: existing.SessionEnvVaultKey,
 		}); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeInternalError(w, err)
 			return
 		}
 	}
 
 	merged, err := s.resolveManifestPlugins(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	s.pluginHost.RegisterManifestPlugins(merged)
@@ -137,7 +137,7 @@ func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 	merged, err := s.resolveManifestPlugins(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeInternalError(w, err)
 		return
 	}
 	result := manifestplugins.Reconcile(r.Context(), merged, config.StellaHome())

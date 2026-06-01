@@ -21,7 +21,7 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, go
 			writeError(w, http.StatusNotFound, "not_found")
 			return sqlc.AgentGoal{}, false
 		}
-		taskError(w, err)
+		s.taskError(w, err)
 		return sqlc.AgentGoal{}, false
 	}
 	if g.UserID != userID {
@@ -48,7 +48,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	}
 	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -100,7 +100,7 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	g, err := s.tasksSvc.Facade.CreateGoal(r.Context(), in)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, goalToAPI(g))
@@ -136,12 +136,12 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, goalID str
 		return
 	}
 	if err := s.tasksSvc.Facade.ActivateGoal(r.Context(), g.ID, authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, err := s.tasksSvc.Facade.GetGoal(r.Context(), g.ID)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, goalToAPI(fresh))
@@ -163,12 +163,12 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, goalID strin
 	var req apitypes.CancelGoalRequest
 	_ = decodeJSON(r, &req)
 	if err := s.tasksSvc.Facade.CancelGoal(r.Context(), g.ID, strPtr(req.Reason), authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, err := s.tasksSvc.Facade.GetGoal(r.Context(), g.ID)
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, goalToAPI(fresh))
@@ -194,7 +194,7 @@ func (s *Server) ListGoalTasks(w http.ResponseWriter, r *http.Request, goalID st
 	}
 	rows, err := s.tasksSvc.Facade.ListGoalTasks(r.Context(), g.ID, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -229,7 +229,7 @@ func (s *Server) ListGoalReviews(w http.ResponseWriter, r *http.Request, goalID 
 	}
 	rows, err := s.tasksSvc.Facade.ListGoalReviews(r.Context(), g.ID, int64(limit+1), int64(offset))
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
@@ -277,7 +277,7 @@ func (s *Server) EscalateGoalReview(w http.ResponseWriter, r *http.Request, goal
 	var req apitypes.EscalateReviewRequest
 	_ = decodeJSON(r, &req)
 	if err := s.tasksSvc.Facade.EscalateReview(r.Context(), reviewID, strPtr(req.Reason), authActor(r)); err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, err := s.tasksSvc.Facade.GetReview(r.Context(), reviewID)
@@ -318,7 +318,7 @@ func (s *Server) decideGoalReview(w http.ResponseWriter, r *http.Request, goalID
 		err = s.tasksSvc.Facade.RequestChanges(r.Context(), reviewID, strPtr(req.Summary), strPtr(req.Feedback), actor)
 	}
 	if err != nil {
-		taskError(w, err)
+		s.taskError(w, err)
 		return
 	}
 	fresh, gerr := s.tasksSvc.Facade.GetReview(r.Context(), reviewID)
