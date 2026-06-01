@@ -69,9 +69,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func writeLoggedError(w http.ResponseWriter, log *slog.Logger, status int, clientMessage string, err error) {
-	if log != nil {
-		log.Error("http handler error", "status", status, "error", err)
-	}
+	log.Error("http handler error", "status", status, "error", err)
 	writeError(w, status, clientMessage)
 }
 

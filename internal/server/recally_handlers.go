@@ -30,8 +30,8 @@ type recallyHandlers struct {
 	log   *slog.Logger
 }
 
-func newRecallyHandlers(store *recally.Store, files *recally.FileManager) *recallyHandlers {
-	return &recallyHandlers{store: store, files: files, feeds: gofeed.NewParser(), log: slog.With("component", "recally-api")}
+func newRecallyHandlers(store *recally.Store, files *recally.FileManager, log *slog.Logger) *recallyHandlers {
+	return &recallyHandlers{store: store, files: files, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
 }
 
 func (h *recallyHandlers) writeInternalError(w http.ResponseWriter, err error) {
