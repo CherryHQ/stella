@@ -50,6 +50,9 @@ func TestSeed(t *testing.T) {
 	}
 	found := false
 	for _, p := range providers {
+		if p.Enabled {
+			t.Errorf("provider %q should be disabled until an admin enables it", p.ID)
+		}
 		if p.Type == "anthropic" {
 			found = true
 		}
@@ -757,8 +760,8 @@ func TestPluginBuiltinChannelDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
-	if !p.Enabled {
-		t.Error("telegram plugin should default to enabled")
+	if p.Enabled {
+		t.Error("telegram plugin should default to disabled")
 	}
 	if len(p.Config) != 0 {
 		t.Errorf("expected channel plugin config empty, got %+v", p.Config)

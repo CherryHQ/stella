@@ -70,7 +70,7 @@ func BuiltinPlugins() []BuiltinPlugin {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindTool, n), Kind: PluginKindTool, Name: n, DefaultEnabled: enabled})
 	}
 	for _, n := range BuiltinChannelNames {
-		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, n), Kind: PluginKindChannel, Name: n, DefaultEnabled: true})
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, n), Kind: PluginKindChannel, Name: n, DefaultEnabled: false})
 	}
 	for _, n := range BuiltinHookNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindHook, n), Kind: PluginKindHook, Name: n, DefaultEnabled: true})

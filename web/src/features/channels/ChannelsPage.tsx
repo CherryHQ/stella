@@ -767,9 +767,9 @@ export function ChannelsPage() {
       const enabled = (plugins || [])
         .filter((p) => p.kind === "channel" && p.enabled)
         .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
-      setEnabledChannelTypeIDs(enabled.length > 0 ? enabled : channelTypes.map((t) => t.id));
+      setEnabledChannelTypeIDs(enabled);
     } catch {
-      setEnabledChannelTypeIDs(channelTypes.map((t) => t.id));
+      setEnabledChannelTypeIDs([]);
     }
   }, []);
 
@@ -816,13 +816,11 @@ export function ChannelsPage() {
               const enabled = (pluginList || [])
                 .filter((p) => p.kind === "channel" && p.enabled)
                 .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
-              const ids = enabled.length > 0 ? enabled : channelTypes.map((t) => t.id);
-              setEnabledChannelTypeIDs(ids);
-              await loadInstances(ids);
+              setEnabledChannelTypeIDs(enabled);
+              await loadInstances(enabled);
             } catch {
-              const ids = channelTypes.map((t) => t.id);
-              setEnabledChannelTypeIDs(ids);
-              await loadInstances(ids);
+              setEnabledChannelTypeIDs([]);
+              await loadInstances([]);
             }
           })(),
         ]);

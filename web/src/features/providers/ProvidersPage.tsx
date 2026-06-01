@@ -904,7 +904,7 @@ export function ProvidersPage() {
           id,
           type,
           name: name || d.name || id,
-          enabled: true,
+          enabled: false,
           api_key: "",
           base_url: "",
           models: {},

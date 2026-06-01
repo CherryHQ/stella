@@ -42,9 +42,6 @@ func (s *Server) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	if p.Name == "" {
 		p.Name = p.ID
 	}
-	if !p.Enabled {
-		p.Enabled = true
-	}
 	ctx := r.Context()
 	if err := s.store.CreateProvider(ctx, p); err != nil {
 		s.writeInternalError(w, err)

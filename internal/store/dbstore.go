@@ -60,7 +60,10 @@ func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 	if err != nil {
 		return fmt.Errorf("create provider %q: marshal config: %w", p.ID, err)
 	}
-	enabled := int64(1)
+	enabled := int64(0)
+	if p.Enabled {
+		enabled = 1
+	}
 	if _, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
 		ID:      p.ID,
 		Type:    providerType(p),
@@ -756,10 +759,9 @@ func (s *DBStore) seedProviders(ctx context.Context) error {
 			continue
 		}
 		provider := config.Provider{
-			ID:      name,
-			Type:    name,
-			Name:    name,
-			Enabled: true,
+			ID:   name,
+			Type: name,
+			Name: name,
 		}
 		configJSON, err := json.Marshal(providerConfig(provider))
 		if err != nil {
@@ -769,7 +771,7 @@ func (s *DBStore) seedProviders(ctx context.Context) error {
 			ID:      provider.ID,
 			Type:    provider.Type,
 			Name:    provider.Name,
-			Enabled: 1,
+			Enabled: 0,
 			Config:  string(configJSON),
 		}); err != nil {
 			return fmt.Errorf("seed: provider %q: %w", name, err)

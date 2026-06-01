@@ -104,6 +104,13 @@ type testEnv struct {
 	bearerToken string
 }
 
+func enableChannelPlugin(t *testing.T, env *testEnv, channelType string) {
+	t.Helper()
+	if err := env.store.SetPluginEnabled(context.Background(), config.PluginID(config.PluginKindChannel, channelType), true); err != nil {
+		t.Fatalf("enable channel plugin %q: %v", channelType, err)
+	}
+}
+
 func setupAdmin(t *testing.T) *testEnv {
 	t.Helper()
 	t.Setenv("STELLA_HOME", filepath.Join(t.TempDir(), "stella-home"))
@@ -598,6 +605,7 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 
 func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
 		"enabled": true,
@@ -643,6 +651,7 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 
 func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformQQ)
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/qq", map[string]any{
 		"enabled": true,
@@ -688,6 +697,7 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 
 func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformFeishu)
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/feishu", map[string]any{
 		"enabled": true,
@@ -737,6 +747,7 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 
 func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformWeixin)
 
 	rr := doRequest(t, env, "PATCH", "/api/channels/weixin", map[string]any{
 		"enabled": true,
@@ -788,6 +799,8 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 	stellaID := findStellaID(t, env)
+	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
+	enableChannelPlugin(t, env, pkgchannel.PlatformFeishu)
 
 	if err := env.store.UpsertChannel(octx, config.Channel{
 		ID:      pkgchannel.PlatformTelegram,
