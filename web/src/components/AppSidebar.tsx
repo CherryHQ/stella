@@ -1,73 +1,185 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { ThemeSelector, UserMenu } from "@/components/SiteHeader";
+import { ChevronDown, Bot, BookOpen, Settings } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuGroup,
+} from "@/components/ui/menu";
 
-interface AppSidebarProps {
+interface SidebarContainerProps {
   children?: React.ReactNode;
   className?: string;
 }
 
-export function AppSidebar({ children, className }: AppSidebarProps) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+export function SidebarContainer({ children, className }: SidebarContainerProps) {
+  return (
+    <aside
+      className={cn(
+        "flex h-full w-[260px] shrink-0 flex-col overflow-hidden border-r border-border bg-card/40",
+        className,
+      )}
+    >
+      {children}
+    </aside>
+  );
+}
+
+export function SidebarHeader() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const routePathname = useRouterState({ select: (s) => s.location.pathname });
+
+  const currentContext = routePathname.startsWith("/agents")
+    ? "agents"
+    : routePathname.startsWith("/recally")
+      ? "recally"
+      : routePathname.startsWith("/settings")
+        ? "settings"
+        : "agents";
+
+  const labelKey =
+    currentContext === "agents"
+      ? "nav.sessions"
+      : currentContext === "recally"
+        ? "nav.recally"
+        : "nav.settings";
 
   return (
-    <aside className={cn("flex h-full w-full flex-col overflow-hidden", className)}>
-      <div className="shrink-0 px-3 pt-3">
-        <Link to="/agents" className="mb-3 flex items-center gap-2.5 px-2" aria-label="Stella home">
-          <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
-          <span className="font-serif text-xl italic tracking-tight text-foreground select-none">
-            stella
-          </span>
-        </Link>
-        <SectionLabel>Apps</SectionLabel>
-        <div className="grid gap-0.5">
-          <AppNavItem
-            active={pathname.startsWith("/agents")}
-            icon={<IconAgents />}
-            label={t("nav.sessions")}
-            onClick={() => void navigate({ to: "/agents" })}
-          />
-          <AppNavItem
-            active={pathname.startsWith("/recally")}
-            icon={<IconRecally />}
-            label={t("nav.recally")}
-            onClick={() => void navigate({ to: "/recally" })}
-          />
-        </div>
-      </div>
-
-      {children}
-
-      <div className="mt-auto shrink-0 border-t border-border/60 px-3 py-2">
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => void navigate({ to: "/settings" })}
-            className={cn(
-              "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 text-left text-sm font-medium tracking-[-0.01em] transition-colors",
-              pathname.startsWith("/settings")
-                ? "bg-accent text-primary"
-                : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
-            )}
-          >
-            <span
+    <div className="shrink-0 border-b border-border bg-card/70 px-3 py-2.5 backdrop-blur-xl">
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex w-full items-center justify-between rounded-lg border border-border/30 bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40 outline-none select-none cursor-pointer">
+          <div className="flex items-center gap-2 min-w-0">
+            <img
+              src="/stella-monogram.svg"
+              alt=""
+              width={18}
+              height={18}
+              className="rounded-xs shrink-0"
+            />
+            <span className="font-serif text-sm italic tracking-tight text-foreground select-none shrink-0">
+              stella
+            </span>
+            <span className="text-muted-foreground/30 text-xs font-normal">/</span>
+            <span className="text-xs font-semibold text-foreground truncate">
+              {t(labelKey as any)}
+            </span>
+          </div>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/70 ml-1" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56" sideOffset={6}>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="text-[10px] font-mono tracking-wider text-muted-foreground/60 uppercase px-2 py-1">
+              {t("common.context")}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => void navigate({ to: "/agents" })}
               className={cn(
-                "shrink-0",
-                pathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground/70",
+                "gap-2.5 py-2 text-xs font-medium cursor-pointer rounded-md",
+                currentContext === "agents" && "bg-accent text-primary",
               )}
             >
-              <IconSettings />
-            </span>
-            <span className="truncate">{t("nav.settings")}</span>
-          </button>
-          <ThemeSelector />
-          <UserMenu />
-        </div>
+              <div
+                className={cn(
+                  "flex size-6 items-center justify-center rounded-md border border-border/30 bg-muted/40",
+                  currentContext === "agents" && "border-primary/20 bg-primary/5 text-primary",
+                )}
+              >
+                <Bot className="size-3.5" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-medium text-foreground">{t("nav.sessions")}</span>
+                <span className="text-[10px] text-muted-foreground font-normal truncate">
+                  {t("nav.sessions.desc" as any) || "AI chat assistant & projects"}
+                </span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void navigate({ to: "/recally" })}
+              className={cn(
+                "gap-2.5 py-2 text-xs font-medium cursor-pointer rounded-md",
+                currentContext === "recally" && "bg-accent text-primary",
+              )}
+            >
+              <div
+                className={cn(
+                  "flex size-6 items-center justify-center rounded-md border border-border/30 bg-muted/40",
+                  currentContext === "recally" && "border-primary/20 bg-primary/5 text-primary",
+                )}
+              >
+                <BookOpen className="size-3.5" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-medium text-foreground">{t("nav.recally")}</span>
+                <span className="text-[10px] text-muted-foreground font-normal truncate">
+                  {t("nav.recally.desc" as any) || "Read queue, feeds & memory"}
+                </span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void navigate({ to: "/settings" })}
+              className={cn(
+                "gap-2.5 py-2 text-xs font-medium cursor-pointer rounded-md",
+                currentContext === "settings" && "bg-accent text-primary",
+              )}
+            >
+              <div
+                className={cn(
+                  "flex size-6 items-center justify-center rounded-md border border-border/30 bg-muted/40",
+                  currentContext === "settings" && "border-primary/20 bg-primary/5 text-primary",
+                )}
+              >
+                <Settings className="size-3.5" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-medium text-foreground">{t("nav.settings")}</span>
+                <span className="text-[10px] text-muted-foreground font-normal truncate">
+                  {t("settings.title") || "Settings"}
+                </span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+export function SidebarFooter() {
+  const navigate = useNavigate();
+  const { t } = useI18n();
+  const routePathname = useRouterState({ select: (s) => s.location.pathname });
+
+  return (
+    <div className="shrink-0 border-t border-border/60 bg-card/60 px-3 py-1.5 backdrop-blur-xl">
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => void navigate({ to: "/settings" })}
+          className={cn(
+            "flex h-7 min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 text-left text-xs font-medium tracking-[-0.01em] transition-colors cursor-pointer",
+            routePathname.startsWith("/settings")
+              ? "bg-accent text-primary"
+              : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+          )}
+        >
+          <Settings
+            className={cn(
+              "size-3.5 shrink-0",
+              routePathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground/70",
+            )}
+          />
+          <span className="truncate">{t("nav.settings")}</span>
+        </button>
+        <ThemeSelector />
+        <UserMenu />
       </div>
-    </aside>
+    </div>
   );
 }
 
@@ -76,65 +188,5 @@ export function SectionLabel({ children }: { children: React.ReactNode }) {
     <div className="px-2 pb-1.5 pt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
       {children}
     </div>
-  );
-}
-
-function AppNavItem({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex min-h-9 items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm font-medium tracking-[-0.01em] transition-colors",
-        active
-          ? "bg-accent text-primary"
-          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
-      )}
-    >
-      <span className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground/70")}>
-        {icon}
-      </span>
-      <span className="truncate">{label}</span>
-    </button>
-  );
-}
-
-function IconAgents() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M16 21v-2a4 4 0 0 0-8 0v2" />
-      <circle cx="12" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  );
-}
-
-function IconRecally() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 1 4 16.5v-11Z" />
-      <path d="M8 7h8M8 11h6" />
-      <path d="M4 16.5A2.5 2.5 0 0 1 6.5 14H20" />
-    </svg>
-  );
-}
-
-function IconSettings() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6V20a2 2 0 1 1-4 0v-.08a1.7 1.7 0 0 0-1-.52 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1H4a2 2 0 1 1 0-4h.08a1.7 1.7 0 0 0 .52-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6V4a2 2 0 1 1 4 0v.08a1.7 1.7 0 0 0 1 .52 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.23.34.43.67.6 1H20a2 2 0 1 1 0 4h-.08c-.17.33-.37.66-.52 1z" />
-    </svg>
   );
 }

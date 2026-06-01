@@ -468,7 +468,16 @@ function ContextSummary({
       <div className="mb-2 text-[11px] font-medium text-muted-foreground">Runtime context</div>
       <div className="grid grid-cols-4 gap-1">
         <ContextMetric label="Msgs" value={messagesLoading ? "..." : messages.length} />
-        <ContextMetric label="Tokens" value={messagesLoading ? "..." : tokens || "-"} />
+        <ContextMetric
+          label="Tokens"
+          value={
+            messagesLoading
+              ? "..."
+              : typeof tokens === "number"
+                ? tokens.toLocaleString()
+                : tokens || "-"
+          }
+        />
         <ContextMetric label="Tools" value={tools || "-"} />
         <ContextMetric label="Skills" value={skills || "-"} />
       </div>

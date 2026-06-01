@@ -8,9 +8,9 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { useSidebar } from "@/components/ui/sidebar";
 import { InspectorPanel } from "./InspectorPanel";
 import { SessionDetail } from "./SessionDetail";
+import { useAgentLayout } from "./AgentLayoutContext";
 
 const RIGHT_MIN = 280;
 const RIGHT_MAX_RATIO = 0.45;
@@ -31,7 +31,8 @@ export function SessionView() {
   };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { state: sidebarState, toggleSidebar } = useSidebar();
+  const { sidebarOpen, toggleSidebar } = useAgentLayout();
+  const sidebarCollapsed = !sidebarOpen;
   const { data: me } = useQuery(meQueryOptions);
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const currentUserID = me?.id ?? "";
@@ -188,7 +189,7 @@ export function SessionView() {
           onNewSession={() => void createTemporarySession()}
           onSessionUpdate={(s) => setSessionDetail(s)}
           onToggleSidebar={toggleSidebar}
-          sidebarCollapsed={sidebarState === "collapsed"}
+          sidebarCollapsed={sidebarCollapsed}
           onToggleWorkspace={toggleInspector}
           workspaceOpen={showWorkspace}
           contextTitle={contextTitle}

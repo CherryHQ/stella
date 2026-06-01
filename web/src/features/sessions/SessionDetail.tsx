@@ -7,6 +7,8 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  ArrowUp,
+  Paperclip,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
@@ -58,6 +60,7 @@ export function SessionDetail({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
+  const shouldAutoScrollRef = useRef(true);
 
   const sessionId = session?.id ?? "";
   const agentId = session?.agent_id ?? "";
@@ -121,17 +124,30 @@ export function SessionDetail({
     }
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
+    shouldAutoScrollRef.current = true;
   }, [session?.id]);
 
   useEffect(() => {
     if (!session || !messagesQuery.isSuccess || initialScrollSessionRef.current === session.id)
       return;
     initialScrollSessionRef.current = session.id;
+    shouldAutoScrollRef.current = true;
     setTimeout(() => {
       if (transcriptRef.current)
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }, 0);
   }, [session, messagesQuery.isSuccess]);
+
+  // Auto-scroll to bottom as new messages stream in (if the user is already near the bottom)
+  useEffect(() => {
+    if (!transcriptRef.current) return;
+    const el = transcriptRef.current;
+    if (shouldAutoScrollRef.current) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [messages]);
 
   const loadOlderMessages = useCallback(async () => {
     if (
@@ -152,6 +168,11 @@ export function SessionDetail({
 
   const handleTranscriptScroll = useCallback(() => {
     void loadOlderMessages();
+    if (transcriptRef.current) {
+      const el = transcriptRef.current;
+      const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+      shouldAutoScrollRef.current = isAtBottom;
+    }
   }, [loadOlderMessages]);
 
   const handleFileSelect = useCallback(
@@ -197,6 +218,7 @@ export function SessionDetail({
 
     setUserInput("");
     setAttachments([]);
+    shouldAutoScrollRef.current = true;
     setTimeout(() => {
       if (transcriptRef.current)
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
@@ -317,10 +339,10 @@ export function SessionDetail({
               />
               <div
                 className={cn(
-                  "relative mx-auto max-w-4xl overflow-hidden rounded-[22px] border bg-card shadow-[0_18px_42px_rgba(29,29,31,0.09)] transition-all duration-150",
+                  "mx-auto max-w-4xl rounded-[28px] border bg-card/70 backdrop-blur-lg transition-all duration-200 flex flex-col p-1 shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.18)]",
                   isStreaming
-                    ? "border-primary/40"
-                    : "border-border/80 focus-within:border-primary/50 focus-within:shadow-[0_0_0_4px_color-mix(in_oklch,var(--primary)_10%,transparent),0_18px_42px_rgba(29,29,31,0.09)]",
+                    ? "border-primary/45"
+                    : "border-border/80 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10",
                 )}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -333,12 +355,12 @@ export function SessionDetail({
                 }}
               >
                 {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+                  <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
                     {attachments.map((a, i) => (
                       <span
                         key={i}
                         className={cn(
-                          "inline-flex items-center gap-1 text-[11px] font-mono rounded-lg px-2 py-1 max-w-48 border",
+                          "inline-flex items-center gap-1.5 text-[11px] font-mono rounded-full px-3 py-1 max-w-48 border",
                           a.uploading
                             ? "bg-muted/50 text-muted-foreground/50 border-border"
                             : "bg-primary/5 text-primary border-primary/20",
@@ -347,27 +369,15 @@ export function SessionDetail({
                         {a.uploading ? (
                           <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin shrink-0" />
                         ) : (
-                          <svg
-                            className="w-3 h-3 shrink-0"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth="2"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
-                            />
-                          </svg>
+                          <Paperclip className="w-3 h-3 shrink-0 text-primary/70" />
                         )}
                         <span className="truncate">{a.name}</span>
                         {!a.uploading && (
                           <button
                             onClick={() => removeAttachment(i)}
-                            className="text-muted-foreground/50 hover:text-foreground cursor-pointer shrink-0"
+                            className="text-muted-foreground/50 hover:text-foreground cursor-pointer shrink-0 font-bold ml-0.5"
                           >
-                            x
+                            ×
                           </button>
                         )}
                       </span>
@@ -397,73 +407,65 @@ export function SessionDetail({
                   }}
                   placeholder={t("sessions.composer.placeholder")}
                   className={cn(
-                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pb-11 text-sm leading-relaxed focus:outline-none",
-                    attachments.length > 0 ? "pt-2" : "pt-3",
+                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground/40 text-foreground",
                   )}
-                  style={{ minHeight: 52, maxHeight: 160 }}
+                  style={{ minHeight: 44, maxHeight: 160 }}
                   rows={1}
                   disabled={isStreaming}
                 />
-                <div className="pointer-events-none absolute right-3 bottom-2.5 left-4 flex items-center justify-between">
-                  {!isStreaming && (
-                    <span className="text-[10px] font-mono text-muted-foreground/30 select-none">
-                      ↵ send · ⇧↵ new line
-                    </span>
-                  )}
-                  {isStreaming && (
-                    <span className="text-[10px] font-mono text-primary/50 select-none">
-                      generating…
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1 pointer-events-auto">
+                <div className="flex items-center justify-between px-3 pb-2 pt-1.5 border-t border-border/10">
+                  <div className="flex items-center gap-1.5">
                     {!isStreaming && (
-                      <Button
-                        size="xs"
-                        variant="ghost"
+                      <button
+                        type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-muted-foreground rounded-lg"
+                        className="text-muted-foreground/70 hover:text-foreground hover:bg-muted/40 transition-colors p-1.5 rounded-full w-8 h-8 flex items-center justify-center cursor-pointer"
                         title="Attach files"
                       >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth="1.8"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
-                          />
-                        </svg>
-                      </Button>
-                    )}
-                    {isStreaming && (
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={() => chatStop()}
-                        className="text-destructive gap-1 rounded-lg"
-                      >
-                        Stop
-                      </Button>
+                        <Paperclip className="w-4 h-4" />
+                      </button>
                     )}
                     {!isStreaming && (
-                      <Button
-                        size="sm"
+                      <span className="text-[10px] font-mono text-muted-foreground/35 select-none pl-1">
+                        ↵ send · ⇧↵ new line
+                      </span>
+                    )}
+                    {isStreaming && (
+                      <span className="text-[10px] font-mono text-primary/60 select-none animate-pulse pl-1">
+                        generating…
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isStreaming && (
+                      <button
+                        type="button"
+                        onClick={() => chatStop()}
+                        className="text-destructive hover:bg-destructive/10 bg-destructive/5 border border-destructive/20 font-semibold text-xs rounded-full px-3.5 h-8 transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <div className="w-2.5 h-2.5 bg-destructive rounded-sm" />
+                        <span>Stop</span>
+                      </button>
+                    )}
+                    {!isStreaming && (
+                      <button
+                        type="button"
                         disabled={
                           (!userInput.trim() && attachments.length === 0) ||
                           attachments.some((a) => a.uploading)
                         }
                         onClick={() => sendMessage().catch(console.error)}
-                        className="gap-1.5 rounded-full active:scale-[0.98] transition-transform"
+                        className={cn(
+                          "w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer",
+                          (!userInput.trim() && attachments.length === 0) ||
+                            attachments.some((a) => a.uploading)
+                            ? "bg-muted text-muted-foreground/30 cursor-not-allowed"
+                            : "bg-primary text-primary-foreground hover:bg-primary/95 hover:scale-[1.03] active:scale-[0.97]",
+                        )}
+                        title="Send message"
                       >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
-                        </svg>
-                        {t("sessions.composer.send")}
-                      </Button>
+                        <ArrowUp className="w-4.5 h-4.5 stroke-[2.5]" />
+                      </button>
                     )}
                   </div>
                 </div>
