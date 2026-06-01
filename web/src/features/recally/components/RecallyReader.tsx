@@ -14,6 +14,7 @@ import {
   Link,
   Loader2,
   MessageCircle,
+  Calendar,
 } from "lucide-react";
 import type { TFunction } from "../constants";
 import { getArticleOptions } from "@/lib/api-client/@tanstack/react-query.gen";
@@ -21,6 +22,55 @@ import { createShare } from "@/lib/api-client/sdk.gen";
 import { formatSavedAt, SOURCE_LABEL_KEYS } from "../constants";
 import { StatusBadge } from "./StatusBadge";
 import { cn } from "@/lib/utils";
+
+interface ParsedMetadata {
+  title?: string;
+  url?: string;
+  publishedTime?: string;
+}
+
+function parseCrawledContent(content: string | null | undefined): {
+  metadata: ParsedMetadata | null;
+  body: string;
+} {
+  if (!content) return { metadata: null, body: "" };
+
+  const titleMatch = content.match(/^Title:\s*(.*?)$/m);
+  const urlMatch = content.match(/^URL Source:\s*(.*?)$/m);
+  const publishedMatch = content.match(/^Published Time:\s*(.*?)$/m);
+
+  const mdContentIndex = content.indexOf("Markdown Content:");
+  let body = content;
+  let parsedMetadata: ParsedMetadata | null = null;
+
+  if (mdContentIndex !== -1) {
+    const rawBody = content.slice(mdContentIndex + "Markdown Content:".length);
+    body = rawBody.replace(/^\s*\n?/, "");
+
+    parsedMetadata = {
+      title: titleMatch ? titleMatch[1].trim() : "",
+      url: urlMatch ? urlMatch[1].trim() : "",
+      publishedTime: publishedMatch ? publishedMatch[1].trim() : "",
+    };
+  } else if (titleMatch || urlMatch || publishedMatch) {
+    let cleanContent = content;
+    if (titleMatch) cleanContent = cleanContent.replace(titleMatch[0], "");
+    if (urlMatch) cleanContent = cleanContent.replace(urlMatch[0], "");
+    if (publishedMatch) cleanContent = cleanContent.replace(publishedMatch[0], "");
+    body = cleanContent.trim();
+
+    parsedMetadata = {
+      title: titleMatch ? titleMatch[1].trim() : "",
+      url: urlMatch ? urlMatch[1].trim() : "",
+      publishedTime: publishedMatch ? publishedMatch[1].trim() : "",
+    };
+  }
+
+  return {
+    metadata: parsedMetadata,
+    body: body,
+  };
+}
 
 export function RecallyReader({
   t,
@@ -80,6 +130,7 @@ export function RecallyReader({
   });
 
   const selectedArticle = articleQuery.data;
+  const parsed = parseCrawledContent(selectedArticle?.content);
 
   // Auto-mark unread articles as read when opened
   useEffect(() => {
@@ -289,6 +340,43 @@ export function RecallyReader({
               </p>
             )}
 
+            {/* Gorgeous Metadata Card */}
+            {parsed.metadata && (parsed.metadata.url || parsed.metadata.publishedTime) && (
+              <div className="mb-5 rounded-[18px] border border-border/40 bg-muted/20 p-4.5 text-xs text-muted-foreground/90 font-mono space-y-3.5 shadow-2xs">
+                {parsed.metadata.url && (
+                  <div className="flex items-start gap-2.5">
+                    <Link className="size-4 text-primary/75 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground/50 block tracking-wider leading-none mb-1">
+                        Source URL
+                      </span>
+                      <a
+                        href={parsed.metadata.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate text-[11px] text-foreground/80 hover:text-primary transition-colors hover:underline block leading-tight"
+                      >
+                        {parsed.metadata.url}
+                      </a>
+                    </div>
+                  </div>
+                )}
+                {parsed.metadata.publishedTime && (
+                  <div className="flex items-start gap-2.5">
+                    <Calendar className="size-4 text-primary/75 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground/50 block tracking-wider leading-none mb-1">
+                        Published Time
+                      </span>
+                      <span className="text-[11px] text-foreground/80 block leading-tight">
+                        {parsed.metadata.publishedTime}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* AI Summary card */}
             {selectedArticle.summary && (
               <div className="mb-6 rounded-[18px] border border-primary/15 bg-primary/[0.02] backdrop-blur-md p-4.5 shadow-2xs">
@@ -317,9 +405,9 @@ export function RecallyReader({
             )}
 
             {/* Content Body */}
-            {selectedArticle.content ? (
-              <div className="prose prose-sm max-w-none text-foreground leading-relaxed prose-headings:text-foreground prose-a:text-primary">
-                <Streamdown>{selectedArticle.content}</Streamdown>
+            {parsed.body ? (
+              <div className="prose prose-neutral dark:prose-invert prose-sm md:prose-base max-w-none text-foreground/90 leading-relaxed md:leading-loose prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline">
+                <Streamdown>{parsed.body}</Streamdown>
               </div>
             ) : (
               <div className="rounded-[18px] border border-border/50 bg-muted/10 p-6 text-center space-y-3">

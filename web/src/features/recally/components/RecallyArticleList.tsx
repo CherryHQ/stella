@@ -9,7 +9,11 @@ import {
   Star,
   Archive,
   History,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useSidebar } from "@/components/ui/sidebar";
 import type {
   Article,
   ArticleStatus,
@@ -120,6 +124,7 @@ export function RecallyArticleList({
   };
   feedPollResults: Record<string, { newCount: number; error?: string }>;
 }) {
+  const { state: sidebarState, toggleSidebar } = useSidebar();
   const [showFiltersPanel, setShowFiltersPanel] = useState(false);
   const hasMoreTags = sortedTags.length > 10;
 
@@ -134,9 +139,24 @@ export function RecallyArticleList({
       {/* Segmented Control / Tabs */}
       <div className="shrink-0 border-b border-border bg-card/65 px-4 pt-3 pb-2 backdrop-blur-xl">
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-[13px] font-semibold tracking-tight text-foreground/90 font-mono">
-            {t("recally.title")}
-          </h1>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={toggleSidebar}
+              className="hidden h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground md:inline-flex cursor-pointer"
+              title={sidebarState === "collapsed" ? "Show sidebar" : "Hide sidebar"}
+            >
+              {sidebarState === "collapsed" ? (
+                <PanelLeftOpen className="size-3.5" />
+              ) : (
+                <PanelLeftClose className="size-3.5" />
+              )}
+            </Button>
+            <h1 className="text-[13px] font-semibold tracking-tight text-foreground/90 font-mono">
+              {t("recally.title")}
+            </h1>
+          </div>
           <span className="font-mono text-[10px] text-muted-foreground/45 tabular-nums">
             {digestView ? storedDigests.length : displayArticles.length} entries
           </span>
