@@ -39,7 +39,6 @@ type Server struct {
 	q              *sqlc.Queries
 	mux            *http.ServeMux
 	log            *slog.Logger
-	corsOriginV    string               // cached CORS origin
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
@@ -76,14 +75,9 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		panic("admin: plugin host is required")
 	}
 
-	// Read CORS origin once at startup.
-	corsOrigin := "http://localhost:8080"
-	if val, err := store.GetSetting(ctx, "admin.cors_origin"); err == nil && val != "" {
-		corsOrigin = val
-	}
-
+	defaultBaseURL := "http://localhost:25678"
 	flowStore := oauth.NewFlowStore()
-	credSvc := credentials.NewService(nil, sqlc.New(db), flowStore, corsOrigin)
+	credSvc := credentials.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
 
 	log := slog.With("component", "admin")
 	s := &Server{
@@ -99,10 +93,10 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		q:           sqlc.New(db),
 		mux:         http.NewServeMux(),
 		log:         log,
-		corsOriginV: corsOrigin,
-		credSvc:     credSvc,
-		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome()), log),
-		startedAt:   time.Now(),
+		baseURL:   defaultBaseURL,
+		credSvc:   credSvc,
+		recally:   newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome()), log),
+		startedAt: time.Now(),
 	}
 
 	s.registerRoutes()
@@ -142,9 +136,11 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
 }
 
-// SetBaseURL sets the public base URL.
+// SetBaseURL sets the public base URL and propagates it to the credentials
+// service so OAuth redirect URIs use the externally reachable address.
 func (s *Server) SetBaseURL(url string) {
 	s.baseURL = url
+	s.credSvc.SetBaseURL(url)
 }
 
 // SetLoginIdentityStore wires the OIDC login identity store so the admin API
