@@ -6,32 +6,34 @@ title: 架构
 
 ## 系统概述
 
-stella 的结构是一组松耦合的包，在 `main.go` 中组装在一起。系统支持多用户和多代理，消息路由按消息级别处理。核心流程：
+stella 的结构是一组松耦合的包，在启动时组装在一起。系统支持多用户和多代理，消息路由按消息级别处理。核心流程：
 
-1. 一个**通道**（CLI、Telegram、QQ、Feishu 或微信）接收用户输入
-2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）
-3. **PoolManager** 通过代理 ID 查找（或创建）代理的 **Pool**
-4. **Pool** 管理会话并分发给 **Runner**
-5. **Runner** 通过 `internal/ai/` 调用 LLM 提供商，在循环中执行工具
-6. 响应通过通道流回给用户
+1. 一个**通道**（CLI、Telegram、QQ、Feishu 或微信）接收用户输入。
+2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）。
+3. **PoolManager** 通过代理 ID 查找该代理的 `agent.Service`。
+4. `agent.Service` 通过 `session.Registry` 解析 session intent。
+5. `runtime.Runtime` 通过缓存的 **Runner** 执行这一轮。
+6. **Runner** 调用 LLM provider，并在循环中执行工具。
+7. 响应通过通道流回给用户。
 
 ```
 Channel (CLI / Telegram / QQ / Feishu / WeChat)
     |
     v
-Resolve user (identity.go)  -->  Resolve agent (identity.go)
+Resolve user  -->  Resolve agent
     |
     v
-PoolManager.Get(agentID)  -->  Pool (sessions + runner lifecycle)
-    |
-    v
-Go Runner (agent loop + tools)
-    |
-    v
-LLM Provider (Anthropic / OpenAI / OpenAI-compatible)
+PoolManager.GetService(agentID)  -->  agent.Service
+    |                                      |
+    |                                      +--> session.Registry
+    |                                      |
+    |                                      +--> runtime.Runtime --> Runner
+    |                                                             |
+    v                                                             v
+Channel response stream                                      LLM Provider
 ```
 
-会话键的作用域为每个代理：`{agentID}:{platform}:{userID}:{context}`，确保同一用户与不同代理对话时拥有独立的对话历史。
+会话键的作用域为每个代理：`{agentID}:{platform}:{userID}:{context}`，确保同一用户与不同代理对话时拥有独立的对话历史。session/runtime/memory 的设计规则见 [Agent 架构](/docs/development/agent-architecture)。
 
 ## 包布局
 
@@ -40,9 +42,11 @@ cmd/stella/              入口点，CLI 命令，服务组装
 internal/
   config/              Store 接口、DBStore（SQLite）、Snapshot、类型
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
-  agent/               PoolManager、Pool、Session、工作区设置、runner 工厂
+  agent/               Service、PoolManager、session registry、runtime、runner 工厂
+    session/           Session 生命周期、ownership、kind/channel policy
+    runtime/           Runner cache、turn 执行、event 持久化
     engine/            代理循环引擎（多轮工具执行）
-    runner/            Runner、系统提示构建器、技能加载
+    prompt/            系统提示构建器和模板
   channel/             Channel 接口、身份解析、斜杠命令、通知
     cli/               Bubble Tea TUI
     telegram/          Telegram 机器人

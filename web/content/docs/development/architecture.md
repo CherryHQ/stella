@@ -6,32 +6,34 @@ title: Architecture
 
 ## System Overview
 
-stella is structured as a set of loosely coupled packages wired together in `main.go`. The system supports multiple users and multiple agents, with routing handled per-message. The core flow:
+stella is structured as a set of loosely coupled packages wired together at startup. The system supports multiple users and multiple agents, with routing handled per message. The core flow:
 
-1. A **channel** (CLI, Telegram, QQ, Feishu, or WeChat) receives user input
-2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback)
-3. The **PoolManager** looks up (or creates) the agent's **Pool** by agent ID
-4. The **Pool** manages sessions and dispatches to a **Runner**
-5. The **Runner** calls LLM providers via `internal/ai/`, executing tools in a loop
-6. Responses stream back through the channel to the user
+1. A **channel** (CLI, Telegram, QQ, Feishu, or WeChat) receives user input.
+2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback).
+3. The **PoolManager** looks up the agent's `agent.Service` by agent ID.
+4. `agent.Service` resolves session intent through `session.Registry`.
+5. `runtime.Runtime` executes the turn through a cached **Runner**.
+6. The **Runner** calls LLM providers and executes tools in a loop.
+7. Responses stream back through the channel to the user.
 
 ```
 Channel (CLI / Telegram / QQ / Feishu / WeChat)
     |
     v
-Resolve user (identity.go)  -->  Resolve agent (identity.go)
+Resolve user  -->  Resolve agent
     |
     v
-PoolManager.Get(agentID)  -->  Pool (sessions + runner lifecycle)
-    |
-    v
-Go Runner (agent loop + tools)
-    |
-    v
-LLM Provider (Anthropic / OpenAI / OpenAI-compatible)
+PoolManager.GetService(agentID)  -->  agent.Service
+    |                                      |
+    |                                      +--> session.Registry
+    |                                      |
+    |                                      +--> runtime.Runtime --> Runner
+    |                                                             |
+    v                                                             v
+Channel response stream                                      LLM Provider
 ```
 
-Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, ensuring that the same user talking to different agents gets independent conversation histories.
+Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, ensuring that the same user talking to different agents gets independent conversation histories. See [Agent architecture](/docs/development/agent-architecture) for the session/runtime/memory design rules.
 
 ## Package Layout
 
@@ -40,9 +42,11 @@ cmd/stella/              Entry point, CLI commands, service wiring
 internal/
   config/              Store interface, DBStore (SQLite), Snapshot, types
   ai/                  Message/Content types, Model, Provider interface, streaming events
-  agent/               PoolManager, Pool, Session, workspace setup, runner factory
+  agent/               Service, PoolManager, session registry, runtime, runner factory
+    session/           Session lifecycle, ownership, kind/channel policy
+    runtime/           Runner cache, turn execution, event persistence
     engine/            Agent loop engine (multi-turn tool execution)
-    runner/            Runner, system prompt builder, skill loading
+    prompt/            System prompt builder and templates
   channel/             Channel interface, identity resolution, slash commands, notify
     cli/               Bubble Tea TUI
     telegram/          Telegram bot

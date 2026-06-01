@@ -6,7 +6,7 @@ title: 会话压缩
 
 ## 状态
 
-已实现 -- `internal/agent/pool_compaction.go`（编排）、`memory.Engine`（SQLite 持久化）、通道暴露 `/compact`。
+已实现 -- `internal/agent/service.go` 和 `internal/agent/runtime/chat.go` 通过当前 `memory.Provider` 编排压缩；通道暴露 `/compact`。
 
 ## 问题
 
@@ -49,15 +49,13 @@ LLM runner 具有有限的上下文窗口。随着会话累积消息，历史记
 Channel（/compact 或自动）
     |
     v
-Pool.CompactSession(ctx, sessionID)
+agent.Service.CompactSession(ctx, validatedSessionInfo)
     |
-    ├─ getOrCreateRunner()       如果需要从 SQLite 加载会话，确保 runner
+    ├─ Runtime.Memory()          使用当前 memory provider
     │
-    ├─ collectFullResponse()     向 runner 发送压缩提示，收集摘要
+    ├─ memory.Compactor.Compact  创建 summaries 并保留 fresh tail
     │
-    ├─ memory.Engine compaction  在 SQLite 中存储摘要 + 尾部
-    │
-    └─ kill runner               下一个 Chat() 以干净的上下文重新开始
+    └─ Runtime.CloseSession      下一次 Chat() 用压缩后的上下文重建 runner
 ```
 
 ### Token 估计
@@ -92,11 +90,11 @@ Token 估计对存储消息的字节长度求和并除以 4（粗略启发式：
 /compact
 ```
 
-直接调用 `Pool.CompactSession()`。向用户返回摘要文本。
+通过 channel/session policy 解析当前 session，然后调用 `agent.Service.CompactSession()`。向用户返回摘要文本。
 
 ### 自动 -- token 阈值
 
-`Pool.Chat()` 在每条消息之前检查 `Pool.NeedsCompaction()`。如果估计的 token 计数超过阈值，则在发送用户消息之前自动运行压缩。
+`runtime.Runtime.Chat()` 在每条消息之前检查已验证 session 是否需要压缩。如果估计的 token 计数超过阈值，则在发送用户消息之前自动运行压缩。
 
 如果自动压缩失败，系统会记录警告并继续使用完整历史记录 -- 它永远不会阻止用户的消息。
 
