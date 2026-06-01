@@ -317,7 +317,7 @@ export function SessionDetail({
               />
               <div
                 className={cn(
-                  "relative mx-auto max-w-4xl overflow-hidden rounded-[24px] border bg-card/65 backdrop-blur-md shadow-xs transition-all duration-150",
+                  "mx-auto max-w-4xl rounded-[24px] border bg-card/65 backdrop-blur-md shadow-xs transition-all duration-150 flex flex-col",
                   isStreaming
                     ? "border-primary/45"
                     : "border-border/75 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20",
@@ -333,7 +333,7 @@ export function SessionDetail({
                 }}
               >
                 {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+                  <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
                     {attachments.map((a, i) => (
                       <span
                         key={i}
@@ -397,31 +397,20 @@ export function SessionDetail({
                   }}
                   placeholder={t("sessions.composer.placeholder")}
                   className={cn(
-                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pb-11 text-sm leading-relaxed focus:outline-none",
-                    attachments.length > 0 ? "pt-2" : "pt-3",
+                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-2 text-sm leading-relaxed focus:outline-none placeholder-muted-foreground/50",
                   )}
-                  style={{ minHeight: 52, maxHeight: 160 }}
+                  style={{ minHeight: 44, maxHeight: 160 }}
                   rows={1}
                   disabled={isStreaming}
                 />
-                <div className="pointer-events-none absolute right-3 bottom-2.5 left-4 flex items-center justify-between">
-                  {!isStreaming && (
-                    <span className="text-[10px] font-mono text-muted-foreground/30 select-none">
-                      ↵ send · ⇧↵ new line
-                    </span>
-                  )}
-                  {isStreaming && (
-                    <span className="text-[10px] font-mono text-primary/50 select-none">
-                      generating…
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1 pointer-events-auto">
+                <div className="flex items-center justify-between px-3 pb-2.5 pt-1 border-t border-border/10">
+                  <div className="flex items-center gap-1.5">
                     {!isStreaming && (
                       <Button
                         size="xs"
                         variant="ghost"
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-muted-foreground rounded-lg"
+                        className="text-muted-foreground/75 hover:text-foreground hover:bg-muted/50 rounded-lg p-1.5 h-8 w-8"
                         title="Attach files"
                       >
                         <svg
@@ -439,12 +428,24 @@ export function SessionDetail({
                         </svg>
                       </Button>
                     )}
+                    {!isStreaming && (
+                      <span className="text-[10px] font-mono text-muted-foreground/35 select-none pl-1">
+                        ↵ send · ⇧↵ new line
+                      </span>
+                    )}
+                    {isStreaming && (
+                      <span className="text-[10px] font-mono text-primary/60 select-none animate-pulse pl-1">
+                        generating…
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
                     {isStreaming && (
                       <Button
                         size="xs"
                         variant="ghost"
                         onClick={() => chatStop()}
-                        className="text-destructive gap-1 rounded-lg"
+                        className="text-destructive hover:bg-destructive/5 font-semibold text-xs gap-1 rounded-lg px-2.5 h-8"
                       >
                         Stop
                       </Button>
@@ -457,12 +458,12 @@ export function SessionDetail({
                           attachments.some((a) => a.uploading)
                         }
                         onClick={() => sendMessage().catch(console.error)}
-                        className="gap-1.5 rounded-full active:scale-[0.98] transition-transform"
+                        className="gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold active:scale-[0.97] transition-all"
                       >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z" />
                         </svg>
-                        {t("sessions.composer.send")}
+                        <span>{t("sessions.composer.send")}</span>
                       </Button>
                     )}
                   </div>
