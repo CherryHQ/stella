@@ -6,6 +6,7 @@ import { useRecallyFilters } from "./hooks/useRecallyFilters";
 import { useRecallyMutations } from "./hooks/useRecallyMutations";
 import { useRecallyFeeds } from "./hooks/useRecallyFeeds";
 import { RecallyArticleList } from "./components/RecallyArticleList";
+import { RecallySidebar } from "./components/RecallySidebar";
 import { DigestDetail } from "./components/DigestDetail";
 import { RecallyReader } from "./components/RecallyReader";
 import { RecallyChat } from "./components/RecallyChat";
@@ -59,12 +60,39 @@ export function RecallyPage() {
     <SidebarProvider
       className="relative h-full min-h-0"
       style={{ "--sidebar-width": "260px" } as React.CSSProperties}
-      open={filters.leftOpen}
-      onOpenChange={filters.setLeftOpen}
     >
       {/* App Navigation Sidebar (Far Left, Collapsible) */}
-      <Sidebar className="sticky top-0 h-full" collapsible="offcanvas">
-        <AppSidebar />
+      <Sidebar collapsible="offcanvas">
+        <AppSidebar>
+          <RecallySidebar
+            t={t}
+            statusFilter={filters.statusFilter}
+            setStatusFilter={filters.setStatusFilter}
+            sourceTypeFilter={filters.sourceTypeFilter}
+            setSourceTypeFilter={filters.setSourceTypeFilter}
+            starredFilter={filters.starredFilter}
+            setStarredFilter={filters.setStarredFilter}
+            tagFilter={filters.tagFilter}
+            setTagFilter={filters.setTagFilter}
+            showAllTags={filters.showAllTags}
+            setShowAllTags={filters.setShowAllTags}
+            digest={filters.digest}
+            digestView={filters.digestView}
+            setDigestView={filters.setDigestView}
+            sortedTags={filters.sortedTags}
+            visibleTags={filters.visibleTags}
+            hasMoreTags={filters.hasMoreTags}
+            tagCounts={filters.tagCounts}
+            feeds={feeds.feeds}
+            feedsQuery={feeds.feedsQuery}
+            feedUrl={feeds.feedUrl}
+            setFeedUrl={feeds.setFeedUrl}
+            createFeedMut={feeds.createFeedMut}
+            pollFeedMut={feeds.pollFeedMut}
+            feedPollResults={feeds.feedPollResults}
+            clearFilters={filters.clearFilters}
+          />
+        </AppSidebar>
         <SidebarRail />
       </Sidebar>
 
@@ -84,46 +112,20 @@ export function RecallyPage() {
           )}
           style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
         >
-          {/* Column 1: Reading list and unified filters panel */}
+          {/* Column 1: Reading list */}
           <RecallyArticleList
             t={t}
             displayArticles={filters.displayArticles}
             articlesQuery={filters.articlesQuery}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
-            // Filters states
             searchText={filters.searchText}
             setSearchText={filters.setSearchText}
-            statusFilter={filters.statusFilter}
-            setStatusFilter={filters.setStatusFilter}
-            starredFilter={filters.starredFilter}
-            setStarredFilter={filters.setStarredFilter}
-            sourceTypeFilter={filters.sourceTypeFilter}
-            setSourceTypeFilter={filters.setSourceTypeFilter}
-            tagFilter={filters.tagFilter}
-            setTagFilter={filters.setTagFilter}
-            // Stored digests / history view
-            digest={filters.digest}
             digestView={filters.digestView}
-            setDigestView={filters.setDigestView}
             storedDigests={filters.storedDigests}
             storedDigestsLoading={filters.storedDigestsQuery.isLoading}
             selectedDigestDate={filters.selectedDigestDate}
             onSelectDigest={handleSelectDigest}
-            clearFilters={filters.clearFilters}
-            // Tags configuration
-            sortedTags={filters.sortedTags}
-            visibleTags={filters.visibleTags}
-            showAllTags={filters.showAllTags}
-            setShowAllTags={filters.setShowAllTags}
-            tagCounts={filters.tagCounts}
-            // Feeds operations
-            feeds={feeds.feeds}
-            feedUrl={feeds.feedUrl}
-            setFeedUrl={feeds.setFeedUrl}
-            createFeedMut={feeds.createFeedMut}
-            pollFeedMut={feeds.pollFeedMut}
-            feedPollResults={feeds.feedPollResults}
           />
 
           {/* Column 2: Article Reader Panel (Center / Right) */}

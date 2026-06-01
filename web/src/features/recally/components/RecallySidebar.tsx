@@ -16,8 +16,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function RecallySidebar({
   t,
-  searchText,
-  setSearchText,
   statusFilter,
   setStatusFilter,
   sourceTypeFilter,
@@ -45,8 +43,6 @@ export function RecallySidebar({
   clearFilters,
 }: {
   t: TFunction;
-  searchText: string;
-  setSearchText: Dispatch<SetStateAction<string>>;
   statusFilter: ArticleStatus | null;
   setStatusFilter: Dispatch<SetStateAction<ArticleStatus | null>>;
   sourceTypeFilter: SourceType | null;
@@ -87,29 +83,6 @@ export function RecallySidebar({
 }) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Search */}
-      <div className="flex-shrink-0 px-2.5 pt-3 pb-1">
-        <div className="relative">
-          <input
-            type="text"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder={t("recally.searchPlaceholder")}
-            className="w-full pl-7 pr-3 py-1.5 text-[11px] font-mono rounded-lg bg-muted/30 border border-border/40 hover:border-border focus:border-primary/40 focus:ring-2 focus:ring-primary/5 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/45 shadow-2xs"
-          />
-          <svg
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.35-4.35" />
-          </svg>
-        </div>
-      </div>
-
       {/* Library */}
       <div>
         <SectionLabel>{t("recally.section.library")}</SectionLabel>
