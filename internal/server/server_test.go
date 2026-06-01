@@ -1152,6 +1152,9 @@ func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 	if ov.Enabled == nil || *ov.Enabled != false {
 		t.Fatalf("enabled override not persisted: got %v, want explicit false", ov.Enabled)
 	}
+	if ov.Config != "" {
+		t.Fatalf("toggle-only save must not store config override: got %q", ov.Config)
+	}
 
 	// Toggle back to the default (enabled=true). The row must survive because a
 	// session env binding still exists; only the enable override clears to nil.
@@ -1173,5 +1176,44 @@ func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 	}
 	if ov.Enabled != nil {
 		t.Fatalf("enabled should fall back to default (nil), got %v", *ov.Enabled)
+	}
+}
+
+// TestSaveManifestPluginsPreservesConfigOnToggle guards against toggle-only
+// saves clobbering a previously-stored config definition override.
+func TestSaveManifestPluginsPreservesConfigOnToggle(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/mise"
+	const configJSON = `{"kind":"tool","name":"mise","display_name":"Custom Mise","description":"custom"}`
+
+	// Pre-seed a config override row.
+	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
+		PluginID: pluginID,
+		Config:   configJSON,
+	}); err != nil {
+		t.Fatalf("seed override: %v", err)
+	}
+
+	// Toggle-only save: {id, enabled} with no Kind — must preserve existing config.
+	body := map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": false}}}
+	rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
+	if err != nil {
+		t.Fatalf("get override: %v", err)
+	}
+	if !ok {
+		t.Fatal("override row deleted by toggle-only save")
+	}
+	if ov.Config != configJSON {
+		t.Fatalf("config clobbered by toggle-only save: got %q, want %q", ov.Config, configJSON)
+	}
+	if ov.Enabled == nil || *ov.Enabled != false {
+		t.Fatalf("enabled not persisted: got %v, want explicit false", ov.Enabled)
 	}
 }

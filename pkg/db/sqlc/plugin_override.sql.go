@@ -21,7 +21,7 @@ func (q *Queries) DeleteManifestPluginOverride(ctx context.Context, pluginID str
 }
 
 const getManifestPluginOverride = `-- name: GetManifestPluginOverride :one
-SELECT plugin_id, enabled, session_env_vault_key, created_at, updated_at FROM plugin_override
+SELECT plugin_id, enabled, session_env_vault_key, config, created_at, updated_at FROM plugin_override
 WHERE plugin_id = ?
 `
 
@@ -32,6 +32,7 @@ func (q *Queries) GetManifestPluginOverride(ctx context.Context, pluginID string
 		&i.PluginID,
 		&i.Enabled,
 		&i.SessionEnvVaultKey,
+		&i.Config,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -39,7 +40,7 @@ func (q *Queries) GetManifestPluginOverride(ctx context.Context, pluginID string
 }
 
 const listManifestPluginOverrides = `-- name: ListManifestPluginOverrides :many
-SELECT plugin_id, enabled, session_env_vault_key, created_at, updated_at FROM plugin_override
+SELECT plugin_id, enabled, session_env_vault_key, config, created_at, updated_at FROM plugin_override
 ORDER BY plugin_id
 `
 
@@ -56,6 +57,7 @@ func (q *Queries) ListManifestPluginOverrides(ctx context.Context) ([]PluginOver
 			&i.PluginID,
 			&i.Enabled,
 			&i.SessionEnvVaultKey,
+			&i.Config,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -73,11 +75,12 @@ func (q *Queries) ListManifestPluginOverrides(ctx context.Context) ([]PluginOver
 }
 
 const upsertManifestPluginOverride = `-- name: UpsertManifestPluginOverride :exec
-INSERT INTO plugin_override (plugin_id, enabled, session_env_vault_key, updated_at)
-VALUES (?, ?, ?, datetime('now'))
+INSERT INTO plugin_override (plugin_id, enabled, session_env_vault_key, config, updated_at)
+VALUES (?, ?, ?, ?, datetime('now'))
 ON CONFLICT(plugin_id) DO UPDATE SET
     enabled               = excluded.enabled,
     session_env_vault_key = excluded.session_env_vault_key,
+    config                = excluded.config,
     updated_at            = datetime('now')
 `
 
@@ -85,9 +88,15 @@ type UpsertManifestPluginOverrideParams struct {
 	PluginID           string        `json:"plugin_id"`
 	Enabled            sql.NullInt64 `json:"enabled"`
 	SessionEnvVaultKey string        `json:"session_env_vault_key"`
+	Config             string        `json:"config"`
 }
 
 func (q *Queries) UpsertManifestPluginOverride(ctx context.Context, arg UpsertManifestPluginOverrideParams) error {
-	_, err := q.db.ExecContext(ctx, upsertManifestPluginOverride, arg.PluginID, arg.Enabled, arg.SessionEnvVaultKey)
+	_, err := q.db.ExecContext(ctx, upsertManifestPluginOverride,
+		arg.PluginID,
+		arg.Enabled,
+		arg.SessionEnvVaultKey,
+		arg.Config,
+	)
 	return err
 }

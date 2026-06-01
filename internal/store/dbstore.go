@@ -427,6 +427,7 @@ func (s *DBStore) UpsertManifestPluginOverride(ctx context.Context, ov config.Ma
 		PluginID:           ov.PluginID,
 		Enabled:            enabled,
 		SessionEnvVaultKey: ov.SessionEnvVaultKey,
+		Config:             ov.Config,
 	})
 }
 
@@ -438,6 +439,7 @@ func manifestOverrideFromDB(r sqlc.PluginOverride) config.ManifestPluginOverride
 	out := config.ManifestPluginOverride{
 		PluginID:           r.PluginID,
 		SessionEnvVaultKey: r.SessionEnvVaultKey,
+		Config:             r.Config,
 		UpdatedAt:          r.UpdatedAt,
 	}
 	if r.Enabled.Valid {

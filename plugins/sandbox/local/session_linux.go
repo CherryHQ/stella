@@ -178,7 +178,7 @@ func appendStellaHomeMounts(args []string, stellaHome string) []string {
 	if stellaHome == "" {
 		return args
 	}
-	for _, name := range []string{"bin", filepath.Join(".agents", "skills")} {
+	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
 		hostPath := filepath.Join(stellaHome, name)
 		args = appendRoBindIfExists(args, hostPath, hostPath)
 	}

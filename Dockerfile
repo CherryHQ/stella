@@ -5,8 +5,9 @@ RUN pnpm runtime set node 24 -g
 WORKDIR /web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
+COPY api/spec/ /api/spec/
 COPY web/ ./
-RUN CI=true pnpm build
+RUN pnpm openapi-ts && CI=true pnpm build
 
 FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS builder
 

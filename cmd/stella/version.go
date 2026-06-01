@@ -31,6 +31,7 @@ var (
 	upgradeUserAgent    = "stella-upgrade"
 	errUnsupportedAsset = errors.New("no release asset for current platform")
 	errInvalidTarget    = errors.New("existing target is not a replaceable file")
+	executablePath      = os.Executable
 	renameFile          = os.Rename
 )
 
@@ -71,20 +72,16 @@ func upgradeCommand() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{
 				Name:  "install-dir",
-				Usage: "Directory to install the upgraded binary into",
+				Usage: "Directory to install the upgraded binary into (defaults to the running stella binary's directory)",
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			installDir := c.String("install-dir")
-			if installDir == "" {
-				dir, err := defaultInstallDir()
-				if err != nil {
-					return err
-				}
-				installDir = dir
+			targetPath, err := resolveUpgradeTarget(c.String("install-dir"), runtime.GOOS)
+			if err != nil {
+				return err
 			}
 
-			result, err := runUpgrade(c.Context, installDir, displayVersion(), runtime.GOOS, runtime.GOARCH)
+			result, err := runUpgrade(c.Context, targetPath, displayVersion(), runtime.GOOS, runtime.GOARCH)
 			if err != nil {
 				return err
 			}
@@ -108,12 +105,22 @@ func displayVersion() string {
 	return normalized
 }
 
-func defaultInstallDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
+// resolveUpgradeTarget returns the full path to install the upgraded binary.
+// When installDir is empty, it returns the running executable's path so the
+// upgrade replaces the exact binary that's running. When installDir is set,
+// it uses the canonical release binary name within that directory.
+func resolveUpgradeTarget(installDir, goos string) (string, error) {
+	if installDir != "" {
+		return filepath.Join(installDir, binaryNameForGOOS(goos)), nil
 	}
-	return filepath.Join(home, ".local", "bin"), nil
+	exePath, err := executablePath()
+	if err != nil {
+		return "", fmt.Errorf("resolve stella executable path: %w", err)
+	}
+	if exePath == "" {
+		return "", errors.New("resolve stella executable path: empty path")
+	}
+	return exePath, nil
 }
 
 func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
@@ -138,7 +145,7 @@ func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
 	return &parsed, nil
 }
 
-func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch string) (*upgradeResult, error) {
+func runUpgrade(ctx context.Context, targetPath, currentVersion, goos, goarch string) (*upgradeResult, error) {
 	release, err := fetchLatestRelease(ctx)
 	if err != nil {
 		return nil, err
@@ -164,8 +171,7 @@ func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch st
 		return nil, err
 	}
 
-	targetPath, err := installReleaseAsset(ctx, asset, installDir, goos)
-	if err != nil {
+	if err := installReleaseAsset(ctx, asset, targetPath, goos); err != nil {
 		return nil, err
 	}
 	result.TargetPath = targetPath
@@ -189,14 +195,15 @@ func releaseAssetSuffixes(goos, goarch string) []string {
 	return []string{base + ".tar.gz", base + ".zip"}
 }
 
-func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installDir, goos string) (targetPath string, err error) {
+func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, targetPath, goos string) (err error) {
+	installDir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
-		return "", fmt.Errorf("create install dir: %w", err)
+		return fmt.Errorf("create install dir: %w", err)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "stella-upgrade-*")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
+		return fmt.Errorf("create temp dir: %w", err)
 	}
 	defer func() {
 		if removeErr := os.RemoveAll(tmpDir); removeErr != nil && err == nil {
@@ -206,20 +213,18 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 
 	archivePath := filepath.Join(tmpDir, asset.Name)
 	if err := downloadFile(ctx, asset.BrowserDownloadURL, archivePath); err != nil {
-		return "", err
+		return err
 	}
 
-	binaryName := binaryNameForGOOS(goos)
-	extractedPath, err := extractBinaryFromArchive(archivePath, tmpDir, binaryName)
+	extractedPath, err := extractBinaryFromArchive(archivePath, tmpDir, binaryNameForGOOS(goos))
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	targetPath = filepath.Join(installDir, binaryName)
 	if err := installBinary(extractedPath, targetPath, goos != "windows"); err != nil {
-		return "", err
+		return upgradeInstallError(err, targetPath, goos)
 	}
-	return targetPath, nil
+	return nil
 }
 
 func downloadFile(ctx context.Context, url, dest string) error {
@@ -383,6 +388,14 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 		return err
 	}
 
+	if runtime.GOOS != "windows" {
+		if err := renameFile(tmpPath, targetPath); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("install binary: %w", err)
+		}
+		return nil
+	}
+
 	if _, err := os.Lstat(targetPath); err == nil {
 		if err := renameFile(targetPath, backupPath); err != nil {
 			_ = os.Remove(tmpPath)
@@ -410,6 +423,20 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 		}
 	}
 	return nil
+}
+
+func upgradeInstallError(err error, targetPath, goos string) error {
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "text file busy") || strings.Contains(lower, "file busy") || strings.Contains(lower, "being used by another process") || strings.Contains(lower, "sharing violation") || strings.Contains(lower, "resource busy") {
+		if goos == "windows" {
+			return fmt.Errorf("%w\n%s is locked by a running process; stop stella first, then run the upgrade from another shell or install into a different directory with --install-dir", err, targetPath)
+		}
+		return fmt.Errorf("%w\n%s is busy; stop any running stella process or service that is using this binary, then retry", err, targetPath)
+	}
+	if errors.Is(err, os.ErrPermission) || strings.Contains(lower, "permission denied") || strings.Contains(lower, "access is denied") {
+		return fmt.Errorf("%w\npermission denied replacing %s; rerun as a user that can write to %s, or choose another target with --install-dir", err, targetPath, filepath.Dir(targetPath))
+	}
+	return err
 }
 
 func ensureReplaceableTarget(targetPath string) error {

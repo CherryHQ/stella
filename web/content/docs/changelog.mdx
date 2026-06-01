@@ -11,6 +11,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.2] - 2026-06-01
+
+### 🐛 Bug Fixes
+
+- **Plugins**: Persist manifest plugin config overrides in the database so edits made on the Settings → Plugins page survive page reloads. ([#263](https://github.com/CherryHQ/stella/pull/263))
+- **Plugins**: Preserve existing config overrides and the builtin `Enabled` default when processing toggle-only manifest plugin saves. ([#263](https://github.com/CherryHQ/stella/pull/263))
+- **Plugins**: Validate full plugin definitions server-side before persisting, returning 400 on invalid input. ([#263](https://github.com/CherryHQ/stella/pull/263))
+- **Plugins**: Avoid triggering manifest binary sync on every plugins page load. ([#263](https://github.com/CherryHQ/stella/pull/263))
+- **Plugins**: Switch `lark-cli` default OAuth provider from `lark` to `feishu`. ([#263](https://github.com/CherryHQ/stella/pull/263))
+
+### ♻️ Refactoring
+
+- **Plugins**: Extract `applyAndReloadPlugin` helper to unify hot-reload logic across plugin toggle and config update handlers. ([#263](https://github.com/CherryHQ/stella/pull/263))
+- **Upgrade**: Model the upgrade target as a full executable path instead of a directory, so `stella upgrade` replaces the exact running binary by default. ([#263](https://github.com/CherryHQ/stella/pull/263))
+
+**Full Changelog**: [v0.38.1...v0.38.2](https://github.com/CherryHQ/stella/compare/v0.38.1...v0.38.2)
+
+## [0.38.1] - 2026-06-01
+
+### 🔒 Security
+
+- **Sandbox**: Restrict STELLA_HOME mounts to only required subdirectories (`bin`, `.mise-tools`, `.agents/skills`), preventing sandbox agents from reading `stella.db` and `.env` via the Docker mount table.
+
+### 🐛 Bug Fixes
+
+- **Sandbox**: Mount `.mise-tools` into the bwrap sandbox so mise-installed tool shims are accessible.
+- **Sandbox**: Skip non-existent STELLA_HOME subdirectories during Docker session creation to avoid failures on fresh installs.
+- **Sandbox**: Decouple `STELLA_HOME` env translation from the mount table so the variable is correctly rewritten inside Docker containers.
+- **Docker**: Generate TypeScript API client (`openapi-ts`) during Docker image build to fix missing `sdk.gen` / `types.gen` modules.
+
+### ♻️ Refactoring
+
+- **Sandbox**: Extract `StellaHomeSandboxDirs()` as a single source of truth for the STELLA_HOME subdirectory allowlist shared across all sandbox backends.
+
+**Full Changelog**: [v0.38.0...v0.38.1](https://github.com/CherryHQ/stella/compare/v0.38.0...v0.38.1)
+
 ## [0.38.0] - 2026-06-01
 
 ### ⚠️ Breaking Changes

@@ -63,10 +63,10 @@ stella server --host 0.0.0.0 --port 8080   # 绑定所有网络接口
 ```bash
 stella version
 stella upgrade
-stella upgrade --install-dir "$HOME/.local/bin"
+stella upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
 ```
 
-`stella upgrade` 从 GitHub 获取最新稳定版本，下载与当前操作系统/架构匹配的安装包，并将二进制文件安装到 `$HOME/.local/bin`（默认位置）。
+`stella upgrade` 从 GitHub 获取最新稳定版本，下载与当前操作系统/架构匹配的安装包，并默认替换当前正在运行的 `stella` 二进制文件。如果目标目录不可写，请用具备对应系统权限的用户重新运行，或使用 `--install-dir` 指定其他目录。如果二进制文件被锁定或显示 busy，请先停止正在运行的 Stella 进程或服务，再重试。
 
 ## 作为后台服务运行
 

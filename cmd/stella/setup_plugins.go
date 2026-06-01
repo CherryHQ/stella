@@ -26,7 +26,7 @@ type pluginSetup struct {
 	manifestToReconcile    *manifestplugins.Manifest
 }
 
-func setupPlugins(_ context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
+func setupPlugins(ctx context.Context, db *sql.DB, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	stateStore := pluginstate.New(db)
@@ -48,7 +48,7 @@ func setupPlugins(_ context.Context, db *sql.DB, store config.Store, skillStore 
 		manifestToReconcile *manifestplugins.Manifest
 	)
 
-	builtinManifest, err := manifestplugins.LoadBuiltin()
+	builtinManifest, err := loadBuiltinManifestWithOverrides(ctx, store)
 	if err != nil {
 		slog.Warn("manifest plugin: failed to load builtin manifest", "error", err)
 	} else {
@@ -63,6 +63,30 @@ func setupPlugins(_ context.Context, db *sql.DB, store config.Store, skillStore 
 		oauthRegistry:          oauthRegistry,
 		manifestToReconcile:    manifestToReconcile,
 	}, nil
+}
+
+func loadBuiltinManifestWithOverrides(ctx context.Context, store config.Store) (*manifestplugins.Manifest, error) {
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		return nil, err
+	}
+	if store == nil {
+		return builtin, nil
+	}
+	overrides, err := store.ListManifestPluginOverrides(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list manifest plugin overrides: %w", err)
+	}
+	byID := make(map[string]config.ManifestPluginOverride, len(overrides))
+	for _, ov := range overrides {
+		byID[ov.PluginID] = ov
+	}
+	for i := range builtin.Plugins {
+		if ov, ok := byID[builtin.Plugins[i].ID]; ok && ov.Enabled != nil {
+			builtin.Plugins[i].Enabled = *ov.Enabled
+		}
+	}
+	return builtin, nil
 }
 
 func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistry {
