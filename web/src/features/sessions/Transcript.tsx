@@ -142,49 +142,56 @@ function StepsGroup({ blocks }: { blocks: ContentBlock[] }) {
     }
   }, [hasRunning]);
 
+  const labelText = hasRunning
+    ? "Thinking..."
+    : `Worked for ${Math.max(1, Math.round(blocks.length * 0.8))}s`;
+
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/40 bg-muted/20 hover:bg-muted/30 transition-all font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer w-fit shadow-2xs"
+      >
+        <Brain className="size-3.5 text-primary/60 shrink-0" />
+        <span>{labelText}</span>
+        <ChevronDown className="size-3.5 text-muted-foreground/45 shrink-0 ml-0.5" />
+      </button>
+    );
+  }
+
   return (
-    <div className="rounded-[14px] border border-border/50 bg-muted/15 px-4 py-3 transition-all duration-150 space-y-2.5 max-w-3xl">
+    <div className="rounded-[18px] border border-border/50 bg-muted/15 px-4 py-3.5 transition-all duration-200 space-y-3.5 max-w-3xl w-full shadow-2xs">
       <div className="flex items-center">
         <button
-          onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground/80 hover:text-foreground cursor-pointer"
+          onClick={() => setExpanded(false)}
+          className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer font-semibold"
         >
-          <span>
-            {hasRunning
-              ? "Thinking..."
-              : `Worked for ${Math.max(1, Math.round(blocks.length * 0.8))}s`}
-          </span>
-          <ChevronDown
-            className={cn(
-              "size-3.5 transition-transform duration-200 text-muted-foreground/50",
-              expanded && "rotate-180",
-            )}
-          />
+          <Brain className="size-3.5 text-primary/60 shrink-0" />
+          <span>{labelText}</span>
+          <ChevronDown className="size-3.5 transition-transform duration-200 text-muted-foreground/50 rotate-180" />
         </button>
       </div>
 
-      {expanded && (
-        <div className="space-y-4 pt-1">
-          {blocks.map((block, idx) => {
-            if (block.type === "thinking" && block.thinking) {
-              return (
-                <div key={idx} className="flex gap-2.5 items-start py-0.5">
-                  <span className="flex items-center justify-center text-primary/50 mt-1 shrink-0">
-                    <Brain className="size-3.5" />
-                  </span>
-                  <div className="text-xs text-muted-foreground/75 leading-relaxed whitespace-pre-wrap border-l border-border/40 pl-3">
-                    {block.thinking}
-                  </div>
+      <div className="space-y-4 pt-2 border-t border-border/20">
+        {blocks.map((block, idx) => {
+          if (block.type === "thinking" && block.thinking) {
+            return (
+              <div key={idx} className="flex gap-2.5 items-start py-0.5">
+                <span className="flex items-center justify-center text-primary/50 mt-1 shrink-0">
+                  <Brain className="size-3.5" />
+                </span>
+                <div className="text-xs text-muted-foreground/75 leading-relaxed whitespace-pre-wrap border-l border-border/40 pl-3">
+                  {block.thinking}
                 </div>
-              );
-            }
-            if (block.type === "tool_call") {
-              return <ToolStepRow key={idx} block={block} />;
-            }
-            return null;
-          })}
-        </div>
-      )}
+              </div>
+            );
+          }
+          if (block.type === "tool_call") {
+            return <ToolStepRow key={idx} block={block} />;
+          }
+          return null;
+        })}
+      </div>
     </div>
   );
 }
