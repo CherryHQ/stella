@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.3] - 2026-06-01
+
+### 🐛 Bug Fixes
+
+- **CLI**: Fix JSON deserialization errors for `stella oauth providers`, `stella vault list`, `stella skills list`, and `stella skills search` — use generated wrapper types matching the actual API response shape.
+- **OAuth**: Use `STELLA_BASE_URL` for OAuth redirect URIs and CORS origin instead of the request's Host header, so CLI-initiated flows redirect to the externally reachable address.
+- **OAuth**: Remove dead `admin.cors_origin` setting; unify on `baseURL` derived from `STELLA_BASE_URL`.
+- **Sandbox**: Harden local sandbox environment.
+
+**Full Changelog**: [v0.38.2...v0.38.3](https://github.com/CherryHQ/stella/compare/v0.38.2...v0.38.3)
+
 ## [0.38.2] - 2026-06-01
 
 ### 🐛 Bug Fixes
