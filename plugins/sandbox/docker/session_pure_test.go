@@ -73,15 +73,40 @@ func TestBuildMountTable(t *testing.T) {
 	}
 }
 
-func TestToHostPathUsesDeepestContainerMount(t *testing.T) {
+func TestToHostPath(t *testing.T) {
 	mounts := []dockerclient.Mount{
 		{HostPath: "/host/ws", ContainerPath: "/workspace"},
 		{HostPath: "/tmp/user-1", ContainerPath: "/tmp"},
 	}
-	got, ok := toHostPath(mounts, "/tmp/a.txt")
-	if !ok || got != "/tmp/user-1/a.txt" {
-		t.Fatalf("toHostPath = %q, %v; want /tmp/user-1/a.txt, true", got, ok)
+	tests := []struct {
+		name          string
+		containerPath string
+		wantHost      string
+		wantOK        bool
+	}{
+		{"sub-path", "/tmp/a.txt", "/tmp/user-1/a.txt", true},
+		{"exact mount root", "/tmp", "/tmp/user-1", true},
+		{"workspace sub-path", "/workspace/foo", "/host/ws/foo", true},
+		{"no match", "/etc/passwd", "", false},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := toHostPath(mounts, tt.containerPath)
+			if ok != tt.wantOK || got != tt.wantHost {
+				t.Fatalf("toHostPath(%q) = %q, %v; want %q, %v", tt.containerPath, got, ok, tt.wantHost, tt.wantOK)
+			}
+		})
+	}
+	t.Run("deepest mount wins", func(t *testing.T) {
+		nested := []dockerclient.Mount{
+			{HostPath: "/host/tmp", ContainerPath: "/tmp"},
+			{HostPath: "/host/tmp/sub", ContainerPath: "/tmp/sub"},
+		}
+		got, ok := toHostPath(nested, "/tmp/sub/file.txt")
+		if !ok || got != "/host/tmp/sub/file.txt" {
+			t.Fatalf("toHostPath = %q, %v; want /host/tmp/sub/file.txt, true", got, ok)
+		}
+	})
 }
 
 func TestMapNetworkMode(t *testing.T) {

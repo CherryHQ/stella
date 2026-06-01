@@ -51,7 +51,8 @@ type FilesystemPolicy struct {
 
 	// TempDirHost is the host directory mounted as /tmp inside the sandbox.
 	// Empty means the backend chooses a session-local temp directory. Non-empty
-	// directories may be shared across sessions, depending on the caller.
+	// directories are guaranteed to exist with 0700 permissions before the
+	// backend sees the policy; they may be shared across sessions.
 	TempDirHost string
 }
 

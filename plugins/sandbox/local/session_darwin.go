@@ -69,8 +69,6 @@ func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
 	tmp := policy.Filesystem.TempDirHost
 	if tmp == "" {
 		tmp = resolve("/tmp", "/private/tmp")
-	} else if err := sandboxpkg.EnsurePrivateDir(tmp); err != nil {
-		return nil, err
 	}
 	return []tmpMount{
 		{sandboxPath: "/tmp", realPath: tmp},

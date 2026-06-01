@@ -32,7 +32,13 @@ func userTempDir(userID string) string {
 	if !validUserTempDirID.MatchString(userID) {
 		return ""
 	}
-	return filepath.Join(os.TempDir(), userID)
+	// Resolve symlinks in the base temp dir so that pathWithinRoot checks
+	// work after filepath.EvalSymlinks (macOS: /var → /private/var).
+	base := os.TempDir()
+	if resolved, err := filepath.EvalSymlinks(base); err == nil {
+		base = resolved
+	}
+	return filepath.Join(base, userID)
 }
 
 // skillMountsForSandbox returns host paths for all skill directories that must

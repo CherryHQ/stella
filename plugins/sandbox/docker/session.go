@@ -192,11 +192,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		}
 	}
 	if policy.Filesystem.TempDirHost != "" {
-		if err := sandboxpkg.EnsurePrivateDir(policy.Filesystem.TempDirHost); err != nil {
-			recordError(span, err)
-			span.End()
-			return nil, fmt.Errorf("docker session: create temp dir: %w", err)
-		}
 		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 			HostPath:      f.cfg.TranslateToDaemonPath(policy.Filesystem.TempDirHost),
 			ContainerPath: "/tmp",

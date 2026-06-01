@@ -123,8 +123,15 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 		return Paths{}, pkgsandbox.Policy{}, err
 	}
 
+	fs := runnerFilesystemPolicy(paths, cfg.UserID)
+	if fs.TempDirHost != "" {
+		if err := pkgsandbox.EnsurePrivateDir(fs.TempDirHost); err != nil {
+			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure user temp dir: %w", err)
+		}
+	}
+
 	policy := pkgsandbox.Policy{
-		Filesystem: runnerFilesystemPolicy(paths, cfg.UserID),
+		Filesystem: fs,
 		Network: pkgsandbox.NetworkPolicy{
 			Mode: pkgsandbox.NetworkMode(cfg.SandboxConfig.Network.Mode),
 		},

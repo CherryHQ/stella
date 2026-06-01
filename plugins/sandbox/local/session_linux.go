@@ -106,8 +106,6 @@ func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
 			return nil, err
 		}
 		tmpOwned = true
-	} else if err := sandboxpkg.EnsurePrivateDir(tmp); err != nil {
-		return nil, err
 	}
 
 	varTmp, err := os.MkdirTemp("", "stella-session-vartmp-*")
