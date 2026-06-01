@@ -11,28 +11,43 @@ icon: History
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-06-01
+
+### ⚠️ 破坏性变更
+
+- **API**：HTTP API 采用 Google AIP 风格资源模型，包括裸 JSON 响应、`items` 列表包装、201/204 语义、PATCH 语义以及生成客户端更新。任务、目标、用户和技能等多组路由被扁平化或重命名。([#252](https://github.com/CherryHQ/stella/pull/252), [#259](https://github.com/CherryHQ/stella/pull/259))
+- **认证**：Stella 切换为仅 OIDC 认证，并由 Stella 管理组织；新增本地 OIDC issuer、邀请、引导流程、账户/会话管理和基于成员身份的角色。([#219](https://github.com/CherryHQ/stella/pull/219))
+- **插件**：移除旧 MCP 插件路径和过期的 MCP prompt-inventory 代码。([#239](https://github.com/CherryHQ/stella/pull/239))
+
 ### ✨ 功能
 
-- **目标**：扁平化 `/api/goals` HTTP 接口(create / list / get / activate /
-  cancel / list-tasks / list-reviews + 评审决策)。Dispatcher 新增
-  `rollupGoals`、reviewer 派发、planner 派发、synthesizer 派发 tick 步骤。
-  Goal-parented `agent_review` 行通过与任务评审相同的 approve / reject /
-  request-changes / escalate 路径驱动 goal 状态。当前 PR 还没接真实 runner,
-  reviewer / planner / synthesizer run 创建后会立即以 `protocol_error` 事
-  件失败 —— 派发路径已可观察,真实执行等后续 `agent.Pool` 适配器 PR。
+- **认证**：新增内置本地 OIDC issuer 自动配置、OIDC 登录按钮、邀请创建/兑换、延迟引导、账户 UI、会话管理和组织编辑。([#219](https://github.com/CherryHQ/stella/pull/219))
+- **任务与目标**：新增 task system v2 的扁平 `/api/tasks` 接口、扁平 `/api/goals` 接口、以目标为中心的自动化 UI、完整目标/任务 CLI 覆盖和 Agent 技能文档。([#236](https://github.com/CherryHQ/stella/pull/236), [#237](https://github.com/CherryHQ/stella/pull/237), [#247](https://github.com/CherryHQ/stella/pull/247), [#248](https://github.com/CherryHQ/stella/pull/248))
+- **插件与渠道**：新增按组织隔离的托管运行时、渠道回调组织上下文、按组织覆盖 manifest 插件配置，以及基于 mise 的按组织 CLI 工具 shim。([#240](https://github.com/CherryHQ/stella/pull/240), [#241](https://github.com/CherryHQ/stella/pull/241), [#242](https://github.com/CherryHQ/stella/pull/242), [#246](https://github.com/CherryHQ/stella/pull/246))
+- **API 文档**：新增基于 Scalar 的交互式 API 文档。([#225](https://github.com/CherryHQ/stella/pull/225))
+- **服务运行时**：切换为 system-only 服务模型，并使用专用 `stella` 用户。
 
-- **任务**：扁平化 `/api/tasks` HTTP 接口。任务在解析后的组织（`X-Stella-Org-ID`
-  请求头，回退到会话默认组织）下管理，不再嵌套于 agent 路径下。子资源 POST 取代
-  旧的 action 信封：`/api/tasks/{id}/cancel`、`/reopen`、`/deps`、
-  `/deps/{depTaskID}/waive`、`/blockers/{blockerID}/resolve`，以及评审决策
-  `/reviews/{reviewID}/approve|reject|request-changes|escalate`。原有的
-  `/api/agents/{agentID}/tasks/...` 路由已删除。
+### 🐛 修复
+
+- **沙盒**：当活跃 runner 下方的沙盒会话被关闭时自动重建；重建时重新解析 backend 名称；保持沙盒 backend 已选择；默认沙盒网络允许全部访问；将用户临时目录挂载进沙盒。([#217](https://github.com/CherryHQ/stella/pull/217))
+- **安全**：停止向客户端响应泄露原始 `err.Error()`；渠道和 provider 需要管理员显式启用；修复 Web 依赖漏洞；为项目级技能写入处理器补齐认证检查。([#245](https://github.com/CherryHQ/stella/pull/245), [#261](https://github.com/CherryHQ/stella/pull/261))
+- **认证与组织范围**：修复 OIDC 注册、成员身份、角色处理、邀请流程、组织范围数据隔离、插件 upsert、重复 provider，以及启动时缺少组织上下文的问题。([#219](https://github.com/CherryHQ/stella/pull/219))
+- **技能**：技能变更必须显式指定 scope；递归发现系统技能；保留沙盒技能提示词章节。
+- **开发流程**：在 `dev:api` 中展开 `STELLA_HOME`；构建沙盒镜像前生成代码；提升 CI 测试速度。
 
 ### ♻️ 重构
 
-- **CLI**：`stella task` 已基于扁平化接口重写；原先的 `agent-id` 位置参数已移除，
-  创建者 agent 从配置或 `--agent` 标志获取。
-- **Web**：任务面板迁移到重新生成的客户端与 v2 状态值（`draft` / `ready` / `reviewing`）。
+- **存储**：规范化数据库表前缀、时间戳/时区处理、组织范围键和查询所有权校验；移除旧 backfill 与迁移代码。([#250](https://github.com/CherryHQ/stella/pull/250))
+- **认证与租户**：在落地组织范围认证和存储隔离后，移除多组织行为，回到更简单的单租户模型。([#249](https://github.com/CherryHQ/stella/pull/249))
+- **插件**：将 reflect 和 memory 从插件系统解耦；按组织管理 runtime；移除无用的插件同步/迁移代码。([#229](https://github.com/CherryHQ/stella/pull/229), [#240](https://github.com/CherryHQ/stella/pull/240))
+- **沙盒**：简化 `pkg/sandbox` 和 `internal/agent/sandbox`；移除未使用的 registry/log 代码；去重 backend 解析逻辑。([#218](https://github.com/CherryHQ/stella/pull/218))
+- **Web 与文档**：重新设计 landing workflow hero，并将 Stella 重新定位为共享专业 Agent。([#255](https://github.com/CherryHQ/stella/pull/255), [#257](https://github.com/CherryHQ/stella/pull/257))
+
+### 📝 文档
+
+- 新增并同步 OIDC、邀请、插件组织隔离、API 设计和 schema 设计中英文文档。([#219](https://github.com/CherryHQ/stella/pull/219), [#243](https://github.com/CherryHQ/stella/pull/243), [#260](https://github.com/CherryHQ/stella/pull/260))
+
+**完整变更日志**：[v0.37.0...v0.38.0](https://github.com/CherryHQ/stella/compare/v0.37.0...v0.38.0)
 
 ## [0.37.0] - 2026-05-23
 
