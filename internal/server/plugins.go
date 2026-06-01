@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -116,33 +117,12 @@ func (s *Server) TogglePlugin(w http.ResponseWriter, r *http.Request, kind strin
 		s.writeInternalError(w, err)
 		return
 	}
-	// Re-fetch the updated plugin to return current state.
 	p, err := s.store.GetPlugin(r.Context(), id)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
-	// Hot-reload tool plugins so the change takes effect without restart.
-	if p.Kind == config.PluginKindTool && s.poolManager != nil {
-		if err := s.poolManager.ReloadPluginTools(r.Context()); err != nil {
-			s.log.Error("failed to reload plugin tools", "plugin", id, "error", err)
-		}
-	}
-	if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
-		s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
-	}
-	// Hot-reload hook plugins so the change takes effect without restart.
-	if p.Kind == config.PluginKindHook && s.poolManager != nil {
-		if err := s.poolManager.ReloadPluginHooks(r.Context()); err != nil {
-			s.log.Error("failed to reload plugin hooks", "plugin", id, "error", err)
-		}
-	}
-	// Hot-reload provider plugins so new sessions pick up the change.
-	if p.Kind == config.PluginKindProvider && s.poolManager != nil {
-		if err := s.poolManager.ReloadPluginProviders(r.Context()); err != nil {
-			s.log.Error("failed to reload plugin providers", "plugin", id, "error", err)
-		}
-	}
+	s.applyAndReloadPlugin(r.Context(), p)
 	writeData(w, http.StatusOK, p)
 }
 
@@ -182,25 +162,33 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		s.writeInternalError(w, err)
 		return
 	}
-	if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
-		s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
-	}
-	if p.Kind == config.PluginKindTool && s.poolManager != nil {
-		if err := s.poolManager.ReloadPluginTools(r.Context()); err != nil {
-			s.log.Error("failed to reload plugin tools", "plugin", id, "error", err)
-		}
-	}
-	if p.Kind == config.PluginKindHook && s.poolManager != nil {
-		if err := s.poolManager.ReloadPluginHooks(r.Context()); err != nil {
-			s.log.Error("failed to reload plugin hooks", "plugin", id, "error", err)
-		}
-	}
-	if p.Kind == config.PluginKindProvider && s.poolManager != nil {
-		if err := s.poolManager.ReloadPluginProviders(r.Context()); err != nil {
-			s.log.Error("failed to reload plugin providers", "plugin", id, "error", err)
-		}
-	}
+	s.applyAndReloadPlugin(r.Context(), p)
 	writeData(w, http.StatusOK, p)
+}
+
+// applyAndReloadPlugin updates a plugin's runtime state and hot-reloads
+// the pool manager so changes take effect without restart.
+func (s *Server) applyAndReloadPlugin(ctx context.Context, p config.Plugin) {
+	if err := s.pluginHost.ApplyPlugin(ctx, p.ID); err != nil {
+		s.log.Error("failed to apply plugin runtime", "plugin", p.ID, "error", err)
+	}
+	if s.poolManager == nil {
+		return
+	}
+	switch p.Kind {
+	case config.PluginKindTool:
+		if err := s.poolManager.ReloadPluginTools(ctx); err != nil {
+			s.log.Error("failed to reload plugin tools", "plugin", p.ID, "error", err)
+		}
+	case config.PluginKindHook:
+		if err := s.poolManager.ReloadPluginHooks(ctx); err != nil {
+			s.log.Error("failed to reload plugin hooks", "plugin", p.ID, "error", err)
+		}
+	case config.PluginKindProvider:
+		if err := s.poolManager.ReloadPluginProviders(ctx); err != nil {
+			s.log.Error("failed to reload plugin providers", "plugin", p.ID, "error", err)
+		}
+	}
 }
 
 func pluginRouteID(kind, name string) string {

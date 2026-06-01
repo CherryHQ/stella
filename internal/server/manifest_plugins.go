@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -107,6 +108,21 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		builtinByID[p.ID] = p
 	}
 
+	// Validate full definitions before persisting.
+	for _, plugin := range req.Plugins {
+		if plugin.Kind == "" {
+			continue
+		}
+		candidate := &manifestplugins.Manifest{
+			OAuthProviders: builtin.OAuthProviders,
+			Plugins:        []manifestplugins.ManifestPlugin{plugin},
+		}
+		if err := manifestplugins.Validate(candidate); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
+			return
+		}
+	}
+
 	for _, plugin := range req.Plugins {
 		def, isBuiltin := builtinByID[plugin.ID]
 
@@ -117,11 +133,18 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// A toggle-only request sends {id, enabled} with zero-valued Kind.
-		// Don't treat that as a config override — it would clobber the builtin definition.
+		// Don't treat that as a config override — it would clobber the existing definition.
 		isFullDefinition := plugin.Kind != ""
 
-		configJSON := manifestPluginConfigJSON(plugin)
-		hasConfigOverride := isFullDefinition && (!isBuiltin || configJSON != manifestPluginConfigJSON(def))
+		var cfgStr string
+		if isFullDefinition {
+			configJSON := manifestPluginConfigJSON(plugin)
+			if !isBuiltin || configJSON != manifestPluginConfigJSON(def) {
+				cfgStr = configJSON
+			}
+		} else {
+			cfgStr = existing.Config
+		}
 
 		enabledDiffers := isBuiltin && plugin.Enabled != def.Enabled
 		var enabled *bool
@@ -134,7 +157,7 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			enabled = &e
 		}
 
-		needsRow := enabled != nil || existing.SessionEnvVaultKey != "" || hasConfigOverride
+		needsRow := enabled != nil || existing.SessionEnvVaultKey != "" || cfgStr != ""
 		if !needsRow {
 			if err := s.store.DeleteManifestPluginOverride(r.Context(), plugin.ID); err != nil {
 				s.writeInternalError(w, err)
@@ -143,10 +166,6 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		cfgStr := ""
-		if hasConfigOverride {
-			cfgStr = configJSON
-		}
 		if err := s.store.UpsertManifestPluginOverride(r.Context(), config.ManifestPluginOverride{
 			PluginID:           plugin.ID,
 			Enabled:            enabled,

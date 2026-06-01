@@ -7,32 +7,39 @@ import (
 	"testing"
 )
 
-func TestDefaultInstallDirUsesRunningExecutableDir(t *testing.T) {
+func TestResolveUpgradeTargetDefaultUsesExecutablePath(t *testing.T) {
 	oldExecutablePath := executablePath
-	executablePath = func() (string, error) {
-		return filepath.Join(string(filepath.Separator), "opt", "stella", binaryNameForGOOS("linux")), nil
-	}
+	exePath := filepath.Join(string(filepath.Separator), "opt", "stella", binaryNameForGOOS("linux"))
+	executablePath = func() (string, error) { return exePath, nil }
 	t.Cleanup(func() { executablePath = oldExecutablePath })
 
-	dir, err := defaultInstallDir()
+	got, err := resolveUpgradeTarget("", "linux")
 	if err != nil {
-		t.Fatalf("defaultInstallDir: %v", err)
+		t.Fatalf("resolveUpgradeTarget: %v", err)
 	}
-
-	want := filepath.Join(string(filepath.Separator), "opt", "stella")
-	if dir != want {
-		t.Fatalf("defaultInstallDir() = %q, want %q", dir, want)
+	if got != exePath {
+		t.Fatalf("resolveUpgradeTarget() = %q, want %q", got, exePath)
 	}
 }
 
-func TestDefaultInstallDirReportsExecutablePathError(t *testing.T) {
-	oldExecutablePath := executablePath
-	executablePath = func() (string, error) {
-		return "", errors.New("boom")
+func TestResolveUpgradeTargetWithInstallDir(t *testing.T) {
+	dir := filepath.Join(string(filepath.Separator), "usr", "local", "bin")
+	got, err := resolveUpgradeTarget(dir, "linux")
+	if err != nil {
+		t.Fatalf("resolveUpgradeTarget: %v", err)
 	}
+	want := filepath.Join(dir, binaryNameForGOOS("linux"))
+	if got != want {
+		t.Fatalf("resolveUpgradeTarget() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveUpgradeTargetReportsExecutablePathError(t *testing.T) {
+	oldExecutablePath := executablePath
+	executablePath = func() (string, error) { return "", errors.New("boom") }
 	t.Cleanup(func() { executablePath = oldExecutablePath })
 
-	_, err := defaultInstallDir()
+	_, err := resolveUpgradeTarget("", "linux")
 	if err == nil {
 		t.Fatal("expected error")
 	}
