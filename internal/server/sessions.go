@@ -19,6 +19,7 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -46,22 +47,29 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 
-	pool := s.poolManager.Get(agentID)
-	if pool == nil {
-		writeError(w, http.StatusBadRequest, "no pool available for the given agent_id")
+	svc := s.poolManager.GetService(agentID)
+	if svc == nil {
+		writeError(w, http.StatusBadRequest, "no service available for the given agent_id")
 		return
 	}
 
-	kind := "chat"
+	kind := session.KindChat
 	if body.Kind != nil {
-		kind = string(*body.Kind)
+		kind = session.Kind(*body.Kind)
 	}
 	projectID := ""
 	if body.ProjectId != nil {
 		projectID = *body.ProjectId
 	}
 
-	info, err := pool.CreateSessionWithKind("admin", kind, projectID, authInfo.UserID)
+	info, err := svc.Sessions.Ensure(r.Context(), session.Request{
+		UserID:          authInfo.UserID,
+		AgentID:         agentID,
+		Kind:            kind,
+		Channel:         session.ChannelWeb,
+		ProjectID:       projectID,
+		CreateIfMissing: true,
+	})
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -111,14 +119,14 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	var pool *agent.Pool
+	var svc *agent.Service
 	if si.AgentID != "" {
-		pool = s.poolManager.Get(si.AgentID)
+		svc = s.poolManager.GetService(si.AgentID)
 	} else {
-		pool = s.poolManager.DefaultPool()
+		svc = s.poolManager.Default()
 	}
-	if pool == nil {
-		writeError(w, http.StatusBadRequest, "no pool available for this session")
+	if svc == nil {
+		writeError(w, http.StatusBadRequest, "no service available for this session")
 		return
 	}
 
@@ -172,7 +180,13 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		}
 	}
 
-	ch := pool.Chat(ctx, sessionID, msgContent)
+	ch := svc.Chat(ctx, agent.ChatRequest{
+		SessionID: sessionID,
+		UserID:    si.UserID,
+		AgentID:   si.AgentID,
+		Channel:   session.Channel(si.Channel),
+		Message:   msgContent,
+	})
 	for {
 		select {
 		case <-r.Context().Done():
