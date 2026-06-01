@@ -18,7 +18,7 @@ export function AdvancedTab({ state, onSetState }: Props) {
     setForm({
       sandbox: normalizeSandbox({
         network: {
-          mode: form.sandbox?.network?.mode ?? "disabled",
+          mode: form.sandbox?.network?.mode ?? "allow_all",
           allowlist: value
             .split(/\r?\n|,/)
             .map((v) => v.trim())
@@ -28,7 +28,7 @@ export function AdvancedTab({ state, onSetState }: Props) {
     });
   };
 
-  const networkMode = form.sandbox?.network?.mode ?? "disabled";
+  const networkMode = form.sandbox?.network?.mode ?? "allow_all";
 
   return (
     <div className="rounded-xl border border-border p-4 bg-muted/40 space-y-4">

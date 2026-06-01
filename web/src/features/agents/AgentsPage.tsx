@@ -76,7 +76,7 @@ function ToastAlert({ toast }: { toast: Toast }) {
 
 export function normalizeSandbox(sandbox: unknown): AgentSandbox {
   const s = sandbox as AgentSandbox | undefined;
-  const mode = s?.network?.mode ?? "disabled";
+  const mode = s?.network?.mode ?? "allow_all";
   const rawAllowlist = s?.network?.allowlist;
   const allowlist = Array.isArray(rawAllowlist)
     ? rawAllowlist
@@ -116,7 +116,7 @@ function emptyForm(): Omit<AgentDetail, "id"> {
     scope: "restricted",
     enabled: true,
     creator_id: "",
-    sandbox: { network: { mode: "disabled", allowlist: [] } },
+    sandbox: { network: { mode: "allow_all", allowlist: [] } },
     template_id: "",
   };
 }
