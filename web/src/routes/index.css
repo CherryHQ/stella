@@ -1,11 +1,5 @@
 .home-page {
-  background:
-    radial-gradient(
-      circle at 82% 8%,
-      color-mix(in oklch, var(--stella-os-accent) 9%, transparent),
-      transparent 30rem
-    ),
-    linear-gradient(180deg, var(--stella-os-canvas) 0%, var(--stella-os-canvas-muted) 100%);
+  background: var(--stella-os-canvas);
   color: var(--stella-os-ink);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
@@ -77,45 +71,22 @@
   --hero-fg: var(--stella-os-ink);
   --hero-muted: var(--stella-os-muted);
   --hero-soft: color-mix(in oklch, var(--stella-os-surface) 88%, transparent);
-  --hero-rule: color-mix(in oklch, var(--stella-os-rule) 72%, transparent);
+  --hero-rule: color-mix(in oklch, var(--stella-os-rule) 42%, transparent);
   position: relative;
   min-height: min(58rem, calc(100svh - 3.5rem));
   padding: clamp(3.35rem, 5.4vw, 5.3rem) 0 clamp(3rem, 5vw, 4.25rem);
   background:
     linear-gradient(var(--hero-rule) 1px, transparent 1px),
-    linear-gradient(90deg, var(--hero-rule) 1px, transparent 1px),
-    linear-gradient(
-      180deg,
-      color-mix(in oklch, var(--stella-os-canvas) 96%, var(--stella-os-accent) 4%) 0%,
-      var(--stella-os-canvas) 58%,
-      var(--stella-os-canvas-muted) 100%
-    );
+    linear-gradient(90deg, var(--hero-rule) 1px, transparent 1px), var(--stella-os-canvas);
   background-size:
     56px 56px,
-    56px 56px,
-    auto;
+    56px 56px;
   color: var(--hero-fg);
   overflow: hidden;
 }
 
 .home-hero-grain {
-  position: absolute;
-  inset: auto -10% -34% 45%;
-  height: 42rem;
-  background:
-    radial-gradient(
-      circle at 44% 45%,
-      color-mix(in oklch, var(--stella-os-accent) 18%, transparent),
-      transparent 66%
-    ),
-    radial-gradient(
-      circle at 76% 26%,
-      color-mix(in oklch, var(--stella-os-success) 10%, transparent),
-      transparent 42%
-    );
-  filter: blur(8px);
-  opacity: 0.8;
-  pointer-events: none;
+  display: none;
 }
 
 .home-hero-frame {
@@ -289,28 +260,14 @@
   gap: 0.9rem;
   padding: 1rem;
   border: 1px solid var(--hero-rule);
-  border-radius: var(--radius-2xl);
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklch, var(--stella-os-surface) 98%, var(--stella-os-accent) 2%),
-    color-mix(in oklch, var(--stella-os-surface) 78%, var(--stella-os-canvas-muted))
-  );
-  box-shadow:
-    0 1px 0 color-mix(in oklch, var(--stella-os-surface) 80%, transparent) inset,
-    0 28px 80px color-mix(in oklch, var(--stella-os-ink) 12%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--stella-os-surface);
+  box-shadow: none;
   animation: fade-up 900ms cubic-bezier(0.16, 1, 0.3, 1) 300ms both;
 }
 
 .home-workflow-preview::before {
-  content: "";
-  position: absolute;
-  inset: 0.7rem;
-  z-index: -1;
-  border-radius: inherit;
-  background: color-mix(in oklch, var(--stella-os-accent) 12%, transparent);
-  filter: blur(34px);
-  opacity: 0.65;
-  pointer-events: none;
+  display: none;
 }
 
 .home-workflow-chrome {
@@ -398,27 +355,20 @@
 
 .home-flow-agent {
   position: relative;
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklch, var(--stella-os-accent) 90%, var(--stella-os-surface) 10%),
-    color-mix(in oklch, var(--stella-os-accent) 72%, var(--stella-os-ink) 28%)
-  );
-  border-color: color-mix(in oklch, var(--stella-os-accent) 54%, var(--hero-rule));
-  box-shadow:
-    0 1px 0 color-mix(in oklch, var(--stella-os-surface) 28%, transparent) inset,
-    0 16px 42px color-mix(in oklch, var(--stella-os-accent) 22%, transparent);
+  background: var(--stella-os-accent-soft);
+  border-color: var(--stella-os-accent);
 }
 
 .home-flow-agent strong {
-  color: var(--primary-foreground);
+  color: var(--stella-os-ink);
 }
 
 .home-flow-agent p {
-  color: color-mix(in oklch, var(--primary-foreground) 78%, transparent);
+  color: var(--stella-os-muted);
 }
 
 .home-flow-label {
-  color: color-mix(in oklch, var(--hero-muted) 78%, transparent);
+  color: var(--stella-os-muted);
   font-family: var(--font-mono);
   font-size: 0.62rem;
   font-weight: 800;
@@ -427,7 +377,7 @@
 }
 
 .home-flow-agent .home-flow-label {
-  color: color-mix(in oklch, var(--primary-foreground) 62%, transparent);
+  color: var(--stella-os-accent);
 }
 
 /* ─── Systems ─── */
@@ -696,17 +646,19 @@
   display: grid;
   gap: 0.5rem;
   padding: 1.25rem;
-  border-radius: var(--radius-xl);
-  background: color-mix(in oklch, var(--stella-os-ink) 94%, var(--stella-os-accent) 6%);
-  color: var(--stella-os-surface);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-lg);
+  background: var(--stella-os-surface);
+  border: 1px solid var(--stella-os-rule);
+  color: var(--stella-os-ink);
+  box-shadow: none;
 }
 
 .home-terminal code {
   display: block;
   padding: 0.7rem 0.9rem;
   border-radius: var(--radius-md);
-  background: color-mix(in oklch, var(--stella-os-surface) 8%, transparent);
+  background: var(--stella-os-canvas-muted);
+  color: var(--stella-os-ink);
   font-family: var(--font-mono);
   font-size: 0.82rem;
   line-height: 1.5;
@@ -723,7 +675,7 @@
   margin: 0.25rem 0 0;
   padding-inline: 0.9rem;
   font-size: 0.76rem;
-  color: color-mix(in oklch, var(--stella-os-surface) 52%, transparent);
+  color: var(--stella-os-muted);
   line-height: 1.5;
 }
 
