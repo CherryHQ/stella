@@ -7,11 +7,13 @@ const en = {
 
   // Navigation
   "nav.sessions": "Agents",
+  "nav.sessions.desc": "AI chat assistant & projects",
   "nav.automations": "Automations",
   "nav.scheduler": "Scheduler",
   "nav.tasks": "Tasks",
   "nav.settings": "Settings",
   "nav.recally": "Recally",
+  "nav.recally.desc": "Read queue, feeds & memory",
   "nav.docs": "Docs",
   "nav.apiReferences": "API References",
 
@@ -53,6 +55,7 @@ const en = {
   "common.warning": "Warning",
   "common.info": "Info",
   "common.reset": "Reset",
+  "common.context": "Context",
 
   // Header
   "header.login": "Login",
@@ -606,11 +609,13 @@ const zh: Record<MessageKey, string> = {
 
   // Navigation
   "nav.sessions": "智能体",
+  "nav.sessions.desc": "AI 聊天智能体与项目",
   "nav.automations": "自动化",
   "nav.scheduler": "计划任务",
   "nav.tasks": "任务",
   "nav.settings": "设置",
   "nav.recally": "忆读",
+  "nav.recally.desc": "阅读队列、订阅源与记忆",
   "nav.docs": "文档",
   "nav.apiReferences": "API 文档",
 
@@ -652,6 +657,7 @@ const zh: Record<MessageKey, string> = {
   "common.warning": "警告",
   "common.info": "信息",
   "common.reset": "重置",
+  "common.context": "空间",
 
   // Header
   "header.login": "登录",

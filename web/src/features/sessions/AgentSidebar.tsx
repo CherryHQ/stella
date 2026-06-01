@@ -15,9 +15,13 @@ import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
-import { AppSidebar, SectionLabel } from "@/components/AppSidebar";
+import {
+  SidebarContainer,
+  SidebarHeader,
+  SidebarFooter,
+  SectionLabel,
+} from "@/components/AppSidebar";
 import { Input } from "@/components/ui/input";
-import { useSidebar } from "@/components/ui/sidebar";
 import {
   Dialog,
   DialogPopup,
@@ -32,6 +36,7 @@ interface Props {
   agentId: string;
   pathname: string;
   onAgentChange: (id: string) => void;
+  className?: string;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -429,12 +434,11 @@ function NavItem({
 
 // ── main component ───────────────────────────────────────────────────────────
 
-export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props) {
+export function AgentSidebar({ agents, agentId, pathname, onAgentChange, className }: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { setOpenMobile } = useSidebar();
-  const closeMobile = useCallback(() => setOpenMobile(false), [setOpenMobile]);
+  const closeMobile = useCallback(() => {}, []);
 
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(false);
@@ -532,7 +536,9 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
   }, [sessionsQuery]);
 
   return (
-    <AppSidebar>
+    <SidebarContainer className={className}>
+      <SidebarHeader />
+
       {/* ── Agents ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 px-3">
         <SectionLabel>Agents</SectionLabel>
@@ -776,6 +782,7 @@ export function AgentSidebar({ agents, agentId, pathname, onAgentChange }: Props
           )}
         </section>
       </div>
-    </AppSidebar>
+      <SidebarFooter />
+    </SidebarContainer>
   );
 }

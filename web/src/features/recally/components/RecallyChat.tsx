@@ -1,0 +1,314 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useChat } from "@ai-sdk/react";
+import { MessageCircle, RotateCcw, Sparkles, Loader2, ArrowUp } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
+import { getSessionMessages, createSession } from "@/lib/api-client/sdk.gen";
+import { getArticleOptions } from "@/lib/api-client/@tanstack/react-query.gen";
+import { agentsQueryOptions } from "@/lib/queries/agents";
+import type { Message } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { Streamdown } from "streamdown";
+import {
+  createSessionTransport,
+  mergeToolResults,
+  messageToUIMessage,
+  uiMessageToMessage,
+} from "@/lib/chat-transport";
+
+interface Props {
+  articleId: string;
+  onClose?: () => void;
+}
+
+export function RecallyChat({ articleId, onClose }: Props) {
+  const { t } = useI18n();
+  const [userInput, setUserInput] = useState("");
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Fetch article for context
+  const articleQuery = useQuery({
+    ...getArticleOptions({
+      path: { id: articleId },
+      query: { include: "content" },
+    }),
+    enabled: !!articleId,
+  });
+  const article = articleQuery.data;
+
+  // 1. Fetch available agents to run the session
+  const { data: agents = [] } = useQuery(agentsQueryOptions);
+  const selectedAgent = useMemo(() => agents[0], [agents]);
+
+  // Load session from localStorage on mount or articleId change
+  useEffect(() => {
+    const cached = localStorage.getItem(`recally-session-${articleId}`);
+    if (cached) {
+      try {
+        const { sessionId, agentId } = JSON.parse(cached) as { sessionId: string; agentId: string };
+        setActiveSessionId(sessionId);
+        setActiveAgentId(agentId);
+      } catch {
+        localStorage.removeItem(`recally-session-${articleId}`);
+      }
+    } else {
+      setActiveSessionId(null);
+      setActiveAgentId(null);
+    }
+  }, [articleId]);
+
+  // Create session mutation
+  const createSessionMut = useMutation({
+    mutationFn: async () => {
+      if (!selectedAgent?.id) throw new Error("No agent selected");
+      setSessionLoading(true);
+      const { data } = await createSession({
+        path: { agentId: selectedAgent.id },
+        body: { kind: "chat" },
+        throwOnError: true,
+      });
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.id && data.agent_id) {
+        setActiveSessionId(data.id);
+        setActiveAgentId(data.agent_id);
+        localStorage.setItem(
+          `recally-session-${articleId}`,
+          JSON.stringify({ sessionId: data.id, agentId: data.agent_id }),
+        );
+      }
+    },
+    onSettled: () => {
+      setSessionLoading(false);
+    },
+  });
+
+  // 3. Auto-create session if it doesn't exist in cache
+  useEffect(() => {
+    if (
+      !activeSessionId &&
+      selectedAgent?.id &&
+      article &&
+      !createSessionMut.isPending &&
+      !sessionLoading
+    ) {
+      createSessionMut.mutate();
+    }
+  }, [activeSessionId, selectedAgent?.id, article, createSessionMut.isPending, sessionLoading]);
+
+  // Reset Session
+  const handleResetSession = useCallback(() => {
+    if (!selectedAgent?.id) return;
+    localStorage.removeItem(`recally-session-${articleId}`);
+    setActiveSessionId(null);
+    setActiveAgentId(null);
+    createSessionMut.mutate();
+  }, [selectedAgent?.id, articleId]);
+
+  // 4. Hook up Vercel AI SDK useChat
+  const transport = useMemo(() => {
+    if (!activeAgentId || !activeSessionId) return undefined;
+    return createSessionTransport(activeAgentId, activeSessionId);
+  }, [activeAgentId, activeSessionId]);
+
+  const {
+    messages: chatMessages,
+    sendMessage: chatSendMessage,
+    setMessages: setChatMessages,
+    status: chatStatus,
+  } = useChat({
+    id: activeSessionId ?? "recally-chat-empty",
+    transport,
+  });
+
+  const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+
+  // Fetch messages from backend for history
+  const { data: historicalMessages, isLoading: historyLoading } = useQuery({
+    queryKey: ["session-messages-history", activeAgentId, activeSessionId],
+    queryFn: async () => {
+      if (!activeAgentId || !activeSessionId) return [];
+      const { data } = await getSessionMessages({
+        path: { agentId: activeAgentId, sessionId: activeSessionId },
+        query: { limit: 50, skip: 0 },
+        throwOnError: true,
+      });
+      return (data?.messages as unknown as Message[]) ?? [];
+    },
+    enabled: !!activeAgentId && !!activeSessionId,
+  });
+
+  // Sync history to chat
+  useEffect(() => {
+    if (!historicalMessages) return;
+    const merged = mergeToolResults(historicalMessages).reverse();
+    const uiMessages = merged.map(messageToUIMessage);
+    setChatMessages(uiMessages);
+  }, [historicalMessages, setChatMessages]);
+
+  const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
+
+  // Auto-scroll to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Prepend article context to the first prompt
+  const sendMessage = useCallback(async () => {
+    if (!userInput.trim() || isStreaming || !activeSessionId || !article) return;
+
+    let finalPrompt = userInput.trim();
+    // If it's the first message, embed article context
+    if (messages.length === 0) {
+      finalPrompt = `[Context Article: "${article.title}" by ${article.author || "Unknown"}]\n\nSummary:\n${article.summary || "No summary available"}\n\nUser Question:\n${userInput.trim()}`;
+    }
+
+    setUserInput("");
+    void chatSendMessage({ text: finalPrompt });
+  }, [userInput, isStreaming, activeSessionId, messages.length, article]);
+
+  if (articleQuery.isLoading || sessionLoading || !article || !activeSessionId || historyLoading) {
+    return (
+      <div className="flex h-full w-[340px] flex-col border-l border-border bg-card/65 backdrop-blur-xl items-center justify-center gap-2 text-xs text-muted-foreground/60 font-mono">
+        <Loader2 className="size-4 animate-spin text-primary" />
+        <span>Resolving AI Session...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-[340px] flex-col border-l border-border bg-card/65 backdrop-blur-xl">
+      {/* Header */}
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="size-3.5 text-primary animate-pulse" />
+          <span className="text-xs font-semibold text-foreground">
+            {t("AI 边读边问" as any) || "AI Discussion"}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleResetSession}
+            disabled={isStreaming}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer disabled:opacity-50"
+            title="Reset Conversation"
+          >
+            <RotateCcw className="size-3.5" />
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+            >
+              <span className="text-xs font-bold font-mono">×</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Chat Messages */}
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center px-4 space-y-3">
+            <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+              <MessageCircle className="size-4.5" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-foreground/80">Discuss this article</p>
+              <p className="text-[10px] text-muted-foreground/50 mt-1 max-w-44 leading-normal">
+                Ask Stella questions, draft summaries, or translate terms in this article.
+              </p>
+            </div>
+          </div>
+        ) : (
+          messages.map((msg, idx) => {
+            const isUser = msg.role === "user";
+            // Strip out context headers from display if it was prepended
+            let text = msg.content ?? "";
+            if (idx === 0 && isUser && text.startsWith("[Context Article:")) {
+              const questionIdx = text.indexOf("User Question:\n");
+              if (questionIdx !== -1) {
+                text = text.substring(questionIdx + "User Question:\n".length);
+              }
+            }
+
+            return (
+              <div
+                key={idx}
+                className={cn("flex flex-col max-w-full", isUser ? "items-end" : "items-start")}
+              >
+                <div
+                  className={cn(
+                    "rounded-2xl px-3 py-2 text-xs leading-relaxed max-w-[90%] break-all shadow-2xs border",
+                    isUser
+                      ? "bg-primary/[0.04] text-foreground border-primary/10 rounded-tr-xs"
+                      : "bg-muted/10 text-foreground border-border/40 rounded-tl-xs",
+                  )}
+                >
+                  {isUser ? (
+                    <p className="whitespace-pre-wrap">{text}</p>
+                  ) : (
+                    <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground [&_pre]:bg-muted/40 [&_pre]:p-1.5 [&_code]:text-[10px]">
+                      <Streamdown>{text}</Streamdown>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        {isStreaming && (
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-primary/60 animate-pulse pl-1">
+            <Loader2 className="size-3 animate-spin text-primary" />
+            <span>Stella is typing…</span>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input Form */}
+      <div className="shrink-0 border-t border-border/60 bg-card/45 p-2.5">
+        <div className="relative flex items-center bg-muted/20 border border-border/50 rounded-xl px-2.5 py-1 focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/5 transition-all">
+          <textarea
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void sendMessage();
+              }
+            }}
+            placeholder="Ask follow up..."
+            className="flex-1 resize-none bg-transparent py-1.5 text-xs text-foreground focus:outline-none placeholder:text-muted-foreground/40 max-h-20 min-h-7 leading-relaxed font-sans"
+            rows={1}
+            disabled={isStreaming}
+          />
+          <button
+            type="button"
+            onClick={sendMessage}
+            disabled={!userInput.trim() || isStreaming}
+            className={cn(
+              "p-1.5 rounded-lg shrink-0 flex items-center justify-center transition-all cursor-pointer",
+              !userInput.trim() || isStreaming
+                ? "text-muted-foreground/35 cursor-not-allowed"
+                : "bg-primary text-primary-foreground hover:scale-105 active:scale-95",
+            )}
+          >
+            <ArrowUp className="size-3.5 stroke-[2.5]" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

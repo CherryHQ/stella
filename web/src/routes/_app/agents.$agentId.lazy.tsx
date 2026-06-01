@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   createLazyFileRoute,
   Outlet,
@@ -8,7 +9,8 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AgentSidebar } from "@/features/sessions/AgentSidebar";
 import { agentsQueryOptions } from "@/lib/queries/agents";
-import { Sidebar, SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
+import { AgentLayoutContext } from "@/features/sessions/AgentLayoutContext";
 
 export const Route = createLazyFileRoute("/_app/agents/$agentId")({
   component: AgentLayout,
@@ -19,9 +21,9 @@ function AgentLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const queryClient = useQueryClient();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const currentAgent = agents.find((a) => a.id === agentId);
 
   const handleAgentChange = (newAgentId: string) => {
     if (newAgentId === agentId) return;
@@ -30,28 +32,24 @@ function AgentLayout() {
   };
 
   return (
-    <SidebarProvider
-      className="h-full min-h-0"
-      style={{ "--sidebar-width": "260px" } as React.CSSProperties}
+    <AgentLayoutContext.Provider
+      value={{ sidebarOpen, toggleSidebar: () => setSidebarOpen((o) => !o) }}
     >
-      <Sidebar>
+      <div className="flex h-full min-h-0 overflow-hidden">
         <AgentSidebar
           agents={agents}
           agentId={agentId}
           pathname={pathname}
           onAgentChange={handleAgentChange}
+          className={cn(
+            "transition-[width,opacity] duration-200 ease-out",
+            sidebarOpen ? "w-[260px]" : "w-0 border-r-0 opacity-0 pointer-events-none",
+          )}
         />
-      </Sidebar>
-
-      <SidebarInset className="flex flex-col overflow-hidden">
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
-          <SidebarTrigger />
-          {currentAgent && <span className="text-sm font-semibold">{currentAgent.name}</span>}
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <Outlet />
         </div>
-      </SidebarInset>
-    </SidebarProvider>
+      </div>
+    </AgentLayoutContext.Provider>
   );
 }

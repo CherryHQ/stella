@@ -13,21 +13,77 @@ import {
   Share2,
   Link,
   Loader2,
+  MessageCircle,
+  Calendar,
 } from "lucide-react";
 import type { TFunction } from "../constants";
 import { getArticleOptions } from "@/lib/api-client/@tanstack/react-query.gen";
 import { createShare } from "@/lib/api-client/sdk.gen";
 import { formatSavedAt, SOURCE_LABEL_KEYS } from "../constants";
 import { StatusBadge } from "./StatusBadge";
+import { cn } from "@/lib/utils";
+
+interface ParsedMetadata {
+  title?: string;
+  url?: string;
+  publishedTime?: string;
+}
+
+function parseCrawledContent(content: string | null | undefined): {
+  metadata: ParsedMetadata | null;
+  body: string;
+} {
+  if (!content) return { metadata: null, body: "" };
+
+  const titleMatch = content.match(/^Title:\s*(.*?)$/m);
+  const urlMatch = content.match(/^URL Source:\s*(.*?)$/m);
+  const publishedMatch = content.match(/^Published Time:\s*(.*?)$/m);
+
+  const mdContentIndex = content.indexOf("Markdown Content:");
+  let body = content;
+  let parsedMetadata: ParsedMetadata | null = null;
+
+  if (mdContentIndex !== -1) {
+    const rawBody = content.slice(mdContentIndex + "Markdown Content:".length);
+    body = rawBody.replace(/^\s*\n?/, "");
+
+    parsedMetadata = {
+      title: titleMatch ? titleMatch[1].trim() : "",
+      url: urlMatch ? urlMatch[1].trim() : "",
+      publishedTime: publishedMatch ? publishedMatch[1].trim() : "",
+    };
+  } else if (titleMatch || urlMatch || publishedMatch) {
+    let cleanContent = content;
+    if (titleMatch) cleanContent = cleanContent.replace(titleMatch[0], "");
+    if (urlMatch) cleanContent = cleanContent.replace(urlMatch[0], "");
+    if (publishedMatch) cleanContent = cleanContent.replace(publishedMatch[0], "");
+    body = cleanContent.trim();
+
+    parsedMetadata = {
+      title: titleMatch ? titleMatch[1].trim() : "",
+      url: urlMatch ? urlMatch[1].trim() : "",
+      publishedTime: publishedMatch ? publishedMatch[1].trim() : "",
+    };
+  }
+
+  return {
+    metadata: parsedMetadata,
+    body: body,
+  };
+}
 
 export function RecallyReader({
   t,
   selectedId,
+  chatOpen,
+  onToggleChat,
   updateArticleMut,
   deleteArticleMut,
 }: {
   t: TFunction;
   selectedId: string | null;
+  chatOpen?: boolean;
+  onToggleChat?: () => void;
   updateArticleMut: {
     isPending: boolean;
     mutate: (args: { body: Record<string, unknown>; path: { id: string } }) => void;
@@ -74,6 +130,7 @@ export function RecallyReader({
   });
 
   const selectedArticle = articleQuery.data;
+  const parsed = parseCrawledContent(selectedArticle?.content);
 
   // Auto-mark unread articles as read when opened
   useEffect(() => {
@@ -88,36 +145,63 @@ export function RecallyReader({
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-background">
       {!selectedId ? (
-        <div className="flex h-full items-center justify-center px-8 text-center">
-          <div className="max-w-72">
-            <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
-              <BookOpen className="size-5" />
+        <div className="flex h-full items-center justify-center px-8 py-12 text-center bg-gradient-to-b from-card/30 to-card">
+          <div className="max-w-md w-full border border-border/50 rounded-2xl p-8 bg-card/45 backdrop-blur-md shadow-2xs">
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <BookOpen className="size-6 animate-pulse" />
             </div>
-            <p className="text-sm font-medium text-foreground">{t("recally.reader.empty")}</p>
+            <h3 className="text-base font-semibold text-foreground/90">
+              {t("recally.reader.empty")}
+            </h3>
+            <p className="text-xs text-muted-foreground/60 mt-1 max-w-72 mx-auto leading-relaxed">
+              Select an article or digest from the sidebar queue to start reading and chatting with
+              AI.
+            </p>
           </div>
         </div>
       ) : articleQuery.isLoading ? (
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          {t("common.loading")}
+        <div className="flex h-full items-center justify-center text-xs font-mono text-muted-foreground">
+          <Loader2 className="size-4 animate-spin text-primary/75 mr-2" />
+          <span>{t("common.loading")}</span>
         </div>
       ) : articleQuery.isError ? (
-        <div className="flex h-full items-center justify-center text-sm text-destructive">
+        <div className="flex h-full items-center justify-center text-xs font-mono text-destructive">
           {t("common.error")}
         </div>
       ) : selectedArticle ? (
-        <div className="mx-auto max-w-[760px] px-8 py-8">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
-            <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
+        <div className="mx-auto max-w-[760px] px-6 py-6 md:px-8 md:py-8">
+          {/* Header Toolbar */}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-4">
+            <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-muted-foreground">
               <StatusBadge status={selectedArticle.status} t={t} />
-              <span className="rounded-full border border-border bg-card px-2 py-0.5">
+              <span className="rounded bg-muted/40 border border-border/30 px-2 py-0.5">
                 {t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}
               </span>
-              <span className="rounded-full border border-border bg-card px-2 py-0.5">
+              <span className="rounded bg-muted/40 border border-border/30 px-2 py-0.5">
                 {formatSavedAt(selectedArticle.saved_at, t)}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-1">
-              {selectedArticle.status !== "read" && (
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* Chat Toggle */}
+              {onToggleChat && (
+                <button
+                  onClick={onToggleChat}
+                  className={cn(
+                    "inline-flex items-center justify-center p-2 rounded-lg border transition-all duration-200 cursor-pointer gap-1.5 text-xs font-medium",
+                    chatOpen
+                      ? "bg-primary/10 text-primary border-primary/25 shadow-2xs"
+                      : "bg-card border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                  )}
+                  title="Discuss with AI"
+                >
+                  <MessageCircle className="size-4" />
+                  <span className="hidden md:inline">Discuss</span>
+                </button>
+              )}
+
+              {/* Status Update Controls */}
+              {selectedArticle.status !== "read" ? (
                 <button
                   onClick={() =>
                     updateArticleMut.mutate({
@@ -126,13 +210,12 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  title={t("recally.action.markRead")}
                 >
-                  <Check className="size-3" />
-                  {t("recally.action.markRead")}
+                  <Check className="size-4" />
                 </button>
-              )}
-              {selectedArticle.status !== "unread" && (
+              ) : (
                 <button
                   onClick={() =>
                     updateArticleMut.mutate({
@@ -141,12 +224,13 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  title={t("recally.action.markUnread")}
                 >
-                  <EyeOff className="size-3" />
-                  {t("recally.action.markUnread")}
+                  <EyeOff className="size-4" />
                 </button>
               )}
+
               {selectedArticle.status !== "archived" && (
                 <button
                   onClick={() =>
@@ -156,12 +240,14 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  title={t("recally.action.archive")}
                 >
-                  <Archive className="size-3" />
-                  {t("recally.action.archive")}
+                  <Archive className="size-4" />
                 </button>
               )}
+
+              {/* Star */}
               <button
                 onClick={() =>
                   updateArticleMut.mutate({
@@ -170,41 +256,49 @@ export function RecallyReader({
                   })
                 }
                 disabled={updateArticleMut.isPending}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                title={
+                  selectedArticle.starred ? t("recally.action.unstar") : t("recally.action.star")
+                }
               >
                 <Star
-                  className={`size-3 ${selectedArticle.starred ? "fill-amber-500 text-amber-500" : ""}`}
+                  className={cn(
+                    "size-4",
+                    selectedArticle.starred ? "fill-amber-500 text-amber-500" : "",
+                  )}
                 />
-                {selectedArticle.starred ? t("recally.action.unstar") : t("recally.action.star")}
               </button>
+
+              {/* Share / Copy Link */}
               {shareUrl ? (
                 <button
                   onClick={() => navigator.clipboard?.writeText(shareUrl)}
-                  className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/20"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border border-primary/20 bg-primary/10 transition-colors text-primary hover:bg-primary/20 cursor-pointer"
+                  title="Copy share link"
                 >
-                  <Link className="size-3" />
-                  {t("recally.action.copyLink")}
+                  <Link className="size-4" />
                 </button>
               ) : (
                 <button
                   onClick={() => createArticleShare(selectedArticle.id)}
                   disabled={sharing}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  title={t("recally.action.share")}
                 >
                   {sharing ? (
-                    <Loader2 className="size-3 animate-spin" />
+                    <Loader2 className="size-4 animate-spin" />
                   ) : (
-                    <Share2 className="size-3" />
+                    <Share2 className="size-4" />
                   )}
-                  {t("recally.action.share")}
                 </button>
               )}
+
               {shareError && <span className="text-xs text-destructive">{shareError}</span>}
+
+              {/* Delete / Destructive actions */}
               {confirmingDeleteId === selectedArticle.id ? (
-                <div className="flex items-center gap-1">
-                  <span className="text-xs font-medium text-destructive">
-                    {t("recally.deleteConfirm")}
-                  </span>
+                <div className="flex items-center gap-1 bg-destructive/5 border border-destructive/20 rounded-lg p-1">
+                  <span className="text-[10px] font-medium text-destructive px-1.5">Confirm?</span>
                   <button
                     onClick={() =>
                       deleteArticleMut.mutate({
@@ -212,13 +306,13 @@ export function RecallyReader({
                       })
                     }
                     disabled={deleteArticleMut.isPending}
-                    className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                    className="rounded bg-destructive/10 border border-destructive/20 px-2 py-0.5 text-[10px] text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50 cursor-pointer"
                   >
                     {t("common.yes")}
                   </button>
                   <button
                     onClick={() => setConfirmingDeleteId(null)}
-                    className="rounded-md border border-border bg-card px-2 py-1 text-xs transition-colors hover:bg-accent"
+                    className="rounded border border-border bg-card px-2 py-0.5 text-[10px] transition-colors hover:bg-accent cursor-pointer"
                   >
                     {t("common.no")}
                   </button>
@@ -227,53 +321,109 @@ export function RecallyReader({
                 <button
                   onClick={() => setConfirmingDeleteId(selectedArticle.id)}
                   disabled={deleteArticleMut.isPending}
-                  className="inline-flex items-center gap-1 rounded-md border border-destructive/30 px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 cursor-pointer"
+                  title={t("common.delete")}
                 >
-                  <Trash2 className="size-3" />
-                  {t("common.delete")}
+                  <Trash2 className="size-4" />
                 </button>
               )}
             </div>
           </div>
+
           <article className="w-full">
-            <h2 className="mb-2 text-2xl font-semibold leading-tight tracking-tight text-foreground">
+            <h2 className="mb-2 text-2xl font-bold leading-tight tracking-tight text-foreground/90">
               {selectedArticle.title}
             </h2>
             {selectedArticle.author && (
-              <p className="mb-3 font-mono text-xs text-muted-foreground">
+              <p className="mb-4 font-mono text-xs text-muted-foreground/70">
                 {selectedArticle.author}
               </p>
             )}
+
+            {/* Gorgeous Metadata Card */}
+            {parsed.metadata && (parsed.metadata.url || parsed.metadata.publishedTime) && (
+              <div className="mb-5 rounded-[18px] border border-border/40 bg-muted/20 p-4.5 text-xs text-muted-foreground/90 font-mono space-y-3.5 shadow-2xs">
+                {parsed.metadata.url && (
+                  <div className="flex items-start gap-2.5">
+                    <Link className="size-4 text-primary/75 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground/50 block tracking-wider leading-none mb-1">
+                        Source URL
+                      </span>
+                      <a
+                        href={parsed.metadata.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate text-[11px] text-foreground/80 hover:text-primary transition-colors hover:underline block leading-tight"
+                      >
+                        {parsed.metadata.url}
+                      </a>
+                    </div>
+                  </div>
+                )}
+                {parsed.metadata.publishedTime && (
+                  <div className="flex items-start gap-2.5">
+                    <Calendar className="size-4 text-primary/75 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground/50 block tracking-wider leading-none mb-1">
+                        Published Time
+                      </span>
+                      <span className="text-[11px] text-foreground/80 block leading-tight">
+                        {parsed.metadata.publishedTime}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* AI Summary card */}
             {selectedArticle.summary && (
-              <div className="mb-5 rounded-xl border border-border bg-card/70 p-4">
+              <div className="mb-6 rounded-[18px] border border-primary/15 bg-primary/[0.02] backdrop-blur-md p-4.5 shadow-2xs">
                 <button
                   type="button"
                   onClick={() => setSummaryExpanded(!summaryExpanded)}
-                  className="flex w-full items-center gap-1.5"
+                  className="flex w-full items-center gap-1.5 focus:outline-none"
                 >
-                  <Sparkles className="size-3.5 text-primary" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+                  <Sparkles className="size-4 text-primary animate-pulse" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
                     {t("recally.summary.label")}
                   </span>
                   <ChevronDown
-                    className={`ml-auto size-3 text-muted-foreground transition-transform ${summaryExpanded ? "rotate-180" : ""}`}
+                    className={cn(
+                      "ml-auto size-3.5 text-primary/75 transition-transform duration-200",
+                      summaryExpanded && "rotate-180",
+                    )}
                   />
                 </button>
                 {summaryExpanded && (
-                  <div className="prose prose-sm mt-1.5 max-w-none text-foreground prose-headings:text-foreground prose-a:text-primary">
+                  <div className="prose prose-sm mt-2 max-w-none text-foreground/90 leading-relaxed prose-headings:text-foreground prose-a:text-primary">
                     <Streamdown>{selectedArticle.summary}</Streamdown>
                   </div>
                 )}
               </div>
             )}
-            {selectedArticle.content ? (
-              <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-a:text-primary">
-                <Streamdown>{selectedArticle.content}</Streamdown>
+
+            {/* Content Body */}
+            {parsed.body ? (
+              <div className="prose prose-neutral dark:prose-invert prose-sm md:prose-base max-w-none text-foreground/90 leading-relaxed md:leading-loose prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline">
+                <Streamdown>{parsed.body}</Streamdown>
               </div>
             ) : (
-              <p className="text-sm italic text-muted-foreground">
-                {t("recally.reader.noContent")}
-              </p>
+              <div className="rounded-[18px] border border-border/50 bg-muted/10 p-6 text-center space-y-3">
+                <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">
+                  <BookOpen className="size-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground/80">
+                    No article content parsed
+                  </h4>
+                  <p className="text-xs text-muted-foreground/60 max-w-96 mx-auto mt-1 leading-normal">
+                    This item has no body text. It could be a simple link, or require JavaScript to
+                    render. You can read the summary or visit the original webpage.
+                  </p>
+                </div>
+              </div>
             )}
           </article>
         </div>
