@@ -13,6 +13,7 @@ import {
   Tag,
 } from "lucide-react";
 import { SidebarHeader, SidebarFooter } from "@/components/AppSidebar";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import type {
   Article,
   ArticleStatus,
@@ -220,35 +221,239 @@ export function RecallyArticleList({
       {/* Source Selector + Search + Filters Toolbar */}
       <div className="shrink-0 border-b border-border bg-card/65 px-3 py-2 backdrop-blur-xl">
         <div className="flex items-center gap-2">
-          {/* Active Source Dropdown Trigger */}
-          <button
-            onClick={() => setExplorerOpen(!explorerOpen)}
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer text-xs font-semibold shadow-2xs select-none",
-              explorerOpen
-                ? "bg-primary/5 text-primary border-primary/20"
-                : "bg-muted/30 border-border/40 hover:bg-muted/50 hover:border-border/80 text-foreground",
-            )}
-          >
-            <ActiveSourceIcon
+          <Popover open={explorerOpen} onOpenChange={setExplorerOpen}>
+            <PopoverTrigger
               className={cn(
-                "size-3.5",
-                explorerOpen ? "text-primary animate-pulse" : "text-muted-foreground",
+                "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer text-xs font-semibold shadow-2xs select-none outline-none",
+                explorerOpen
+                  ? "bg-primary/5 text-primary border-primary/20"
+                  : "bg-muted/30 border-border/40 hover:bg-muted/50 hover:border-border/80 text-foreground",
               )}
-            />
-            <span className="truncate max-w-[120px] font-mono tracking-tight">
-              {activeSourceName}
-            </span>
-            <span className="font-mono text-[9px] px-1 py-0.5 rounded-md bg-muted/65 text-muted-foreground/90 font-medium scale-90">
-              {activeSourceCount}
-            </span>
-            <ChevronDown
-              className={cn(
-                "size-3 text-muted-foreground/60 transition-transform duration-200 ml-0.5",
-                explorerOpen && "rotate-180 text-primary",
-              )}
-            />
-          </button>
+            >
+              <ActiveSourceIcon
+                className={cn(
+                  "size-3.5",
+                  explorerOpen ? "text-primary animate-pulse" : "text-muted-foreground",
+                )}
+              />
+              <span className="truncate max-w-[120px] font-mono tracking-tight">
+                {activeSourceName}
+              </span>
+              <span className="font-mono text-[9px] px-1 py-0.5 rounded-md bg-muted/65 text-muted-foreground/90 font-medium scale-90">
+                {activeSourceCount}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-3 text-muted-foreground/60 transition-transform duration-200 ml-0.5",
+                  explorerOpen && "rotate-180 text-primary",
+                )}
+              />
+            </PopoverTrigger>
+
+            <PopoverContent
+              align="start"
+              sideOffset={8}
+              className="w-[560px] p-4 bg-popover/95 border border-border rounded-xl shadow-lg backdrop-blur-md"
+            >
+              <div className="grid grid-cols-3 divide-x divide-border/30 gap-4">
+                {/* Library / Folders */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
+                    {t("recally.section.library")}
+                  </div>
+                  <div className="space-y-1">
+                    <button
+                      onClick={selectInbox}
+                      className={cn(
+                        "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
+                        !digestView &&
+                          statusFilter === null &&
+                          starredFilter === null &&
+                          tagFilter === null
+                          ? "bg-primary/10 text-primary font-semibold"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Inbox className="size-3.5" />
+                        <span>{t("recally.nav.inbox")}</span>
+                      </div>
+                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                        {digest?.total_articles ?? 0}
+                      </span>
+                    </button>
+                    <button
+                      onClick={selectStarred}
+                      className={cn(
+                        "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
+                        !digestView && starredFilter === true && tagFilter === null
+                          ? "bg-primary/10 text-primary font-semibold"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Star className="size-3.5" />
+                        <span>{t("recally.nav.starred")}</span>
+                      </div>
+                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                        {digest?.starred_count ?? 0}
+                      </span>
+                    </button>
+                    <button
+                      onClick={selectArchive}
+                      className={cn(
+                        "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
+                        !digestView && statusFilter === "archived" && tagFilter === null
+                          ? "bg-primary/10 text-primary font-semibold"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Archive className="size-3.5" />
+                        <span>{t("recally.nav.archive")}</span>
+                      </div>
+                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                        {digest?.archived_count ?? 0}
+                      </span>
+                    </button>
+                    <button
+                      onClick={selectDigest}
+                      className={cn(
+                        "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
+                        digestView
+                          ? "bg-primary/10 text-primary font-semibold"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <History className="size-3.5" />
+                        <span>{t("recally.nav.digest")}</span>
+                      </div>
+                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                        {digest?.saved_yesterday_count ?? 0}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Subscriptions */}
+                <div className="space-y-2 px-4 flex flex-col min-h-0">
+                  <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
+                    {t("recally.section.feeds")}
+                  </div>
+                  <div className="flex items-center gap-1.5 px-1">
+                    <input
+                      type="text"
+                      value={feedUrl}
+                      onChange={(e) => setFeedUrl(e.target.value)}
+                      placeholder={t("recally.feeds.addFeedPlaceholder")}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && feedUrl.trim()) {
+                          createFeedMut.mutate({ body: { url: feedUrl.trim() } });
+                        }
+                      }}
+                      className="h-7 flex-1 rounded-lg bg-muted/30 border border-border/40 px-2.5 text-[10px] font-mono placeholder:text-muted-foreground/45 hover:border-border/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/10 focus:outline-none transition-all duration-150 text-foreground"
+                    />
+                    <button
+                      onClick={() => {
+                        if (feedUrl.trim()) {
+                          createFeedMut.mutate({ body: { url: feedUrl.trim() } });
+                        }
+                      }}
+                      disabled={createFeedMut.isPending || !feedUrl.trim()}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/30 border border-border/40 hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {createFeedMut.isPending ? (
+                        <RefreshCw className="size-3 animate-spin text-muted-foreground" />
+                      ) : (
+                        <Plus className="size-3 text-muted-foreground" />
+                      )}
+                    </button>
+                  </div>
+                  {feeds.length > 0 ? (
+                    <div className="flex-1 max-h-36 overflow-y-auto space-y-1 pr-1 border border-border/15 rounded-lg p-1.5 bg-card/35 scrollbar-thin mt-1">
+                      {feeds.map((feed: Feed) => (
+                        <div
+                          key={feed.id}
+                          className="flex items-center justify-between gap-1.5 py-0.5 border-b border-border/10 last:border-0"
+                        >
+                          <span
+                            className="truncate text-[10px] text-foreground/80 font-medium"
+                            title={feed.title || feed.url}
+                          >
+                            {feed.title || feed.url}
+                          </span>
+                          <button
+                            onClick={() => pollFeedMut.mutate({ path: { id: feed.id } })}
+                            disabled={pollFeedMut.isPending}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/30 border border-border/30 px-1 py-0.5 font-mono text-[8px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+                          >
+                            {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
+                              <RefreshCw className="size-2.5 animate-spin" />
+                            ) : feedPollResults[feed.id]?.error ? (
+                              <span className="text-destructive font-semibold">Err</span>
+                            ) : feedPollResults[feed.id] ? (
+                              <span className="text-primary font-semibold">
+                                +{feedPollResults[feed.id].newCount}
+                              </span>
+                            ) : (
+                              <>
+                                <RefreshCw className="size-2.5" />
+                                <span>Poll</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] font-mono text-muted-foreground/45 text-center py-4">
+                      {t("recally.feeds.noFeedsDesc")}
+                    </div>
+                  )}
+                </div>
+
+                {/* Tags */}
+                <div className="space-y-2 pl-4">
+                  <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
+                    {t("recally.section.tags")}
+                  </div>
+                  {sortedTags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 max-h-[180px] overflow-y-auto pr-1">
+                      {visibleTags.map((tag) => (
+                        <button
+                          key={tag}
+                          onClick={() => handleTagClick(tag)}
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-mono border transition-all cursor-pointer whitespace-nowrap",
+                            tagFilter === tag
+                              ? "bg-primary/10 text-primary border-primary/20 font-semibold"
+                              : "bg-muted/40 border-border/20 text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {tag} ({tagCounts[tag]})
+                        </button>
+                      ))}
+                      {hasMoreTags && (
+                        <button
+                          onClick={() => setShowAllTags(!showAllTags)}
+                          className="rounded-full bg-muted/40 border border-border/20 px-2 py-0.5 text-[10px] font-mono text-muted-foreground transition-all hover:text-foreground cursor-pointer"
+                        >
+                          {showAllTags
+                            ? t("recally.tags.less")
+                            : t("recally.tags.more", { count: sortedTags.length - 10 })}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] font-mono text-muted-foreground/45 text-center py-4">
+                      No tags
+                    </div>
+                  )}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {/* Search box */}
           {!digestView && (
@@ -286,209 +491,6 @@ export function RecallyArticleList({
           )}
         </div>
       </div>
-
-      {/* Sources Explorer Panel (Collapsible Drawer) */}
-      {explorerOpen && (
-        <div className="shrink-0 border-b border-border/40 bg-card/85 backdrop-blur-xl shadow-inner max-h-[300px] overflow-y-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border/25 p-4 gap-4">
-            {/* Library / Folders */}
-            <div className="space-y-2 pb-3 md:pb-0">
-              <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
-                {t("recally.section.library")}
-              </div>
-              <div className="space-y-1">
-                <button
-                  onClick={selectInbox}
-                  className={cn(
-                    "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
-                    !digestView &&
-                      statusFilter === null &&
-                      starredFilter === null &&
-                      tagFilter === null
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <Inbox className="size-3.5" />
-                    <span>{t("recally.nav.inbox")}</span>
-                  </div>
-                  <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
-                    {digest?.total_articles ?? 0}
-                  </span>
-                </button>
-                <button
-                  onClick={selectStarred}
-                  className={cn(
-                    "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
-                    !digestView && starredFilter === true && tagFilter === null
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <Star className="size-3.5" />
-                    <span>{t("recally.nav.starred")}</span>
-                  </div>
-                  <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
-                    {digest?.starred_count ?? 0}
-                  </span>
-                </button>
-                <button
-                  onClick={selectArchive}
-                  className={cn(
-                    "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
-                    !digestView && statusFilter === "archived" && tagFilter === null
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <Archive className="size-3.5" />
-                    <span>{t("recally.nav.archive")}</span>
-                  </div>
-                  <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
-                    {digest?.archived_count ?? 0}
-                  </span>
-                </button>
-                <button
-                  onClick={selectDigest}
-                  className={cn(
-                    "flex items-center justify-between w-full px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer font-medium",
-                    digestView
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <History className="size-3.5" />
-                    <span>{t("recally.nav.digest")}</span>
-                  </div>
-                  <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
-                    {digest?.saved_yesterday_count ?? 0}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {/* Subscriptions */}
-            <div className="space-y-2 py-3 md:py-0 md:px-4 flex flex-col min-h-0">
-              <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
-                {t("recally.section.feeds")}
-              </div>
-              <div className="flex items-center gap-1.5 px-1">
-                <input
-                  type="text"
-                  value={feedUrl}
-                  onChange={(e) => setFeedUrl(e.target.value)}
-                  placeholder={t("recally.feeds.addFeedPlaceholder")}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && feedUrl.trim()) {
-                      createFeedMut.mutate({ body: { url: feedUrl.trim() } });
-                    }
-                  }}
-                  className="h-7 flex-1 rounded-lg bg-muted/30 border border-border/40 px-2.5 text-[10px] font-mono placeholder:text-muted-foreground/45 hover:border-border/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/10 focus:outline-none transition-all duration-150 text-foreground"
-                />
-                <button
-                  onClick={() => {
-                    if (feedUrl.trim()) {
-                      createFeedMut.mutate({ body: { url: feedUrl.trim() } });
-                    }
-                  }}
-                  disabled={createFeedMut.isPending || !feedUrl.trim()}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/30 border border-border/40 hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  {createFeedMut.isPending ? (
-                    <RefreshCw className="size-3 animate-spin text-muted-foreground" />
-                  ) : (
-                    <Plus className="size-3 text-muted-foreground" />
-                  )}
-                </button>
-              </div>
-              {feeds.length > 0 ? (
-                <div className="flex-1 max-h-36 overflow-y-auto space-y-1 pr-1 border border-border/15 rounded-lg p-1.5 bg-card/35 scrollbar-thin mt-1">
-                  {feeds.map((feed: Feed) => (
-                    <div
-                      key={feed.id}
-                      className="flex items-center justify-between gap-1.5 py-0.5 border-b border-border/10 last:border-0"
-                    >
-                      <span
-                        className="truncate text-[10px] text-foreground/80 font-medium"
-                        title={feed.title || feed.url}
-                      >
-                        {feed.title || feed.url}
-                      </span>
-                      <button
-                        onClick={() => pollFeedMut.mutate({ path: { id: feed.id } })}
-                        disabled={pollFeedMut.isPending}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/30 border border-border/30 px-1 py-0.5 font-mono text-[8px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
-                          <RefreshCw className="size-2.5 animate-spin" />
-                        ) : feedPollResults[feed.id]?.error ? (
-                          <span className="text-destructive font-semibold">Err</span>
-                        ) : feedPollResults[feed.id] ? (
-                          <span className="text-primary font-semibold">
-                            +{feedPollResults[feed.id].newCount}
-                          </span>
-                        ) : (
-                          <>
-                            <RefreshCw className="size-2.5" />
-                            <span>Poll</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-[10px] font-mono text-muted-foreground/45 text-center py-4">
-                  {t("recally.feeds.noFeedsDesc")}
-                </div>
-              )}
-            </div>
-
-            {/* Tags */}
-            <div className="space-y-2 pt-3 md:pt-0 md:pl-4">
-              <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
-                {t("recally.section.tags")}
-              </div>
-              {sortedTags.length > 0 ? (
-                <div className="flex flex-wrap gap-1 max-h-[140px] overflow-y-auto pr-1">
-                  {visibleTags.map((tag) => (
-                    <button
-                      key={tag}
-                      onClick={() => handleTagClick(tag)}
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-mono border transition-all cursor-pointer",
-                        tagFilter === tag
-                          ? "bg-primary/10 text-primary border-primary/20 font-semibold"
-                          : "bg-muted/40 border-border/20 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {tag} ({tagCounts[tag]})
-                    </button>
-                  ))}
-                  {hasMoreTags && (
-                    <button
-                      onClick={() => setShowAllTags(!showAllTags)}
-                      className="rounded-full bg-muted/40 border border-border/20 px-2 py-0.5 text-[10px] font-mono text-muted-foreground transition-all hover:text-foreground cursor-pointer"
-                    >
-                      {showAllTags
-                        ? t("recally.tags.less")
-                        : t("recally.tags.more", { count: sortedTags.length - 10 })}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="text-[10px] font-mono text-muted-foreground/45 text-center py-4">
-                  No tags
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Inline Quick Refinements Toolbar */}
       {refinementsOpen && !digestView && (
