@@ -60,6 +60,7 @@ export function SessionDetail({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
+  const shouldAutoScrollRef = useRef(true);
 
   const sessionId = session?.id ?? "";
   const agentId = session?.agent_id ?? "";
@@ -123,17 +124,30 @@ export function SessionDetail({
     }
     sessionIDRef.current = session.id;
     initialScrollSessionRef.current = null;
+    shouldAutoScrollRef.current = true;
   }, [session?.id]);
 
   useEffect(() => {
     if (!session || !messagesQuery.isSuccess || initialScrollSessionRef.current === session.id)
       return;
     initialScrollSessionRef.current = session.id;
+    shouldAutoScrollRef.current = true;
     setTimeout(() => {
       if (transcriptRef.current)
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }, 0);
   }, [session, messagesQuery.isSuccess]);
+
+  // Auto-scroll to bottom as new messages stream in (if the user is already near the bottom)
+  useEffect(() => {
+    if (!transcriptRef.current) return;
+    const el = transcriptRef.current;
+    if (shouldAutoScrollRef.current) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [messages]);
 
   const loadOlderMessages = useCallback(async () => {
     if (
@@ -154,6 +168,11 @@ export function SessionDetail({
 
   const handleTranscriptScroll = useCallback(() => {
     void loadOlderMessages();
+    if (transcriptRef.current) {
+      const el = transcriptRef.current;
+      const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+      shouldAutoScrollRef.current = isAtBottom;
+    }
   }, [loadOlderMessages]);
 
   const handleFileSelect = useCallback(
@@ -199,6 +218,7 @@ export function SessionDetail({
 
     setUserInput("");
     setAttachments([]);
+    shouldAutoScrollRef.current = true;
     setTimeout(() => {
       if (transcriptRef.current)
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
