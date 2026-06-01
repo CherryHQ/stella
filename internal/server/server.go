@@ -93,10 +93,10 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		q:           sqlc.New(db),
 		mux:         http.NewServeMux(),
 		log:         log,
-		baseURL:   defaultBaseURL,
-		credSvc:   credSvc,
-		recally:   newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome()), log),
-		startedAt: time.Now(),
+		baseURL:     defaultBaseURL,
+		credSvc:     credSvc,
+		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome()), log),
+		startedAt:   time.Now(),
 	}
 
 	s.registerRoutes()
