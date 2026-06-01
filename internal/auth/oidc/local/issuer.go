@@ -15,6 +15,7 @@ import (
 	"html/template"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -409,24 +410,26 @@ func (is *Issuer) renderRegisterForm(w http.ResponseWriter, params *authorizePar
 }
 
 func buildAuthorizeAction(p *authorizeParams, mode string) string {
-	q := "?client_id=" + p.clientID +
-		"&redirect_uri=" + p.redirectURI +
-		"&response_type=code" +
-		"&scope=" + strings.Join(p.scopes, "+")
+	q := url.Values{
+		"client_id":     {p.clientID},
+		"redirect_uri":  {p.redirectURI},
+		"response_type": {"code"},
+		"scope":         {strings.Join(p.scopes, " ")},
+	}
 	if p.state != "" {
-		q += "&state=" + p.state
+		q.Set("state", p.state)
 	}
 	if p.nonce != "" {
-		q += "&nonce=" + p.nonce
+		q.Set("nonce", p.nonce)
 	}
 	if p.pkceChallenge != "" {
-		q += "&code_challenge=" + p.pkceChallenge +
-			"&code_challenge_method=" + p.pkceChallengeMethod
+		q.Set("code_challenge", p.pkceChallenge)
+		q.Set("code_challenge_method", p.pkceChallengeMethod)
 	}
 	if mode != "" {
-		q += "&mode=" + mode
+		q.Set("mode", mode)
 	}
-	return "authorize" + q
+	return "authorize?" + q.Encode()
 }
 
 // HandleToken serves POST /token.

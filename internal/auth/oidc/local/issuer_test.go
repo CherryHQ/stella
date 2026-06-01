@@ -336,6 +336,43 @@ func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
 	}
 }
 
+func TestAuthorizeLoginFormURLsAreEscaped(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	cfg.RedirectURIs = []string{"https://stella.cherry-ai.com/auth/callback/local"}
+	issuer := local.NewIssuer(cfg,
+		newFakeCodeStore(), newFakeTokenStore(),
+		newFakeUserStore(),
+		newFakeCredStore(), nil, nil)
+
+	q := url.Values{
+		"client_id":             {cfg.ClientID},
+		"redirect_uri":          {cfg.RedirectURIs[0]},
+		"response_type":         {"code"},
+		"scope":                 {"openid email profile"},
+		"state":                 {"state-with-safe-chars"},
+		"code_challenge":        {"QV-Zas6OPNdkq7Cfo9FWNBNTW40jy1_aVcJiR1hbGNY"},
+		"code_challenge_method": {"S256"},
+	}
+	r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
+	w := httptest.NewRecorder()
+	issuer.HandleAuthorize(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "ZgotmplZ") {
+		t.Fatalf("response contains unsafe template fallback: %s", body)
+	}
+	if !strings.Contains(body, "redirect_uri=https%3A%2F%2Fstella.cherry-ai.com%2Fauth%2Fcallback%2Flocal") {
+		t.Fatalf("response does not contain escaped redirect_uri: %s", body)
+	}
+	if !strings.Contains(body, "mode=register") {
+		t.Fatalf("response does not contain register mode link: %s", body)
+	}
+}
+
 func TestAuthorizePostIssuesCode(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
