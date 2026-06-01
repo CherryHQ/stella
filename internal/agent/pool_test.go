@@ -13,7 +13,6 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
-	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -178,51 +177,6 @@ func mockRunnerFactory(events []Event) (NewRunnerFunc, *[]*mockRunner) {
 		return r, nil
 	}
 	return factory, &runners
-}
-
-func TestRunDelegateSessionCreatesPersistentSession(t *testing.T) {
-	factory, _ := mockRunnerFactory([]Event{{Text: "delegate output"}})
-	mem := testMemoryProvider(t)
-	pool := newTestPool(factory, mem, WithAgentID("test-agent"))
-
-	result, err := pool.RunDelegateSession(testSessionContext(), delegatetool.SessionRunRequest{Task: "inspect this", Model: "fast"})
-	if err != nil {
-		t.Fatalf("RunDelegateSession: %v", err)
-	}
-	if result.SessionID == "" {
-		t.Fatal("expected generated session ID")
-	}
-	if result.Output != "delegate output" || !result.Complete {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-
-	sm := mem.(memory.SessionManager)
-	info, err := sm.LoadInfo(testSessionContext(), result.SessionID)
-	if err != nil {
-		t.Fatalf("LoadInfo: %v", err)
-	}
-	if info.Kind != "delegate" || info.Channel != delegateSessionChannel {
-		t.Fatalf("unexpected delegate session info: %+v", info)
-	}
-	if history := pool.History(testSessionContext(), result.SessionID); len(history) < 2 {
-		t.Fatalf("expected persisted user and assistant messages, got %d", len(history))
-	}
-}
-
-func TestRunDelegateSessionResumesProvidedSession(t *testing.T) {
-	factory, _ := mockRunnerFactory([]Event{{Text: "continued"}})
-	pool := newTestPool(factory, testMemoryProvider(t), WithAgentID("test-agent"))
-
-	result, err := pool.RunDelegateSession(testSessionContext(), delegatetool.SessionRunRequest{SessionID: "known-delegate", Task: "continue"})
-	if err != nil {
-		t.Fatalf("RunDelegateSession: %v", err)
-	}
-	if result.SessionID != "known-delegate" {
-		t.Fatalf("SessionID = %q, want known-delegate", result.SessionID)
-	}
-	if _, err := pool.GetSession("known-delegate", "test-user"); err != nil {
-		t.Fatalf("expected session to be persisted: %v", err)
-	}
 }
 
 func TestNewPool(t *testing.T) {

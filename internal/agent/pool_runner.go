@@ -93,7 +93,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		effectiveModel = defaultModel
 	}
 
-	r, err := factory(ctx, RunnerParams{Model: effectiveModel, Memory: p.mem, UserID: sess.Info.UserID, SessionID: sessionID, AgentID: sess.Info.AgentID, ProjectID: sess.Info.ProjectID, HooksFn: hooksFn, DelegateRunner: p})
+	r, err := factory(ctx, RunnerParams{Model: effectiveModel, Memory: p.mem, UserID: sess.Info.UserID, SessionID: sessionID, AgentID: sess.Info.AgentID, ProjectID: sess.Info.ProjectID, HooksFn: hooksFn})
 	if err != nil {
 		return nil, nil, err
 	}
