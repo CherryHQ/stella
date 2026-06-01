@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
@@ -21,6 +23,7 @@ type Runtime struct {
 	log       *slog.Logger
 	compact   CompactionConfig
 	beforeRun BeforeRunFunc
+	active    sync.Map // session ID → struct{}, tracks in-flight turns
 }
 
 // CompactionConfig controls automatic compaction thresholds.
@@ -166,16 +169,32 @@ func (rt *Runtime) Memory() memory.Provider {
 	return rt.mem
 }
 
+// ErrSessionBusy is returned when a session already has an active chat turn.
+var ErrSessionBusy = agenterr.ErrSessionBusy
+
 // Chat executes a user message inside the given session and streams events back.
 // info must have been obtained from session.Registry — this method does not
 // create or repair session metadata.
+//
+// Only one active turn per session is allowed. A second concurrent Chat on the
+// same session returns ErrSessionBusy immediately.
 func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) <-chan Event {
 	out := make(chan Event, 100)
+
+	if _, loaded := rt.active.LoadOrStore(info.ID, struct{}{}); loaded {
+		out <- Event{Err: fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)}
+		close(out)
+		return out
+	}
+
 	var co chatOptions
 	for _, o := range opts {
 		o(&co)
 	}
 	ctx = memory.WithSessionID(ctx, info.ID)
-	go rt.chat(ctx, out, info, msg, co)
+	go func() {
+		defer rt.active.Delete(info.ID)
+		rt.chat(ctx, out, info, msg, co)
+	}()
 	return out
 }

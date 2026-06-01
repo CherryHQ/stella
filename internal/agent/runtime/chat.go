@@ -145,7 +145,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	}
 
 	stream := r.Chat(ctx, history, userMsg)
-	go rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart)
+	rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart)
 }
 
 func (rt *Runtime) hookPlugins() []hooks.HookPlugin {
