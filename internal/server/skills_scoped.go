@@ -49,7 +49,8 @@ func (s *Server) requireAgentAccess(ctx context.Context, agentID string) (config
 		if errors.Is(err, sql.ErrNoRows) {
 			return config.Agent{}, http.StatusNotFound, "agent not found"
 		}
-		return config.Agent{}, http.StatusInternalServerError, err.Error()
+		s.log.Error("get agent", "agent_id", agentID, "error", err)
+		return config.Agent{}, http.StatusInternalServerError, "internal error"
 	}
 	if !info.IsAdmin && !s.canAccessAgent(ctx, info, a) {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
@@ -80,7 +81,8 @@ func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, http.StatusNotFound, "skill not found"
 		}
-		return nil, http.StatusInternalServerError, err.Error()
+		s.log.Error("find skill", "skill_id", id, "error", err)
+		return nil, http.StatusInternalServerError, "internal error"
 	}
 	if sk.Scope != scope {
 		return nil, http.StatusNotFound, "skill not found"
@@ -213,7 +215,8 @@ func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string,
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().Resolve(ctx, skillName, vc, projectRoot)
 	if err != nil {
-		return nil, "", http.StatusInternalServerError, err.Error()
+		s.log.Error("resolve skill", "agent_id", agentID, "skill", skillName, "error", err)
+		return nil, "", http.StatusInternalServerError, "internal error"
 	}
 	if rs == nil {
 		return nil, "", http.StatusNotFound, "skill not found"
@@ -234,7 +237,8 @@ func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope str
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().ResolveScoped(ctx, skillName, scope, vc, projectRoot)
 	if err != nil {
-		return nil, "", http.StatusInternalServerError, err.Error()
+		s.log.Error("resolve scoped skill", "agent_id", agentID, "skill", skillName, "scope", scope, "error", err)
+		return nil, "", http.StatusInternalServerError, "internal error"
 	}
 	if rs == nil {
 		return nil, "", http.StatusNotFound, "skill not found"

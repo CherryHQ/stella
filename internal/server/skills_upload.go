@@ -79,7 +79,7 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string) {
 	r.Body = http.MaxBytesReader(nil, r.Body, maxSkillUploadZipBytes+(1<<20))
 	if err := r.ParseMultipartForm(maxSkillUploadZipBytes); err != nil {
-		return nil, http.StatusBadRequest, "invalid multipart form: " + err.Error()
+		return nil, http.StatusBadRequest, "invalid multipart form"
 	}
 	defer func() {
 		if r.MultipartForm != nil {
@@ -93,7 +93,7 @@ func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string) {
 	defer func() { _ = file.Close() }()
 	up, err := readUploadedSkillArchive(file, header)
 	if err != nil {
-		return nil, http.StatusBadRequest, err.Error()
+		return nil, http.StatusBadRequest, "invalid skill archive"
 	}
 	return up, 0, ""
 }

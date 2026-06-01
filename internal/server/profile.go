@@ -247,7 +247,7 @@ func (s *Server) OauthCallback(w http.ResponseWriter, r *http.Request, provider 
 
 	if err := s.credSvc.CompleteAuthCodeFlowWithOrigin(r.Context(), provider, flowID, code, requestOrigin(r)); err != nil {
 		s.log.Error("oauth callback complete", "provider", provider, "user_id", flow.UserID, "flow_id", flowID, "error", err)
-		http.Error(w, "failed to complete authorization: "+err.Error(), http.StatusInternalServerError)
+		s.writeInternalError(w, err)
 		return
 	}
 

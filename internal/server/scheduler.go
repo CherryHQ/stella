@@ -326,7 +326,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		deleteErr = s.q.DeleteSchedulerJob(r.Context(), jobID)
 	}
 	if deleteErr != nil {
-		writeError(w, http.StatusInternalServerError, deleteErr.Error())
+		s.writeInternalError(w, deleteErr)
 		return
 	}
 	writeNoContent(w)
