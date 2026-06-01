@@ -78,16 +78,20 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 	if kind == "" {
 		kind = session.KindChat
 	}
-	info, err := s.Sessions.Ensure(ctx, session.Request{
-		ID:                 req.SessionID,
-		UserID:             req.UserID,
-		AgentID:            req.AgentID,
-		ProjectID:          req.ProjectID,
-		Kind:               kind,
-		Channel:            req.Channel,
-		CreateIfMissing:    true,
-		AllowExactIDCreate: req.SessionID != "",
-	})
+	ensureReq := session.Request{
+		ID:              req.SessionID,
+		UserID:          req.UserID,
+		AgentID:         req.AgentID,
+		ProjectID:       req.ProjectID,
+		Kind:            kind,
+		Channel:         req.Channel,
+		CreateIfMissing: true,
+	}
+	if req.SessionID != "" {
+		ensureReq.AllowExactIDCreate = true
+		ensureReq.RequireKind = kind
+	}
+	info, err := s.Sessions.Ensure(ctx, ensureReq)
 	if err != nil {
 		out := make(chan Event, 1)
 		out <- Event{Err: fmt.Errorf("resolve session: %w", err)}
@@ -158,10 +162,15 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 	if agentID == "" {
 		agentID = s.AgentID
 	}
+	projectID := req.ProjectID
+	if projectID == "" {
+		projectID = memory.ProjectIDFromContext(ctx)
+	}
 	res, err := s.Delegate(ctx, DelegateRequest{
 		SessionID:     req.SessionID,
 		UserID:        userID,
 		AgentID:       agentID,
+		ProjectID:     projectID,
 		Task:          req.Task,
 		System:        req.System,
 		Model:         req.Model,

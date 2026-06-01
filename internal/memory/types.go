@@ -14,6 +14,7 @@ const (
 	sessionIDKey contextKey = "memory_session_id"
 	userIDKey    contextKey = "memory_user_id"
 	agentIDKey   contextKey = "memory_agent_id"
+	projectIDKey contextKey = "memory_project_id"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -46,6 +47,17 @@ func WithAgentID(ctx context.Context, agentID string) context.Context {
 // AgentIDFromContext extracts the agent ID from context.
 func AgentIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(agentIDKey).(string)
+	return s
+}
+
+// WithProjectID attaches a project ID to the context.
+func WithProjectID(ctx context.Context, projectID string) context.Context {
+	return context.WithValue(ctx, projectIDKey, projectID)
+}
+
+// ProjectIDFromContext extracts the project ID from context.
+func ProjectIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(projectIDKey).(string)
 	return s
 }
 

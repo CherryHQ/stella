@@ -110,13 +110,15 @@ func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, _ *slog.Logge
 // the executor agent. Sessions are created with KindTask/ChannelTask so they
 // are excluded from user-facing session lists and review candidates.
 func registrySessionMinter(sm agent.ServiceManager, log *slog.Logger) SessionMinter {
-	return func(ctx context.Context, task sqlc.AgentTask) (string, error) {
+	return func(ctx context.Context, task sqlc.AgentTask, executorAgentID string) (string, error) {
 		if task.UserID == "" {
 			return "", fmt.Errorf("task has no user_id; cannot mint session")
 		}
-		agentID := ""
-		if task.AgentID.Valid {
-			agentID = task.AgentID.String
+		agentID := executorAgentID
+		if agentID == "" {
+			if task.AgentID.Valid {
+				agentID = task.AgentID.String
+			}
 		}
 		if agentID == "" {
 			return "", fmt.Errorf("task has no agent_id; cannot mint session")
@@ -143,7 +145,7 @@ func registrySessionMinter(sm agent.ServiceManager, log *slog.Logger) SessionMin
 
 // legacySessionMinter is the pre-registry fallback used when ServiceManager is nil.
 func legacySessionMinter(_ memory.Provider, _ *slog.Logger) SessionMinter {
-	return func(_ context.Context, task sqlc.AgentTask) (string, error) {
+	return func(_ context.Context, task sqlc.AgentTask, _ string) (string, error) {
 		if task.UserID == "" {
 			return "", fmt.Errorf("task has no user_id; cannot mint session")
 		}

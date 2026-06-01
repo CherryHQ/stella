@@ -37,6 +37,9 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	ctx = memory.WithUserID(ctx, info.UserID)
 	ctx = memory.WithAgentID(ctx, info.AgentID)
+	if info.ProjectID != "" {
+		ctx = memory.WithProjectID(ctx, info.ProjectID)
+	}
 	if info.Channel != "" {
 		ctx = withChannel(ctx, info.Channel)
 	}

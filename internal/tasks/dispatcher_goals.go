@@ -116,7 +116,7 @@ func (d *Dispatcher) scanAndDispatchReviewers(ctx context.Context, now time.Time
 // path used by planner and synthesizer scans. The noop runner immediately
 // fails the run with a protocol_error.
 func (d *Dispatcher) dispatchGoalRun(ctx context.Context, g sqlc.AgentGoal, kind, executorAgentID string, now time.Time) {
-	sessionID, err := d.cfg.NewSession(ctx, sqlc.AgentTask{UserID: g.UserID, AgentID: nullable(executorAgentID)})
+	sessionID, err := d.cfg.NewSession(ctx, sqlc.AgentTask{UserID: g.UserID, AgentID: nullable(executorAgentID)}, executorAgentID)
 	if err != nil {
 		d.cfg.Logger.Warn("dispatcher: mint goal session", "goal", g.ID, "err", err)
 		return
@@ -197,7 +197,7 @@ func (d *Dispatcher) dispatchReviewerRun(ctx context.Context, rev sqlc.AgentRevi
 	// Mint a fresh session — reviewer runs are a different conversation than
 	// the worker run that produced the output.
 	stub := sqlc.AgentTask{UserID: userID, AgentID: nullable(executorAgentID)}
-	sessionID, err := d.cfg.NewSession(ctx, stub)
+	sessionID, err := d.cfg.NewSession(ctx, stub, executorAgentID)
 	if err != nil {
 		return
 	}

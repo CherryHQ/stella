@@ -58,6 +58,7 @@ type SessionRunRequest struct {
 	System        string
 	ExcludedTools []string
 	Timeout       time.Duration
+	ProjectID     string
 }
 
 // SessionRunResult is the output from a persisted delegate session.
@@ -367,6 +368,7 @@ func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
 
 	tasks := make([]delegateTaskConfig, 0, len(tasksSlice))
 	seen := make(map[string]bool, len(tasksSlice))
+	seenSessionIDs := make(map[string]bool, len(tasksSlice))
 
 	for i, raw := range tasksSlice {
 		obj, ok := raw.(map[string]any)
@@ -400,6 +402,12 @@ func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
 		}
 		if sessionID, ok := obj["session_id"].(string); ok {
 			tc.SessionID = sessionID
+		}
+		if tc.SessionID != "" {
+			if seenSessionIDs[tc.SessionID] {
+				return nil, fmt.Errorf("tasks[%d]: duplicate session_id %q; concurrent writes to the same session are not allowed", i, tc.SessionID)
+			}
+			seenSessionIDs[tc.SessionID] = true
 		}
 
 		tasks = append(tasks, tc)
