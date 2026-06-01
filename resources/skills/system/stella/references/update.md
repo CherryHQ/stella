@@ -13,7 +13,7 @@ stella upgrade
 stella upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```
 
-Downloads the latest stable release from GitHub for your platform.
+Downloads the latest stable release from GitHub for your platform and replaces the running `stella` binary by default.
 
 ## Other methods
 

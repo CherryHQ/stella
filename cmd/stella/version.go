@@ -31,6 +31,7 @@ var (
 	upgradeUserAgent    = "stella-upgrade"
 	errUnsupportedAsset = errors.New("no release asset for current platform")
 	errInvalidTarget    = errors.New("existing target is not a replaceable file")
+	executablePath      = os.Executable
 	renameFile          = os.Rename
 )
 
@@ -71,7 +72,7 @@ func upgradeCommand() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{
 				Name:  "install-dir",
-				Usage: "Directory to install the upgraded binary into",
+				Usage: "Directory to install the upgraded binary into (defaults to the running stella binary's directory)",
 			},
 		},
 		Action: func(c *ucli.Context) error {
@@ -109,11 +110,14 @@ func displayVersion() string {
 }
 
 func defaultInstallDir() (string, error) {
-	home, err := os.UserHomeDir()
+	exePath, err := executablePath()
 	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
+		return "", fmt.Errorf("resolve stella executable path: %w", err)
 	}
-	return filepath.Join(home, ".local", "bin"), nil
+	if exePath == "" {
+		return "", errors.New("resolve stella executable path: empty path")
+	}
+	return filepath.Dir(exePath), nil
 }
 
 func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
@@ -217,7 +221,7 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 
 	targetPath = filepath.Join(installDir, binaryName)
 	if err := installBinary(extractedPath, targetPath, goos != "windows"); err != nil {
-		return "", err
+		return "", upgradeInstallError(err, targetPath, goos)
 	}
 	return targetPath, nil
 }
@@ -383,6 +387,13 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 		return err
 	}
 
+	if runtime.GOOS != "windows" {
+		if err := renameFile(tmpPath, targetPath); err != nil {
+			return fmt.Errorf("install binary: %w", err)
+		}
+		return nil
+	}
+
 	if _, err := os.Lstat(targetPath); err == nil {
 		if err := renameFile(targetPath, backupPath); err != nil {
 			_ = os.Remove(tmpPath)
@@ -410,6 +421,20 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 		}
 	}
 	return nil
+}
+
+func upgradeInstallError(err error, targetPath, goos string) error {
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "text file busy") || strings.Contains(lower, "file busy") || strings.Contains(lower, "being used by another process") || strings.Contains(lower, "sharing violation") || strings.Contains(lower, "resource busy") {
+		if goos == "windows" {
+			return fmt.Errorf("%w\n%s is locked by a running process; stop stella first, then run the upgrade from another shell or install into a different directory with --install-dir", err, targetPath)
+		}
+		return fmt.Errorf("%w\n%s is busy; stop any running stella process or service that is using this binary, then retry", err, targetPath)
+	}
+	if errors.Is(err, os.ErrPermission) || strings.Contains(lower, "permission denied") || strings.Contains(lower, "access is denied") {
+		return fmt.Errorf("%w\npermission denied replacing %s; rerun as a user that can write to %s, or choose another target with --install-dir", err, targetPath, filepath.Dir(targetPath))
+	}
+	return err
 }
 
 func ensureReplaceableTarget(targetPath string) error {

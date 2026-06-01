@@ -185,6 +185,21 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 	if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
 		s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
 	}
+	if p.Kind == config.PluginKindTool && s.poolManager != nil {
+		if err := s.poolManager.ReloadPluginTools(r.Context()); err != nil {
+			s.log.Error("failed to reload plugin tools", "plugin", id, "error", err)
+		}
+	}
+	if p.Kind == config.PluginKindHook && s.poolManager != nil {
+		if err := s.poolManager.ReloadPluginHooks(r.Context()); err != nil {
+			s.log.Error("failed to reload plugin hooks", "plugin", id, "error", err)
+		}
+	}
+	if p.Kind == config.PluginKindProvider && s.poolManager != nil {
+		if err := s.poolManager.ReloadPluginProviders(r.Context()); err != nil {
+			s.log.Error("failed to reload plugin providers", "plugin", id, "error", err)
+		}
+	}
 	writeData(w, http.StatusOK, p)
 }
 

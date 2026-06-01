@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -13,9 +14,10 @@ type manifestPluginsResponse struct {
 }
 
 // resolveManifestPlugins loads the builtin manifest and overlays
-// overrides from the DB. Each manifest plugin's Enabled flag reflects the
-// override row when present; the default otherwise. SessionEnvs are not
-// touched here — those are resolved at agent runtime against the vault.
+// overrides from the DB. Each override may carry a full plugin definition
+// (Config JSON) plus an Enabled toggle. When Config is present the entire
+// plugin definition is replaced; when only Enabled is set the builtin
+// definition is kept with the enabled flag toggled.
 func (s *Server) resolveManifestPlugins(r *http.Request) (*manifestplugins.Manifest, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
@@ -32,10 +34,38 @@ func (s *Server) resolveManifestPlugins(r *http.Request) (*manifestplugins.Manif
 	for _, ov := range overrides {
 		byID[ov.PluginID] = ov
 	}
+	seen := make(map[string]bool, len(builtin.Plugins))
 	for i := range builtin.Plugins {
-		if ov, ok := byID[builtin.Plugins[i].ID]; ok && ov.Enabled != nil {
+		id := builtin.Plugins[i].ID
+		seen[id] = true
+		ov, ok := byID[id]
+		if !ok {
+			continue
+		}
+		if ov.Config != "" {
+			var p manifestplugins.ManifestPlugin
+			if err := json.Unmarshal([]byte(ov.Config), &p); err == nil {
+				p.ID = id
+				builtin.Plugins[i] = p
+			}
+		}
+		if ov.Enabled != nil {
 			builtin.Plugins[i].Enabled = *ov.Enabled
 		}
+	}
+	for _, ov := range overrides {
+		if seen[ov.PluginID] || ov.Config == "" {
+			continue
+		}
+		var p manifestplugins.ManifestPlugin
+		if err := json.Unmarshal([]byte(ov.Config), &p); err != nil {
+			continue
+		}
+		p.ID = ov.PluginID
+		if ov.Enabled != nil {
+			p.Enabled = *ov.Enabled
+		}
+		builtin.Plugins = append(builtin.Plugins, p)
 	}
 	return builtin, nil
 }
@@ -75,39 +105,46 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, plugin := range req.Plugins {
-		def, ok := builtinByID[plugin.ID]
-		if !ok {
-			// Unknown plugin (not in manifest); skip silently to avoid orphan DB rows.
-			continue
-		}
-		// The Save payload only carries the enable toggle; the
-		// session_env_vault_key is a separate override dimension. Read the
-		// existing row so we preserve that binding instead of clobbering it.
+		def, isBuiltin := builtinByID[plugin.ID]
+
 		existing, _, err := s.store.GetManifestPluginOverride(r.Context(), plugin.ID)
 		if err != nil {
 			s.writeInternalError(w, err)
 			return
 		}
-		// Drop the row only when nothing is left to override: the requested
-		// state matches the default and no session env binding is set.
-		if plugin.Enabled == def.Enabled && existing.SessionEnvVaultKey == "" {
+
+		configJSON := manifestPluginConfigJSON(plugin)
+		hasConfigOverride := !isBuiltin || configJSON != manifestPluginConfigJSON(def)
+
+		enabledDiffers := isBuiltin && plugin.Enabled != def.Enabled
+		var enabled *bool
+		if enabledDiffers {
+			e := plugin.Enabled
+			enabled = &e
+		}
+		if !isBuiltin {
+			e := plugin.Enabled
+			enabled = &e
+		}
+
+		needsRow := enabled != nil || existing.SessionEnvVaultKey != "" || hasConfigOverride
+		if !needsRow {
 			if err := s.store.DeleteManifestPluginOverride(r.Context(), plugin.ID); err != nil {
 				s.writeInternalError(w, err)
 				return
 			}
 			continue
 		}
-		// Store an explicit enabled pointer only when it diverges from the
-		// default; nil falls back to the manifest default at resolve time.
-		var enabled *bool
-		if plugin.Enabled != def.Enabled {
-			e := plugin.Enabled
-			enabled = &e
+
+		cfgStr := ""
+		if hasConfigOverride {
+			cfgStr = configJSON
 		}
 		if err := s.store.UpsertManifestPluginOverride(r.Context(), config.ManifestPluginOverride{
 			PluginID:           plugin.ID,
 			Enabled:            enabled,
 			SessionEnvVaultKey: existing.SessionEnvVaultKey,
+			Config:             cfgStr,
 		}); err != nil {
 			s.writeInternalError(w, err)
 			return
@@ -129,6 +166,34 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeData(w, http.StatusOK, manifestPluginsResponse{Plugins: merged.Plugins, OAuthProviders: merged.OAuthProviders})
+}
+
+// manifestPluginConfigJSON serializes a ManifestPlugin (excluding Enabled and ID)
+// to a canonical JSON string for storage and comparison.
+func manifestPluginConfigJSON(p manifestplugins.ManifestPlugin) string {
+	type configOnly struct {
+		Kind          string                               `json:"kind"`
+		Name          string                               `json:"name"`
+		DisplayName   string                               `json:"display_name"`
+		Description   string                               `json:"description"`
+		Prompt        string                               `json:"prompt,omitempty"`
+		Binaries      []manifestplugins.ManifestBinary     `json:"binaries,omitempty"`
+		Skills        []manifestplugins.ManifestSkill      `json:"skills,omitempty"`
+		SessionEnvs   []manifestplugins.ManifestSessionEnv `json:"session_env,omitempty"`
+		OAuthProvider string                               `json:"oauth_provider,omitempty"`
+	}
+	data, _ := json.Marshal(configOnly{
+		Kind:          p.Kind,
+		Name:          p.Name,
+		DisplayName:   p.DisplayName,
+		Description:   p.Description,
+		Prompt:        p.Prompt,
+		Binaries:      p.Binaries,
+		Skills:        p.Skills,
+		SessionEnvs:   p.SessionEnvs,
+		OAuthProvider: p.OAuthProvider,
+	})
+	return string(data)
 }
 
 func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {

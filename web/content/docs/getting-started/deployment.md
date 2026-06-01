@@ -63,10 +63,10 @@ stella server --host 0.0.0.0 --port 8080  # bind to all interfaces
 ```bash
 stella version
 stella upgrade
-stella upgrade --install-dir "$HOME/.local/bin"
+stella upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```
 
-`stella upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and installs the binary into `$HOME/.local/bin` by default.
+`stella upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and replaces the running `stella` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
 ## Run as a Background Service
 
