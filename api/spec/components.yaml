@@ -1575,7 +1575,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [main, chat, scheduler, task]
+          enum: [main, chat, delegate, scheduler, task]
         project_id:
           type: string
         title:
@@ -1606,7 +1606,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [main, chat, scheduler, task]
+          enum: [main, chat]
         project_id:
           type: string
     MessagePart:

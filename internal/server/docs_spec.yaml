@@ -1,0 +1,7380 @@
+openapi: 3.0.3
+info:
+  title: stella API
+  description: |
+    Full REST API for stella covering ALL /api/* routes. This is the aggregated
+    entry point; individual feature specs live in sub-files under api/spec/domain/:
+
+    - Agents, Skills, Sessions, Models, Providers
+    - Auth, Auth-Users, Profile, OAuth
+    - Channels, Plugins, Manifest-Plugins
+    - Recally (reading assistant), Scheduler (job scheduling)
+    - Users, Vault, Builtin, Tools, Weixin
+
+    Schema source of truth (human-edited, domain-organized):
+      api/spec/components/common.yaml    — security schemes, shared responses
+      api/spec/domain/<domain>/schemas.yaml — domain schemas
+
+    api/spec/components.yaml is ASSEMBLED from the above by `mise run generate:api`.
+    Do not hand-edit api/spec/components.yaml.
+
+    Go code is generated via configs in api/codegen/:
+      - api/types/gen.go  — from api/spec/components.yaml
+      - api/server/gen.go       — from this file
+      - api/client/gen.go       — from this file
+    See the `generate:api` task in mise.toml.
+  version: '1'
+servers:
+  - url: http://127.0.0.1:25678
+    description: local stella server (default port)
+security:
+  - BearerAuth: []
+tags:
+  - name: articles
+  - name: feeds
+  - name: feed-entries
+  - name: digest
+  - name: jobs
+  - name: models
+  - name: tools
+  - name: builtin
+  - name: channels
+  - name: weixin
+  - name: providers
+  - name: sessions
+  - name: shares
+  - name: agents
+  - name: skills
+  - name: users
+  - name: auth-users
+  - name: profile
+  - name: auth
+  - name: plugins
+  - name: status
+  - name: tasks
+  - name: projects
+paths:
+  /api/status:
+    get:
+      tags:
+        - status
+      operationId: getStatus
+      summary: Get runtime status and version metadata
+      security: []
+      responses:
+        '200':
+          description: Runtime status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+  /api/auth/logout:
+    post:
+      tags:
+        - auth
+      summary: End the current session
+      operationId: logout
+      responses:
+        '204':
+          description: logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/me:
+    get:
+      tags:
+        - auth
+      summary: Get the currently authenticated user
+      operationId: getMe
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/providers:
+    get:
+      tags:
+        - auth
+      summary: List available authentication providers
+      operationId: listAuthProviders
+      security: []
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProviderList'
+  /api/auth/sessions:
+    get:
+      tags:
+        - auth
+      summary: List current user's active sessions
+      operationId: listAuthSessions
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags:
+        - auth
+      summary: Revoke an auth session
+      operationId: deleteAuthSession
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/agents:
+    get:
+      tags:
+        - agents
+      summary: List agents (any authenticated user; non-admin sees accessible only)
+      operationId: listAgents
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - agents
+      summary: Create an agent
+      operationId: createAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/agents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - agents
+      summary: Get an agent
+      operationId: getAgent
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - agents
+      summary: Update an agent
+      operationId: updateAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Agent'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - agents
+      summary: Delete an agent
+      operationId: deleteAgent
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{id}/users:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - agents
+      summary: List users assigned to an agent (admin only)
+      operationId: listAgentUsers
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentUserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - agents
+      summary: Assign a user to an agent (admin only)
+      operationId: assignAgentUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignAgentUserRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{id}/users/{userId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags:
+        - agents
+      summary: Remove a user from an agent (admin only)
+      operationId: removeAgentUser
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{id}/skills:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - skills
+      summary: List skills visible to the current user in an agent context
+      operationId: listAgentSkills
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - project
+              - user
+              - agent
+              - system
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - skills
+      summary: Create a skill in an agent or current-user scope
+      operationId: createAgentSkill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSkillRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{id}/skills/install:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - skills
+      summary: Install a skill from a remote source
+      operationId: installAgentSkill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstallSkillRequest'
+      responses:
+        '201':
+          description: installed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{id}/skills/upload:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - skills
+      summary: Upload a skill zip
+      operationId: uploadAgentSkill
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                scope:
+                  type: string
+                  enum:
+                    - user
+                    - agent
+      responses:
+        '201':
+          description: uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{id}/skills/{skillId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: skillId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Skill name
+    get:
+      tags:
+        - skills
+      summary: Get a skill by name (optionally scoped)
+      operationId: getAgentSkill
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - project
+              - user
+              - agent
+              - system
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - skills
+      summary: Update a skill
+      operationId: updateAgentSkill
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - project
+              - user
+              - agent
+              - system
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSkillRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - skills
+      summary: Delete a skill
+      operationId: deleteAgentSkill
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - project
+              - user
+              - agent
+              - system
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{id}/skills/{skillId}/file:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: skillId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Skill name
+    get:
+      tags:
+        - skills
+      summary: Get a skill file by path
+      operationId: getAgentSkillFile
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - project
+              - user
+              - agent
+              - system
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillFileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - skills
+      summary: Delete a skill file
+      operationId: deleteAgentSkillFile
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: scope
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - project
+              - user
+              - agent
+              - system
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{agentId}/projects:
+    get:
+      tags:
+        - projects
+      summary: List projects for an agent
+      operationId: listProjects
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: include_archived
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include archived projects
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - projects
+      summary: Create a project
+      operationId: createProject
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/agents/{agentId}/projects/{projectId}:
+    get:
+      tags:
+        - projects
+      summary: Get a project
+      operationId: getProject
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - projects
+      summary: Update a project
+      operationId: updateProject
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - projects
+      summary: Delete a project
+      operationId: deleteProject
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: no content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/skills/search:
+    get:
+      tags:
+        - skills
+      summary: Search skills from mcphub (any authenticated user)
+      operationId: searchSkills
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillSearchResultList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/recally/articles:
+    get:
+      tags:
+        - articles
+      summary: List or search articles
+      operationId: listArticles
+      parameters:
+        - name: q
+          in: query
+          description: Free-text search across title, summary, tags, author
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ArticleStatus'
+        - name: source_type
+          in: query
+          schema:
+            $ref: '#/components/schemas/SourceType'
+        - name: starred
+          in: query
+          schema:
+            type: boolean
+        - name: canonical_url
+          in: query
+          description: Lookup by exact canonical URL
+          schema:
+            type: string
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - articles
+      summary: Save an article (upsert by canonical URL)
+      operationId: saveArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveArticleRequest'
+      responses:
+        '200':
+          description: existing article was updated (canonical URL already present)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Article'
+        '201':
+          description: new article was created
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Path to the new article resource
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Article'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/recally/articles/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - articles
+      summary: Get an article
+      operationId: getArticle
+      parameters:
+        - name: include
+          in: query
+          description: Comma-separated extras (only `content` supported)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Article'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - articles
+      summary: Update article fields (partial)
+      operationId: updateArticle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateArticleRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Article'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - articles
+      summary: Delete an article (DB row + markdown file)
+      operationId: deleteArticle
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/recally/feeds:
+    get:
+      tags:
+        - feeds
+      summary: List subscribed feeds
+      operationId: listFeeds
+      parameters:
+        - name: url
+          in: query
+          description: Lookup by exact feed URL
+          schema:
+            type: string
+            format: uri
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - feeds
+      summary: Subscribe to a new feed (server fetches metadata)
+      operationId: createFeed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeedRequest'
+      responses:
+        '201':
+          description: created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feed'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: already subscribed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/recally/feeds/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - feeds
+      summary: Get a feed
+      operationId: getFeed
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - feeds
+      summary: Update feed fields (partial)
+      operationId: updateFeed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeedRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - feeds
+      summary: Unsubscribe from a feed (cascade deletes entries)
+      operationId: deleteFeed
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/recally/feeds/{id}/poll:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - feeds
+      summary: Poll a feed (server fetches RSS, creates pending entries)
+      operationId: pollFeed
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedPollResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/recally/feeds/{feedId}/entries:
+    parameters:
+      - name: feedId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - feed-entries
+      summary: List entries for a feed
+      operationId: listFeedEntries
+      parameters:
+        - name: status
+          in: query
+          description: Filter by entry status. Currently only 'pending' is supported; other values return 400.
+          schema:
+            $ref: '#/components/schemas/FeedEntryStatus'
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedEntryList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/recally/feeds/{feedId}/entries/{id}:
+    parameters:
+      - name: feedId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags:
+        - feed-entries
+      summary: Update an entry (status transition)
+      operationId: updateFeedEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeedEntryRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/recally/digests/today:
+    get:
+      tags:
+        - digest
+      summary: Get the current user's reading digest for today
+      operationId: getDigest
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Digest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/recally/digests:
+    get:
+      tags:
+        - digest
+      summary: List stored digests (most recent first)
+      operationId: listStoredDigests
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredDigestSummaryList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - digest
+      summary: Save a digest snapshot with narrative
+      operationId: saveDigest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDigestRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredDigest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/recally/digests/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - digest
+      summary: Get a stored digest by date (YYYY-MM-DD)
+      operationId: getStoredDigest
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredDigest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/models:
+    get:
+      tags:
+        - models
+      summary: List enabled models from provider config and cache
+      operationId: listModels
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CachedModelList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/tools:
+    get:
+      tags:
+        - tools
+      summary: List available agent tools
+      operationId: listTools
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/builtin/{kind}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - builtin
+      summary: List builtin resources of a given kind
+      operationId: listBuiltinResources
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuiltinResourceList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/builtin/{kind}/{id}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - builtin
+      summary: Get a specific builtin resource
+      operationId: getBuiltinResource
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuiltinResourceDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/channels/public:
+    get:
+      tags:
+        - channels
+      summary: List public channels (any authenticated user)
+      operationId: listPublicChannels
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicChannelList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/channels:
+    get:
+      tags:
+        - channels
+      summary: List all channels (admin only)
+      operationId: listChannels
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - channels
+      summary: Create a channel (admin only)
+      operationId: createChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelWriteRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/channels/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - channels
+      summary: Get a channel (admin only)
+      operationId: getChannel
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - channels
+      summary: Update a channel (admin only)
+      operationId: updateChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelWriteRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - channels
+      summary: Delete a channel (admin only)
+      operationId: deleteChannel
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/channels/weixin/qr:
+    post:
+      tags:
+        - weixin
+      summary: Start WeChat QR login flow (any authenticated user)
+      operationId: startWeixinQR
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeixinQRCode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '502':
+          description: upstream error from iLink API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/channels/weixin/qr/status:
+    get:
+      tags:
+        - weixin
+      summary: Poll WeChat QR login status (any authenticated user)
+      operationId: pollWeixinQRStatus
+      parameters:
+        - name: qrcode
+          in: query
+          required: true
+          schema:
+            type: string
+          description: QR code token from startWeixinQR
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeixinQRStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '502':
+          description: upstream error from iLink API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/providers:
+    get:
+      tags:
+        - providers
+      summary: List all providers (admin only)
+      operationId: listProviders
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - providers
+      summary: Create a provider (admin only)
+      operationId: createProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Provider'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Provider'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/providers/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - providers
+      summary: Get a provider (admin only)
+      operationId: getProvider
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Provider'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - providers
+      summary: Update a provider (admin only)
+      operationId: updateProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Provider'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Provider'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - providers
+      summary: Delete a provider (admin only)
+      operationId: deleteProvider
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/providers/{id}/models:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - providers
+      summary: List models for a provider (admin only)
+      operationId: listProviderModels
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderModelList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - providers
+      summary: Fetch and cache models from upstream provider (admin only)
+      operationId: fetchProviderModels
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchModelsRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderModelList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/provider-types:
+    get:
+      tags:
+        - providers
+      summary: List available provider types (admin only)
+      operationId: listProviderTypes
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderTypeList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{agentId}/sessions:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - sessions
+      summary: List sessions (all users see their own; admins see all)
+      operationId: listSessions
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 500
+          description: Maximum number of sessions to return
+        - name: page_token
+          in: query
+          schema:
+            type: string
+          description: Opaque pagination token from a previous response
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum:
+              - main
+              - chat
+              - delegate
+              - scheduler
+              - task
+          description: Filter by session kind
+        - name: project_id
+          in: query
+          schema:
+            type: string
+          description: Filter by project ID
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - sessions
+      summary: Create a new session
+      operationId: createSession
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/agents/{agentId}/sessions/{sessionId}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - sessions
+      summary: Get session detail
+      operationId: getSession
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{agentId}/sessions/{sessionId}/messages:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - sessions
+      summary: Get messages for a session
+      operationId: getSessionMessages
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+          description: Maximum number of messages to return
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of messages to skip from the end
+        - name: after
+          in: query
+          schema:
+            type: string
+          description: Only return messages created at or after this timestamp
+        - name: before
+          in: query
+          schema:
+            type: string
+          description: Only return messages created at or before this timestamp
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionMessageList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - sessions
+      summary: Send a message to a session (SSE streaming)
+      operationId: sendSessionMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '200':
+          description: SSE stream of session events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{agentId}/sessions/{sessionId}/workspace:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - sessions
+      summary: List workspace disk entries and usage
+      operationId: getSessionWorkspace
+      parameters:
+        - name: show_hidden
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include dot-prefixed files and directories
+        - name: path
+          in: query
+          schema:
+            type: string
+            default: ''
+          description: Directory path to list relative to the workspace root
+        - name: depth
+          in: query
+          schema:
+            type: integer
+            default: 2
+            minimum: 1
+          description: Maximum number of levels to return below path
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionWorkspace'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{agentId}/sessions/{sessionId}/workspace/files:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - sessions
+      summary: Create a file or directory in the session workspace
+      operationId: createWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceCreateRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionWorkspace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - sessions
+      summary: Delete a file or directory from the session workspace
+      operationId: deleteWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceDeleteRequest'
+      responses:
+        '204':
+          description: deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - sessions
+      summary: Rename or move a file or directory in the session workspace
+      operationId: moveWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceMoveRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionWorkspace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{agentId}/sessions/{sessionId}/workspace/file-content:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - sessions
+      summary: Get the content of a file in the session workspace
+      operationId: getWorkspaceFileContent
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Relative path of the file within the workspace
+        - name: raw
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: When true, serve the file bytes directly with the detected Content-Type instead of a JSON envelope
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceFileContent'
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - sessions
+      summary: Write content to a file in the session workspace
+      operationId: updateWorkspaceFileContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceUpdateContentRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceFileContent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{agentId}/sessions/{sessionId}/workspace/upload:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - sessions
+      summary: Upload a file to the session workspace assets directory
+      operationId: uploadWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+      responses:
+        '201':
+          description: uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{agentId}/sessions/{sessionId}/system-prompt:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - sessions
+      summary: Get the system prompt for a session
+      operationId: getSessionSystemPrompt
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemPromptResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/shares:
+    get:
+      tags:
+        - shares
+      summary: List shares for the current user
+      operationId: listShares
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - shares
+      summary: Create a public share link
+      operationId: createShare
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Share'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/shares/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags:
+        - shares
+      summary: Revoke a share
+      operationId: revokeShare
+      responses:
+        '204':
+          description: revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/shares/public/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      security: []
+      tags:
+        - shares
+      summary: Get shared content by token (public, no auth)
+      operationId: getShareContent
+      responses:
+        '200':
+          description: Content with metadata in headers (X-Share-Title, X-Share-Media-Type, X-Share-Expires-At)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/{id}/default-agent:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Canonical user ID
+        or `me` for the current user.: null
+    patch:
+      tags:
+        - users
+      summary: Update the default agent for a user (admin or current user)
+      operationId: updateUserDefaultAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDefaultAgentRequest'
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/{id}/notify-identity:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Canonical user ID
+        or `me` for the current user.: null
+    patch:
+      tags:
+        - users
+      summary: Update the notify identity for a user (admin or current user)
+      operationId: updateUserNotifyIdentity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotifyIdentityRequest'
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/{id}/memories:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Canonical user ID
+        or `me` for the current user.: null
+    get:
+      tags:
+        - users
+      summary: List memories for a user (admin or current user)
+      operationId: listUserMemories
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMemoryList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/{id}/memories/{agentId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Canonical user ID
+        or `me` for the current user.: null
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags:
+        - users
+      summary: Set memory for a user and agent (admin or current user)
+      operationId: setUserMemory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMemoryRequest'
+      responses:
+        '200':
+          description: saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMemory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - users
+      summary: Delete memory for a user and agent (admin or current user)
+      operationId: deleteUserMemory
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users:
+    get:
+      tags:
+        - users
+      summary: List users (admin only)
+      operationId: listAuthUsers
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - users
+      summary: Get a user by ID (admin or current user)
+      operationId: getAuthUser
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/{id}/role:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags:
+        - users
+      summary: Update the role of a user (admin only)
+      operationId: updateAuthUserRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/users/{id}/agents:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - users
+      summary: List agents assigned to a user (admin only)
+      operationId: listAuthUserAgents
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserAgentList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags:
+        - users
+      summary: Update agents assigned to a user (admin only)
+      operationId: updateAuthUserAgents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentsRequest'
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserAgentList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/users/{id}/identities/login:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - users
+      summary: List OIDC login identities for a user (admin only)
+      operationId: listAuthUserLoginIdentities
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginIdentityList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - users
+      summary: Link an OIDC login identity to a user (admin only)
+      operationId: linkAuthUserLoginIdentity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkLoginIdentityRequest'
+      responses:
+        '200':
+          description: linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginIdentity'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/users/{id}/identities/channel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - users
+      summary: List channel identities for a user (admin only)
+      operationId: listAuthUserChannelIdentities
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelIdentityList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/{id}/identities/{identityId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: identityId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags:
+        - users
+      summary: Delete an identity linked to a user (admin only)
+      operationId: deleteAuthUserIdentity
+      responses:
+        '204':
+          description: deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/{id}/active:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags:
+        - users
+      summary: Update the active status of a user (admin only)
+      operationId: updateAuthUserActive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateActiveRequest'
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/users/me/identities:
+    get:
+      tags:
+        - profile
+      summary: List linked identities for the current user
+      operationId: listProfileIdentities
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/identities/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags:
+        - profile
+      summary: Unlink an identity from the current user
+      operationId: unlinkProfileIdentity
+      responses:
+        '204':
+          description: deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/users/me/password:
+    patch:
+      tags:
+        - profile
+      summary: Change the current user's password
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: password changed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/link-code:
+    post:
+      tags:
+        - profile
+      summary: Generate a short-lived link code for a platform
+      operationId: generateLinkCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateLinkCodeRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/memories:
+    get:
+      tags:
+        - profile
+      summary: List per-agent memories for the current user
+      operationId: listProfileMemories
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMemoryList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/memories/{agentId}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags:
+        - profile
+      summary: Set the memory for a specific agent
+      operationId: setProfileMemory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMemoryRequest'
+      responses:
+        '200':
+          description: saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMemory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags:
+        - profile
+      summary: Delete the memory for a specific agent
+      operationId: deleteProfileMemory
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/soul/{agentId}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags:
+        - profile
+      summary: Set the soul for a specific agent
+      operationId: setProfileSoul
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetSoulRequest'
+      responses:
+        '200':
+          description: saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMemory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/vault:
+    get:
+      tags:
+        - profile
+      summary: List vault entries for the current user
+      operationId: listVaultEntries
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultEntryList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/vault/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - profile
+      summary: Get a vault entry value
+      operationId: getVaultEntry
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultEntryValue'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - profile
+      summary: Create or update a vault entry
+      operationId: setVaultEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetVaultEntryRequest'
+      responses:
+        '200':
+          description: saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags:
+        - profile
+      summary: Delete a vault entry
+      operationId: deleteVaultEntry
+      responses:
+        '204':
+          description: no content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/oauth/providers:
+    get:
+      tags:
+        - profile
+      summary: List OAuth provider statuses for the current user
+      operationId: listOAuthProviders
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthProviderStatusList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/oauth/{provider}/start:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - profile
+      summary: Start an OAuth device flow for a provider
+      operationId: startOAuthFlow
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthFlowStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/oauth/{provider}/status/{flowId}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: flowId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - profile
+      summary: Poll the status of an OAuth flow
+      operationId: pollOAuthFlow
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthFlowStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/oauth/{provider}/connected:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - profile
+      summary: Check if the current user is connected to an OAuth provider
+      operationId: getOAuthConnected
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthConnectedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/users/me/oauth/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags:
+        - profile
+      summary: Disconnect an OAuth provider
+      operationId: disconnectOAuth
+      responses:
+        '204':
+          description: no content
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/oauth/{provider}/callback:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - profile
+      summary: OAuth callback (browser redirect, unauthenticated)
+      operationId: oauthCallback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: redirect on success
+        '400':
+          description: bad request
+        '500':
+          description: internal server error
+  /api/auth/profile/oauth/{provider}/callback:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - profile
+      summary: Deprecated OAuth callback alias (browser redirect, unauthenticated)
+      operationId: oauthCallbackLegacy
+      deprecated: true
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: redirect on success
+        '400':
+          description: bad request
+        '500':
+          description: internal server error
+  /api/admin/oauth-providers/{id}/config:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - profile
+      summary: Get OAuth provider config (admin only)
+      operationId: getOAuthProviderConfig
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthProviderConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags:
+        - profile
+      summary: Delete OAuth provider config override (admin only)
+      operationId: deleteOAuthProviderConfig
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags:
+        - profile
+      summary: Set OAuth provider credentials (admin only)
+      operationId: setOAuthProviderConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthProviderConfigInput'
+      responses:
+        '200':
+          description: saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthProviderConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/agents/{agentId}/scheduler/jobs:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - jobs
+      summary: List scheduler jobs
+      operationId: listSchedulerJobs
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - jobs
+      summary: Create a scheduler job
+      operationId: createSchedulerJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobInput'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/agents/{agentId}/scheduler/jobs/{jobId}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - jobs
+      summary: Get a scheduler job
+      operationId: getSchedulerJob
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - jobs
+      summary: Update a scheduler job (partial — missing fields are merged from existing)
+      operationId: updateSchedulerJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobInput'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - jobs
+      summary: Delete a scheduler job
+      operationId: deleteSchedulerJob
+      responses:
+        '204':
+          description: deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/agents/{agentId}/scheduler/jobs/{jobId}/run:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - jobs
+      summary: Trigger a scheduler job immediately
+      operationId: triggerSchedulerJob
+      responses:
+        '202':
+          description: triggered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerJobResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/agents/{agentId}/scheduler/jobs/{jobId}/runs:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - jobs
+      summary: List scheduler job runs
+      operationId: listSchedulerJobRuns
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRunList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/tasks:
+    get:
+      tags:
+        - tasks
+      summary: List tasks
+      operationId: listTasks
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - tasks
+      summary: Create a task
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - tasks
+      summary: Get a task
+      operationId: getTask
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/tasks/{taskId}/cancel:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Cancel a task
+      operationId: cancelTask
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/reopen:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Reopen a done/failed task; optionally cascade-reset downstream
+      operationId: reopenTask
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReopenRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/readiness:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - tasks
+      summary: Compute task readiness
+      operationId: getTaskReadiness
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/tasks/{taskId}/events:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - tasks
+      summary: List task events
+      operationId: listTaskEvents
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/tasks/{taskId}/runs:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - tasks
+      summary: List task runs
+      operationId: listTaskRuns
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/tasks/{taskId}/deps:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - tasks
+      summary: List task deps
+      operationId: listTaskDeps
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DepList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - tasks
+      summary: Add a dependency edge
+      operationId: addTaskDep
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDepRequest'
+      responses:
+        '201':
+          description: created
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/deps/{depTaskId}/waive:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: depTaskId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Waive a hard-dep failure
+      operationId: waiveTaskDep
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaiveDepRequest'
+      responses:
+        '200':
+          description: ok
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/blockers/{blockerId}/resolve:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: blockerId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Resolve a blocker
+      operationId: resolveTaskBlocker
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveBlockerRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/reviews:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - tasks
+      summary: List reviews for a task
+      operationId: listTaskReviews
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/tasks/{taskId}/reviews/{reviewId}/approve:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Approve a review
+      operationId: approveTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/reviews/{reviewId}/reject:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Reject a review
+      operationId: rejectTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/reviews/{reviewId}/request-changes:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Request changes on a review
+      operationId: requestChangesTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/tasks/{taskId}/reviews/{reviewId}/escalate:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - tasks
+      summary: Escalate an agent review to human
+      operationId: escalateTaskReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EscalateReviewRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/goals:
+    get:
+      tags:
+        - goals
+      summary: List goals
+      operationId: listGoals
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - goals
+      summary: Create a goal
+      operationId: createGoal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGoalRequest'
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/goals/{goalId}:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - goals
+      summary: Get a goal
+      operationId: getGoal
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/goals/{goalId}/activate:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - goals
+      summary: Activate a goal (draft → running, promotes draft children to ready)
+      operationId: activateGoal
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/goals/{goalId}/cancel:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - goals
+      summary: Cancel a goal (cascades to non-terminal children)
+      operationId: cancelGoal
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelGoalRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/goals/{goalId}/tasks:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - goals
+      summary: List tasks owned by a goal
+      operationId: listGoalTasks
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/goals/{goalId}/reviews:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - goals
+      summary: List reviews for a goal
+      operationId: listGoalReviews
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+        - name: page_token
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/goals/{goalId}/reviews/{reviewId}/approve:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - goals
+      summary: Approve a goal review
+      operationId: approveGoalReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/goals/{goalId}/reviews/{reviewId}/reject:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - goals
+      summary: Reject a goal review
+      operationId: rejectGoalReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/goals/{goalId}/reviews/{reviewId}/request-changes:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - goals
+      summary: Request changes on a goal review (collapses to failed; documented gap)
+      operationId: requestChangesGoalReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/goals/{goalId}/reviews/{reviewId}/escalate:
+    parameters:
+      - name: goalId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: reviewId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - goals
+      summary: Escalate an agent goal review to human
+      operationId: escalateGoalReview
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EscalateReviewRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/plugins:
+    get:
+      tags:
+        - plugins
+      summary: List all plugins (admin only)
+      operationId: listPlugins
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginViewList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/plugins/{kind}/{name}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags:
+        - plugins
+      summary: Toggle plugin enabled state (admin only)
+      operationId: togglePlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TogglePluginRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/plugins/{kind}/{name}/status:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - plugins
+      summary: Get plugin status (admin only)
+      operationId: getPluginStatus
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/plugins/{kind}/{name}/config:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - plugins
+      summary: Get plugin config (admin only)
+      operationId: getPluginConfig
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags:
+        - plugins
+      summary: Update plugin config (admin only)
+      operationId: updatePluginConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePluginConfigRequest'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/plugins/{kind}/{name}/config-schema:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - plugins
+      summary: Get plugin config schema (admin only)
+      operationId: getPluginConfigSchema
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/manifest-plugins:
+    get:
+      tags:
+        - plugins
+      summary: List manifest plugins (admin only)
+      operationId: listManifestPlugins
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManifestPluginsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags:
+        - plugins
+      summary: Save manifest plugins (admin only)
+      operationId: saveManifestPlugins
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plugins:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ManifestPlugin'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManifestPluginsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/manifest-plugins/sync:
+    post:
+      tags:
+        - plugins
+      summary: Sync manifest plugins (admin only)
+      operationId: syncManifestPlugins
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: STELLA_TOKEN bearer token (generated via vault)
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - status
+          properties:
+            code:
+              type: integer
+              description: mirrors the HTTP status code
+            message:
+              type: string
+              description: human-readable, actionable description
+            status:
+              type: string
+              description: canonical status name (e.g. NOT_FOUND, INVALID_ARGUMENT)
+            details:
+              type: object
+              additionalProperties: true
+              description: optional machine-readable error details; keys use snake_case
+    ArticleStatus:
+      type: string
+      enum:
+        - unread
+        - read
+        - archived
+    SourceType:
+      type: string
+      enum:
+        - web
+        - twitter
+        - youtube
+        - github
+        - rss
+        - pdf
+    FeedEntryStatus:
+      type: string
+      enum:
+        - pending
+        - saved
+        - skipped
+        - error
+    Article:
+      type: object
+      required:
+        - id
+        - url
+        - canonical_url
+        - source_type
+        - title
+        - status
+        - starred
+        - file_path
+        - saved_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+        url:
+          type: string
+          format: uri
+        canonical_url:
+          type: string
+        source_type:
+          $ref: '#/components/schemas/SourceType'
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ArticleStatus'
+        starred:
+          type: boolean
+        file_path:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        saved_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        content:
+          type: string
+          description: Article body in markdown. Returned only when ?include=content is set.
+          nullable: true
+    ArticleList:
+      type: object
+      required:
+        - articles
+      properties:
+        articles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Article'
+        next_page_token:
+          type: string
+          nullable: true
+    SaveArticleRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+        canonical_url:
+          type: string
+        source_type:
+          $ref: '#/components/schemas/SourceType'
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        content:
+          type: string
+          description: Markdown body. If empty and the article exists, only metadata is updated; if empty and the article is new, the request fails 400.
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+    UpdateArticleRequest:
+      type: object
+      description: Only provided fields are updated.
+      properties:
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ArticleStatus'
+        starred:
+          type: boolean
+        file_path:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        content:
+          type: string
+          description: If set, rewrites the markdown file body.
+    Feed:
+      type: object
+      required:
+        - id
+        - url
+        - title
+        - check_interval
+        - enabled
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+        description:
+          type: string
+        check_interval:
+          type: string
+        last_checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_etag:
+          type: string
+        last_modified:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    FeedList:
+      type: object
+      required:
+        - feeds
+      properties:
+        feeds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Feed'
+        next_page_token:
+          type: string
+          nullable: true
+    CreateFeedRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+          description: Optional override; server fetches feed metadata if omitted
+        agent_id:
+          type: string
+          nullable: true
+    UpdateFeedRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        check_interval:
+          type: string
+        enabled:
+          type: boolean
+    FeedEntry:
+      type: object
+      required:
+        - id
+        - feed_id
+        - guid
+        - url
+        - title
+        - status
+        - attempts
+        - discovered_at
+      properties:
+        id:
+          type: string
+        feed_id:
+          type: string
+        guid:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/FeedEntryStatus'
+        article_id:
+          type: string
+          nullable: true
+        attempts:
+          type: integer
+        error_msg:
+          type: string
+        discovered_at:
+          type: string
+          format: date-time
+        processed_at:
+          type: string
+          format: date-time
+          nullable: true
+    FeedEntryList:
+      type: object
+      required:
+        - entries
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedEntry'
+        next_page_token:
+          type: string
+          nullable: true
+    UpdateFeedEntryRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/FeedEntryStatus'
+        article_id:
+          type: string
+          nullable: true
+        error_msg:
+          type: string
+    FeedPollResult:
+      type: object
+      required:
+        - feed
+        - new_entries
+      properties:
+        feed:
+          $ref: '#/components/schemas/Feed'
+        new_entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedEntry'
+        error:
+          type: string
+          nullable: true
+          description: Set if the upstream RSS fetch failed but the feed exists
+    TagCount:
+      type: object
+      required:
+        - tag
+        - count
+      properties:
+        tag:
+          type: string
+        count:
+          type: integer
+          format: int64
+    Digest:
+      type: object
+      required:
+        - date
+        - saved_yesterday
+        - saved_yesterday_count
+        - unread_count
+        - read_count
+        - archived_count
+        - starred_count
+        - worth_revisiting
+        - worth_revisiting_count
+        - top_tags
+        - total_articles
+      properties:
+        date:
+          type: string
+          format: date-time
+        saved_yesterday:
+          type: array
+          items:
+            $ref: '#/components/schemas/Article'
+        saved_yesterday_count:
+          type: integer
+        unread_count:
+          type: integer
+          format: int64
+        read_count:
+          type: integer
+          format: int64
+        archived_count:
+          type: integer
+          format: int64
+        starred_count:
+          type: integer
+          format: int64
+        worth_revisiting:
+          type: array
+          items:
+            $ref: '#/components/schemas/Article'
+        worth_revisiting_count:
+          type: integer
+        top_tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagCount'
+        total_articles:
+          type: integer
+          format: int64
+    Job:
+      type: object
+      required:
+        - id
+        - name
+        - message
+        - session_mode
+        - enabled
+      properties:
+        id:
+          type: string
+        owner_kind:
+          type: string
+          description: 'Ownership class: ''user'' or ''plugin'''
+        plugin_id:
+          type: string
+        job_key:
+          type: string
+        runtime_name:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        cron:
+          type: string
+          description: Cron expression (mutually exclusive with every/at)
+        every:
+          type: string
+          description: Go duration string, e.g. '30m' (mutually exclusive with cron/at)
+        at:
+          type: string
+          description: RFC3339 one-time timestamp (mutually exclusive with cron/every)
+        message:
+          type: string
+          description: Prompt/instruction to run on schedule
+        payload:
+          type: object
+          additionalProperties: {}
+          description: Arbitrary structured data for plugin-owned jobs
+        session_mode:
+          type: string
+          description: 'Session behaviour: ''reuse'' or ''new'''
+        enabled:
+          type: boolean
+        agent_id:
+          type: string
+        user_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_error:
+          type: string
+    JobList:
+      type: object
+      required:
+        - jobs
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+    JobInput:
+      type: object
+      description: 'Fields for creating or updating a job. For create: name, message, and exactly one of cron/every/at are required.'
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        cron:
+          type: string
+        every:
+          type: string
+        at:
+          type: string
+        message:
+          type: string
+        session_mode:
+          type: string
+        enabled:
+          type: boolean
+        agent_id:
+          type: string
+        user_id:
+          type: string
+          description: 'Admin-only: set empty for system jobs'
+    DeleteResult:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+    CachedModel:
+      type: object
+      required:
+        - provider
+        - model
+      properties:
+        provider:
+          type: string
+        provider_name:
+          type: string
+        model:
+          type: string
+    Tool:
+      type: object
+      required:
+        - name
+        - description
+        - category
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+        category:
+          type: string
+    BuiltinResource:
+      type: object
+      required:
+        - kind
+        - id
+        - name
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        hash:
+          type: string
+    BuiltinResourceDetail:
+      type: object
+      required:
+        - kind
+        - id
+        - name
+        - content
+      properties:
+        kind:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        hash:
+          type: string
+        content:
+          type: string
+    Channel:
+      type: object
+      required:
+        - id
+        - type
+        - enabled
+        - config
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        agent_id:
+          type: string
+        enabled:
+          type: boolean
+        config:
+          type: string
+          description: JSON string of the channel config
+    ChannelList:
+      type: object
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Channel'
+    PublicChannel:
+      type: object
+      required:
+        - id
+        - type
+        - label
+        - enabled
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        label:
+          type: string
+        agent_id:
+          type: string
+        agent_name:
+          type: string
+        enabled:
+          type: boolean
+    PublicChannelList:
+      type: object
+      required:
+        - channels
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicChannel'
+    ChannelWriteRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+          nullable: true
+        config:
+          type: string
+          description: JSON string of the channel config
+    WeixinQRCode:
+      type: object
+      properties:
+        qrcode:
+          type: string
+        qrcode_img_content:
+          type: string
+    WeixinQRStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        bot_token:
+          type: string
+        ilink_bot_id:
+          type: string
+        ilink_user_id:
+          type: string
+        baseurl:
+          type: string
+    ProviderModelCost:
+      type: object
+      properties:
+        input:
+          type: number
+          format: double
+        output:
+          type: number
+          format: double
+        cacheRead:
+          type: number
+          format: double
+        cacheWrite:
+          type: number
+          format: double
+    ProviderModel:
+      type: object
+      required:
+        - enabled
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        reasoning:
+          type: boolean
+        input:
+          type: array
+          items:
+            type: string
+        output:
+          type: array
+          items:
+            type: string
+        contextWindow:
+          type: integer
+        maxTokens:
+          type: integer
+        cost:
+          $ref: '#/components/schemas/ProviderModelCost'
+    Provider:
+      type: object
+      required:
+        - id
+        - type
+        - name
+        - enabled
+        - api_key
+        - base_url
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        api_key:
+          type: string
+        base_url:
+          type: string
+        models:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ProviderModel'
+    ProviderModelItem:
+      type: object
+      required:
+        - id
+        - source
+        - enabled
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+        enabled:
+          type: boolean
+        config:
+          $ref: '#/components/schemas/ProviderModel'
+    ProviderType:
+      type: object
+      required:
+        - id
+        - name
+        - default_url
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        default_url:
+          type: string
+    FetchModelsRequest:
+      type: object
+      properties:
+        api_key:
+          type: string
+        base_url:
+          type: string
+    Session:
+      type: object
+      required:
+        - id
+        - channel
+        - kind
+        - title
+        - agent_id
+        - user_id
+        - created_at
+        - last_active
+        - archived
+      properties:
+        id:
+          type: string
+        channel:
+          type: string
+        kind:
+          type: string
+          enum:
+            - main
+            - chat
+            - delegate
+            - scheduler
+            - task
+        project_id:
+          type: string
+        title:
+          type: string
+        agent_id:
+          type: string
+        user_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_active:
+          type: string
+          format: date-time
+        archived:
+          type: boolean
+    SessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          properties:
+            agent_name:
+              type: string
+            user_name:
+              type: string
+    CreateSessionRequest:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - main
+            - chat
+        project_id:
+          type: string
+    SendMessageRequest:
+      type: object
+      required:
+        - parts
+      properties:
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessagePart'
+          description: Message content parts (text, image, file)
+    SystemPromptResponse:
+      type: object
+      required:
+        - system_prompt
+      properties:
+        system_prompt:
+          type: string
+    WorkspaceUploadResponse:
+      type: object
+      required:
+        - path
+      properties:
+        path:
+          type: string
+          description: Relative path of the uploaded file within the workspace
+    SandboxNetworkConfig:
+      type: object
+      properties:
+        mode:
+          type: string
+        allowlist:
+          type: array
+          items:
+            type: string
+    SandboxConfig:
+      type: object
+      properties:
+        network:
+          $ref: '#/components/schemas/SandboxNetworkConfig'
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        model:
+          type: string
+        model_strong:
+          type: string
+        model_fast:
+          type: string
+        system_prompt:
+          type: string
+        soul:
+          type: string
+        workspace:
+          type: string
+        sandbox:
+          $ref: '#/components/schemas/SandboxConfig'
+        scope:
+          type: string
+        creator_id:
+          type: string
+        enabled:
+          type: boolean
+    AgentList:
+      type: object
+      required:
+        - agents
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Agent'
+    CreateAgentRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        model:
+          type: string
+        model_strong:
+          type: string
+        model_fast:
+          type: string
+        system_prompt:
+          type: string
+        soul:
+          type: string
+        workspace:
+          type: string
+        sandbox:
+          $ref: '#/components/schemas/SandboxConfig'
+        scope:
+          type: string
+        creator_id:
+          type: string
+        enabled:
+          type: boolean
+        template_id:
+          type: string
+    AgentUser:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+    AgentUserList:
+      type: object
+      required:
+        - users
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentUser'
+    AssignAgentUserRequest:
+      type: object
+      required:
+        - user_id
+      properties:
+        user_id:
+          type: string
+    Skill:
+      type: object
+      properties:
+        id:
+          type: string
+        scope:
+          type: string
+          enum:
+            - project
+            - user
+            - agent
+            - system
+        user_id:
+          type: string
+        agent_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        disable_model_invocation:
+          type: boolean
+        files:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SkillList:
+      type: object
+      required:
+        - skills
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: '#/components/schemas/Skill'
+    InstallSkillRequest:
+      type: object
+      required:
+        - source
+      properties:
+        source:
+          type: string
+        scope:
+          type: string
+          enum:
+            - user
+            - agent
+    UpdateSkillRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        disable_model_invocation:
+          type: boolean
+          nullable: true
+        files:
+          type: object
+          additionalProperties:
+            type: string
+    CreateSkillRequest:
+      type: object
+      required:
+        - name
+        - scope
+      properties:
+        name:
+          type: string
+        scope:
+          type: string
+          enum:
+            - user
+            - agent
+        description:
+          type: string
+        status:
+          type: string
+        disable_model_invocation:
+          type: boolean
+        files:
+          type: object
+          additionalProperties:
+            type: string
+    SkillSearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+        skillId:
+          type: string
+        name:
+          type: string
+        installs:
+          type: integer
+        source:
+          type: string
+    SkillSearchResultList:
+      type: object
+      required:
+        - skills
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillSearchResult'
+    SkillFileResponse:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+    Identity:
+      type: object
+      required:
+        - id
+        - user_id
+        - platform
+        - external_id
+        - name
+        - linked_at
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        platform:
+          type: string
+        external_id:
+          type: string
+        name:
+          type: string
+        linked_at:
+          type: string
+          format: date-time
+    AuthUser:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - role
+        - is_active
+        - identities
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        is_active:
+          type: boolean
+        identities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelIdentity'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AuthUserList:
+      type: object
+      required:
+        - users
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthUser'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    UserMemory:
+      type: object
+      additionalProperties: {}
+    UpdateDefaultAgentRequest:
+      type: object
+      required:
+        - default_agent_id
+      properties:
+        default_agent_id:
+          type: string
+    UpdateNotifyIdentityRequest:
+      type: object
+      properties:
+        notify_identity_id:
+          type: string
+          nullable: true
+    SetMemoryRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+    UpdateRoleRequest:
+      type: object
+      required:
+        - role
+      properties:
+        role:
+          type: string
+    UpdateAgentsRequest:
+      type: object
+      required:
+        - agent_ids
+      properties:
+        agent_ids:
+          type: array
+          items:
+            type: string
+    UpdateActiveRequest:
+      type: object
+      required:
+        - is_active
+      properties:
+        is_active:
+          type: boolean
+    ChangePasswordRequest:
+      type: object
+      required:
+        - current_password
+        - new_password
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+    GenerateLinkCodeRequest:
+      type: object
+      required:
+        - platform
+      properties:
+        platform:
+          type: string
+    VaultEntryValue:
+      type: object
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+    LinkCodeResponse:
+      type: object
+      required:
+        - code
+        - platform
+      properties:
+        code:
+          type: string
+        platform:
+          type: string
+    SetSoulRequest:
+      type: object
+      required:
+        - soul
+      properties:
+        soul:
+          type: string
+    VaultEntry:
+      type: object
+      required:
+        - name
+        - created_at
+        - updated_at
+      properties:
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SetVaultEntryRequest:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: string
+    OAuthProviderStatus:
+      type: object
+      required:
+        - provider
+        - available
+        - configured
+        - connected
+      properties:
+        provider:
+          type: string
+        available:
+          type: boolean
+        configured:
+          type: boolean
+        connected:
+          type: boolean
+        username:
+          type: string
+        unavailable:
+          type: string
+    OAuthFlowStatus:
+      type: object
+      required:
+        - provider
+        - flow_id
+        - verification_uri
+        - expires_at
+        - state
+      properties:
+        provider:
+          type: string
+        flow_id:
+          type: string
+        verification_uri:
+          type: string
+        user_code:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        state:
+          type: string
+    OAuthConnectedResponse:
+      type: object
+      required:
+        - connected
+      properties:
+        connected:
+          type: boolean
+        username:
+          type: string
+    OAuthProviderConfig:
+      type: object
+      required:
+        - provider_id
+        - client_id
+        - client_secret
+      properties:
+        provider_id:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        redirect_url:
+          type: string
+    OAuthProviderConfigInput:
+      type: object
+      required:
+        - client_id
+        - client_secret
+      properties:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        redirect_url:
+          type: string
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    AuthResponse:
+      type: object
+      required:
+        - id
+        - username
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+    MeResponse:
+      type: object
+      required:
+        - id
+        - username
+        - role
+        - is_admin
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+        is_admin:
+          type: boolean
+        email:
+          type: string
+        name:
+          type: string
+        avatar_url:
+          type: string
+        has_credentials:
+          type: boolean
+    AuthSession:
+      type: object
+      required:
+        - id
+        - expires_at
+        - created_at
+      properties:
+        id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    AuthSessionList:
+      type: object
+      required:
+        - sessions
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthSession'
+    StatusMemory:
+      type: object
+      required:
+        - allocBytes
+        - heapAllocBytes
+        - sysBytes
+        - numGC
+      properties:
+        allocBytes:
+          type: integer
+          format: int64
+        heapAllocBytes:
+          type: integer
+          format: int64
+        sysBytes:
+          type: integer
+          format: int64
+        numGC:
+          type: integer
+    StatusRuntime:
+      type: object
+      required:
+        - goVersion
+        - os
+        - arch
+        - goroutines
+        - memory
+      properties:
+        goVersion:
+          type: string
+          example: go1.25.0
+        os:
+          type: string
+          example: darwin
+        arch:
+          type: string
+          example: arm64
+        goroutines:
+          type: integer
+          example: 42
+        memory:
+          $ref: '#/components/schemas/StatusMemory'
+    StatusDatabase:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+        latencyMs:
+          type: number
+          format: double
+        error:
+          type: string
+    StatusPlugins:
+      type: object
+      required:
+        - total
+        - enabled
+        - disabled
+      properties:
+        total:
+          type: integer
+        enabled:
+          type: integer
+        disabled:
+          type: integer
+    StatusResponse:
+      type: object
+      required:
+        - status
+        - version
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: 0.1.0
+        commit:
+          type: string
+          example: abc1234
+        buildDate:
+          type: string
+          example: '2026-05-09T12:34:56Z'
+        uptimeSeconds:
+          type: integer
+          format: int64
+        runtime:
+          $ref: '#/components/schemas/StatusRuntime'
+        database:
+          $ref: '#/components/schemas/StatusDatabase'
+        plugins:
+          $ref: '#/components/schemas/StatusPlugins'
+    PluginView:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+        display_name:
+          type: string
+        description:
+          type: string
+        managed:
+          type: boolean
+        admin_visible:
+          type: boolean
+        has_config:
+          type: boolean
+        has_status:
+          type: boolean
+        capabilities:
+          type: array
+          items:
+            type: string
+        persisted:
+          type: boolean
+        persisted_id:
+          type: string
+    TogglePluginRequest:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+    UpdatePluginConfigRequest:
+      type: object
+      properties:
+        config:
+          type: object
+          additionalProperties: true
+    ManifestPlugin:
+      type: object
+      additionalProperties: true
+    Task:
+      type: object
+      required:
+        - id
+        - user_id
+        - title
+        - status
+        - priority
+        - review_policy
+        - required
+        - retry_count
+        - max_retries
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        agent_id:
+          type: string
+          description: Creator agent (D12); empty when the task was created by a user.
+        goal_id:
+          type: string
+          description: Parent goal (Slice 3); always empty in the flat-API PR.
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - draft
+            - ready
+            - running
+            - blocked
+            - reviewing
+            - done
+            - failed
+            - cancelled
+        priority:
+          type: string
+          enum:
+            - routine
+            - urgent
+        review_policy:
+          type: string
+          enum:
+            - none
+            - auto
+            - agent
+            - human
+        required:
+          type: boolean
+        retry_count:
+          type: integer
+          format: int64
+        max_retries:
+          type: integer
+          format: int64
+        not_before:
+          type: string
+          format: date-time
+        deadline_at:
+          type: string
+          format: date-time
+        session_id:
+          type: string
+        active_run_id:
+          type: string
+        active_blocker_id:
+          type: string
+        active_review_id:
+          type: string
+        context:
+          type: object
+          additionalProperties: {}
+          description: Task-level metadata checkpoint (JSON object).
+        output:
+          type: object
+          additionalProperties: {}
+          description: Final output set by the worker on submit (JSON object).
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        cancelled_at:
+          type: string
+          format: date-time
+    TaskList:
+      type: object
+      required:
+        - tasks
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    CreateTaskRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum:
+            - routine
+            - urgent
+        agent_id:
+          type: string
+          description: Creator agent (optional).
+        executor_agent_id:
+          type: string
+          description: Explicit executor (D13); written as a dispatch hint.
+        required:
+          type: boolean
+          description: Defaults to true when omitted; false marks the task as optional.
+        max_retries:
+          type: integer
+          format: int64
+        not_before:
+          type: string
+          format: date-time
+        deadline_at:
+          type: string
+          format: date-time
+        context:
+          type: object
+          additionalProperties: {}
+        deps:
+          type: array
+          items:
+            $ref: '#/components/schemas/DepInput'
+        activate_on_create:
+          type: boolean
+          description: If true, immediately transitions draft → ready.
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    ReopenRequest:
+      type: object
+      properties:
+        cascade:
+          type: boolean
+          description: Cascade-reset reachable downstream tasks per ownership rules.
+    Readiness:
+      type: object
+      required:
+        - state
+        - dispatchable
+      properties:
+        state:
+          type: string
+          enum:
+            - dispatchable
+            - waiting_deps
+            - deferred
+            - throttled
+            - running
+            - blocked
+            - terminal
+            - draft
+            - reviewing
+            - unknown
+        dispatchable:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReadinessReason'
+    ReadinessReason:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+        upstream_id:
+          type: string
+        detail:
+          type: string
+    Run:
+      type: object
+      required:
+        - id
+        - task_id
+        - user_id
+        - kind
+        - attempt_no
+        - status
+        - session_id
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        user_id:
+          type: string
+        agent_id:
+          type: string
+        executor_agent_id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - worker
+            - reviewer
+            - planner
+            - synthesizer
+        attempt_no:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - completed
+            - failed
+            - cancelled
+            - interrupted
+            - timed_out
+        session_id:
+          type: string
+        input:
+          type: string
+        result:
+          type: string
+        error:
+          type: string
+        worker_id:
+          type: string
+        heartbeat_at:
+          type: string
+          format: date-time
+        lease_expires_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RunList:
+      type: object
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    Event:
+      type: object
+      required:
+        - id
+        - event_type
+        - actor_type
+        - created_at
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        run_id:
+          type: string
+        review_id:
+          type: string
+        event_type:
+          type: string
+        from_status:
+          type: string
+        to_status:
+          type: string
+        actor_type:
+          type: string
+          enum:
+            - system
+            - user
+            - agent
+            - worker
+            - reviewer
+            - planner
+            - synthesizer
+        actor_id:
+          type: string
+        detail:
+          type: object
+          additionalProperties: {}
+        created_at:
+          type: string
+          format: date-time
+    EventList:
+      type: object
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    Dep:
+      type: object
+      required:
+        - task_id
+        - dep_task_id
+        - dep_kind
+        - on_failure
+        - created_at
+      properties:
+        task_id:
+          type: string
+        dep_task_id:
+          type: string
+        dep_kind:
+          type: string
+          enum:
+            - hard
+            - soft
+        on_failure:
+          type: string
+          enum:
+            - block
+            - fail
+            - ignore
+        waived_at:
+          type: string
+          format: date-time
+        waived_by:
+          type: string
+        waiver_reason:
+          type: string
+        upstream_status:
+          type: string
+          description: Convenience-joined current status of the upstream task.
+        created_at:
+          type: string
+          format: date-time
+    DepList:
+      type: object
+      required:
+        - deps
+      properties:
+        deps:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dep'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    DepInput:
+      type: object
+      required:
+        - dep_task_id
+      properties:
+        dep_task_id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - hard
+            - soft
+          description: Defaults to hard when omitted.
+        on_failure:
+          type: string
+          enum:
+            - block
+            - fail
+            - ignore
+          description: Defaults to block when omitted.
+    AddDepRequest:
+      type: object
+      required:
+        - dep_task_id
+      properties:
+        dep_task_id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - hard
+            - soft
+        on_failure:
+          type: string
+          enum:
+            - block
+            - fail
+            - ignore
+    WaiveDepRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    ResolveBlockerRequest:
+      type: object
+      properties:
+        resolution:
+          type: string
+    Review:
+      type: object
+      required:
+        - id
+        - reviewer_type
+        - status
+        - summary
+        - feedback
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        goal_id:
+          type: string
+        submitted_run_id:
+          type: string
+        reviewer_run_id:
+          type: string
+        reviewer_type:
+          type: string
+          enum:
+            - system
+            - agent
+            - human
+        reviewer_user_id:
+          type: string
+        escalated_from_review_id:
+          type: string
+        status:
+          type: string
+          enum:
+            - requested
+            - in_progress
+            - approved
+            - changes_requested
+            - rejected
+            - escalated
+            - cancelled
+        summary:
+          type: string
+        feedback:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+    ReviewList:
+      type: object
+      required:
+        - reviews
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Review'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    ReviewDecisionRequest:
+      type: object
+      properties:
+        summary:
+          type: string
+        feedback:
+          type: string
+          description: Ignored on approve; required (by convention) on reject and request_changes.
+    EscalateReviewRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    Goal:
+      type: object
+      required:
+        - id
+        - user_id
+        - title
+        - status
+        - priority
+        - review_policy
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        agent_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - draft
+            - planning
+            - running
+            - blocked
+            - reviewing
+            - done
+            - failed
+            - cancelled
+        priority:
+          type: string
+          enum:
+            - routine
+            - urgent
+        review_policy:
+          type: string
+          enum:
+            - none
+            - auto
+            - agent
+            - human
+        active_review_id:
+          type: string
+        context:
+          type: object
+          additionalProperties: {}
+        output:
+          type: object
+          additionalProperties: {}
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        cancelled_at:
+          type: string
+          format: date-time
+    GoalList:
+      type: object
+      required:
+        - goals
+      properties:
+        goals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Goal'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    CreateGoalRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum:
+            - routine
+            - urgent
+        agent_id:
+          type: string
+        review_policy:
+          type: string
+          enum:
+            - none
+            - auto
+            - agent
+            - human
+        context:
+          type: object
+          additionalProperties: {}
+    CancelGoalRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    OIDCProvider:
+      type: object
+      required:
+        - name
+        - login_url
+      properties:
+        name:
+          type: string
+          description: Human-readable provider name (e.g. "Zitadel")
+        login_url:
+          type: string
+          description: URL to redirect the browser to for login
+        register_url:
+          type: string
+          description: URL to redirect the browser to for registration (local provider only)
+    OIDCProviderList:
+      type: object
+      required:
+        - providers
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/OIDCProvider'
+    Project:
+      type: object
+      required:
+        - id
+        - agent_id
+        - user_id
+        - name
+        - base_dir
+        - archived
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        user_id:
+          type: string
+        name:
+          type: string
+        base_dir:
+          type: string
+        description:
+          type: string
+        archived:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ProjectList:
+      type: object
+      required:
+        - projects
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+    CreateProjectRequest:
+      type: object
+      required:
+        - name
+        - base_dir
+      properties:
+        name:
+          type: string
+        base_dir:
+          type: string
+        description:
+          type: string
+    UpdateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        base_dir:
+          type: string
+        description:
+          type: string
+    StoredDigestSummary:
+      type: object
+      required:
+        - id
+        - date
+        - narrative
+        - saved_yesterday_count
+        - worth_revisiting_count
+        - total_articles
+        - created_at
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+        narrative:
+          type: string
+        saved_yesterday_count:
+          type: integer
+          format: int64
+        worth_revisiting_count:
+          type: integer
+          format: int64
+        total_articles:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+    StoredDigestSummaryList:
+      type: object
+      required:
+        - digests
+        - total_size
+      properties:
+        digests:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredDigestSummary'
+        total_size:
+          type: integer
+          format: int64
+        next_page_token:
+          type: string
+          nullable: true
+    SaveDigestRequest:
+      type: object
+      required:
+        - narrative
+      properties:
+        narrative:
+          type: string
+        date:
+          type: string
+          description: YYYY-MM-DD; defaults to today if omitted
+    StoredDigest:
+      type: object
+      required:
+        - id
+        - date
+        - narrative
+        - saved_yesterday
+        - saved_yesterday_count
+        - unread_count
+        - read_count
+        - archived_count
+        - starred_count
+        - worth_revisiting
+        - worth_revisiting_count
+        - top_tags
+        - total_articles
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+        narrative:
+          type: string
+        saved_yesterday:
+          type: array
+          items:
+            $ref: '#/components/schemas/Article'
+        saved_yesterday_count:
+          type: integer
+          format: int64
+        unread_count:
+          type: integer
+          format: int64
+        read_count:
+          type: integer
+          format: int64
+        archived_count:
+          type: integer
+          format: int64
+        starred_count:
+          type: integer
+          format: int64
+        worth_revisiting:
+          type: array
+          items:
+            $ref: '#/components/schemas/Article'
+        worth_revisiting_count:
+          type: integer
+          format: int64
+        top_tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagCount'
+        total_articles:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CachedModelList:
+      type: object
+      required:
+        - models
+      properties:
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/CachedModel'
+    ToolList:
+      type: object
+      required:
+        - tools
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+    BuiltinResourceList:
+      type: object
+      required:
+        - resources
+      properties:
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/BuiltinResource'
+    ProviderList:
+      type: object
+      required:
+        - providers
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Provider'
+    ProviderModelList:
+      type: object
+      required:
+        - models
+      properties:
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderModelItem'
+    ProviderTypeList:
+      type: object
+      required:
+        - provider_types
+      properties:
+        provider_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderType'
+    SessionList:
+      type: object
+      required:
+        - sessions
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+        next_page_token:
+          type: string
+          nullable: true
+    SessionMessageList:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+    MessagePart:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - text
+            - image
+            - file
+        text:
+          type: string
+          description: Text content (when type is "text")
+        image:
+          type: string
+          description: Base64-encoded image data (when type is "image")
+        url:
+          type: string
+          description: File URL (when type is "file")
+        mimeType:
+          type: string
+          description: MIME type of the image or file
+    SessionWorkspace:
+      type: object
+      required:
+        - root
+        - paths
+        - total_files
+        - total_dirs
+        - total_bytes
+      properties:
+        root:
+          type: string
+          description: Absolute path of the workspace root directory
+        paths:
+          type: array
+          items:
+            type: string
+          description: Relative file and directory paths within the workspace. Directory paths end with a slash.
+        total_files:
+          type: integer
+          description: Number of files in the workspace
+        total_dirs:
+          type: integer
+          description: Number of directories in the workspace, excluding the root
+        total_bytes:
+          type: integer
+          format: int64
+          description: Total size of regular files in bytes
+    WorkspaceCreateRequest:
+      type: object
+      required:
+        - path
+      properties:
+        path:
+          type: string
+          description: Relative path for the new file or directory
+        is_dir:
+          type: boolean
+          description: Create a directory when true; a file when false or omitted
+        content:
+          type: string
+          description: Initial file content (ignored when is_dir is true)
+    WorkspaceDeleteRequest:
+      type: object
+      required:
+        - path
+      properties:
+        path:
+          type: string
+          description: Relative path of the file or directory to delete
+    WorkspaceMoveRequest:
+      type: object
+      required:
+        - path
+        - new_path
+      properties:
+        path:
+          type: string
+          description: Current relative path
+        new_path:
+          type: string
+          description: New relative path (rename or move destination)
+    WorkspaceFileContent:
+      type: object
+      required:
+        - path
+        - content
+      properties:
+        path:
+          type: string
+          description: Relative path of the file within the workspace
+        content:
+          type: string
+          description: File text content
+        language:
+          type: string
+          description: Detected language hint for syntax highlighting
+    WorkspaceUpdateContentRequest:
+      type: object
+      required:
+        - path
+        - content
+      properties:
+        path:
+          type: string
+          description: Relative path of the file within the workspace
+        content:
+          type: string
+          description: New file content to write
+    Share:
+      type: object
+      required:
+        - id
+        - url
+        - title
+        - media_type
+        - created_at
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        media_type:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    ShareList:
+      type: object
+      required:
+        - shares
+      properties:
+        shares:
+          type: array
+          items:
+            $ref: '#/components/schemas/Share'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    CreateShareRequest:
+      type: object
+      required:
+        - source
+      properties:
+        source:
+          type: string
+          enum:
+            - artifact
+            - article
+        agent_id:
+          type: string
+        session_id:
+          type: string
+        path:
+          type: string
+        article_id:
+          type: string
+        expires_in:
+          type: string
+          enum:
+            - 1h
+            - 1d
+            - 7d
+            - never
+          default: 7d
+    ChannelIdentity:
+      type: object
+      required:
+        - id
+        - user_id
+        - platform
+        - external_id
+        - name
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        platform:
+          type: string
+        external_id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserMemoryList:
+      type: object
+      required:
+        - memories
+      properties:
+        memories:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserMemory'
+    AuthUserAgentList:
+      type: object
+      required:
+        - agent_ids
+      properties:
+        agent_ids:
+          type: array
+          items:
+            type: string
+    LoginIdentity:
+      type: object
+      required:
+        - id
+        - user_id
+        - provider
+        - provider_subject
+        - email
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        provider:
+          type: string
+        provider_subject:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        avatar_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LoginIdentityList:
+      type: object
+      required:
+        - identities
+      properties:
+        identities:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoginIdentity'
+    LinkLoginIdentityRequest:
+      type: object
+      required:
+        - provider
+        - provider_subject
+        - email
+      properties:
+        provider:
+          type: string
+        provider_subject:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+    ChannelIdentityList:
+      type: object
+      required:
+        - identities
+      properties:
+        identities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelIdentity'
+    IdentityList:
+      type: object
+      required:
+        - identities
+      properties:
+        identities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identity'
+    VaultEntryList:
+      type: object
+      required:
+        - entries
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/VaultEntry'
+    OAuthProviderStatusList:
+      type: object
+      required:
+        - providers
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/OAuthProviderStatus'
+    TriggerJobResult:
+      type: object
+      required:
+        - run_id
+      properties:
+        run_id:
+          type: string
+    JobRun:
+      type: object
+      required:
+        - id
+        - job_id
+        - session_id
+        - status
+        - started_at
+      properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        session_id:
+          type: string
+        user_id:
+          type: string
+        status:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+        duration:
+          type: string
+    JobRunList:
+      type: object
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobRun'
+        next_page_token:
+          type: string
+          nullable: true
+          description: Opaque pagination token; null when no further pages.
+    PluginViewList:
+      type: object
+      required:
+        - plugins
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: '#/components/schemas/PluginView'
+    ManifestOAuthProvider:
+      type: object
+      properties:
+        id:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        vault_key:
+          type: string
+        client_id:
+          type: string
+    ManifestPluginsResponse:
+      type: object
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManifestPlugin'
+        oauth_providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManifestOAuthProvider'
+  responses:
+    Unauthorized:
+      description: missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: malformed request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: request conflicts with current state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
