@@ -18,12 +18,13 @@ import (
 // It owns the runner cache, runner factory, and event streaming.
 // It does NOT own session creation, kind validation, or list/archive APIs.
 type Runtime struct {
-	cache     *runnerCache
-	mem       memory.Provider
-	log       *slog.Logger
-	compact   CompactionConfig
-	beforeRun BeforeRunFunc
-	active    sync.Map // session ID → struct{}, tracks in-flight turns
+	cache          *runnerCache
+	mem            memory.Provider
+	log            *slog.Logger
+	compact        CompactionConfig
+	beforeRun      BeforeRunFunc
+	snapshotPrompt SnapshotPromptFunc
+	active         sync.Map // session ID → struct{}, tracks in-flight turns
 }
 
 // CompactionConfig controls automatic compaction thresholds.
@@ -45,14 +46,15 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 
 // Config holds all dependencies for a Runtime instance.
 type Config struct {
-	Factory      NewRunnerFunc
-	Memory       memory.Provider
-	IdleTimeout  time.Duration
-	Compaction   CompactionConfig
-	DefaultModel string
-	FastModel    string
-	HooksFn      func() []hooks.HookPlugin
-	BeforeRun    BeforeRunFunc
+	Factory        NewRunnerFunc
+	Memory         memory.Provider
+	IdleTimeout    time.Duration
+	Compaction     CompactionConfig
+	DefaultModel   string
+	FastModel      string
+	HooksFn        func() []hooks.HookPlugin
+	BeforeRun      BeforeRunFunc
+	SnapshotPrompt SnapshotPromptFunc
 }
 
 // New creates a Runtime from the given config.
@@ -72,11 +74,12 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultModel = cfg.DefaultModel
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
-		cache:     cache,
-		mem:       cfg.Memory,
-		log:       log,
-		compact:   cfg.Compaction.WithDefaults(),
-		beforeRun: cfg.BeforeRun,
+		cache:          cache,
+		mem:            cfg.Memory,
+		log:            log,
+		compact:        cfg.Compaction.WithDefaults(),
+		beforeRun:      cfg.BeforeRun,
+		snapshotPrompt: cfg.SnapshotPrompt,
 	}, nil
 }
 

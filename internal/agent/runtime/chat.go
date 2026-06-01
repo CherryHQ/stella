@@ -117,6 +117,19 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	baseSystem := co.systemOverride
 	if baseSystem == "" {
 		baseSystem = r.SystemPrompt()
+		// Per-turn snapshot prompt: rebuild system with frozen memory version.
+		// Skipped when systemOverride is set (e.g. delegate custom system).
+		if rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
+			sss, ok := rt.mem.(memory.SessionSnapshotStore)
+			if ok {
+				snap, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)
+				if err != nil {
+					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
+				} else if snap.Version > 0 {
+					baseSystem = rt.snapshotPrompt(ctx, info, snap)
+				}
+			}
+		}
 	}
 	if rt.beforeRun != nil {
 		systemOut, err := rt.beforeRun(ctx, info, cs.model, msgText, baseSystem, history)

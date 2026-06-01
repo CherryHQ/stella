@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
+	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -263,12 +265,13 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	}
 
 	cfg := agentruntime.Config{
-		Factory:      factory,
-		Memory:       pm.mem,
-		IdleTimeout:  pm.idleTimeout,
-		DefaultModel: snap.ResolveModelID(config.ModelTierStrong),
-		HooksFn:      pm.HookPlugins,
-		BeforeRun:    pm.runtimeBeforeRun,
+		Factory:        factory,
+		Memory:         pm.mem,
+		IdleTimeout:    pm.idleTimeout,
+		DefaultModel:   snap.ResolveModelID(config.ModelTierStrong),
+		HooksFn:        pm.HookPlugins,
+		BeforeRun:      pm.runtimeBeforeRun,
+		SnapshotPrompt: pm.buildSnapshotPromptFunc(snap),
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -283,6 +286,55 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	svc := &Service{Sessions: reg, Runtime: rt, AgentID: agentID}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
+}
+
+func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentruntime.SnapshotPromptFunc {
+	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) string {
+		userRoot := ""
+		if info.UserID != "" {
+			if dir, err := SetupUserWorkspace(snap.AgentID, config.StellaHome(), info.UserID); err == nil {
+				userRoot = dir
+			}
+		}
+
+		homeDir, _ := os.UserHomeDir()
+		pluginView := pkgplugins.SessionPluginView{}
+		if pm.sessionPluginViewBuilder != nil {
+			pluginView, _ = pm.sessionPluginViewBuilder(ctx)
+		}
+		promptBuild := pkgplugins.SystemPromptContext{
+			StellaHome:          config.StellaHome(),
+			HomeDir:             homeDir,
+			AgentRoot:           snap.Workspace,
+			UserID:              info.UserID,
+			AgentID:             info.AgentID,
+			UserRoot:            userRoot,
+			SkillStore:          pm.skillStore,
+			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
+			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+		}
+		var sections []pkgplugins.SystemPromptSection
+		if pm.promptSectionsBuilder != nil {
+			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+		}
+		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+			sections = append(sections, skillsSection)
+		}
+
+		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+			SystemPrompt:      snap.SystemPrompt,
+			AgentSoul:         snap.Soul,
+			Memory:            pm.mem,
+			UserID:            info.UserID,
+			AgentID:           info.AgentID,
+			StellaHome:        config.StellaHome(),
+			AgentRoot:         snap.Workspace,
+			UserRoot:          userRoot,
+			Sections:          sections,
+			SnapshotVersion:   ss.Version,
+			SnapshotUpdatedAt: ss.UpdatedAt,
+		})
+	}
 }
 
 func (pm *PoolManager) runtimeBeforeRun(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
