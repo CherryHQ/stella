@@ -120,6 +120,7 @@ type PoolManager struct {
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
 	vaultEnvLoader           sandbox.VaultEnvLoader
+	tokenEnsurer             sandbox.TokenEnsurer
 	projectResolver          ProjectResolverFunc
 	projectEnsurer           ProjectEnsurerFunc
 	tokenManager             *oauth.TokenManager
@@ -166,6 +167,22 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 	for agentID := range services {
 		if err := pm.rebuildFactory(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
+		}
+	}
+}
+
+// SetTokenEnsurer wires the per-user token ensurer so sandbox sessions
+// guarantee a STELLA_TOKEN exists in the vault before loading env.
+func (pm *PoolManager) SetTokenEnsurer(ctx context.Context, te sandbox.TokenEnsurer) {
+	pm.mu.Lock()
+	pm.tokenEnsurer = te
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
+	pm.mu.Unlock()
+
+	for agentID := range services {
+		if err := pm.rebuildFactory(ctx, agentID); err != nil {
+			pm.log.Error("failed to rebuild factory after token ensurer set", "agent_id", agentID, "error", err)
 		}
 	}
 }
@@ -471,6 +488,7 @@ func (pm *PoolManager) buildFactory_(_ context.Context, snap *config.Snapshot) (
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
 		VaultEnvLoader:           pm.vaultEnvLoader,
+		TokenEnsurer:             pm.tokenEnsurer,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 	})

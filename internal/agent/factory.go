@@ -30,6 +30,7 @@ type RunnerFactoryConfig struct {
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
 	VaultEnvLoader           sandbox.VaultEnvLoader
+	TokenEnsurer             sandbox.TokenEnsurer
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 }
@@ -166,6 +167,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 					SessionID:       params.SessionID,
 					SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
 					VaultEnvLoader:  cfg.VaultEnvLoader,
+					TokenEnsurer:    cfg.TokenEnsurer,
 					TokenManager:    cfg.TokenManager,
 				},
 				System:          system,

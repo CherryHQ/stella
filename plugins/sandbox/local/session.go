@@ -74,6 +74,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, err
 	}
 
+	hostStellaHome := f.cfg.StellaHome
 	policy = f.adjustPolicy(policy)
 
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
@@ -82,12 +83,13 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
 	s := &localSession{
-		id:          sessionID,
-		policy:      policy,
-		realRoot:    realRoot,
-		sandboxRoot: sandboxRoot,
-		tmpMounts:   tmpMounts,
-		done:        make(chan struct{}),
+		id:             sessionID,
+		policy:         policy,
+		realRoot:       realRoot,
+		sandboxRoot:    sandboxRoot,
+		stellaHomeHost: hostStellaHome,
+		tmpMounts:      tmpMounts,
+		done:           make(chan struct{}),
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
@@ -102,10 +104,9 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	if env == nil {
 		env = make(map[string]string)
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome)
-	if policy.Filesystem.WorkingDir != "" {
-		env["HOME"] = sandboxpkg.HostEnvBuildHome(policy.Filesystem.WorkingDir)
-	}
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(adjustStellaHome(f.cfg.StellaHome))
+	env["HOME"] = adjustHome(policy.Filesystem.WorkingDir)
+	env["STELLA_HOME"] = adjustStellaHome(f.cfg.StellaHome)
 	sandboxpkg.HostEnvCopy(env)
 	policy.Env = env
 	policy.InheritEnv = false
@@ -117,16 +118,17 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 // localSession implements sandboxpkg.Session by running commands directly on
 // the host OS with no container isolation.
 type localSession struct {
-	id          string
-	policy      sandboxpkg.Policy
-	realRoot    string     // actual host path (e.g. /home/stella/.stella-dev/...)
-	sandboxRoot string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
-	tmpMounts   []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
-	done        chan struct{}
-	doneOnce    sync.Once
-	mu          sync.RWMutex
-	closed      bool
-	procs       []*localProcess
+	id             string
+	policy         sandboxpkg.Policy
+	realRoot       string     // actual host path (e.g. /home/stella/.stella-dev/...)
+	sandboxRoot    string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	stellaHomeHost string     // host-side STELLA_HOME for bwrap mounts
+	tmpMounts      []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
+	done           chan struct{}
+	doneOnce       sync.Once
+	mu             sync.RWMutex
+	closed         bool
+	procs          []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy { return s.policy }
@@ -440,7 +442,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, "sh", []string{"-c", command})
+	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -525,7 +527,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, req.Path, args)
+	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)

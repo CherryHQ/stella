@@ -78,7 +78,7 @@ func skillsSearchCommand() *ucli.Command {
 			}
 
 			limit := c.Int("limit")
-			results, err := apiclient.Call[[]apitypes.SkillSearchResult](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apitypes.SkillSearchResultList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.SearchSkills(c.Context, &apiclient.SearchSkillsParams{
 					Q:     query,
 					Limit: &limit,
@@ -87,6 +87,7 @@ func skillsSearchCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
+			results := list.Skills
 
 			if len(results) == 0 {
 				fmt.Println("No skills found.")
@@ -173,12 +174,13 @@ func skillsListAction(c *ucli.Context) error {
 	if err != nil {
 		return err
 	}
-	skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
+	list, err := apiclient.Call[apitypes.SkillList](func(api *apiclient.Client) (*http.Response, error) {
 		return api.ListAgentSkills(c.Context, agentID, params)
 	})
 	if err != nil {
 		return err
 	}
+	skills := list.Skills
 	if len(skills) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
@@ -216,12 +218,13 @@ func skillsListJSON(c *ucli.Context) error {
 	if err != nil {
 		return err
 	}
-	skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
+	list, err := apiclient.Call[apitypes.SkillList](func(api *apiclient.Client) (*http.Response, error) {
 		return api.ListAgentSkills(c.Context, agentID, params)
 	})
 	if err != nil {
 		return err
 	}
+	skills := list.Skills
 
 	type entry struct {
 		Name        string `json:"name"`
@@ -262,12 +265,13 @@ func skillsRemoveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			skills, err := apiclient.Call[[]apitypes.Skill](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apitypes.SkillList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListAgentSkills(c.Context, agentID, params)
 			})
 			if err != nil {
 				return err
 			}
+			skills := list.Skills
 
 			var skill *apitypes.Skill
 			for i := range skills {

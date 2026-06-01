@@ -76,6 +76,14 @@ func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
 	}, nil
 }
 
+// adjustHome returns the sandbox-view HOME directory.
+// On macOS (Seatbelt), no path remapping; uses the working directory.
+func adjustHome(workDir string) string { return sandboxpkg.HostEnvBuildHome(workDir) }
+
+// adjustStellaHome returns the sandbox-view STELLA_HOME directory.
+// On macOS (Seatbelt), no path remapping; uses the real host path.
+func adjustStellaHome(stellaHome string) string { return stellaHome }
+
 // checkSandboxRequirements verifies that sandbox-exec is available and functional.
 func checkSandboxRequirements() error {
 	if !seatbeltFunctional() {
@@ -133,7 +141,7 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 // wrapCommand wraps name+args with sandbox-exec for macOS Seatbelt isolation.
 // tmpMounts is accepted for signature compatibility with the Linux backend but
 // is not used here — macOS bash and file tools share the same host filesystem.
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, _ string, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
 	if !seatbeltFunctional() {
 		return "", nil, "", fmt.Errorf(
 			"local sandbox: sandbox-exec (macOS Seatbelt) is required but not available",

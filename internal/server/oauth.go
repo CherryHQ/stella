@@ -53,7 +53,11 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 		return
 	}
 
-	status, err := s.credSvc.StartFlowWithOrigin(r.Context(), info.UserID, provider, requestOrigin(r))
+	// Use the explicit Origin header (sent by browsers) so the redirect URI
+	// matches the Web UI host. CLI/curl requests omit Origin; passing "" lets
+	// the credential service fall back to the configured base URL.
+	origin := strings.TrimRight(r.Header.Get("Origin"), "/")
+	status, err := s.credSvc.StartFlowWithOrigin(r.Context(), info.UserID, provider, origin)
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusBadRequest, "invalid request")

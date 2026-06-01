@@ -11,6 +11,17 @@ icon: History
 
 ## [Unreleased]
 
+## [0.38.3] - 2026-06-01
+
+### 🐛 修复
+
+- **CLI**：修复 `stella oauth providers`、`stella vault list`、`stella skills list` 和 `stella skills search` 的 JSON 反序列化错误——使用与实际 API 响应结构匹配的生成包装类型。
+- **OAuth**：OAuth 重定向 URI 和 CORS origin 使用 `STELLA_BASE_URL` 而非请求的 Host header，确保 CLI 发起的流程重定向到外部可达地址。
+- **OAuth**：移除无效的 `admin.cors_origin` 配置项，统一使用从 `STELLA_BASE_URL` 派生的 `baseURL`。
+- **沙盒**：加固本地沙盒环境。
+
+**完整变更日志**：[v0.38.2...v0.38.3](https://github.com/CherryHQ/stella/compare/v0.38.2...v0.38.3)
+
 ## [0.38.2] - 2026-06-01
 
 ### 🐛 修复

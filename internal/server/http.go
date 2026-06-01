@@ -25,7 +25,7 @@ func (s *Server) Handler() http.Handler {
 // corsMiddleware handles CORS headers. Origin is read from settings at startup.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", s.corsOriginV)
+		w.Header().Set("Access-Control-Allow-Origin", s.baseURL)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")

@@ -8,6 +8,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	apitypes "github.com/CherryHQ/stella/api/types"
 )
 
 func oauthCommand() *ucli.Command {
@@ -35,12 +36,13 @@ func oauthProvidersCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			providers, err := apiclient.Call[[]apiclient.OAuthProviderStatus](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apitypes.OAuthProviderStatusList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListOAuthProviders(c.Context)
 			})
 			if err != nil {
 				return err
 			}
+			providers := list.Providers
 			if c.Bool("json") {
 				return printJSON(providers)
 			}

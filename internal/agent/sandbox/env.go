@@ -68,8 +68,8 @@ func skillMountsForSandbox(paths Paths) []string {
 func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]string, error) {
 	env := make(map[string]string)
 
-	if cfg.VaultEnvLoader != nil {
-		vaultEnv, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
+	if envEnsurer, ok := cfg.TokenEnsurer.(tokenEnvEnsurer); ok {
+		vaultEnv, err := envEnsurer.EnsureAutoTokenEnv(ctx, cfg.UserID)
 		if err != nil {
 			slog.Warn("vault env injection skipped",
 				"component", "runner_sandbox",
@@ -78,6 +78,29 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 			)
 		} else {
 			maps.Copy(env, vaultEnv)
+		}
+	} else {
+		if cfg.TokenEnsurer != nil {
+			if err := cfg.TokenEnsurer.EnsureAutoToken(ctx, cfg.UserID); err != nil {
+				slog.Warn("ensure auto token failed",
+					"component", "runner_sandbox",
+					"user_id", cfg.UserID,
+					"error", err,
+				)
+			}
+		}
+
+		if cfg.VaultEnvLoader != nil {
+			vaultEnv, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
+			if err != nil {
+				slog.Warn("vault env injection skipped",
+					"component", "runner_sandbox",
+					"user_id", cfg.UserID,
+					"error", err,
+				)
+			} else {
+				maps.Copy(env, vaultEnv)
+			}
 		}
 	}
 

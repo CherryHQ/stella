@@ -26,7 +26,7 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 	}
 
-	path, args, _, err := wrapCommand(policy, sandboxCwd, nil, "sh", []string{"-c", "echo hi"})
+	path, args, _, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 
 	if !bwrapFunctional() {
 		if err == nil {
@@ -66,7 +66,7 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, _, err := wrapCommand(policy, sandboxCwd, nil, "sh", []string{"-c", "echo hi"})
+	_, args, _, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error for allow_all network: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	execPath, args, hostCwd, err := wrapCommand(policy, sandboxCwd, nil, "sh", []string{"-c", "echo hi"})
+	execPath, args, hostCwd, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -16,6 +16,14 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
+const (
+	// sandboxHome is the virtual HOME inside the bwrap sandbox, matching the
+	// docker backend's /home/stella layout for a realistic Linux user directory.
+	sandboxHome = "/home/stella"
+	// sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox.
+	sandboxStellaHome = "/home/stella/.stella"
+)
+
 // setSysProcAttr places the child in its own process group so that
 // killProcessGroup can terminate the entire subtree.
 func setSysProcAttr(cmd *exec.Cmd) {
@@ -174,13 +182,22 @@ func appendLinuxRuntimeMounts(args []string) []string {
 	return args
 }
 
+// adjustHome returns the sandbox-view HOME directory.
+// On Linux (bwrap), HOME is remapped to /home/stella for a realistic layout.
+func adjustHome(_ string) string { return sandboxHome }
+
+// adjustStellaHome returns the sandbox-view STELLA_HOME directory.
+// On Linux (bwrap), it is remapped to /home/stella/.stella.
+func adjustStellaHome(_ string) string { return sandboxStellaHome }
+
 func appendStellaHomeMounts(args []string, stellaHome string) []string {
 	if stellaHome == "" {
 		return args
 	}
 	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
 		hostPath := filepath.Join(stellaHome, name)
-		args = appendRoBindIfExists(args, hostPath, hostPath)
+		sandboxPath := filepath.Join(sandboxStellaHome, name)
+		args = appendRoBindIfExists(args, hostPath, sandboxPath)
 	}
 	return args
 }
@@ -230,7 +247,7 @@ func appendDirParents(args []string, path string) []string {
 //
 //   - sandboxCwd: working directory in sandbox space (e.g. /workspace/sub).
 //   - hostCwd returned: real host path (bwrap uses --chdir internally).
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMount, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
 	if !bwrapFunctional() {
 		return "", nil, "", fmt.Errorf(
 			"local sandbox: bwrap (bubblewrap) is required on Linux but is not available or not functional; " +
@@ -258,7 +275,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 		bwrapArgs = append(bwrapArgs, "--dir", m.sandboxPath, "--bind", m.realPath, m.sandboxPath)
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
-	bwrapArgs = appendStellaHomeMounts(bwrapArgs, policy.Env["STELLA_HOME"])
+	bwrapArgs = appendStellaHomeMounts(bwrapArgs, stellaHomeHost)
 	for _, extraPath := range policy.Filesystem.ExtraReadOnlyMounts {
 		bwrapArgs = appendRoBindIfExists(bwrapArgs, extraPath, extraPath)
 	}

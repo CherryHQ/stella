@@ -9,6 +9,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -53,12 +54,13 @@ func vaultListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			entries, err := apiclient.Call[[]apiclient.VaultEntry](func(api *apiclient.Client) (*http.Response, error) {
+			list, err := apiclient.Call[apitypes.VaultEntryList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListVaultEntries(c.Context)
 			})
 			if err != nil {
 				return err
 			}
+			entries := list.Entries
 			if c.Bool("json") {
 				return printJSON(entries)
 			}
