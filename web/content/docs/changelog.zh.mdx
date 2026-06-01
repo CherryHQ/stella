@@ -11,6 +11,23 @@ icon: History
 
 ## [Unreleased]
 
+## [0.38.2] - 2026-06-01
+
+### 🐛 修复
+
+- **插件**：将 manifest 插件配置覆盖持久化到数据库，使在"设置 → 插件"页面的编辑在刷新后保留。([#263](https://github.com/CherryHQ/stella/pull/263))
+- **插件**：切换启用状态时保留已有的配置覆盖和 builtin 默认 `Enabled` 值，避免数据丢失。([#263](https://github.com/CherryHQ/stella/pull/263))
+- **插件**：在持久化前对完整插件定义进行服务端校验，无效输入返回 400。([#263](https://github.com/CherryHQ/stella/pull/263))
+- **插件**：避免每次打开插件页面时触发 manifest 二进制同步。([#263](https://github.com/CherryHQ/stella/pull/263))
+- **插件**：将 `lark-cli` 默认 OAuth provider 从 `lark` 切换为 `feishu`。([#263](https://github.com/CherryHQ/stella/pull/263))
+
+### ♻️ 重构
+
+- **插件**：提取 `applyAndReloadPlugin` 辅助方法，统一插件切换和配置更新处理器中的热重载逻辑。([#263](https://github.com/CherryHQ/stella/pull/263))
+- **升级**：将升级目标建模为完整的可执行文件路径而非目录，`stella upgrade` 默认替换正在运行的确切二进制文件。([#263](https://github.com/CherryHQ/stella/pull/263))
+
+**完整变更日志**：[v0.38.1...v0.38.2](https://github.com/CherryHQ/stella/compare/v0.38.1...v0.38.2)
+
 ## [0.38.1] - 2026-06-01
 
 ### 🔒 安全
