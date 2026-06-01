@@ -189,8 +189,6 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	// v2 task system boot wiring. Services provides registry-backed session minting;
-	// Pools is kept as a fallback for raw runner access until fully migrated.
 	tasksSvc := tasks.New(tasks.BootConfig{
 		DB:       db,
 		Memory:   memProvider,
@@ -199,14 +197,14 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 			if poolMgr == nil {
 				return nil, false
 			}
-			p := poolMgr.Get(agentID)
-			if p == nil {
-				p = poolMgr.DefaultPool()
+			svc := poolMgr.GetService(agentID)
+			if svc == nil {
+				svc = poolMgr.Default()
 			}
-			if p == nil {
+			if svc == nil {
 				return nil, false
 			}
-			return p.Factory(), true
+			return svc.Runtime.Factory(), true
 		},
 	})
 

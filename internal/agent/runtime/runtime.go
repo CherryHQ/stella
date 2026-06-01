@@ -149,6 +149,15 @@ func (rt *Runtime) ResetRunnersForUser(userID string) error {
 	return lastErr
 }
 
+// Factory returns the current runner factory. Used by the task system to create
+// standalone runners with custom tools.
+func (rt *Runtime) Factory() NewRunnerFunc {
+	rt.cache.mu.Lock()
+	f := rt.cache.factory
+	rt.cache.mu.Unlock()
+	return f
+}
+
 // Memory returns the memory provider backing this runtime.
 func (rt *Runtime) Memory() memory.Provider {
 	return rt.mem

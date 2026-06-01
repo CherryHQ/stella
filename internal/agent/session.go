@@ -43,12 +43,3 @@ func BuildUserSessionKey(agentID string, authUserID string, channelContext strin
 
 // SessionInfo is an alias for memory.SessionInfo.
 type SessionInfo = memory.SessionInfo
-
-// Session holds the state of a single conversation: metadata and the
-// currently assigned  Message persistence is handled by the
-// memory engine exclusively.
-type Session struct {
-	Info   SessionInfo
-	Runner Runner
-	Model  string // model ID the current runner was created with
-}

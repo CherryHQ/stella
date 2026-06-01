@@ -158,8 +158,8 @@ func (d *Dispatcher) dispatchGoalRun(ctx context.Context, g sqlc.AgentGoal, kind
 		ActorType: ActorSystem,
 		Detail:    detailJSON(map[string]any{"executor_agent_id": executorAgentID, "session_id": sessionID}),
 	})
-	// Noop runner fallback: immediately fail the run. The agent.Pool adapter
-	// PR replaces this with real execution.
+	// Noop runner fallback: immediately fail the run. The runner adapter
+	// replaces this with real execution.
 	d.failGoalRunAsNoop(ctx, g.ID, runID, kind)
 }
 
