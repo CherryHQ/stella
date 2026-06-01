@@ -3,16 +3,7 @@ import { Streamdown } from "streamdown";
 import type { Message, ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import {
-  Brain,
-  Wrench,
-  ChevronDown,
-  Terminal,
-  FileText,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-} from "lucide-react";
+import { ChevronDown, Terminal } from "lucide-react";
 
 interface Props {
   messages: Message[];
@@ -160,165 +151,88 @@ function StepsGroup({ blocks }: { blocks: ContentBlock[] }) {
     }
   }, [hasRunning]);
 
-  const totalTokens = blocks.reduce((sum, b) => {
-    if (b.type === "thinking" && b.thinking) {
-      return sum + Math.round(b.thinking.length / 4);
-    }
-    if (b.type === "tool_call" && b.result?.content) {
-      return sum + Math.round(b.result.content.length / 4);
-    }
-    return sum;
-  }, 0);
-
-  const errorStep = blocks.find((b) => b.type === "tool_call" && b.result?.is_error);
-
   return (
-    <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/30 transition-all duration-200">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left hover:bg-muted/50"
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted border border-border/40 text-muted-foreground">
-            {hasRunning ? (
-              <Loader2 className="size-3 animate-spin text-primary" />
-            ) : errorStep ? (
-              <AlertCircle className="size-3 text-destructive" />
-            ) : (
-              <CheckCircle2 className="size-3 text-success" />
-            )}
+    <div className="rounded-[14px] border border-border/50 bg-muted/15 px-4 py-3 transition-all duration-150 space-y-2.5 max-w-3xl">
+      <div className="flex items-center">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground/80 hover:text-foreground cursor-pointer"
+        >
+          <span>
+            {hasRunning
+              ? "Thinking..."
+              : `Worked for ${Math.max(1, Math.round(blocks.length * 0.8))}s`}
           </span>
-          <div className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold text-foreground leading-none">
-              {hasRunning ? "Executing workflow steps..." : `Executed ${blocks.length} steps`}
-            </span>
-            {totalTokens > 0 && (
-              <span className="mt-1 block text-[10px] text-muted-foreground/60 leading-none">
-                ~{totalTokens} tokens processed
-              </span>
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform duration-200 text-muted-foreground/50",
+              expanded && "rotate-180",
             )}
-          </div>
-        </div>
-        <ChevronDown
-          className={cn(
-            "size-3.5 text-muted-foreground transition-transform duration-200 shrink-0",
-            expanded && "rotate-180",
-          )}
-        />
-      </button>
+          />
+        </button>
+      </div>
 
       {expanded && (
-        <div className="border-t border-border/50 px-4 py-4 bg-card/10">
-          <div className="relative border-l border-border/80 pl-4 ml-2.5 space-y-4">
-            {blocks.map((block, idx) => (
-              <div key={idx} className="relative">
-                {/* Stepper Node Icon */}
-                <div className="absolute -left-6 top-0.5 flex size-4 items-center justify-center rounded-full bg-card border border-border/80 text-muted-foreground">
-                  {block.type === "thinking" ? (
-                    <Brain className="size-2.5 text-accent-foreground" />
-                  ) : (
-                    <Wrench className="size-2.5 text-primary" />
-                  )}
+        <div className="space-y-3.5 pt-1">
+          {blocks.map((block, idx) => {
+            if (block.type === "thinking" && block.thinking) {
+              return (
+                <div
+                  key={idx}
+                  className="text-xs text-muted-foreground/90 leading-relaxed whitespace-pre-wrap"
+                >
+                  {block.thinking}
                 </div>
-
-                {/* Step Item Content */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-foreground">
-                      {block.type === "thinking"
-                        ? "LLM Thought"
-                        : block.type === "tool_call"
-                          ? (block.name ?? "tool_call")
-                          : "Unknown Step"}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground/50">
-                      {block.type === "thinking" && block.thinking
-                        ? `~${Math.round(block.thinking.length / 4)} tok`
-                        : block.type === "tool_call" && block.result
-                          ? block.result.is_error
-                            ? "error"
-                            : "success"
-                          : "running"}
-                    </span>
-                  </div>
-
-                  {block.type === "thinking" && <ThinkingStepDetail block={block} />}
-
-                  {block.type === "tool_call" && <ToolCallStepDetail block={block} />}
-                </div>
-              </div>
-            ))}
-          </div>
+              );
+            }
+            if (block.type === "tool_call") {
+              return <ToolStepRow key={idx} block={block} />;
+            }
+            return null;
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function ThinkingStepDetail({ block }: { block: ContentBlock & { type: "thinking" } }) {
-  const [show, setShow] = useState(false);
-  if (!block.thinking) return null;
-
-  return (
-    <div className="space-y-1">
-      <button
-        onClick={() => setShow(!show)}
-        className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline cursor-pointer"
-      >
-        <span>{show ? "Hide details" : "Show details"}</span>
-      </button>
-      {show && (
-        <pre className="max-h-48 overflow-y-auto rounded-lg border border-border/40 bg-muted/40 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground/80 whitespace-pre-wrap italic">
-          {block.thinking || "(redacted)"}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function ToolCallStepDetail({ block }: { block: ContentBlock & { type: "tool_call" } }) {
-  const [show, setShow] = useState(false);
-  const n = (block.name ?? "").toLowerCase();
+function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
+  const [open, setOpen] = useState(false);
+  const n = block.name ?? "tool";
   const args = block.arguments ?? {};
 
-  let argText = "";
+  let cmdPreview = "";
   if (n === "bash") {
-    argText = toolArgText(args.command ?? args.input ?? args);
+    cmdPreview = toolArgText(args.command ?? args.input ?? args);
   } else if (n === "read" || n === "write" || n === "edit") {
-    argText = toolArgText(args.path ?? args.file_path ?? args.input);
+    cmdPreview = toolArgText(args.path ?? args.file_path ?? args.input);
+    const pts = cmdPreview.split("/");
+    cmdPreview = pts.length > 2 ? "…/" + pts.slice(-2).join("/") : cmdPreview;
   } else {
-    argText = JSON.stringify(args, null, 2);
+    cmdPreview = JSON.stringify(args);
   }
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        {n === "bash" ? (
-          <code className="text-[10px] font-mono text-warning/90 truncate max-w-md">
-            $ {argText}
-          </code>
-        ) : (
-          <code className="text-[10px] font-mono text-muted-foreground/80 truncate max-w-md">
-            {n}: {argText}
-          </code>
-        )}
-        <button
-          onClick={() => setShow(!show)}
-          className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline cursor-pointer shrink-0 ml-auto"
-        >
-          <span>{show ? "Hide details" : "Show details"}</span>
-        </button>
-      </div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground/80 hover:text-foreground cursor-pointer font-mono"
+      >
+        <span>
+          Ran <span className="font-semibold text-foreground/90">{n}</span> {cmdPreview}
+        </span>
+        <span className="text-[10px] text-muted-foreground/40">{open ? "▾" : "▸"}</span>
+      </button>
 
-      {show && (
-        <div className="space-y-1.5 border border-border/40 rounded-lg p-2 bg-muted/20">
+      {open && (
+        <div className="space-y-1.5 border border-border/40 rounded-lg p-2 bg-muted/20 font-mono text-[10px]">
           <div className="bg-muted/50 rounded overflow-hidden p-1.5 border border-border/20">
-            <div className="text-[9px] font-mono text-muted-foreground/50 border-b border-border/20 pb-0.5 mb-1 flex items-center gap-1.5">
-              {n === "bash" ? <Terminal className="size-2.5" /> : <FileText className="size-2.5" />}
+            <div className="text-[9px] text-muted-foreground/50 border-b border-border/20 pb-0.5 mb-1 flex items-center gap-1.5">
+              <Terminal className="size-2.5" />
               <span>{n} input</span>
             </div>
-            <pre className="text-[10px] font-mono whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed text-muted-foreground/90">
-              {argText}
+            <pre className="whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed text-muted-foreground/90">
+              {toolArgText(args.command ?? args.input ?? args)}
             </pre>
           </div>
 
@@ -333,7 +247,7 @@ function ToolCallStepDetail({ block }: { block: ContentBlock & { type: "tool_cal
             >
               <div
                 className={cn(
-                  "text-[9px] font-mono border-b border-border/20 pb-0.5 mb-1 flex items-center gap-1.5",
+                  "text-[9px] border-b border-border/20 pb-0.5 mb-1 flex items-center gap-1.5",
                   block.result.is_error ? "text-destructive" : "text-success",
                 )}
               >
@@ -342,7 +256,7 @@ function ToolCallStepDetail({ block }: { block: ContentBlock & { type: "tool_cal
               </div>
               <pre
                 className={cn(
-                  "text-[10px] font-mono whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed",
+                  "whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed",
                   block.result.is_error ? "text-destructive/80" : "text-muted-foreground/75",
                 )}
               >
