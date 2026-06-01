@@ -52,7 +52,7 @@ function UserMessage({ msg }: { msg: ProcessedMessage }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] min-w-0">
-        <div className="rounded-[20px] rounded-tr-[4px] bg-muted/65 border border-border/50 px-4 py-2.5 text-foreground break-words">
+        <div className="rounded-[20px] rounded-tr-[4px] bg-muted/65 border border-border/50 px-4 py-2.5 text-foreground break-all">
           <div className="prose prose-sm max-w-none text-foreground [&_*]:text-foreground">
             <Streamdown>{extractUserText(msg)}</Streamdown>
           </div>
@@ -134,7 +134,7 @@ function AssistantMessage({ msg }: { msg: ProcessedMessage }) {
 function BlockRenderer({ block }: { block: ContentBlock }) {
   if (block.type === "text")
     return (
-      <div className="prose prose-sm max-w-none break-words rounded-[20px] rounded-tl-[4px] border border-border/60 bg-card/45 px-5 py-3.5 text-foreground shadow-xs">
+      <div className="prose prose-sm max-w-none break-all rounded-[20px] rounded-tl-[4px] border border-border/60 bg-card/45 px-5 py-3.5 text-foreground shadow-xs">
         <Streamdown>{block.text}</Streamdown>
       </div>
     );
