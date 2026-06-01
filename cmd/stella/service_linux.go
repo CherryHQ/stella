@@ -3,7 +3,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,27 +10,6 @@ import (
 	"strings"
 )
 
-const userUnitTemplate = `[Unit]
-Description=stella — self-hosted AI assistant daemon
-Documentation=https://stella.cherryin.com/docs
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-
-ExecStart=STELLA_BIN
-Restart=on-failure
-RestartSec=5
-TimeoutStopSec=30
-
-Environment=STELLA_HOME=%h/.stella
-
-[Install]
-WantedBy=default.target
-`
-
-// System-mode template: no User=/Group=/WorkingDirectory= — runs as root.
 const systemUnitTemplate = `[Unit]
 Description=stella — self-hosted AI assistant daemon
 Documentation=https://stella.cherryin.com/docs
@@ -40,22 +18,36 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=stella
+Group=stella
+WorkingDirectory=/var/lib/stella
+Environment=STELLA_HOME=/var/lib/stella
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-ExecStart=STELLA_BIN
+ExecStart=STELLA_EXEC
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
 
 NoNewPrivileges=true
 PrivateTmp=true
+StateDirectory=stella
+StateDirectoryMode=0750
+CacheDirectory=stella
+CacheDirectoryMode=0750
+LogsDirectory=stella
+LogsDirectoryMode=0750
 
 [Install]
 WantedBy=multi-user.target
 `
 
 const (
-	unitName        = "stella.service"
-	serviceModeFile = ".service-mode"
+	unitName    = "stella.service"
+	systemUser  = "stella"
+	systemGroup = "stella"
+	systemHome  = "/var/lib/stella"
+	systemPATH  = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
 type systemdManager struct{}
@@ -64,138 +56,79 @@ func newServiceManager() serviceManager {
 	return &systemdManager{}
 }
 
-func (m *systemdManager) Install(system bool) error {
+func (m *systemdManager) Install() error {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return fmt.Errorf("systemctl not found: stella service requires systemd")
-	}
-
-	if err := checkBwrap(); err != nil {
-		return err
 	}
 
 	bin, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
-
-	var unitPath string
-	var unitContent string
-
-	if system {
-		unitPath = filepath.Join("/etc/systemd/system", unitName)
-		unitContent = strings.ReplaceAll(systemUnitTemplate, "STELLA_BIN", bin)
-	} else {
-		configDir, err := os.UserConfigDir()
-		if err != nil {
-			return fmt.Errorf("resolve config dir: %w", err)
-		}
-		unitDir := filepath.Join(configDir, "systemd", "user")
-		if err := os.MkdirAll(unitDir, 0o755); err != nil {
-			return fmt.Errorf("create systemd user dir: %w", err)
-		}
-		unitPath = filepath.Join(unitDir, unitName)
-		unitContent = strings.ReplaceAll(userUnitTemplate, "STELLA_BIN", bin)
+	bin, err = filepath.Abs(bin)
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
 	}
 
+	if err := ensureSystemServiceAccount(); err != nil {
+		return err
+	}
+	if err := checkSystemServiceRuntime(bin); err != nil {
+		return err
+	}
+	if err := checkSystemServiceConfig(); err != nil {
+		return err
+	}
+
+	unitPath := filepath.Join("/etc/systemd/system", unitName)
+	unitContent := strings.ReplaceAll(systemUnitTemplate, "STELLA_EXEC", unitExecStart(bin))
 	if err := os.WriteFile(unitPath, []byte(unitContent), 0o644); err != nil {
 		return fmt.Errorf("write unit file: %w", err)
 	}
 
-	if err := persistMode(system); err != nil {
+	if err := systemctl("daemon-reload"); err != nil {
 		return err
 	}
-
-	if system {
-		if err := systemctl(false, "daemon-reload"); err != nil {
-			return err
-		}
-		if err := systemctl(false, "enable", "--now", "stella"); err != nil {
-			return err
-		}
-	} else {
-		if err := systemctl(true, "daemon-reload"); err != nil {
-			return err
-		}
-		if err := systemctl(true, "enable", "--now", "stella"); err != nil {
-			return err
-		}
-		// Allow service to survive user logout.
-		_ = exec.Command("loginctl", "enable-linger", os.Getenv("USER")).Run()
+	if err := systemctl("enable", "--now", "stella"); err != nil {
+		return err
 	}
 
 	fmt.Println("stella service installed and started.")
 	return nil
 }
 
-func (m *systemdManager) Uninstall(system bool) error {
-	_ = systemctl(system, "disable", "--now", "stella")
+func (m *systemdManager) Uninstall() error {
+	_ = systemctl("disable", "--now", "stella")
 
-	var unitPath string
-	if system {
-		unitPath = filepath.Join("/etc/systemd/system", unitName)
-	} else {
-		configDir, err := os.UserConfigDir()
-		if err != nil {
-			return fmt.Errorf("resolve config dir: %w", err)
-		}
-		unitPath = filepath.Join(configDir, "systemd", "user", unitName)
-	}
-
+	unitPath := filepath.Join("/etc/systemd/system", unitName)
 	if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove unit file: %w", err)
 	}
 
-	_ = systemctl(system, "daemon-reload")
+	_ = systemctl("daemon-reload")
 
-	if err := removeMode(); err != nil {
-		return err
-	}
-
-	fmt.Println("stella service uninstalled.")
+	fmt.Printf("stella service uninstalled.\nNote: the %s user and %s were preserved. Remove them manually only if you want to delete service data.\n", systemUser, systemHome)
 	return nil
 }
 
 func (m *systemdManager) Start() error {
-	system, err := readMode()
-	if err != nil {
-		return err
-	}
-	return systemctl(system, "start", "stella")
+	return systemctl("start", "stella")
 }
 
 func (m *systemdManager) Stop() error {
-	system, err := readMode()
-	if err != nil {
-		return err
-	}
-	return systemctl(system, "stop", "stella")
+	return systemctl("stop", "stella")
 }
 
 func (m *systemdManager) Restart() error {
-	system, err := readMode()
-	if err != nil {
-		return err
-	}
-	return systemctl(system, "restart", "stella")
+	return systemctl("restart", "stella")
 }
 
 func (m *systemdManager) Status() error {
-	system, err := readMode()
-	if err != nil {
-		return err
-	}
-	return systemctl(system, "status", "stella")
+	return systemctl("status", "stella")
 }
 
 func (m *systemdManager) Logs(follow bool) error {
-	system, err := readMode()
-	if err != nil {
-		return err
-	}
 	args := []string{"-u", "stella"}
-	if !system {
-		args = append([]string{"--user"}, args...)
-	}
 	if follow {
 		args = append(args, "-f")
 	}
@@ -205,88 +138,214 @@ func (m *systemdManager) Logs(follow bool) error {
 	return cmd.Run()
 }
 
-func systemctl(user bool, args ...string) error {
-	var fullArgs []string
-	if user {
-		fullArgs = append([]string{"--user"}, args...)
-	} else {
-		fullArgs = args
-	}
-	cmd := exec.Command("systemctl", fullArgs...)
+func systemctl(args ...string) error {
+	cmd := exec.Command("systemctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-func modeFilePath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	return filepath.Join(home, ".stella", serviceModeFile), nil
+func unitExecStart(bin string) string {
+	return systemdQuoteArg(bin) + " server"
 }
 
-func persistMode(system bool) error {
-	path, err := modeFilePath()
-	if err != nil {
+func systemdQuoteArg(arg string) string {
+	if strings.ContainsAny(arg, "\n\r") {
+		panic("systemdQuoteArg: path contains newline or carriage return")
+	}
+	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `%`, `%%`).Replace(arg)
+	return `"` + escaped + `"`
+}
+
+func ensureSystemServiceAccount() error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("system service install requires root; rerun with sudo")
+	}
+	if err := ensureGroupExists(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create stella dir: %w", err)
-	}
-	mode := "user"
-	if system {
-		mode = "system"
-	}
-	return os.WriteFile(path, []byte(mode), 0o644)
-}
-
-func readMode() (system bool, err error) {
-	path, err := modeFilePath()
-	if err != nil {
-		return false, err
-	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(os.Stderr, "warning: service mode file not found, defaulting to user mode")
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("read service mode: %w", err)
-	}
-	return strings.TrimSpace(string(data)) == "system", nil
-}
-
-func removeMode() error {
-	path, err := modeFilePath()
-	if err != nil {
+	if err := ensureUserExists(); err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove service mode file: %w", err)
+	for _, dir := range []string{systemHome, "/var/cache/stella", "/var/log/stella"} {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("create %s: %w", dir, err)
+		}
+		if err := runCommand("chown", systemUser+":"+systemGroup, dir); err != nil {
+			return fmt.Errorf("chown %s: %w", dir, err)
+		}
+		if err := os.Chmod(dir, 0o750); err != nil {
+			return fmt.Errorf("chmod %s: %w", dir, err)
+		}
 	}
 	return nil
 }
 
-// checkBwrap verifies that bwrap (bubblewrap) is on PATH and can actually
-// create a user namespace. A plain LookPath is not enough: inside containers
-// bwrap is often installed but namespace creation is blocked by the seccomp
-// profile, so we probe with a no-op sandbox.
-func checkBwrap() error {
-	p, err := exec.LookPath("bwrap")
+func ensureGroupExists() error {
+	if groupExists(systemGroup) {
+		return nil
+	}
+	if _, err := exec.LookPath("groupadd"); err != nil {
+		return fmt.Errorf("create %s group: groupadd not found", systemGroup)
+	}
+	if err := runCommand("groupadd", "--system", systemGroup); err != nil {
+		return fmt.Errorf("create %s group: %w", systemGroup, err)
+	}
+	return nil
+}
+
+func groupExists(group string) bool {
+	if exec.Command("getent", "group", group).Run() == nil {
+		return true
+	}
+	data, err := os.ReadFile("/etc/group")
+	if err != nil {
+		return false
+	}
+	prefix := group + ":"
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureUserExists() error {
+	if exec.Command("id", "-u", systemUser).Run() == nil {
+		return nil
+	}
+	if _, err := exec.LookPath("useradd"); err != nil {
+		return fmt.Errorf("create %s user: useradd not found", systemUser)
+	}
+	args := []string{
+		"--system",
+		"--gid", systemGroup,
+		"--home-dir", systemHome,
+		"--create-home",
+		"--shell", nologinShell(),
+		systemUser,
+	}
+	if err := runCommand("useradd", args...); err != nil {
+		return fmt.Errorf("create %s user: %w", systemUser, err)
+	}
+	return nil
+}
+
+func nologinShell() string {
+	for _, shell := range []string{"/usr/sbin/nologin", "/sbin/nologin", "/bin/false"} {
+		if _, err := os.Stat(shell); err == nil {
+			return shell
+		}
+	}
+	return "/bin/false"
+}
+
+func checkSystemServiceConfig() error {
+	envPath := filepath.Join(systemHome, ".env")
+	data, err := os.ReadFile(envPath)
+	if os.IsNotExist(err) {
+		return fmt.Errorf(
+			"%s is required before starting the system service\n"+
+				"  copy or create a .env containing STELLA_VAULT_KEY, then run:\n"+
+				"  chown %s:%s %s && chmod 600 %s",
+			envPath,
+			systemUser,
+			systemGroup,
+			envPath,
+			envPath,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", envPath, err)
+	}
+	if !dotenvHasKey(data, "STELLA_VAULT_KEY") {
+		return fmt.Errorf("%s must contain STELLA_VAULT_KEY before starting the system service", envPath)
+	}
+	if err := runAsSystemUser("test", "-r", envPath); err != nil {
+		return fmt.Errorf("%s cannot read %s: %w", systemUser, envPath, err)
+	}
+	return nil
+}
+
+func dotenvHasKey(data []byte, key string) bool {
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		name = strings.TrimPrefix(strings.TrimSpace(name), "export ")
+		v := strings.TrimSpace(value)
+		v = strings.Trim(v, `"'`)
+		if name == key && v != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func checkSystemServiceRuntime(bin string) error {
+	if err := runAsSystemUser("test", "-x", bin); err != nil {
+		return fmt.Errorf("%s cannot execute %s; install stella somewhere world-executable, such as /usr/local/bin/stella: %w", systemUser, bin, err)
+	}
+	return checkBwrapAsSystemUser()
+}
+
+func checkBwrapAsSystemUser() error {
+	bwrap, err := lookPathIn(systemPATH, "bwrap")
 	if err != nil {
 		return fmt.Errorf(
-			"bwrap (bubblewrap) is required but not found on PATH\n" +
+			"bwrap (bubblewrap) is required but not found in the system PATH\n" +
 				"  install: apt install bubblewrap  |  dnf install bubblewrap  |  pacman -S bubblewrap",
 		)
 	}
-	if err := exec.Command(p, "--dev-bind", "/", "/", "--", "true").Run(); err != nil {
+	if err := runAsSystemUser(bwrap, "--dev-bind", "/", "/", "--", "true"); err != nil {
 		return fmt.Errorf(
-			"bwrap is installed but cannot create a user namespace (got: %w)\n"+
-				"  on some hosts you may need to set: sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n"+
-				"  or ensure /proc/sys/user/max_user_namespaces is non-zero",
+			"bwrap is installed but cannot create a user namespace for %s (got: %w)\n"+
+				"  ensure unprivileged user namespaces are enabled before starting the service",
+			systemUser,
 			err,
 		)
 	}
 	return nil
+}
+
+func lookPathIn(pathEnv, file string) (string, error) {
+	for _, dir := range filepath.SplitList(pathEnv) {
+		path := filepath.Join(dir, file)
+		info, err := os.Stat(path)
+		if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return path, nil
+		}
+	}
+	return "", exec.ErrNotFound
+}
+
+func runAsSystemUser(args ...string) error {
+	if _, err := exec.LookPath("runuser"); err == nil {
+		return runCommand("runuser", append([]string{"-u", systemUser, "--"}, args...)...)
+	}
+	if _, err := exec.LookPath("su"); err == nil {
+		return runCommand("su", "-s", "/bin/sh", systemUser, "-c", strings.Join(shellQuoteArgs(args), " "))
+	}
+	return fmt.Errorf("runuser or su not found")
+}
+
+func shellQuoteArgs(args []string) []string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", `'\''`)+"'")
+	}
+	return quoted
+}
+
+func runCommand(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }

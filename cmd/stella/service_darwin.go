@@ -62,7 +62,7 @@ func newServiceManager() serviceManager {
 	return &launchdManager{}
 }
 
-func (m *launchdManager) Install(_ bool) error {
+func (m *launchdManager) Install() error {
 	if _, err := exec.LookPath("launchctl"); err != nil {
 		return fmt.Errorf("launchctl not found: stella service requires macOS launchd")
 	}
@@ -103,7 +103,7 @@ func (m *launchdManager) Install(_ bool) error {
 	return nil
 }
 
-func (m *launchdManager) Uninstall(_ bool) error {
+func (m *launchdManager) Uninstall() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve home dir: %w", err)

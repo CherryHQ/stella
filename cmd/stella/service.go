@@ -5,8 +5,8 @@ import (
 )
 
 type serviceManager interface {
-	Install(system bool) error
-	Uninstall(system bool) error
+	Install() error
+	Uninstall() error
 	Start() error
 	Stop() error
 	Restart() error
@@ -26,27 +26,15 @@ func serviceCommand() *ucli.Command {
 			{
 				Name:  "install",
 				Usage: "Install and enable stella as a background service",
-				Flags: []ucli.Flag{
-					&ucli.BoolFlag{
-						Name:  "system",
-						Usage: "Install as a system-wide service (Linux only, requires root)",
-					},
-				},
 				Action: func(c *ucli.Context) error {
-					return newServiceManager().Install(c.Bool("system"))
+					return newServiceManager().Install()
 				},
 			},
 			{
 				Name:  "uninstall",
 				Usage: "Disable and remove the stella background service",
-				Flags: []ucli.Flag{
-					&ucli.BoolFlag{
-						Name:  "system",
-						Usage: "Uninstall the system-wide service (Linux only, requires root)",
-					},
-				},
 				Action: func(c *ucli.Context) error {
-					return newServiceManager().Uninstall(c.Bool("system"))
+					return newServiceManager().Uninstall()
 				},
 			},
 			{

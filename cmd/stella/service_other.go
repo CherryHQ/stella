@@ -8,11 +8,11 @@ var errServiceNotSupported = errors.New("stella service is not supported on this
 
 type stubManager struct{}
 
-func newServiceManager() serviceManager             { return &stubManager{} }
-func (s *stubManager) Install(_ bool) error         { return errServiceNotSupported }
-func (s *stubManager) Uninstall(_ bool) error       { return errServiceNotSupported }
-func (s *stubManager) Start() error                 { return errServiceNotSupported }
-func (s *stubManager) Stop() error                  { return errServiceNotSupported }
-func (s *stubManager) Restart() error               { return errServiceNotSupported }
-func (s *stubManager) Status() error                { return errServiceNotSupported }
-func (s *stubManager) Logs(_ bool) error            { return errServiceNotSupported }
+func newServiceManager() serviceManager  { return &stubManager{} }
+func (s *stubManager) Install() error    { return errServiceNotSupported }
+func (s *stubManager) Uninstall() error  { return errServiceNotSupported }
+func (s *stubManager) Start() error      { return errServiceNotSupported }
+func (s *stubManager) Stop() error       { return errServiceNotSupported }
+func (s *stubManager) Restart() error    { return errServiceNotSupported }
+func (s *stubManager) Status() error     { return errServiceNotSupported }
+func (s *stubManager) Logs(_ bool) error { return errServiceNotSupported }
