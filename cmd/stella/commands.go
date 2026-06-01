@@ -13,7 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -313,12 +313,10 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 				sessionID = job.SessionID()
 			}
 		}
-		ch := agentSvc.Chat(schedulerJobContext(ctx, agentID, job), agent.ChatRequest{
+		ch := agentSvc.ChatForScheduler(schedulerJobContext(ctx, agentID, job), agent.SchedulerChatRequest{
 			SessionID: sessionID,
 			UserID:    job.UserID,
 			AgentID:   agentID,
-			Channel:   agentsession.ChannelScheduler,
-			Kind:      agentsession.KindScheduler,
 			Message:   schedulerJobMessage(job),
 		})
 		var runErr error

@@ -71,14 +71,7 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 	if kind == session.KindMain && projectID == "" {
 		info, err = svc.ResolveMainSession(r.Context(), authInfo.UserID, agentID)
 	} else {
-		info, err = svc.Sessions.Ensure(r.Context(), session.Request{
-			UserID:          authInfo.UserID,
-			AgentID:         agentID,
-			Kind:            kind,
-			Channel:         session.ChannelWeb,
-			ProjectID:       projectID,
-			CreateIfMissing: true,
-		})
+		info, err = svc.NewSession(r.Context(), authInfo.UserID, agentID, projectID, kind, session.ChannelWeb)
 	}
 	if err != nil {
 		s.writeInternalError(w, err)

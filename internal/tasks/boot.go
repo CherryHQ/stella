@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -129,13 +128,7 @@ func registrySessionMinter(sm agent.ServiceManager, log *slog.Logger) SessionMin
 				"agent_id", agentID)
 			return legacyMintSession(task.UserID)
 		}
-		info, err := svc.Sessions.Ensure(ctx, session.Request{
-			UserID:          task.UserID,
-			AgentID:         agentID,
-			Kind:            session.KindTask,
-			Channel:         session.ChannelTask,
-			CreateIfMissing: true,
-		})
+		info, err := svc.MintTaskSession(ctx, task.UserID, agentID)
 		if err != nil {
 			return "", err
 		}

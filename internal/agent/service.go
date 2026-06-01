@@ -72,24 +72,27 @@ type ServiceManager interface {
 }
 
 // Chat resolves (or creates) a session and executes a chat turn.
-// For private user channels, it calls Sessions.ResolveMain automatically.
+//
+// When SessionID is empty, a new session is created with a generated ID.
+// When SessionID is non-empty, the session must already exist (resume-only);
+// unknown IDs return an error instead of silently creating.
 func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 	kind := req.Kind
 	if kind == "" {
 		kind = session.KindChat
 	}
 	ensureReq := session.Request{
-		ID:              req.SessionID,
-		UserID:          req.UserID,
-		AgentID:         req.AgentID,
-		ProjectID:       req.ProjectID,
-		Kind:            kind,
-		Channel:         req.Channel,
-		CreateIfMissing: true,
+		ID:        req.SessionID,
+		UserID:    req.UserID,
+		AgentID:   req.AgentID,
+		ProjectID: req.ProjectID,
+		Kind:      kind,
+		Channel:   req.Channel,
 	}
 	if req.SessionID != "" {
-		ensureReq.AllowExactIDCreate = true
 		ensureReq.RequireKind = kind
+	} else {
+		ensureReq.CreateIfMissing = true
 	}
 	info, err := s.Sessions.Ensure(ctx, ensureReq)
 	if err != nil {
@@ -106,20 +109,138 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 	return s.Runtime.Chat(ctx, info, req.Message, opts...)
 }
 
-// Delegate runs a delegate turn through a persisted child session.
-// The session is created if missing, or resumed if SessionID is set.
-// Returns an error if the resolved session is not a delegate session.
-func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateResult, error) {
-	ensureReq := session.Request{
+// ChannelChatRequest describes a chat turn on a non-private channel/group session
+// identified by a Stella-derived session key.
+type ChannelChatRequest struct {
+	SessionKey string // system-derived session key (e.g. "agent:telegram:group:123")
+	UserID     string
+	AgentID    string
+	Channel    session.Channel
+	Message    MessageContent
+	Model      string
+}
+
+// ChatForChannel resolves or creates a channel/group chat session using a
+// trusted system-derived session key. Unlike Chat, this method allows exact-ID
+// creation because the key is derived by Stella, not by user/model input.
+func (s *Service) ChatForChannel(ctx context.Context, req ChannelChatRequest) <-chan Event {
+	info, err := s.Sessions.Ensure(ctx, session.Request{
+		ID:                 req.SessionKey,
+		UserID:             req.UserID,
+		AgentID:            req.AgentID,
+		Kind:               session.KindChat,
+		Channel:            req.Channel,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindChat,
+	})
+	if err != nil {
+		out := make(chan Event, 1)
+		out <- Event{Err: fmt.Errorf("resolve channel session: %w", err)}
+		close(out)
+		return out
+	}
+
+	var opts []agentruntime.Option
+	if req.Model != "" {
+		opts = append(opts, agentruntime.WithModel(req.Model))
+	}
+	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+}
+
+// SchedulerChatRequest describes a scheduler-initiated chat turn.
+type SchedulerChatRequest struct {
+	SessionID string // scheduler-derived session ID
+	UserID    string
+	AgentID   string
+	Message   MessageContent
+	Model     string
+}
+
+// ChatForScheduler resolves or creates a scheduler session using a trusted
+// scheduler-derived session ID. Exact-ID creation is allowed because the
+// scheduler system owns the ID derivation.
+func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest) <-chan Event {
+	info, err := s.Sessions.Ensure(ctx, session.Request{
 		ID:                 req.SessionID,
 		UserID:             req.UserID,
 		AgentID:            req.AgentID,
-		ProjectID:          req.ProjectID,
-		Kind:               session.KindDelegate,
-		Channel:            session.ChannelDelegate,
+		Kind:               session.KindScheduler,
+		Channel:            session.ChannelScheduler,
 		CreateIfMissing:    true,
-		AllowExactIDCreate: req.SessionID != "",
-		RequireKind:        session.KindDelegate,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindScheduler,
+	})
+	if err != nil {
+		out := make(chan Event, 1)
+		out <- Event{Err: fmt.Errorf("resolve scheduler session: %w", err)}
+		close(out)
+		return out
+	}
+
+	var opts []agentruntime.Option
+	if req.Model != "" {
+		opts = append(opts, agentruntime.WithModel(req.Model))
+	}
+	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+}
+
+// ResolveChannelSession resolves or creates a channel/group chat session using a
+// trusted system-derived session key. This is the session-only variant of
+// ChatForChannel — it returns the Info without executing a chat turn.
+func (s *Service) ResolveChannelSession(ctx context.Context, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.Sessions.Ensure(ctx, session.Request{
+		ID:                 sessionKey,
+		UserID:             userID,
+		AgentID:            agentID,
+		Kind:               session.KindChat,
+		Channel:            channel,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindChat,
+	})
+}
+
+// NewSession creates a new session with a generated ID. Used by the HTTP API
+// when the web UI creates a session — always new, never resume.
+func (s *Service) NewSession(ctx context.Context, userID, agentID, projectID string, kind session.Kind, channel session.Channel) (session.Info, error) {
+	return s.Sessions.Ensure(ctx, session.Request{
+		UserID:          userID,
+		AgentID:         agentID,
+		ProjectID:       projectID,
+		Kind:            kind,
+		Channel:         channel,
+		CreateIfMissing: true,
+	})
+}
+
+// MintTaskSession creates a new task session under the resolved executor agent.
+// The session is always new (generated ID) and uses KindTask/ChannelTask.
+func (s *Service) MintTaskSession(ctx context.Context, userID, executorAgentID string) (session.Info, error) {
+	return s.Sessions.Ensure(ctx, session.Request{
+		UserID:          userID,
+		AgentID:         executorAgentID,
+		Kind:            session.KindTask,
+		Channel:         session.ChannelTask,
+		CreateIfMissing: true,
+	})
+}
+
+// Delegate runs a delegate turn through a persisted child session.
+//
+// When SessionID is empty, a new delegate session is created with a generated ID.
+// When SessionID is non-empty, the session must already exist (resume-only);
+// this prevents model-supplied session_id from reserving arbitrary future IDs.
+func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateResult, error) {
+	ensureReq := session.Request{
+		ID:              req.SessionID,
+		UserID:          req.UserID,
+		AgentID:         req.AgentID,
+		ProjectID:       req.ProjectID,
+		Kind:            session.KindDelegate,
+		Channel:         session.ChannelDelegate,
+		CreateIfMissing: req.SessionID == "",
+		RequireKind:     session.KindDelegate,
 	}
 	info, err := s.Sessions.Ensure(ctx, ensureReq)
 	if err != nil {

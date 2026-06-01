@@ -26,15 +26,7 @@ func (rc *ResolvedChat) ResolveSession(ctx context.Context) (agent.SessionInfo, 
 	if rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:") {
 		return rc.Service.ResolveMainSession(ctx, rc.User.ID, rc.AgentID)
 	}
-	return rc.Service.Sessions.Ensure(ctx, session.Request{
-		ID:                 rc.SessionKey,
-		UserID:             rc.User.ID,
-		AgentID:            rc.AgentID,
-		Kind:               session.KindChat,
-		Channel:            rc.Channel,
-		CreateIfMissing:    true,
-		AllowExactIDCreate: true,
-	})
+	return rc.Service.ResolveChannelSession(ctx, rc.SessionKey, rc.User.ID, rc.AgentID, rc.Channel)
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
