@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
+	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -22,14 +23,15 @@ type cachedSession struct {
 // runnerCache manages active runners keyed by session ID.
 // It is an implementation detail of Runtime.
 type runnerCache struct {
-	sessions     map[string]*cachedSession
-	factory      NewRunnerFunc
-	hooksFn      func() []hooks.HookPlugin
-	defaultModel string
-	mem          memory.Provider
-	idleTimeout  time.Duration
-	mu           sync.Mutex
-	log          *slog.Logger
+	sessions       map[string]*cachedSession
+	factory        NewRunnerFunc
+	hooksFn        func() []hooks.HookPlugin
+	defaultModel   string
+	delegateRunner delegatetool.SessionRunner
+	mem            memory.Provider
+	idleTimeout    time.Duration
+	mu             sync.Mutex
+	log            *slog.Logger
 }
 
 func newRunnerCache(
@@ -87,6 +89,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	factory := c.factory
 	hooksFn := c.hooksFn
 	defaultModel := c.defaultModel
+	delegateRunner := c.delegateRunner
 	c.mu.Unlock()
 
 	effectiveModel := model
@@ -98,13 +101,14 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	}
 
 	r, err := factory(ctx, RunnerParams{
-		Model:     effectiveModel,
-		Memory:    c.mem,
-		UserID:    info.UserID,
-		SessionID: info.ID,
-		AgentID:   info.AgentID,
-		ProjectID: info.ProjectID,
-		HooksFn:   hooksFn,
+		Model:          effectiveModel,
+		Memory:         c.mem,
+		UserID:         info.UserID,
+		SessionID:      info.ID,
+		AgentID:        info.AgentID,
+		ProjectID:      info.ProjectID,
+		HooksFn:        hooksFn,
+		DelegateRunner: delegateRunner,
 	})
 	if err != nil {
 		return nil, nil, err

@@ -8,6 +8,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
+	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -92,6 +93,14 @@ func (rt *Runtime) SetDefaultModel(model string) {
 func (rt *Runtime) SetHooks(fn func() []hooks.HookPlugin) {
 	rt.cache.mu.Lock()
 	rt.cache.hooksFn = fn
+	rt.cache.mu.Unlock()
+}
+
+// SetDelegateRunner wires the delegate session runner into new runners.
+// Call after construction so runners can spawn persistent child sessions.
+func (rt *Runtime) SetDelegateRunner(r delegatetool.SessionRunner) {
+	rt.cache.mu.Lock()
+	rt.cache.delegateRunner = r
 	rt.cache.mu.Unlock()
 }
 

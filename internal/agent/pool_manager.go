@@ -343,7 +343,9 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	}
 	go rt.StartReaper(ctx)
 
-	return &Service{Sessions: reg, Runtime: rt, AgentID: agentID}, nil
+	svc := &Service{Sessions: reg, Runtime: rt, AgentID: agentID}
+	rt.SetDelegateRunner(svc)
+	return svc, nil
 }
 
 // DefaultPool returns the first pool found in the map, or nil if empty.

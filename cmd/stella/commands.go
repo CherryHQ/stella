@@ -187,12 +187,12 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	// v2 task system (Phase 6 boot wiring). The runner is a noop until the
-	// agent.Pool adapter is wired; this still validates the boot path,
-	// scheduler registration, dispatcher tick, and DB plumbing.
+	// v2 task system boot wiring. Services provides registry-backed session minting;
+	// Pools is kept as a fallback for raw runner access until fully migrated.
 	tasksSvc := tasks.New(tasks.BootConfig{
-		DB:     db,
-		Memory: memProvider,
+		DB:       db,
+		Memory:   memProvider,
+		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		Pools: func(agentID string) (agent.NewRunnerFunc, bool) {
 			if poolMgr == nil {
 				return nil, false

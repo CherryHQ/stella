@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -24,9 +25,10 @@ type Service struct {
 
 // BootConfig is the minimal wiring needed at server start.
 type BootConfig struct {
-	DB     *sql.DB
-	Memory memory.Provider // used to mint sessions
-	Pools  func(agentID string) (agent.NewRunnerFunc, bool)
+	DB       *sql.DB
+	Memory   memory.Provider                                  // used to mint sessions when Services is nil
+	Services agent.ServiceManager                             // preferred: registry-backed session minting and chat
+	Pools    func(agentID string) (agent.NewRunnerFunc, bool) // legacy: kept for gradual migration
 	// MaxWorkers, TickEvery, LeaseTTL override defaults; zero values use the
 	// dispatcher's defaults.
 	MaxWorkers int
@@ -38,10 +40,9 @@ type BootConfig struct {
 // New constructs the task system. The dispatcher is constructed but not
 // started; the caller registers it on a scheduler via dispatcher.Start.
 //
-// If BootConfig.Pools is non-nil, the dispatcher uses PoolAdapter to drive
-// real agent.Runner instances. Otherwise it falls back to a noop runner
-// that fails with a clear message — used by tests and by boots that
-// intentionally skip agent wiring.
+// If BootConfig.Services is non-nil, the dispatcher uses Service-backed
+// session minting and PoolAdapter for execution. Otherwise it falls back to a
+// noop runner that fails with a clear message.
 func New(cfg BootConfig) *Service {
 	q := sqlc.New(cfg.DB)
 	svc := NewTransitionService(cfg.DB, q)
@@ -58,12 +59,19 @@ func New(cfg BootConfig) *Service {
 		runner = noopRunner(logger)
 	}
 
+	var newSession SessionMinter
+	if cfg.Services != nil {
+		newSession = registrySessionMinter(cfg.Services, logger)
+	} else {
+		newSession = legacySessionMinter(cfg.Memory, logger)
+	}
+
 	disp := NewDispatcher(DispatcherConfig{
 		Service:    svc,
 		Queries:    q,
 		Runner:     runner,
 		Resolver:   sessionAndCreatorResolver(q, cfg.Memory, logger),
-		NewSession: sessionMinterFor(cfg.Memory, logger),
+		NewSession: newSession,
 		MaxWorkers: cfg.MaxWorkers,
 		TickEvery:  cfg.TickEvery,
 		LeaseTTL:   cfg.LeaseTTL,
@@ -78,45 +86,71 @@ func New(cfg BootConfig) *Service {
 	}
 }
 
-// noopRunner returns a RunnerFunc that always fails. Used until the real
-// agent.Runner adapter is wired (Phase 6 follow-up).
+// noopRunner returns a RunnerFunc that always fails.
 func noopRunner(log *slog.Logger) RunnerFunc {
 	return func(_ context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
 		log.Warn("tasks v2 noop runner invoked",
 			"task_id", run.TaskID.String, "run_id", run.ID,
-			"hint", "wire BootConfig.Pools to a real agent adapter to actually execute tasks")
+			"hint", "wire BootConfig.Services to a real agent.ServiceManager to execute tasks")
 		return tool.Fail(context.Background(),
-			"task system v2 runner not wired (noop): connect cmd/stella to agent.PoolManager",
+			"task system v2 runner not wired (noop): connect cmd/stella to agent.ServiceManager",
 			false)
 	}
 }
 
-// sessionAndCreatorResolver covers steps 2 and 3 of D13's executor
-// resolution. The dispatcher consults the dispatch_hint table itself before
-// invoking this resolver, and applies the creator fallback (task.agent_id)
-// when this returns (false), so this implementation only needs to handle
-// the session-derived case.
-//
-// Session-derived resolution: we'd need to load the session row, find its
-// agent. For Slice 1 we don't have that lookup wired (memory.Provider
-// doesn't expose session→agent today). The dispatcher's creator-fallback
-// branch covers the common case; this returning (false) just defers there.
+// sessionAndCreatorResolver covers executor resolution from a session row.
+// Currently returns (false) so the dispatcher falls back to task.agent_id.
 func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, _ *slog.Logger) ExecutorResolver {
 	return func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 		return "", false
 	}
 }
 
-// sessionMinterFor returns a SessionMinter that produces UUID-tagged session
-// ids. The real agent.Runner integration owns session bootstrap; for the
-// Slice 1 boot we just supply a unique identifier so the run row's
-// session_id has a value. The agent adapter (Phase 6 follow-up) replaces
-// this with one that hooks into memory.Provider's session creation.
-func sessionMinterFor(_ memory.Provider, _ *slog.Logger) SessionMinter {
+// registrySessionMinter creates task sessions through the session.Registry for
+// the executor agent. Sessions are created with KindTask/ChannelTask so they
+// are excluded from user-facing session lists and review candidates.
+func registrySessionMinter(sm agent.ServiceManager, log *slog.Logger) SessionMinter {
+	return func(ctx context.Context, task sqlc.AgentTask) (string, error) {
+		if task.UserID == "" {
+			return "", fmt.Errorf("task has no user_id; cannot mint session")
+		}
+		agentID := ""
+		if task.AgentID.Valid {
+			agentID = task.AgentID.String
+		}
+		if agentID == "" {
+			return "", fmt.Errorf("task has no agent_id; cannot mint session")
+		}
+		svc := sm.GetService(agentID)
+		if svc == nil {
+			log.Warn("registrySessionMinter: no service for agent; falling back to UUID session",
+				"agent_id", agentID)
+			return legacyMintSession(task.UserID)
+		}
+		info, err := svc.Sessions.Ensure(ctx, session.Request{
+			UserID:          task.UserID,
+			AgentID:         agentID,
+			Kind:            session.KindTask,
+			Channel:         session.ChannelTask,
+			CreateIfMissing: true,
+		})
+		if err != nil {
+			return "", err
+		}
+		return info.ID, nil
+	}
+}
+
+// legacySessionMinter is the pre-registry fallback used when ServiceManager is nil.
+func legacySessionMinter(_ memory.Provider, _ *slog.Logger) SessionMinter {
 	return func(_ context.Context, task sqlc.AgentTask) (string, error) {
 		if task.UserID == "" {
 			return "", fmt.Errorf("task has no user_id; cannot mint session")
 		}
-		return "task-" + uuid.NewString(), nil
+		return legacyMintSession(task.UserID)
 	}
+}
+
+func legacyMintSession(_ string) (string, error) {
+	return "task-" + uuid.NewString(), nil
 }
