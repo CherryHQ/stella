@@ -108,21 +108,6 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		builtinByID[p.ID] = p
 	}
 
-	// Validate full definitions before persisting.
-	for _, plugin := range req.Plugins {
-		if plugin.Kind == "" {
-			continue
-		}
-		candidate := &manifestplugins.Manifest{
-			OAuthProviders: builtin.OAuthProviders,
-			Plugins:        []manifestplugins.ManifestPlugin{plugin},
-		}
-		if err := manifestplugins.Validate(candidate); err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
-			return
-		}
-	}
-
 	for _, plugin := range req.Plugins {
 		def, isBuiltin := builtinByID[plugin.ID]
 
@@ -140,6 +125,14 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		if isFullDefinition {
 			configJSON := manifestPluginConfigJSON(plugin)
 			if !isBuiltin || configJSON != manifestPluginConfigJSON(def) {
+				candidate := &manifestplugins.Manifest{
+					OAuthProviders: builtin.OAuthProviders,
+					Plugins:        []manifestplugins.ManifestPlugin{plugin},
+				}
+				if err := manifestplugins.Validate(candidate); err != nil {
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
+					return
+				}
 				cfgStr = configJSON
 			}
 		} else {
