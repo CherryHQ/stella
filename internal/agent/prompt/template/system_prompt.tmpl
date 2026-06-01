@@ -7,7 +7,7 @@
 - `edit`: Surgical string replacement in a file (old text must match exactly)
 - `bash`: Run shell commands — git, system tools, package managers, etc. Do NOT use bash to read/write files; use the dedicated tools above. Prefer `fd`/`rg` over `find`/`grep`.
 - `memory`: Manage persistent knowledge across sessions. See the Memories section below for file scope rules
-- `delegate`: Delegate focused subtasks to isolated child loops. Multiple tasks run in parallel (max 5, concurrency 3)
+- `delegate`: Delegate focused subtasks to isolated persistent child sessions. Multiple tasks run in parallel.
 
 # CLI
 
@@ -29,7 +29,7 @@ Available command groups (use via `bash` tool):
 
 Pick the execution mode by how the work needs to run:
 
-- `delegate` tool — a focused synchronous helper whose result you wait for before continuing. Fresh context, no persistence, can't pause.
+- `delegate` tool — a focused synchronous helper whose result you wait for before continuing. Each delegate runs in its own persistent child session; reuse `session_id` to resume when useful.
 - `stella task` CLI (via bash) — durable async work: survives restarts, runs in the background, can block on input, can require review/approval. When one objective spans several tasks, group them under a goal (`stella task goal`), which rolls its status up from its child tasks.
 - `stella scheduler` CLI (via bash) — a time trigger (cron/interval/one-shot), not the work itself. For long-running or reviewable scheduled work, schedule a prompt that creates a task.
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -57,14 +58,15 @@ type MessageContent = any
 
 // RunnerParams holds parameters for creating a new Runner instance.
 type RunnerParams struct {
-	Model      string                    // model ID (empty = use default)
-	Memory     any                       // memory.Provider — typed as any to avoid circular imports
-	UserID     string                    // auth user ID for user-scoped runner creation
-	SessionID  string                    // current Stella session ID for sandbox helpers
-	AgentID    string                    // agent ID for profile loading
-	ProjectID  string                    // associated project ID (empty = no project)
-	HooksFn    func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
-	ExtraTools []tools.Tool              // additional tools appended to the runner's registry
+	Model          string                     // model ID (empty = use default)
+	Memory         any                        // memory.Provider — typed as any to avoid circular imports
+	UserID         string                     // auth user ID for user-scoped runner creation
+	SessionID      string                     // current Stella session ID for sandbox helpers
+	AgentID        string                     // agent ID for profile loading
+	ProjectID      string                     // associated project ID (empty = no project)
+	HooksFn        func() []hooks.HookPlugin  // resolved at runner-creation time; nil = no hooks
+	ExtraTools     []tools.Tool               // additional tools appended to the runner's registry
+	DelegateRunner delegatetool.SessionRunner // persistent delegate session runner
 }
 
 // Runner runs prompts against an AI backend and exposes lifecycle methods.

@@ -43,6 +43,7 @@ type runnerConfig struct {
 	PluginTools     func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
 	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle   *coreagent.ToolLifecycle
+	DelegateRunner  delegatetool.SessionRunner
 	DelegateTimeout time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout     time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 }
@@ -115,6 +116,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		Presets:        presets,
 		Hooks:          hookSet,
 		ToolLifecycle:  cfg.ToolLifecycle,
+		SessionRunner:  cfg.DelegateRunner,
 		DefaultTimeout: cfg.DelegateTimeout,
 	}))
 

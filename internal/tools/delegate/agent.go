@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -38,10 +37,34 @@ type DelegateConfig struct {
 	Presets       *PresetRegistry       // loaded delegate presets (nil = no presets)
 	Hooks         *hooks.HookSet        // inherited by delegates (nil = no hooks)
 	ToolLifecycle *agent.ToolLifecycle
+	SessionRunner SessionRunner // runs delegate work through persistent agent sessions
 
 	// Configurable limits (zero = use defaults).
 	MaxConcurrency int           // max parallel delegate goroutines
 	DefaultTimeout time.Duration // default delegate wall-clock timeout (0 = 15m)
+}
+
+// SessionRunner runs delegate work through the owning agent pool so child
+// transcripts are persisted and resumable like normal sessions.
+type SessionRunner interface {
+	RunDelegateSession(context.Context, SessionRunRequest) (SessionRunResult, error)
+}
+
+// SessionRunRequest describes a single persisted delegate turn.
+type SessionRunRequest struct {
+	SessionID     string
+	Task          string
+	Model         string
+	System        string
+	ExcludedTools []string
+	Timeout       time.Duration
+}
+
+// SessionRunResult is the output from a persisted delegate session.
+type SessionRunResult struct {
+	SessionID string
+	Output    string
+	Complete  bool
 }
 
 func (c DelegateConfig) maxConcurrency() int {
@@ -95,9 +118,10 @@ func DelegateDefinition(presets *PresetRegistry) tools.Definition {
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":     map[string]any{"type": "string", "description": "Optional task identifier for result mapping. Auto-generated as task_0, task_1… if omitted."},
-							"task":   map[string]any{"type": "string", "description": "Task description for the delegate. Include any context it needs inline."},
-							"preset": presetField(presetNames, presetDesc),
+							"id":         map[string]any{"type": "string", "description": "Optional task identifier for result mapping. Auto-generated as task_0, task_1… if omitted."},
+							"task":       map[string]any{"type": "string", "description": "Task description for the delegate. Include any context it needs inline."},
+							"session_id": map[string]any{"type": "string", "description": "Optional delegate session ID to resume. If omitted, Stella creates a new persistent delegate session and returns its session_id."},
+							"preset":     presetField(presetNames, presetDesc),
 							"model": map[string]any{
 								"type":        "string",
 								"description": "Optional model override (e.g. 'claude-haiku-4-5-20251001'). Defaults to parent model.",
@@ -162,10 +186,11 @@ func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) (string
 }
 
 type delegateTaskConfig struct {
-	ID     string
-	Task   string
-	Preset string
-	Model  string
+	ID        string
+	Task      string
+	Preset    string
+	Model     string
+	SessionID string
 	// Fields below are populated by presets only.
 	System         string
 	Tools          []string
@@ -192,9 +217,10 @@ func (tc *delegateTaskConfig) applyPreset(p DelegatePreset) {
 }
 
 type taskResult struct {
-	Output   string `json:"output"`
-	Error    string `json:"error,omitempty"`
-	Complete bool   `json:"complete"` // true if agent stopped naturally (not max_turns/timeout)
+	Output    string `json:"output"`
+	SessionID string `json:"session_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Complete  bool   `json:"complete"` // true if agent stopped without error
 }
 
 func (t *DelegateTool) emit(ev agent.LoopEvent) {
@@ -241,11 +267,7 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
-	// Build scoped tool set.
-	toolSet, toolDefs, err := t.buildScopedTools(tc.Tools, tc.HasTools)
-	if err != nil {
-		return taskResult{Error: fmt.Sprintf("invalid tools: %v", err)}
-	}
+	excludedTools := t.excludedTools(tc.Tools, tc.HasTools)
 
 	// Build system prompt: base + optional additions.
 	system := t.cfg.System
@@ -253,84 +275,67 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 		system += "\n\n" + tc.System
 	}
 
-	// Resolve model: override name if specified, keep same API.
-	model := t.cfg.Model
+	if t.cfg.SessionRunner == nil {
+		return taskResult{Error: "persistent delegate session runner is not configured"}
+	}
+
+	model := t.cfg.Model.Name
 	if tc.Model != "" {
-		model.Name = tc.Model
-		model.ID = tc.Model
+		model = tc.Model
 	}
 
-	subMeta := hooks.HookMeta{
-		SessionID: memory.SessionIDFromContext(ctx) + ":delegate:" + tc.ID,
-		UserID:    memory.UserIDFromContext(ctx),
-		AgentID:   memory.AgentIDFromContext(ctx),
-	}
-
-	runner, err := agent.NewRunner(agent.RunnerConfig{
-		Stream:          t.cfg.Stream,
-		Model:           model,
-		Tools:           toolSet,
-		ToolDefinitions: toolDefs,
-	},
-		agent.WithSystem(system),
-		agent.WithHooks(t.cfg.Hooks, subMeta),
-		agent.WithToolLifecycle(t.cfg.ToolLifecycle),
-	)
-	if err != nil {
-		return taskResult{Error: fmt.Sprintf("create runner: %v", err)}
-	}
-
-	messages := []ai.Message{
-		ai.UserMessage{Content: tc.Task},
-	}
-
-	log.Info("delegate started", "preset", tc.Preset, "model", model.Name, "timeout", timeout)
+	log.Info("delegate started", "preset", tc.Preset, "model", model, "timeout", timeout, "session_id", tc.SessionID)
 	start := time.Now()
 
 	t.emit(DelegateStarted{TaskID: tc.ID, Preset: tc.Preset})
 
-	history, err := runner.Run(ctx, messages, nil)
+	sessionResult, err := t.cfg.SessionRunner.RunDelegateSession(ctx, SessionRunRequest{
+		SessionID:     tc.SessionID,
+		Task:          tc.Task,
+		Model:         model,
+		System:        system,
+		ExcludedTools: excludedTools,
+		Timeout:       timeout,
+	})
 	duration := time.Since(start)
 
 	if err != nil {
-		log.Error("delegate failed", "duration", duration, "error", err)
+		log.Error("delegate failed", "duration", duration, "error", err, "session_id", sessionResult.SessionID)
 		t.emit(DelegateFinished{TaskID: tc.ID, Duration: duration, Error: err.Error()})
-		return taskResult{Error: err.Error()}
+		return taskResult{SessionID: sessionResult.SessionID, Error: err.Error()}
 	}
 
-	log.Info("delegate finished", "duration", duration)
-
-	output, stopReason := extractLastAssistant(history)
-	complete := stopReason == ai.StopReasonStop || stopReason == ai.StopReasonLength
+	log.Info("delegate finished", "duration", duration, "session_id", sessionResult.SessionID)
 
 	t.emit(DelegateFinished{TaskID: tc.ID, Duration: duration})
 
-	return taskResult{Output: output, Complete: complete}
+	return taskResult{Output: sessionResult.Output, SessionID: sessionResult.SessionID, Complete: sessionResult.Complete}
 }
 
-// buildScopedTools creates a filtered tool set for the delegate.
-// It always excludes "delegate" to prevent recursion.
-func (t *DelegateTool) buildScopedTools(whitelist []string, hasWhitelist bool) (agent.ToolSet, []tools.Definition, error) {
+// excludedTools returns tools hidden for this delegate run. It always excludes
+// "delegate" to prevent recursion; preset whitelists hide everything else not
+// explicitly allowed.
+func (t *DelegateTool) excludedTools(whitelist []string, hasWhitelist bool) []string {
+	blocked := map[string]struct{}{delegateToolName: {}}
 	if hasWhitelist {
-		// Filter out "delegate" from whitelist.
-		filtered := make([]string, 0, len(whitelist))
+		allowed := make(map[string]struct{}, len(whitelist))
 		for _, name := range whitelist {
-			if name != delegateToolName {
-				filtered = append(filtered, name)
+			if name != "" && name != delegateToolName {
+				allowed[name] = struct{}{}
 			}
 		}
-		return agent.ToolSetFromRegistryFiltered(t.cfg.Registry, filtered)
-	}
-
-	// No whitelist: all tools minus "delegate".
-	allDefs := t.cfg.Registry.Definitions()
-	names := make([]string, 0, len(allDefs))
-	for _, def := range allDefs {
-		if def.Name != delegateToolName {
-			names = append(names, def.Name)
+		for _, def := range t.cfg.Registry.Definitions() {
+			if _, ok := allowed[def.Name]; !ok {
+				blocked[def.Name] = struct{}{}
+			}
 		}
 	}
-	return agent.ToolSetFromRegistryFiltered(t.cfg.Registry, names)
+
+	out := make([]string, 0, len(blocked))
+	for name := range blocked {
+		out = append(out, name)
+	}
+	return out
 }
 
 // extractLastAssistant returns the text content and stop reason of the last assistant message.
@@ -392,6 +397,9 @@ func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
 		}
 		if model, ok := obj["model"].(string); ok {
 			tc.Model = model
+		}
+		if sessionID, ok := obj["session_id"].(string); ok {
+			tc.SessionID = sessionID
 		}
 
 		tasks = append(tasks, tc)

@@ -17,7 +17,7 @@ If you see a `task_control` tool in your toolset, you are a worker. Otherwise yo
 
 Before creating a task at all, check you actually need one:
 
-- `delegate` — synchronous focused subtask, fresh context, returns inline. No persistence, can't pause. Reach for this first for short research/review/drafting.
+- `delegate` — synchronous focused subtask in a persistent child session, returns inline. It starts fresh unless you pass a previous `session_id` to resume. Reach for this first for short research/review/drafting.
 - `task` — async, durable, survives restarts, can block on input, can require review. Use when work outlives the conversation or needs an approval gate.
 - `scheduler` — a _time trigger_, not the work. For long/reviewable scheduled work, schedule a prompt that **creates a task**; don't cram the work into the job.
 

@@ -152,11 +152,14 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 		}
 	}
 
+	baseSystem := snapshotPrompt
+	if override, ok := SystemOverrideFromContext(ctx); ok {
+		baseSystem = override
+	}
+	if baseSystem == "" {
+		baseSystem = r.SystemPrompt()
+	}
 	if p.beforeRunFn != nil {
-		baseSystem := snapshotPrompt
-		if baseSystem == "" {
-			baseSystem = r.SystemPrompt()
-		}
 		if result, err := p.beforeRunFn(ctx, pkgplugins.BeforeRunContext{
 			SessionID:    sessionID,
 			Channel:      sess.Info.Channel,
@@ -175,8 +178,8 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 		} else if baseSystem != "" {
 			ctx = WithSystemOverride(ctx, baseSystem)
 		}
-	} else if snapshotPrompt != "" {
-		ctx = WithSystemOverride(ctx, snapshotPrompt)
+	} else if baseSystem != "" {
+		ctx = WithSystemOverride(ctx, baseSystem)
 	}
 
 	// Store user message via memory provider (after assembly to avoid duplication).
