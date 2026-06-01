@@ -3,7 +3,7 @@ import { Streamdown } from "streamdown";
 import type { Message, ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Terminal } from "lucide-react";
+import { ChevronDown, Terminal, Brain, FileText } from "lucide-react";
 
 interface Props {
   messages: Message[];
@@ -164,15 +164,17 @@ function StepsGroup({ blocks }: { blocks: ContentBlock[] }) {
       </div>
 
       {expanded && (
-        <div className="space-y-3.5 pt-1">
+        <div className="space-y-4 pt-1">
           {blocks.map((block, idx) => {
             if (block.type === "thinking" && block.thinking) {
               return (
-                <div
-                  key={idx}
-                  className="text-xs text-muted-foreground/90 leading-relaxed whitespace-pre-wrap"
-                >
-                  {block.thinking}
+                <div key={idx} className="flex gap-2.5 items-start py-0.5">
+                  <span className="flex items-center justify-center text-primary/50 mt-1 shrink-0">
+                    <Brain className="size-3.5" />
+                  </span>
+                  <div className="text-xs text-muted-foreground/75 leading-relaxed whitespace-pre-wrap border-l border-border/40 pl-3">
+                    {block.thinking}
+                  </div>
                 </div>
               );
             }
@@ -203,26 +205,44 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
     cmdPreview = JSON.stringify(args);
   }
 
+  const isFileTool = n === "read" || n === "write" || n === "edit";
+
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2 py-1">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground/80 hover:text-foreground cursor-pointer font-mono"
+        className={cn(
+          "flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card hover:bg-muted/40 hover:border-border/60 transition-all cursor-pointer font-mono text-[11px] text-muted-foreground hover:text-foreground shadow-2xs w-fit max-w-full min-w-0",
+          open && "border-primary/20 bg-muted/20",
+        )}
       >
-        <span>
-          Ran <span className="font-semibold text-foreground/90">{n}</span> {cmdPreview}
+        <span className="flex items-center justify-center text-muted-foreground/60 shrink-0">
+          {isFileTool ? <FileText className="size-3.5" /> : <Terminal className="size-3.5" />}
         </span>
-        <span className="text-[10px] text-muted-foreground/40">{open ? "▾" : "▸"}</span>
+        <span
+          className={cn(
+            "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider font-sans shrink-0",
+            n === "bash"
+              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              : "bg-primary/10 text-primary",
+          )}
+        >
+          {n}
+        </span>
+        <span className="truncate text-foreground/90 font-medium">{cmdPreview}</span>
+        <span className="text-[9px] text-muted-foreground/40 shrink-0 ml-0.5">
+          {open ? "▾" : "▸"}
+        </span>
       </button>
 
       {open && (
-        <div className="space-y-1.5 border border-border/40 rounded-lg p-2 bg-muted/20 font-mono text-[10px]">
-          <div className="bg-muted/50 rounded overflow-hidden p-1.5 border border-border/20">
-            <div className="text-[9px] text-muted-foreground/50 border-b border-border/20 pb-0.5 mb-1 flex items-center gap-1.5">
+        <div className="space-y-1.5 border border-border/40 rounded-lg p-2.5 bg-muted/20 font-mono text-[10px] max-w-full overflow-hidden">
+          <div className="bg-muted/50 rounded overflow-hidden p-2 border border-border/20">
+            <div className="text-[9px] text-muted-foreground/50 border-b border-border/20 pb-1 mb-1.5 flex items-center gap-1.5">
               <Terminal className="size-2.5" />
               <span>{n} input</span>
             </div>
-            <pre className="whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed text-muted-foreground/90">
+            <pre className="whitespace-pre-wrap max-h-56 overflow-y-auto leading-relaxed text-muted-foreground/90 break-all">
               {toolArgText(args.command ?? args.input ?? args)}
             </pre>
           </div>
@@ -230,7 +250,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
           {block.result && (
             <div
               className={cn(
-                "rounded overflow-hidden p-1.5 border",
+                "rounded overflow-hidden p-2 border",
                 block.result.is_error
                   ? "border-destructive/20 bg-destructive/5"
                   : "border-success/20 bg-success/5",
@@ -238,7 +258,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             >
               <div
                 className={cn(
-                  "text-[9px] border-b border-border/20 pb-0.5 mb-1 flex items-center gap-1.5",
+                  "text-[9px] border-b border-border/20 pb-1 mb-1.5 flex items-center gap-1.5",
                   block.result.is_error ? "text-destructive" : "text-success",
                 )}
               >
@@ -247,7 +267,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
               </div>
               <pre
                 className={cn(
-                  "whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed",
+                  "whitespace-pre-wrap max-h-56 overflow-y-auto leading-relaxed break-all",
                   block.result.is_error ? "text-destructive/80" : "text-muted-foreground/75",
                 )}
               >
