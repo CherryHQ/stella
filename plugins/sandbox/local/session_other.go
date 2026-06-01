@@ -14,7 +14,7 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 }
 
 // createSessionTmpMounts returns no temp mounts on platforms other than Linux and macOS.
-func createSessionTmpMounts() ([]tmpMount, bool, error) { return nil, false, nil }
+func createSessionTmpMounts(sandboxpkg.Policy) ([]tmpMount, error) { return nil, nil }
 
 // checkSandboxRequirements is a no-op on platforms other than Linux.
 func checkSandboxRequirements() error { return nil }

@@ -124,7 +124,7 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 	}
 
 	policy := pkgsandbox.Policy{
-		Filesystem: runnerFilesystemPolicy(paths),
+		Filesystem: runnerFilesystemPolicy(paths, cfg.UserID),
 		Network: pkgsandbox.NetworkPolicy{
 			Mode: pkgsandbox.NetworkMode(cfg.SandboxConfig.Network.Mode),
 		},

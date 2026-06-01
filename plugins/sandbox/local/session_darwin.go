@@ -52,25 +52,30 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 }
 
 // createSessionTmpMounts returns tmpMount pairs for macOS temp paths.
-// On macOS, /tmp and /var/tmp are symlinks into /private; both bash (via
-// sandbox-exec, which allows writes to /private/tmp and /private/var/tmp)
-// and file tools share the same host filesystem, so no bind is needed —
-// only the path-guard needs to know the real paths.
+// On macOS, /tmp and /var/tmp are symlinks into /private; sandbox-exec cannot
+// bind-mount, so this maps file-tool access to the policy temp dir while shell
+// commands still run on the host filesystem.
 //
 // To add support for a new sandbox temp path:
-//  1. Resolve its symlink target and append a tmpMount{sandboxPath, realPath}.
+//  1. Resolve its symlink target and append a tmpMount{sandboxPath, realPath, owned}.
 //  2. Add a corresponding allow rule in buildSeatbeltProfile if writes are needed.
-func createSessionTmpMounts() ([]tmpMount, bool, error) {
+func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
 	resolve := func(p, fallback string) string {
 		if r, err := filepath.EvalSymlinks(p); err == nil {
 			return r
 		}
 		return fallback
 	}
+	tmp := policy.Filesystem.TempDirHost
+	if tmp == "" {
+		tmp = resolve("/tmp", "/private/tmp")
+	} else if err := sandboxpkg.EnsurePrivateDir(tmp); err != nil {
+		return nil, err
+	}
 	return []tmpMount{
-		{sandboxPath: "/tmp", realPath: resolve("/tmp", "/private/tmp")},
+		{sandboxPath: "/tmp", realPath: tmp},
 		{sandboxPath: "/var/tmp", realPath: resolve("/var/tmp", "/private/var/tmp")},
-	}, false, nil
+	}, nil
 }
 
 // checkSandboxRequirements verifies that sandbox-exec is available and functional.

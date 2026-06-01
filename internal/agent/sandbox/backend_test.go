@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +176,19 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 // TestBuildSandboxEnv_vaultSecretsInjected verifies that vault secrets appear
 // in the sandbox env and that runner-set vars (STELLA_HOME) take precedence over
 // any same-named vault entry.
+func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
+	paths := Paths{UserRoot: "/workspace/users/42", WorkDir: "/workspace/users/42"}
+	policy := runnerFilesystemPolicy(paths, "42")
+	if policy.TempDirHost != filepath.Join(os.TempDir(), "42") {
+		t.Fatalf("TempDirHost = %q, want %q", policy.TempDirHost, filepath.Join(os.TempDir(), "42"))
+	}
+	for _, unsafeID := range []string{"../42", ".", "..", "a/b", `a\\b`} {
+		if got := runnerFilesystemPolicy(paths, unsafeID).TempDirHost; got != "" {
+			t.Fatalf("unsafe user id %q should not produce temp dir, got %q", unsafeID, got)
+		}
+	}
+}
+
 func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 	cfg := Config{
 		Paths: Paths{

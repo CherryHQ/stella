@@ -35,7 +35,12 @@ func TestMergeEnv(t *testing.T) {
 }
 
 func TestBuildMountTable(t *testing.T) {
-	table := buildMountTable("/host/ws", "/container/ws", "/host/.stella", "/home/stella/.stella", nil)
+	table := buildMountTable(mountTableOptions{
+		WorkspaceHost:       "/host/ws",
+		WorkspaceMount:      "/container/ws",
+		StellaHomeHost:      "/host/.stella",
+		StellaHomeContainer: "/home/stella/.stella",
+	})
 	if len(table) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(table))
 	}
@@ -51,12 +56,31 @@ func TestBuildMountTable(t *testing.T) {
 	if table[2].HostPath != "/host/.stella/.agents/skills" || table[2].ContainerPath != "/home/stella/.stella/.agents/skills" || !table[2].ReadOnly {
 		t.Fatalf("unexpected stella skills mount: %+v", table[2])
 	}
-	tableExtra := buildMountTable("/host/ws", "/container/ws", "", "", []string{"/extra/path"})
-	if len(tableExtra) != 2 {
-		t.Fatalf("expected 2 entries with extra, got %d", len(tableExtra))
+	tableExtra := buildMountTable(mountTableOptions{
+		WorkspaceHost:       "/host/ws",
+		WorkspaceMount:      "/container/ws",
+		ExtraReadOnlyMounts: []string{"/extra/path"},
+		TempDirHost:         "/tmp/user-1",
+	})
+	if len(tableExtra) != 3 {
+		t.Fatalf("expected 3 entries with extra and tmp, got %d", len(tableExtra))
 	}
 	if tableExtra[1].HostPath != "/extra/path" || tableExtra[1].ContainerPath != "/extra/path" || !tableExtra[1].ReadOnly {
 		t.Fatalf("unexpected extra mount: %+v", tableExtra[1])
+	}
+	if tableExtra[2].HostPath != "/tmp/user-1" || tableExtra[2].ContainerPath != "/tmp" || tableExtra[2].ReadOnly {
+		t.Fatalf("unexpected tmp mount: %+v", tableExtra[2])
+	}
+}
+
+func TestToHostPathUsesDeepestContainerMount(t *testing.T) {
+	mounts := []dockerclient.Mount{
+		{HostPath: "/host/ws", ContainerPath: "/workspace"},
+		{HostPath: "/tmp/user-1", ContainerPath: "/tmp"},
+	}
+	got, ok := toHostPath(mounts, "/tmp/a.txt")
+	if !ok || got != "/tmp/user-1/a.txt" {
+		t.Fatalf("toHostPath = %q, %v; want /tmp/user-1/a.txt, true", got, ok)
 	}
 }
 

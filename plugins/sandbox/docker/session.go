@@ -183,7 +183,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}
 
 	if stellaHome != "" {
-		opts.ReadOnlyMounts = []dockerclient.Mount{
+		opts.ExtraMounts = []dockerclient.Mount{
 			{
 				HostPath:      filepath.Join(stellaHome, ".agents", "skills"),
 				ContainerPath: filepath.Join(stellaHomeMount, ".agents", "skills"),
@@ -191,10 +191,21 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 			},
 		}
 	}
+	if policy.Filesystem.TempDirHost != "" {
+		if err := sandboxpkg.EnsurePrivateDir(policy.Filesystem.TempDirHost); err != nil {
+			recordError(span, err)
+			span.End()
+			return nil, fmt.Errorf("docker session: create temp dir: %w", err)
+		}
+		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+			HostPath:      f.cfg.TranslateToDaemonPath(policy.Filesystem.TempDirHost),
+			ContainerPath: "/tmp",
+		})
+	}
 	// Mount extra read-only paths (e.g. skill dirs) at their host path inside the
 	// container (same-path strategy). HostPath is translated for DooD scenarios.
 	for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
-		opts.ReadOnlyMounts = append(opts.ReadOnlyMounts, dockerclient.Mount{
+		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 			HostPath:      f.cfg.TranslateToDaemonPath(hostPath),
 			ContainerPath: hostPath,
 			ReadOnly:      true,
@@ -204,7 +215,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		// bash can write to them via the writable workspace mount.
 		rel, relErr := filepath.Rel(workspaceHost, hostPath)
 		if relErr == nil && !strings.HasPrefix(rel, "..") && rel != "." {
-			opts.ReadOnlyMounts = append(opts.ReadOnlyMounts, dockerclient.Mount{
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 				HostPath:      f.cfg.TranslateToDaemonPath(hostPath),
 				ContainerPath: filepath.Join(workspaceMount, rel),
 				ReadOnly:      true,
@@ -220,7 +231,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		return nil, err
 	}
 	if toolCache != nil {
-		opts.ReadOnlyMounts = append(opts.ReadOnlyMounts, dockerclient.Mount{
+		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 			HostPath:      toolCache.VolumeName,
 			ContainerPath: containerUserToolsRoot,
 			ReadOnly:      true,
@@ -241,7 +252,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	))
 
 	// Build mount table for the workspace plus mounted STELLA_HOME assets and extra mounts.
-	mountTable := buildMountTable(workspaceHost, workspaceMount, policy.Env["STELLA_HOME"], stellaHomeMount, policy.Filesystem.ExtraReadOnlyMounts)
+	mountTable := buildMountTable(mountTableOptions{
+		WorkspaceHost:       workspaceHost,
+		WorkspaceMount:      workspaceMount,
+		StellaHomeHost:      policy.Env["STELLA_HOME"],
+		StellaHomeContainer: stellaHomeMount,
+		ExtraReadOnlyMounts: policy.Filesystem.ExtraReadOnlyMounts,
+		TempDirHost:         policy.Filesystem.TempDirHost,
+	})
 
 	session := &dockerSession{
 		id:           sessionID,
@@ -271,35 +289,51 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	}
 }
 
-// buildMountTable returns the bind mount set that toContainerPath should consult.
-// extraHostPaths are same-path mounts: container path equals the original host path.
-func buildMountTable(workspaceHost, workspaceMount, stellaHomeHost, stellaHomeContainer string, extraHostPaths []string) []dockerclient.Mount {
+type mountTableOptions struct {
+	WorkspaceHost       string
+	WorkspaceMount      string
+	StellaHomeHost      string
+	StellaHomeContainer string
+	ExtraReadOnlyMounts []string
+	TempDirHost         string
+}
+
+// buildMountTable returns the process-view bind mount set that path resolution
+// should consult. Host paths here are intentionally not daemon-translated: file
+// tools run in the Stella process namespace, not the Docker daemon namespace.
+func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 	mounts := []dockerclient.Mount{
 		{
-			HostPath:      workspaceHost,
-			ContainerPath: workspaceMount,
+			HostPath:      opts.WorkspaceHost,
+			ContainerPath: opts.WorkspaceMount,
 			ReadOnly:      false,
 		},
 	}
-	if stellaHomeHost != "" && stellaHomeContainer != "" {
+	if opts.StellaHomeHost != "" && opts.StellaHomeContainer != "" {
 		mounts = append(mounts,
 			dockerclient.Mount{
-				HostPath:      stellaHomeHost,
-				ContainerPath: stellaHomeContainer,
+				HostPath:      opts.StellaHomeHost,
+				ContainerPath: opts.StellaHomeContainer,
 				ReadOnly:      true,
 			},
 			dockerclient.Mount{
-				HostPath:      filepath.Join(stellaHomeHost, ".agents", "skills"),
-				ContainerPath: filepath.Join(stellaHomeContainer, ".agents", "skills"),
+				HostPath:      filepath.Join(opts.StellaHomeHost, ".agents", "skills"),
+				ContainerPath: filepath.Join(opts.StellaHomeContainer, ".agents", "skills"),
 				ReadOnly:      true,
 			},
 		)
 	}
-	for _, hostPath := range extraHostPaths {
+	for _, hostPath := range opts.ExtraReadOnlyMounts {
 		mounts = append(mounts, dockerclient.Mount{
 			HostPath:      hostPath,
 			ContainerPath: hostPath,
 			ReadOnly:      true,
+		})
+	}
+	if opts.TempDirHost != "" {
+		mounts = append(mounts, dockerclient.Mount{
+			HostPath:      opts.TempDirHost,
+			ContainerPath: "/tmp",
 		})
 	}
 	return mounts
@@ -556,6 +590,8 @@ func (h *dockerHost) ResolvePath(path string) (string, error) {
 	if !filepath.IsAbs(resolved) {
 		workingDir := h.session.policy.Filesystem.WorkingDir
 		resolved = filepath.Join(workingDir, path)
+	} else if hostPath, ok := toHostPath(h.session.mountTable, resolved); ok {
+		resolved = hostPath
 	}
 	if _, err := toContainerPath(h.session.mountTable, resolved); err != nil {
 		return "", fmt.Errorf("docker host: path %q is outside the session mount set: %w", path, err)
@@ -564,6 +600,32 @@ func (h *dockerHost) ResolvePath(path string) (string, error) {
 		return "", fmt.Errorf("docker host: %w", err)
 	}
 	return resolved, nil
+}
+
+// toHostPath maps a container absolute path to its equivalent host path when
+// the path is covered by a mount's container path.
+func toHostPath(mounts []dockerclient.Mount, containerPath string) (string, bool) {
+	bestRel := ""
+	bestMount := dockerclient.Mount{}
+	found := false
+	for _, m := range mounts {
+		rel, err := filepath.Rel(m.ContainerPath, containerPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if !found || len(m.ContainerPath) > len(bestMount.ContainerPath) {
+			bestRel = rel
+			bestMount = m
+			found = true
+		}
+	}
+	if !found {
+		return "", false
+	}
+	if bestRel == "." {
+		return bestMount.HostPath, true
+	}
+	return filepath.Join(bestMount.HostPath, bestRel), true
 }
 
 // rejectSymlinkTraversal errors if any component of `path` at or below its

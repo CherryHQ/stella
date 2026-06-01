@@ -72,7 +72,7 @@ func TestBuildMounts(t *testing.T) {
 	})
 	t.Run("readonly mounts included", func(t *testing.T) {
 		opts := CreateOptions{
-			ReadOnlyMounts: []Mount{
+			ExtraMounts: []Mount{
 				{HostPath: "/host/ro", ContainerPath: "/container/ro", ReadOnly: true},
 			},
 		}
@@ -87,7 +87,7 @@ func TestBuildMounts(t *testing.T) {
 
 	t.Run("volume mounts included", func(t *testing.T) {
 		opts := CreateOptions{
-			ReadOnlyMounts: []Mount{
+			ExtraMounts: []Mount{
 				{HostPath: "stella-tools-abc", ContainerPath: "/tools", ReadOnly: true, Type: MountTypeVolume},
 			},
 		}
@@ -103,7 +103,7 @@ func TestBuildMounts(t *testing.T) {
 		opts := CreateOptions{
 			WorkspaceHost:  "/host/ws",
 			WorkspaceMount: "/container/ws",
-			ReadOnlyMounts: []Mount{
+			ExtraMounts: []Mount{
 				{HostPath: "/host/ro", ContainerPath: "/container/ro", ReadOnly: true},
 			},
 		}

@@ -77,7 +77,7 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 		Env: map[string]string{
 			"HOME": "/root",
 		},
-		ReadOnlyMounts: []dockerclient.Mount{
+		ExtraMounts: []dockerclient.Mount{
 			{
 				HostPath:      volumeName,
 				ContainerPath: containerUserToolsRoot,

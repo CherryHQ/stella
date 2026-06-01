@@ -48,6 +48,11 @@ type FilesystemPolicy struct {
 	// sandbox at their exact host path (same-path strategy). Used for skill dirs
 	// that live outside the workspace root but must be accessible for script execution.
 	ExtraReadOnlyMounts []string
+
+	// TempDirHost is the host directory mounted as /tmp inside the sandbox.
+	// Empty means the backend chooses a session-local temp directory. Non-empty
+	// directories may be shared across sessions, depending on the caller.
+	TempDirHost string
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.

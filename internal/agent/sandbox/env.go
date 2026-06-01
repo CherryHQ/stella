@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -15,12 +17,22 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-func runnerFilesystemPolicy(paths Paths) pkgsandbox.FilesystemPolicy {
+func runnerFilesystemPolicy(paths Paths, userID string) pkgsandbox.FilesystemPolicy {
 	return pkgsandbox.FilesystemPolicy{
 		WorkspaceRoot:       paths.UserRoot,
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
+		TempDirHost:         userTempDir(userID),
 	}
+}
+
+var validUserTempDirID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func userTempDir(userID string) string {
+	if !validUserTempDirID.MatchString(userID) {
+		return ""
+	}
+	return filepath.Join(os.TempDir(), userID)
 }
 
 // skillMountsForSandbox returns host paths for all skill directories that must

@@ -44,7 +44,7 @@ type CreateOptions struct {
 	Image          string
 	WorkspaceHost  string      // absolute host path (daemon-side)
 	WorkspaceMount string      // absolute in-container path (e.g. "/home/stella/workspace")
-	ReadOnlyMounts []Mount     // host -> container, read-only
+	ExtraMounts    []Mount     // additional host -> container mounts; ReadOnly is honored per mount
 	NetworkMode    NetworkMode // disabled | allow_all
 	Env            map[string]string
 	User           string            // optional container user override
@@ -183,7 +183,7 @@ func mapNetworkMode(m NetworkMode) container.NetworkMode {
 }
 
 func buildMounts(opts CreateOptions) []mount.Mount {
-	n := len(opts.ReadOnlyMounts)
+	n := len(opts.ExtraMounts)
 	if opts.WorkspaceHost != "" && opts.WorkspaceMount != "" {
 		n++
 	}
@@ -196,7 +196,7 @@ func buildMounts(opts CreateOptions) []mount.Mount {
 			Target: opts.WorkspaceMount,
 		})
 	}
-	for _, m := range opts.ReadOnlyMounts {
+	for _, m := range opts.ExtraMounts {
 		mounts = append(mounts, mount.Mount{
 			Type:     dockerMountType(m.Type),
 			Source:   m.HostPath,

@@ -55,11 +55,11 @@ The local backend runs commands directly on the host OS. It is intended for envi
 
 **This backend does not provide container-level isolation.** It applies OS-level hardening layers instead:
 
-| Layer                          | Platform | Mechanism                                                                                                                                                                                                                                      |
-| ------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Process group kill + rlimits   | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)`                                                                                                                                                     |
-| Filesystem + network isolation | Linux    | `bwrap` (required) — minimal usable Linux root with `/workspace` read-write, `/tmp`/`/var/tmp`/`/dev/shm` writable tmpfs, selected runtime/tool directories and DNS resolver config read-only; `--unshare-net` when network mode is `disabled` |
-| No additional local isolation  | macOS    | Commands run directly on the host OS; filesystem and network policy are not enforced                                                                                                                                                           |
+| Layer                          | Platform | Mechanism                                                                                                                                                                                                                                                                                        |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Process group kill + rlimits   | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)`                                                                                                                                                                                                       |
+| Filesystem + network isolation | Linux    | `bwrap` (required) — minimal usable Linux root with `/workspace` read-write, user-scoped host `/tmp/{user_id}` mounted at `/tmp`, `/var/tmp` and `/dev/shm` writable tmpfs, selected runtime/tool directories and DNS resolver config read-only; `--unshare-net` when network mode is `disabled` |
+| No additional local isolation  | macOS    | Commands run directly on the host OS; filesystem and network policy are not enforced                                                                                                                                                                                                             |
 
 The local backend uses a **fail-closed** strategy on Linux: `bwrap` (bubblewrap) is mandatory. Session creation fails with an actionable error if bwrap is absent or non-functional (e.g. inside Docker without `--privileged`). There is no fallback to `unshare`-only or unconfined execution. Local sandbox processes do not inherit the full host environment; Stella injects only runner-managed session variables plus a small locale/terminal/proxy allowlist. On macOS, no extra sandboxing tool is currently applied.
 
@@ -87,7 +87,7 @@ No additional dependency is required. The current local backend runs commands di
 
 #### Path presentation
 
-On Linux the agent always sees its workspace at `/workspace` regardless of the real host path (bwrap bind-mounts it). This mirrors Docker's bind-mount behaviour. On macOS the agent sees the real host path.
+On Linux the agent always sees its workspace at `/workspace` regardless of the real host path (bwrap bind-mounts it). This mirrors Docker's bind-mount behaviour. Docker and Linux local sessions mount the host `/tmp/{user_id}` directory as sandbox `/tmp`, so normal temporary-file paths work inside the sandbox while remaining scoped per user. This `/tmp` directory is intentionally shared by that user's sessions and is not deleted on session close; store only temporary data there and rely on OS temp retention or admin cleanup for pruning. On macOS the agent sees the real host path.
 
 ### None (host execution)
 

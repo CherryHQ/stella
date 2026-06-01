@@ -61,6 +61,7 @@ func (f *Factory) Supported(_ sandboxpkg.Policy) error { return checkSandboxRequ
 type tmpMount struct {
 	sandboxPath string // absolute path the agent sees (e.g. /tmp)
 	realPath    string // absolute host path backing it
+	owned       bool   // true when the session created this directory and should remove it on close
 }
 
 // CreateSession creates a new localSession.
@@ -76,7 +77,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	policy = f.adjustPolicy(policy)
 
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	tmpMounts, ownsTmp, err := createSessionTmpMounts()
+	tmpMounts, err := createSessionTmpMounts(policy)
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
@@ -86,7 +87,6 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		realRoot:    realRoot,
 		sandboxRoot: sandboxRoot,
 		tmpMounts:   tmpMounts,
-		ownsTmp:     ownsTmp,
 		done:        make(chan struct{}),
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
@@ -122,7 +122,6 @@ type localSession struct {
 	realRoot    string     // actual host path (e.g. /home/stella/.stella-dev/...)
 	sandboxRoot string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
 	tmpMounts   []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
-	ownsTmp     bool       // true when this session created the tmpMount dirs and should remove them on close
 	done        chan struct{}
 	doneOnce    sync.Once
 	mu          sync.RWMutex
@@ -179,8 +178,8 @@ func (s *localSession) Close() error {
 
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
-	if s.ownsTmp {
-		for _, m := range s.tmpMounts {
+	for _, m := range s.tmpMounts {
+		if m.owned {
 			os.RemoveAll(m.realPath) //nolint:errcheck
 		}
 	}
