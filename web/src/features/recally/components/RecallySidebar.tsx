@@ -95,7 +95,7 @@ export function RecallySidebar({
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder={t("recally.searchPlaceholder")}
-            className="w-full pl-7 pr-3 py-1.5 text-xs font-mono rounded-lg bg-muted/50 border border-transparent hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/50"
+            className="w-full pl-7 pr-3 py-1.5 text-[11px] font-mono rounded-lg bg-muted/30 border border-border/40 hover:border-border focus:border-primary/40 focus:ring-2 focus:ring-primary/5 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/45 shadow-2xs"
           />
           <svg
             className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none"
@@ -232,7 +232,7 @@ export function RecallySidebar({
       <div>
         <SectionLabel>{t("recally.section.feeds")}</SectionLabel>
         <div className="px-3 space-y-1.5">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <input
               type="text"
               value={feedUrl}
@@ -243,7 +243,7 @@ export function RecallySidebar({
                   createFeedMut.mutate({ body: { url: feedUrl.trim() } });
                 }
               }}
-              className="h-7 flex-1 rounded-lg bg-muted/50 border border-transparent px-2 text-xs font-mono placeholder:text-muted-foreground/50 hover:border-border focus:border-primary/40 focus:outline-none transition-all duration-150"
+              className="h-7 flex-1 rounded-lg bg-muted/30 border border-border/40 px-2.5 text-[11px] font-mono placeholder:text-muted-foreground/45 hover:border-border focus:border-primary/40 focus:ring-1 focus:ring-primary/10 focus:outline-none transition-all duration-150 text-foreground shadow-2xs"
             />
             <button
               onClick={() => {

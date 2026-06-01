@@ -5,19 +5,20 @@ import { CENTER_WIDTH_DEFAULT, CENTER_WIDTH_MIN, CENTER_WIDTH_MAX } from "./cons
 import { useRecallyFilters } from "./hooks/useRecallyFilters";
 import { useRecallyMutations } from "./hooks/useRecallyMutations";
 import { useRecallyFeeds } from "./hooks/useRecallyFeeds";
-import { RecallySidebar } from "./components/RecallySidebar";
 import { RecallyArticleList } from "./components/RecallyArticleList";
-import { RecallyDigestView } from "./components/RecallyDigestView";
 import { DigestDetail } from "./components/DigestDetail";
 import { RecallyReader } from "./components/RecallyReader";
+import { RecallyChat } from "./components/RecallyChat";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ToastAlert } from "./components/ToastAlert";
 import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 export function RecallyPage() {
   const { t } = useI18n();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [centerWidth, setCenterWidth] = useState(CENTER_WIDTH_DEFAULT);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const filters = useRecallyFilters();
   const mutations = useRecallyMutations(selectedId, setSelectedId);
@@ -61,41 +62,9 @@ export function RecallyPage() {
       open={filters.leftOpen}
       onOpenChange={filters.setLeftOpen}
     >
+      {/* App Navigation Sidebar (Far Left, Collapsible) */}
       <Sidebar className="sticky top-0 h-full" collapsible="offcanvas">
-        <AppSidebar>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <RecallySidebar
-              t={t}
-              searchText={filters.searchText}
-              setSearchText={filters.setSearchText}
-              statusFilter={filters.statusFilter}
-              setStatusFilter={filters.setStatusFilter}
-              sourceTypeFilter={filters.sourceTypeFilter}
-              setSourceTypeFilter={filters.setSourceTypeFilter}
-              starredFilter={filters.starredFilter}
-              setStarredFilter={filters.setStarredFilter}
-              tagFilter={filters.tagFilter}
-              setTagFilter={filters.setTagFilter}
-              showAllTags={filters.showAllTags}
-              setShowAllTags={filters.setShowAllTags}
-              digest={filters.digest}
-              digestView={filters.digestView}
-              setDigestView={filters.setDigestView}
-              sortedTags={filters.sortedTags}
-              visibleTags={filters.visibleTags}
-              hasMoreTags={filters.hasMoreTags}
-              tagCounts={filters.tagCounts}
-              feeds={feeds.feeds}
-              feedsQuery={feeds.feedsQuery}
-              feedUrl={feeds.feedUrl}
-              setFeedUrl={feeds.setFeedUrl}
-              createFeedMut={feeds.createFeedMut}
-              pollFeedMut={feeds.pollFeedMut}
-              feedPollResults={feeds.feedPollResults}
-              clearFilters={filters.clearFilters}
-            />
-          </div>
-        </AppSidebar>
+        <AppSidebar />
         <SidebarRail />
       </Sidebar>
 
@@ -105,35 +74,59 @@ export function RecallyPage() {
           <SidebarTrigger />
           <span className="text-sm font-semibold">{t("recally.title")}</span>
         </header>
+
         <div
-          className="min-w-0 flex-1 grid grid-cols-1 overflow-hidden xl:grid-cols-[var(--recally-center-width)_1fr]"
+          className={cn(
+            "min-w-0 flex-1 grid grid-cols-1 overflow-hidden transition-all duration-200",
+            chatOpen && selectedId && !showDigestDetail
+              ? "xl:grid-cols-[var(--recally-center-width)_1fr_340px]"
+              : "xl:grid-cols-[var(--recally-center-width)_1fr]",
+          )}
           style={{ "--recally-center-width": `${centerWidth}px` } as CSSProperties}
         >
-          {/* Center panel */}
-          {filters.digestView ? (
-            <RecallyDigestView
-              t={t}
-              storedDigests={filters.storedDigests}
-              storedDigestsLoading={filters.storedDigestsQuery.isLoading}
-              selectedDigestDate={filters.selectedDigestDate}
-              onSelectDigest={handleSelectDigest}
-            />
-          ) : (
-            <RecallyArticleList
-              t={t}
-              displayArticles={filters.displayArticles}
-              articlesQuery={filters.articlesQuery}
-              selectedId={selectedId}
-              setSelectedId={setSelectedId}
-              digest={filters.digest}
-              searchText={filters.searchText}
-              setSearchText={filters.setSearchText}
-              statusFilter={filters.statusFilter}
-              setStatusFilter={filters.setStatusFilter}
-            />
-          )}
+          {/* Column 1: Reading list and unified filters panel */}
+          <RecallyArticleList
+            t={t}
+            displayArticles={filters.displayArticles}
+            articlesQuery={filters.articlesQuery}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+            // Filters states
+            searchText={filters.searchText}
+            setSearchText={filters.setSearchText}
+            statusFilter={filters.statusFilter}
+            setStatusFilter={filters.setStatusFilter}
+            starredFilter={filters.starredFilter}
+            setStarredFilter={filters.setStarredFilter}
+            sourceTypeFilter={filters.sourceTypeFilter}
+            setSourceTypeFilter={filters.setSourceTypeFilter}
+            tagFilter={filters.tagFilter}
+            setTagFilter={filters.setTagFilter}
+            // Stored digests / history view
+            digest={filters.digest}
+            digestView={filters.digestView}
+            setDigestView={filters.setDigestView}
+            storedDigests={filters.storedDigests}
+            storedDigestsLoading={filters.storedDigestsQuery.isLoading}
+            selectedDigestDate={filters.selectedDigestDate}
+            onSelectDigest={handleSelectDigest}
+            clearFilters={filters.clearFilters}
+            // Tags configuration
+            sortedTags={filters.sortedTags}
+            visibleTags={filters.visibleTags}
+            showAllTags={filters.showAllTags}
+            setShowAllTags={filters.setShowAllTags}
+            tagCounts={filters.tagCounts}
+            // Feeds operations
+            feeds={feeds.feeds}
+            feedUrl={feeds.feedUrl}
+            setFeedUrl={feeds.setFeedUrl}
+            createFeedMut={feeds.createFeedMut}
+            pollFeedMut={feeds.pollFeedMut}
+            feedPollResults={feeds.feedPollResults}
+          />
 
-          {/* Right reader panel — always in DOM */}
+          {/* Column 2: Article Reader Panel (Center / Right) */}
           <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
             <button
               type="button"
@@ -151,11 +144,20 @@ export function RecallyPage() {
               <RecallyReader
                 t={t}
                 selectedId={selectedId}
+                chatOpen={chatOpen}
+                onToggleChat={() => setChatOpen(!chatOpen)}
                 updateArticleMut={mutations.updateArticleMut}
                 deleteArticleMut={mutations.deleteArticleMut}
               />
             )}
           </aside>
+
+          {/* Column 3: AI Chat Workspace Sidebar (Rightmost) */}
+          {chatOpen && selectedId && !showDigestDetail && (
+            <aside className="relative hidden min-h-0 flex-col xl:flex shrink-0">
+              <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
+            </aside>
+          )}
         </div>
 
         {/* Mobile digest detail overlay */}
@@ -175,25 +177,38 @@ export function RecallyPage() {
           </div>
         )}
 
-        {/* Mobile reader overlay */}
+        {/* Mobile reader / Chat overlay */}
         {selectedId && (
           <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
-            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
-              <span className="text-sm font-medium">{t("recally.title")}</span>
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5 bg-card">
+              <span className="text-xs font-semibold text-foreground">
+                {chatOpen ? t("AI 边读边问" as any) || "AI Chat" : t("recally.title")}
+              </span>
               <button
                 type="button"
-                onClick={() => setSelectedId(null)}
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  if (chatOpen) setChatOpen(false);
+                  else setSelectedId(null);
+                }}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
               >
                 <X className="size-4" />
               </button>
             </div>
-            <RecallyReader
-              t={t}
-              selectedId={selectedId}
-              updateArticleMut={mutations.updateArticleMut}
-              deleteArticleMut={mutations.deleteArticleMut}
-            />
+            {chatOpen ? (
+              <div className="flex-1 min-h-0 flex flex-col w-full bg-background">
+                <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
+              </div>
+            ) : (
+              <RecallyReader
+                t={t}
+                selectedId={selectedId}
+                chatOpen={chatOpen}
+                onToggleChat={() => setChatOpen(!chatOpen)}
+                updateArticleMut={mutations.updateArticleMut}
+                deleteArticleMut={mutations.deleteArticleMut}
+              />
+            )}
           </div>
         )}
       </div>
