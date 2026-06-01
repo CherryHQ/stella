@@ -51,9 +51,17 @@ func (s *Server) taskError(w http.ResponseWriter, err error) {
 	default:
 		var conflict *tasks.ErrReopenConflict
 		if errors.As(err, &conflict) {
-			writeData(w, http.StatusConflict, map[string]any{
-				"error":          "reopen_conflict",
-				"downstream_ids": conflict.DownstreamIDs,
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{
+					"code":    http.StatusConflict,
+					"message": "reopen_conflict",
+					"status":  "ABORTED",
+					"details": map[string]any{
+						"downstream_ids": conflict.DownstreamIDs,
+					},
+				},
 			})
 			return
 		}

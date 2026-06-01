@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"maps"
@@ -58,7 +59,11 @@ func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (s
 func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
 	article, err := h.store.GetArticle(ctx, userID, articleID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not found")
+		} else {
+			h.writeInternalError(w, err)
+		}
 		return nil, false
 	}
 	if article.UserID != userID {
@@ -71,7 +76,11 @@ func (h *recallyHandlers) articleOwned(w http.ResponseWriter, ctx context.Contex
 func (h *recallyHandlers) feedOwned(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
 	feed, err := h.store.GetFeed(ctx, userID, feedID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not found")
+		} else {
+			h.writeInternalError(w, err)
+		}
 		return nil, false
 	}
 	if feed.UserID != userID {
@@ -504,7 +513,8 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	parsed, err := h.feeds.ParseURLWithContext(feed.URL, parseCtx)
 	cancel()
 	if err != nil {
-		msg := err.Error()
+		h.log.Warn("feed poll upstream error", "feed_id", feed.ID, "url", feed.URL, "error", err)
+		msg := "failed to fetch feed"
 		result.Error = &msg
 		writeData(w, http.StatusOK, result)
 		return
@@ -697,7 +707,11 @@ func (h *recallyHandlers) GetStoredDigest(w http.ResponseWriter, r *http.Request
 	}
 	stored, err := h.store.GetStoredDigestByDate(r.Context(), userID, date)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "digest not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "digest not found")
+		} else {
+			h.writeInternalError(w, err)
+		}
 		return
 	}
 	writeData(w, http.StatusOK, toAPIStoredDigest(stored))

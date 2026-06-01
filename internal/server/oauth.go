@@ -76,6 +76,7 @@ func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider 
 
 	status, _, err := s.credSvc.PollFlow(r.Context(), info.UserID, provider, flowID)
 	if err != nil {
+		s.log.Error("poll oauth flow", "provider", provider, "flow_id", flowID, "error", err)
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}

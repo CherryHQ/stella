@@ -53,7 +53,8 @@ func (s *Server) statusDatabase(ctx context.Context) *types.StatusDatabase {
 	defer cancel()
 	start := time.Now()
 	if err := s.db.PingContext(ctx); err != nil {
-		msg := err.Error()
+		s.log.Error("database health check failed", "error", err)
+		msg := "database unreachable"
 		return &types.StatusDatabase{Status: "error", Error: &msg}
 	}
 	latency := float64(time.Since(start).Microseconds()) / 1000
