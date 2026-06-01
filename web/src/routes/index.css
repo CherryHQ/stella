@@ -119,10 +119,10 @@
 
 .home-hero-title {
   margin: 1.45rem 0 1.3rem;
-  max-width: 12ch;
-  font-size: clamp(3.05rem, 5.65vw, 5.85rem);
-  font-weight: 800;
-  line-height: 0.95;
+  max-width: 32ch;
+  font-size: clamp(2rem, 3.8vw, 3.6rem);
+  font-weight: 600;
+  line-height: 1.15;
   letter-spacing: var(--letter-spacing);
   color: var(--hero-fg);
   text-wrap: balance;
