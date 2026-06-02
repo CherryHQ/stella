@@ -1,6 +1,6 @@
 import { createLazyFileRoute } from "@tanstack/react-router";
-import { SoulPage } from "@/features/sessions/pages/SoulPage";
+import { MemoriesPage } from "@/features/sessions/pages/MemoriesPage";
 
 export const Route = createLazyFileRoute("/_app/agents/$agentId/memories/soul")({
-  component: SoulPage,
+  component: MemoriesPage,
 });
