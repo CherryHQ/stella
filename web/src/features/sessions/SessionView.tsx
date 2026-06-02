@@ -175,7 +175,7 @@ export function SessionView() {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative flex flex-1 min-w-0 overflow-hidden bg-card/70">
+    <div ref={containerRef} className="relative flex h-full min-w-0 overflow-hidden bg-card/70">
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <SessionDetail
           session={sessionDetail}

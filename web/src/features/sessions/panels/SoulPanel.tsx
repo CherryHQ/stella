@@ -94,7 +94,7 @@ export function SoulPanel({ agentId }: Props) {
   }
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
         <div className="flex items-start justify-between mb-4">
           <div>

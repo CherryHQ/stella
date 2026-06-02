@@ -23,8 +23,9 @@ function AgentLayout() {
   const { data: agents = [] } = useQuery(agentsQueryOptions);
 
   const handleAgentChange = (newAgentId: string) => {
-    if (newAgentId === agentId) return;
-    void queryClient.invalidateQueries({ queryKey: ["sessions", newAgentId] });
+    if (newAgentId !== agentId) {
+      void queryClient.invalidateQueries({ queryKey: ["sessions", newAgentId] });
+    }
     void navigate({ to: "/agents/$agentId", params: { agentId: newAgentId } });
   };
 

@@ -184,7 +184,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
   const dirty = JSON.stringify(form) !== JSON.stringify(savedForm);
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
         {/* Header */}
         <div className="flex items-start justify-between">

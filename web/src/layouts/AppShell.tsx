@@ -57,7 +57,7 @@ export function AppShell({
     <AppShellContext.Provider value={{ setHeaderTitle, setHeaderActions }}>
       <SidebarProvider defaultOpen={defaultSidebarOpen}>
         <Sidebar side="left" collapsible="offcanvas">
-          <SidebarHeader>
+          <SidebarHeader className="p-0">
             <AppSidebarHeader />
           </SidebarHeader>
           <SidebarContent>{sidebar}</SidebarContent>
