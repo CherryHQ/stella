@@ -754,19 +754,20 @@ function PluginList({
   showManifestEditor = false,
 }: PluginListProps) {
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {plugins.map((p) => {
         const hasConfig = hasGenericConfigEditor(p, schemas);
         const isConfigOpen = !!pluginConfigOpen[p.id];
         const isManifestOpen = !!manifestInstallOpen[p.id];
         const badges = pluginMetaBadges(p);
+        const isOpen = isConfigOpen || isManifestOpen;
 
         return (
           <div
             key={p.id}
             className={`flex flex-col rounded-2xl border bg-card transition-all ${
               p.enabled ? "border-primary/45 shadow-xs" : "border-border/40 shadow-2xs"
-            } overflow-hidden`}
+            } overflow-hidden ${isOpen ? "sm:col-span-2" : ""}`}
           >
             <div className="flex items-center justify-between gap-4 px-5 py-4">
               <div className="min-w-0 flex-1">
@@ -850,7 +851,7 @@ function PluginList({
         );
       })}
       {plugins.length === 0 && (
-        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border/40 rounded-2xl bg-card/45">
+        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border/40 rounded-2xl bg-card/45 sm:col-span-2">
           {emptyMessage}
         </div>
       )}

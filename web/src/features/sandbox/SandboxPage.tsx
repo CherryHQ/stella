@@ -99,7 +99,7 @@ export function SandboxPage() {
             </Badge>
           </div>
 
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {sandboxPlugins.map((p) => {
               const meta = sandboxMeta(p.id);
               return (
@@ -182,7 +182,7 @@ export function SandboxPage() {
               );
             })}
             {sandboxPlugins.length === 0 && (
-              <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border/40 rounded-2xl bg-card/45">
+              <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border/40 rounded-2xl bg-card/45 sm:col-span-2">
                 No sandbox plugins registered.
               </div>
             )}
