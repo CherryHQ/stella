@@ -57,6 +57,9 @@ func NewClientProvider(cfg *Config, redirectURI string) (*ClientProvider, error)
 // Name returns "local".
 func (p *ClientProvider) Name() string { return localProviderName }
 
+// AllowsRegistration reports whether the local issuer accepts new registrations.
+func (p *ClientProvider) AllowsRegistration() bool { return p.cfg.AllowRegistration }
+
 // LoginURL builds the PKCE authorization URL for the local issuer.
 func (p *ClientProvider) LoginURL(_ context.Context, state auth.AuthState) (string, error) {
 	sum := sha256.Sum256([]byte(state.CodeVerifier))

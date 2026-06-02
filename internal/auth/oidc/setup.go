@@ -89,13 +89,14 @@ func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, s
 
 	callbackURL := p.BaseURL + "/auth/callback/local"
 	cfg := &local.Config{
-		IssuerURL:      p.BaseURL + "/oidc/local",
-		ClientID:       local.AutoClientID,
-		SigningKey:     signingKey,
-		KeyID:          local.AutoKeyID,
-		RedirectURIs:   []string{callbackURL},
-		AccessTokenTTL: 3600,
-		AuthCodeTTL:    120,
+		IssuerURL:         p.BaseURL + "/oidc/local",
+		ClientID:          local.AutoClientID,
+		SigningKey:        signingKey,
+		KeyID:             local.AutoKeyID,
+		RedirectURIs:      []string{callbackURL},
+		AccessTokenTTL:    3600,
+		AuthCodeTTL:       120,
+		AllowRegistration: true,
 	}
 
 	clientProvider, err := local.NewClientProvider(cfg, callbackURL)

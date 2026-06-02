@@ -414,6 +414,7 @@ func TestAuthorizePostIssuesCode(t *testing.T) {
 func TestRegisterPost(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
+	cfg.AllowRegistration = true
 	users := newFakeUserStore()
 	creds := newFakeCredStore()
 	codeStore := newFakeCodeStore()

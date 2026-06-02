@@ -14,7 +14,9 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +37,9 @@ type Issuer struct {
 	// May be nil; when nil, the authorize endpoint always shows the login form.
 	authSvc    *auth.AuthService
 	sessionMgr *auth.SessionManager
+	// registerMu serialises the first-user-becomes-admin check to prevent
+	// two concurrent registrations from both acquiring the admin role.
+	registerMu sync.Mutex
 }
 
 // NewIssuer creates a new local OIDC issuer.
@@ -241,22 +246,26 @@ func isNavigationRequest(r *http.Request) bool {
 	return r.Header.Get("Sec-Fetch-Mode") == "navigate" || (isHTML && !isAJAX)
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, msg string) {
+func writeErrorStatus(w http.ResponseWriter, r *http.Request, status int, msg string) {
 	if isJSONRequest(r) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": false,
 			"error":   msg,
 		})
 		return
 	}
-	http.Error(w, msg, http.StatusBadRequest)
+	http.Error(w, msg, status)
+}
+
+func writeError(w http.ResponseWriter, r *http.Request, msg string) {
+	writeErrorStatus(w, r, http.StatusBadRequest, msg)
 }
 
 func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		writeError(w, r, "invalid form")
 		return
 	}
 	email := strings.TrimSpace(r.FormValue("email"))
@@ -288,8 +297,12 @@ func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ct
 }
 
 func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
+	if !is.cfg.AllowRegistration {
+		writeErrorStatus(w, r, http.StatusForbidden, "Registration is disabled.")
+		return
+	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		writeError(w, r, "invalid form")
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
@@ -317,7 +330,11 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		return
 	}
 
-	// First registered user becomes admin.
+	// Serialise registration so two concurrent requests cannot both see
+	// count==0 and both become admin.
+	is.registerMu.Lock()
+	defer is.registerMu.Unlock()
+
 	count, err := is.users.CountUsers(ctx)
 	if err != nil {
 		writeError(w, r, "Registration failed. Please try again.")
@@ -370,10 +387,11 @@ func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, c
 		return
 	}
 
-	redirectURL := params.redirectURI + "?code=" + rawCode
+	q := url.Values{"code": {rawCode}}
 	if params.state != "" {
-		redirectURL += "&state=" + params.state
+		q.Set("state", params.state)
 	}
+	redirectURL := params.redirectURI + "?" + q.Encode()
 
 	if isJSONRequest(r) {
 		w.Header().Set("Content-Type", "application/json")

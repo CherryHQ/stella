@@ -79,6 +79,8 @@ const en = {
   "login.noLocalRegistration":
     "Local registration is not available. Please contact your administrator.",
   "login.registrationDisabled": "Registration is currently disabled on this instance.",
+  "login.passwordTooShort": "Password must be at least 8 characters long",
+  "login.passwordMismatch": "Passwords do not match",
 
   // Account page
   "account.title": "Account",
@@ -689,6 +691,8 @@ const zh: Record<MessageKey, string> = {
   "login.signupSubtitle": "创建账号以开始使用",
   "login.noLocalRegistration": "本地注册不可用，请联系管理员。",
   "login.registrationDisabled": "该实例当前已禁用注册。",
+  "login.passwordTooShort": "密码长度至少为 8 个字符",
+  "login.passwordMismatch": "两次输入的密码不一致",
 
   // Account page
   "account.title": "账户",

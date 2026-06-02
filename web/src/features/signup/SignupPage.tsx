@@ -34,11 +34,11 @@ export function SignupPage() {
     e.preventDefault();
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("login.passwordMismatch"));
       return;
     }
     if (password.length < 8) {
-      setError("Password must be at least 8 characters long");
+      setError(t("login.passwordTooShort"));
       return;
     }
 

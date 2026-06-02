@@ -20,7 +20,7 @@ func (s *Server) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
 			Name:     p.Name(),
 			LoginUrl: fmt.Sprintf("/auth/login/%s", p.Name()),
 		}
-		if p.Name() == "local" {
+		if rp, ok := p.(interface{ AllowsRegistration() bool }); ok && rp.AllowsRegistration() {
 			regURL := fmt.Sprintf("/auth/login/%s?mode=register", p.Name())
 			prov.RegisterUrl = &regURL
 		}
@@ -72,8 +72,8 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if mode := r.URL.Query().Get("mode"); mode != "" {
-		loginURL += "&mode=" + mode
+	if r.URL.Query().Get("mode") == "register" {
+		loginURL += "&mode=register"
 	}
 
 	http.Redirect(w, r, loginURL, http.StatusFound)
