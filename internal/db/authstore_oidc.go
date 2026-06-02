@@ -180,7 +180,7 @@ func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, q, id)
-	return scanUser(row)
+	return scanUserResult(row)
 }
 
 func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User, error) {
@@ -188,7 +188,17 @@ func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user WHERE email = ?`
 	row := s.db.QueryRowContext(ctx, q, email)
-	return scanUser(row)
+	return scanUserResult(row)
+}
+
+// scanUser maps a missing row to auth.ErrNotFound so callers can distinguish
+// "no such user" from a real scan failure.
+func scanUserResult(r rowScanner) (auth.User, error) {
+	u, err := scanUser(r)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.User{}, auth.ErrNotFound
+	}
+	return u, err
 }
 
 func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
