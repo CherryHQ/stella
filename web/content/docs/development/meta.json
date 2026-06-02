@@ -3,6 +3,7 @@
   "pages": [
     "rules/api-design",
     "rules/schema-design",
+    "rules/cli-design",
     "architecture",
     "agent-architecture",
     "cli-as-client",

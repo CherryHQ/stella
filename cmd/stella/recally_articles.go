@@ -15,10 +15,10 @@ import (
 
 func recallySaveCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "save",
-		Usage: "Save an article to your library",
+		Name:      "save",
+		Usage:     "Save an article to your library",
+		ArgsUsage: "<url>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "url", Usage: "Article URL (required)", Required: true},
 			&ucli.StringFlag{Name: "canonical-url", Usage: "Canonical URL (optional, overrides computed canonical URL for deduplication)"},
 			&ucli.StringFlag{Name: "title", Usage: "Article title"},
 			&ucli.StringFlag{Name: "summary", Usage: "Article summary"},
@@ -28,8 +28,13 @@ func recallySaveCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "content-file", Usage: "Path to file containing article content (stdin used if not provided)"},
 			&ucli.StringFlag{Name: "metadata", Usage: "JSON metadata string", Value: "{}"},
 			&ucli.StringFlag{Name: "published-at", Usage: "Original publication date (RFC3339)"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			url := c.Args().First()
+			if url == "" {
+				return fmt.Errorf("usage: stella recally save <url>")
+			}
 			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
@@ -57,7 +62,7 @@ func recallySaveCommand() *ucli.Command {
 			}
 
 			body := apiclient.SaveArticleJSONRequestBody{
-				Url:          c.String("url"),
+				Url:          url,
 				CanonicalUrl: optionalString(c.String("canonical-url")),
 				SourceType:   sourceTypePtr(c.String("source-type")),
 				Title:        optionalString(c.String("title")),
@@ -81,17 +86,20 @@ func recallySaveCommand() *ucli.Command {
 				return err
 			}
 			created := resp.StatusCode == http.StatusCreated
-			result := map[string]any{
-				"id":        article.Id,
-				"file_path": article.FilePath,
-				"created":   created,
-			}
+			message := "Article already exists, updated metadata"
 			if created {
-				result["message"] = "Article saved successfully"
-			} else {
-				result["message"] = "Article already exists, updated metadata"
+				message = "Article saved successfully"
 			}
-			return printJSON(result)
+			if isJSON(c) {
+				return printJSON(c, article)
+			}
+			o := stdout(c)
+			o.printf("%s\n", message)
+			o.printf("  id:   %s\n", shortID(article.Id))
+			if article.FilePath != "" {
+				o.printf("  file: %s\n", article.FilePath)
+			}
+			return o.Err()
 		},
 	}
 }
@@ -105,7 +113,7 @@ func recallyListCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "source-type", Usage: "Filter by source type: web, twitter, youtube, github, rss, pdf"},
 			&ucli.BoolFlag{Name: "starred", Usage: "Show only starred articles"},
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of articles to return", Value: 50},
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListArticlesParams{
@@ -128,18 +136,19 @@ func recallyListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if c.Bool("json") {
-				return printJSON(list.Articles)
+			if isJSON(c) {
+				return printJSON(c, list)
 			}
+			o := stdout(c)
 			if len(list.Articles) == 0 {
-				fmt.Println("No articles found.")
-				return nil
+				o.println("No articles found.")
+				return o.Err()
 			}
-			fmt.Printf("Found %d article(s):\n\n", len(list.Articles))
+			o.printf("Found %d article(s):\n\n", len(list.Articles))
 			for _, a := range list.Articles {
-				printArticleSummary(a, 100)
+				printArticleSummary(o, a, 100)
 			}
-			return nil
+			return o.Err()
 		},
 	}
 }
@@ -151,7 +160,7 @@ func recallySearchCommand() *ucli.Command {
 		ArgsUsage: "<query>",
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of results", Value: 50},
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			query := c.Args().First()
@@ -167,18 +176,19 @@ func recallySearchCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if c.Bool("json") {
-				return printJSON(list.Articles)
+			if isJSON(c) {
+				return printJSON(c, list)
 			}
+			o := stdout(c)
 			if len(list.Articles) == 0 {
-				fmt.Println("No articles found matching your query.")
-				return nil
+				o.println("No articles found matching your query.")
+				return o.Err()
 			}
-			fmt.Printf("Found %d article(s) matching %q:\n\n", len(list.Articles), query)
+			o.printf("Found %d article(s) matching %q:\n\n", len(list.Articles), query)
 			for _, a := range list.Articles {
-				printArticleSummary(a, 80)
+				printArticleSummary(o, a, 80)
 			}
-			return nil
+			return o.Err()
 		},
 	}
 }
@@ -222,6 +232,7 @@ func recallyUpdateCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "starred", Usage: "Star or unstar the article"},
 			&ucli.StringFlag{Name: "summary", Usage: "New summary"},
 			&ucli.StringSliceFlag{Name: "tags", Usage: "New tags (replaces existing)"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			articleID := c.Args().First()
@@ -252,8 +263,12 @@ func recallyUpdateCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Article %s updated successfully.\n", shortID(updated.Id))
-			return nil
+			if isJSON(c) {
+				return printJSON(c, updated)
+			}
+			o := stdout(c)
+			o.printf("Article %s updated successfully.\n", shortID(updated.Id))
+			return o.Err()
 		},
 	}
 }
@@ -263,6 +278,7 @@ func recallyDeleteCommand() *ucli.Command {
 		Name:      "delete",
 		Usage:     "Delete an article from library",
 		ArgsUsage: "<article-id>",
+		Flags:     []ucli.Flag{jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			articleID := c.Args().First()
 			if articleID == "" {
@@ -273,8 +289,12 @@ func recallyDeleteCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			fmt.Printf("Article %s deleted.\n", shortID(articleID))
-			return nil
+			if isJSON(c) {
+				return printDeleted(c, articleID)
+			}
+			o := stdout(c)
+			o.printf("Article %s deleted.\n", shortID(articleID))
+			return o.Err()
 		},
 	}
 }
@@ -301,31 +321,22 @@ func readContentArg(contentFile string) (string, error) {
 	return "", nil
 }
 
-func printArticleSummary(a apiclient.Article, summaryWidth int) {
+func printArticleSummary(o *lineWriter, a apiclient.Article, summaryWidth int) {
 	starMark := " "
 	if a.Starred {
 		starMark = "★"
 	}
-	fmt.Printf("[%s] %s %s\n", shortID(a.Id), starMark, a.Title)
-	fmt.Printf("    URL: %s\n", a.Url)
+	o.printf("[%s] %s %s\n", shortID(a.Id), starMark, a.Title)
+	o.printf("    URL: %s\n", a.Url)
 	if a.Summary != nil && *a.Summary != "" {
 		summary := *a.Summary
 		if len(summary) > summaryWidth {
 			summary = summary[:summaryWidth-3] + "..."
 		}
-		fmt.Printf("    %s\n", summary)
+		o.printf("    %s\n", summary)
 	}
-	fmt.Printf("    Status: %s | Source: %s | Saved: %s\n", a.Status, a.SourceType, a.SavedAt.Format("2006-01-02"))
-	fmt.Println()
-}
-
-func printJSON(v any) error {
-	out, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal json: %w", err)
-	}
-	fmt.Println(string(out))
-	return nil
+	o.printf("    Status: %s | Source: %s | Saved: %s\n", a.Status, a.SourceType, a.SavedAt.Format("2006-01-02"))
+	o.println()
 }
 
 // shortID returns the first 8 chars of an ID for display.

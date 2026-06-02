@@ -61,10 +61,10 @@ Names must match `^[a-z][a-z0-9_]{0,31}$` — lowercase letters, digits, and und
 
 ```bash
 stella email config add --name NAME --imap-host HOST --smtp-host HOST --username USER --from ADDR --password-stdin
-stella email config remove --name NAME
+stella email config remove --name NAME [--json]
 stella email config list [--json]
-stella email config show --name NAME [--json]
-stella email config default --name NAME
+stella email config get --name NAME [--json]
+stella email config default --name NAME [--json]
 ```
 
 ### Browsing (requires EMAIL_CONFIG env var)
@@ -110,5 +110,5 @@ Use `--account NAME` on any command to override.
 
 - **Never use the vault tool to set EMAIL_CONFIG directly.** Always use `stella email config` subcommands.
 - Runtime commands (`folders`, `list`, `read`, `send`) read the `EMAIL_CONFIG` env var (injected by the vault into the sandbox). They connect to IMAP/SMTP directly — no stella server required.
-- Config commands (`config add/remove/list/show/default`) use the vault HTTP API and require a running stella server and `STELLA_TOKEN`.
+- Config commands (`config add/remove/list/get/default`) use the vault HTTP API and require a running stella server and `STELLA_TOKEN`.
 - Attachments > 50 MB are skipped during save with a warning.

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,7 +15,6 @@ import (
 func skillsCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:     "skill",
-		Aliases:  []string{"skills"},
 		Usage:    "Search, install, and manage reusable skill bundles",
 		Category: "Feature",
 		Description: `Skills are reusable prompt-and-tool bundles that extend what the agent
@@ -62,7 +60,7 @@ func skillAgentContext(c *ucli.Context) (string, *apiclient.ListAgentSkillsParam
 func skillsSearchCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "search",
-		Usage:     "Search for skills (e.g. stella skills search react)",
+		Usage:     "Search for skills (e.g. stella skill search react)",
 		ArgsUsage: "<query>",
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{
@@ -70,11 +68,12 @@ func skillsSearchCommand() *ucli.Command {
 				Usage: "Max results to return",
 				Value: 10,
 			},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			query := c.Args().First()
 			if query == "" {
-				return fmt.Errorf("usage: stella skills search <query>")
+				return fmt.Errorf("usage: stella skill search <query>")
 			}
 
 			limit := c.Int("limit")
@@ -87,21 +86,24 @@ func skillsSearchCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
+			if isJSON(c) {
+				return printJSON(c, list)
+			}
 			results := list.Skills
-
+			o := stdout(c)
 			if len(results) == 0 {
-				fmt.Println("No skills found.")
-				return nil
+				o.println("No skills found.")
+				return o.Err()
 			}
 
-			fmt.Printf("Found %d skills:\n\n", len(results))
+			o.printf("Found %d skills:\n\n", len(results))
 			for _, s := range results {
-				fmt.Printf("  %s@%s\n", derefStr(s.Source), derefStr(s.SkillId))
-				fmt.Printf("    %s (%d installs)\n", derefStr(s.Name), derefInt(s.Installs))
-				fmt.Println()
+				o.printf("  %s@%s\n", derefStr(s.Source), derefStr(s.SkillId))
+				o.printf("    %s (%d installs)\n", derefStr(s.Name), derefInt(s.Installs))
+				o.println()
 			}
-			fmt.Println("Install with: stella skills install <owner/repo@skill-name>")
-			return nil
+			o.println("Install with: stella skill install <owner/repo@skill-name>")
+			return o.Err()
 		},
 	}
 }
@@ -109,14 +111,13 @@ func skillsSearchCommand() *ucli.Command {
 func skillsInstallCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "install",
-		Aliases:   []string{"add"},
 		Usage:     "Install a skill (e.g. owner/repo@skill-name, GitHub/GitLab URL, or local path)",
 		ArgsUsage: "<source>",
-		Flags:     skillAgentFlags(),
+		Flags:     append([]ucli.Flag{jsonFlag()}, skillAgentFlags()...),
 		Action: func(c *ucli.Context) error {
 			source := c.Args().First()
 			if source == "" {
-				return fmt.Errorf("usage: stella skills install <owner/repo@skill-name>")
+				return fmt.Errorf("usage: stella skill install <owner/repo@skill-name>")
 			}
 
 			agentID, _, err := skillAgentContext(c)
@@ -124,7 +125,7 @@ func skillsInstallCommand() *ucli.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
+			stderr(c).printf("Installing from %s...\n", source)
 
 			scope := apitypes.InstallSkillRequestScope("user")
 			result, err := apiclient.Call[map[string]string](func(api *apiclient.Client) (*http.Response, error) {
@@ -137,28 +138,22 @@ func skillsInstallCommand() *ucli.Command {
 				return err
 			}
 
-			fmt.Printf("Skill %q installed.\n", result["name"])
-			return nil
+			if isJSON(c) {
+				return printJSON(c, result)
+			}
+			o := stdout(c)
+			o.printf("Skill %q installed.\n", result["name"])
+			return o.Err()
 		},
 	}
 }
 
 func skillsListCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "list",
-		Usage: "List installed skills",
-		Flags: append([]ucli.Flag{
-			&ucli.BoolFlag{
-				Name:  "json",
-				Usage: "Output as JSON",
-			},
-		}, skillAgentFlags()...),
-		Action: func(c *ucli.Context) error {
-			if c.Bool("json") {
-				return skillsListJSON(c)
-			}
-			return skillsListAction(c)
-		},
+		Name:   "list",
+		Usage:  "List installed skills",
+		Flags:  append([]ucli.Flag{jsonFlag()}, skillAgentFlags()...),
+		Action: skillsListAction,
 	}
 }
 
@@ -180,10 +175,14 @@ func skillsListAction(c *ucli.Context) error {
 	if err != nil {
 		return err
 	}
+	if isJSON(c) {
+		return printJSON(c, list)
+	}
 	skills := list.Skills
+	o := stdout(c)
 	if len(skills) == 0 {
-		fmt.Println("No skills installed.")
-		return nil
+		o.println("No skills installed.")
+		return o.Err()
 	}
 
 	grouped := map[string][]apitypes.Skill{}
@@ -199,66 +198,30 @@ func skillsListAction(c *ucli.Context) error {
 	}
 
 	for _, scope := range scopeOrder {
-		fmt.Printf("%s:\n", scope)
+		o.printf("%s:\n", scope)
 		for _, s := range grouped[scope] {
 			desc := derefStr(s.Description)
 			if len(desc) > 80 {
 				desc = desc[:77] + "..."
 			}
 			desc = strings.ReplaceAll(desc, "\n", " ")
-			fmt.Printf("  %-25s %s\n", derefStr(s.Name), desc)
+			o.printf("  %-25s %s\n", derefStr(s.Name), desc)
 		}
-		fmt.Println()
+		o.println()
 	}
-	return nil
-}
-
-func skillsListJSON(c *ucli.Context) error {
-	agentID, params, err := skillAgentContext(c)
-	if err != nil {
-		return err
-	}
-	list, err := apiclient.Call[apitypes.SkillList](func(api *apiclient.Client) (*http.Response, error) {
-		return api.ListAgentSkills(c.Context, agentID, params)
-	})
-	if err != nil {
-		return err
-	}
-	skills := list.Skills
-
-	type entry struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Scope       string `json:"scope"`
-		Status      string `json:"status"`
-	}
-
-	entries := make([]entry, len(skills))
-	for i, s := range skills {
-		entries[i] = entry{
-			Name:        derefStr(s.Name),
-			Description: derefStr(s.Description),
-			Scope:       derefSkillScope(s.Scope),
-			Status:      derefStr(s.Status),
-		}
-	}
-
-	out, _ := json.MarshalIndent(entries, "", "  ")
-	fmt.Println(string(out))
-	return nil
+	return o.Err()
 }
 
 func skillsRemoveCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "remove",
-		Aliases:   []string{"rm"},
-		Usage:     "Remove an installed skill (e.g. stella skills remove my-skill)",
+		Usage:     "Remove an installed skill (e.g. stella skill remove my-skill)",
 		ArgsUsage: "<name>",
-		Flags:     skillAgentFlags(),
+		Flags:     append([]ucli.Flag{jsonFlag()}, skillAgentFlags()...),
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
-				return fmt.Errorf("usage: stella skills remove <name>")
+				return fmt.Errorf("usage: stella skill remove <name>")
 			}
 
 			agentID, params, err := skillAgentContext(c)
@@ -290,8 +253,12 @@ func skillsRemoveCommand() *ucli.Command {
 				return err
 			}
 
-			fmt.Printf("Skill %q removed.\n", name)
-			return nil
+			if isJSON(c) {
+				return printDeleted(c, name)
+			}
+			o := stdout(c)
+			o.printf("Skill %q removed.\n", name)
+			return o.Err()
 		},
 	}
 }

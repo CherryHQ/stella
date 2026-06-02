@@ -15,7 +15,7 @@ var RecallyDigestBuiltin = BuiltinJob{
    - Close with the trending tags as a loose sentence: "Today's themes span X, Y, and Z."
    Keep the tone warm, curious, and concise — aim for 150–300 words total. No bullet points, no emoji, no section headers.
 5. Call notify once with a short 1-sentence preview of the narrative (the opening sentence).
-6. Save the full narrative through a private temporary file: tmpfile="$(mktemp -t stella_digest.XXXXXX)"; chmod 600 "$tmpfile"; write the narrative to "$tmpfile"; run stella recally digest-save --narrative "$(cat "$tmpfile")"; then rm -f "$tmpfile".`,
+6. Save the full narrative through a private temporary file: tmpfile="$(mktemp -t stella_digest.XXXXXX)"; chmod 600 "$tmpfile"; write the narrative to "$tmpfile"; run stella recally digest save --narrative "$(cat "$tmpfile")"; then rm -f "$tmpfile".`,
 	Schedule:    Schedule{Every: "24h"},
 	SessionMode: SessionNew,
 	ExecScope:   ExecScopeAllUsers,

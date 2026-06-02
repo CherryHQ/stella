@@ -102,7 +102,7 @@ Stella 可以给你一份每日阅读总结：
 
 ```bash
 # 保存文章
-stella recally save --url "https://example.com/article" \
+stella recally save "https://example.com/article" \
   --title "Article Title" \
   --summary "Brief summary" \
   --tags "go,concurrency"

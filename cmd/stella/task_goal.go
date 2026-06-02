@@ -36,6 +36,7 @@ func goalReviewsCmd() *ucli.Command {
 		Name:      "reviews",
 		Usage:     "List goal reviews",
 		ArgsUsage: "<goal-id>",
+		Flags:     []ucli.Flag{jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -47,8 +48,10 @@ func goalReviewsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("goal reviews: %w", err)
 			}
-			printReviewList(list.Reviews)
-			return nil
+			if isJSON(c) {
+				return printJSON(c, list)
+			}
+			return printReviewList(c, list.Reviews)
 		},
 	}
 }
@@ -59,6 +62,7 @@ func goalListCmd() *ucli.Command {
 		Usage: "List goals",
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of goals to return"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListGoalsParams{}
@@ -72,10 +76,14 @@ func goalListCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("list goals: %w", err)
 			}
-			for _, g := range list.Goals {
-				fmt.Printf("%-36s  %-10s  %-8s  %s\n", g.Id, g.Status, g.Priority, g.Title)
+			if isJSON(c) {
+				return printJSON(c, list)
 			}
-			return nil
+			o := stdout(c)
+			for _, g := range list.Goals {
+				o.printf("%-36s  %-10s  %-8s  %s\n", g.Id, g.Status, g.Priority, g.Title)
+			}
+			return o.Err()
 		},
 	}
 }
@@ -85,6 +93,7 @@ func goalGetCmd() *ucli.Command {
 		Name:      "get",
 		Usage:     "Show a goal",
 		ArgsUsage: "<goal-id>",
+		Flags:     []ucli.Flag{jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -96,8 +105,7 @@ func goalGetCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("get goal: %w", err)
 			}
-			printGoal(goal)
-			return nil
+			return printGoal(c, goal)
 		},
 	}
 }
@@ -109,10 +117,11 @@ func goalCreateCmd() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Goal title"},
 			&ucli.StringFlag{Name: "description", Usage: "Goal description"},
-			&ucli.StringFlag{Name: "agent-id", Aliases: []string{"agent"}, Usage: "Creator/manager agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.StringFlag{Name: "agent-id", Usage: "Creator/manager agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringFlag{Name: "review-policy", Usage: "auto | agent | human"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			agentID := c.String("agent-id")
@@ -149,8 +158,7 @@ func goalCreateCmd() *ucli.Command {
 					return fmt.Errorf("activate goal: %w", err)
 				}
 			}
-			printGoal(goal)
-			return nil
+			return printGoal(c, goal)
 		},
 	}
 }
@@ -160,6 +168,7 @@ func goalActivateCmd() *ucli.Command {
 		Name:      "activate",
 		Usage:     "Activate a draft goal",
 		ArgsUsage: "<goal-id>",
+		Flags:     []ucli.Flag{jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -171,8 +180,7 @@ func goalActivateCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("activate goal: %w", err)
 			}
-			printGoal(goal)
-			return nil
+			return printGoal(c, goal)
 		},
 	}
 }
@@ -182,7 +190,7 @@ func goalCancelCmd() *ucli.Command {
 		Name:      "cancel",
 		Usage:     "Cancel a goal",
 		ArgsUsage: "<goal-id>",
-		Flags:     []ucli.Flag{&ucli.StringFlag{Name: "reason", Usage: "Cancellation reason"}},
+		Flags:     []ucli.Flag{&ucli.StringFlag{Name: "reason", Usage: "Cancellation reason"}, jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -198,8 +206,7 @@ func goalCancelCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("cancel goal: %w", err)
 			}
-			printGoal(goal)
-			return nil
+			return printGoal(c, goal)
 		},
 	}
 }
@@ -209,6 +216,7 @@ func goalTasksCmd() *ucli.Command {
 		Name:      "tasks",
 		Usage:     "List a goal's child tasks",
 		ArgsUsage: "<goal-id>",
+		Flags:     []ucli.Flag{jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -220,10 +228,14 @@ func goalTasksCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("goal tasks: %w", err)
 			}
-			for _, t := range list.Tasks {
-				fmt.Printf("%-36s  %-10s  %-8s  %s\n", t.Id, t.Status, t.Priority, t.Title)
+			if isJSON(c) {
+				return printJSON(c, list)
 			}
-			return nil
+			o := stdout(c)
+			for _, t := range list.Tasks {
+				o.printf("%-36s  %-10s  %-8s  %s\n", t.Id, t.Status, t.Priority, t.Title)
+			}
+			return o.Err()
 		},
 	}
 }
@@ -250,10 +262,11 @@ func goalReviewDecisionCmd(verb, usage string) *ucli.Command {
 			&ucli.StringFlag{Name: "summary", Usage: "Decision summary"},
 			&ucli.StringFlag{Name: "feedback", Usage: "Feedback (reject / request-changes)"},
 			&ucli.StringFlag{Name: "reason", Usage: "Reason (escalate)"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			if c.NArg() < 2 {
-				return fmt.Errorf("usage: stella goal review %s <goal-id> <review-id>", verb)
+				return fmt.Errorf("usage: stella task goal review %s <goal-id> <review-id>", verb)
 			}
 			goalID := c.Args().Get(0)
 			reviewID := c.Args().Get(1)
@@ -277,8 +290,12 @@ func goalReviewDecisionCmd(verb, usage string) *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("goal review %s: %w", verb, err)
 			}
-			fmt.Printf("review %s -> %s\n", rev.Id, rev.Status)
-			return nil
+			if isJSON(c) {
+				return printJSON(c, rev)
+			}
+			o := stdout(c)
+			o.printf("review %s -> %s\n", rev.Id, rev.Status)
+			return o.Err()
 		},
 	}
 }
@@ -294,11 +311,16 @@ func reviewDecisionBody(c *ucli.Context) apitypes.ReviewDecisionRequest {
 	return body
 }
 
-func printGoal(g apitypes.Goal) {
-	fmt.Printf("id:       %s\n", g.Id)
-	fmt.Printf("title:    %s\n", g.Title)
-	fmt.Printf("status:   %s\n", g.Status)
-	fmt.Printf("priority: %s\n", g.Priority)
-	fmt.Printf("review:   %s\n", g.ReviewPolicy)
-	fmt.Printf("created:  %s\n", g.CreatedAt.Format("2006-01-02 15:04:05"))
+func printGoal(c *ucli.Context, g apitypes.Goal) error {
+	if isJSON(c) {
+		return printJSON(c, g)
+	}
+	o := stdout(c)
+	o.printf("id:       %s\n", g.Id)
+	o.printf("title:    %s\n", g.Title)
+	o.printf("status:   %s\n", g.Status)
+	o.printf("priority: %s\n", g.Priority)
+	o.printf("review:   %s\n", g.ReviewPolicy)
+	o.printf("created:  %s\n", g.CreatedAt.Format("2006-01-02 15:04:05"))
+	return o.Err()
 }

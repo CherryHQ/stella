@@ -38,6 +38,7 @@ func schedulerAddCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "at", Usage: "RFC3339 timestamp for a one-time job (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "session-mode", Usage: "Session behavior: reuse (default) or new", Value: "reuse"},
 			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			cron := c.String("cron")
@@ -90,7 +91,19 @@ func schedulerAddCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			return printJSON(job)
+			if isJSON(c) {
+				return printJSON(c, job)
+			}
+			sched := derefStr(job.Cron)
+			if sched == "" {
+				sched = derefStr(job.Every)
+			}
+			if sched == "" {
+				sched = derefStr(job.At)
+			}
+			o := stdout(c)
+			o.printf("Job %s created (%s, %s).\n", shortID(job.Id), job.Name, sched)
+			return o.Err()
 		},
 	}
 }
@@ -101,7 +114,7 @@ func schedulerListCommand() *ucli.Command {
 		Usage: "List scheduled jobs",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			agentID, err := taskAgentID(c)
@@ -114,14 +127,15 @@ func schedulerListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if c.Bool("json") {
-				return printJSON(list.Jobs)
+			if isJSON(c) {
+				return printJSON(c, list)
 			}
+			o := stdout(c)
 			if len(list.Jobs) == 0 {
-				fmt.Println("No scheduled jobs.")
-				return nil
+				o.println("No scheduled jobs.")
+				return o.Err()
 			}
-			fmt.Printf("%-10s  %-20s  %-20s  %-8s  %s\n", "ID", "NAME", "SCHEDULE", "MODE", "LAST RUN")
+			o.printf("%-10s  %-20s  %-20s  %-8s  %s\n", "ID", "NAME", "SCHEDULE", "MODE", "LAST RUN")
 			for _, j := range list.Jobs {
 				sched := derefStr(j.Cron)
 				if sched == "" {
@@ -134,10 +148,10 @@ func schedulerListCommand() *ucli.Command {
 				if j.LastRunAt != nil {
 					lastRun = j.LastRunAt.Format(time.DateTime)
 				}
-				fmt.Printf("%-10s  %-20s  %-20s  %-8s  %s\n",
+				o.printf("%-10s  %-20s  %-20s  %-8s  %s\n",
 					shortID(j.Id), truncate(j.Name, 20), truncate(sched, 20), j.SessionMode, lastRun)
 			}
-			return nil
+			return o.Err()
 		},
 	}
 }
@@ -149,6 +163,7 @@ func schedulerRemoveCommand() *ucli.Command {
 		ArgsUsage: "<job-id>",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
@@ -164,8 +179,12 @@ func schedulerRemoveCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			fmt.Printf("Job %q removed.\n", id)
-			return nil
+			if isJSON(c) {
+				return printDeleted(c, id)
+			}
+			o := stdout(c)
+			o.printf("Job %q removed.\n", id)
+			return o.Err()
 		},
 	}
 }

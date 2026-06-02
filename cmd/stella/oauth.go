@@ -33,7 +33,7 @@ func oauthProvidersCommand() *ucli.Command {
 		Name:  "providers",
 		Usage: "List available OAuth providers",
 		Flags: []ucli.Flag{
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			list, err := apiclient.Call[apitypes.OAuthProviderStatusList](func(api *apiclient.Client) (*http.Response, error) {
@@ -42,24 +42,25 @@ func oauthProvidersCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
+			if isJSON(c) {
+				return printJSON(c, list)
+			}
 			providers := list.Providers
-			if c.Bool("json") {
-				return printJSON(providers)
-			}
+			o := stdout(c)
 			if len(providers) == 0 {
-				fmt.Println("No OAuth providers configured.")
-				return nil
+				o.println("No OAuth providers configured.")
+				return o.Err()
 			}
-			fmt.Printf("%-20s  %-12s  %-12s  %s\n", "PROVIDER", "CONFIGURED", "CONNECTED", "USERNAME")
+			o.printf("%-20s  %-12s  %-12s  %s\n", "PROVIDER", "CONFIGURED", "CONNECTED", "USERNAME")
 			for _, p := range providers {
 				username := ""
 				if p.Username != nil {
 					username = *p.Username
 				}
-				fmt.Printf("%-20s  %-12v  %-12v  %s\n",
+				o.printf("%-20s  %-12v  %-12v  %s\n",
 					truncate(p.Provider, 20), p.Configured, p.Connected, username)
 			}
-			return nil
+			return o.Err()
 		},
 	}
 }
@@ -69,6 +70,9 @@ func oauthConnectCommand() *ucli.Command {
 		Name:      "connect",
 		Usage:     "Start OAuth flow to connect a provider",
 		ArgsUsage: "<provider>",
+		Flags: []ucli.Flag{
+			jsonFlag(),
+		},
 		Action: func(c *ucli.Context) error {
 			provider := c.Args().First()
 			if provider == "" {
@@ -81,11 +85,12 @@ func oauthConnectCommand() *ucli.Command {
 				return err
 			}
 
-			fmt.Printf("Open this URL to authorize:\n  %s\n", flow.VerificationUri)
+			e := stderr(c)
+			e.printf("Open this URL to authorize:\n  %s\n", flow.VerificationUri)
 			if flow.UserCode != nil {
-				fmt.Printf("Enter code: %s\n", *flow.UserCode)
+				e.printf("Enter code: %s\n", *flow.UserCode)
 			}
-			fmt.Println("\nWaiting for authorization...")
+			e.println("\nWaiting for authorization...")
 
 			ticker := time.NewTicker(3 * time.Second)
 			defer ticker.Stop()
@@ -103,8 +108,12 @@ func oauthConnectCommand() *ucli.Command {
 					}
 					switch status.State {
 					case "completed":
-						fmt.Printf("Connected to %s.\n", provider)
-						return nil
+						if isJSON(c) {
+							return printJSON(c, status)
+						}
+						o := stdout(c)
+						o.printf("Connected to %s.\n", provider)
+						return o.Err()
 					case "failed":
 						return fmt.Errorf("OAuth flow failed for %s", provider)
 					case "expired":
@@ -122,7 +131,7 @@ func oauthStatusCommand() *ucli.Command {
 		Usage:     "Check connection status for a provider",
 		ArgsUsage: "<provider>",
 		Flags: []ucli.Flag{
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			provider := c.Args().First()
@@ -135,19 +144,20 @@ func oauthStatusCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if c.Bool("json") {
-				return printJSON(status)
+			if isJSON(c) {
+				return printJSON(c, status)
 			}
+			o := stdout(c)
 			if status.Connected {
 				username := ""
 				if status.Username != nil {
 					username = " (" + *status.Username + ")"
 				}
-				fmt.Printf("%s: connected%s\n", provider, username)
+				o.printf("%s: connected%s\n", provider, username)
 			} else {
-				fmt.Printf("%s: not connected\n", provider)
+				o.printf("%s: not connected\n", provider)
 			}
-			return nil
+			return o.Err()
 		},
 	}
 }
@@ -157,6 +167,9 @@ func oauthDisconnectCommand() *ucli.Command {
 		Name:      "disconnect",
 		Usage:     "Disconnect an OAuth provider",
 		ArgsUsage: "<provider>",
+		Flags: []ucli.Flag{
+			jsonFlag(),
+		},
 		Action: func(c *ucli.Context) error {
 			provider := c.Args().First()
 			if provider == "" {
@@ -167,8 +180,12 @@ func oauthDisconnectCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			fmt.Printf("Disconnected from %s.\n", provider)
-			return nil
+			if isJSON(c) {
+				return printJSON(c, map[string]any{"provider": provider, "connected": false})
+			}
+			o := stdout(c)
+			o.printf("Disconnected from %s.\n", provider)
+			return o.Err()
 		},
 	}
 }

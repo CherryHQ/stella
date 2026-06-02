@@ -102,7 +102,7 @@ All reading assistant commands are available through the `stella recally` subcom
 
 ```bash
 # Save an article
-stella recally save --url "https://example.com/article" \
+stella recally save "https://example.com/article" \
   --title "Article Title" \
   --summary "Brief summary" \
   --tags "go,concurrency"
