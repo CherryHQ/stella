@@ -154,11 +154,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	// Wire OIDC authentication (external provider or built-in local issuer).
+	// Wire authentication (external OIDC/OAuth providers and local password auth).
 	oidcStore := appdb.NewOIDCStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
-		Store:      s.store,
 		BaseURL:    resolveBaseURL(adminHost, adminPort),
 		VaultKey:   os.Getenv("STELLA_VAULT_KEY"),
 		AuthStores: oidcStore,

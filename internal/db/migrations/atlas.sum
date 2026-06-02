@@ -1,4 +1,5 @@
-h1:1Pk+qLJ6iOtAu0gaDCK8VaoKffi3MaNeec9FHPv/0hU=
+h1:d+8RMh6RM6/6GanxQnAYiQSUVhK0hafywQaw6zpr5L4=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
+20260602153709_drop_local_oidc_tables.sql h1:5NRYvxSUvzgEjSDguMN90RcA4MNa+I0CLAfZiFS/oAI=

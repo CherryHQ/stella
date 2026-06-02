@@ -3,31 +3,23 @@ package local
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/url"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
-// Service owns local username/password authentication while the issuer owns
-// the OIDC protocol endpoints. Keeping credential submission here prevents
-// /authorize from becoming a JSON API with content-negotiation tricks.
+// Service owns local username/password authentication.
 type Service struct {
 	cfg         *Config
-	codes       auth.OIDCCodeStore
 	users       auth.UserStore
 	credentials auth.CredentialStore
 }
 
 type LoginInput struct {
-	Email       string
-	Password    string
-	State       auth.AuthState
-	RedirectURI string
+	Email    string
+	Password string
 }
 
 type RegisterInput struct {
@@ -35,8 +27,6 @@ type RegisterInput struct {
 	Email           string
 	Password        string
 	ConfirmPassword string
-	State           auth.AuthState
-	RedirectURI     string
 }
 
 var (
@@ -48,69 +38,71 @@ var (
 	ErrEmailNotAllowed      = errors.New("email domain not allowed")
 )
 
-func NewService(cfg *Config, codes auth.OIDCCodeStore, users auth.UserStore, credentials auth.CredentialStore) *Service {
-	return &Service{cfg: cfg, codes: codes, users: users, credentials: credentials}
+func NewService(cfg *Config, users auth.UserStore, credentials auth.CredentialStore) *Service {
+	return &Service{cfg: cfg, users: users, credentials: credentials}
 }
 
 func (s *Service) AllowsRegistration(_ context.Context) bool {
 	return s.cfg.AllowRegistration
 }
 
-func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
+func (s *Service) Login(ctx context.Context, in LoginInput) (auth.ExternalIdentity, error) {
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if email == "" || in.Password == "" || len(in.Password) > 72 {
-		return "", ErrInvalidInput
+		return auth.ExternalIdentity{}, ErrInvalidInput
 	}
 
 	user, err := s.users.GetUserByEmail(ctx, email)
 	if err != nil {
-		return "", ErrInvalidLogin
+		return auth.ExternalIdentity{}, ErrInvalidLogin
 	}
 	if !user.IsActive {
-		return "", ErrAccountDisabled
+		return auth.ExternalIdentity{}, ErrAccountDisabled
 	}
 
 	credSvc := auth.NewCredentialService(s.credentials)
 	if err := credSvc.VerifyPassword(ctx, user.ID, in.Password); err != nil {
-		return "", ErrInvalidLogin
+		return auth.ExternalIdentity{}, ErrInvalidLogin
 	}
 
-	params, err := s.authorizeParams(in.State, in.RedirectURI)
-	if err != nil {
-		return "", err
-	}
-	return s.issueCode(ctx, user.ID, params)
+	return auth.ExternalIdentity{
+		Provider: "local",
+		Subject:  user.ID,
+		Email:    user.Email,
+		Name:     user.Name,
+	}, nil
 }
 
-func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error) {
+func (s *Service) Register(ctx context.Context, in RegisterInput) (auth.ExternalIdentity, error) {
 	if !s.cfg.AllowRegistration {
-		return "", ErrRegistrationDisabled
+		return auth.ExternalIdentity{}, ErrRegistrationDisabled
 	}
 
 	name := strings.TrimSpace(in.Name)
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if name == "" || email == "" || in.Password == "" || in.ConfirmPassword == "" {
-		return "", ErrInvalidInput
+		return auth.ExternalIdentity{}, ErrInvalidInput
 	}
 	if len(name) > 255 || len(email) > 254 {
-		return "", ErrInvalidInput
+		return auth.ExternalIdentity{}, ErrInvalidInput
 	}
 	if len(in.Password) < 8 || len(in.Password) > 72 || in.Password != in.ConfirmPassword {
-		return "", ErrInvalidInput
+		return auth.ExternalIdentity{}, ErrInvalidInput
 	}
 	if !s.cfg.IsEmailAllowed(email) {
-		return "", ErrEmailNotAllowed
+		return auth.ExternalIdentity{}, ErrEmailNotAllowed
 	}
 
 	userID, err := s.createRegisteredUser(ctx, name, email, in.Password)
 	if err != nil {
-		return "", err
+		return auth.ExternalIdentity{}, err
 	}
-	params, err := s.authorizeParams(in.State, in.RedirectURI)
-	if err != nil {
-		return "", err
-	}
-	return s.issueCode(ctx, userID, params)
+	return auth.ExternalIdentity{
+		Provider: "local",
+		Subject:  userID,
+		Email:    email,
+		Name:     name,
+	}, nil
 }
 
 func (s *Service) createRegisteredUser(ctx context.Context, name, email, password string) (string, error) {
@@ -166,53 +158,4 @@ func createRegisteredUserNoTx(ctx context.Context, users auth.UserStore, credent
 		return "", err
 	}
 	return newUser.ID, nil
-}
-
-func (s *Service) authorizeParams(state auth.AuthState, redirectURI string) (*authorizeParams, error) {
-	if redirectURI == "" && len(s.cfg.RedirectURIs) > 0 {
-		redirectURI = s.cfg.RedirectURIs[0]
-	}
-	if !s.cfg.IsRedirectURIAllowed(redirectURI) {
-		return nil, fmt.Errorf("redirect_uri not allowed: %s", redirectURI)
-	}
-	return &authorizeParams{
-		clientID:            s.cfg.ClientID,
-		redirectURI:         redirectURI,
-		state:               state.State,
-		scopes:              []string{"openid", "email", "profile"},
-		pkceChallenge:       pkceChallengeFromVerifier(state.CodeVerifier),
-		pkceChallengeMethod: "S256",
-	}, nil
-}
-
-func (s *Service) issueCode(ctx context.Context, userID string, params *authorizeParams) (string, error) {
-	rawCode := generateOpaqueToken()
-	codeHash := hashToken(rawCode)
-
-	_, err := s.codes.CreateOIDCCode(ctx, auth.OIDCCode{
-		ID:            uuid.NewString(),
-		CodeHash:      codeHash,
-		UserID:        userID,
-		ClientID:      params.clientID,
-		RedirectURI:   params.redirectURI,
-		Scopes:        params.scopes,
-		Nonce:         params.nonce,
-		PKCEChallenge: params.pkceChallenge,
-		PKCEMethod:    params.pkceChallengeMethod,
-		ExpiresAt:     time.Now().Add(time.Duration(s.cfg.AuthCodeTTL) * time.Second),
-	})
-	if err != nil {
-		return "", fmt.Errorf("local auth: create authorization code: %w", err)
-	}
-
-	q := url.Values{"code": {rawCode}}
-	if params.state != "" {
-		q.Set("state", params.state)
-	}
-	u, err := url.Parse(params.redirectURI)
-	if err != nil {
-		return "", fmt.Errorf("local auth: parse redirect URI: %w", err)
-	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
 }

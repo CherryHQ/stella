@@ -20,22 +20,28 @@ import (
 // login buttons. Public endpoint — no authentication required.
 func (s *Server) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
 	out := apitypes.OIDCProviderList{Providers: []apitypes.OIDCProvider{}}
-	for _, p := range s.authProviders {
+	if s.localAuth != nil {
 		prov := apitypes.OIDCProvider{
-			Name:     p.Name(),
-			LoginUrl: fmt.Sprintf("/auth/login/%s", p.Name()),
+			Name:     "local",
+			LoginUrl: "/auth/login/local",
 		}
-		if p.Name() == "local" && s.localAuth != nil && s.localAuth.AllowsRegistration(r.Context()) {
+		if s.localAuth.AllowsRegistration(r.Context()) {
 			regURL := "/signup"
 			prov.RegisterUrl = &regURL
 		}
 		out.Providers = append(out.Providers, prov)
 	}
+	for _, p := range s.authProviders {
+		out.Providers = append(out.Providers, apitypes.OIDCProvider{
+			Name:     p.Name(),
+			LoginUrl: fmt.Sprintf("/auth/login/%s", p.Name()),
+		})
+	}
 	writeData(w, http.StatusOK, out)
 }
 
 func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
-	if s.localAuth == nil || s.stateMgr == nil {
+	if s.localAuth == nil || s.authSvc == nil || s.sessionMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
 		return
 	}
@@ -57,14 +63,9 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state, ok := s.startLocalAuthFlow(w, r)
-	if !ok {
-		return
-	}
-	redirectURL, err := s.localAuth.Login(r.Context(), local.LoginInput{
+	identity, err := s.localAuth.Login(r.Context(), local.LoginInput{
 		Email:    email,
 		Password: body.Password,
-		State:    state,
 	})
 	if err != nil {
 		s.rateLimiter.RecordIPAttempt(ip)
@@ -74,12 +75,19 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 		s.writeLocalAuthError(w, err)
 		return
 	}
+	result, err := s.authSvc.ProcessOIDCLogin(r.Context(), identity, s.sessionMgr)
+	if err != nil {
+		slog.Error("local auth: process login", "error", err)
+		writeError(w, http.StatusInternalServerError, "login failed")
+		return
+	}
+	s.finalizeLogin(w, r, result)
 	s.rateLimiter.RecordLoginSuccess(email)
-	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: redirectURL})
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
 }
 
 func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
-	if s.localAuth == nil || s.stateMgr == nil {
+	if s.localAuth == nil || s.authSvc == nil || s.sessionMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
 		return
 	}
@@ -96,39 +104,25 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state, ok := s.startLocalAuthFlow(w, r)
-	if !ok {
-		return
-	}
-	redirectURL, err := s.localAuth.Register(r.Context(), local.RegisterInput{
+	identity, err := s.localAuth.Register(r.Context(), local.RegisterInput{
 		Name:            body.Name,
 		Email:           string(body.Email),
 		Password:        body.Password,
 		ConfirmPassword: body.ConfirmPassword,
-		State:           state,
 	})
 	if err != nil {
 		s.rateLimiter.RecordIPAttempt(ip)
 		s.writeLocalAuthError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: redirectURL})
-}
-
-func (s *Server) startLocalAuthFlow(w http.ResponseWriter, r *http.Request) (auth.AuthState, bool) {
-	payload, err := s.stateMgr.Generate()
+	result, err := s.authSvc.ProcessOIDCLogin(r.Context(), identity, s.sessionMgr)
 	if err != nil {
-		slog.Error("local auth: generate state", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return auth.AuthState{}, false
+		slog.Error("local auth: process registration", "error", err)
+		writeError(w, http.StatusInternalServerError, "registration failed")
+		return
 	}
-	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	if err := s.stateMgr.SetCookie(w, payload, secure); err != nil {
-		slog.Error("local auth: set state cookie", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return auth.AuthState{}, false
-	}
-	return auth.AuthState{State: payload.State, CodeVerifier: payload.CodeVerifier, ProviderName: "local"}, true
+	s.finalizeLogin(w, r, result)
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
 }
 
 func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
@@ -181,22 +175,21 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providerName := r.PathValue("provider")
-	provider := s.findProvider(providerName)
-	if provider == nil {
-		slog.Warn("oidc: unknown provider", "provider", providerName, "available", s.providerNames())
-		http.NotFound(w, r)
-		return
-	}
-
-	// Local provider: redirect to the SPA login page directly. The SPA
-	// generates its own OIDC state via the JSON API, so setting one here
-	// would only be overwritten.
-	if providerName == "local" {
+	// Local provider: redirect to the SPA login page directly. The SPA submits
+	// credentials through the JSON API and does not use an OIDC redirect flow.
+	if providerName == "local" && s.localAuth != nil {
 		dest := "/login"
 		if r.URL.Query().Get("mode") == "register" {
 			dest = "/signup"
 		}
 		http.Redirect(w, r, dest, http.StatusFound)
+		return
+	}
+
+	provider := s.findProvider(providerName)
+	if provider == nil {
+		slog.Warn("oidc: unknown provider", "provider", providerName, "available", s.providerNames())
+		http.NotFound(w, r)
 		return
 	}
 

@@ -53,6 +53,21 @@ func TestOAuthConfigsFromEnvRequiresAllowRule(t *testing.T) {
 	}
 }
 
+func TestOAuthConfigsFromEnvRejectsReservedLocalProvider(t *testing.T) {
+	t.Setenv("AUTH_OAUTH_PROVIDERS", "local")
+	t.Setenv("AUTH_OAUTH_LOCAL_CLIENT_ID", "client")
+	t.Setenv("AUTH_OAUTH_LOCAL_CLIENT_SECRET", "secret")
+	t.Setenv("AUTH_OAUTH_LOCAL_AUTH_URL", "https://idp.example/auth")
+	t.Setenv("AUTH_OAUTH_LOCAL_TOKEN_URL", "https://idp.example/token")
+	t.Setenv("AUTH_OAUTH_LOCAL_USERINFO_URL", "https://idp.example/userinfo")
+	t.Setenv("AUTH_OAUTH_LOCAL_ALLOWED_EMAIL_DOMAINS", "example.com")
+
+	_, err := OAuthConfigsFromEnv("https://stella.example")
+	if err == nil {
+		t.Fatal("expected reserved local provider error")
+	}
+}
+
 func TestOAuthConfigFromEnvCustomProvider(t *testing.T) {
 	t.Setenv("AUTH_OAUTH_ACME_CLIENT_ID", "client")
 	t.Setenv("AUTH_OAUTH_ACME_CLIENT_SECRET", "secret")

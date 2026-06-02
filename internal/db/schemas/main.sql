@@ -25,8 +25,6 @@
 -- atlas:import tables/auth_session.sql
 -- atlas:import tables/auth_credential.sql
 -- Local OIDC provider tables
--- atlas:import tables/auth_oidc_code.sql
--- atlas:import tables/auth_oidc_access_token.sql
 -- atlas:import tables/share.sql
 -- atlas:import tables/plugin_state.sql
 -- atlas:import tables/skill.sql

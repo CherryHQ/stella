@@ -179,9 +179,6 @@ func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
 	s.sessionMgr = result.SessionMgr
 	s.stateMgr = result.StateMgr
 	s.localAuth = result.LocalAuth
-	if result.RegisterRoutes != nil {
-		result.RegisterRoutes(s.mux)
-	}
 }
 
 // CredentialsService returns the shared credentials service.

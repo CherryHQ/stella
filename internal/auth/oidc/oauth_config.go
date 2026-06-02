@@ -132,6 +132,8 @@ func (c *OAuthConfig) Validate() error {
 	var errs []string
 	if c.ProviderName == "" {
 		errs = append(errs, "provider name is required")
+	} else if strings.EqualFold(c.ProviderName, "local") {
+		errs = append(errs, "oauth provider name local is reserved")
 	}
 	if c.ClientID == "" {
 		errs = append(errs, c.envName("CLIENT_ID")+" is required")

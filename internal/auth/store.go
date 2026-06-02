@@ -52,21 +52,6 @@ type SessionStore interface {
 	ListSessionsByUser(ctx context.Context, userID string) ([]Session, error)
 }
 
-// OIDCCodeStore provides operations for local OIDC authorization codes.
-type OIDCCodeStore interface {
-	CreateOIDCCode(ctx context.Context, c OIDCCode) (OIDCCode, error)
-	// ConsumeOIDCCode atomically looks up a code by hash and marks it consumed.
-	// Returns ErrNotFound if the code does not exist, ErrAlreadyConsumed if already used.
-	ConsumeOIDCCode(ctx context.Context, codeHash string) (OIDCCode, error)
-}
-
-// OIDCAccessTokenStore provides operations for local OIDC access tokens.
-type OIDCAccessTokenStore interface {
-	CreateOIDCAccessToken(ctx context.Context, t OIDCAccessToken) (OIDCAccessToken, error)
-	GetOIDCAccessTokenByHash(ctx context.Context, tokenHash string) (OIDCAccessToken, error)
-	DeleteExpiredOIDCAccessTokens(ctx context.Context) error
-}
-
 // CredentialStore provides CRUD for auth_credential (local password hashes).
 type CredentialStore interface {
 	CreateCredential(ctx context.Context, c Credential) (Credential, error)
