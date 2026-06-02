@@ -324,52 +324,55 @@ func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
 		"response_type": {"code"},
 		"scope":         {"openid email"},
 	}
-	r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200", w.Code)
+	// 1. Non-navigation (AJAX) request should return 200 OK
+	rAJAX := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
+	wAJAX := httptest.NewRecorder()
+	issuer.HandleAuthorize(wAJAX, rAJAX)
+	if wAJAX.Code != http.StatusOK {
+		t.Errorf("AJAX GET: status %d, want 200", wAJAX.Code)
 	}
-	if !strings.Contains(w.Body.String(), "<form") {
-		t.Error("response should contain a login form")
+
+	// 2. Navigation request should redirect to /login
+	rNav := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
+	rNav.Header.Set("Sec-Fetch-Mode", "navigate")
+	wNav := httptest.NewRecorder()
+	issuer.HandleAuthorize(wNav, rNav)
+	if wNav.Code != http.StatusFound {
+		t.Fatalf("Navigation GET: status %d, want 302", wNav.Code)
+	}
+	loc := wNav.Result().Header.Get("Location")
+	if !strings.HasPrefix(loc, "/login?") {
+		t.Errorf("unexpected redirect location: %s", loc)
 	}
 }
 
-func TestAuthorizeLoginFormURLsAreEscaped(t *testing.T) {
+func TestAuthorizeRedirectsToSignup(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	cfg.RedirectURIs = []string{"https://stella.cherry-ai.com/auth/callback/local"}
 	issuer := local.NewIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
 		newFakeCredStore(), nil, nil)
 
 	q := url.Values{
-		"client_id":             {cfg.ClientID},
-		"redirect_uri":          {cfg.RedirectURIs[0]},
-		"response_type":         {"code"},
-		"scope":                 {"openid email profile"},
-		"state":                 {"state-with-safe-chars"},
-		"code_challenge":        {"QV-Zas6OPNdkq7Cfo9FWNBNTW40jy1_aVcJiR1hbGNY"},
-		"code_challenge_method": {"S256"},
+		"client_id":     {cfg.ClientID},
+		"redirect_uri":  {cfg.RedirectURIs[0]},
+		"response_type": {"code"},
+		"scope":         {"openid email"},
+		"mode":          {"register"},
 	}
-	r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200", w.Code)
+	rNav := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
+	rNav.Header.Set("Sec-Fetch-Mode", "navigate")
+	wNav := httptest.NewRecorder()
+	issuer.HandleAuthorize(wNav, rNav)
+	if wNav.Code != http.StatusFound {
+		t.Fatalf("Navigation GET (register): status %d, want 302", wNav.Code)
 	}
-	body := w.Body.String()
-	if strings.Contains(body, "ZgotmplZ") {
-		t.Fatalf("response contains unsafe template fallback: %s", body)
-	}
-	if !strings.Contains(body, "redirect_uri=https%3A%2F%2Fstella.cherry-ai.com%2Fauth%2Fcallback%2Flocal") {
-		t.Fatalf("response does not contain escaped redirect_uri: %s", body)
-	}
-	if !strings.Contains(body, "mode=register") {
-		t.Fatalf("response does not contain register mode link: %s", body)
+	loc := wNav.Result().Header.Get("Location")
+	if !strings.HasPrefix(loc, "/signup?") {
+		t.Errorf("unexpected redirect location for register mode: %s", loc)
 	}
 }
 
