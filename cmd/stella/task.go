@@ -108,20 +108,22 @@ func taskCreateCmd() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Task title"},
 			&ucli.StringFlag{Name: "description", Usage: "Task description"},
-			&ucli.StringFlag{Name: "agent", Usage: "Creator agent ID (optional)"},
+			&ucli.StringFlag{Name: "agent-id", Aliases: []string{"agent"}, Usage: "Creator agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "executor", Usage: "Explicit executor agent ID (D13)"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency: <task-id>[:kind[:on_failure]]; may be repeated"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
 		},
 		Action: func(c *ucli.Context) error {
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+
 			title := c.String("title")
-			body := apitypes.CreateTaskRequest{Title: title}
+			body := apitypes.CreateTaskRequest{Title: title, AgentId: &agentID}
 			if d := c.String("description"); d != "" {
 				body.Description = &d
-			}
-			if a := c.String("agent"); a != "" {
-				body.AgentId = &a
 			}
 			if e := c.String("executor"); e != "" {
 				body.ExecutorAgentId = &e
