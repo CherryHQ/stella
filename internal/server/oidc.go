@@ -133,7 +133,13 @@ func (s *Server) startLocalAuthFlow(w http.ResponseWriter, r *http.Request) (aut
 
 func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, local.ErrInvalidInput):
+	// ErrEmailExists is deliberately folded into the generic invalid-input
+	// response so the endpoint never confirms whether an email is registered
+	// (prevents account enumeration). The real reason is logged server-side.
+	case errors.Is(err, local.ErrInvalidInput), errors.Is(err, local.ErrEmailExists):
+		if errors.Is(err, local.ErrEmailExists) {
+			slog.Info("local auth: registration rejected for existing email")
+		}
 		writeError(w, http.StatusBadRequest, "invalid request")
 	case errors.Is(err, local.ErrInvalidLogin):
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
@@ -143,8 +149,6 @@ func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "registration is disabled")
 	case errors.Is(err, local.ErrEmailNotAllowed):
 		writeError(w, http.StatusForbidden, "this email domain is not allowed to register")
-	case errors.Is(err, local.ErrEmailExists):
-		writeError(w, http.StatusConflict, "an account with this email already exists")
 	default:
 		s.writeInternalError(w, err)
 	}
