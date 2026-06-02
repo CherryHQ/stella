@@ -308,21 +308,10 @@ function ProviderDetail({
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={handleSave} variant="default" size="sm">
-            {t("common.save")}
-          </Button>
-          <Button
-            onClick={() => setConfirmDeleteOpen(true)}
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-destructive"
-          >
-            {t("common.delete")}
-          </Button>
-        </>
-      }
+      onSave={handleSave}
+      onDelete={() => setConfirmDeleteOpen(true)}
+      saveLabel={t("common.save")}
+      deleteLabel={t("common.delete")}
     >
       <DetailPanelHeader
         title={provider.name || provider.id}
@@ -757,16 +746,11 @@ function NewProviderForm({
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={handleSubmit} disabled={!type || !id.trim()} variant="default" size="sm">
-            Add provider
-          </Button>
-          <Button onClick={onCancel} variant="ghost" size="sm">
-            {t("common.cancel")}
-          </Button>
-        </>
-      }
+      onSave={handleSubmit}
+      onCancel={onCancel}
+      saveLabel="Add provider"
+      cancelLabel={t("common.cancel")}
+      canSave={!!type && !!id.trim()}
     >
       <DetailPanelHeader
         title="New provider"

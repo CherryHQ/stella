@@ -323,23 +323,10 @@ function ChannelDetail({
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={() => onSave(channel)} variant="default" size="sm">
-            {t("common.save")}
-          </Button>
-          {!isDefaultInstance && (
-            <Button
-              onClick={() => setConfirmDeleteOpen(true)}
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-destructive"
-            >
-              {t("common.delete")}
-            </Button>
-          )}
-        </>
-      }
+      onSave={() => onSave(channel)}
+      onDelete={!isDefaultInstance ? () => setConfirmDeleteOpen(true) : undefined}
+      saveLabel={t("common.save")}
+      deleteLabel={t("common.delete")}
     >
       <DetailPanelHeader
         title={
@@ -498,16 +485,13 @@ function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewC
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={() => onAdd(draft)} disabled={!canSubmit} loading={creating} size="sm">
-            Add Channel
-          </Button>
-          <Button onClick={onCancel} variant="ghost" size="sm">
-            {t("common.cancel")}
-          </Button>
-        </>
-      }
+      onSave={() => onAdd(draft)}
+      onCancel={onCancel}
+      saveLabel="Add Channel"
+      cancelLabel={t("common.cancel")}
+      isSaving={creating}
+      isSavingLabel="Adding..."
+      canSave={canSubmit}
     >
       <DetailPanelHeader
         title="New Channel"
