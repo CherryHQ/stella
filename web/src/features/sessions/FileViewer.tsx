@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { createHighlighter, type Highlighter } from "shiki";
 import {
   ArrowLeft,
@@ -376,9 +376,7 @@ export function FileViewer({
           !(isHtml(path) && previewMode) && (
             <>
               {isMarkdown(language) ? (
-                <div className="px-4 py-3 prose prose-sm max-w-none text-foreground [&_*]:text-[12px]">
-                  <Streamdown>{content}</Streamdown>
-                </div>
+                <MarkdownPreview content={content} className="px-4 py-3 [&_*]:text-[12px]" />
               ) : highlighted ? (
                 <div
                   className={cn(

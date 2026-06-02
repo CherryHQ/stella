@@ -12,7 +12,7 @@ import {
   ChevronDown,
   Tag,
 } from "lucide-react";
-import { SidebarHeader, SidebarFooter } from "@/components/AppSidebar";
+import { useSidebar } from "@/components/ui/sidebar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import type {
   Article,
@@ -33,8 +33,6 @@ export function RecallyArticleList({
   articlesQuery,
   selectedId,
   setSelectedId,
-
-  sidebarOpen,
 
   // Filters State
   searchText,
@@ -124,7 +122,6 @@ export function RecallyArticleList({
     variables?: { path: { id: string } };
   };
   feedPollResults: Record<string, { newCount: number; error?: string }>;
-  sidebarOpen: boolean;
 }) {
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [refinementsOpen, setRefinementsOpen] = useState(false);
@@ -207,17 +204,20 @@ export function RecallyArticleList({
     }
   };
 
-  return (
-    <section
-      className={cn(
-        "flex min-h-0 flex-col overflow-hidden bg-card/40 transition-[width,opacity] duration-200 ease-out",
-        sidebarOpen
-          ? "border-r border-border w-[var(--recally-center-width)]"
-          : "w-0 opacity-0 pointer-events-none border-r-0",
-      )}
-    >
-      <SidebarHeader />
+  const { setOpenMobile } = useSidebar();
 
+  const handleSelectArticle = (id: string) => {
+    setSelectedId(id);
+    setOpenMobile(false);
+  };
+
+  const handleDigestSelect = (date: string) => {
+    onSelectDigest(date);
+    setOpenMobile(false);
+  };
+
+  return (
+    <section className="flex min-h-0 w-full flex-col overflow-hidden">
       {/* Source Selector + Search + Filters Toolbar */}
       <div className="shrink-0 border-b border-border bg-card/65 px-3 py-2 backdrop-blur-xl">
         <div className="flex items-center gap-2">
@@ -253,9 +253,9 @@ export function RecallyArticleList({
             <PopoverContent
               align="start"
               sideOffset={8}
-              className="w-[560px] p-4 bg-popover/95 border border-border rounded-xl shadow-lg backdrop-blur-md"
+              className="w-[calc(100vw-2rem)] max-w-[560px] p-4 bg-popover/95 border border-border rounded-xl shadow-lg backdrop-blur-md"
             >
-              <div className="grid grid-cols-3 divide-x divide-border/30 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border/30">
                 {/* Library / Folders */}
                 <div className="space-y-2">
                   <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
@@ -337,7 +337,7 @@ export function RecallyArticleList({
                 </div>
 
                 {/* Subscriptions */}
-                <div className="space-y-2 px-4 flex flex-col min-h-0">
+                <div className="space-y-2 sm:px-4 flex flex-col min-h-0">
                   <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
                     {t("recally.section.feeds")}
                   </div>
@@ -414,7 +414,7 @@ export function RecallyArticleList({
                 </div>
 
                 {/* Tags */}
-                <div className="space-y-2 pl-4">
+                <div className="space-y-2 sm:pl-4">
                   <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
                     {t("recally.section.tags")}
                   </div>
@@ -563,7 +563,7 @@ export function RecallyArticleList({
               <button
                 key={d.id}
                 type="button"
-                onClick={() => onSelectDigest(d.date)}
+                onClick={() => handleDigestSelect(d.date)}
                 className={cn(
                   "w-full rounded-xl border p-3.5 text-left transition-all duration-200 cursor-pointer",
                   selectedDigestDate === d.date
@@ -606,15 +606,13 @@ export function RecallyArticleList({
                 key={article.id}
                 article={article}
                 selected={selectedId === article.id}
-                onClick={() => setSelectedId(article.id)}
+                onClick={() => handleSelectArticle(article.id)}
                 t={t}
               />
             ))}
           </>
         )}
       </div>
-
-      <SidebarFooter />
     </section>
   );
 }

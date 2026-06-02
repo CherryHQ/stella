@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { useQuery } from "@tanstack/react-query";
 import {
   createSchedulerJob,
@@ -505,9 +505,10 @@ export function SchedulerPage() {
               </>
             ) : (
               <div className="space-y-3">
-                <div className="prose prose-sm max-w-none text-foreground [&_ol]:pl-5 [&_ul]:pl-5">
-                  <Streamdown>{selectedJob.description || selectedJob.message || ""}</Streamdown>
-                </div>
+                <MarkdownPreview
+                  content={selectedJob.description || selectedJob.message || ""}
+                  className="[&_ol]:pl-5 [&_ul]:pl-5"
+                />
                 <div className="flex items-center gap-2 flex-wrap">
                   {selectedJob.owner_kind === "plugin" ? (
                     <Badge size="sm" variant="info">

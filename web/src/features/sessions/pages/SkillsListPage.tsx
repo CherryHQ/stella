@@ -1,15 +1,48 @@
+import { useEffect } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
+import { useAppShell } from "@/layouts/AppShell";
 import { Button } from "@/components/ui/button";
 
 export function SkillsListPage() {
   const { agentId } = useParams({ from: "/_app/agents/$agentId/skills/" });
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { data: skills = [], isLoading } = useQuery(agentSkillsOptions(agentId));
+
+  useEffect(() => {
+    setHeaderTitle(
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {t("sessions.sidebar.skills")}
+      </h1>,
+    );
+    setHeaderActions(
+      <Button
+        size="sm"
+        onClick={() => void navigate({ to: "/agents/$agentId/skills/new", params: { agentId } })}
+        className="rounded-xl text-xs gap-1.5"
+      >
+        <svg
+          className="w-3 h-3"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+        >
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        New Skill
+      </Button>,
+    );
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
+  }, [agentId, navigate, setHeaderActions, setHeaderTitle, t]);
 
   const systemSkills = skills.filter((s) => s.scope === "system");
   const agentSkills = skills.filter((s) => s.scope === "agent");
@@ -17,30 +50,6 @@ export function SkillsListPage() {
 
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-      <div className="flex-shrink-0 h-12 px-5 border-b border-border/60 bg-background flex items-center gap-3">
-        <h2 className="text-[15px] font-medium tracking-tight">{t("sessions.sidebar.skills")}</h2>
-        <div className="ml-auto">
-          <Button
-            size="sm"
-            onClick={() =>
-              void navigate({ to: "/agents/$agentId/skills/new", params: { agentId } })
-            }
-            className="rounded-xl text-xs gap-1.5"
-          >
-            <svg
-              className="w-3 h-3"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            New Skill
-          </Button>
-        </div>
-      </div>
-
       {isLoading ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
@@ -57,10 +66,10 @@ export function SkillsListPage() {
                 label="User"
                 skills={userSkills}
                 agentId={agentId}
-                onSelect={(id) =>
+                onSelect={(name) =>
                   void navigate({
                     to: "/agents/$agentId/skills/$scope/$skillId",
-                    params: { agentId, scope: "user", skillId: id },
+                    params: { agentId, scope: "user", skillId: name },
                   })
                 }
               />
@@ -70,10 +79,10 @@ export function SkillsListPage() {
                 label="Agent"
                 skills={agentSkills}
                 agentId={agentId}
-                onSelect={(id) =>
+                onSelect={(name) =>
                   void navigate({
                     to: "/agents/$agentId/skills/$scope/$skillId",
-                    params: { agentId, scope: "agent", skillId: id },
+                    params: { agentId, scope: "agent", skillId: name },
                   })
                 }
               />
@@ -83,10 +92,10 @@ export function SkillsListPage() {
                 label="System"
                 skills={systemSkills}
                 agentId={agentId}
-                onSelect={(id) =>
+                onSelect={(name) =>
                   void navigate({
                     to: "/agents/$agentId/skills/$scope/$skillId",
-                    params: { agentId, scope: "system", skillId: id },
+                    params: { agentId, scope: "system", skillId: name },
                   })
                 }
               />
@@ -106,7 +115,7 @@ function SkillGroup({
   label: string;
   skills: { id: string; name: string; description: string; scope: string; status?: string }[];
   agentId: string;
-  onSelect: (id: string) => void;
+  onSelect: (name: string) => void;
 }) {
   return (
     <div>
@@ -117,7 +126,7 @@ function SkillGroup({
         {skills.map((s) => (
           <div
             key={s.id}
-            onClick={() => onSelect(s.id)}
+            onClick={() => onSelect(s.name)}
             className={cn(
               "rounded-xl border border-border/60 bg-card p-4 cursor-pointer hover:shadow-sm transition-all duration-150",
             )}

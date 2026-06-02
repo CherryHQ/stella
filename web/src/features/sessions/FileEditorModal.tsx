@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -121,9 +121,10 @@ export function FileEditorModal({ fileEditor, onClose, onSave, onChange, onToggl
             </div>
           )}
           {fileEditor.previewMd && !fileEditor.loading && (
-            <div className="absolute inset-0 overflow-y-auto px-8 py-6 prose prose-sm max-w-none text-foreground">
-              <Streamdown>{fileEditor.content}</Streamdown>
-            </div>
+            <MarkdownPreview
+              content={fileEditor.content}
+              className="absolute inset-0 overflow-y-auto px-8 py-6"
+            />
           )}
           {!fileEditor.previewMd && !fileEditor.loading && (
             <textarea

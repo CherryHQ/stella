@@ -32,6 +32,10 @@ export const buttonVariants = cva(
       variant: {
         default:
           "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-primary bg-primary text-primary-foreground shadow-primary/24 shadow-xs hover:bg-primary/90 data-pressed:bg-primary/90 *:data-[slot=button-loading-indicator]:text-primary-foreground [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
+        premium:
+          "text-white bg-linear-to-b from-violet-600 to-indigo-600 border-violet-500/20 shadow-[0_1px_2px_rgba(0,0,0,0.05),0_4px_12px_rgba(124,58,237,0.22)] hover:from-violet-500 hover:to-indigo-500 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.05),0_6px_20px_rgba(124,58,237,0.32)] active:translate-y-0 active:scale-[0.98] data-pressed:translate-y-0 data-pressed:scale-[0.98] transition-all duration-300 dark:from-violet-500 dark:to-indigo-500 dark:border-violet-400/20 dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),0_4px_12px_rgba(168,85,247,0.25)]",
+        "premium-outline":
+          "border-border/80 bg-background/50 text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] data-pressed:translate-y-0 data-pressed:scale-[0.98] transition-all duration-300",
         destructive:
           "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-destructive bg-destructive text-white shadow-destructive/24 shadow-xs hover:bg-destructive/90 data-pressed:bg-destructive/90 *:data-[slot=button-loading-indicator]:text-white [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
         "destructive-outline":

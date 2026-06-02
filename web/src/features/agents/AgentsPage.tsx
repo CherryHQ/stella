@@ -19,8 +19,6 @@ import {
   listModels,
   listProfileMemories,
   removeAgentUser,
-  setProfileMemory,
-  setProfileSoul,
   updateAgent,
   updateAgentSkill,
   updateChannel,
@@ -48,8 +46,8 @@ import { AgentForm } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsListHeader } from "@/features/settings/SettingsListPanel";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { ArrowLeft, Plus } from "lucide-react";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -991,46 +989,6 @@ export function AgentsPage() {
     [selectSkillFile, showToast],
   );
 
-  const savePersonalisationSoul = useCallback(
-    async (currentState: AgentsPageState) => {
-      try {
-        await setProfileSoul({
-          path: { agentId: currentState.editingId ?? "" },
-          body: { soul: currentState.personalisation.soulDraft },
-          throwOnError: true,
-        });
-        setState((prev) => ({
-          ...prev,
-          personalisation: { ...prev.personalisation, soul: prev.personalisation.soulDraft },
-        }));
-        showToast("Soul saved");
-      } catch (e) {
-        showToast((e as Error).message, "error");
-      }
-    },
-    [showToast],
-  );
-
-  const savePersonalisationProfile = useCallback(
-    async (currentState: AgentsPageState) => {
-      try {
-        await setProfileMemory({
-          path: { agentId: currentState.editingId ?? "" },
-          body: { content: currentState.personalisation.profileDraft },
-          throwOnError: true,
-        });
-        setState((prev) => ({
-          ...prev,
-          personalisation: { ...prev.personalisation, profile: prev.personalisation.profileDraft },
-        }));
-        showToast("Profile saved");
-      } catch (e) {
-        showToast((e as Error).message, "error");
-      }
-    },
-    [showToast],
-  );
-
   const applySoul = useCallback(
     async (soulID: string) => {
       if (!soulID) return;
@@ -1090,28 +1048,13 @@ export function AgentsPage() {
     [showToast],
   );
 
-  const listHeader = (
-    <SettingsListHeader
-      title="Agents"
-      action={
-        <Button
-          onClick={startCreate}
-          variant="ghost"
-          size="xs"
-          className="text-primary font-medium"
-        >
-          + New Agent
-        </Button>
-      }
-    />
-  );
-
   const list = (
     <AgentList
       state={state}
       onEdit={editAgent}
       onConfirmDelete={confirmDelete}
       onDeleteAgent={doDeleteAgent}
+      onCreateAgent={startCreate}
     />
   );
 
@@ -1140,8 +1083,6 @@ export function AgentsPage() {
         )
       }
       onDeleteSkillFile={() => deleteSelectedSkillFile(state)}
-      onSavePersonalisationSoul={() => savePersonalisationSoul(state)}
-      onSavePersonalisationProfile={() => savePersonalisationProfile(state)}
       onOpenSkillInstallModal={(scope) =>
         setState((prev) => ({
           ...prev,
@@ -1152,19 +1093,43 @@ export function AgentsPage() {
     />
   ) : undefined;
 
-  const emptyState = (
-    <p className="text-sm text-muted-foreground">Select an agent to edit or create a new one.</p>
-  );
-
   return (
-    // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
-    <div className="h-full">
-      <SettingsDetailLayout
-        listHeader={listHeader}
-        list={list}
-        detail={detail}
-        emptyState={emptyState}
-      />
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
+        {state.showForm ? (
+          <div className="space-y-4">
+            <button
+              onClick={resetForm}
+              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
+            >
+              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+              Back to Agents
+            </button>
+            <div className="bg-card border border-border/40 rounded-2xl overflow-hidden shadow-sm">
+              {detail}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            <SettingsPageHeader
+              title="Agents"
+              description="Create and configure agent profiles with custom models, prompts, souls, and installed skills."
+              action={
+                <Button
+                  onClick={startCreate}
+                  variant="premium"
+                  size="sm"
+                  className="group flex items-center gap-1.5"
+                >
+                  <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                  Add agent
+                </Button>
+              }
+            />
+            {list}
+          </div>
+        )}
+      </div>
       {state.showTemplateModal && (
         <TemplateModal
           templates={state.builtinTemplates}

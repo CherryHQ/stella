@@ -12,25 +12,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/menu";
 
-interface SidebarContainerProps {
-  children?: React.ReactNode;
-  className?: string;
-}
-
-export function SidebarContainer({ children, className }: SidebarContainerProps) {
-  return (
-    <aside
-      className={cn(
-        "flex h-full w-[260px] shrink-0 flex-col overflow-hidden border-r border-border bg-card/40",
-        className,
-      )}
-    >
-      {children}
-    </aside>
-  );
-}
-
-export function SidebarHeader() {
+export function AppSidebarHeader() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const routePathname = useRouterState({ select: (s) => s.location.pathname });
@@ -51,7 +33,7 @@ export function SidebarHeader() {
         : "nav.settings";
 
   return (
-    <div className="shrink-0 border-b border-border bg-card/70 px-3 py-2.5 backdrop-blur-xl">
+    <div className="flex h-12 shrink-0 items-center border-b border-border bg-card/70 px-3 backdrop-blur-xl">
       <DropdownMenu>
         <DropdownMenuTrigger className="flex w-full items-center justify-between rounded-lg border border-border/30 bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40 outline-none select-none cursor-pointer">
           <div className="flex items-center gap-2 min-w-0">
@@ -150,7 +132,7 @@ export function SidebarHeader() {
   );
 }
 
-export function SidebarFooter() {
+export function AppSidebarFooter() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const routePathname = useRouterState({ select: (s) => s.location.pathname });

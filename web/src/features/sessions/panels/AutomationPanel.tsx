@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { useI18n } from "@/lib/i18n";
 import {
   createSchedulerJob,
@@ -102,9 +102,10 @@ function PluginSchedule({ job, label }: { job: SchedulerJob; label: string }) {
     <details className="rounded-xl border border-border bg-muted/30 p-4">
       <summary className="cursor-pointer text-sm font-semibold">{label}</summary>
       <div className="mt-4 space-y-3">
-        <div className="prose prose-sm max-w-none text-foreground [&_ol]:pl-5 [&_ul]:pl-5">
-          <Streamdown>{job.description || job.message || ""}</Streamdown>
-        </div>
+        <MarkdownPreview
+          content={job.description || job.message || ""}
+          className="[&_ol]:pl-5 [&_ul]:pl-5"
+        />
         <div className="flex flex-wrap gap-2">
           {job.plugin_id && <Badge variant="info">plugin:{job.plugin_id}</Badge>}
           {job.job_key && <Badge variant="outline">key:{job.job_key}</Badge>}
@@ -332,7 +333,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         {/* Summary badges */}
         {!isNew && job && <ScheduleSummary job={job} />}
 
-        {/* System/plugin job: Streamdown definition */}
+        {/* System/plugin job: Markdown definition */}
         {!isNew && job && isReadOnly && (
           <PluginSchedule job={job} label={t("sessions.auto.scheduleDefinition")} />
         )}

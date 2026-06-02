@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import {
   Check,
   EyeOff,
@@ -397,18 +397,20 @@ export function RecallyReader({
                   />
                 </button>
                 {summaryExpanded && (
-                  <div className="prose prose-sm mt-2 max-w-none text-foreground/90 leading-relaxed prose-headings:text-foreground prose-a:text-primary">
-                    <Streamdown>{selectedArticle.summary}</Streamdown>
-                  </div>
+                  <MarkdownPreview
+                    content={selectedArticle.summary}
+                    className="mt-2 text-foreground/90 leading-relaxed prose-headings:text-foreground prose-a:text-primary"
+                  />
                 )}
               </div>
             )}
 
             {/* Content Body */}
             {parsed.body ? (
-              <div className="prose prose-neutral dark:prose-invert prose-sm md:prose-base max-w-none text-foreground/90 leading-relaxed md:leading-loose prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline">
-                <Streamdown>{parsed.body}</Streamdown>
-              </div>
+              <MarkdownPreview
+                content={parsed.body}
+                className="prose-neutral text-foreground/90 leading-relaxed md:prose-base md:leading-loose prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline"
+              />
             ) : (
               <div className="rounded-[18px] border border-border/50 bg-muted/10 p-6 text-center space-y-3">
                 <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">

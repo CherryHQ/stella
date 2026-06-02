@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useAppShell } from "@/layouts/AppShell";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { SessionConversation } from "@/features/sessions/SessionConversation";
@@ -60,6 +61,7 @@ export function AutomationDashPanel({
 }: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [tasks, setTasks] = useState<ComponentsTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -90,6 +92,52 @@ export function AutomationDashPanel({
           job_session_mode: selectedJob?.session_mode,
         } as RunWithMeta)
       : null);
+
+  useEffect(() => {
+    setHeaderTitle(
+      <div className="flex min-w-0 items-center gap-2">
+        <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+          {t("sessions.sidebar.work")}
+        </h1>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+          Board
+        </span>
+      </div>,
+    );
+    setHeaderActions(
+      <div className="flex items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onCreateJob}
+          className="h-8 rounded-lg px-2.5 text-xs text-muted-foreground"
+        >
+          Schedule
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onCreateTask}
+          className="h-8 rounded-lg border-border/80 bg-background px-2.5 text-xs font-medium shadow-none"
+        >
+          <svg
+            className="size-3"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New Task
+        </Button>
+      </div>,
+    );
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
+  }, [onCreateJob, onCreateTask, setHeaderActions, setHeaderTitle, t]);
 
   const loadRuns = useCallback(async () => {
     setRunsLoading(true);
@@ -263,59 +311,6 @@ export function AutomationDashPanel({
     <div className="flex-1 min-w-0 flex overflow-hidden">
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex-shrink-0 h-12 px-3 border-b border-border/60 bg-background flex items-center gap-2 sm:px-5 sm:gap-3">
-          <h2 className="shrink-0 text-[15px] font-medium tracking-tight">
-            {t("sessions.sidebar.work")}
-          </h2>
-          <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-            Board
-          </span>
-          <div className="ml-auto flex items-center gap-1.5">
-            <Button
-              size="icon"
-              variant="outline"
-              onClick={onCreateTask}
-              className="size-7 rounded-lg bg-background sm:hidden"
-            >
-              <svg
-                className="size-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onCreateJob}
-              className="hidden h-8 rounded-lg px-2.5 text-xs text-muted-foreground sm:inline-flex"
-            >
-              Schedule
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onCreateTask}
-              className="hidden h-8 rounded-lg border-border/80 bg-background px-2.5 text-xs font-medium shadow-none sm:inline-flex"
-            >
-              <svg
-                className="size-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              New Task
-            </Button>
-          </div>
-        </div>
-
         <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-3">
           {tasksLoading || runsLoading ? (
             <div className="flex h-full items-center justify-center">

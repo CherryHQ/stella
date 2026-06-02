@@ -2,9 +2,10 @@
 SELECT * FROM channel WHERE id = ?;
 
 -- name: UpsertChannel :exec
-INSERT INTO channel (id, type, agent_id, enabled, config, updated_at)
-VALUES (?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(id) DO UPDATE SET
+    name = excluded.name,
     type = excluded.type,
     agent_id = excluded.agent_id,
     enabled = excluded.enabled,

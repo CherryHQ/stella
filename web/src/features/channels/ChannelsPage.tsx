@@ -7,7 +7,6 @@ import {
   deleteChannel,
   generateLinkCode,
   listChannels,
-  listPlugins,
   listProfileIdentities,
   listPublicChannels,
   pollWeixinQrStatus,
@@ -16,7 +15,7 @@ import {
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
 import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
-import type { Channel, Identity, Plugin } from "@/lib/types";
+import type { Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,18 +24,15 @@ import { Spinner } from "@/components/ui/spinner";
 import { siTelegram, siQq, siWechat } from "simple-icons";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import {
   DetailPanel,
   DetailPanelHeader,
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import {
-  SettingsListBody,
-  SettingsListHeader,
-  SettingsListItem,
-} from "@/features/settings/SettingsListPanel";
+import { ArrowLeft, Plus } from "lucide-react";
 
 function BrandIcon({ path, className = "size-4 shrink-0" }: { path: string; className?: string }) {
   return (
@@ -119,6 +115,7 @@ function hasConfig(type: string, data: Record<string, unknown>): boolean {
 
 interface NormalizedChannel extends Record<string, unknown> {
   id: string;
+  name: string;
   type: string;
   label?: string;
   agent_id: string;
@@ -130,6 +127,7 @@ function normalizeChannel(ch: Channel): NormalizedChannel {
   const type = ch.type || ch.id;
   return {
     ...ch,
+    name: ch.name || "",
     type,
     agent_id: ch.agent_id || "",
     ...platformConfigDefaults(type),
@@ -325,23 +323,10 @@ function ChannelDetail({
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={() => onSave(channel)} variant="default" size="sm">
-            {t("common.save")}
-          </Button>
-          {!isDefaultInstance && (
-            <Button
-              onClick={() => setConfirmDeleteOpen(true)}
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-destructive"
-            >
-              {t("common.delete")}
-            </Button>
-          )}
-        </>
-      }
+      onSave={() => onSave(channel)}
+      onDelete={!isDefaultInstance ? () => setConfirmDeleteOpen(true) : undefined}
+      saveLabel={t("common.save")}
+      deleteLabel={t("common.delete")}
     >
       <DetailPanelHeader
         title={
@@ -349,7 +334,7 @@ function ChannelDetail({
             {platformMeta[channel.type]?.icon && (
               <BrandIcon path={platformMeta[channel.type].icon!} className="size-5 shrink-0" />
             )}
-            {platformLabel}
+            {channel.name || platformLabel}
           </span>
         }
         subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
@@ -363,6 +348,18 @@ function ChannelDetail({
           </>
         }
       />
+
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Name</label>
+        <Input
+          nativeInput
+          type="text"
+          value={(channel.name as string) || ""}
+          onChange={(e) => updateField("name", (e.target as HTMLInputElement).value)}
+          placeholder={platformLabel}
+          className="w-full text-sm"
+        />
+      </div>
 
       {/* Config section */}
       {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
@@ -464,22 +461,14 @@ function ChannelDetail({
 // ─── NewChannelForm ───────────────────────────────────────────────────────────
 
 interface NewChannelFormProps {
-  enabledChannelTypeIDs: string[];
   fallbackChannelType: string;
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
   creating: boolean;
 }
 
-function NewChannelForm({
-  enabledChannelTypeIDs,
-  fallbackChannelType,
-  onAdd,
-  onCancel,
-  creating,
-}: NewChannelFormProps) {
+function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewChannelFormProps) {
   const { t } = useI18n();
-  const availableTypes = channelTypes.filter((ct) => enabledChannelTypeIDs.includes(ct.id));
   const [draft, setDraft] = useState<Record<string, unknown>>(
     newInstanceDraft(fallbackChannelType, ""),
   );
@@ -496,16 +485,13 @@ function NewChannelForm({
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={() => onAdd(draft)} disabled={!canSubmit} loading={creating} size="sm">
-            Add Channel
-          </Button>
-          <Button onClick={onCancel} variant="ghost" size="sm">
-            {t("common.cancel")}
-          </Button>
-        </>
-      }
+      onSave={() => onAdd(draft)}
+      onCancel={onCancel}
+      saveLabel="Add Channel"
+      cancelLabel={t("common.cancel")}
+      isSaving={creating}
+      isSavingLabel="Adding..."
+      canSave={canSubmit}
     >
       <DetailPanelHeader
         title="New Channel"
@@ -525,12 +511,24 @@ function NewChannelForm({
             <option value="" disabled>
               Select platform…
             </option>
-            {availableTypes.map((ct) => (
+            {channelTypes.map((ct) => (
               <option key={ct.id} value={ct.id}>
                 {ct.label}
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="w-full space-y-1.5">
+          <label className="text-sm font-medium">Name</label>
+          <Input
+            nativeInput
+            type="text"
+            value={(draft.name as string) || ""}
+            onChange={(e) => updateField("name", e.target.value)}
+            placeholder="e.g. Feishu Coder"
+            className="w-full text-sm"
+          />
         </div>
 
         <div className="w-full space-y-1.5">
@@ -544,7 +542,7 @@ function NewChannelForm({
             className="w-full text-sm font-mono"
           />
           <p className="text-xs text-muted-foreground">
-            Must not match the platform ID (e.g. not "telegram" for a Telegram channel).
+            Must not match the platform ID (e.g. not &quot;telegram&quot; for a Telegram channel).
           </p>
         </div>
 
@@ -692,16 +690,11 @@ function PublicChannelDetail({
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export function ChannelsPage() {
-  const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
   const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
-  const [enabledChannelTypeIDs, setEnabledChannelTypeIDs] = useState<string[]>(
-    channelTypes.map((t) => t.id),
-  );
-  const [loadingPlatforms, setLoadingPlatforms] = useState(false);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
   // Selection state
@@ -726,8 +719,7 @@ export function ChannelsPage() {
 
   // ── helpers ──
 
-  const fallbackChannelType =
-    channelTypes.find((t) => enabledChannelTypeIDs.includes(t.id))?.id || defaultChannelType;
+  const fallbackChannelType = defaultChannelType;
 
   const identityFor = useCallback(
     (platform: string): Identity | null =>
@@ -749,90 +741,46 @@ export function ChannelsPage() {
   }, [showToast]);
 
   const loadPublicChannels = useCallback(async () => {
-    setLoadingPlatforms(true);
     try {
       const { data } = await listPublicChannels({ throwOnError: true });
       setPublicChannels(data?.channels ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
-    } finally {
-      setLoadingPlatforms(false);
     }
   }, [showToast]);
 
-  const loadChannelPlugins = useCallback(async () => {
+  const loadInstances = useCallback(async () => {
+    setLoadingInstances(true);
     try {
-      const { data } = await listPlugins({ throwOnError: true });
-      const plugins = (data?.plugins as Plugin[]) ?? [];
-      const enabled = (plugins || [])
-        .filter((p) => p.kind === "channel" && p.enabled)
-        .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
-      setEnabledChannelTypeIDs(enabled);
-    } catch {
-      setEnabledChannelTypeIDs([]);
+      const { data } = await listChannels({ throwOnError: true });
+      const channels = data?.channels ?? [];
+      const normalized = (channels || []).map(normalizeChannel).sort((a, b) => {
+        const aDefault = a.id === a.type;
+        const bDefault = b.id === b.type;
+        if (aDefault !== bDefault) return aDefault ? -1 : 1;
+        if (a.type !== b.type) return a.type.localeCompare(b.type);
+        return a.id.localeCompare(b.id);
+      });
+      setInstances(normalized);
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    } finally {
+      setLoadingInstances(false);
     }
-  }, []);
-
-  const loadInstances = useCallback(
-    async (currentEnabledIDs: string[]) => {
-      setLoadingInstances(true);
-      try {
-        const { data } = await listChannels({ throwOnError: true });
-        const channels = data?.channels ?? [];
-        const normalized = (channels || [])
-          .map(normalizeChannel)
-          .filter((ch) => currentEnabledIDs.includes(ch.type))
-          .sort((a, b) => {
-            const aDefault = a.id === a.type;
-            const bDefault = b.id === b.type;
-            if (aDefault !== bDefault) return aDefault ? -1 : 1;
-            if (a.type !== b.type) return a.type.localeCompare(b.type);
-            return a.id.localeCompare(b.id);
-          });
-        setInstances(normalized);
-      } catch (e) {
-        showToast((e as Error).message, "error");
-      } finally {
-        setLoadingInstances(false);
-      }
-    },
-    [showToast],
-  );
+  }, [showToast]);
 
   // ── init ──
 
   useEffect(() => {
-    const init = async () => {
-      if (isAdmin) {
-        await loadChannelPlugins();
-        await Promise.all([
-          loadPublicChannels(),
-          loadIdentities(),
-          (async () => {
-            // loadChannelPlugins sets state async; we need the IDs for loadInstances
-            try {
-              const { data } = await listPlugins({ throwOnError: true });
-              const pluginList = (data?.plugins as Plugin[]) ?? [];
-              const enabled = (pluginList || [])
-                .filter((p) => p.kind === "channel" && p.enabled)
-                .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
-              setEnabledChannelTypeIDs(enabled);
-              await loadInstances(enabled);
-            } catch {
-              setEnabledChannelTypeIDs([]);
-              await loadInstances([]);
-            }
-          })(),
-        ]);
-      } else {
-        await Promise.all([loadPublicChannels(), loadIdentities()]);
-      }
-    };
-    void init();
+    if (isAdmin) {
+      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances()]);
+    } else {
+      void Promise.all([loadPublicChannels(), loadIdentities()]);
+    }
     return () => {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
-  }, [isAdmin, loadChannelPlugins, loadPublicChannels, loadIdentities, loadInstances]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances]);
 
   // Clear selection if selected instance is removed
   useEffect(() => {
@@ -949,7 +897,13 @@ export function ChannelsPage() {
     try {
       const { data: saved } = await updateChannel({
         path: { id: ch.id },
-        body: { type: ch.type, agent_id: ch.agent_id || "", config: channelConfig(ch) },
+        body: {
+          name: ch.name || "",
+          type: ch.type,
+          agent_id: ch.agent_id || "",
+          enabled: ch.enabled,
+          config: channelConfig(ch),
+        },
         throwOnError: true,
       });
       const normalized = normalizeChannel(saved as Channel);
@@ -969,7 +923,7 @@ export function ChannelsPage() {
     try {
       await deleteChannel({ path: { id: String(id) }, throwOnError: true });
       setSelectedId(null);
-      await loadInstances(enabledChannelTypeIDs);
+      await loadInstances();
       showToast(id + " deleted");
     } catch (e) {
       showToast((e as Error).message, "error");
@@ -989,11 +943,17 @@ export function ChannelsPage() {
     setCreatingInstance(true);
     try {
       const { data: saved } = await createChannelRequest({
-        body: { id, type: draft.type as string, agent_id: "", config: channelConfig(draft) },
+        body: {
+          id,
+          name: (draft.name as string) || "",
+          type: draft.type as string,
+          agent_id: "",
+          config: channelConfig(draft),
+        },
         throwOnError: true,
       });
       setCreatingNew(false);
-      await loadInstances(enabledChannelTypeIDs);
+      await loadInstances();
       setSelectedId(saved.id);
       showToast(saved.id + " created");
     } catch (e) {
@@ -1005,7 +965,7 @@ export function ChannelsPage() {
 
   // ── render ──
 
-  const isLoading = loadingPlatforms || (isAdmin && loadingInstances);
+  const isLoading = isAdmin && loadingInstances;
 
   const wxQrStatusVariant = (
     status: string,
@@ -1022,70 +982,30 @@ export function ChannelsPage() {
   if (isAdmin) {
     const selectedChannel = selectedId ? instances.find((ch) => ch.id === selectedId) : null;
 
-    const listHeader = (
-      <SettingsListHeader
-        title="Channels"
-        action={
-          <Button
-            onClick={() => {
-              setCreatingNew(true);
-              setSelectedId(null);
-            }}
-            variant="ghost"
-            size="xs"
-          >
-            New Channel
-          </Button>
-        }
-      />
-    );
+    // Grouping computation for admin view
+    const grouped = instances.reduce<Record<string, NormalizedChannel[]>>((acc, inst) => {
+      const type = inst.type || "other";
+      if (!acc[type]) acc[type] = [];
+      acc[type].push(inst);
+      return acc;
+    }, {});
 
-    const list = isLoading ? (
-      <div className="flex justify-center py-8">
-        <Spinner className="size-4" />
-      </div>
-    ) : (
-      <SettingsListBody>
-        {instances.map((ch) => {
-          const isSelected = !creatingNew && selectedId === ch.id;
-          const platformLabel = platformMeta[ch.type]?.label || ch.type;
-          return (
-            <SettingsListItem
-              key={ch.id}
-              onClick={() => {
-                setSelectedId(ch.id);
-                setCreatingNew(false);
-              }}
-              active={isSelected}
-              className="flex items-center gap-2"
-            >
-              {platformMeta[ch.type]?.icon ? (
-                <BrandIcon
-                  path={platformMeta[ch.type].icon!}
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
-              ) : (
-                <span
-                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                    ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
-                  }`}
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
-                <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.type}</p>
-              </div>
-            </SettingsListItem>
-          );
-        })}
-      </SettingsListBody>
-    );
+    const groupedPlatforms = Object.entries(grouped)
+      .map(([type, platformInstances]) => {
+        const meta = platformMeta[type];
+        return {
+          type,
+          label: meta?.label || type,
+          icon: meta?.icon,
+          instances: platformInstances,
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
 
     let detail: React.ReactNode = undefined;
     if (creatingNew) {
       detail = (
         <NewChannelForm
-          enabledChannelTypeIDs={enabledChannelTypeIDs}
           fallbackChannelType={fallbackChannelType}
           onAdd={createChannel}
           onCancel={() => setCreatingNew(false)}
@@ -1117,20 +1037,157 @@ export function ChannelsPage() {
       );
     }
 
-    const emptyState = (
-      <p className="text-sm text-muted-foreground">
-        No channels configured. Add one to connect a messaging platform.
-      </p>
-    );
+    const hasActiveEditor = creatingNew || !!selectedChannel;
 
     return (
-      <div className="h-full">
-        <SettingsDetailLayout
-          listHeader={listHeader}
-          list={list}
-          detail={detail}
-          emptyState={instances.length === 0 && !creatingNew ? emptyState : undefined}
-        />
+      <div className="h-full overflow-y-auto bg-background">
+        <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
+          {hasActiveEditor ? (
+            <div className="space-y-4">
+              <button
+                onClick={() => {
+                  setSelectedId(null);
+                  setCreatingNew(false);
+                }}
+                className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
+              >
+                <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+                Back to Channels
+              </button>
+              <div className="bg-card border border-border/40 rounded-2xl overflow-hidden shadow-sm">
+                {detail}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              <SettingsPageHeader
+                title="Channels"
+                description="Configure messaging channel integrations for Stella."
+                action={
+                  <Button
+                    onClick={() => {
+                      setCreatingNew(true);
+                      setSelectedId(null);
+                    }}
+                    variant="premium"
+                    size="sm"
+                    className="group flex items-center gap-1.5"
+                  >
+                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                    Add channel
+                  </Button>
+                }
+              />
+
+              {isLoading ? (
+                <div className="flex justify-center py-8">
+                  <Spinner className="size-4" />
+                </div>
+              ) : instances.length === 0 ? (
+                <SettingsEmptyState
+                  message="No channels configured"
+                  description="Add a channel to connect your messaging platform."
+                  action={
+                    <Button
+                      onClick={() => {
+                        setCreatingNew(true);
+                        setSelectedId(null);
+                      }}
+                      variant="premium-outline"
+                      size="sm"
+                      className="group flex items-center gap-1.5"
+                    >
+                      <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                      Add channel
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="space-y-8">
+                  {groupedPlatforms.map((platform) => (
+                    <div key={platform.type} className="space-y-4">
+                      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+                        {platform.icon ? (
+                          <BrandIcon
+                            path={platform.icon}
+                            className="size-4 shrink-0 text-muted-foreground/80"
+                          />
+                        ) : (
+                          <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/45" />
+                        )}
+                        <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                          {platform.label}
+                        </h4>
+                        <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
+                          {platform.instances.length}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {platform.instances.map((ch) => {
+                          const platformLabel = platformMeta[ch.type]?.label || ch.type;
+                          const iconPath = platformMeta[ch.type]?.icon;
+                          return (
+                            <div
+                              key={ch.id}
+                              onClick={() => {
+                                setSelectedId(ch.id);
+                                setCreatingNew(false);
+                              }}
+                              className="group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 transition-all hover:border-border/80 hover:shadow-sm cursor-pointer"
+                            >
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    {iconPath ? (
+                                      <BrandIcon
+                                        path={iconPath}
+                                        className="size-4 shrink-0 text-muted-foreground"
+                                      />
+                                    ) : (
+                                      <span
+                                        className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                                          ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                                        }`}
+                                      />
+                                    )}
+                                    <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                                      {ch.name || platformLabel}
+                                    </h3>
+                                  </div>
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-[10px] uppercase shrink-0"
+                                  >
+                                    {ch.type}
+                                  </Badge>
+                                </div>
+                              </div>
+                              <div className="mt-4 flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                                      ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                                    }`}
+                                  />
+                                  <span className="text-xs text-muted-foreground">
+                                    {ch.enabled ? "Active" : "Disabled"}
+                                  </span>
+                                </div>
+                                <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                                  Configure →
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <ToastContainer messages={toasts} />
       </div>
     );
@@ -1142,48 +1199,28 @@ export function ChannelsPage() {
     ? publicChannels.find((ch) => ch.type === selectedPublicType)
     : null;
 
-  const listHeader = <SettingsListHeader title="Channels" />;
-
-  const list = isLoading ? (
-    <div className="flex justify-center py-8">
-      <Spinner className="size-4" />
-    </div>
-  ) : (
-    <SettingsListBody>
-      {publicChannels.map((ch) => {
-        const isSelected = selectedPublicType === ch.type;
-        const linked = isLinked(ch.type);
-        const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
-        return (
-          <SettingsListItem
-            key={ch.type}
-            onClick={() => setSelectedPublicType(ch.type)}
-            active={isSelected}
-            className="flex items-center gap-2"
-          >
-            {platformMeta[ch.type]?.icon ? (
-              <BrandIcon
-                path={platformMeta[ch.type].icon!}
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-            ) : (
-              <span
-                className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                  linked ? "bg-green-500" : "bg-muted-foreground/40"
-                }`}
-              />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
-              {linked && (
-                <p className="text-[11px] font-mono text-muted-foreground truncate">linked</p>
-              )}
-            </div>
-          </SettingsListItem>
-        );
-      })}
-    </SettingsListBody>
+  // Grouping computation for non-admin view
+  const groupedPublic = publicChannels.reduce<Record<string, ComponentsPublicChannel[]>>(
+    (acc, ch) => {
+      const type = ch.type || "other";
+      if (!acc[type]) acc[type] = [];
+      acc[type].push(ch);
+      return acc;
+    },
+    {},
   );
+
+  const groupedPublicPlatforms = Object.entries(groupedPublic)
+    .map(([type, platformChannels]) => {
+      const meta = platformMeta[type];
+      return {
+        type,
+        label: meta?.label || type,
+        icon: meta?.icon,
+        channels: platformChannels,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   let detail: React.ReactNode = undefined;
   if (selectedPublicChannel) {
@@ -1209,22 +1246,122 @@ export function ChannelsPage() {
     );
   }
 
-  const emptyState = (
-    <p className="text-sm text-muted-foreground">
-      {publicChannels.length === 0
-        ? "No channels available. An admin needs to enable channel plugins."
-        : t("channels.title")}
-    </p>
-  );
+  const hasActiveEditor = !!selectedPublicChannel;
 
   return (
-    <div className="h-full">
-      <SettingsDetailLayout
-        listHeader={listHeader}
-        list={list}
-        detail={detail}
-        emptyState={!selectedPublicChannel ? emptyState : undefined}
-      />
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
+        {hasActiveEditor ? (
+          <div className="space-y-4">
+            <button
+              onClick={() => {
+                setSelectedPublicType(null);
+              }}
+              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
+            >
+              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+              Back to Channels
+            </button>
+            <div className="bg-card border border-border/40 rounded-2xl overflow-hidden shadow-sm">
+              {detail}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            <SettingsPageHeader
+              title="Channels"
+              description="Link your third-party messaging platform accounts to Stella."
+            />
+
+            {isLoading ? (
+              <div className="flex justify-center py-8">
+                <Spinner className="size-4" />
+              </div>
+            ) : publicChannels.length === 0 ? (
+              <SettingsEmptyState
+                message="No channels available"
+                description="An admin needs to enable channel plugins first."
+              />
+            ) : (
+              <div className="space-y-8">
+                {groupedPublicPlatforms.map((platform) => (
+                  <div key={platform.type} className="space-y-4">
+                    <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+                      {platform.icon ? (
+                        <BrandIcon
+                          path={platform.icon}
+                          className="size-4 shrink-0 text-muted-foreground/85"
+                        />
+                      ) : (
+                        <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/45" />
+                      )}
+                      <h4 className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-wider">
+                        {platform.label}
+                      </h4>
+                      <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
+                        {platform.channels.length}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {platform.channels.map((ch) => {
+                        const linked = isLinked(ch.type);
+                        const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
+                        const iconPath = platformMeta[ch.type]?.icon;
+                        return (
+                          <div
+                            key={ch.type}
+                            onClick={() => {
+                              setSelectedPublicType(ch.type);
+                            }}
+                            className="group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 transition-all hover:border-border/80 hover:shadow-sm cursor-pointer"
+                          >
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  {iconPath ? (
+                                    <BrandIcon
+                                      path={iconPath}
+                                      className="size-4 shrink-0 text-muted-foreground"
+                                    />
+                                  ) : (
+                                    <span
+                                      className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                                        linked ? "bg-green-500" : "bg-muted-foreground/40"
+                                      }`}
+                                    />
+                                  )}
+                                  <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                                    {platformLabel}
+                                  </h3>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-4 flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                                    linked ? "bg-green-500" : "bg-muted-foreground/40"
+                                  }`}
+                                />
+                                <span className="text-xs text-muted-foreground">
+                                  {linked ? "Linked" : "Not linked"}
+                                </span>
+                              </div>
+                              <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                                Link Account →
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <ToastContainer messages={toasts} />
     </div>
   );

@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
+import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
 
 interface Props {
   state: AgentsPageState;
@@ -146,7 +147,7 @@ export function SkillsTab({
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-4 min-w-0">
       {/* Skill list */}
-      <div className="border border-border rounded-xl bg-background/70 min-w-0 overflow-hidden">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-background/70">
         <div className="p-4 border-b border-border space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <Input
@@ -255,7 +256,7 @@ export function SkillsTab({
       </div>
 
       {/* Skill detail */}
-      <div className="border border-border rounded-xl bg-background/70 min-w-0 overflow-hidden">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-background/70">
         {!selectedSkill && !selectedSkillLoading && (
           <div className="p-8 text-center text-sm text-muted-foreground">
             Select a skill to inspect or edit.
@@ -268,7 +269,7 @@ export function SkillsTab({
         )}
         {selectedSkill && !selectedSkillLoading && (
           <div className="min-w-0">
-            <div className="p-4 border-b border-border flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-medium text-base min-w-0 truncate">{selectedSkill.name}</h3>
@@ -290,7 +291,7 @@ export function SkillsTab({
                       : "Installed for this agent."}
                 </p>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex shrink-0 items-center gap-2 flex-wrap">
                 {canEdit && !selectedSkillEditMode && (
                   <Button
                     onClick={() => onSetState({ selectedSkillEditMode: true })}
@@ -435,7 +436,7 @@ export function SkillsTab({
                     <select
                       value={selectedSkillActiveFile}
                       onChange={(e) => onSelectSkillFile(e.target.value)}
-                      className="rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-ring w-auto max-w-sm"
+                      className="min-w-0 max-w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-ring sm:max-w-sm"
                     >
                       {skillFiles.map((f) => (
                         <option key={f} value={f}>
@@ -504,12 +505,12 @@ export function SkillsTab({
                     </div>
                   )}
                 </div>
-                <div className="p-4 min-w-0">
+                <div className="min-w-0 p-4">
                   {selectedSkillFileLoading ? (
                     <div className="py-8 flex justify-center">
                       <Spinner className="size-5" />
                     </div>
-                  ) : (
+                  ) : selectedSkillEditMode ? (
                     <Textarea
                       value={selectedSkillFileContent}
                       onChange={(e) =>
@@ -518,10 +519,16 @@ export function SkillsTab({
                           selectedSkillDirty: true,
                         })
                       }
-                      disabled={!canEdit || !selectedSkillEditMode}
+                      disabled={!canEdit}
                       rows={18}
                       className="text-xs font-mono"
                       spellCheck={false}
+                    />
+                  ) : (
+                    <SkillFilePreview
+                      path={selectedSkillActiveFile}
+                      content={selectedSkillFileContent}
+                      emptyText="No content yet."
                     />
                   )}
                 </div>

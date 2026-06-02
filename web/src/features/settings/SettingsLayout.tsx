@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { SidebarContainer, SidebarHeader, SidebarFooter } from "@/components/AppSidebar";
+import { useSidebar } from "@/components/ui/sidebar";
+import { AppShell } from "@/layouts/AppShell";
 
 const settingsNav: {
   section: string;
@@ -118,6 +119,27 @@ const settingsNav: {
           </svg>
         ),
       },
+      {
+        id: "sandbox",
+        label: "settings.nav.sandbox",
+        href: "/settings/sandbox",
+        adminOnly: true,
+        icon: (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="w-4 h-4 shrink-0 opacity-50 group-[.active]/item:opacity-80"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25"
+            />
+          </svg>
+        ),
+      },
     ],
   },
   {
@@ -205,10 +227,16 @@ const settingsNav: {
   },
 ];
 
-function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: () => void }) {
+function SettingsNavContent({ isAdmin }: { isAdmin: boolean }) {
   const { t } = useI18n();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  const handleItemClick = () => {
+    if (isMobile) setOpenMobile(false);
+  };
+
   return (
-    <>
+    <div className="px-3 pb-2">
       {settingsNav.map((group) => {
         const visibleItems = group.items.filter((item) => !item.adminOnly || isAdmin);
         if (visibleItems.length === 0) return null;
@@ -222,7 +250,7 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
                 key={item.id}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 to={item.href as any}
-                onClick={onItemClick}
+                onClick={handleItemClick}
                 className="group/item flex min-h-9 items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-medium tracking-[-0.01em] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground"
                 activeProps={{
                   className:
@@ -236,19 +264,7 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
           </div>
         );
       })}
-    </>
-  );
-}
-
-function SettingsNavSidebar({ isAdmin }: { isAdmin: boolean }) {
-  return (
-    <SidebarContainer>
-      <SidebarHeader />
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-        <NavItems isAdmin={isAdmin} />
-      </div>
-      <SidebarFooter />
-    </SidebarContainer>
+    </div>
   );
 }
 
@@ -263,18 +279,15 @@ export function SettingsLayout() {
   const activeLabel = activeItem ? t(activeItem.label) : "";
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
-      <SettingsNavSidebar isAdmin={isAdmin} />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
-          {activeLabel && <span className="text-sm font-semibold">{activeLabel}</span>}
-        </header>
-        <div className="flex-1 overflow-y-auto">
-          <div className="h-full">
-            <Outlet />
-          </div>
+    <AppShell
+      sidebar={<SettingsNavContent isAdmin={isAdmin} />}
+      title={<span className="text-sm font-semibold">{activeLabel}</span>}
+    >
+      <div className="flex-1 overflow-y-auto">
+        <div className="h-full">
+          <Outlet />
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }

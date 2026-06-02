@@ -874,7 +874,7 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}
 }
 
-func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
+func TestUpdateChannelEnabledState(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
@@ -907,15 +907,30 @@ func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChannel telegram: %v", err)
 	}
-	if ch.Enabled {
-		t.Fatal("channel config update should not enable channel")
+	if !ch.Enabled {
+		t.Fatal("channel should be enabled after explicit enabled=true update")
 	}
+
+	rr = doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
+		"config": `{"token":"tg-token-2"}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("config-only update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	ch, err = env.store.GetChannel(octx, pkgchannel.PlatformTelegram)
+	if err != nil {
+		t.Fatalf("GetChannel telegram: %v", err)
+	}
+	if !ch.Enabled {
+		t.Fatal("config-only update should preserve enabled state")
+	}
+
 	plugin, err := env.store.GetPlugin(octx, config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram))
 	if err != nil {
 		t.Fatalf("GetPlugin telegram: %v", err)
 	}
 	if !plugin.Enabled {
-		t.Fatal("channel config update should not disable channel plugin")
+		t.Fatal("channel plugin should remain enabled")
 	}
 }
 

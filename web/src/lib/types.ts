@@ -140,6 +140,9 @@ export interface AgentSandbox {
 export type UserMemory = ComponentsUserMemory & {
   agent_id: string;
   content: string;
+  soul: string;
+  version: number;
+  constraints: string;
   updated_at: string;
 };
 
