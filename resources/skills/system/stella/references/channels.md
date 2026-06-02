@@ -118,6 +118,7 @@ Connects via WebSocket (no public URL or webhook needed).
 - Edit-in-place streaming for progressive responses
 - Private (p2p) and group @mention support
 - Commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- Feishu OAuth login and Feishu channel chat share `union_id`; if a user has logged in with Feishu OAuth, their first channel message automatically links the channel identity to the same Stella user.
 - Chat transport only. Workspace automation moved out of builtin `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
 
 ## WeChat bot (iLink)

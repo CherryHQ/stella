@@ -80,6 +80,23 @@ func createTestUser(t *testing.T, store *appdb.OIDCStore, email string) auth.Use
 }
 
 // createTestIdentity creates a channel identity in the OIDC store for tests.
+func createTestLoginIdentity(t *testing.T, store *appdb.OIDCStore, userID, provider, subject, email, name string) auth.LoginIdentity {
+	t.Helper()
+	ctx := context.Background()
+	identity, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{
+		ID:              uuid.NewString(),
+		UserID:          userID,
+		Provider:        provider,
+		ProviderSubject: subject,
+		Email:           email,
+		Name:            name,
+	})
+	if err != nil {
+		t.Fatalf("CreateLoginIdentity(%q/%q): %v", provider, subject, err)
+	}
+	return identity
+}
+
 func createTestIdentity(t *testing.T, store *appdb.OIDCStore, userID, platform, externalID, name string) auth.ChannelIdentity {
 	t.Helper()
 	ctx := context.Background()
@@ -141,6 +158,36 @@ func TestResolveUserCandidatesFallsBackToLegacyFeishuOpenID(t *testing.T) {
 	}
 	if match.Identity.ID != identity.ID || match.Matched != "ou_legacy" {
 		t.Fatalf("match = %+v, want legacy identity %+v", match, identity)
+	}
+}
+
+func TestResolveUserCandidatesLinksFeishuOAuthIdentity(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	authUser := createTestUser(t, ts.oidcStore, "feishu-login@example.com")
+	loginIdentity := createTestLoginIdentity(t, ts.oidcStore, authUser.ID, "feishu", "on_stable", "feishu-login@example.com", "Feishu User")
+
+	resolved, match, err := ResolveUserCandidates(ctx, ts.oidcStore, "feishu", []string{"on_stable", "ou_legacy"})
+	if err != nil {
+		t.Fatalf("ResolveUserCandidates: %v", err)
+	}
+	if resolved.User.ID != authUser.ID {
+		t.Fatalf("User.ID = %q, want %q", resolved.User.ID, authUser.ID)
+	}
+	if match.Matched != "on_stable" || match.Identity.UserID != authUser.ID {
+		t.Fatalf("match = %+v", match)
+	}
+	if loginIdentity.UserID != authUser.ID {
+		t.Fatalf("login identity user = %q, want %q", loginIdentity.UserID, authUser.ID)
+	}
+
+	channelIdentity, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "feishu", "on_stable")
+	if err != nil {
+		t.Fatalf("GetChannelIdentityByPlatform: %v", err)
+	}
+	if channelIdentity.UserID != authUser.ID {
+		t.Fatalf("channel identity user = %q, want %q", channelIdentity.UserID, authUser.ID)
 	}
 }
 
@@ -366,6 +413,34 @@ func TestCoordinatorProvisionUserUnknownIdentityReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "channel identity not found") {
 		t.Fatalf("error = %v, want channel-identity-not-found message", err)
+	}
+}
+
+func TestCoordinatorProvisionUserKnownLoginIdentityLinksChannel(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	user := createTestUser(t, ts.oidcStore, "feishu-oauth@example.com")
+	createTestLoginIdentity(t, ts.oidcStore, user.ID, "feishu", "on_union", "feishu-oauth@example.com", "Feishu User")
+
+	coord := &Coordinator{auth: ts.oidcStore}
+	if err := coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
+		Platform:   "feishu",
+		ExternalID: "on_union",
+		Name:       "Feishu Sender",
+	}); err != nil {
+		t.Fatalf("ProvisionUser: %v", err)
+	}
+
+	identity, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "feishu", "on_union")
+	if err != nil {
+		t.Fatalf("GetChannelIdentityByPlatform: %v", err)
+	}
+	if identity.UserID != user.ID {
+		t.Fatalf("identity.UserID = %q, want %q", identity.UserID, user.ID)
+	}
+	if identity.Name != "Feishu Sender" {
+		t.Fatalf("identity.Name = %q, want Feishu Sender", identity.Name)
 	}
 }
 

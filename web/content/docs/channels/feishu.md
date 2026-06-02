@@ -52,7 +52,9 @@ The builtin `lark` skill maps the retired `feishu_calendar`, `feishu_task`, `fei
 
 ## Auto-Provisioning
 
-When you enable auto-provisioning for a Feishu channel instance, Stella automatically creates an account for each employee the first time they message that bot. No manual registration or `/link` step is needed.
+When a user has already signed in to Stella with Feishu OAuth, Stella automatically links the Feishu channel identity the first time that user messages the bot. No `/link` command is needed.
+
+When you enable auto-provisioning for a Feishu channel instance, Stella can also create an account for each employee the first time they message that bot. This is for users who have not signed in with Feishu OAuth yet.
 
 ### How it works
 
@@ -67,7 +69,7 @@ When you enable auto-provisioning for a Feishu channel instance, Stella automati
 7. The provisioned user has no password -- they can chat with the bot immediately but cannot log into the Web UI until an admin sets a password for them.
 8. Provisioned users are assigned the `user` role and the system default agent.
 
-Auto-provisioning is best-effort. If tenant detection or the Contact API lookup fails, the message still goes through the normal channel flow, but no Stella user is created.
+Auto-provisioning is best-effort. If tenant detection or the Contact API lookup fails, the message still goes through the normal channel flow, but no Stella user is created. If a matching Feishu OAuth login identity already exists, Stella links the channel identity from that login identity instead of creating a separate user.
 
 ### Required app scopes
 
@@ -99,7 +101,7 @@ Setting `tenant_key` explicitly is recommended because it removes one failure mo
 
 ## Multi-User Support
 
-Each Feishu user is identified from their platform identity automatically. Stella prefers Feishu `union_id` when the event payload includes it, and falls back to `open_id` for older links. This makes multi-instance Feishu setups work across multiple Feishu apps owned by the same developer account, because `union_id` is stable across those apps while `open_id` is app-scoped.
+Each Feishu user is identified from their platform identity automatically. Stella prefers Feishu `union_id` when the event payload includes it, and falls back to `open_id` for older links. Feishu OAuth login uses the same `union_id`, so Web UI login and Feishu channel chat resolve to the same Stella user automatically. This makes multi-instance Feishu setups work across multiple Feishu apps owned by the same developer account, because `union_id` is stable across those apps while `open_id` is app-scoped.
 
 Existing older Feishu links stored as `open_id` are upgraded automatically the next time the user messages from the linked bot after upgrading Stella. If a user was linked only on an older bot, they can also re-run `/link` once from any Feishu app to refresh the link.
 

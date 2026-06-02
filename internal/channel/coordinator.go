@@ -19,6 +19,7 @@ import (
 // channelAuthStore is the subset of auth store interfaces needed by the channel coordinator.
 type channelAuthStore interface {
 	auth.UserStore
+	auth.LoginIdentityStore
 	auth.ChannelIdentityStore
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 }
@@ -349,10 +350,20 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 		return errors.New("provision: auth not configured")
 	}
 	_, err := c.auth.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID)
-	if err != nil {
-		return fmt.Errorf("provision: channel identity not found (user must link account via OIDC first): %w", err)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if !isNotFound(err) {
+		return fmt.Errorf("provision: lookup channel identity: %w", err)
+	}
+	_, _, ok, linkErr := linkLoginIdentityAsChannelIdentity(ctx, c.auth, req.Platform, req.ExternalID, req.Name)
+	if linkErr != nil {
+		return fmt.Errorf("provision: link login identity: %w", linkErr)
+	}
+	if ok {
+		return nil
+	}
+	return fmt.Errorf("provision: channel identity not found (user must link account via OIDC first): %w", err)
 }
 
 // ResolveUserRoot resolves the per-user writable root for the sender in msg.
