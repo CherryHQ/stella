@@ -2,7 +2,7 @@
 title: Example Workflows
 ---
 
-These examples show how Stella's task system changes a goal into reviewed work.
+These examples show how to model larger goals as explicit tasks. Stella does not auto-plan the child tasks yet; create the tasks yourself or ask an agent to create them through the task commands.
 
 ## Finance reimbursement review
 
@@ -10,18 +10,24 @@ Goal:
 
 > Audit the reimbursement packet for this client dinner and prepare finance review if needed.
 
-Possible tasks:
+Create child tasks:
 
 - Extract receipt and attendee data.
 - Check policy requirements.
 - Identify missing fields.
 - Flag policy exceptions.
 - Draft the reimbursement packet.
-- Create a finance review task.
+- Create a human finance review task for exceptions.
+
+Useful dependencies:
+
+- Policy checks depend on receipt extraction.
+- Exception review depends on policy checks.
+- The final packet depends on extraction and exception review.
 
 Review gates:
 
-- Policy exception requires finance review.
+- Policy exceptions require human finance review.
 - Missing tax or receipt details require user follow-up.
 - Payment approval stays with finance staff.
 
@@ -31,14 +37,20 @@ Goal:
 
 > Screen these candidates for the backend role and prepare the hiring panel review.
 
-Possible tasks:
+Create child tasks:
 
 - Extract resume facts.
 - Compare candidates with the role rubric.
 - Summarize evidence.
 - Identify missing interview signals.
 - Prepare panel review packets.
-- Schedule review or notify the hiring panel.
+- Notify the hiring panel for human review.
+
+Useful dependencies:
+
+- Rubric comparison depends on extracted resume facts.
+- Evidence summaries depend on rubric comparison.
+- Panel packets depend on summaries and missing-signal checks.
 
 Review gates:
 
@@ -52,14 +64,20 @@ Goal:
 
 > Plan the billing workflow release and track every blocker before launch.
 
-Possible tasks:
+Create child tasks:
 
 - Read the release plan.
 - Identify affected services.
-- Create implementation and verification tasks.
-- Add acceptance criteria.
+- Create implementation tasks.
+- Create verification tasks.
 - Track blockers.
 - Prepare release review.
+
+Useful dependencies:
+
+- Implementation tasks depend on affected-service analysis.
+- Verification tasks depend on implementation tasks.
+- Release review depends on verification results.
 
 Review gates:
 

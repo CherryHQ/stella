@@ -1,219 +1,204 @@
 ---
 title: 任务系统
-description: 异步、可持久、按 DAG 调度的任务执行;状态描述生命周期,可调度性由代码计算。
+description: 持久化任务执行，包含计算型 readiness、运行尝试、blocker、review 和审计事件。
 ---
 
-任务系统承载长时间运行的 agent 工作。**任务**是最小可执行单元,任务之
-间组成 DAG。每次执行尝试记录为一条 **run**;暂停记录为 **blocker**;每次
-状态变更写一条不可变的 **event**。任务的 `status` 只描述业务生命周期,
-"现在能不能跑"是计算出来的视图。
+任务系统是 Stella 的持久化执行层，用于处理不应该只存在于一次聊天 turn 里的工作。
 
-> 设计 issue:[CherryHQ/stella#226](https://github.com/CherryHQ/stella/issues/226)。
+本文描述实现契约。面向用户的任务行为见[任务系统概览](/docs/task-system/overview)。
 
-## 心智模型
+## 当前支持矩阵
 
-| 概念                       | 用途                                                        |
-| -------------------------- | ----------------------------------------------------------- |
-| `agent_task`               | 可执行单元,状态严格按生命周期流转                           |
-| `agent_task_dep`           | DAG 边。每条边是 `hard`(默认)或 `soft`,带 `on_failure` 策略 |
-| `agent_task_run`           | 一次执行尝试。携带 session、heartbeat、lease                |
-| `agent_task_blocker`       | 记录任务为何暂停。每个任务最多一条 open blocker             |
-| `agent_task_dispatch_hint` | 在创建任务与首次 claim 之间持久化"用哪个 executor agent"    |
-| `agent_task_event`         | 仅追加的审计日志,每次状态变更写一行                         |
+| 区域                                      | 状态                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| Worker task 执行                          | 支持。Worker run 使用 executor 边界和 `task_control` 终止动作记录。     |
+| Task review `none`                        | 支持。Submit 后立即完成 task。                                          |
+| Task review `auto`                        | 支持。写入一条自动批准记录用于审计，然后完成。                          |
+| Task review `human`                       | 支持，通过 review API 决策。                                            |
+| Task review `agent`                       | 无 reviewer runtime；无 API/CLI 可设置。reviewer dispatch scan 已删除。 |
+| `review_policy=none` 的 goal 容器         | 支持。Goal 状态从子 tasks 汇总。                                        |
+| Goal 自动规划                             | 不支持。必须显式创建 child tasks。                                      |
+| Goal 最终综合 / goal review               | 由 API 拒绝。本版本的 goal 使用 `review_policy=none`。                  |
+| Planner / synthesizer / reviewer run 执行 | 不支持。对应 dispatcher scan paths 在本版本中删除。                     |
 
-## 任务生命周期
+## 持久化模型
 
+持久化状态存储在 SQLite 表中，而不是 runtime 进程内存中。
+
+| 表                         | 作用                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `agent_task`               | 一个可执行工作单元。存储业务状态、goal 关联、review policy、context、output、重试计数和 active 指针。 |
+| `agent_task_run`           | 一次执行尝试。存储 run kind、attempt number、executor、session、lease、heartbeat、result 和 error。   |
+| `agent_task_event`         | 追加式审计日志，记录 transition 和 protocol error。                                                   |
+| `agent_task_dep`           | Task 之间的 DAG 边，包括 hard/soft 语义和失败策略。                                                   |
+| `agent_task_blocker`       | Task 暂停的原因。每个 task 最多一个 open blocker。                                                    |
+| `agent_review`             | Task 和 goal 的 human/auto review 记录。                                                              |
+| `agent_goal`               | 相关 tasks 的容器；支持模式下状态从 children 汇总。                                                   |
+| `agent_task_dispatch_hint` | 一次性 hint，告诉 dispatcher 下一次 claim 使用哪个 executor agent。                                   |
+
+Runtime 状态应该很小且短暂。一次 run 期间，worker executor 只记录 Agent 声明的终止动作（`submit`、`block` 或 `fail`）及其 payload。随后 worker 通过 `TransitionService` 应用这个结果。
+
+## 状态权威
+
+`internal/tasks/transition.go` 是持久状态变更的权威。Transition service 之外的代码不应该直接更新 task、run、blocker、review 或 goal 的生命周期列。
+
+典型写入路径：
+
+```text
+agent/tool loop
+  -> worker executor records terminal result
+  -> Worker.applyResult
+  -> TransitionService.Submit / Block / Fail
+  -> SQL tables + agent_task_event
 ```
-draft ──activate──▶ ready ──claim──▶ running ──submit──▶ done
-  │                    │               │
-  │                    │               ├─ block ───▶ blocked ──resolve──▶ ready
-  │                    │               └─ fail ────▶ ready(retry)或 failed
-  └─ cancel ──▶ cancelled
+
+Progress 是例外：task-control progress action 可以在执行期间把 shallow patch 持久化到 `agent_task.context`。Progress 不是终止动作，也不改变 task/run 生命周期状态。
+
+## Task 生命周期
+
+```text
+draft --activate--> ready --claim--> running --submit--> done or reviewing
+  |                    |              |
+  |                    |              +-- block --> blocked --resolve/waive--> ready
+  |                    |              +-- fail  --> ready (retry) or failed
+  +-- cancel --> cancelled
 ```
 
-任何对 `status` 列的写操作只发生在 `internal/tasks/transition.go`,其
-他代码路径(worker、dispatcher、handler)都通过转换服务进入。CI grep
-守卫保证这条规则不漂移。
+只有支持的 review policy 需要决策时才进入 `reviewing`。`human` review 等待 API/CLI 决策。`auto` 立即决策。`agent` review 当前不是支持的 runtime 路径。
 
-## 可调度性,不是 status
+## Readiness，不是 status
 
-`status='ready'` 不代表能立刻跑。当前能否调度取决于:
+`status='ready'` 不等于可派发。可派发性由以下因素计算：
 
-- `not_before <= now`(否则 deferred)
-- 所有硬依赖已满足(上游 `done`,或上游已终止且有 waiver / `on_failure=ignore`)
-- 所有软依赖已终止(`done` / `failed` / `cancelled` 任一)
-- 没有 active run 占着这个任务
-- 未超并发上限
-- executor 能解析出来
+- `not_before` 调度时间。
+- hard / soft 依赖状态。
+- 依赖失败策略和 waiver。
+- active run 约束。
+- worker 并发限制。
+- executor 解析。
 
-`internal/tasks/readiness.go` 暴露一个**纯函数** `Compute(task, deps,
-now) Readiness`,返回 `dispatchable` / `waiting_deps` / `deferred` /
-`throttled` / `blocked` / `terminal` 等之一。dispatcher 配合 SQL 粗过
-滤 `ListReadyCandidates` 使用 —— SQL 端不单独决定可调度性。
+`internal/tasks/readiness.go` 暴露 `Compute(task, deps, now) Readiness`。Dispatcher 在粗粒度 SQL candidate scan 之后使用它。
 
-## 依赖语义
+## 依赖
 
-边可以是 `hard` 或 `soft`,`on_failure` 是 `block`(默认)、`fail` 或
-`ignore`。组合结果:
+边可以是 `hard` 或 `soft`。`on_failure` 可以是 `block`、`fail` 或 `ignore`。
 
-| 边类型 | 上游                 | `on_failure` | 已 waive? | 结果                            |
-| ------ | -------------------- | ------------ | --------- | ------------------------------- |
-| hard   | `done`               | —            | —         | 满足                            |
-| hard   | `failed`/`cancelled` | `ignore`     | —         | 满足                            |
-| hard   | `failed`/`cancelled` | `block`      | 否        | 下游 → `blocked`(`dep_failure`) |
-| hard   | `failed`/`cancelled` | `block`      | 是        | 满足                            |
-| hard   | `failed`/`cancelled` | `fail`       | —         | 下游 → `failed`                 |
-| soft   | 任一终止状态         | (忽略)       | —         | 满足                            |
-| 任意   | 尚未终止             | —            | —         | 等待                            |
+| 边类型 | 上游状态               | 失败策略 | 结果                                         |
+| ------ | ---------------------- | -------- | -------------------------------------------- |
+| hard   | `done`                 | 任意     | satisfied                                    |
+| hard   | `failed` / `cancelled` | `ignore` | satisfied                                    |
+| hard   | `failed` / `cancelled` | `block`  | 下游进入 `dep_failure` blocker，除非被 waive |
+| hard   | `failed` / `cancelled` | `fail`   | 下游 failed                                  |
+| soft   | 任意终止状态           | 忽略     | satisfied                                    |
+| 任意   | 非终止状态             | 任意     | waiting                                      |
 
-`dep_failure` blocker 不能通过通用的 `ResolveBlocker` 解决 —— 必须走
-**显式 waiver**(`WaiveDep`)。waiver 在边上写入 `waived_at` +
-`waived_by_user` + 自由文本 reason。少了 waiver,即便 blocker 标记
-resolved,readiness 仍然看到失败的上游,task 仍然卡住。
+`dep_failure` blocker 不能用通用 blocker resolve 解决，必须 waive 这条依赖边。Waiver 可追责，并存储在依赖边上。
 
-### Waiver 工作流(hard / failed / block)
+## Dispatcher
 
-上游失败、下游边是 `hard` + `on_failure='block'` 时,下一次 dispatcher tick:
+`internal/tasks.Dispatcher` 是接入 scheduler 的循环。`cmd/stella` 把它注册成 scheduler service 上的内存 recurring task；它不会创建用户可见的 scheduler job。
 
-1. 计算可调度性 → 命中 `dep_failed_block`。
-2. 调 `TransitionService.Block`,kind=`dep_failure`,把下游转到 `blocked`,
-   开一条 `agent_task_blocker`。
+Worker 侧 tick 顺序：
 
-解锁路径:操作员调 `WaiveDep(taskID, depTaskID, userID, reason)`:
+1. 中断 lease 过期的 queued/running runs。
+2. 把 hard dependency failure 传播到下游 tasks。
+3. 从 child task 状态汇总 goals。
+4. 扫描 ready task candidates。
+5. 计算 readiness。
+6. 解析 executor。
+7. 创建或复用 task session。
+8. Claim task，创建 `agent_task_run` 行。
+9. 为该 run 启动 `Worker`。
 
-1. 在边上写 `waived_at` + `waived_by_user` + `waiver_reason`。
-2. 同事务里把开着的 `dep_failure` blocker 标为 resolved(resolution_json 里
-   记录 waiver),清掉 `active_blocker_id`,task 回到 `ready`。
-3. 下次 dispatcher tick 重新算 readiness,被 waive 的边视为满足,任务可
-   以分派。
-
-软依赖永远不进入 waiver 流程 —— 软依赖忽略 `on_failure`,上游进入任一终
-止状态(`done` / `failed` / `cancelled`)立刻视为满足。
+Planner、synthesizer 和 agent-reviewer scan paths 不属于当前支持的 runtime，并且已删除；不会通过 unsupported events 保护起来。
 
 ## Executor 解析
 
-dispatcher 不在任务行上存"被指派的 agent"。claim 任务时按下面顺序解析
-executor,取第一个命中:
+Claim worker task 时，dispatcher 按以下顺序解析 executor：
 
-1. **dispatch hint** —— `agent_task_dispatch_hint` 中 `(task_id, kind)`
-   匹配且 `consumed_at IS NULL` 的行。创建任务时显式指定
-   `executor_agent_id` 会写入这张表。claim 同事务里标记 consumed。
-2. **session 派生** —— `task.session_id` 非空时,使用拥有这个 session
-   的 agent。这是 retry 路径:让重试落在第一次运行的同一个 agent 上。
-3. **创建者兜底** —— `task.agent_id`,即任务的创建 agent。
-4. **拒绝** —— 三个都没有,dispatcher 写 `protocol_error` 事件并保持
-   任务在 `ready`。**不**会静默挑一个 default。
+1. `(task_id, kind='worker')` 的 live dispatch hint。
+2. 如果 `task.session_id` 存在，使用该 session 的 owner。
+3. Task 创建者 Agent（`agent_task.agent_id`）。
+4. 写事件并保持 task 未 claim。
 
-## Session 续接
+系统不能静默选择默认 Agent。无法解析 executor 说明 task 配置错误。
 
-每条 `agent_task_run` 都记录它跑在哪个 session 上(`session_id`,NOT
-NULL)。任务行额外缓存一个 `session_id` 作为"下次 worker run 默认用这
-个 session"的指针。dispatcher 的规则:
+## Session 连续性
 
-```
-if task.session_id 非空:
-    run.session_id := task.session_id
+每个 run 都在 `agent_task_run.session_id` 记录使用的 session。Task 行也保存 `session_id`，作为下一次 worker run 的默认 session。
+
+```text
+if task.session_id exists:
+    reuse it for the next worker run
 else:
-    run.session_id := newSession()
-    task.session_id := run.session_id
+    mint a new task session and store it on the task
 ```
 
-想让 retry 用全新 session(比如对话被污染了),把 `task.session_id` 清
-空再重新调度即可。**没有** mode 列 —— null 即新,非 null 即复用。
+只有在你明确希望下一次 run 使用全新 worker 对话时，才清空 `task.session_id`。
 
-## Worker 契约
+## Worker executor runtime
 
-worker 拿到 `RunnerFunc` 和 `TaskControlTool` 后,必须**恰好**调用其
-中一个:
+Worker 执行围绕 `internal/tasks/executor.go` 中的 `Executor` 接口实现。
 
-- `tool.Progress(patch)` —— 对 `task.context` 做浅 JSON merge,可多次调用,**不**终结。
-- `tool.Submit(output)` —— task → `done`,run → `completed`。
-- `tool.Block(kind, question, detail)` —— task → `blocked`,run → `cancelled`。
-- `tool.Fail(reason, retryable)` —— run → `failed`;有重试预算 task → `ready`,否则 → `failed`。
+关键组件：
 
-如果 runner 返回时没有调用过任何一个终结动作,worker 应用
-**protocol-error 回退**:run 标记 `failed`,写一条
-`event_type='protocol_error'` 事件,有重试预算就让 task 回到 `ready`。
+- `Executor.Execute(ctx, Request) (Result, error)` 负责一次 claimed run 的 Agent 交互。
+- `workerExecutor` 把 run 的 executor agent 解析为 runner factory，并注入 `task_control`。
+- `terminalRecorder` 只记录第一个终止动作。
+- `recordingControlTool` 是 Agent 看到的 `task_control` 工具。
+- `Worker.applyResult` 通过 `TransitionService` 应用单个终止结果。
 
-Runner panic 转为不可重试的 `Fail`。
+终止动作：
 
-## Heartbeat 与 lease
+| Action     | Runtime 行为                                                       | 持久 transition              |
+| ---------- | ------------------------------------------------------------------ | ---------------------------- |
+| `progress` | 把 shallow patch 持久化到 `agent_task.context`；终止动作前可重复。 | 无生命周期 transition。      |
+| `submit`   | 记录 output payload。                                              | `TransitionService.Submit`。 |
+| `block`    | 记录 blocker kind/question/detail。                                | `TransitionService.Block`。  |
+| `fail`     | 记录 reason/retryable。                                            | `TransitionService.Fail`。   |
 
-活跃 run 携带 `lease_expires_at`(默认 90 秒)和 `heartbeat_at`。worker
-的 heartbeat goroutine 每 20 秒续约一次。dispatcher 的 stale-run sweep
-扫描 `status IN ('queued','running') AND lease_expires_at < now` 的行,
-标记 `interrupted`,有重试预算就把任务返回 `ready`。
+Agent-facing tool 不会直接完成、阻塞或失败 task。它声明结果；worker 只应用一次。
 
-这就是 worker 崩溃或进程重启后的恢复路径:lease 到期 → 下次 tick 重新
-认领。
+## Protocol repair 和 failure
 
-## DB 强约束
+如果第一个 worker turn 结束时没有终止动作，executor 会区分两种情况：
 
-下面这些是 partial unique index 或 CHECK,不靠应用层自律:
+- **Silent exit** -- 没有 assistant 文本，也没有终止动作。Worker 会立刻把它视为 protocol failure。
+- **Text-only exit** -- 产生了 assistant 文本，但没有记录终止动作。Executor 会在同一个 task session 中运行一次 repair turn。Repair prompt 会把前一次文本作为上下文，并要求调用一个终止 `task_control` action。
 
-- `uniq_active_worker_run` —— 每个任务最多一条 queued/running 的 worker run
-- `uniq_task_run_attempt` —— `(task_id, kind, attempt_no)` 唯一
-- `uniq_open_blocker_per_task` —— 每个任务最多一条 open blocker
-- `uniq_active_dispatch_hint_task` —— 每个 `(task_id, kind)` 最多一条未消费 hint
-- `agent_task.active_run_id` / `active_blocker_id` 用 `ON DELETE RESTRICT`,
-  转换服务必须先清指针再删子记录
+如果 repair turn 记录了 `submit`、`block` 或 `fail`，worker 会正常应用该结果。Runtime 永远不会自动 submit 自由文本。
 
-## Boot 装配
+如果 repair turn 仍然没有终止动作，executor 返回带 `RepairAttempted=true` 的 `TerminalNone`。Worker 随后应用 protocol-error fallback：
 
-`tasks.New(BootConfig{...})` 返回 `*tasks.Service`,内含 queries、
-transition service、facade、dispatcher。cmd/stella 在 boot 时构造一个,
-并在现有 `scheduler.Service` 上把 `Dispatcher.Tick` 注册成内存 recurring
-task(不写 `sched_job` 行)。`Dispatcher.Stop` 在停服时等 worker 排空。
+- `TransitionService.Fail(... retryable=true)`。
+- `agent_task_event` 写入 `event_type='protocol_error'`，并在 `detail.repair_attempted` 中记录是否尝试过 repair。
+- 如果还有重试预算，task 回到 `ready`；否则变为 `failed`。
 
-## 当前进度
+## Heartbeat 和 lease
 
-Slice 1(MVP)已落地:
+Active run 带有 `lease_expires_at` 和 `heartbeat_at`。Executor 运行时，worker heartbeat 会延长 lease。如果 Stella 崩溃或 worker 卡住，dispatcher 最终会把 stale run 标为 interrupted，并在重试预算允许时让 task 回到 `ready`。
 
-- schema、转换服务、可调度性计算、worker、dispatcher 全套
-- 程序级 facade(`tasks.ServiceFacade`)
-- Boot 装配;dispatcher tick 已注册到 scheduler
+## API surface
 
-**待办(后续 PR 跟进):**
+Task routes 扁平挂在 `/api/tasks` 下，并通过认证用户上下文限制作用域。
 
-- 真正的 agent.Pool ↔ RunnerFunc 适配器,覆盖**全部四种** run kind
-  (worker / reviewer / planner / synthesizer)。dispatcher 现在会创建
-  四种 run;runner 本身是 noop fallback,立即写一条 `protocol_error`
-  事件。
+| Method         | Path                                                 | Purpose                                                                                  |
+| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `POST`         | `/api/tasks`                                         | 创建 task。                                                                              |
+| `GET`          | `/api/tasks`                                         | 列出 tasks，可按 agent/status 过滤。                                                     |
+| `GET`          | `/api/tasks/{id}`                                    | 获取 task。                                                                              |
+| `POST`         | `/api/tasks/{id}/cancel`                             | 取消 task。                                                                              |
+| `POST`         | `/api/tasks/{id}/reopen`                             | 重新打开 done/failed task。                                                              |
+| `GET`          | `/api/tasks/{id}/readiness`                          | 解释可派发性。                                                                           |
+| `GET`          | `/api/tasks/{id}/events`                             | 审计事件。                                                                               |
+| `GET`          | `/api/tasks/{id}/runs`                               | 执行尝试。                                                                               |
+| `GET` / `POST` | `/api/tasks/{id}/deps`                               | 列出/添加依赖边。                                                                        |
+| `POST`         | `/api/tasks/{id}/deps/{depTaskID}/waive`             | Waive 失败的 hard dependency。                                                           |
+| `POST`         | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | Resolve blocker。                                                                        |
+| `GET`          | `/api/tasks/{id}/reviews`                            | 列出 reviews。                                                                           |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/approve`         | Approve review。                                                                         |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/reject`          | Reject review。                                                                          |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | Request changes。                                                                        |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | 将 agent review 升级为 human。agent review 不会被自动 dispatch，但已有记录仍可在此解决。 |
 
-详细 goal 侧文档参见[目标系统](./goal-system)。
-
-## HTTP 接口
-
-所有路由都是扁平的 `/api/tasks/...`,通过认证会话确定组织作用域。跨组织访问返回 404(而不是
-403),避免泄露资源存在性。
-
-| 方法 | 路径                                                 | 用途                             |
-| ---- | ---------------------------------------------------- | -------------------------------- |
-| POST | `/api/tasks`                                         | 创建任务                         |
-| GET  | `/api/tasks`                                         | 列表(支持 `agent_id` / `status`) |
-| GET  | `/api/tasks/{id}`                                    | 获取单个任务                     |
-| POST | `/api/tasks/{id}/cancel`                             | 取消                             |
-| POST | `/api/tasks/{id}/reopen`                             | 重开(可带 `cascade`)             |
-| GET  | `/api/tasks/{id}/readiness`                          | 调度性视图                       |
-| GET  | `/api/tasks/{id}/events`                             | 审计日志                         |
-| GET  | `/api/tasks/{id}/runs`                               | 运行尝试列表                     |
-| GET  | `/api/tasks/{id}/deps` / POST 同路径                 | 依赖边列表 / 添加                |
-| POST | `/api/tasks/{id}/deps/{depTaskID}/waive`             | 豁免硬依赖失败                   |
-| POST | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | 解除阻塞                         |
-| GET  | `/api/tasks/{id}/reviews`                            | 列出评审                         |
-| POST | `/api/tasks/{id}/reviews/{reviewID}/approve`         | 通过                             |
-| POST | `/api/tasks/{id}/reviews/{reviewID}/reject`          | 拒绝                             |
-| POST | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | 请求修改                         |
-| POST | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | 升级 agent 评审到人工            |
-
-典型错误编码:
-
-| 条件                               | HTTP | code                                                 |
-| ---------------------------------- | ---- | ---------------------------------------------------- |
-| 任务 / blocker / 评审不存在        | 404  | `not_found`                                          |
-| 非法状态迁移                       | 409  | `invalid_transition`                                 |
-| 依赖边会形成环                     | 409  | `dep_cycle`                                          |
-| 评审已结束                         | 409  | `review_closed`                                      |
-| dep_failure 类型 blocker(需要豁免) | 409  | `dep_failure_requires_waiver`                        |
-| blocker 已关闭                     | 409  | `blocker_already_closed`                             |
-| reopen 会使下游孤立                | 409  | `reopen_conflict`，含 `error.details.downstream_ids` |
+任何 HTTP 行为变化都必须走 spec-first：先更新 OpenAPI，重新生成代码，再实现。

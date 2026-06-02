@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -26,8 +27,8 @@ type Service struct {
 type BootConfig struct {
 	DB       *sql.DB
 	Memory   memory.Provider                                  // used to mint sessions when Services is nil
-	Services agent.ServiceManager                             // preferred: registry-backed session minting and chat
-	Pools    func(agentID string) (agent.NewRunnerFunc, bool) // legacy: kept for gradual migration
+	Services agent.ServiceManager                             // registry-backed session minting
+	Pools    func(agentID string) (agent.NewRunnerFunc, bool) // resolves executor agents to runner factories
 	// MaxWorkers, TickEvery, LeaseTTL override defaults; zero values use the
 	// dispatcher's defaults.
 	MaxWorkers int
@@ -39,9 +40,9 @@ type BootConfig struct {
 // New constructs the task system. The dispatcher is constructed but not
 // started; the caller registers it on a scheduler via dispatcher.Start.
 //
-// If BootConfig.Services is non-nil, the dispatcher uses Service-backed
-// session minting and PoolAdapter for execution. Otherwise it falls back to a
-// noop runner that fails with a clear message.
+// If BootConfig.Pools is non-nil, the dispatcher uses the agent-backed worker
+// executor. Otherwise it falls back to a noop executor that fails with a clear
+// message.
 func New(cfg BootConfig) *Service {
 	q := sqlc.New(cfg.DB)
 	svc := NewTransitionService(cfg.DB, q)
@@ -51,11 +52,11 @@ func New(cfg BootConfig) *Service {
 		logger = slog.Default().With("component", "tasks")
 	}
 
-	var runner RunnerFunc
+	var exec Executor
 	if cfg.Pools != nil {
-		runner = NewPoolAdapter(cfg.Pools, cfg.Memory, logger).AsRunnerFunc(q)
+		exec = newWorkerExecutor(cfg.Pools, cfg.Memory, q, svc, logger)
 	} else {
-		runner = noopRunner(logger)
+		exec = noopExecutor(logger)
 	}
 
 	var newSession SessionMinter
@@ -68,8 +69,8 @@ func New(cfg BootConfig) *Service {
 	disp := NewDispatcher(DispatcherConfig{
 		Service:    svc,
 		Queries:    q,
-		Runner:     runner,
-		Resolver:   sessionAndCreatorResolver(q, cfg.Memory, logger),
+		Executor:   exec,
+		Resolver:   sessionOwnerResolver(q, logger),
 		NewSession: newSession,
 		MaxWorkers: cfg.MaxWorkers,
 		TickEvery:  cfg.TickEvery,
@@ -85,23 +86,48 @@ func New(cfg BootConfig) *Service {
 	}
 }
 
-// noopRunner returns a RunnerFunc that always fails.
-func noopRunner(log *slog.Logger) RunnerFunc {
-	return func(_ context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		log.Warn("tasks v2 noop runner invoked",
-			"task_id", run.TaskID.String, "run_id", run.ID,
-			"hint", "wire BootConfig.Services to a real agent.ServiceManager to execute tasks")
-		return tool.Fail(context.Background(),
-			"task system v2 runner not wired (noop): connect cmd/stella to agent.ServiceManager",
-			false)
-	}
+// noopExecutor returns an Executor that always fails non-retryably.
+func noopExecutor(log *slog.Logger) Executor {
+	return executorFunc(func(_ context.Context, req Request) (Result, error) {
+		log.Warn("tasks v2 noop executor invoked",
+			"task_id", req.Run.TaskID.String, "run_id", req.Run.ID,
+			"hint", "wire BootConfig.Pools to a real agent pool to execute tasks")
+		return failResult("task system v2 executor not wired (noop): connect cmd/stella to an agent pool", false), nil
+	})
 }
 
-// sessionAndCreatorResolver covers executor resolution from a session row.
-// Currently returns (false) so the dispatcher falls back to task.agent_id.
-func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, _ *slog.Logger) ExecutorResolver {
-	return func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
-		return "", false
+// sessionOwnerResolver resolves the executor for a task that has already run by
+// reusing the executor_agent_id of its latest worker run. This sits between the
+// dispatch hint and the creator fallback in the dispatcher's precedence chain
+// (D13), so a retry keeps the original executor and runs in the task's
+// persisted session — even when the first run was handed to an agent other than
+// the task creator via a dispatch hint.
+//
+// It resolves from durable task-run data rather than memory.SessionManager:
+// LoadInfo requires user_id+agent_id already in the context scope, but the
+// dispatcher's scheduler context has neither, and agent_id is precisely the
+// owner we are trying to discover — a circular dependency that made the old
+// memory-backed lookup always fail and silently fall back to the creator.
+// Returns (false) when the task has no recorded session/run or that run carried
+// no executor, letting the dispatcher fall back to task.agent_id.
+func sessionOwnerResolver(q *sqlc.Queries, logger *slog.Logger) ExecutorResolver {
+	return func(ctx context.Context, task sqlc.AgentTask) (string, bool) {
+		if !task.SessionID.Valid || task.SessionID.String == "" {
+			return "", false
+		}
+		run, err := q.LatestAgentTaskRunForTask(ctx, sqlc.LatestAgentTaskRunForTaskParams{
+			TaskID: nullable(task.ID), Kind: RunKindWorker,
+		})
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				logger.Warn("tasks: latest run lookup failed", "task", task.ID, "err", err)
+			}
+			return "", false
+		}
+		if !run.ExecutorAgentID.Valid || run.ExecutorAgentID.String == "" {
+			return "", false
+		}
+		return run.ExecutorAgentID.String, true
 	}
 }
 

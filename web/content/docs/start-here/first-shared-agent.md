@@ -72,4 +72,4 @@ The agent can use its instructions, knowledge, skills, tools, and memory to move
 
 ## 6. Add task tracking when the work grows
 
-If a goal needs multiple steps, use Stella's task system. The agent can plan the work, split it into tasks, set acceptance criteria, and route the final packet through review.
+If a goal needs multiple steps, use Stella's task system. Create a goal, add explicit child tasks, wire dependencies where order matters, and use human review for decisions that require accountability.

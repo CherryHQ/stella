@@ -1,122 +1,128 @@
 ---
 title: Goal system
-description: Multi-step plans backed by tasks, with rollup, planner / synthesizer runs, and the review pipeline.
+description: Goal containers backed by child tasks and task rollup. Planner, synthesizer, and agent-reviewer runtimes are gated off in this release.
 ---
 
-The goal system layers a planning + synthesis pass on top of the task system.
-A **goal** is a row in `agent_goal` that owns a set of child tasks. The
-dispatcher drives goals through draft → planning → running → (reviewing) →
-done via four kinds of runs and a pure rollup function.
+The supported goal system is a container layer on top of tasks. A **goal** owns child tasks and rolls up its status from those tasks.
+
+It is not an automatic planning system yet. Stella does not currently split a goal into tasks, synthesize a final goal output, or run agent reviewers for goal reviews. Create child tasks explicitly and attach them with `goal_id`.
 
 > Builds on the [Task system](./task-system).
 
+## Current support matrix
+
+| Feature                      | Status                                                    |
+| ---------------------------- | --------------------------------------------------------- |
+| Create/list/get goals        | Supported.                                                |
+| Attach tasks to a goal       | Supported via `agent_task.goal_id`.                       |
+| List child tasks             | Supported.                                                |
+| Activate goal                | Supported: draft goal → running, draft children → ready.  |
+| Rollup from child task state | Supported for `review_policy=none`.                       |
+| Cancel goal                  | Supported: cascade-cancels non-terminal children.         |
+| Automatic planner            | Not supported. Create child tasks explicitly.             |
+| Final synthesizer            | Not supported. Do not rely on goal `review_policy!=none`. |
+| Goal agent review            | Not supported.                                            |
+| Agent reviewer runs          | Not supported.                                            |
+
 ## Mental model
 
-| Concept              | Purpose                                                                                 |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| `agent_goal`         | Container for a related set of tasks. Has a status + review policy + active review.     |
-| `agent_task.goal_id` | A task can belong to one goal (or be standalone).                                       |
-| `planner` run        | Generates the goal's draft child tasks. Emitted while the goal is in `draft`.           |
-| `synthesizer` run    | Aggregates child outputs into `agent_goal.output`. Emitted after required deps satisfy. |
-| `reviewer` run       | Same as task-side; can review goal-parented `agent_review` rows.                        |
-| `agent_review`       | One review row per parent (task or goal), XOR.                                          |
+| Concept                  | Purpose                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `agent_goal`             | Container for a related set of tasks. Stores status, priority, review policy, context, output, and active review pointer. |
+| `agent_task.goal_id`     | Optional link from a task to one goal. Standalone tasks have no goal.                                                     |
+| `agent_task_run.goal_id` | Schema support for future goal-targeted planner/synthesizer runs. Dispatcher scan paths are removed in this release.      |
+| `agent_review.goal_id`   | Schema support for future goal-parented reviews. API validation gates this off in this release.                           |
 
-## Goal lifecycle
+## Supported lifecycle
 
+Supported container mode:
+
+```text
+draft --ActivateGoal--> running --all required children done--> done
+                              |--required child failed--------> failed
+                              |--required child blocked-------> blocked --child unblocks--> running
+non-terminal --CancelGoal-------------------------------------> cancelled
 ```
-draft ── planner ──▶ draft (children created)
-  │
-  └─ ActivateGoal ──▶ running ── rollup says all required done ─▶ done (policy=none)
-                                                              ├▶ reviewing (synthesizer + agent/human review)
-                                                              └▶ failed (required child failed)
-running ── required child blocked ──▶ blocked
-non-terminal ── CancelGoal ──▶ cancelled (cascade-cancels non-terminal children)
-```
+
+Activation promotes draft child tasks to ready in the same transaction. The dispatcher then picks up those tasks through the normal task readiness path.
 
 ## Rollup
 
-`internal/tasks/goal_rollup.go` exposes a pure function:
+`internal/tasks/goal_rollup.go` exposes:
 
 ```go
 RollupGoal(goal, childCounts, hasOpenSynth) GoalNextState
 ```
 
-The decision table for a `running` goal:
+For supported `review_policy=none` goals:
 
-| Required children | Review policy      | Verdict                                         |
-| ----------------- | ------------------ | ----------------------------------------------- |
-| any failed        | —                  | NextStatus=failed                               |
-| any blocked       | —                  | NextStatus=blocked                              |
-| any pending       | —                  | no-op                                           |
-| all done          | `none`             | NextStatus=done                                 |
-| all done          | `auto/agent/human` | SpawnSynthesizer=true (unless one is in flight) |
+| Child state                                  | Verdict                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------- |
+| Any required child failed                    | Goal → `failed` with reason `required_child_failed`.                             |
+| Any required child blocked                   | Goal → `blocked` with reason `required_child_blocked`.                           |
+| Any required child pending/running/reviewing | Goal → `running` (no-op for an already-running goal; recovers a `blocked` goal). |
+| All required children done                   | Goal → `done`.                                                                   |
 
-Other goal statuses are no-ops at the rollup level — their transitions live
-in `ActivateGoal`, review decisions, etc.
+A `blocked` goal keeps rolling up, so resolving a child blocker (or waiving its failed dependency) returns the goal to `running` on the next tick via `UnblockGoal` — there is no separate goal-unblock action. The dispatcher skips no-op transitions where the rolled-up target equals the current status.
 
-## Dispatcher tick
+For `review_policy=auto`, `agent`, or `human`, the API rejects goal creation/activation in this release. Final synthesis and goal review require a future synthesizer runtime.
 
-Each tick now runs (after the task-side steps):
+## Dispatcher behavior
 
-1. `rollupGoals` — `RollupGoal` per non-terminal goal; applies the verdict.
-2. `scanAndDispatchReviewers` — for every open agent review (task- or
-   goal-parented) with no reviewer_run_id yet, create a `reviewer` run and
-   attach it via `SetAgentReviewReviewerRun`.
-3. `scanAndDispatchPlanners` — for every draft goal with no in-flight
-   planner, create one.
-4. `scanAndDispatchSynthesizers` — for every running goal whose rollup says
-   "spawn synthesizer," create one.
+The supported dispatcher goal behavior is rollup only:
 
-### Noop runner state (current PR)
+1. Task-side dispatcher steps run first: stale-run interruption, dependency failure propagation, worker task dispatch.
+2. `rollupGoals` evaluates non-terminal goals.
+3. Rollup applies goal complete/fail/block transitions when child task state requires it.
 
-The reviewer / planner / synthesizer runs are created in the database and
-**immediately failed** by `failGoalRunAsNoop` / `failReviewerRunAsNoop` with
-a `protocol_error` event. This keeps the dispatch path observable in events
-and runs without an `agent.Pool` adapter wired yet. A follow-up PR will
-replace the immediate-fail with real runner execution.
+Planner, synthesizer, and agent-reviewer dispatch scan paths are removed rather than left as noop failure paths. Unsupported goal modes are stopped at API validation.
 
-What this means in practice:
+## No automatic task splitting
 
-- `review_policy='agent'` reviews get a reviewer run + go in_progress, then
-  the run fails (visible in events as `dispatch_reviewer` + `protocol_error`).
-- Draft goals spawn one planner run per tick (each fails). The
-  unique-active partial indexes prevent overlap on a single tick.
-- Goals stuck waiting for the real runner are easy to spot: filter events
-  by `event_type='protocol_error' AND detail->>'reason' LIKE 'noop_%'`.
+A goal does not create child tasks by itself. The supported workflow is:
 
-## Goal review decisions
+1. Create a goal.
+2. Create child tasks with that `goal_id`.
+3. Add dependencies between child tasks where order matters.
+4. Activate the goal and tasks.
+5. Let the normal worker runtime execute child tasks.
+6. Let rollup update the goal.
 
-`ApproveReview` / `RejectReview` / `RequestChanges` dispatch on parent type
-(`internal/tasks/review.go:decideAnyReview`):
+This is deliberate: automatic planning requires a real planner runtime that can return structured tasks and dependencies, not a prompt-only fallback.
 
-- Task parent: existing behavior (approve→done, reject→failed,
-  request_changes→ready or failed by retry budget).
-- Goal parent: approve→`goal.done`, reject→`goal.failed`,
-  request_changes→`goal.failed` (documented gap — no goal-level retry
-  budget; flagged for follow-up).
+## Review policy guidance
 
-`EscalateReview` repoints the matching `active_review_id` (task or goal) at
-the new human review row.
+For now, use `review_policy=none` on goals.
+
+Task-level reviews still work for supported policies:
+
+- `none`
+- `auto`
+- `human`
+
+Use human task reviews when child task output needs approval. Goal-level synthesis/review is rejected in this release and should not be presented as available.
 
 ## HTTP surface
 
-| Method | Path                                                                              | Purpose                                            |
-| ------ | --------------------------------------------------------------------------------- | -------------------------------------------------- |
-| POST   | `/api/goals`                                                                      | Create a goal (draft).                             |
-| GET    | `/api/goals`                                                                      | List goals.                                        |
-| GET    | `/api/goals/{id}`                                                                 | Fetch one goal.                                    |
-| POST   | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready. |
-| POST   | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.              |
-| GET    | `/api/goals/{id}/tasks`                                                           | List child tasks.                                  |
-| GET    | `/api/goals/{id}/reviews`                                                         | List goal reviews.                                 |
-| POST   | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Decide on a goal review.                           |
+| Method | Path                                                                              | Purpose                                                                                      |
+| ------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `POST` | `/api/goals`                                                                      | Create a goal. Use `review_policy=none` in the supported runtime.                            |
+| `GET`  | `/api/goals`                                                                      | List goals.                                                                                  |
+| `GET`  | `/api/goals/{id}`                                                                 | Fetch one goal.                                                                              |
+| `POST` | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready.                                           |
+| `POST` | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.                                                        |
+| `GET`  | `/api/goals/{id}/tasks`                                                           | List child tasks.                                                                            |
+| `GET`  | `/api/goals/{id}/reviews`                                                         | Schema-supported, but this release gates the goal review runtime off through API validation. |
+| `POST` | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Review decision endpoints exist, but this release does not create a new goal review runtime. |
 
-Access is scoped via the authenticated session.
+Any change that rejects unsupported goal review policies must be done spec-first.
 
-## Pending follow-ups
+## Future work
 
-- Real `agent.Pool` ↔ runner adapter for reviewer / planner / synthesizer
-  runs. Until then, all three dispatch paths emit `protocol_error`.
-- Goal-side `request_changes` → synthesizer retry budget (currently
-  collapses to `failed`).
-- Web UI for goals.
+Add these only after the worker runtime is stable:
+
+- Planner runtime that returns structured child tasks and dependencies.
+- Synthesizer runtime that produces final goal output from child task outputs.
+- Goal-level review policy separate from synthesis policy, if needed.
+- Agent reviewer runtime.
+- Retry semantics for goal synthesis changes.

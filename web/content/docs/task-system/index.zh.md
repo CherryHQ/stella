@@ -2,8 +2,8 @@
 title: 任务系统
 ---
 
-Stella 的任务系统会把 goal 变成可追踪的工作。
+Stella 的任务系统用于追踪不应该只停留在一条聊天消息里的工作。
 
-给 Agent 一个 goal。Stella 可以规划工作、拆分 task、用 DAG 表达依赖、定义验收标准、追踪 blocker，并安排 review。任务 UI 让团队在专门页面查看进展，不需要从聊天记录里翻结果。
+当一个 goal 需要多个步骤、依赖关系、blocker、运行历史或人工 review 时，就使用任务系统。Stella 可以在后台执行单个 task，并把 task 状态汇总到 goal。它现在**不会**自动把 goal 拆成子任务：你需要显式创建 task，把它们挂到 goal 下，并在需要顺序时添加依赖。
 
 先阅读[任务系统概览](/docs/task-system/overview)。

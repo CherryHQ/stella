@@ -115,6 +115,20 @@ func expect(ctx context.Context, q *sqlc.Queries, taskID string, from ...string)
 	return t, ErrInvalidTransition
 }
 
+// runIdentityMatches fences a worker-origin terminal transition to the task's
+// current run. A non-empty runID must equal task.active_run_id while the task
+// is running; this rejects a stale worker whose run was interrupted (lease
+// expiry, shutdown) and superseded by a retry that re-claimed the task. An
+// empty runID denotes a system-origin transition (dep-failure propagation on a
+// never-run task), which carries no run to match and is always allowed.
+func runIdentityMatches(task sqlc.AgentTask, runID string) bool {
+	if runID == "" {
+		return true
+	}
+	return task.Status == StatusRunning &&
+		task.ActiveRunID.Valid && task.ActiveRunID.String == runID
+}
+
 // ---------------------------------------------------------------------------
 // Task transitions
 // ---------------------------------------------------------------------------
@@ -331,6 +345,9 @@ func (s *TransitionService) Block(ctx context.Context, p BlockParams) error {
 		case StatusReady, StatusRunning:
 			// ok
 		default:
+			return ErrInvalidTransition
+		}
+		if !runIdentityMatches(task, p.RunID) {
 			return ErrInvalidTransition
 		}
 
@@ -556,6 +573,9 @@ func (s *TransitionService) Fail(ctx context.Context, p FailParams) error {
 			return err
 		}
 		if task.Status != StatusRunning && task.Status != StatusReady {
+			return ErrInvalidTransition
+		}
+		if !runIdentityMatches(task, p.RunID) {
 			return ErrInvalidTransition
 		}
 		now := s.now()

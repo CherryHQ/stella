@@ -15,6 +15,11 @@ import (
 var (
 	ErrReviewNotFound = errors.New("tasks: review not found")
 	ErrReviewClosed   = errors.New("tasks: review already resolved")
+	// ErrUnsupportedReviewPolicy marks a goal review_policy that no runtime in
+	// this build can service. Goals only support 'none'; goal-level review
+	// (auto/agent/human) needs the unwired synthesizer/goal-review runtime.
+	// The API maps this to a 400 validation error.
+	ErrUnsupportedReviewPolicy = errors.New("tasks: unsupported review_policy")
 )
 
 // Review status constants.
@@ -73,6 +78,9 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 		if err != nil {
 			return err
 		}
+		if !runIdentityMatches(task, runID) {
+			return ErrInvalidTransition
+		}
 		now := s.now()
 		policy := task.ReviewPolicy
 
@@ -105,7 +113,10 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 			return s.completeTaskInline(ctx, q, taskID, runID, output, actor, now)
 		}
 
-		// 'agent' or 'human': open review + task -> reviewing.
+		// 'agent' or 'human': open review + task -> reviewing. The agent
+		// reviewer runtime is not auto-dispatched in this build (no scan path),
+		// but agent-review rows remain resolvable via the human review API
+		// (approve/reject/escalate), so the row is created here as before.
 		reviewerType := ReviewerHuman
 		if policy == ReviewPolicyAgent {
 			reviewerType = ReviewerAgent

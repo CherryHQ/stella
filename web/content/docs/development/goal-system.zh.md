@@ -1,118 +1,128 @@
 ---
 title: 目标系统
-description: 在任务系统之上叠加规划与综合,带 rollup、planner / synthesizer 运行和评审管道。
+description: 由子任务和任务汇总支持的 goal 容器。本版本 gate off planner、synthesizer 和 agent-reviewer runtime。
 ---
 
-目标系统在任务系统之上叠加规划 + 综合 pass。**Goal** 是 `agent_goal` 中
-的一行,拥有一组子任务。dispatcher 通过四种 run 和一个纯 rollup 函数把
-goal 从 draft → planning → running → (reviewing) → done 推进。
+当前支持的 goal system 是 task 之上的容器层。**Goal** 拥有 child tasks，并从这些 tasks 汇总状态。
 
-> 建立在[任务系统](./task-system)之上。
+它现在还不是自动规划系统。Stella 当前不会把 goal 自动拆成 tasks，不会生成 goal 最终综合输出，也不会为 goal review 运行 agent reviewer。请显式创建 child tasks，并用 `goal_id` 关联。
+
+> 构建在[任务系统](./task-system)之上。
+
+## 当前支持矩阵
+
+| 功能                   | 状态                                                 |
+| ---------------------- | ---------------------------------------------------- |
+| 创建/列出/获取 goals   | 支持。                                               |
+| 将 task 挂到 goal      | 支持，通过 `agent_task.goal_id`。                    |
+| 列出 child tasks       | 支持。                                               |
+| 激活 goal              | 支持：draft goal → running，draft children → ready。 |
+| 从 child task 状态汇总 | 支持 `review_policy=none`。                          |
+| 取消 goal              | 支持：级联取消非终止 child tasks。                   |
+| 自动 planner           | 不支持。请显式创建 child tasks。                     |
+| 最终 synthesizer       | 不支持。不要依赖 goal `review_policy!=none`。        |
+| Goal agent review      | 不支持。                                             |
+| Agent reviewer runs    | 不支持。                                             |
 
 ## 心智模型
 
-| 概念                 | 用途                                                           |
-| -------------------- | -------------------------------------------------------------- |
-| `agent_goal`         | 一组相关任务的容器,有 status / review policy / active review。 |
-| `agent_task.goal_id` | 一个任务可以属于一个 goal(或独立)。                            |
-| `planner` run        | 生成 goal 的草稿子任务,在 goal 处于 `draft` 时下发。           |
-| `synthesizer` run    | 把子任务输出聚合到 `agent_goal.output`,在必需依赖满足后下发。  |
-| `reviewer` run       | 与任务侧相同;可评审 goal-parented `agent_review` 行。          |
-| `agent_review`       | 每个 parent(task 或 goal,XOR)一条评审行。                      |
+| 概念                     | 作用                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `agent_goal`             | 一组相关 tasks 的容器。存储 status、priority、review policy、context、output 和 active review 指针。 |
+| `agent_task.goal_id`     | 从 task 到一个 goal 的可选链接。Standalone task 没有 goal。                                          |
+| `agent_task_run.goal_id` | Schema 支持未来 goal-targeted planner/synthesizer runs；本版本删除 dispatcher scan paths。           |
+| `agent_review.goal_id`   | Schema 支持未来 goal-parented reviews；本版本通过 API validation gate off。                          |
 
-## Goal 生命周期
+## 支持的生命周期
 
+支持的容器模式：
+
+```text
+draft --ActivateGoal--> running --all required children done--> done
+                              |--required child failed--------> failed
+                              |--required child blocked-------> blocked --child unblocks--> running
+non-terminal --CancelGoal-------------------------------------> cancelled
 ```
-draft ── planner ──▶ draft(子任务被创建)
-  │
-  └─ ActivateGoal ──▶ running ── rollup 说必需子任务全部完成 ─▶ done(policy=none)
-                                                          ├▶ reviewing(synthesizer + agent/human 评审)
-                                                          └▶ failed(必需子任务失败)
-running ── 必需子任务 blocked ──▶ blocked
-非终止 ── CancelGoal ──▶ cancelled(级联取消非终止子任务)
-```
+
+Activation 会在同一个事务中把 draft child tasks 提升到 ready。随后 dispatcher 通过普通 task readiness 路径派发这些 tasks。
 
 ## Rollup
 
-`internal/tasks/goal_rollup.go` 暴露一个纯函数:
+`internal/tasks/goal_rollup.go` 暴露：
 
 ```go
 RollupGoal(goal, childCounts, hasOpenSynth) GoalNextState
 ```
 
-对 `running` 状态的 goal,决策表:
+对支持的 `review_policy=none` goals：
 
-| 必需子任务   | review_policy      | 结论                                       |
-| ------------ | ------------------ | ------------------------------------------ |
-| 任一 failed  | —                  | NextStatus=failed                          |
-| 任一 blocked | —                  | NextStatus=blocked                         |
-| 任一 pending | —                  | 无操作                                     |
-| 全部 done    | `none`             | NextStatus=done                            |
-| 全部 done    | `auto/agent/human` | SpawnSynthesizer=true(除非已有 synth 在跑) |
+| 子任务状态                               | 结论                                                                          |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| 任一必需子任务 failed                    | Goal → `failed`，reason 为 `required_child_failed`。                          |
+| 任一必需子任务 blocked                   | Goal → `blocked`，reason 为 `required_child_blocked`。                        |
+| 任一必需子任务 pending/running/reviewing | Goal → `running`（对已 running 的 goal 是 no-op；可让 `blocked` goal 恢复）。 |
+| 所有必需子任务 done                      | Goal → `done`。                                                               |
 
-其他 goal 状态在 rollup 层是 no-op —— 它们的转换在 `ActivateGoal`、评审
-决策等位置完成。
+`blocked` goal 会持续 rollup，因此解决子任务的 blocker（或 waive 其失败依赖）会在下一个 tick 通过 `UnblockGoal` 让 goal 回到 `running`——不需要单独的 goal-unblock 操作。当 rollup 算出的目标状态与当前状态相同时，dispatcher 会跳过这个 no-op transition。
 
-## Dispatcher tick
+对 `review_policy=auto`、`agent` 或 `human`，本版本 API 会拒绝 goal 创建/激活。最终 synthesis 和 goal review 需要未来的 synthesizer runtime。
 
-每次 tick(在任务侧步骤之后)新增:
+## Dispatcher 行为
 
-1. `rollupGoals` —— 对每个非终止 goal 运行 `RollupGoal` 并应用结论。
-2. `scanAndDispatchReviewers` —— 对每条 reviewer_run_id 未设置的 open agent
-   评审(task- 或 goal-parented)创建一条 `reviewer` run,通过
-   `SetAgentReviewReviewerRun` 关联。
-3. `scanAndDispatchPlanners` —— 对每个 draft goal 创建一条 planner run。
-4. `scanAndDispatchSynthesizers` —— 对每个 rollup 说"该 synth"的 running
-   goal 创建一条 synthesizer run。
+当前支持的 dispatcher goal 行为只有 rollup：
 
-### Noop runner 状态(当前 PR)
+1. 先运行 task 侧 dispatcher 步骤：stale-run interruption、dependency failure propagation、worker task dispatch。
+2. `rollupGoals` 评估非终止 goals。
+3. Rollup 根据 child task 状态应用 goal complete/fail/block transitions。
 
-reviewer / planner / synthesizer run 会被创建到数据库,然后立刻被
-`failGoalRunAsNoop` / `failReviewerRunAsNoop` 标 failed,并写一条
-`protocol_error` 事件。这样在没接 `agent.Pool` 适配器前,dispatch 路径
-就已经在 events / runs 里可观察。后续 PR 会用真实执行替换 immediate-fail。
+Planner、synthesizer 和 agent-reviewer dispatch scan paths 已删除，不再保留为 noop failure paths。Unsupported goal modes 通过 API validation 拦截。
 
-实际表现:
+## 不自动拆分任务
 
-- `review_policy='agent'` 的评审会拿到 reviewer run + 进入 in_progress,
-  然后 run 失败(在事件里看到 `dispatch_reviewer` + `protocol_error`)。
-- draft goal 每次 tick 会派一条 planner run(每条都失败);unique-active
-  partial index 保证同一 tick 内不会重复。
-- 通过 `event_type='protocol_error' AND detail->>'reason' LIKE 'noop_%'`
-  可以快速定位"还没接真 runner"的 goal。
+Goal 不会自己创建 child tasks。支持的流程是：
 
-## Goal 评审决策
+1. 创建 goal。
+2. 用该 `goal_id` 创建 child tasks。
+3. 在需要顺序时给 child tasks 添加依赖。
+4. 激活 goal 和 tasks。
+5. 让普通 worker runtime 执行 child tasks。
+6. 让 rollup 更新 goal。
 
-`ApproveReview` / `RejectReview` / `RequestChanges` 按 parent 类型分发
-(`internal/tasks/review.go:decideAnyReview`):
+这是刻意选择：自动规划需要真正的 planner runtime，能返回结构化 tasks 和 dependencies，而不是 prompt-only fallback。
 
-- task parent:原有行为(approve→done,reject→failed,
-  request_changes→ready 或按 retry 预算判 failed)。
-- goal parent:approve→`goal.done`,reject→`goal.failed`,
-  request_changes→`goal.failed`(已知缺口 —— goal 侧暂无重试预算,留待后
-  续)。
+## Review policy 建议
 
-`EscalateReview` 会把对应的 `active_review_id`(task 或 goal)指向新建
-的 human 评审行。
+当前 goal 使用 `review_policy=none`。
 
-## HTTP 接口
+Task-level review 仍然支持这些 policy：
 
-| 方法 | 路径                                                                              | 用途                                          |
-| ---- | --------------------------------------------------------------------------------- | --------------------------------------------- |
-| POST | `/api/goals`                                                                      | 创建 goal(draft)。                            |
-| GET  | `/api/goals`                                                                      | 列出当前组织的 goal。                         |
-| GET  | `/api/goals/{id}`                                                                 | 获取单个 goal。                               |
-| POST | `/api/goals/{id}/activate`                                                        | Draft → running;把 draft 子任务提升到 ready。 |
-| POST | `/api/goals/{id}/cancel`                                                          | 级联取消非终止子任务。                        |
-| GET  | `/api/goals/{id}/tasks`                                                           | 列出子任务。                                  |
-| GET  | `/api/goals/{id}/reviews`                                                         | 列出 goal 评审。                              |
-| POST | `/api/goals/{id}/reviews/{reviewID}/approve`(reject / request-changes / escalate) | 对 goal 评审作决定。                          |
+- `none`
+- `auto`
+- `human`
 
-访问通过认证会话进行作用域控制。
+当 child task 输出需要审批时，请使用 human task review。本版本会拒绝 goal-level synthesis/review；不要把它当作可用能力。
 
-## 待办
+## HTTP surface
 
-- 真正的 `agent.Pool` ↔ runner 适配器,覆盖 reviewer / planner / synthesizer。
-  在此之前所有三条 dispatch 路径都会 `protocol_error`。
-- Goal 侧 `request_changes` → synthesizer 重试预算(目前直接判 failed)。
-- Goal 的 Web UI。
+| Method | Path                                                                                   | Purpose                                                                  |
+| ------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `POST` | `/api/goals`                                                                           | 创建 goal。支持 runtime 中请使用 `review_policy=none`。                  |
+| `GET`  | `/api/goals`                                                                           | 列出 goals。                                                             |
+| `GET`  | `/api/goals/{id}`                                                                      | 获取单个 goal。                                                          |
+| `POST` | `/api/goals/{id}/activate`                                                             | Draft → running；把 draft children 提升到 ready。                        |
+| `POST` | `/api/goals/{id}/cancel`                                                               | 级联取消非终止 children。                                                |
+| `GET`  | `/api/goals/{id}/tasks`                                                                | 列出 child tasks。                                                       |
+| `GET`  | `/api/goals/{id}/reviews`                                                              | Schema 支持，但本版本通过 API validation gate off goal review runtime。  |
+| `POST` | `/api/goals/{id}/reviews/{reviewID}/approve`（以及 reject、request-changes、escalate） | Review decision endpoints 存在，但本版本不创建新的 goal review runtime。 |
+
+任何拒绝 unsupported goal review policy 的行为变化都必须 spec-first。
+
+## 后续工作
+
+只有 worker runtime 稳定后再添加：
+
+- 返回结构化 child tasks 和 dependencies 的 planner runtime。
+- 从 child task outputs 生成 goal final output 的 synthesizer runtime。
+- 如有必要，将 goal-level review policy 与 synthesis policy 拆开。
+- Agent reviewer runtime。
+- Goal synthesis changes 的重试语义。

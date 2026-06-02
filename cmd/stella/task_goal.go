@@ -119,7 +119,7 @@ func goalCreateCmd() *ucli.Command {
 			&ucli.StringFlag{Name: "description", Usage: "Goal description"},
 			&ucli.StringFlag{Name: "agent-id", Usage: "Creator/manager agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
-			&ucli.StringFlag{Name: "review-policy", Usage: "auto | agent | human"},
+			&ucli.StringFlag{Name: "review-policy", Usage: "none (only supported value in this build)"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
 			jsonFlag(),
 		},

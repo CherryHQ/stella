@@ -48,6 +48,8 @@ func (s *Server) taskError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "dep_failure_requires_waiver")
 	case errors.Is(err, tasks.ErrAlreadyClosed):
 		writeError(w, http.StatusConflict, "blocker_already_closed")
+	case errors.Is(err, tasks.ErrUnsupportedReviewPolicy):
+		writeError(w, http.StatusBadRequest, "unsupported_review_policy")
 	default:
 		var conflict *tasks.ErrReopenConflict
 		if errors.As(err, &conflict) {

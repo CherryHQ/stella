@@ -12,13 +12,21 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+// submitExec is an Executor that always submits an empty output. Most
+// dispatcher tests only care that the run reaches a terminal state.
+func submitExec() Executor {
+	return executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
+}
+
 // newDispatcherHarness builds a harness + a dispatcher driven manually via Tick.
-func newDispatcherHarness(t *testing.T, runner RunnerFunc) (*testHarness, *Dispatcher) {
+func newDispatcherHarness(t *testing.T, exec Executor) (*testHarness, *Dispatcher) {
 	h := newHarness(t)
 	d := NewDispatcher(DispatcherConfig{
-		Service: h.svc,
-		Queries: h.q,
-		Runner:  runner,
+		Service:  h.svc,
+		Queries:  h.q,
+		Executor: exec,
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return h.agentID, true
 		},
@@ -34,16 +42,16 @@ func newDispatcherHarness(t *testing.T, runner RunnerFunc) (*testHarness, *Dispa
 
 func TestDispatcher_PicksUpReadyTask(t *testing.T) {
 	called := atomic.Int32{}
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
 		called.Add(1)
-		return tool.Submit(ctx, "{}")
-	}
-	h, d := newDispatcherHarness(t, runner)
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
+	h, d := newDispatcherHarness(t, exec)
 	id := h.createTask(t, StatusReady)
 	d.Tick(context.Background())
 	d.WaitIdle()
 	if called.Load() != 1 {
-		t.Fatalf("runner called %d times, want 1", called.Load())
+		t.Fatalf("executor called %d times, want 1", called.Load())
 	}
 	if got := h.getTask(t, id).Status; got != StatusDone {
 		t.Errorf("status=%q want done", got)
@@ -52,26 +60,26 @@ func TestDispatcher_PicksUpReadyTask(t *testing.T) {
 
 func TestDispatcher_DraftTaskNotPickedUp(t *testing.T) {
 	called := atomic.Int32{}
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error {
+	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
 		called.Add(1)
-		return nil
-	}
-	h, d := newDispatcherHarness(t, runner)
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
+	h, d := newDispatcherHarness(t, exec)
 	h.createTask(t, StatusDraft)
 	d.Tick(context.Background())
 	d.WaitIdle()
 	if called.Load() != 0 {
-		t.Errorf("draft task should not be dispatched, runner called %d times", called.Load())
+		t.Errorf("draft task should not be dispatched, executor called %d times", called.Load())
 	}
 }
 
 func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	called := atomic.Int32{}
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
 		called.Add(1)
-		return tool.Submit(ctx, "{}")
-	}
-	h, d := newDispatcherHarness(t, runner)
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
+	h, d := newDispatcherHarness(t, exec)
 	upstream := h.createTask(t, StatusReady)
 	downstream := h.createTask(t, StatusReady)
 	if err := h.svc.AddDep(context.Background(), downstream, upstream, DepKindHard, OnFailureBlock); err != nil {
@@ -95,12 +103,13 @@ func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 }
 
 func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
-	// Worker runner that "hangs" — we'll simulate stale by setting a past
-	// lease_expires_at directly.
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error {
-		return nil // not used here
-	}
-	h, d := newDispatcherHarness(t, runner)
+	// Use a non-completing executor: interruptStaleRuns returns the task to
+	// ready, and a same-tick re-dispatch must not complete it, so the assertion
+	// observes the lease-expiry outcome rather than a fresh submit.
+	noTerminal := executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		return Result{Action: TerminalNone}, nil
+	})
+	h, d := newDispatcherHarness(t, noTerminal)
 	id := h.createTask(t, StatusReady)
 	res, err := h.svc.Claim(context.Background(), ClaimParams{
 		TaskID: id, NewSessionID: "sess", LeaseDuration: time.Second,
@@ -127,9 +136,49 @@ func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
 	}
 }
 
+// TestDispatcher_RetryReusesSessionNoOrphan proves a retried task reuses its
+// persisted session instead of minting a fresh one each dispatch — the
+// orphan-session half of CR-002.
+func TestDispatcher_RetryReusesSessionNoOrphan(t *testing.T) {
+	var mintCalls, attempts atomic.Int32
+	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		if attempts.Add(1) == 1 {
+			return Result{Action: TerminalFail, Failure: &FailureResult{Reason: "transient", Retryable: true}}, nil
+		}
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
+	h := newHarness(t)
+	d := NewDispatcher(DispatcherConfig{
+		Service:  h.svc,
+		Queries:  h.q,
+		Executor: exec,
+		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) { return h.agentID, true },
+		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
+			mintCalls.Add(1)
+			return "sess-fixed", nil
+		},
+		MaxWorkers: 5,
+		LeaseTTL:   60 * time.Second,
+	})
+	id := h.createTask(t, StatusReady)
+
+	d.Tick(context.Background()) // claim run 1; executor fails retryably -> ready
+	d.WaitIdle()
+	if got := h.getTask(t, id).Status; got != StatusReady {
+		t.Fatalf("after first tick status=%q want ready", got)
+	}
+	d.Tick(context.Background()) // re-dispatch retry; must reuse session
+	d.WaitIdle()
+	if got := h.getTask(t, id).Status; got != StatusDone {
+		t.Fatalf("after second tick status=%q want done", got)
+	}
+	if mintCalls.Load() != 1 {
+		t.Errorf("NewSession called %d times, want 1 (no orphan session on retry)", mintCalls.Load())
+	}
+}
+
 func TestDispatcher_DepFailurePropagatesAsBlock(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error { return nil }
-	h, d := newDispatcherHarness(t, runner)
+	h, d := newDispatcherHarness(t, submitExec())
 	// Upstream task in failed state. Downstream depends on it hard+block.
 	upstream := h.createTask(t, StatusReady)
 	// Force upstream to failed.
@@ -150,10 +199,10 @@ func TestDispatcher_DepFailurePropagatesAsBlock(t *testing.T) {
 
 func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	captured := ""
-	runner := func(ctx context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		captured = run.ExecutorAgentID.String
-		return tool.Submit(ctx, "{}")
-	}
+	exec := executorFunc(func(_ context.Context, req Request) (Result, error) {
+		captured = req.Run.ExecutorAgentID.String
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
 	// Seed a agent row so the FK on the hint is satisfiable. (The hint
@@ -174,7 +223,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 		t.Fatalf("create hint: %v", err)
 	}
 	d := NewDispatcher(DispatcherConfig{
-		Service: h.svc, Queries: h.q, Runner: runner,
+		Service: h.svc, Queries: h.q, Executor: exec,
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "resolver-agent", true // should be ignored
 		},
@@ -204,11 +253,10 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 }
 
 func TestDispatcher_NoExecutorResolved_EmitsProtocolError(t *testing.T) {
-	runner := func(_ context.Context, _ sqlc.AgentTaskRun, _ *TaskControlTool) error { return nil }
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
 	d := NewDispatcher(DispatcherConfig{
-		Service: h.svc, Queries: h.q, Runner: runner,
+		Service: h.svc, Queries: h.q, Executor: submitExec(),
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "", false
 		},
@@ -241,7 +289,7 @@ func TestDispatcher_ConcurrencyCapHonored(t *testing.T) {
 	var live atomic.Int32
 	maxObserved := atomic.Int32{}
 	gate := make(chan struct{})
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
+	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
 		cur := live.Add(1)
 		defer live.Add(-1)
 		for {
@@ -252,14 +300,14 @@ func TestDispatcher_ConcurrencyCapHonored(t *testing.T) {
 			break
 		}
 		<-gate
-		return tool.Submit(ctx, "{}")
-	}
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
 	h := newHarness(t)
 	for range n {
 		h.createTask(t, StatusReady)
 	}
 	d := NewDispatcher(DispatcherConfig{
-		Service: h.svc, Queries: h.q, Runner: runner,
+		Service: h.svc, Queries: h.q, Executor: exec,
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "agent", true
 		},
