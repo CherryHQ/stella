@@ -11,6 +11,36 @@ import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/features/auth/AuthLayout";
 import { authErrorMessage } from "@/lib/auth-error";
 
+const AUTH_PROVIDER_LABELS: Record<string, string> = {
+  feishu: "Feishu",
+  github: "GitHub",
+  google: "Google",
+};
+
+function authProviderLabel(name: string): string {
+  const key = name.toLowerCase();
+  return (
+    AUTH_PROVIDER_LABELS[key] ??
+    name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function authProviderIcon(name: string, label: string) {
+  const key = name.toLowerCase();
+  if (key === "github") return <span className="font-semibold text-[13px]">GH</span>;
+  if (key === "google") return <span className="font-semibold text-[13px]">G</span>;
+  if (key === "feishu") return <span className="font-semibold text-[13px]">飞</span>;
+  return <span className="font-semibold text-[11px]">{label.slice(0, 2).toUpperCase()}</span>;
+}
+
+function authProviderIconClass(name: string): string {
+  const key = name.toLowerCase();
+  if (key === "github") return "bg-foreground text-background";
+  if (key === "google") return "bg-white text-[#4285f4] border border-border";
+  if (key === "feishu") return "bg-[#00d6b9] text-white";
+  return "bg-primary/10 text-primary border border-primary/20";
+}
+
 export function LoginPage() {
   const { t } = useI18n();
   const [email, setEmail] = useState("");
@@ -144,17 +174,25 @@ export function LoginPage() {
           )}
 
           <div className="space-y-3">
-            {otherProviders.map((p) => (
-              <a key={p.name} href={p.login_url} className="block group">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
-                >
-                  {t("login.signIn")} {p.name}
-                </Button>
-              </a>
-            ))}
+            {otherProviders.map((p) => {
+              const label = authProviderLabel(p.name);
+              return (
+                <a key={p.name} href={p.login_url} className="block group">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
+                  >
+                    <span
+                      className={`mr-2 inline-flex size-6 shrink-0 items-center justify-center rounded-full ${authProviderIconClass(p.name)}`}
+                    >
+                      {authProviderIcon(p.name, label)}
+                    </span>
+                    {t("login.signInWith", { provider: label })}
+                  </Button>
+                </a>
+              );
+            })}
           </div>
         </div>
       )}

@@ -67,6 +67,7 @@ const en = {
   // Login page
   "login.subtitle": "Sign in to continue",
   "login.signIn": "Sign in",
+  "login.signInWith": "Sign in with {{provider}}",
   "login.signingIn": "Signing in…",
   "login.signUp": "Sign up",
   "login.signingUp": "Signing up…",
@@ -704,6 +705,7 @@ const zh: Record<MessageKey, string> = {
   // Login page
   "login.subtitle": "登录以继续",
   "login.signIn": "登录",
+  "login.signInWith": "使用 {{provider}} 登录",
   "login.signingIn": "登录中…",
   "login.signUp": "注册",
   "login.signingUp": "注册中…",

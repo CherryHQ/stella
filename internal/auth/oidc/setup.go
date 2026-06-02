@@ -60,12 +60,12 @@ func Setup(ctx context.Context, p SetupParams) (*SetupResult, error) {
 	authSvc := auth.NewAuthService(p.DB, s, s, s)
 
 	if os.Getenv("OIDC_ISSUER_URL") != "" {
-		return setupExternal(ctx, authSvc, sessionMgr, stateMgr)
+		return setupExternal(ctx, p.BaseURL, authSvc, sessionMgr, stateMgr)
 	}
 	return setupLocal(ctx, p, authSvc, sessionMgr, stateMgr)
 }
 
-func setupExternal(ctx context.Context, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
+func setupExternal(ctx context.Context, baseURL string, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
 	cfg, err := ConfigFromEnv()
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
@@ -74,12 +74,54 @@ func setupExternal(ctx context.Context, authSvc *auth.AuthService, sessionMgr *a
 	if err != nil {
 		return nil, fmt.Errorf("provider %q: %w", cfg.ProviderName, err)
 	}
+	providers := []auth.AuthProvider{provider}
+	oauthProviders, err := setupOAuthProviders(ctx, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkProviderNameConflicts(providers, oauthProviders); err != nil {
+		return nil, err
+	}
+	providers = append(providers, oauthProviders...)
 	return &SetupResult{
-		Providers:  []auth.AuthProvider{provider},
+		Providers:  providers,
 		AuthSvc:    authSvc,
 		SessionMgr: sessionMgr,
 		StateMgr:   stateMgr,
 	}, nil
+}
+
+func checkProviderNameConflicts(existing, added []auth.AuthProvider) error {
+	seen := make(map[string]struct{}, len(existing)+len(added))
+	for _, p := range existing {
+		seen[p.Name()] = struct{}{}
+	}
+	for _, p := range added {
+		if _, ok := seen[p.Name()]; ok {
+			return fmt.Errorf("duplicate auth provider name %q", p.Name())
+		}
+		seen[p.Name()] = struct{}{}
+	}
+	return nil
+}
+
+func setupOAuthProviders(_ context.Context, baseURL string) ([]auth.AuthProvider, error) {
+	if !OAuthConfiguredFromEnv() {
+		return nil, nil
+	}
+	configs, err := OAuthConfigsFromEnv(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("oauth providers: %w", err)
+	}
+	providers := make([]auth.AuthProvider, 0, len(configs))
+	for _, cfg := range configs {
+		provider, err := NewOAuthProvider(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("oauth provider %q: %w", cfg.ProviderName, err)
+		}
+		providers = append(providers, provider)
+	}
+	return providers, nil
 }
 
 func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
@@ -112,8 +154,18 @@ func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, s
 	localAuth := local.NewService(cfg, s, s, s)
 	issuer := local.NewIssuer(cfg, s, s, s, localAuth, issuerAuthSvc, issuerSessionMgr)
 
+	providers := []auth.AuthProvider{clientProvider}
+	oauthProviders, err := setupOAuthProviders(ctx, p.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkProviderNameConflicts(providers, oauthProviders); err != nil {
+		return nil, err
+	}
+	providers = append(providers, oauthProviders...)
+
 	return &SetupResult{
-		Providers:  []auth.AuthProvider{clientProvider},
+		Providers:  providers,
 		AuthSvc:    authSvc,
 		SessionMgr: sessionMgr,
 		StateMgr:   stateMgr,

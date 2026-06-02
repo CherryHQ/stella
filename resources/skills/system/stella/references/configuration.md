@@ -57,6 +57,21 @@ Access control is handled by RBAC (auth_identities + policy engine). Notificatio
 
 Feishu is a chat channel only. Lark workspace operations no longer ship as built-in `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
 
+## Login providers
+
+Standard OIDC login uses `OIDC_*` env vars (`OIDC_PROVIDER_NAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL`, `OIDC_SCOPES`).
+
+OAuth login supports multiple providers through env vars:
+
+```bash
+AUTH_OAUTH_PROVIDERS=google,github,feishu
+AUTH_OAUTH_FEISHU_CLIENT_ID=cli_xxx
+AUTH_OAUTH_FEISHU_CLIENT_SECRET=...
+AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key
+```
+
+Built-in OAuth provider IDs: `google`, `github`, `feishu`. Every OAuth provider must set either `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` or `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`; Feishu requires tenant keys because Feishu email fields are directory data, not live mailbox verification. If Feishu does not return an email, Stella uses a stable internal email like `union_id@tenant_key.feishu.local`; configuring `AUTH_OAUTH_FEISHU_ALLOWED_EMAIL_DOMAINS` makes a real matching Feishu email required.
+
 ## Settings (key-value)
 
 Global settings are stored in the `settings` table as JSON values:

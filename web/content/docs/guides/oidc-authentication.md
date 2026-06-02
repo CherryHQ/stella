@@ -2,7 +2,7 @@
 title: OIDC Authentication
 ---
 
-Stella supports signing in through any OIDC-compatible identity provider — Zitadel, Keycloak, Authentik, Auth0, and others. When OIDC is configured, the login page shows a "Sign in" button that redirects your browser to the identity provider and back.
+Stella supports signing in through any OIDC-compatible identity provider — Zitadel, Keycloak, Authentik, Auth0, and others. It also supports OAuth login providers such as Feishu, Google, and GitHub. When external login is configured, the login page shows provider buttons that redirect your browser to the provider and back.
 
 Stella also includes a **built-in local OIDC issuer** that is enabled by default when no external provider is configured. This lets you sign in with a local account without any additional setup.
 
@@ -14,7 +14,7 @@ The login page shows a **Sign in** button. You can also register a new account b
 
 The first user to register automatically becomes an admin; everyone who registers after that gets the regular user role.
 
-To restrict who can self-register, set `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email.
+To reduce accidental self-registration, set `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email. This does **not** verify mailbox ownership — use an external OIDC/OAuth provider for a real security boundary.
 
 ```bash
 LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
@@ -37,6 +37,7 @@ The local issuer exposes standard OIDC endpoints under `/oidc/local`:
 - The signing key is loaded at startup; key rotation requires a server restart.
 - There is no dynamic client registration. Client config is static.
 - Do not expose the local issuer publicly without TLS.
+- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` only checks the submitted email string. It is not email verification.
 
 ## External OIDC provider
 
@@ -71,6 +72,84 @@ The login page will show a **Sign in Zitadel** button. Clicking it starts the OI
 | `OIDC_SCOPES`        | No       | Comma-separated scopes (default: `openid,email,profile`)             |
 
 When `OIDC_ISSUER_URL` is set, the external provider replaces the built-in local issuer on the login page.
+
+## OAuth login providers
+
+Use OAuth login when the provider is not a standard OIDC issuer, or when you want multiple login buttons on the same Stella instance. Stella includes presets for `github`, `google`, and `feishu`; custom providers can be added by supplying their authorization, token, and userinfo URLs.
+
+Enable providers with a comma-separated list:
+
+```bash
+AUTH_OAUTH_PROVIDERS=google,github,feishu
+```
+
+Each provider uses an uppercase provider ID in its environment variables:
+
+```bash
+AUTH_OAUTH_GOOGLE_CLIENT_ID=your-google-client-id
+AUTH_OAUTH_GOOGLE_CLIENT_SECRET=your-google-client-secret
+AUTH_OAUTH_GOOGLE_ALLOWED_EMAIL_DOMAINS=example.com
+
+AUTH_OAUTH_GITHUB_CLIENT_ID=your-github-client-id
+AUTH_OAUTH_GITHUB_CLIENT_SECRET=your-github-client-secret
+AUTH_OAUTH_GITHUB_ALLOWED_EMAIL_DOMAINS=example.com
+
+AUTH_OAUTH_FEISHU_CLIENT_ID=cli_xxx
+AUTH_OAUTH_FEISHU_CLIENT_SECRET=your-feishu-app-secret
+AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key_from_feishu
+```
+
+If `STELLA_BASE_URL` is set, Stella derives callback URLs automatically as `https://your-host/auth/callback/{provider}`. You can override each callback with `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`.
+
+### OAuth environment variables
+
+| Variable                                      | Required | Description                                                             |
+| --------------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| `AUTH_OAUTH_PROVIDERS`                        | Yes      | Comma-separated provider IDs, for example `google,github,feishu`        |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`             | Yes      | OAuth client ID / app ID                                                |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`         | Yes      | OAuth client secret / app secret                                        |
+| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`          | No       | Callback URL; defaults to `STELLA_BASE_URL/auth/callback/{provider}`    |
+| `AUTH_OAUTH_{PROVIDER}_SCOPES`                | No       | Space- or comma-separated scopes; built-in providers have safe defaults |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` | Yes\*    | Allowed verified email domains; exact domain or subdomain match         |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`   | Yes\*    | Allowed tenant keys; required for Feishu                                |
+
+`ALLOWED_EMAIL_DOMAINS` or `ALLOWED_TENANT_KEYS` is required for every OAuth provider. Feishu specifically requires `ALLOWED_TENANT_KEYS`. This prevents accidentally opening your Stella instance to any account from that provider.
+
+### Feishu login
+
+For Feishu, create a web application in the Feishu Open Platform and add this callback URL in **Security Settings**:
+
+```text
+https://your-stella-host/auth/callback/feishu
+```
+
+Recommended configuration:
+
+```bash
+STELLA_BASE_URL=https://your-stella-host
+AUTH_OAUTH_PROVIDERS=feishu
+AUTH_OAUTH_FEISHU_CLIENT_ID=cli_xxx
+AUTH_OAUTH_FEISHU_CLIENT_SECRET=your-feishu-app-secret
+AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=your_tenant_key
+```
+
+Stella requests `contact:user.email:readonly` by default so it can fetch the user's email from Feishu. Feishu user email fields are directory data, not a live mailbox verification proof, so `AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS` is required. If Feishu does not return an email, Stella creates the account with a stable internal email like `union_id@tenant_key.feishu.local`. Email-domain allowlisting is useful as an extra filter, but if you enable it, Feishu must return a matching email.
+
+### Custom OAuth provider
+
+For a non-preset provider, provide the endpoints explicitly:
+
+```bash
+AUTH_OAUTH_PROVIDERS=acme
+AUTH_OAUTH_ACME_CLIENT_ID=client-id
+AUTH_OAUTH_ACME_CLIENT_SECRET=client-secret
+AUTH_OAUTH_ACME_AUTH_URL=https://idp.example/oauth/authorize
+AUTH_OAUTH_ACME_TOKEN_URL=https://idp.example/oauth/token
+AUTH_OAUTH_ACME_USERINFO_URL=https://idp.example/oauth/userinfo
+AUTH_OAUTH_ACME_ALLOWED_EMAIL_DOMAINS=example.com
+```
+
+Custom OAuth providers must return `email_verified: true` from the userinfo endpoint. Stella rejects logins where email verification cannot be confirmed.
 
 ## Identity provider setup
 

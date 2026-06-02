@@ -2,7 +2,7 @@
 title: OIDC 认证
 ---
 
-Stella 支持通过任何兼容 OIDC 的身份提供商登录——Zitadel、Keycloak、Authentik、Auth0 等。配置 OIDC 后，登录页面会显示"登录"按钮，点击后浏览器将跳转到身份提供商完成认证并返回。
+Stella 支持通过任何兼容 OIDC 的身份提供商登录——Zitadel、Keycloak、Authentik、Auth0 等。也支持飞书、Google、GitHub 等 OAuth 登录提供商。配置外部登录后，登录页会显示对应的登录按钮，点击后浏览器会跳转到提供商完成认证并返回。
 
 Stella 还内置了一个**本地 OIDC 发行方**，在未配置外部提供商时默认启用。无需任何额外配置即可使用本地账号登录。
 
@@ -14,7 +14,7 @@ Stella 还内置了一个**本地 OIDC 发行方**，在未配置外部提供商
 
 第一个注册的用户自动成为管理员；之后注册的用户均为普通用户。
 
-如需限制可自助注册的人群，设置 `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 为逗号分隔的允许邮箱域名列表。只有这些域名（及其子域名）下的邮箱才能注册；不设置则允许任意邮箱。
+如需减少误注册，设置 `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 为逗号分隔的允许邮箱域名列表。只有这些域名（及其子域名）下的邮箱才能注册；不设置则允许任意邮箱。它**不会**验证邮箱所有权——真正的安全边界请使用外部 OIDC/OAuth 提供商。
 
 ```bash
 LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
@@ -37,6 +37,7 @@ LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
 - 签名密钥在启动时加载；密钥轮换需要重启服务器。
 - 不支持动态客户端注册，客户端配置为静态配置。
 - 未使用 TLS 时请勿将本地发行方暴露到公网。
+- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 只检查用户提交的邮箱字符串，不是邮箱验证。
 
 ## 外部 OIDC 提供商
 
@@ -71,6 +72,84 @@ stella server
 | `OIDC_SCOPES`        | 否       | 逗号分隔的 scope（默认：`openid,email,profile`）                 |
 
 设置 `OIDC_ISSUER_URL` 后，外部提供商将替换登录页面上的内置本地发行方。
+
+## OAuth 登录提供商
+
+当提供商不是标准 OIDC issuer，或你希望同一个 Stella 实例显示多个登录按钮时，可以使用 OAuth 登录。Stella 内置了 `github`、`google`、`feishu` 预设；自定义提供商可以通过授权、token 和 userinfo URL 接入。
+
+通过逗号分隔列表启用提供商：
+
+```bash
+AUTH_OAUTH_PROVIDERS=google,github,feishu
+```
+
+每个提供商使用大写 provider ID 作为环境变量前缀：
+
+```bash
+AUTH_OAUTH_GOOGLE_CLIENT_ID=your-google-client-id
+AUTH_OAUTH_GOOGLE_CLIENT_SECRET=your-google-client-secret
+AUTH_OAUTH_GOOGLE_ALLOWED_EMAIL_DOMAINS=example.com
+
+AUTH_OAUTH_GITHUB_CLIENT_ID=your-github-client-id
+AUTH_OAUTH_GITHUB_CLIENT_SECRET=your-github-client-secret
+AUTH_OAUTH_GITHUB_ALLOWED_EMAIL_DOMAINS=example.com
+
+AUTH_OAUTH_FEISHU_CLIENT_ID=cli_xxx
+AUTH_OAUTH_FEISHU_CLIENT_SECRET=your-feishu-app-secret
+AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key_from_feishu
+```
+
+如果设置了 `STELLA_BASE_URL`，Stella 会自动使用 `https://your-host/auth/callback/{provider}` 作为回调地址。也可以用 `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL` 单独覆盖。
+
+### OAuth 环境变量
+
+| 变量                                          | 是否必填 | 说明                                                          |
+| --------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `AUTH_OAUTH_PROVIDERS`                        | 是       | 逗号分隔的 provider ID，例如 `google,github,feishu`           |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`             | 是       | OAuth client ID / app ID                                      |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`         | 是       | OAuth client secret / app secret                              |
+| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`          | 否       | 回调地址；默认使用 `STELLA_BASE_URL/auth/callback/{provider}` |
+| `AUTH_OAUTH_{PROVIDER}_SCOPES`                | 否       | 空格或逗号分隔的 scope；内置提供商已有安全默认值              |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` | 是\*     | 允许登录的已验证邮箱域名；支持精确域名和子域名                |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`   | 是\*     | 允许登录的租户 key；飞书登录必填                              |
+
+每个 OAuth provider 必须设置 `ALLOWED_EMAIL_DOMAINS` 或 `ALLOWED_TENANT_KEYS`。飞书必须设置 `ALLOWED_TENANT_KEYS`。这样可以避免误把 Stella 开放给该 provider 下的所有账号。
+
+### 飞书登录
+
+在飞书开放平台创建网页应用，并在**安全设置**中添加回调地址：
+
+```text
+https://your-stella-host/auth/callback/feishu
+```
+
+推荐配置：
+
+```bash
+STELLA_BASE_URL=https://your-stella-host
+AUTH_OAUTH_PROVIDERS=feishu
+AUTH_OAUTH_FEISHU_CLIENT_ID=cli_xxx
+AUTH_OAUTH_FEISHU_CLIENT_SECRET=your-feishu-app-secret
+AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=your_tenant_key
+```
+
+Stella 默认请求 `contact:user.email:readonly`，用于从飞书获取用户邮箱。飞书用户邮箱字段是通讯录数据，不等同于实时邮箱验证，因此必须设置 `AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS`。如果飞书没有返回邮箱，Stella 会用类似 `union_id@tenant_key.feishu.local` 的稳定内部邮箱创建账号。邮箱域名 allowlist 适合作为额外过滤；一旦启用，飞书就必须返回匹配的邮箱。
+
+### 自定义 OAuth 提供商
+
+非预设提供商需要显式提供端点：
+
+```bash
+AUTH_OAUTH_PROVIDERS=acme
+AUTH_OAUTH_ACME_CLIENT_ID=client-id
+AUTH_OAUTH_ACME_CLIENT_SECRET=client-secret
+AUTH_OAUTH_ACME_AUTH_URL=https://idp.example/oauth/authorize
+AUTH_OAUTH_ACME_TOKEN_URL=https://idp.example/oauth/token
+AUTH_OAUTH_ACME_USERINFO_URL=https://idp.example/oauth/userinfo
+AUTH_OAUTH_ACME_ALLOWED_EMAIL_DOMAINS=example.com
+```
+
+自定义 OAuth provider 的 userinfo 端点必须返回 `email_verified: true`。Stella 会拒绝无法确认邮箱已验证的登录。
 
 ## 身份提供商配置
 
