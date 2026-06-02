@@ -90,8 +90,15 @@ function ModelComboField({
   );
 }
 
+const platformLabels: Record<string, string> = {
+  telegram: "Telegram",
+  qq: "QQ",
+  feishu: "Feishu",
+  weixin: "Weixin",
+};
+
 function channelDisplayName(ch: Channel): string {
-  return ch.name || ch.type;
+  return ch.name || platformLabels[ch.type] || ch.type;
 }
 
 function ChannelSelector({

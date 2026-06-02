@@ -19,8 +19,6 @@ import {
   listModels,
   listProfileMemories,
   removeAgentUser,
-  setProfileMemory,
-  setProfileSoul,
   updateAgent,
   updateAgentSkill,
   updateChannel,
@@ -991,46 +989,6 @@ export function AgentsPage() {
     [selectSkillFile, showToast],
   );
 
-  const savePersonalisationSoul = useCallback(
-    async (currentState: AgentsPageState) => {
-      try {
-        await setProfileSoul({
-          path: { agentId: currentState.editingId ?? "" },
-          body: { soul: currentState.personalisation.soulDraft },
-          throwOnError: true,
-        });
-        setState((prev) => ({
-          ...prev,
-          personalisation: { ...prev.personalisation, soul: prev.personalisation.soulDraft },
-        }));
-        showToast("Soul saved");
-      } catch (e) {
-        showToast((e as Error).message, "error");
-      }
-    },
-    [showToast],
-  );
-
-  const savePersonalisationProfile = useCallback(
-    async (currentState: AgentsPageState) => {
-      try {
-        await setProfileMemory({
-          path: { agentId: currentState.editingId ?? "" },
-          body: { content: currentState.personalisation.profileDraft },
-          throwOnError: true,
-        });
-        setState((prev) => ({
-          ...prev,
-          personalisation: { ...prev.personalisation, profile: prev.personalisation.profileDraft },
-        }));
-        showToast("Profile saved");
-      } catch (e) {
-        showToast((e as Error).message, "error");
-      }
-    },
-    [showToast],
-  );
-
   const applySoul = useCallback(
     async (soulID: string) => {
       if (!soulID) return;
@@ -1140,8 +1098,6 @@ export function AgentsPage() {
         )
       }
       onDeleteSkillFile={() => deleteSelectedSkillFile(state)}
-      onSavePersonalisationSoul={() => savePersonalisationSoul(state)}
-      onSavePersonalisationProfile={() => savePersonalisationProfile(state)}
       onOpenSkillInstallModal={(scope) =>
         setState((prev) => ({
           ...prev,
