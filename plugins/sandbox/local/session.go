@@ -104,9 +104,26 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	if env == nil {
 		env = make(map[string]string)
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(adjustStellaHome(f.cfg.StellaHome))
+	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH)
 	env["HOME"] = adjustHome(policy.Filesystem.WorkingDir)
-	env["STELLA_HOME"] = adjustStellaHome(f.cfg.StellaHome)
+	env["STELLA_HOME"] = sandboxSH
+	// Rewrite MISE_* path-valued env vars from host STELLA_HOME to the
+	// sandbox-adjusted path so mise shims resolve tools correctly inside
+	// bwrap (where STELLA_HOME is remapped to /home/stella/.stella).
+	if hostSH := f.cfg.StellaHome; hostSH != sandboxSH {
+		hostPrefix := hostSH + string(filepath.Separator)
+		for k, v := range env {
+			if !strings.HasPrefix(k, "MISE_") {
+				continue
+			}
+			if v == hostSH {
+				env[k] = sandboxSH
+			} else if strings.HasPrefix(v, hostPrefix) {
+				env[k] = sandboxSH + v[len(hostSH):]
+			}
+		}
+	}
 	sandboxpkg.HostEnvCopy(env)
 	policy.Env = env
 	policy.InheritEnv = false

@@ -119,6 +119,56 @@ func runtimeBinaryName(name string) string {
 	return name
 }
 
+// relinkShims rewrites mise shim symlinks to use relative paths so they
+// resolve correctly inside bwrap sandboxes where STELLA_HOME is remapped.
+//
+// mise reshim creates symlinks pointing to the absolute host path of the mise
+// binary (e.g. /home/user/.local/bin/mise). Inside bwrap, that path doesn't
+// exist. By rewriting shims to relative symlinks (../../bin/mise), they work
+// on both the host and inside the sandbox — the relative traversal from
+// .mise-tools/shims/ to bin/ resolves identically regardless of the mount root.
+func relinkShims(stellaHome, _ string) error {
+	// Only relink if $STELLA_HOME/bin/mise exists. We never copy an
+	// arbitrary PATH-resolved mise into a trusted location.
+	localBin := filepath.Join(stellaHome, "bin", runtimeBinaryName("mise"))
+	if _, err := os.Stat(localBin); err != nil {
+		return nil //nolint:nilerr // no local mise binary → nothing to relink
+	}
+
+	shimsDir := filepath.Join(miseToolsDir(stellaHome), "shims")
+	entries, err := os.ReadDir(shimsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read shims dir: %w", err)
+	}
+
+	relTarget := filepath.Join("..", "..", "bin", runtimeBinaryName("mise"))
+
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		shimPath := filepath.Join(shimsDir, e.Name())
+		target, err := os.Readlink(shimPath)
+		if err != nil || target == relTarget {
+			continue
+		}
+		// Atomic replace: create temp symlink then rename over the old one.
+		tmp := shimPath + ".tmp"
+		_ = os.Remove(tmp)
+		if err := os.Symlink(relTarget, tmp); err != nil {
+			return fmt.Errorf("relink shim %s: %w", e.Name(), err)
+		}
+		if err := os.Rename(tmp, shimPath); err != nil {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("relink shim %s: %w", e.Name(), err)
+		}
+	}
+	return nil
+}
+
 // stringOption returns a non-empty string tool option value.
 func stringOption(options map[string]any, key string) (string, bool) {
 	value, ok := options[key]

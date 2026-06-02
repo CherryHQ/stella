@@ -160,9 +160,19 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 		}
 	}
 
+	// Rewrite shim symlinks to relative paths so they resolve inside bwrap
+	// sandboxes. This is idempotent — already-relative shims are skipped.
+	// Runs unconditionally because existing shims from before this fix still
+	// have absolute host paths even when tools are fully cached.
+	miseBin, miseErr := findMiseBin(stellaHome)
+	if miseErr == nil {
+		if rlErr := relinkShims(stellaHome, miseBin); rlErr != nil {
+			slog.Warn("manifest plugin reconcile: relink shims failed", "error", rlErr)
+		}
+	}
+
 	// Resolve concrete versions for cache misses via the persisted config in a
 	// neutral cwd (no ambient project mise.toml). Cache hits skip mise entirely.
-	miseBin, miseErr := findMiseBin(stellaHome)
 	var resolveEnv []string
 	if miseErr == nil {
 		resolveEnv, miseErr = scopeMiseEnv(stellaHome, builtinScope)

@@ -1,0 +1,78 @@
+package sandbox
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestResolvePaths_resolvesSymlinks(t *testing.T) {
+	actualDir := t.TempDir()
+	actualDir, _ = filepath.EvalSymlinks(actualDir)
+
+	symlinkParent := t.TempDir()
+	symlinkPath := filepath.Join(symlinkParent, "link")
+	if err := os.Symlink(actualDir, symlinkPath); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	agentRoot := t.TempDir()
+	agentRoot, _ = filepath.EvalSymlinks(agentRoot)
+
+	cfg := Config{
+		Paths: Paths{
+			StellaHome: t.TempDir(),
+			AgentRoot:  agentRoot,
+			UserRoot:   symlinkPath,
+		},
+	}
+	paths, err := ResolvePaths(cfg)
+	if err != nil {
+		t.Fatalf("ResolvePaths: %v", err)
+	}
+
+	if paths.UserRoot != actualDir {
+		t.Errorf("UserRoot = %q, want %q (symlink resolved)", paths.UserRoot, actualDir)
+	}
+	if paths.WorkDir != actualDir {
+		t.Errorf("WorkDir = %q, want %q (symlink resolved)", paths.WorkDir, actualDir)
+	}
+}
+
+func TestResolvePaths_projectRootSymlink(t *testing.T) {
+	userRoot := t.TempDir()
+	userRoot, _ = filepath.EvalSymlinks(userRoot)
+	subDir := filepath.Join(userRoot, "project")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	symlinkParent := t.TempDir()
+	projectLink := filepath.Join(symlinkParent, "proj-link")
+	if err := os.Symlink(subDir, projectLink); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	agentRoot := t.TempDir()
+	agentRoot, _ = filepath.EvalSymlinks(agentRoot)
+
+	cfg := Config{
+		Paths: Paths{
+			StellaHome:  t.TempDir(),
+			AgentRoot:   agentRoot,
+			UserRoot:    userRoot,
+			ProjectRoot: projectLink,
+		},
+	}
+	paths, err := ResolvePaths(cfg)
+	if err != nil {
+		t.Fatalf("ResolvePaths: %v", err)
+	}
+
+	if paths.ProjectRoot != subDir {
+		t.Errorf("ProjectRoot = %q, want %q (symlink resolved)", paths.ProjectRoot, subDir)
+	}
+	if paths.WorkDir != subDir {
+		t.Errorf("WorkDir = %q, want %q (symlink resolved)", paths.WorkDir, subDir)
+	}
+}

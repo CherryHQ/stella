@@ -53,6 +53,9 @@ func RuntimeMiseEnv(stellaHome string) map[string]string {
 	env["MISE_GLOBAL_CONFIG_FILE"] = configPath
 	env["MISE_TRUSTED_CONFIG_PATHS"] = configPath
 	env["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
+	// Sandbox mounts .mise-tools read-only, so redirect state (config
+	// tracking, etc.) to a writable temp location.
+	env["MISE_STATE_DIR"] = "/tmp/mise-state"
 	return env
 }
 
@@ -175,6 +178,9 @@ func runScopeInstall(ctx context.Context, stellaHome, scope string) error {
 	}
 	if err := runMise(ctx, miseBin, env, dir, "reshim"); err != nil {
 		return fmt.Errorf("mise reshim: %w", err)
+	}
+	if err := relinkShims(stellaHome, miseBin); err != nil {
+		return fmt.Errorf("relink shims: %w", err)
 	}
 	return nil
 }
