@@ -55,6 +55,10 @@ Rules:
 
 For new or changed HTTP APIs, design from the OpenAPI spec first and follow `api/CLAUDE.md` for the full workflow, generated files, and API-specific rules.
 
+## CLI design
+
+**Before designing or changing any `cmd/stella/` command, read `web/content/docs/development/rules/cli-design.md`** — it is the binding CLI-design rule (command shape, args/flags, help text, stdout/stderr, JSON output, errors, interactivity, and compatibility).
+
 ## Documentation
 
 When behavior, APIs, config, commands, or architecture change:
