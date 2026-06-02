@@ -155,11 +155,31 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	agentID := strPtr(req.AgentId)
+	goalID := strPtr(req.GoalId)
+	if goalID != "" {
+		g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
+		if !ok {
+			return
+		}
+		if !g.AgentID.Valid || g.AgentID.String == "" {
+			writeError(w, http.StatusBadRequest, "goal has no agent_id")
+			return
+		}
+		if agentID == "" {
+			agentID = g.AgentID.String
+		} else if agentID != g.AgentID.String {
+			writeError(w, http.StatusBadRequest, "goal_id must belong to the same agent_id")
+			return
+		}
+	}
+
 	in := tasks.CreateTaskInput{
 		UserID:          info.UserID,
 		Title:           req.Title,
 		Description:     strPtr(req.Description),
-		AgentID:         strPtr(req.AgentId),
+		AgentID:         agentID,
+		GoalID:          goalID,
 		ExecutorAgentID: strPtr(req.ExecutorAgentId),
 		Required:        req.Required,
 		Context:         marshalContext(req.Context),

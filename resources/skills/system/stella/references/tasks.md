@@ -60,6 +60,8 @@ All of these are `stella task ...` (or `stella task goal ...`) commands; run `--
 
 **Fire-and-forget a single task.** `create` with `--activate`. Without `--activate` it stays `draft` and never runs — use draft only when you're building a graph and want to wire deps first.
 
+**Build a goal.** Create the goal first, then create child tasks with `stella task create --goal-id <goal-id> ...`. Without `--goal-id`, the task is standalone and will not appear under `stella task goal tasks <goal-id>` or the Automations goal detail page.
+
 **Build a dependency graph (DAG).** Create the upstream tasks first (note their IDs), then `create` the downstream with one or more `--dep <upstream-id>` edges, then `activate` everything. To add an edge after the fact, use `dep add`. Default edge is `hard` + `block`: the downstream waits for the upstream to _succeed_.
 
 **Check on work.** `list` to scan tasks (filter by status/agent); `get <id>` for full detail including status, review policy, and the `active_blocker` / `active_review` / `active_run` IDs you'll need for follow-up commands. `events` is the audit trail; `runs` is the per-attempt history.

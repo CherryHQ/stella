@@ -72,11 +72,11 @@ func (q *Queries) CountRunningAgentTasks(ctx context.Context) (int64, error) {
 const createAgentTask = `-- name: CreateAgentTask :one
 
 INSERT INTO agent_task (
-    id, user_id, agent_id, title, description, status, priority,
+    id, user_id, agent_id, goal_id, title, description, status, priority,
     required, retry_count, max_retries, not_before, deadline_at,
     session_id, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
 `
 
@@ -84,6 +84,7 @@ type CreateAgentTaskParams struct {
 	ID          string         `json:"id"`
 	UserID      string         `json:"user_id"`
 	AgentID     sql.NullString `json:"agent_id"`
+	GoalID      sql.NullString `json:"goal_id"`
 	Title       string         `json:"title"`
 	Description string         `json:"description"`
 	Status      string         `json:"status"`
@@ -109,6 +110,7 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		arg.ID,
 		arg.UserID,
 		arg.AgentID,
+		arg.GoalID,
 		arg.Title,
 		arg.Description,
 		arg.Status,

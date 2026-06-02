@@ -5,11 +5,11 @@
 
 -- name: CreateAgentTask :one
 INSERT INTO agent_task (
-    id, user_id, agent_id, title, description, status, priority,
+    id, user_id, agent_id, goal_id, title, description, status, priority,
     required, retry_count, max_retries, not_before, deadline_at,
     session_id, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTask :one

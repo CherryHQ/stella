@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -38,6 +39,78 @@ func TestTasks_CreateGetRoundTrip(t *testing.T) {
 	rr = doRequest(t, env, http.MethodGet, "/api/tasks/"+task.Id, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestTasks_CreateWithGoalIDLinksGoalChild(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+	agents, err := env.store.ListAgents(context.Background())
+	if err != nil || len(agents) == 0 {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	agentID := agents[0].ID
+
+	goalBody := apitypes.CreateGoalRequest{Title: "parent", AgentId: &agentID}
+	rr := doRequest(t, env, http.MethodPost, "/api/goals", goalBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create goal: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var goal apitypes.Goal
+	if err := json.Unmarshal(rr.Body.Bytes(), &goal); err != nil {
+		t.Fatalf("decode goal: %v", err)
+	}
+
+	taskBody := apitypes.CreateTaskRequest{Title: "child", AgentId: &agentID, GoalId: &goal.Id}
+	rr = doRequest(t, env, http.MethodPost, "/api/tasks", taskBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create task: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var task apitypes.Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &task); err != nil {
+		t.Fatalf("decode task: %v", err)
+	}
+	if task.GoalId == nil || *task.GoalId != goal.Id {
+		t.Fatalf("task goal_id = %v, want %s", task.GoalId, goal.Id)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/goals/"+goal.Id+"/tasks", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list goal tasks: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var list apitypes.TaskList
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list.Tasks) != 1 || list.Tasks[0].Id != task.Id {
+		t.Fatalf("goal tasks = %+v, want task %s", list.Tasks, task.Id)
+	}
+}
+
+func TestTasks_CreateRejectsGoalIDFromDifferentAgent(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+	agents, err := env.store.ListAgents(context.Background())
+	if err != nil || len(agents) == 0 {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	agentID := agents[0].ID
+
+	goalBody := apitypes.CreateGoalRequest{Title: "parent", AgentId: &agentID}
+	rr := doRequest(t, env, http.MethodPost, "/api/goals", goalBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create goal: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var goal apitypes.Goal
+	if err := json.Unmarshal(rr.Body.Bytes(), &goal); err != nil {
+		t.Fatalf("decode goal: %v", err)
+	}
+
+	otherAgentID := "not-" + agentID
+	taskBody := apitypes.CreateTaskRequest{Title: "child", AgentId: &otherAgentID, GoalId: &goal.Id}
+	rr = doRequest(t, env, http.MethodPost, "/api/tasks", taskBody)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

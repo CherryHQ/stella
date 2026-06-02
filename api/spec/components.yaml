@@ -2018,7 +2018,7 @@ components:
           description: Creator agent (D12); empty when the task was created by a user.
         goal_id:
           type: string
-          description: Parent goal (Slice 3); always empty in the flat-API PR.
+          description: Parent goal.
         title:
           type: string
         description:
@@ -2123,6 +2123,9 @@ components:
         agent_id:
           type: string
           description: Creator agent (optional).
+        goal_id:
+          type: string
+          description: Parent goal. When set, it must belong to the caller and the same agent.
         executor_agent_id:
           type: string
           description: Explicit executor (D13); written as a dispatch hint.

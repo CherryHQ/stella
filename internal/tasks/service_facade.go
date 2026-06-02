@@ -39,6 +39,7 @@ type CreateTaskInput struct {
 	Description      string
 	Priority         string // routine | urgent; "" => routine
 	AgentID          string // creator agent (D12); optional
+	GoalID           string // parent goal; optional
 	ExecutorAgentID  string // explicit override (D13); optional, written as dispatch hint
 	Required         *bool  // nil => true (default); explicit false => optional task
 	MaxRetries       int64
@@ -89,6 +90,7 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 			ID:          id,
 			UserID:      in.UserID,
 			AgentID:     nullable(in.AgentID),
+			GoalID:      nullable(in.GoalID),
 			Title:       in.Title,
 			Description: in.Description,
 			Status:      StatusDraft,

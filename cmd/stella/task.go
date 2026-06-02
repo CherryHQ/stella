@@ -123,6 +123,7 @@ func taskCreateCmd() *ucli.Command {
 		Flags: append(taskAgentFlags(),
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Task title"},
 			&ucli.StringFlag{Name: "description", Usage: "Task description"},
+			&ucli.StringFlag{Name: "goal-id", Usage: "Parent goal ID"},
 			&ucli.StringFlag{Name: "executor", Usage: "Explicit executor agent ID (D13)"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency: <task-id>[:kind[:on_failure]]; may be repeated"},
@@ -138,6 +139,9 @@ func taskCreateCmd() *ucli.Command {
 			body := apitypes.CreateTaskRequest{Title: title, AgentId: &agentID}
 			if d := c.String("description"); d != "" {
 				body.Description = &d
+			}
+			if g := c.String("goal-id"); g != "" {
+				body.GoalId = &g
 			}
 			if e := c.String("executor"); e != "" {
 				body.ExecutorAgentId = &e
