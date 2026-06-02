@@ -66,14 +66,22 @@ func (w *Worker) Run(ctx context.Context, taskID, runID string, actor Actor) (er
 	}
 
 	now := w.svc.now()
-	if _, perr := w.q.PromoteAgentTaskRun(ctx, sqlc.PromoteAgentTaskRunParams{
+	promoted, perr := w.q.PromoteAgentTaskRun(ctx, sqlc.PromoteAgentTaskRunParams{
 		StartedAt:      sql.NullString{String: now, Valid: true},
 		HeartbeatAt:    sql.NullString{String: now, Valid: true},
 		LeaseExpiresAt: w.leaseUntil(),
 		UpdatedAt:      now,
 		ID:             runID,
-	}); perr != nil {
+	})
+	if perr != nil {
 		return fmt.Errorf("worker: promote run: %w", perr)
+	}
+	// PromoteAgentTaskRun only matches a still-queued run. Zero rows means this
+	// run was already interrupted or cancelled (lease expiry, shutdown) before
+	// the worker started; abort so a superseded run never executes or applies a
+	// terminal transition against a retry that re-claimed the task.
+	if promoted == 0 {
+		return ErrInvalidTransition
 	}
 
 	// Start heartbeat in the background.

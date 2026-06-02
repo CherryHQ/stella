@@ -78,6 +78,9 @@ func (s *TransitionService) Submit(ctx context.Context, taskID, runID, output st
 		if err != nil {
 			return err
 		}
+		if !runIdentityMatches(task, runID) {
+			return ErrInvalidTransition
+		}
 		now := s.now()
 		policy := task.ReviewPolicy
 

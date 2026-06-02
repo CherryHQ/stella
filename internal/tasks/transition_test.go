@@ -338,6 +338,55 @@ func TestFail_BudgetExhausted_GoesTerminal(t *testing.T) {
 	}
 }
 
+// TestRunIdentityGuard_StaleWorkerCannotTransitionRetry exercises the CR-001
+// fix: after a run is failed-and-retried, a stale worker holding the OLD run id
+// must not be able to submit/block/fail the task that a new run now owns.
+func TestRunIdentityGuard_StaleWorkerCannotTransitionRetry(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	id := h.createTask(t, StatusReady)
+
+	// Run 1 claims the task, then fails retryably -> task back to ready.
+	r1, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, NewSessionID: "s"})
+	if err != nil {
+		t.Fatalf("claim r1: %v", err)
+	}
+	if err := h.svc.Fail(ctx, FailParams{TaskID: id, RunID: r1.RunID, Retryable: true}); err != nil {
+		t.Fatalf("fail r1: %v", err)
+	}
+
+	// Run 2 re-claims the task: it is now the live run.
+	r2, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, NewSessionID: "s"})
+	if err != nil {
+		t.Fatalf("claim r2: %v", err)
+	}
+
+	// The stale run-1 worker wakes up and tries each terminal action with its
+	// old run id. All must be rejected, leaving run 2 in control.
+	if err := h.svc.Submit(ctx, id, r1.RunID, `{"ok":true}`, SystemActor()); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("stale Submit err=%v want ErrInvalidTransition", err)
+	}
+	if err := h.svc.Block(ctx, BlockParams{TaskID: id, Kind: BlockerKindUserInput, RunID: r1.RunID}); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("stale Block err=%v want ErrInvalidTransition", err)
+	}
+	if err := h.svc.Fail(ctx, FailParams{TaskID: id, RunID: r1.RunID, Retryable: true}); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("stale Fail err=%v want ErrInvalidTransition", err)
+	}
+
+	task := h.getTask(t, id)
+	if task.Status != StatusRunning {
+		t.Errorf("status=%q want running (run 2 untouched)", task.Status)
+	}
+	if !task.ActiveRunID.Valid || task.ActiveRunID.String != r2.RunID {
+		t.Errorf("active_run_id=%v want %s", task.ActiveRunID, r2.RunID)
+	}
+
+	// The live run-2 worker can still submit normally.
+	if err := h.svc.Submit(ctx, id, r2.RunID, `{"ok":true}`, SystemActor()); err != nil {
+		t.Errorf("live Submit err=%v want nil", err)
+	}
+}
+
 func TestCancel_FromAnyNonTerminal_Works(t *testing.T) {
 	for _, start := range []string{StatusDraft, StatusReady} {
 		t.Run(start, func(t *testing.T) {
