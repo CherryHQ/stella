@@ -3,9 +3,39 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 
 	ucli "github.com/urfave/cli/v2"
 )
+
+// lineWriter is a fmt-style writer bound to a command's stdout that defers
+// error handling: it records the first write error and short-circuits the
+// rest, so human-output helpers check once at the end (via Err) instead of
+// after every line.
+type lineWriter struct {
+	w   io.Writer
+	err error
+}
+
+// stdout returns a lineWriter over the command's stdout sink.
+func stdout(c *ucli.Context) *lineWriter { return &lineWriter{w: c.App.Writer} }
+
+func (l *lineWriter) printf(format string, a ...any) {
+	if l.err != nil {
+		return
+	}
+	_, l.err = fmt.Fprintf(l.w, format, a...)
+}
+
+func (l *lineWriter) println(a ...any) {
+	if l.err != nil {
+		return
+	}
+	_, l.err = fmt.Fprintln(l.w, a...)
+}
+
+// Err returns the first write error encountered, if any.
+func (l *lineWriter) Err() error { return l.err }
 
 // isJSON reports whether the command was asked for machine-readable output.
 func isJSON(c *ucli.Context) bool { return c.Bool("json") }
