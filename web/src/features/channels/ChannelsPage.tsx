@@ -8,6 +8,7 @@ import {
   generateLinkCode,
   listChannels,
   listPlugins,
+  togglePlugin as togglePluginRequest,
   listProfileIdentities,
   listPublicChannels,
   pollWeixinQrStatus,
@@ -727,6 +728,7 @@ export function ChannelsPage() {
   const [enabledChannelTypeIDs, setEnabledChannelTypeIDs] = useState<string[]>(
     channelTypes.map((t) => t.id),
   );
+  const [channelPlugins, setChannelPlugins] = useState<Plugin[]>([]);
   const [loadingPlatforms, setLoadingPlatforms] = useState(false);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
@@ -790,12 +792,17 @@ export function ChannelsPage() {
     try {
       const { data } = await listPlugins({ throwOnError: true });
       const plugins = (data?.plugins as Plugin[]) ?? [];
-      const enabled = (plugins || [])
-        .filter((p) => p.kind === "channel" && p.enabled)
+      const chPlugins = plugins.filter((p) => p.kind === "channel");
+      setChannelPlugins(chPlugins);
+      const enabled = chPlugins
+        .filter((p) => p.enabled)
         .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
       setEnabledChannelTypeIDs(enabled);
+      return enabled;
     } catch {
+      setChannelPlugins([]);
       setEnabledChannelTypeIDs([]);
+      return [] as string[];
     }
   }, []);
 
@@ -825,31 +832,35 @@ export function ChannelsPage() {
     [showToast],
   );
 
+  const toggleChannelPlugin = useCallback(
+    async (plugin: Plugin, enabled: boolean) => {
+      try {
+        setChannelPlugins((prev) => prev.map((p) => (p.id === plugin.id ? { ...p, enabled } : p)));
+        await togglePluginRequest({
+          path: { kind: plugin.kind, name: plugin.name },
+          body: { enabled },
+          throwOnError: true,
+        });
+        const newEnabled = await loadChannelPlugins();
+        await loadInstances(newEnabled);
+        showToast(plugin.name + (enabled ? " enabled" : " disabled"));
+      } catch (e) {
+        setChannelPlugins((prev) =>
+          prev.map((p) => (p.id === plugin.id ? { ...p, enabled: !enabled } : p)),
+        );
+        showToast((e as Error).message, "error");
+      }
+    },
+    [loadChannelPlugins, loadInstances, showToast],
+  );
+
   // ── init ──
 
   useEffect(() => {
     const init = async () => {
       if (isAdmin) {
-        await loadChannelPlugins();
-        await Promise.all([
-          loadPublicChannels(),
-          loadIdentities(),
-          (async () => {
-            // loadChannelPlugins sets state async; we need the IDs for loadInstances
-            try {
-              const { data } = await listPlugins({ throwOnError: true });
-              const pluginList = (data?.plugins as Plugin[]) ?? [];
-              const enabled = (pluginList || [])
-                .filter((p) => p.kind === "channel" && p.enabled)
-                .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
-              setEnabledChannelTypeIDs(enabled);
-              await loadInstances(enabled);
-            } catch {
-              setEnabledChannelTypeIDs([]);
-              await loadInstances([]);
-            }
-          })(),
-        ]);
+        const enabled = await loadChannelPlugins();
+        await Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(enabled)]);
       } else {
         await Promise.all([loadPublicChannels(), loadIdentities()]);
       }
@@ -1082,42 +1093,77 @@ export function ChannelsPage() {
         <Spinner className="size-4" />
       </div>
     ) : (
-      <SettingsListBody>
-        {instances.map((ch) => {
-          const isSelected = !creatingNew && selectedId === ch.id;
-          const platformLabel = platformMeta[ch.type]?.label || ch.type;
-          return (
-            <SettingsListItem
-              key={ch.id}
-              onClick={() => {
-                setSelectedId(ch.id);
-                setCreatingNew(false);
-              }}
-              active={isSelected}
-              className="flex items-center gap-2"
-            >
-              {platformMeta[ch.type]?.icon ? (
-                <BrandIcon
-                  path={platformMeta[ch.type].icon!}
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
-              ) : (
-                <span
-                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                    ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
-                  }`}
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium leading-tight truncate">
-                  {ch.name || platformLabel}
-                </p>
-                <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.type}</p>
-              </div>
-            </SettingsListItem>
-          );
-        })}
-      </SettingsListBody>
+      <div>
+        {channelPlugins.length > 0 && (
+          <div className="px-3 pb-2 pt-1">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-1 mb-1.5">
+              Platforms
+            </p>
+            <div className="space-y-0.5">
+              {channelPlugins.map((p) => {
+                const label = platformMeta[p.name]?.label || p.name;
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {platformMeta[p.name]?.icon && (
+                        <BrandIcon
+                          path={platformMeta[p.name].icon!}
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                        />
+                      )}
+                      <span className="text-xs font-medium truncate">{label}</span>
+                    </div>
+                    <Switch
+                      checked={p.enabled}
+                      onCheckedChange={(checked) => void toggleChannelPlugin(p, checked)}
+                      className="scale-75"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <SettingsListBody>
+          {instances.map((ch) => {
+            const isSelected = !creatingNew && selectedId === ch.id;
+            const platformLabel = platformMeta[ch.type]?.label || ch.type;
+            return (
+              <SettingsListItem
+                key={ch.id}
+                onClick={() => {
+                  setSelectedId(ch.id);
+                  setCreatingNew(false);
+                }}
+                active={isSelected}
+                className="flex items-center gap-2"
+              >
+                {platformMeta[ch.type]?.icon ? (
+                  <BrandIcon
+                    path={platformMeta[ch.type].icon!}
+                    className="size-4 shrink-0 text-muted-foreground"
+                  />
+                ) : (
+                  <span
+                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                      ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                    }`}
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium leading-tight truncate">
+                    {ch.name || platformLabel}
+                  </p>
+                  <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.type}</p>
+                </div>
+              </SettingsListItem>
+            );
+          })}
+        </SettingsListBody>
+      </div>
     );
 
     let detail: React.ReactNode = undefined;

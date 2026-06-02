@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getPluginConfig,
   getPluginConfigSchema,
@@ -29,7 +29,6 @@ import {
   pluginDescription,
   pluginLabel,
   pluginMetaBadges,
-  sandboxMeta,
   semanticPlugins,
 } from "./pluginUtils";
 import type { ManifestInstallDraft } from "./pluginUtils";
@@ -41,14 +40,6 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import {
-  SettingsListBody,
-  SettingsListHeader,
-  SettingsListItem,
-} from "@/features/settings/SettingsListPanel";
-
-type Tab = "tools" | "channels" | "hooks" | "sandbox" | "standalone";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
   return { plugins: plugins.map((plugin) => ({ ...plugin })) };
@@ -56,7 +47,6 @@ function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData
 
 export function PluginsPage() {
   const { t } = useI18n();
-  const [tab, setTab] = useState<Tab>("tools");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [manifestPlugins, setManifestPlugins] = useState<ManifestPlugin[]>([]);
   const [oauthProviders, setOAuthProviders] = useState<ManifestOAuthProvider[]>([]);
@@ -101,13 +91,7 @@ export function PluginsPage() {
   // Derived plugin lists
   const toolPlugins = semanticPlugins("tool", plugins, manifestPlugins);
   const hookPlugins = semanticPlugins("hook", plugins, manifestPlugins);
-  const validSandboxBackends = new Set(["sandbox/docker", "sandbox/local", "sandbox/none"]);
-  const sandboxPlugins = plugins.filter(
-    (p) => p.kind === "sandbox" && validSandboxBackends.has(p.id),
-  );
   const standalonePlugins = otherPlugins(plugins, manifestPlugins);
-
-  const channelPlugins = plugins.filter((p) => p.kind === "channel");
 
   // Load plugins
   const loadPlugins = useCallback(async () => {
@@ -206,47 +190,6 @@ export function PluginsPage() {
       void loadPlugins();
     } catch (e) {
       updatePluginEnabled(id, !enabled);
-      showToast((e as Error).message, "error");
-    }
-  }
-
-  async function toggleSandboxPlugin(id: string, enabled: boolean) {
-    const previous = new Map(sandboxPlugins.map((p) => [p.id, p.enabled]));
-    try {
-      if (enabled) {
-        for (const other of sandboxPlugins.filter((p) => p.id !== id)) {
-          updatePluginEnabled(other.id, false);
-        }
-        const others = sandboxPlugins.filter((p) => p.id !== id && p.enabled);
-        for (const other of others) {
-          await togglePluginRequest({
-            path: { kind: other.kind, name: other.name },
-            body: { enabled: false },
-            throwOnError: true,
-          });
-        }
-      }
-      updatePluginEnabled(id, enabled);
-      const { data } = await togglePluginRequest({
-        path: pluginPathByID(id, plugins),
-        body: { enabled },
-        throwOnError: true,
-      });
-      const updated = data as Plugin;
-      const updatedEnabled = !!updated.enabled;
-      updatePluginEnabled(updated.id || id, updatedEnabled);
-      showToast(
-        enabled
-          ? id + " set as active sandbox"
-          : updatedEnabled
-            ? "At least one sandbox must stay active"
-            : id + " disabled",
-      );
-      void loadPlugins();
-    } catch (e) {
-      for (const [pluginID, wasEnabled] of previous) {
-        updatePluginEnabled(pluginID, wasEnabled);
-      }
       showToast((e as Error).message, "error");
     }
   }
@@ -448,471 +391,278 @@ export function PluginsPage() {
     }
   }
 
-  const sections: { id: Tab; label: string }[] = [
-    { id: "tools", label: t("plugins.tab.tools") },
-    { id: "channels", label: t("plugins.tab.channels") },
-    { id: "hooks", label: t("plugins.tab.hooks") },
-    { id: "sandbox", label: t("plugins.tab.sandbox") },
-    { id: "standalone", label: t("plugins.tab.others") },
-  ];
+  const pluginListProps = {
+    schemas,
+    pluginConfigOpen,
+    pluginConfigLoading,
+    pluginConfigSaving,
+    pluginConfigDrafts,
+    manifestInstallOpen,
+    manifestInstallDrafts,
+    oauthProviders,
+    onToggle: toggleSemanticPlugin,
+    onToggleConfigEditor: togglePluginConfigEditor,
+    onDraftChange: (pluginID: string, field: string, value: unknown) =>
+      setPluginConfigDrafts((prev) => ({
+        ...prev,
+        [pluginID]: { ...prev[pluginID], [field]: value },
+      })),
+    onSaveConfig: savePluginConfig,
+    onResetConfig: resetPluginConfigDraft,
+    onToggleManifestEditor: toggleManifestInstallEditor,
+    onManifestDraftChange: (pluginID: string, draft: ManifestInstallDraft) =>
+      setManifestInstallDrafts((prev) => ({ ...prev, [pluginID]: draft })),
+    onSaveManifest: saveManifestInstall,
+    onResetManifest: resetManifestInstallDraft,
+  };
 
-  const listHeader = <SettingsListHeader title={t("plugins.title")} />;
-
-  const list = (
-    <SettingsListBody>
-      {sections.map((s) => (
-        <SettingsListItem key={s.id} onClick={() => setTab(s.id)} active={tab === s.id}>
-          <p className="text-sm font-medium leading-tight">{s.label}</p>
-        </SettingsListItem>
-      ))}
-    </SettingsListBody>
-  );
-
-  let detail: React.ReactNode = undefined;
-
-  if (tab === "tools") {
-    detail = (
-      <div className="p-6">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <p className="text-xs text-muted-foreground">
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-3xl p-6 space-y-8">
+        {/* Tools */}
+        <section>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="text-lg font-semibold">{t("plugins.tab.tools")}</h2>
+            <Button
+              onClick={() => setShowAddManifestTool(!showAddManifestTool)}
+              variant="default"
+              size="sm"
+            >
+              {showAddManifestTool ? "Cancel" : "Add Tool"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
             CLI tools and tool plugins. Manifest-backed tools are installed and synced
             automatically.
           </p>
-          <Button
-            onClick={() => setShowAddManifestTool(!showAddManifestTool)}
-            variant="default"
-            size="sm"
-          >
-            {showAddManifestTool ? "Cancel" : "Add Tool"}
-          </Button>
-        </div>
 
-        {showAddManifestTool && (
-          <div className="rounded-xl border border-border bg-card p-4 mb-4 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium">Add Tool</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Declare a GitHub release binary. Stella writes it to{" "}
-                  <code className="font-mono">$STELLA_HOME/plugins.yaml</code> and syncs
-                  automatically.
-                </p>
-              </div>
-              <Button
-                onClick={() =>
-                  setNewManifestTool({
-                    id: "tool/",
-                    name: "",
-                    display_name: "",
-                    description: "",
-                    binary_name: "",
-                    tool: "",
-                    version: "",
-                    bin_path: "",
-                    bin: "",
-                  })
-                }
-                variant="ghost"
-                size="xs"
-              >
-                Reset
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Binary name</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.binary_name}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      binary_name: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  onBlur={fillNewManifestToolDefaults}
-                  type="text"
-                  placeholder="my-cli"
-                  className="font-mono"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">GitHub repo</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.tool}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      tool: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="owner/repo"
-                  className="font-mono"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Plugin ID</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.id}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      id: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="tool/my-cli"
-                  className="font-mono"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Name</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.name}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      name: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="my-cli"
-                  className="font-mono"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Display name</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.display_name}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      display_name: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="My CLI"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Version</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.version}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      version: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="latest or v1.2.3"
-                  className="font-mono"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Bin path</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.bin_path}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      bin_path: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="bin"
-                  className="font-mono"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Exe override</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.bin}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      bin: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="archive binary name"
-                  className="font-mono"
-                  size="sm"
-                />
-              </div>
-              <div className="space-y-1 md:col-span-2 xl:col-span-4">
-                <label className="text-xs font-medium text-muted-foreground">Description</label>
-                <Input
-                  nativeInput
-                  value={newManifestTool.description}
-                  onChange={(e) =>
-                    setNewManifestTool((prev) => ({
-                      ...prev,
-                      description: (e.target as HTMLInputElement).value,
-                    }))
-                  }
-                  type="text"
-                  placeholder="What this CLI does"
-                  size="sm"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <Button onClick={createManifestTool} variant="default" size="sm">
-                Save and sync
-              </Button>
-            </div>
-          </div>
-        )}
-
-        <PluginList
-          plugins={toolPlugins}
-          schemas={schemas}
-          pluginConfigOpen={pluginConfigOpen}
-          pluginConfigLoading={pluginConfigLoading}
-          pluginConfigSaving={pluginConfigSaving}
-          pluginConfigDrafts={pluginConfigDrafts}
-          manifestInstallOpen={manifestInstallOpen}
-          manifestInstallDrafts={manifestInstallDrafts}
-          oauthProviders={oauthProviders}
-          onToggle={toggleSemanticPlugin}
-          onToggleConfigEditor={togglePluginConfigEditor}
-          onDraftChange={(pluginID, field, value) =>
-            setPluginConfigDrafts((prev) => ({
-              ...prev,
-              [pluginID]: { ...prev[pluginID], [field]: value },
-            }))
-          }
-          onSaveConfig={savePluginConfig}
-          onResetConfig={resetPluginConfigDraft}
-          onToggleManifestEditor={toggleManifestInstallEditor}
-          onManifestDraftChange={(pluginID, draft) =>
-            setManifestInstallDrafts((prev) => ({ ...prev, [pluginID]: draft }))
-          }
-          onSaveManifest={saveManifestInstall}
-          onResetManifest={resetManifestInstallDraft}
-          emptyMessage="No tool plugins registered."
-          showManifestEditor
-        />
-      </div>
-    );
-  } else if (tab === "channels") {
-    detail = (
-      <div className="p-6">
-        <p className="text-xs text-muted-foreground mb-4">
-          Enable messaging platform integrations. Enabled channels appear in Settings → Channels for
-          configuration.
-        </p>
-        <div className="border border-border rounded-lg divide-y divide-border">
-          {channelPlugins.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-4 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">{pluginLabel(p)}</span>
-                  <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
-                  {p.enabled && (
-                    <Badge variant="success" size="sm">
-                      on
-                    </Badge>
-                  )}
-                </div>
-                {pluginDescription(p) && (
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    {pluginDescription(p)}
+          {showAddManifestTool && (
+            <div className="rounded-xl border border-border bg-card p-4 mb-4 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Add Tool</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Declare a GitHub release binary. Stella writes it to{" "}
+                    <code className="font-mono">$STELLA_HOME/plugins.yaml</code> and syncs
+                    automatically.
                   </p>
-                )}
+                </div>
+                <Button
+                  onClick={() =>
+                    setNewManifestTool({
+                      id: "tool/",
+                      name: "",
+                      display_name: "",
+                      description: "",
+                      binary_name: "",
+                      tool: "",
+                      version: "",
+                      bin_path: "",
+                      bin: "",
+                    })
+                  }
+                  variant="ghost"
+                  size="xs"
+                >
+                  Reset
+                </Button>
               </div>
-              <Switch
-                checked={p.enabled}
-                onCheckedChange={(checked) => void togglePlugin(p.id, checked)}
-              />
-            </div>
-          ))}
-          {channelPlugins.length === 0 && (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              No channel plugins registered.
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  } else if (tab === "hooks") {
-    detail = (
-      <div className="p-6">
-        <PluginList
-          plugins={hookPlugins}
-          schemas={schemas}
-          pluginConfigOpen={pluginConfigOpen}
-          pluginConfigLoading={pluginConfigLoading}
-          pluginConfigSaving={pluginConfigSaving}
-          pluginConfigDrafts={pluginConfigDrafts}
-          manifestInstallOpen={manifestInstallOpen}
-          manifestInstallDrafts={manifestInstallDrafts}
-          oauthProviders={oauthProviders}
-          onToggle={toggleSemanticPlugin}
-          onToggleConfigEditor={togglePluginConfigEditor}
-          onDraftChange={(pluginID, field, value) =>
-            setPluginConfigDrafts((prev) => ({
-              ...prev,
-              [pluginID]: { ...prev[pluginID], [field]: value },
-            }))
-          }
-          onSaveConfig={savePluginConfig}
-          onResetConfig={resetPluginConfigDraft}
-          onToggleManifestEditor={toggleManifestInstallEditor}
-          onManifestDraftChange={(pluginID, draft) =>
-            setManifestInstallDrafts((prev) => ({ ...prev, [pluginID]: draft }))
-          }
-          onSaveManifest={saveManifestInstall}
-          onResetManifest={resetManifestInstallDraft}
-          emptyMessage="No hook plugins registered."
-          showManifestEditor
-        />
-      </div>
-    );
-  } else if (tab === "sandbox") {
-    detail = (
-      <div className="p-6">
-        <p className="text-xs text-muted-foreground mb-4">
-          Select which sandbox backend agents use. Only one can be active at a time.
-        </p>
-        <div className="border border-border rounded-lg divide-y divide-border">
-          {sandboxPlugins.map((p) => {
-            const meta = sandboxMeta(p.id);
-            return (
-              <div key={p.id} className={`px-4 py-4${p.enabled ? " bg-muted/50" : ""}`}>
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{pluginLabel(p)}</span>
-                      {p.enabled && (
-                        <Badge variant="success" size="sm">
-                          active
-                        </Badge>
-                      )}
-                      {meta.recommended && (
-                        <Badge variant="default" size="sm">
-                          recommended
-                        </Badge>
-                      )}
-                      {meta.isDefault && (
-                        <Badge variant="secondary" size="sm">
-                          default
-                        </Badge>
-                      )}
-                    </div>
-                    {pluginDescription(p) && (
-                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                        {pluginDescription(p)}
-                      </p>
-                    )}
-                  </div>
-                  <Switch
-                    checked={p.enabled}
-                    onCheckedChange={(checked) => void toggleSandboxPlugin(p.id, checked)}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Binary name</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.binary_name}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        binary_name: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    onBlur={fillNewManifestToolDefaults}
+                    type="text"
+                    placeholder="my-cli"
+                    className="font-mono"
+                    size="sm"
                   />
                 </div>
-                {(meta.features.length > 0 || meta.limitations.length > 0) && (
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:gap-6">
-                    {meta.features.length > 0 && (
-                      <div className="flex-1">
-                        <p className="text-[11px] font-medium text-success-foreground mb-1">
-                          Features
-                        </p>
-                        <ul className="text-[11px] text-muted-foreground space-y-0.5">
-                          {meta.features.map((f) => (
-                            <li key={f} className="flex items-start gap-1">
-                              <span className="text-success-foreground shrink-0">✓</span>
-                              <span>{f}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {meta.limitations.length > 0 && (
-                      <div className="flex-1">
-                        <p className="text-[11px] font-medium text-warning-foreground mb-1">
-                          Limitations
-                        </p>
-                        <ul className="text-[11px] text-muted-foreground space-y-0.5">
-                          {meta.limitations.map((l) => (
-                            <li key={l} className="flex items-start gap-1">
-                              <span className="text-warning-foreground shrink-0">⚠</span>
-                              <span>{l}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">GitHub repo</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.tool}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        tool: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="owner/repo"
+                    className="font-mono"
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Plugin ID</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.id}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        id: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="tool/my-cli"
+                    className="font-mono"
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Name</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.name}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        name: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="my-cli"
+                    className="font-mono"
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Display name</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.display_name}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        display_name: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="My CLI"
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Version</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.version}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        version: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="latest or v1.2.3"
+                    className="font-mono"
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Bin path</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.bin_path}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        bin_path: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="bin"
+                    className="font-mono"
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Exe override</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.bin}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        bin: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="archive binary name"
+                    className="font-mono"
+                    size="sm"
+                  />
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-muted-foreground">Description</label>
+                  <Input
+                    nativeInput
+                    value={newManifestTool.description}
+                    onChange={(e) =>
+                      setNewManifestTool((prev) => ({
+                        ...prev,
+                        description: (e.target as HTMLInputElement).value,
+                      }))
+                    }
+                    type="text"
+                    placeholder="What this CLI does"
+                    size="sm"
+                  />
+                </div>
               </div>
-            );
-          })}
-          {sandboxPlugins.length === 0 && (
-            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              No sandbox plugins registered.
+              <div className="flex justify-end">
+                <Button onClick={createManifestTool} variant="default" size="sm">
+                  Save and sync
+                </Button>
+              </div>
             </div>
           )}
-        </div>
-      </div>
-    );
-  } else if (tab === "standalone") {
-    detail = (
-      <div className="p-6">
-        <p className="text-xs text-muted-foreground mb-4">
-          Background services that run independently. Toggling takes effect immediately.
-        </p>
-        <PluginList
-          plugins={standalonePlugins}
-          schemas={schemas}
-          pluginConfigOpen={pluginConfigOpen}
-          pluginConfigLoading={pluginConfigLoading}
-          pluginConfigSaving={pluginConfigSaving}
-          pluginConfigDrafts={pluginConfigDrafts}
-          manifestInstallOpen={manifestInstallOpen}
-          manifestInstallDrafts={manifestInstallDrafts}
-          oauthProviders={oauthProviders}
-          onToggle={toggleSemanticPlugin}
-          onToggleConfigEditor={togglePluginConfigEditor}
-          onDraftChange={(pluginID, field, value) =>
-            setPluginConfigDrafts((prev) => ({
-              ...prev,
-              [pluginID]: { ...prev[pluginID], [field]: value },
-            }))
-          }
-          onSaveConfig={savePluginConfig}
-          onResetConfig={resetPluginConfigDraft}
-          onToggleManifestEditor={toggleManifestInstallEditor}
-          onManifestDraftChange={(pluginID, draft) =>
-            setManifestInstallDrafts((prev) => ({ ...prev, [pluginID]: draft }))
-          }
-          onSaveManifest={saveManifestInstall}
-          onResetManifest={resetManifestInstallDraft}
-          emptyMessage="No standalone plugins registered."
-        />
-      </div>
-    );
-  }
 
-  return (
-    <div className="h-full">
-      <SettingsDetailLayout listHeader={listHeader} list={list} detail={detail} />
+          <PluginList
+            {...pluginListProps}
+            plugins={toolPlugins}
+            emptyMessage="No tool plugins registered."
+            showManifestEditor
+          />
+        </section>
+
+        {/* Hooks */}
+        <section>
+          <h2 className="text-lg font-semibold mb-3">{t("plugins.tab.hooks")}</h2>
+          <PluginList
+            {...pluginListProps}
+            plugins={hookPlugins}
+            emptyMessage="No hook plugins registered."
+            showManifestEditor
+          />
+        </section>
+
+        {/* Others */}
+        {standalonePlugins.length > 0 && (
+          <section>
+            <h2 className="text-lg font-semibold mb-1">{t("plugins.tab.others")}</h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Background services that run independently.
+            </p>
+            <PluginList
+              {...pluginListProps}
+              plugins={standalonePlugins}
+              emptyMessage="No standalone plugins registered."
+            />
+          </section>
+        )}
+      </div>
       <ToastContainer messages={toasts} />
     </div>
   );
