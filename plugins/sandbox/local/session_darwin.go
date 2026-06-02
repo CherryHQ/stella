@@ -127,6 +127,10 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 	// Dev nodes: required for stdout/stderr, pseudo-terminals, /dev/null, etc.
 	sb.WriteString("(allow file-write* (subpath \"/dev\"))\n")
 
+	// Mise runtime shims are read-only, but mise still refreshes metadata caches.
+	// Keep that write hole narrow instead of allowing the entire STELLA_HOME.
+	appendSeatbeltWritableEnvDirs(&sb, policy.Env)
+
 	// Workspace root: the only user-controlled path that is fully writable.
 	fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", workspace)
 
@@ -136,6 +140,16 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 	}
 
 	return sb.String()
+}
+
+func appendSeatbeltWritableEnvDirs(sb *strings.Builder, env map[string]string) {
+	for _, key := range []string{"MISE_CACHE_DIR", "MISE_STATE_DIR"} {
+		dir := filepath.Clean(env[key])
+		if dir == "." || dir == string(filepath.Separator) || !filepath.IsAbs(dir) {
+			continue
+		}
+		fmt.Fprintf(sb, "(allow file-write* (subpath %q))\n", dir)
+	}
 }
 
 // wrapCommand wraps name+args with sandbox-exec for macOS Seatbelt isolation.

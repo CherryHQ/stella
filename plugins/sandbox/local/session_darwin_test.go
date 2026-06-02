@@ -1,6 +1,7 @@
 package local
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,6 +57,43 @@ func TestBuildSeatbeltProfile_structure(t *testing.T) {
 	} {
 		if !strings.Contains(profile, want) {
 			t.Errorf("profile missing: %s", want)
+		}
+	}
+}
+
+func TestBuildSeatbeltProfile_allowsMiseRuntimeWriteDirs(t *testing.T) {
+	stellaHome := t.TempDir()
+	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
+	policy.Env = map[string]string{
+		"MISE_CACHE_DIR": filepath.Join(stellaHome, ".mise-tools", "cache"),
+		"MISE_STATE_DIR": "/tmp/mise-state",
+	}
+	profile := buildSeatbeltProfile(policy)
+
+	for _, want := range []string{
+		`(allow file-write* (subpath "` + filepath.Join(stellaHome, ".mise-tools", "cache") + `"))`,
+		`(allow file-write* (subpath "/tmp/mise-state"))`,
+	} {
+		if !strings.Contains(profile, want) {
+			t.Errorf("profile missing: %s", want)
+		}
+	}
+}
+
+func TestBuildSeatbeltProfile_ignoresUnsafeMiseRuntimeWriteDirs(t *testing.T) {
+	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
+	policy.Env = map[string]string{
+		"MISE_CACHE_DIR": "/",
+		"MISE_STATE_DIR": "relative/state",
+	}
+	profile := buildSeatbeltProfile(policy)
+
+	for _, forbidden := range []string{
+		`(allow file-write* (subpath "/"))`,
+		`(allow file-write* (subpath "relative/state"))`,
+	} {
+		if strings.Contains(profile, forbidden) {
+			t.Errorf("profile must not contain unsafe allow: %s", forbidden)
 		}
 	}
 }
