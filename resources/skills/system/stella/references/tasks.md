@@ -56,7 +56,7 @@ Key point: a task does nothing until **activated** (`draft → ready`). And `rea
 
 ## Manager playbooks
 
-All of these are `stella task ...` (or `stella task goal ...`) commands; run `--help` for the exact flags.
+All of these are `stella task ...` (or `stella task goal ...`) commands; run `--help` for the exact flags. `stella task goal create` needs a manager agent; inside an agent session it defaults to `STELLA_AGENT_ID`, and outside Stella you should pass `--agent-id` explicitly.
 
 **Fire-and-forget a single task.** `create` with `--activate`. Without `--activate` it stays `draft` and never runs — use draft only when you're building a graph and want to wire deps first.
 

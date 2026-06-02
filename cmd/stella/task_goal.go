@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 
 	ucli "github.com/urfave/cli/v2"
 
@@ -108,18 +109,23 @@ func goalCreateCmd() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Goal title"},
 			&ucli.StringFlag{Name: "description", Usage: "Goal description"},
-			&ucli.StringFlag{Name: "agent", Usage: "Creator/manager agent ID (optional)"},
+			&ucli.StringFlag{Name: "agent-id", Aliases: []string{"agent"}, Usage: "Creator/manager agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringFlag{Name: "review-policy", Usage: "auto | agent | human"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
 		},
 		Action: func(c *ucli.Context) error {
-			body := apitypes.CreateGoalRequest{Title: c.String("title")}
+			agentID := c.String("agent-id")
+			if agentID == "" {
+				agentID = os.Getenv("STELLA_AGENT_ID")
+			}
+			if agentID == "" {
+				return fmt.Errorf("agent ID is required (pass --agent-id or set STELLA_AGENT_ID)")
+			}
+
+			body := apitypes.CreateGoalRequest{Title: c.String("title"), AgentId: &agentID}
 			if d := c.String("description"); d != "" {
 				body.Description = &d
-			}
-			if a := c.String("agent"); a != "" {
-				body.AgentId = &a
 			}
 			if p := c.String("priority"); p != "" {
 				prio := apitypes.CreateGoalRequestPriority(p)
