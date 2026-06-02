@@ -61,7 +61,7 @@ func (s *Service) AllowsRegistration(ctx context.Context) bool {
 
 func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(in.Email))
-	if email == "" || in.Password == "" {
+	if email == "" || in.Password == "" || len(in.Password) > 72 {
 		return "", ErrInvalidInput
 	}
 
@@ -91,7 +91,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error
 	if name == "" || email == "" || in.Password == "" || in.ConfirmPassword == "" {
 		return "", ErrInvalidInput
 	}
-	if len(in.Password) < 8 || in.Password != in.ConfirmPassword {
+	if len(in.Password) < 8 || len(in.Password) > 72 || in.Password != in.ConfirmPassword {
 		return "", ErrInvalidInput
 	}
 
@@ -192,5 +192,10 @@ func (s *Service) IssueCode(ctx context.Context, userID string, params *authoriz
 	if params.state != "" {
 		q.Set("state", params.state)
 	}
-	return params.redirectURI + "?" + q.Encode(), nil
+	u, err := url.Parse(params.redirectURI)
+	if err != nil {
+		return "", fmt.Errorf("local auth: parse redirect URI: %w", err)
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }

@@ -9,13 +9,7 @@ import { useI18n } from "@/lib/i18n";
 import type { OidcProviderList } from "@/lib/api-client/types.gen";
 import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/features/auth/AuthLayout";
-
-function authErrorMessage(err: unknown, fallback: string): string {
-  const apiMessage = (err as any)?.error?.message;
-  if (typeof apiMessage === "string" && apiMessage) return apiMessage;
-  if (err instanceof Error) return err.message;
-  return fallback;
-}
+import { authErrorMessage } from "@/lib/auth-error";
 
 export function LoginPage() {
   const { t } = useI18n();
@@ -25,7 +19,7 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: providersData } = useQuery({
+  const { data: providersData, isPending: providersLoading } = useQuery({
     queryKey: ["auth-providers"],
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
@@ -57,7 +51,11 @@ export function LoginPage() {
 
   return (
     <AuthLayout subtitle={t("login.subtitle")} error={error || undefined}>
-      {hasLocalProvider ? (
+      {providersLoading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : hasLocalProvider ? (
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>

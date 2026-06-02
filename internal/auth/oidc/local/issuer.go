@@ -45,6 +45,7 @@ func NewIssuer(
 	tokens auth.OIDCAccessTokenStore,
 	users auth.UserStore,
 	credentials auth.CredentialStore,
+	localAuth *Service,
 	authSvc *auth.AuthService,
 	sessionMgr *auth.SessionManager,
 ) *Issuer {
@@ -54,7 +55,7 @@ func NewIssuer(
 		tokens:      tokens,
 		users:       users,
 		credentials: credentials,
-		localAuth:   NewService(cfg, codes, users, credentials),
+		localAuth:   localAuth,
 		authSvc:     authSvc,
 		sessionMgr:  sessionMgr,
 	}

@@ -236,15 +236,20 @@ func issueLoginCode(t *testing.T, cfg *local.Config, codes *fakeCodeStore, users
 	return loc.Query().Get("code"), verifier
 }
 
+func newTestIssuer(cfg *local.Config, codes *fakeCodeStore, tokens *fakeTokenStore, users *fakeUserStore, creds *fakeCredStore) *local.Issuer {
+	svc := local.NewService(cfg, codes, users, creds)
+	return local.NewIssuer(cfg, codes, tokens, users, creds, svc, nil, nil)
+}
+
 // --- tests ---
 
 func TestDiscovery(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/.well-known/openid-configuration", nil)
 	w := httptest.NewRecorder()
@@ -271,10 +276,10 @@ func TestDiscovery(t *testing.T) {
 func TestJWKS(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/jwks.json", nil)
 	w := httptest.NewRecorder()
@@ -302,10 +307,10 @@ func TestJWKS(t *testing.T) {
 func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -325,10 +330,10 @@ func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 func TestAuthorizeRedirectsToLoginWithNoSession(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -352,10 +357,10 @@ func TestAuthorizeRedirectsToLoginWithNoSession(t *testing.T) {
 func TestAuthorizeRedirectsToSignup(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -380,10 +385,10 @@ func TestAuthorizeRedirectsToSignup(t *testing.T) {
 func TestAuthorizePostRejected(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -475,7 +480,7 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	codeStore := newFakeCodeStore()
 	tokenStore := newFakeTokenStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, tokenStore, users, creds, nil, nil)
+	issuer := newTestIssuer(cfg, codeStore, tokenStore, users, creds)
 	rawCode, verifier := issueLoginCode(t, cfg, codeStore, users, creds, "user@test.example", "pass")
 
 	// Step 2: token endpoint.
@@ -529,7 +534,7 @@ func TestCodeCannotBeReused(t *testing.T) {
 	users, creds := seedUserAndCreds(userID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
+	issuer := newTestIssuer(cfg, codeStore, newFakeTokenStore(), users, creds)
 	rawCode, verifier := issueLoginCode(t, cfg, codeStore, users, creds, "u@test.example", "pass")
 
 	tokenForm := url.Values{
@@ -568,10 +573,10 @@ func TestCodeCannotBeReused(t *testing.T) {
 func TestPKCERequired(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := publicConfig(t, key) // public client requires PKCE
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -596,7 +601,7 @@ func TestPKCEVerification(t *testing.T) {
 	users, creds := seedUserAndCreds(userID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
+	issuer := newTestIssuer(cfg, codeStore, newFakeTokenStore(), users, creds)
 	rawCode, _ := issueLoginCode(t, cfg, codeStore, users, creds, "u@test.example", "pass")
 
 	// Token with wrong verifier → rejected.
@@ -623,9 +628,9 @@ func TestUserinfoWithValidToken(t *testing.T) {
 	users := newFakeUserStore(auth.User{ID: userID, Email: "info@test.example", Name: "Info User", IsActive: true})
 	tokenStore := newFakeTokenStore()
 
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), tokenStore,
-		users, newFakeCredStore(), nil, nil)
+		users, newFakeCredStore())
 
 	// Seed an access token directly.
 	rawToken := strings.Repeat("a", 64)
@@ -660,10 +665,10 @@ func TestUserinfoWithValidToken(t *testing.T) {
 func TestUserinfoWithNoToken(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/userinfo", nil)
 	w := httptest.NewRecorder()
@@ -676,10 +681,10 @@ func TestUserinfoWithNoToken(t *testing.T) {
 func TestWrongClientIDRejected(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	form := url.Values{
 		"grant_type":    {"authorization_code"},

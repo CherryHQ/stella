@@ -57,6 +57,7 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 		Sessions:    txStore,
 		Credentials: txStore,
 	}
+	committed := false
 	closed := false
 	closeConn := func() {
 		if !closed {
@@ -66,10 +67,15 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 	}
 	commit := func() error {
 		_, err := conn.ExecContext(ctx, "COMMIT")
+		committed = true
 		closeConn()
 		return err
 	}
 	rollback := func() {
+		if committed {
+			closeConn()
+			return
+		}
 		_, _ = conn.ExecContext(ctx, "ROLLBACK")
 		closeConn()
 	}

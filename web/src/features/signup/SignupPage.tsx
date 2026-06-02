@@ -9,13 +9,7 @@ import { useI18n } from "@/lib/i18n";
 import type { OidcProviderList } from "@/lib/api-client/types.gen";
 import { Mail, Lock, User, Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/features/auth/AuthLayout";
-
-function authErrorMessage(err: unknown, fallback: string): string {
-  const apiMessage = (err as any)?.error?.message;
-  if (typeof apiMessage === "string" && apiMessage) return apiMessage;
-  if (err instanceof Error) return err.message;
-  return fallback;
-}
+import { authErrorMessage } from "@/lib/auth-error";
 
 export function SignupPage() {
   const { t } = useI18n();
@@ -28,7 +22,7 @@ export function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: providersData } = useQuery({
+  const { data: providersData, isPending: providersLoading } = useQuery({
     queryKey: ["auth-providers"],
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
@@ -68,7 +62,11 @@ export function SignupPage() {
 
   return (
     <AuthLayout subtitle={t("login.signupSubtitle")} error={error || undefined}>
-      {!hasLocalProvider ? (
+      {providersLoading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : !hasLocalProvider ? (
         <p className="text-center text-sm text-muted-foreground">
           {t("login.noLocalRegistration")}
         </p>
