@@ -37,10 +37,10 @@ export function SkillNewPage() {
 
   async function openInstalledSkill(res: { id?: string; name?: string }, installedScope = scope) {
     await queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-    if (res?.id) {
+    if (res?.name) {
       void navigate({
         to: "/agents/$agentId/skills/$scope/$skillId",
-        params: { agentId, scope: installedScope, skillId: res.id },
+        params: { agentId, scope: installedScope, skillId: res.name },
       });
     } else {
       void navigate({ to: "/agents/$agentId/skills", params: { agentId } });

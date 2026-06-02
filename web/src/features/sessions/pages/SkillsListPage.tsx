@@ -57,10 +57,10 @@ export function SkillsListPage() {
                 label="User"
                 skills={userSkills}
                 agentId={agentId}
-                onSelect={(id) =>
+                onSelect={(name) =>
                   void navigate({
                     to: "/agents/$agentId/skills/$scope/$skillId",
-                    params: { agentId, scope: "user", skillId: id },
+                    params: { agentId, scope: "user", skillId: name },
                   })
                 }
               />
@@ -70,10 +70,10 @@ export function SkillsListPage() {
                 label="Agent"
                 skills={agentSkills}
                 agentId={agentId}
-                onSelect={(id) =>
+                onSelect={(name) =>
                   void navigate({
                     to: "/agents/$agentId/skills/$scope/$skillId",
-                    params: { agentId, scope: "agent", skillId: id },
+                    params: { agentId, scope: "agent", skillId: name },
                   })
                 }
               />
@@ -83,10 +83,10 @@ export function SkillsListPage() {
                 label="System"
                 skills={systemSkills}
                 agentId={agentId}
-                onSelect={(id) =>
+                onSelect={(name) =>
                   void navigate({
                     to: "/agents/$agentId/skills/$scope/$skillId",
-                    params: { agentId, scope: "system", skillId: id },
+                    params: { agentId, scope: "system", skillId: name },
                   })
                 }
               />
@@ -106,7 +106,7 @@ function SkillGroup({
   label: string;
   skills: { id: string; name: string; description: string; scope: string; status?: string }[];
   agentId: string;
-  onSelect: (id: string) => void;
+  onSelect: (name: string) => void;
 }) {
   return (
     <div>
@@ -117,7 +117,7 @@ function SkillGroup({
         {skills.map((s) => (
           <div
             key={s.id}
-            onClick={() => onSelect(s.id)}
+            onClick={() => onSelect(s.name)}
             className={cn(
               "rounded-xl border border-border/60 bg-card p-4 cursor-pointer hover:shadow-sm transition-all duration-150",
             )}

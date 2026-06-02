@@ -70,14 +70,16 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     if (!skillId || !agentId) return;
     setLoading(true);
     try {
+      const skillScope = scope as "project" | "user" | "agent" | "system" | undefined;
       const { data: skRaw } = await getAgentSkill({
         path: { id: agentId, skillId },
+        query: { scope: skillScope },
         throwOnError: true,
       });
       const sk = skRaw as Skill;
       const res = await getAgentSkillFile({
         path: { id: agentId, skillId },
-        query: { path: "SKILL.md" },
+        query: { path: "SKILL.md", scope: skillScope },
         throwOnError: true,
       }).catch(() => null);
       const content = (res?.data as { content?: string })?.content ?? "";
