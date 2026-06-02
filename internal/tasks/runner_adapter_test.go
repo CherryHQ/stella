@@ -3,11 +3,13 @@ package tasks
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -81,6 +83,26 @@ func runAdapter(t *testing.T, h *testHarness, onRun func(tc tools.Tool) error) e
 	}
 	tool := NewTaskControlTool(h.svc, h.q, run.TaskID.String, run.ID, SystemActor())
 	return runFn(context.Background(), run, tool)
+}
+
+func TestBuildTaskPromptRequiresTerminalTaskControl(t *testing.T) {
+	prompt := buildTaskPrompt(sqlc.AgentTask{
+		Title:       "Do the work",
+		Description: "Check everything",
+	})
+	for _, want := range []string{
+		"MUST call task_control exactly once",
+		`action="submit"`,
+		`action="block"`,
+		`action="fail"`,
+		"Do not just answer in chat",
+		"Do the work",
+		"Check everything",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
 }
 
 func TestPoolAdapter_SubmitPath(t *testing.T) {

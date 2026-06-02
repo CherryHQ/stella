@@ -112,13 +112,26 @@ func drainEvents(ch <-chan agent.Event) {
 	}
 }
 
-// buildTaskPrompt assembles the user-message string for the runner. It's
-// kept terse and predictable so the agent always sees the same shape.
+// buildTaskPrompt assembles the worker turn. The terminal task_control rule is
+// repeated in the user message because workers run as normal agents with extra
+// tools; relying on the tool description alone makes protocol errors too easy.
 func buildTaskPrompt(task sqlc.AgentTask) string {
-	if task.Description == "" {
-		return task.Title
+	body := task.Title
+	if task.Description != "" {
+		body += "\n\n" + task.Description
 	}
-	return task.Title + "\n\n" + task.Description
+	return `You are executing a durable Stella task.
+
+Protocol:
+- You may use tools normally while working.
+- Before ending this turn, you MUST call task_control exactly once with one terminal action:
+  - action="submit" with output when the task is complete.
+  - action="block" with kind/question when you need input or an external dependency.
+  - action="fail" with reason/retryable when the task cannot be completed.
+- Do not just answer in chat. A final text response without task_control is treated as a protocol failure and the task will be retried or failed.
+
+Task:
+` + body
 }
 
 // taskControlExternalTool exposes the TaskControlTool to the agent's tool
