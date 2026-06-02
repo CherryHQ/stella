@@ -58,7 +58,7 @@ Some work should stop for a human decision. Use human review for:
 - Customer-facing replies.
 - Anything that changes money, access, or reputation.
 
-`auto` review records an automatic approval for audit. `none` completes immediately when the worker submits output. Agent review is rejected by the API in this release.
+`auto` review records an automatic approval for audit. `none` completes immediately when the worker submits output. Agent review is not available in this release.
 
 ## Task UI
 

@@ -24,6 +24,12 @@ func (s *TransitionService) ActivateGoal(ctx context.Context, goalID string, act
 		if goal.Status != GoalStatusDraft {
 			return ErrInvalidTransition
 		}
+		// Defense in depth against rows that predate goal review gating: a goal
+		// whose review_policy needs the unwired synthesizer/review runtime must
+		// not activate. CreateGoal already rejects non-none at creation.
+		if goal.ReviewPolicy != ReviewPolicyNone {
+			return fmt.Errorf("%w: goal review_policy %q (only 'none' is supported)", ErrUnsupportedReviewPolicy, goal.ReviewPolicy)
+		}
 		now := s.now()
 		n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
 			Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: GoalStatusDraft,

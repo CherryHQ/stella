@@ -9,17 +9,17 @@ description: 持久化任务执行，包含计算型 readiness、运行尝试、
 
 ## 当前支持矩阵
 
-| 区域                                      | 状态                                                                |
-| ----------------------------------------- | ------------------------------------------------------------------- |
-| Worker task 执行                          | 支持。Worker run 使用 executor 边界和 `task_control` 终止动作记录。 |
-| Task review `none`                        | 支持。Submit 后立即完成 task。                                      |
-| Task review `auto`                        | 支持。写入一条自动批准记录用于审计，然后完成。                      |
-| Task review `human`                       | 支持，通过 review API 决策。                                        |
-| Task review `agent`                       | 由 API 拒绝。本版本不包含 agent-reviewer runtime。                  |
-| `review_policy=none` 的 goal 容器         | 支持。Goal 状态从子 tasks 汇总。                                    |
-| Goal 自动规划                             | 不支持。必须显式创建 child tasks。                                  |
-| Goal 最终综合 / goal review               | 由 API 拒绝。本版本的 goal 使用 `review_policy=none`。              |
-| Planner / synthesizer / reviewer run 执行 | 不支持。对应 dispatcher scan paths 在本版本中删除。                 |
+| 区域                                      | 状态                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| Worker task 执行                          | 支持。Worker run 使用 executor 边界和 `task_control` 终止动作记录。     |
+| Task review `none`                        | 支持。Submit 后立即完成 task。                                          |
+| Task review `auto`                        | 支持。写入一条自动批准记录用于审计，然后完成。                          |
+| Task review `human`                       | 支持，通过 review API 决策。                                            |
+| Task review `agent`                       | 无 reviewer runtime；无 API/CLI 可设置。reviewer dispatch scan 已删除。 |
+| `review_policy=none` 的 goal 容器         | 支持。Goal 状态从子 tasks 汇总。                                        |
+| Goal 自动规划                             | 不支持。必须显式创建 child tasks。                                      |
+| Goal 最终综合 / goal review               | 由 API 拒绝。本版本的 goal 使用 `review_policy=none`。                  |
+| Planner / synthesizer / reviewer run 执行 | 不支持。对应 dispatcher scan paths 在本版本中删除。                     |
 
 ## 持久化模型
 
@@ -182,23 +182,23 @@ Active run 带有 `lease_expires_at` 和 `heartbeat_at`。Executor 运行时，w
 
 Task routes 扁平挂在 `/api/tasks` 下，并通过认证用户上下文限制作用域。
 
-| Method         | Path                                                 | Purpose                                                                                        |
-| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `POST`         | `/api/tasks`                                         | 创建 task。                                                                                    |
-| `GET`          | `/api/tasks`                                         | 列出 tasks，可按 agent/status 过滤。                                                           |
-| `GET`          | `/api/tasks/{id}`                                    | 获取 task。                                                                                    |
-| `POST`         | `/api/tasks/{id}/cancel`                             | 取消 task。                                                                                    |
-| `POST`         | `/api/tasks/{id}/reopen`                             | 重新打开 done/failed task。                                                                    |
-| `GET`          | `/api/tasks/{id}/readiness`                          | 解释可派发性。                                                                                 |
-| `GET`          | `/api/tasks/{id}/events`                             | 审计事件。                                                                                     |
-| `GET`          | `/api/tasks/{id}/runs`                               | 执行尝试。                                                                                     |
-| `GET` / `POST` | `/api/tasks/{id}/deps`                               | 列出/添加依赖边。                                                                              |
-| `POST`         | `/api/tasks/{id}/deps/{depTaskID}/waive`             | Waive 失败的 hard dependency。                                                                 |
-| `POST`         | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | Resolve blocker。                                                                              |
-| `GET`          | `/api/tasks/{id}/reviews`                            | 列出 reviews。                                                                                 |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/approve`         | Approve review。                                                                               |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/reject`          | Reject review。                                                                                |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | Request changes。                                                                              |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | 将 agent review 升级为 human；endpoint 为 schema 兼容保留，但新的 agent-review task 会被拒绝。 |
+| Method         | Path                                                 | Purpose                                                                                  |
+| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `POST`         | `/api/tasks`                                         | 创建 task。                                                                              |
+| `GET`          | `/api/tasks`                                         | 列出 tasks，可按 agent/status 过滤。                                                     |
+| `GET`          | `/api/tasks/{id}`                                    | 获取 task。                                                                              |
+| `POST`         | `/api/tasks/{id}/cancel`                             | 取消 task。                                                                              |
+| `POST`         | `/api/tasks/{id}/reopen`                             | 重新打开 done/failed task。                                                              |
+| `GET`          | `/api/tasks/{id}/readiness`                          | 解释可派发性。                                                                           |
+| `GET`          | `/api/tasks/{id}/events`                             | 审计事件。                                                                               |
+| `GET`          | `/api/tasks/{id}/runs`                               | 执行尝试。                                                                               |
+| `GET` / `POST` | `/api/tasks/{id}/deps`                               | 列出/添加依赖边。                                                                        |
+| `POST`         | `/api/tasks/{id}/deps/{depTaskID}/waive`             | Waive 失败的 hard dependency。                                                           |
+| `POST`         | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | Resolve blocker。                                                                        |
+| `GET`          | `/api/tasks/{id}/reviews`                            | 列出 reviews。                                                                           |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/approve`         | Approve review。                                                                         |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/reject`          | Reject review。                                                                          |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | Request changes。                                                                        |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | 将 agent review 升级为 human。agent review 不会被自动 dispatch，但已有记录仍可在此解决。 |
 
 任何 HTTP 行为变化都必须走 spec-first：先更新 OpenAPI，重新生成代码，再实现。

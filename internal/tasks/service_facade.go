@@ -337,6 +337,11 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	if !validReviewPolicy(policy) {
 		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: invalid review_policy %q", policy)
 	}
+	// Goal-level review (auto/agent/human) needs the synthesizer/goal-review
+	// runtime, which is not wired in this build. Only 'none' is supported.
+	if policy != ReviewPolicyNone {
+		return sqlc.AgentGoal{}, fmt.Errorf("%w: goal review_policy %q (only 'none' is supported)", ErrUnsupportedReviewPolicy, policy)
+	}
 	if in.Context == "" {
 		in.Context = "{}"
 	}

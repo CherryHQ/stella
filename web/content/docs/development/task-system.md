@@ -15,7 +15,7 @@ This page describes the implementation contract. User-facing task behavior is do
 | Task review `none`                             | Supported. Submit completes the task immediately.                                      |
 | Task review `auto`                             | Supported. Submit records an automatic approval for audit, then completes.             |
 | Task review `human`                            | Supported through review APIs.                                                         |
-| Task review `agent`                            | Rejected by the API. Agent-reviewer runtime is not part of this release.               |
+| Task review `agent`                            | No reviewer runtime; not settable via API/CLI. The reviewer dispatch scan is removed.  |
 | Goal as container with `review_policy=none`    | Supported. Goal status rolls up from child tasks.                                      |
 | Goal auto-planning                             | Not supported. Child tasks must be created explicitly.                                 |
 | Goal final synthesis / goal review             | Rejected by the API. Goals use `review_policy=none` in this release.                   |
@@ -182,23 +182,23 @@ Active runs carry `lease_expires_at` and `heartbeat_at`. The worker heartbeat ex
 
 Task routes are flat under `/api/tasks` and scoped by authenticated user context.
 
-| Method         | Path                                                 | Purpose                                                                                                               |
-| -------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `POST`         | `/api/tasks`                                         | Create a task.                                                                                                        |
-| `GET`          | `/api/tasks`                                         | List tasks, optionally filtered by agent/status.                                                                      |
-| `GET`          | `/api/tasks/{id}`                                    | Fetch a task.                                                                                                         |
-| `POST`         | `/api/tasks/{id}/cancel`                             | Cancel a task.                                                                                                        |
-| `POST`         | `/api/tasks/{id}/reopen`                             | Reopen done/failed task.                                                                                              |
-| `GET`          | `/api/tasks/{id}/readiness`                          | Explain dispatchability.                                                                                              |
-| `GET`          | `/api/tasks/{id}/events`                             | Audit events.                                                                                                         |
-| `GET`          | `/api/tasks/{id}/runs`                               | Run attempts.                                                                                                         |
-| `GET` / `POST` | `/api/tasks/{id}/deps`                               | List/add dependency edges.                                                                                            |
-| `POST`         | `/api/tasks/{id}/deps/{depTaskID}/waive`             | Waive failed hard dependency.                                                                                         |
-| `POST`         | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | Resolve a blocker.                                                                                                    |
-| `GET`          | `/api/tasks/{id}/reviews`                            | List reviews.                                                                                                         |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/approve`         | Approve a review.                                                                                                     |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/reject`          | Reject a review.                                                                                                      |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | Request changes.                                                                                                      |
-| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | Escalate an agent review to human; endpoint exists for schema compatibility, but new agent-review tasks are rejected. |
+| Method         | Path                                                 | Purpose                                                                                                           |
+| -------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `POST`         | `/api/tasks`                                         | Create a task.                                                                                                    |
+| `GET`          | `/api/tasks`                                         | List tasks, optionally filtered by agent/status.                                                                  |
+| `GET`          | `/api/tasks/{id}`                                    | Fetch a task.                                                                                                     |
+| `POST`         | `/api/tasks/{id}/cancel`                             | Cancel a task.                                                                                                    |
+| `POST`         | `/api/tasks/{id}/reopen`                             | Reopen done/failed task.                                                                                          |
+| `GET`          | `/api/tasks/{id}/readiness`                          | Explain dispatchability.                                                                                          |
+| `GET`          | `/api/tasks/{id}/events`                             | Audit events.                                                                                                     |
+| `GET`          | `/api/tasks/{id}/runs`                               | Run attempts.                                                                                                     |
+| `GET` / `POST` | `/api/tasks/{id}/deps`                               | List/add dependency edges.                                                                                        |
+| `POST`         | `/api/tasks/{id}/deps/{depTaskID}/waive`             | Waive failed hard dependency.                                                                                     |
+| `POST`         | `/api/tasks/{id}/blockers/{blockerID}/resolve`       | Resolve a blocker.                                                                                                |
+| `GET`          | `/api/tasks/{id}/reviews`                            | List reviews.                                                                                                     |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/approve`         | Approve a review.                                                                                                 |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/reject`          | Reject a review.                                                                                                  |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/request-changes` | Request changes.                                                                                                  |
+| `POST`         | `/api/tasks/{id}/reviews/{reviewID}/escalate`        | Escalate an agent review to human. Agent reviews are not auto-dispatched, but existing rows stay resolvable here. |
 
 Any HTTP behavior change must follow the spec-first workflow: update OpenAPI, regenerate generated code, then implement.

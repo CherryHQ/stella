@@ -67,7 +67,7 @@ Task 是当前对话之外的一个可执行工作单元。当工作需要时间
 - **auto** -- Stella 写入一条自动批准记录用于审计，然后将 task 标记为 done。
 - **human** -- Stella 等待人工批准、拒绝或要求修改。
 
-本版本 API 会拒绝由 Agent 执行 review。需要判断或审批时，请使用 human review。
+本版本不提供由 Agent 执行的 review。需要判断或审批时，请使用 human review。
 
 ## Goals
 

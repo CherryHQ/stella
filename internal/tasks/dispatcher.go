@@ -117,9 +117,6 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.propagateDepFailures(ctx, now)
 	d.rollupGoals(ctx, now)
 	d.scanAndDispatch(ctx, now)
-	d.scanAndDispatchReviewers(ctx, now)
-	d.scanAndDispatchPlanners(ctx, now)
-	d.scanAndDispatchSynthesizers(ctx, now)
 }
 
 func (d *Dispatcher) isStopped() bool {

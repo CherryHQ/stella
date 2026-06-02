@@ -67,7 +67,7 @@ Task review policies currently supported by the worker runtime:
 - **auto** -- Stella records an automatic approval for audit, then marks the task done.
 - **human** -- Stella waits for a human approval, rejection, or request for changes.
 
-Agent-performed review is rejected by the API in this release. Use human review when judgment or approval matters.
+Agent-performed review is not available in this release. Use human review when judgment or approval matters.
 
 ## Goals
 

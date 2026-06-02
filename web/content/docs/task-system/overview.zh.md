@@ -19,7 +19,7 @@ Stella 可以：
 - 通过 `none`、`auto` 或 `human` review policy 处理 task 输出。
 - 在 `review_policy` 为 `none` 时，把 goal 状态从子 task 汇总出来。
 
-Stella 在本版本**不会**自动把 goal 规划拆分成 tasks，并会拒绝 Agent review 和 goal 最终综合结果这类 runtime。需要判断和审批的工作请使用人工 review。
+Stella 在本版本**不会**自动把 goal 规划拆分成 tasks，也不支持 Agent review 和 goal 最终综合结果这类 runtime。需要判断和审批的工作请使用人工 review。
 
 ## 从 goal 到 tasks
 
@@ -58,7 +58,7 @@ Goal 提供一个统一位置，让你看到整个目标是完成、阻塞、失
 - 面向客户的回复。
 - 任何会改变金钱、权限或声誉的事情。
 
-`auto` review 会写入一条自动批准记录用于审计。`none` 会在 worker 提交输出后直接完成。本版本 API 会拒绝 agent review。
+`auto` review 会写入一条自动批准记录用于审计。`none` 会在 worker 提交输出后直接完成。本版本不提供 agent review。
 
 ## 任务 UI
 

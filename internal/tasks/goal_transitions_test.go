@@ -73,6 +73,46 @@ func TestActivateGoal_NotDraft_Rejects(t *testing.T) {
 	}
 }
 
+func TestActivateGoal_NonNonePolicy_Rejected(t *testing.T) {
+	h := newHarness(t)
+	// Seed a draft goal with an unsupported policy (direct insert bypasses the
+	// create-time gate, mimicking a pre-gating row).
+	gid := h.createGoal(t, GoalStatusDraft, ReviewPolicyHuman)
+	err := h.svc.ActivateGoal(context.Background(), gid, SystemActor())
+	if !errors.Is(err, ErrUnsupportedReviewPolicy) {
+		t.Fatalf("got %v want ErrUnsupportedReviewPolicy", err)
+	}
+	goal, _ := h.q.GetAgentGoal(context.Background(), gid)
+	if goal.Status != GoalStatusDraft {
+		t.Errorf("goal status=%q want draft (activation rejected)", goal.Status)
+	}
+}
+
+func TestCreateGoal_NonNonePolicy_Rejected(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc)
+	for _, policy := range []string{ReviewPolicyAuto, ReviewPolicyAgent, ReviewPolicyHuman} {
+		_, err := f.CreateGoal(context.Background(), CreateGoalInput{
+			UserID: h.userID, Title: "g", ReviewPolicy: policy,
+		})
+		if !errors.Is(err, ErrUnsupportedReviewPolicy) {
+			t.Errorf("policy=%q: got %v want ErrUnsupportedReviewPolicy", policy, err)
+		}
+	}
+}
+
+func TestCreateGoal_NonePolicy_OK(t *testing.T) {
+	h := newHarness(t)
+	f := NewServiceFacade(h.db, h.q, h.svc)
+	g, err := f.CreateGoal(context.Background(), CreateGoalInput{UserID: h.userID, Title: "g"})
+	if err != nil {
+		t.Fatalf("CreateGoal(none): %v", err)
+	}
+	if g.ReviewPolicy != ReviewPolicyNone {
+		t.Errorf("review_policy=%q want none", g.ReviewPolicy)
+	}
+}
+
 func TestCompleteGoal_RunningToDone_StampsCompletedAt(t *testing.T) {
 	h := newHarness(t)
 	gid := h.createGoal(t, GoalStatusRunning, ReviewPolicyNone)

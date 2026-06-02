@@ -565,7 +565,9 @@ components:
           type: string
         review_policy:
           type: string
-          enum: [none, auto, agent, human]
+          enum: [none]
+          description: >-
+            Only 'none' is supported in this build. Goal-level review (auto/agent/human) requires the synthesizer/goal-review runtime, which is not yet wired.
         context:
           type: object
           additionalProperties: {}
