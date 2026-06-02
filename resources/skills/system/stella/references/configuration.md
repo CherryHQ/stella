@@ -74,7 +74,7 @@ AUTH_OAUTH_FEISHU_CLIENT_SECRET=...
 AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key
 ```
 
-Built-in OAuth provider IDs: `google`, `github`, `feishu`. Every OAuth provider must set either `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` or `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`; Feishu requires tenant keys because Feishu email fields are directory data, not live mailbox verification. If Feishu does not return an email, Stella uses a stable internal email like `union_id@tenant_key.feishu.local`; configuring `AUTH_OAUTH_FEISHU_ALLOWED_EMAIL_DOMAINS` makes a real matching Feishu email required.
+Built-in OAuth provider IDs: `google`, `github`, `feishu`. Google uses OIDC discovery and verified ID-token email. Every OAuth provider must set either `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` or `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`; Feishu requires tenant keys because Feishu email fields are directory data, not live mailbox verification. Generic OAuth providers require `email_verified: true` by default; set `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED=false` only for trusted providers that do not expose that claim. If Feishu does not return an email, Stella uses a stable internal email like `union_id@tenant_key.feishu.local`; configuring `AUTH_OAUTH_FEISHU_ALLOWED_EMAIL_DOMAINS` makes a real matching Feishu email required.
 
 ## Settings (key-value)
 

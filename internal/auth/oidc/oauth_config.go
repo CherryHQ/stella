@@ -26,8 +26,9 @@ type OAuthConfig struct {
 	UserInfoURL       string
 	UserEmailsURL     string
 
-	AllowedEmailDomains []string
-	AllowedTenantKeys   []string
+	AllowedEmailDomains  []string
+	AllowedTenantKeys    []string
+	RequireEmailVerified bool
 }
 
 func OAuthConfiguredFromEnv() bool {
@@ -72,6 +73,7 @@ func OAuthConfigFromEnv(providerName, baseURL string) (*OAuthConfig, error) {
 	cfg.RedirectURL = os.Getenv(prefix + "REDIRECT_URL")
 	cfg.AllowedEmailDomains = splitTrimmed(os.Getenv(prefix + "ALLOWED_EMAIL_DOMAINS"))
 	cfg.AllowedTenantKeys = splitTrimmed(os.Getenv(prefix + "ALLOWED_TENANT_KEYS"))
+	cfg.RequireEmailVerified = parseOAuthBool(os.Getenv(prefix+"REQUIRE_EMAIL_VERIFIED"), cfg.RequireEmailVerified)
 
 	if raw := os.Getenv(prefix + "SCOPES"); raw != "" {
 		cfg.Scopes = splitTrimmed(raw)
@@ -99,9 +101,10 @@ func OAuthConfigFromEnv(providerName, baseURL string) (*OAuthConfig, error) {
 
 func defaultOAuthConfig(providerName string) *OAuthConfig {
 	cfg := &OAuthConfig{
-		ProviderName:      providerName,
-		Kind:              "generic",
-		TokenRequestStyle: "form",
+		ProviderName:         providerName,
+		Kind:                 "generic",
+		TokenRequestStyle:    "form",
+		RequireEmailVerified: true,
 	}
 	switch providerName {
 	case "github":
@@ -169,6 +172,19 @@ func (c *OAuthConfig) Validate() error {
 
 func (c *OAuthConfig) envName(name string) string {
 	return "AUTH_OAUTH_" + envProviderName(c.ProviderName) + "_" + name
+}
+
+func parseOAuthBool(raw string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func envProviderName(providerName string) string {

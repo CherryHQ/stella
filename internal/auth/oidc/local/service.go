@@ -38,6 +38,12 @@ var (
 	ErrEmailNotAllowed      = errors.New("email domain not allowed")
 )
 
+const dummyPasswordHash = "$2a$12$CeeBKQWOCBTpIR6Gg2zU4u/fKqV3QzpEH2aCLVqA0dZ1ZfqOyLvMu"
+
+func verifyDummyPassword(password string) {
+	_ = auth.CheckPassword(dummyPasswordHash, password)
+}
+
 func NewService(cfg *Config, users auth.UserStore, credentials auth.CredentialStore) *Service {
 	return &Service{cfg: cfg, users: users, credentials: credentials}
 }
@@ -46,63 +52,54 @@ func (s *Service) AllowsRegistration(_ context.Context) bool {
 	return s.cfg.AllowRegistration
 }
 
-func (s *Service) Login(ctx context.Context, in LoginInput) (auth.ExternalIdentity, error) {
+func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if email == "" || in.Password == "" || len(in.Password) > 72 {
-		return auth.ExternalIdentity{}, ErrInvalidInput
+		return "", ErrInvalidInput
 	}
 
 	user, err := s.users.GetUserByEmail(ctx, email)
 	if err != nil {
-		return auth.ExternalIdentity{}, ErrInvalidLogin
+		verifyDummyPassword(in.Password)
+		return "", ErrInvalidLogin
 	}
 	if !user.IsActive {
-		return auth.ExternalIdentity{}, ErrAccountDisabled
+		return "", ErrAccountDisabled
 	}
 
 	credSvc := auth.NewCredentialService(s.credentials)
 	if err := credSvc.VerifyPassword(ctx, user.ID, in.Password); err != nil {
-		return auth.ExternalIdentity{}, ErrInvalidLogin
+		return "", ErrInvalidLogin
 	}
 
-	return auth.ExternalIdentity{
-		Provider: "local",
-		Subject:  user.ID,
-		Email:    user.Email,
-		Name:     user.Name,
-	}, nil
+	return user.ID, nil
 }
 
-func (s *Service) Register(ctx context.Context, in RegisterInput) (auth.ExternalIdentity, error) {
+func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error) {
 	if !s.cfg.AllowRegistration {
-		return auth.ExternalIdentity{}, ErrRegistrationDisabled
+		return "", ErrRegistrationDisabled
 	}
 
 	name := strings.TrimSpace(in.Name)
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if name == "" || email == "" || in.Password == "" || in.ConfirmPassword == "" {
-		return auth.ExternalIdentity{}, ErrInvalidInput
+		return "", ErrInvalidInput
 	}
 	if len(name) > 255 || len(email) > 254 {
-		return auth.ExternalIdentity{}, ErrInvalidInput
+		return "", ErrInvalidInput
 	}
 	if len(in.Password) < 8 || len(in.Password) > 72 || in.Password != in.ConfirmPassword {
-		return auth.ExternalIdentity{}, ErrInvalidInput
+		return "", ErrInvalidInput
 	}
 	if !s.cfg.IsEmailAllowed(email) {
-		return auth.ExternalIdentity{}, ErrEmailNotAllowed
+		return "", ErrEmailNotAllowed
 	}
 
 	userID, err := s.createRegisteredUser(ctx, name, email, in.Password)
 	if err != nil {
-		return auth.ExternalIdentity{}, err
+		return "", err
 	}
-	return auth.ExternalIdentity{
-		Provider: "local",
-		Subject:  userID,
-		Email:    email,
-		Name:     name,
-	}, nil
+	return userID, nil
 }
 
 func (s *Service) createRegisteredUser(ctx context.Context, name, email, password string) (string, error) {

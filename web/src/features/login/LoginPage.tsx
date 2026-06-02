@@ -10,6 +10,7 @@ import type { OidcProviderList } from "@/lib/api-client/types.gen";
 import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/features/auth/AuthLayout";
 import { authErrorMessage } from "@/lib/auth-error";
+import feishuIcon from "@/assets/auth/feishu.svg";
 
 const AUTH_PROVIDER_LABELS: Record<string, string> = {
   feishu: "飞书",
@@ -29,7 +30,7 @@ function authProviderIcon(name: string, label: string) {
   const key = name.toLowerCase();
   if (key === "github") return <span className="font-semibold text-[13px]">GH</span>;
   if (key === "google") return <span className="font-semibold text-[13px]">G</span>;
-  if (key === "feishu") return <span className="font-semibold text-[11px]">飞书</span>;
+  if (key === "feishu") return <img src={feishuIcon} alt="" className="size-5" />;
   return <span className="font-semibold text-[11px]">{label.slice(0, 2).toUpperCase()}</span>;
 }
 
@@ -37,7 +38,7 @@ function authProviderIconClass(name: string): string {
   const key = name.toLowerCase();
   if (key === "github") return "bg-foreground text-background";
   if (key === "google") return "bg-white text-[#4285f4] border border-border";
-  if (key === "feishu") return "bg-[#00d6b9] text-white";
+  if (key === "feishu") return "bg-white border border-border";
   return "bg-primary/10 text-primary border border-primary/20";
 }
 

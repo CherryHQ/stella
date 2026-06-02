@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -97,7 +98,7 @@ func checkProviderNameConflicts(existing, added []auth.AuthProvider) error {
 	return nil
 }
 
-func setupOAuthProviders(_ context.Context, baseURL string) ([]auth.AuthProvider, error) {
+func setupOAuthProviders(ctx context.Context, baseURL string) ([]auth.AuthProvider, error) {
 	if !OAuthConfiguredFromEnv() {
 		return nil, nil
 	}
@@ -107,13 +108,52 @@ func setupOAuthProviders(_ context.Context, baseURL string) ([]auth.AuthProvider
 	}
 	providers := make([]auth.AuthProvider, 0, len(configs))
 	for _, cfg := range configs {
-		provider, err := NewOAuthProvider(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("oauth provider %q: %w", cfg.ProviderName, err)
+		var provider auth.AuthProvider
+		if cfg.Kind == "google" {
+			p, err := NewProvider(ctx, &Config{
+				ProviderName: cfg.ProviderName,
+				IssuerURL:    "https://accounts.google.com",
+				ClientID:     cfg.ClientID,
+				ClientSecret: cfg.ClientSecret,
+				RedirectURL:  cfg.RedirectURL,
+				Scopes:       cfg.Scopes,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("oauth provider %q: %w", cfg.ProviderName, err)
+			}
+			provider = &emailDomainProvider{provider: p, allowedDomains: cfg.AllowedEmailDomains}
+		} else {
+			p, err := NewOAuthProvider(cfg)
+			if err != nil {
+				return nil, fmt.Errorf("oauth provider %q: %w", cfg.ProviderName, err)
+			}
+			provider = p
 		}
 		providers = append(providers, provider)
 	}
 	return providers, nil
+}
+
+type emailDomainProvider struct {
+	provider       auth.AuthProvider
+	allowedDomains []string
+}
+
+func (p *emailDomainProvider) Name() string { return p.provider.Name() }
+
+func (p *emailDomainProvider) LoginURL(ctx context.Context, state auth.AuthState) (string, error) {
+	return p.provider.LoginURL(ctx, state)
+}
+
+func (p *emailDomainProvider) HandleCallback(ctx context.Context, r *http.Request, state auth.AuthState) (*auth.ExternalIdentity, error) {
+	identity, err := p.provider.HandleCallback(ctx, r, state)
+	if err != nil {
+		return nil, err
+	}
+	if len(p.allowedDomains) > 0 && !emailDomainAllowed(identity.Email, p.allowedDomains) {
+		return nil, fmt.Errorf("oauth login: email domain not allowed")
+	}
+	return identity, nil
 }
 
 func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {

@@ -47,7 +47,7 @@ func AllowRegistrationFromEnv(s string) bool {
 	case "0", "false", "no", "off":
 		return false
 	default:
-		return true
+		return false
 	}
 }
 

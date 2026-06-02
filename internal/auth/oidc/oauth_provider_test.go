@@ -147,6 +147,72 @@ func TestOAuthProviderFeishuAllowsMissingEmailWhenTenantAllowed(t *testing.T) {
 	}
 }
 
+func TestOAuthProviderGenericRequiresEmailVerifiedByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"sub":   "user-1",
+			"email": "user@example.com",
+			"name":  "User",
+		})
+	}))
+	defer server.Close()
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName:         "acme",
+		Kind:                 "generic",
+		ClientID:             "client-id",
+		ClientSecret:         "client-secret",
+		RedirectURL:          "https://stella.example/auth/callback/acme",
+		AuthURL:              server.URL + "/authorize",
+		TokenURL:             server.URL + "/token",
+		UserInfoURL:          server.URL,
+		TokenRequestStyle:    "form",
+		AllowedEmailDomains:  []string{"example.com"},
+		RequireEmailVerified: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.fetchGenericProfile(t.Context(), "token"); err == nil {
+		t.Fatal("expected missing email_verified to be rejected")
+	}
+}
+
+func TestOAuthProviderGenericCanTrustProviderEmail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"sub":   "user-1",
+			"email": "user@example.com",
+			"name":  "User",
+		})
+	}))
+	defer server.Close()
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName:         "acme",
+		Kind:                 "generic",
+		ClientID:             "client-id",
+		ClientSecret:         "client-secret",
+		RedirectURL:          "https://stella.example/auth/callback/acme",
+		AuthURL:              server.URL + "/authorize",
+		TokenURL:             server.URL + "/token",
+		UserInfoURL:          server.URL,
+		TokenRequestStyle:    "form",
+		AllowedEmailDomains:  []string{"example.com"},
+		RequireEmailVerified: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := p.fetchGenericProfile(t.Context(), "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !profile.EmailVerified {
+		t.Fatal("expected trusted provider email to be treated as verified")
+	}
+}
+
 func TestOAuthProviderRejectsDisallowedFeishuTenant(t *testing.T) {
 	cfg := &OAuthConfig{
 		ProviderName:      "feishu",

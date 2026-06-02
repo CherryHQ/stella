@@ -172,8 +172,11 @@ func (p *OAuthProvider) fetchGenericProfile(ctx context.Context, accessToken str
 		return nil, fmt.Errorf("oauth login: fetch user info: %w", err)
 	}
 	profile := profileFromClaims(raw)
-	if !profile.EmailVerified {
+	if p.cfg.RequireEmailVerified && !profile.EmailVerified {
 		return nil, errors.New("oauth login: email verification was not confirmed by provider")
+	}
+	if !p.cfg.RequireEmailVerified && profile.Email != "" {
+		profile.EmailVerified = true
 	}
 	return profile, nil
 }

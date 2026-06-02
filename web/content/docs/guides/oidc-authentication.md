@@ -93,15 +93,16 @@ If `STELLA_BASE_URL` is set, Stella derives callback URLs automatically as `http
 
 ### OAuth environment variables
 
-| Variable                                      | Required | Description                                                             |
-| --------------------------------------------- | -------- | ----------------------------------------------------------------------- |
-| `AUTH_OAUTH_PROVIDERS`                        | Yes      | Comma-separated provider IDs, for example `google,github,feishu`        |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`             | Yes      | OAuth client ID / app ID                                                |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`         | Yes      | OAuth client secret / app secret                                        |
-| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`          | No       | Callback URL; defaults to `STELLA_BASE_URL/auth/callback/{provider}`    |
-| `AUTH_OAUTH_{PROVIDER}_SCOPES`                | No       | Space- or comma-separated scopes; built-in providers have safe defaults |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` | Yes\*    | Allowed verified email domains; exact domain or subdomain match         |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`   | Yes\*    | Allowed tenant keys; required for Feishu                                |
+| Variable                                       | Required | Description                                                             |
+| ---------------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| `AUTH_OAUTH_PROVIDERS`                         | Yes      | Comma-separated provider IDs, for example `google,github,feishu`        |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`              | Yes      | OAuth client ID / app ID                                                |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`          | Yes      | OAuth client secret / app secret                                        |
+| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`           | No       | Callback URL; defaults to `STELLA_BASE_URL/auth/callback/{provider}`    |
+| `AUTH_OAUTH_{PROVIDER}_SCOPES`                 | No       | Space- or comma-separated scopes; built-in providers have safe defaults |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS`  | Yes\*    | Allowed verified email domains; exact domain or subdomain match         |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | Yes\*    | Allowed tenant keys; required for Feishu                                |
+| `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | No       | For generic OAuth providers, require `email_verified`; default: `true`  |
 
 `ALLOWED_EMAIL_DOMAINS` or `ALLOWED_TENANT_KEYS` is required for every OAuth provider. Feishu specifically requires `ALLOWED_TENANT_KEYS`. This prevents accidentally opening your Stella instance to any account from that provider.
 
@@ -139,7 +140,7 @@ AUTH_OAUTH_ACME_USERINFO_URL=https://idp.example/oauth/userinfo
 AUTH_OAUTH_ACME_ALLOWED_EMAIL_DOMAINS=example.com
 ```
 
-Custom OAuth providers must return `email_verified: true` from the userinfo endpoint. Stella rejects logins where email verification cannot be confirmed.
+Custom OAuth providers must return `email_verified: true` from the userinfo endpoint by default. If your provider is trusted but does not expose this claim, set `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED=false`; Stella will still require the email domain allowlist.
 
 ## Identity provider setup
 

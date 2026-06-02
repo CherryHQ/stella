@@ -68,6 +68,24 @@ func TestOAuthConfigsFromEnvRejectsReservedLocalProvider(t *testing.T) {
 	}
 }
 
+func TestOAuthConfigFromEnvCanDisableEmailVerifiedRequirement(t *testing.T) {
+	t.Setenv("AUTH_OAUTH_ACME_CLIENT_ID", "client")
+	t.Setenv("AUTH_OAUTH_ACME_CLIENT_SECRET", "secret")
+	t.Setenv("AUTH_OAUTH_ACME_AUTH_URL", "https://idp.example/auth")
+	t.Setenv("AUTH_OAUTH_ACME_TOKEN_URL", "https://idp.example/token")
+	t.Setenv("AUTH_OAUTH_ACME_USERINFO_URL", "https://idp.example/userinfo")
+	t.Setenv("AUTH_OAUTH_ACME_ALLOWED_EMAIL_DOMAINS", "example.com")
+	t.Setenv("AUTH_OAUTH_ACME_REQUIRE_EMAIL_VERIFIED", "false")
+
+	cfg, err := OAuthConfigFromEnv("acme", "https://stella.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RequireEmailVerified {
+		t.Fatal("expected RequireEmailVerified=false")
+	}
+}
+
 func TestOAuthConfigFromEnvCustomProvider(t *testing.T) {
 	t.Setenv("AUTH_OAUTH_ACME_CLIENT_ID", "client")
 	t.Setenv("AUTH_OAUTH_ACME_CLIENT_SECRET", "secret")

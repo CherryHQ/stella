@@ -93,15 +93,16 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key_from_feishu
 
 ### OAuth 环境变量
 
-| 变量                                          | 是否必填 | 说明                                                          |
-| --------------------------------------------- | -------- | ------------------------------------------------------------- |
-| `AUTH_OAUTH_PROVIDERS`                        | 是       | 逗号分隔的 provider ID，例如 `google,github,feishu`           |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`             | 是       | OAuth client ID / app ID                                      |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`         | 是       | OAuth client secret / app secret                              |
-| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`          | 否       | 回调地址；默认使用 `STELLA_BASE_URL/auth/callback/{provider}` |
-| `AUTH_OAUTH_{PROVIDER}_SCOPES`                | 否       | 空格或逗号分隔的 scope；内置提供商已有安全默认值              |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` | 是\*     | 允许登录的已验证邮箱域名；支持精确域名和子域名                |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`   | 是\*     | 允许登录的租户 key；飞书登录必填                              |
+| 变量                                           | 是否必填 | 说明                                                             |
+| ---------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| `AUTH_OAUTH_PROVIDERS`                         | 是       | 逗号分隔的 provider ID，例如 `google,github,feishu`              |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`              | 是       | OAuth client ID / app ID                                         |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`          | 是       | OAuth client secret / app secret                                 |
+| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`           | 否       | 回调地址；默认使用 `STELLA_BASE_URL/auth/callback/{provider}`    |
+| `AUTH_OAUTH_{PROVIDER}_SCOPES`                 | 否       | 空格或逗号分隔的 scope；内置提供商已有安全默认值                 |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS`  | 是\*     | 允许登录的已验证邮箱域名；支持精确域名和子域名                   |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | 是\*     | 允许登录的租户 key；飞书登录必填                                 |
+| `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | 否       | 针对 generic OAuth provider，要求 `email_verified`；默认：`true` |
 
 每个 OAuth provider 必须设置 `ALLOWED_EMAIL_DOMAINS` 或 `ALLOWED_TENANT_KEYS`。飞书必须设置 `ALLOWED_TENANT_KEYS`。这样可以避免误把 Stella 开放给该 provider 下的所有账号。
 
@@ -139,7 +140,7 @@ AUTH_OAUTH_ACME_USERINFO_URL=https://idp.example/oauth/userinfo
 AUTH_OAUTH_ACME_ALLOWED_EMAIL_DOMAINS=example.com
 ```
 
-自定义 OAuth provider 的 userinfo 端点必须返回 `email_verified: true`。Stella 会拒绝无法确认邮箱已验证的登录。
+自定义 OAuth provider 默认必须从 userinfo 端点返回 `email_verified: true`。如果你信任该 provider 但它不返回这个 claim，可以设置 `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED=false`；Stella 仍会要求邮箱域名 allowlist。
 
 ## 身份提供商配置
 

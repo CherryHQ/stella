@@ -63,7 +63,7 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	identity, err := s.localAuth.Login(r.Context(), local.LoginInput{
+	userID, err := s.localAuth.Login(r.Context(), local.LoginInput{
 		Email:    email,
 		Password: body.Password,
 	})
@@ -75,9 +75,9 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 		s.writeLocalAuthError(w, err)
 		return
 	}
-	result, err := s.authSvc.ProcessOIDCLogin(r.Context(), identity, s.sessionMgr)
+	result, err := s.authSvc.CreateSessionForUser(r.Context(), userID, s.sessionMgr)
 	if err != nil {
-		slog.Error("local auth: process login", "error", err)
+		slog.Error("local auth: create session", "error", err)
 		writeError(w, http.StatusInternalServerError, "login failed")
 		return
 	}
@@ -104,7 +104,7 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	identity, err := s.localAuth.Register(r.Context(), local.RegisterInput{
+	userID, err := s.localAuth.Register(r.Context(), local.RegisterInput{
 		Name:            body.Name,
 		Email:           string(body.Email),
 		Password:        body.Password,
@@ -115,9 +115,9 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 		s.writeLocalAuthError(w, err)
 		return
 	}
-	result, err := s.authSvc.ProcessOIDCLogin(r.Context(), identity, s.sessionMgr)
+	result, err := s.authSvc.CreateSessionForUser(r.Context(), userID, s.sessionMgr)
 	if err != nil {
-		slog.Error("local auth: process registration", "error", err)
+		slog.Error("local auth: create registration session", "error", err)
 		writeError(w, http.StatusInternalServerError, "registration failed")
 		return
 	}

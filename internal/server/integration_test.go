@@ -85,6 +85,75 @@ func TestFirstUserGetsAdmin_EmptyDB(t *testing.T) {
 	}
 }
 
+func TestExternalIdentityDoesNotAutoLinkByEmail(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	existing, err := env.oidcStore.CreateUser(ctx, auth.User{
+		ID:       uuid.NewString(),
+		Email:    "same@test.local",
+		Name:     "Existing",
+		Role:     auth.RoleAdmin,
+		IsActive: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	svc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key-32bytes!!!!!!!!")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+
+	_, err = svc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{
+		Provider: "oauth",
+		Subject:  "attacker-subject",
+		Email:    existing.Email,
+		Name:     "Attacker",
+	}, sessionMgr)
+	if err == nil {
+		t.Fatal("expected duplicate email to fail instead of linking to existing user")
+	}
+	if _, err := env.oidcStore.GetLoginIdentityByProvider(ctx, "oauth", "attacker-subject"); err == nil {
+		t.Fatal("unexpected login identity created for duplicate email")
+	}
+}
+
+func TestCreateSessionForUserDoesNotCreateLocalLoginIdentity(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+
+	user, err := env.oidcStore.CreateUser(ctx, auth.User{
+		ID:       uuid.NewString(),
+		Email:    "local@test.local",
+		Name:     "Local User",
+		Role:     auth.RoleUser,
+		IsActive: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	svc := auth.NewAuthService(env.db, env.oidcStore, env.oidcStore, env.oidcStore)
+	sessionMgr, err := auth.NewSessionManager(env.oidcStore, "test-vault-key-32bytes!!!!!!!!")
+	if err != nil {
+		t.Fatalf("NewSessionManager: %v", err)
+	}
+	result, err := svc.CreateSessionForUser(ctx, user.ID, sessionMgr)
+	if err != nil {
+		t.Fatalf("CreateSessionForUser: %v", err)
+	}
+	if result.User.ID != user.ID || result.SessionToken == "" {
+		t.Fatalf("bad session result: %+v", result)
+	}
+	if identities, err := env.oidcStore.ListLoginIdentitiesByUser(ctx, user.ID); err != nil {
+		t.Fatalf("ListLoginIdentitiesByUser: %v", err)
+	} else if len(identities) != 0 {
+		t.Fatalf("unexpected login identities: %+v", identities)
+	}
+}
+
 func TestDeactivatedUserBlockedOnBearerAuth(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()

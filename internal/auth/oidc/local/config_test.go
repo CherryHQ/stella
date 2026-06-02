@@ -16,7 +16,7 @@ func TestAllowRegistrationFromEnv(t *testing.T) {
 		{"0", false},
 		{"no", false},
 		{"off", false},
-		{"garbage", true},
+		{"garbage", false},
 	}
 	for _, tt := range tests {
 		if got := AllowRegistrationFromEnv(tt.value); got != tt.want {
