@@ -109,7 +109,7 @@ export function InspectorPanel({
             void navigate({ to: "/agents/$agentId/skills", params: { agentId: agentID } })
           }
           onOpenMemory={() =>
-            void navigate({ to: "/agents/$agentId/memories/soul", params: { agentId: agentID } })
+            void navigate({ to: "/agents/$agentId/memories", params: { agentId: agentID } })
           }
         />
       )}

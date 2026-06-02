@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -173,6 +174,42 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 // ListProfileMemories handles GET /api/users/me/memories.
 func (s *Server) ListProfileMemories(w http.ResponseWriter, r *http.Request) {
 	s.ListUserMemories(w, r, "me")
+}
+
+// GetProfileMemory handles GET /api/users/me/memories/{agentID}.
+func (s *Server) GetProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	mem, err := s.q.GetUserAgentMemory(r.Context(), sqlc.GetUserAgentMemoryParams{UserID: info.UserID, AgentID: agentID})
+	if errors.Is(err, sql.ErrNoRows) {
+		writeData(w, http.StatusOK, map[string]any{
+			"user_id":     info.UserID,
+			"agent_id":    agentID,
+			"content":     "",
+			"soul":        prompt.DefaultAgentSoul(),
+			"version":     0,
+			"constraints": "[]",
+			"created_at":  "",
+			"updated_at":  "",
+		})
+		return
+	}
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	if mem.Soul == "" {
+		mem.Soul = prompt.DefaultAgentSoul()
+	}
+	writeData(w, http.StatusOK, mem)
 }
 
 // SetProfileMemory handles PATCH /api/users/me/memories/{agentID}.

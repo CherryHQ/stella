@@ -29,9 +29,8 @@ export function SoulSection({ agentId, soul: initialSoul }: Props) {
           throwOnError: true,
         });
         setSoul(content);
-        void queryClient.invalidateQueries({
-          queryKey: ["agent-memories", agentId],
-        });
+        void queryClient.invalidateQueries({ queryKey: ["agent-memory", agentId] });
+        void queryClient.invalidateQueries({ queryKey: ["agent-changelog", agentId] });
       } finally {
         setSaving(false);
       }

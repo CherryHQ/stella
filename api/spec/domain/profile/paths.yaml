@@ -113,6 +113,24 @@ paths:
   /api/users/me/memories/{agentId}:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: Get the memory for a specific agent
+      operationId: getProfileMemory
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/UserMemory",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": {
+          $ref: "../../components.yaml#/components/responses/NotFound",
+        }
     patch:
       tags: [profile]
       summary: Set the memory for a specific agent

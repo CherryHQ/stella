@@ -1,8 +1,8 @@
-import { useParams } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useAppShell } from "@/layouts/AppShell";
 import { useEffect } from "react";
-import { agentMemoriesOptions } from "@/lib/queries/agents";
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "@tanstack/react-router";
+import { useAppShell } from "@/layouts/AppShell";
+import { agentMemoryOptions } from "@/lib/queries/memories";
 import { SoulSection } from "./SoulSection";
 import { ProfileSection } from "./ProfileSection";
 import { ConstraintsSection } from "./ConstraintsSection";
@@ -11,18 +11,7 @@ import { ChangelogSection } from "./ChangelogSection";
 export function MemoriesPage() {
   const { agentId } = useParams({ strict: false }) as { agentId: string };
   const { setHeaderTitle, setHeaderActions } = useAppShell();
-  const { data: memories = [] } = useQuery(agentMemoriesOptions(agentId));
-
-  const memory = memories[0] as
-    | {
-        agent_id: string;
-        content: string;
-        soul: string;
-        version: number;
-        constraints: string;
-        updated_at: string;
-      }
-    | undefined;
+  const { data: memory } = useQuery(agentMemoryOptions(agentId));
 
   useEffect(() => {
     setHeaderTitle(<span className="text-sm font-medium">Memories</span>);

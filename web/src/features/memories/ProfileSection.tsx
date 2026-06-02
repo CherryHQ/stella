@@ -30,9 +30,8 @@ export function ProfileSection({ agentId, content: initialContent, updatedAt }: 
           throwOnError: true,
         });
         setContent(newContent);
-        void queryClient.invalidateQueries({
-          queryKey: ["agent-memories", agentId],
-        });
+        void queryClient.invalidateQueries({ queryKey: ["agent-memory", agentId] });
+        void queryClient.invalidateQueries({ queryKey: ["agent-changelog", agentId] });
       } finally {
         setSaving(false);
       }

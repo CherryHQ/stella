@@ -35,9 +35,8 @@ export function ConstraintsSection({ agentId }: Props) {
         throwOnError: true,
       });
       setNewText("");
-      void queryClient.invalidateQueries({
-        queryKey: ["agent-constraints", agentId],
-      });
+      void queryClient.invalidateQueries({ queryKey: ["agent-constraints", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-changelog", agentId] });
     } catch (e) {
       console.error(e);
     } finally {
@@ -54,9 +53,8 @@ export function ConstraintsSection({ agentId }: Props) {
           path: { agentId, constraintId },
           throwOnError: true,
         });
-        void queryClient.invalidateQueries({
-          queryKey: ["agent-constraints", agentId],
-        });
+        void queryClient.invalidateQueries({ queryKey: ["agent-constraints", agentId] });
+        void queryClient.invalidateQueries({ queryKey: ["agent-changelog", agentId] });
       } catch (e) {
         console.error(e);
       } finally {
