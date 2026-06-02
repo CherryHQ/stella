@@ -104,16 +104,16 @@ Use human task reviews when child task output needs approval. Goal-level synthes
 
 ## HTTP surface
 
-| Method | Path                                                                              | Purpose                                                                                                          |
-| ------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `POST` | `/api/goals`                                                                      | Create a goal. Use `review_policy=none` in the supported runtime.                                                |
-| `GET`  | `/api/goals`                                                                      | List goals.                                                                                                      |
-| `GET`  | `/api/goals/{id}`                                                                 | Fetch one goal.                                                                                                  |
-| `POST` | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready.                                                               |
-| `POST` | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.                                                                            |
-| `GET`  | `/api/goals/{id}/tasks`                                                           | List child tasks.                                                                                                |
-| `GET`  | `/api/goals/{id}/reviews`                                                         | Schema-supported, but goal reviews are not a supported runtime path in this pass.                                |
-| `POST` | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Review decision endpoints exist, but goal review runtime is not supported until synthesis/review is implemented. |
+| Method | Path                                                                              | Purpose                                                                                      |
+| ------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `POST` | `/api/goals`                                                                      | Create a goal. Use `review_policy=none` in the supported runtime.                            |
+| `GET`  | `/api/goals`                                                                      | List goals.                                                                                  |
+| `GET`  | `/api/goals/{id}`                                                                 | Fetch one goal.                                                                              |
+| `POST` | `/api/goals/{id}/activate`                                                        | Draft → running; promotes draft children to ready.                                           |
+| `POST` | `/api/goals/{id}/cancel`                                                          | Cascade-cancel non-terminal children.                                                        |
+| `GET`  | `/api/goals/{id}/tasks`                                                           | List child tasks.                                                                            |
+| `GET`  | `/api/goals/{id}/reviews`                                                         | Schema-supported, but this release gates the goal review runtime off through API validation. |
+| `POST` | `/api/goals/{id}/reviews/{reviewID}/approve` (+reject, request-changes, escalate) | Review decision endpoints exist, but this release does not create a new goal review runtime. |
 
 Any change that rejects unsupported goal review policies must be done spec-first.
 
