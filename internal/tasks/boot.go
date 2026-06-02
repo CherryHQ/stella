@@ -95,11 +95,32 @@ func noopExecutor(log *slog.Logger) Executor {
 	})
 }
 
-// sessionAndCreatorResolver covers executor resolution from a session row.
-// Currently returns (false) so the dispatcher falls back to task.agent_id.
-func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, _ *slog.Logger) ExecutorResolver {
-	return func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
-		return "", false
+// sessionAndCreatorResolver resolves the executor from an existing task
+// session: when task.session_id is set, the session owner becomes the
+// executor. This sits between the dispatch hint and the creator fallback in
+// the dispatcher's precedence chain (D13), so a task that already ran in a
+// session keeps running under the same owning agent. Returns (false) when no
+// session is recorded or the provider can't report session ownership, letting
+// the dispatcher fall back to task.agent_id.
+func sessionAndCreatorResolver(_ *sqlc.Queries, mem memory.Provider, logger *slog.Logger) ExecutorResolver {
+	sm, ok := mem.(memory.SessionManager)
+	if !ok {
+		return func(_ context.Context, _ sqlc.AgentTask) (string, bool) { return "", false }
+	}
+	return func(ctx context.Context, task sqlc.AgentTask) (string, bool) {
+		if !task.SessionID.Valid || task.SessionID.String == "" {
+			return "", false
+		}
+		info, err := sm.LoadInfo(ctx, task.SessionID.String)
+		if err != nil {
+			logger.Warn("tasks: session owner lookup failed",
+				"task", task.ID, "session", task.SessionID.String, "err", err)
+			return "", false
+		}
+		if info.AgentID == "" {
+			return "", false
+		}
+		return info.AgentID, true
 	}
 }
 
