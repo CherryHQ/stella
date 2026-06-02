@@ -26,18 +26,20 @@ export function SkillEditPage() {
   }, [setHeaderActions, setHeaderTitle, skillId]);
 
   return (
-    <SkillPanel
-      key={skillId}
-      skillId={skillId}
-      scope={scope}
-      agentId={agentId}
-      onSaved={() => {
-        void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-      }}
-      onDeleted={() => {
-        void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-        void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
-      }}
-    />
+    <div className="flex h-full min-w-0 max-w-full overflow-hidden">
+      <SkillPanel
+        key={skillId}
+        skillId={skillId}
+        scope={scope}
+        agentId={agentId}
+        onSaved={() => {
+          void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+        }}
+        onDeleted={() => {
+          void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+          void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
+        }}
+      />
+    </div>
   );
 }

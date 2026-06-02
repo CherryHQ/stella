@@ -1,5 +1,5 @@
 import { forwardRef, useState, useEffect } from "react";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { Message, ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -53,9 +53,7 @@ function UserMessage({ msg }: { msg: ProcessedMessage }) {
     <div className="flex justify-end">
       <div className="max-w-[80%] min-w-0">
         <div className="rounded-[20px] rounded-tr-[4px] bg-primary/[0.04] dark:bg-primary/[0.08] border border-primary/10 dark:border-primary/20 px-4 py-2.5 text-foreground break-all shadow-2xs">
-          <div className="prose prose-sm max-w-none text-foreground [&_*]:text-foreground">
-            <Streamdown>{extractUserText(msg)}</Streamdown>
-          </div>
+          <MarkdownPreview content={extractUserText(msg)} className="[&_*]:text-foreground" />
         </div>
         {msg.showTimestamp && (
           <div className="flex items-center justify-end gap-2 text-[10px] font-mono text-muted-foreground/40 mt-1 pr-1">
@@ -124,11 +122,7 @@ function AssistantMessage({ msg }: { msg: ProcessedMessage }) {
 
 function BlockRenderer({ block }: { block: ContentBlock }) {
   if (block.type === "text")
-    return (
-      <div className="prose prose-sm max-w-none break-all text-foreground leading-relaxed px-1">
-        <Streamdown>{block.text}</Streamdown>
-      </div>
-    );
+    return <MarkdownPreview content={block.text} className="px-1 leading-relaxed" />;
   return null;
 }
 

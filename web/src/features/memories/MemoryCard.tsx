@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useState } from "react";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -99,9 +99,7 @@ export function MemoryCard({
             </div>
           </div>
         ) : content ? (
-          <div className="prose prose-sm max-w-none rounded-xl bg-muted/30 p-4 text-foreground dark:prose-invert [&_*]:min-w-0 [&_a]:break-words [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
-            <Streamdown>{content}</Streamdown>
-          </div>
+          <MarkdownPreview content={content} variant="card" />
         ) : (
           <p className="text-sm text-muted-foreground italic py-4">{emptyText}</p>
         )}

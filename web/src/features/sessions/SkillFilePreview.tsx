@@ -1,4 +1,4 @@
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { cn } from "@/lib/utils";
 
 const codeExtensions = new Set([
@@ -50,24 +50,16 @@ export function SkillFilePreview({ path, content, emptyText, className }: Props)
   const kind = fileKind(path);
 
   if (kind === "markdown") {
-    return (
-      <div
-        className={cn(
-          "prose prose-sm max-w-none min-w-0 text-foreground dark:prose-invert",
-          "[&_*]:min-w-0 [&_a]:break-words [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto",
-          className,
-        )}
-      >
-        <Streamdown>{content}</Streamdown>
-      </div>
-    );
+    return <MarkdownPreview content={content} className={className} />;
   }
 
   return (
     <pre
       className={cn(
         "max-w-full overflow-auto rounded-lg bg-muted/40 p-4 text-sm leading-relaxed text-foreground/90 font-mono",
-        kind === "text" ? "whitespace-pre-wrap break-words" : "whitespace-pre",
+        kind === "text"
+          ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+          : "whitespace-pre",
         className,
       )}
     >

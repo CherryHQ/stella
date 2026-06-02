@@ -222,11 +222,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     activeFile === "SKILL.md" ? form.content : (fileContents[activeFile] ?? "");
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-5">
+    <div className="flex h-full min-w-0 max-w-full flex-col overflow-hidden">
+      <div className="min-w-0 max-w-full flex-1 space-y-5 overflow-y-auto overflow-x-hidden p-6">
         {/* Header */}
         <div className="flex min-w-0 items-start justify-between gap-4">
-          <div className="min-w-0">
+          <div className="min-w-0 max-w-full">
             <h2 className="truncate text-base font-semibold">
               {isNew ? t("sessions.skill.newSkill") : form.name}
             </h2>
@@ -268,27 +268,32 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
 
         {/* Read view — shown for all scopes when not editing */}
         {!editing && !isNew && (
-          <div className="min-w-0 space-y-4">
+          <div className="min-w-0 max-w-full space-y-4 overflow-hidden">
             {form.description && (
-              <p className="break-words text-sm text-muted-foreground">{form.description}</p>
+              <p className="max-w-full break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                {form.description}
+              </p>
             )}
-            <div className="min-w-0 rounded-xl border border-border bg-background/60">
-              <div className="flex min-w-0 items-center gap-2 overflow-x-auto border-b border-border p-2">
-                {files.map((file) => (
-                  <Button
-                    key={file}
-                    variant={activeFile === file ? "secondary" : "ghost"}
-                    size="xs"
-                    onClick={() => void selectFile(file)}
-                    className="max-w-56 shrink-0 font-mono"
-                    title={file}
-                  >
-                    <span className="truncate">{file}</span>
-                  </Button>
-                ))}
+            <div className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-background/60">
+              <div className="min-w-0 max-w-full border-b border-border p-3">
+                <label className="mb-1.5 block text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                  File
+                </label>
+                <select
+                  value={activeFile}
+                  onChange={(e) => void selectFile((e.target as HTMLSelectElement).value)}
+                  className="block h-8 w-full min-w-0 max-w-full truncate rounded-lg border border-input bg-background px-3 text-sm font-mono outline-none focus:ring-2 focus:ring-ring"
+                  title={activeFile}
+                >
+                  {files.map((file) => (
+                    <option key={file} value={file}>
+                      {file}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div className="min-w-0 p-4">
-                <p className="mb-3 truncate text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              <div className="min-w-0 max-w-full overflow-hidden p-4">
+                <p className="mb-3 max-w-full truncate text-xs font-mono uppercase tracking-wider text-muted-foreground">
                   {activeFile}
                 </p>
                 {fileLoading ? (
