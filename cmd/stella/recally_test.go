@@ -52,14 +52,20 @@ func TestRecallySaveUsesPositionalURL(t *testing.T) {
 		t.Fatalf("server got url %q, want https://example.com", gotURL)
 	}
 	var res struct {
-		ID      string `json:"id"`
-		Created bool   `json:"created"`
+		ID         string `json:"id"`
+		URL        string `json:"url"`
+		Status     string `json:"status"`
+		SourceType string `json:"source_type"`
+		Created    *bool  `json:"created"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("output not JSON: %v (%q)", err, out)
 	}
-	if res.ID != "art-1" || !res.Created {
+	if res.ID != "art-1" || res.URL != "https://example.com" || res.Status != "unread" || res.SourceType != "web" {
 		t.Fatalf("got %+v", res)
+	}
+	if res.Created != nil {
+		t.Fatalf("save --json must return the API Article shape without CLI-only created field: %+v", res)
 	}
 }
 

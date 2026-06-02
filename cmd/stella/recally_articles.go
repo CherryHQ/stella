@@ -91,12 +91,7 @@ func recallySaveCommand() *ucli.Command {
 				message = "Article saved successfully"
 			}
 			if isJSON(c) {
-				return printJSON(c, map[string]any{
-					"id":        article.Id,
-					"file_path": article.FilePath,
-					"created":   created,
-					"message":   message,
-				})
+				return printJSON(c, article)
 			}
 			o := stdout(c)
 			o.printf("%s\n", message)

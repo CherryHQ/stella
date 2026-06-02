@@ -564,7 +564,7 @@ func taskBlockerCmd() *ucli.Command {
 				ArgsUsage: "<task-id> <blocker-id>",
 				Description: "Get the blocker id from `stella task get` (active_blocker). " +
 					"dep_failure blockers must be cleared with `stella task dep waive` instead.",
-				Flags: append(taskAgentFlags(), &ucli.StringFlag{Name: "resolution", Usage: "Resolution note / answer"}),
+				Flags: append(taskAgentFlags(), &ucli.StringFlag{Name: "resolution", Usage: "Resolution note / answer"}, jsonFlag()),
 				Action: func(c *ucli.Context) error {
 					if c.NArg() < 2 {
 						return fmt.Errorf("usage: stella task blocker resolve <task-id> <blocker-id>")

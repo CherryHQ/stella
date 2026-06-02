@@ -165,7 +165,7 @@ func TestSessionSystemPromptIncludesSkills(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, want := range []string{"## Skills", "<name>inspect-skill</name>", "stella skills load <skill-name>"} {
+	for _, want := range []string{"## Skills", "<name>inspect-skill</name>", "action=\"load\", name=\"<skill-name>\""} {
 		if !strings.Contains(got.SystemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, got.SystemPrompt)
 		}

@@ -76,6 +76,20 @@ func TestTaskListJSONReturnsEnvelope(t *testing.T) {
 	}
 }
 
+func TestTaskBlockerResolveJSON(t *testing.T) {
+	jsonAPIServer(t, taskJSON)
+	out := runTaskApp(t, "task", "blocker", "resolve", "--json", "task-1", "blocker-1")
+	var got struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output not valid JSON: %v (%q)", err, out)
+	}
+	if got.ID != "task-1" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestGoalGetJSON(t *testing.T) {
 	jsonAPIServer(t, goalJSON)
 	out := runTaskApp(t, "task", "goal", "get", "--json", "goal-1")

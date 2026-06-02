@@ -15,7 +15,6 @@ import (
 func skillsCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:     "skill",
-		Aliases:  []string{"skills"},
 		Usage:    "Search, install, and manage reusable skill bundles",
 		Category: "Feature",
 		Description: `Skills are reusable prompt-and-tool bundles that extend what the agent
@@ -61,7 +60,7 @@ func skillAgentContext(c *ucli.Context) (string, *apiclient.ListAgentSkillsParam
 func skillsSearchCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "search",
-		Usage:     "Search for skills (e.g. stella skills search react)",
+		Usage:     "Search for skills (e.g. stella skill search react)",
 		ArgsUsage: "<query>",
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{
@@ -112,7 +111,6 @@ func skillsSearchCommand() *ucli.Command {
 func skillsInstallCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "install",
-		Aliases:   []string{"add"},
 		Usage:     "Install a skill (e.g. owner/repo@skill-name, GitHub/GitLab URL, or local path)",
 		ArgsUsage: "<source>",
 		Flags:     append([]ucli.Flag{jsonFlag()}, skillAgentFlags()...),

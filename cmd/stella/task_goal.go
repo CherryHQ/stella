@@ -266,7 +266,7 @@ func goalReviewDecisionCmd(verb, usage string) *ucli.Command {
 		},
 		Action: func(c *ucli.Context) error {
 			if c.NArg() < 2 {
-				return fmt.Errorf("usage: stella goal review %s <goal-id> <review-id>", verb)
+				return fmt.Errorf("usage: stella task goal review %s <goal-id> <review-id>", verb)
 			}
 			goalID := c.Args().Get(0)
 			reviewID := c.Args().Get(1)

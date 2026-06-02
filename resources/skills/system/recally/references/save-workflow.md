@@ -89,22 +89,20 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 ## 3. Save
 
 ```bash
-stella recally save \
-    --content-file $f \
-    --url "<url>" \
-    --title "..." --author "..." --summary "$(cat $sf)" \
+stella recally save "<url>" --json \
+    --content-file "$f" \
+    --title "..." --author "..." --summary "$(cat "$sf")" \
     --tags "tag1" --tags "tag2" \
     --source-type web \
     --published-at "2024-01-01T00:00:00Z" \
     --metadata '{"worth_reading":"<tier-text-only>"}'
 ```
 
-- `--url` is required.
+- Positional `<url>` is required.
 - `--published-at` is RFC3339 (use `.published` from `--json`; omit if not available).
 - `tier-text-only` is `Top pick`, `Good read`, or `Skim` — no emoji.
 - `--source-type`: web / twitter / youtube / github / rss / pdf.
 
-**Output** (always JSON): `id`, `file_path`, `created` (true=new, false=updated existing).\
-When `created` is false: record was updated — inform the user, not an error.
+**Output** (`--json`): the saved article resource, including `id`, `file_path`, `url`, `title`, `status`, `source_type`, and `saved_at`.
 
 To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, then re-run save with `--content-file $f`.

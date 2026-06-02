@@ -39,6 +39,35 @@ func phase4Server(t *testing.T, handler http.HandlerFunc) {
 	t.Cleanup(config.ResetStellaHome)
 }
 
+func TestSkillCommandHasNoLegacyAliases(t *testing.T) {
+	cmd := skillsCommand()
+	if len(cmd.Aliases) != 0 {
+		t.Fatalf("expected no top-level skill aliases, got %v", cmd.Aliases)
+	}
+	for _, sub := range cmd.Subcommands {
+		if sub.Name == "install" && len(sub.Aliases) != 0 {
+			t.Fatalf("expected install to have no aliases, got %v", sub.Aliases)
+		}
+	}
+}
+
+func TestSkillSearchHelpUsesCanonicalCommand(t *testing.T) {
+	out := &bytes.Buffer{}
+	app := ucli.NewApp()
+	app.Writer = out
+	app.Commands = []*ucli.Command{skillsCommand()}
+	if err := app.Run([]string{"stella", "skill", "search", "--help"}); err != nil {
+		t.Fatalf("Run help: %v", err)
+	}
+	legacyPlural := "stella " + "skills"
+	if strings.Contains(out.String(), legacyPlural) {
+		t.Fatalf("help contains legacy plural command: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "stella skill search react") {
+		t.Fatalf("help missing canonical example: %q", out.String())
+	}
+}
+
 func TestSchedulerListJSONEnvelope(t *testing.T) {
 	phase4Server(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
