@@ -75,7 +75,17 @@ func TestDispatcher_DraftTaskNotPickedUp(t *testing.T) {
 
 func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	called := atomic.Int32{}
+	// Block the first dispatched run (upstream) so it stays 'running' while the
+	// same-tick scan evaluates downstream. Without this, a fast upstream worker
+	// can reach 'done' mid-tick, satisfying the hard dep and letting downstream
+	// dispatch in the same tick — a real eager cascade, but it makes the
+	// one-level-per-tick assertion below racy under load.
+	firstRun := atomic.Bool{}
+	release := make(chan struct{})
 	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		if firstRun.CompareAndSwap(false, true) {
+			<-release
+		}
 		called.Add(1)
 		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
 	})
@@ -85,8 +95,11 @@ func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	if err := h.svc.AddDep(context.Background(), downstream, upstream, DepKindHard, OnFailureBlock); err != nil {
 		t.Fatalf("AddDep: %v", err)
 	}
-	// First tick: only upstream should dispatch.
+	// First tick: only upstream should dispatch. Tick returns once workers are
+	// spawned; upstream is claimed ('running') and parked in its executor, so
+	// the same-tick downstream evaluation sees an unsatisfied hard dep.
 	d.Tick(context.Background())
+	close(release)
 	d.WaitIdle()
 	if called.Load() != 1 {
 		t.Errorf("only upstream should have run; got %d calls", called.Load())
