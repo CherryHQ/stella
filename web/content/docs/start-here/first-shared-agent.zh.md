@@ -72,4 +72,4 @@ Agent 会使用它的 instructions、knowledge、skills、tools 和 memory 推�
 
 ## 6. 工作变复杂时使用任务追踪
 
-如果一个 goal 需要多个步骤，就使用 Stella 的任务系统。Agent 可以规划工作、拆分 task、设置验收标准，并把最终材料送入 review。
+如果一个 goal 需要多个步骤，就使用 Stella 的任务系统。创建一个 goal，显式添加 child tasks，在有顺序要求时添加依赖，并把需要责任判断的事项交给人工 review。

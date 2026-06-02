@@ -52,7 +52,7 @@ Goal 是用户交给 Agent 的目标。好的 goal 描述期望结果，而不�
 
 ## Task
 
-Task 是可追踪的工作单元。Stella 可以把 goal 转成带依赖、验收标准、blocker、事件、运行记录和 review 状态的任务。
+Task 是可追踪的工作单元。Stella 会追踪显式创建的 tasks，包括依赖关系、blocker、事件、运行记录和 review 状态。本版本不包含自动 goal-to-task 规划。
 
 ## Review
 

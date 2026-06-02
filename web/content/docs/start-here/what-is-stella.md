@@ -22,7 +22,7 @@ Most people should not need to learn the finance system, recruiting system, or i
 
 ### Work can be tracked
 
-For larger goals, Stella can plan the work, split it into tasks, connect dependencies, set acceptance criteria, and route work through review. The team can inspect the task UI instead of reconstructing status from chat.
+For larger goals, Stella can track explicit tasks, dependencies, blockers, runs, and human review. The team can inspect the task UI instead of reconstructing status from chat. Automatic goal planning is not part of this release; create the child tasks explicitly.
 
 ### Memory is personal and controllable
 

@@ -2,21 +2,32 @@
 title: Task System Overview
 ---
 
-Stella's task system is for goals that need more than a single chat answer.
+Stella's task system is for goals that need tracked execution instead of a single chat answer.
 
-When you give an agent a goal, Stella can turn it into a workflow: plan the work, split it into tasks, connect dependencies, define acceptance criteria, track blockers, record events, run agents, and route results through review.
+A **task** is one executable unit of work. A **goal** is a container that groups related tasks and shows the overall outcome. You create the task graph explicitly: make the goal, create child tasks with `--goal-id`, add dependencies, then activate the work.
 
-## Goal to plan
+## What Stella can do today
 
-The user gives the agent an outcome:
+Stella can:
+
+- Run activated tasks in the background.
+- Persist task, run, event, blocker, review, and goal state across restarts.
+- Reuse the task session when a task retries.
+- Explain why a task is not running yet with readiness information.
+- Block a task when it needs user input or an external dependency.
+- Retry transient failures until the retry budget is exhausted.
+- Route task output through `none`, `auto`, or `human` review policies.
+- Roll a goal up from its child tasks when `review_policy` is `none`.
+
+Stella does **not** automatically plan a goal into tasks yet. It also does not support agent-performed reviews or final goal synthesis yet. Use human review for work that needs judgment.
+
+## Goal to tasks
+
+Start with an outcome:
 
 > Prepare the Q2 reimbursement audit packet and flag anything that needs finance review.
 
-The agent should not just answer with advice. It should identify the work needed to reach the outcome.
-
-## Plan to task DAG
-
-Stella can represent the plan as tasks with dependencies:
+Then create explicit tasks:
 
 - Collect reimbursement records.
 - Extract receipt metadata.
@@ -25,38 +36,39 @@ Stella can represent the plan as tasks with dependencies:
 - Prepare the review packet.
 - Ask finance to review exceptions.
 
-Dependencies matter. The review packet should not be marked ready before the policy checks finish. A DAG makes that structure visible.
+The goal gives you one place to see whether the whole objective is done, blocked, failed, or still in progress.
 
-## Acceptance criteria
+## Dependencies
 
-Each task should have a clear definition of done. Acceptance criteria make agent work reviewable:
+Dependencies make ordering visible. The review packet should not run before the policy checks finish.
 
-- All required receipt fields are extracted.
-- Each reimbursement is marked pass, warning, or needs review.
-- Every warning cites the policy rule that triggered it.
-- The final packet includes a summary and attachments.
+Use dependencies when:
+
+- One task needs another task's output.
+- A downstream task should stop if an upstream task fails.
+- You want the readiness view to explain exactly what is still waiting.
 
 ## Review and approval
 
-Some work should stop for a human decision. Stella's task system lets the agent route results through review instead of pretending it has authority.
-
-Use review for:
+Some work should stop for a human decision. Use human review for:
 
 - Policy exceptions.
-- Candidate screening recommendations.
+- Candidate recommendations.
 - Release approvals.
 - Customer-facing replies.
 - Anything that changes money, access, or reputation.
+
+`auto` review records an automatic approval for audit. `none` completes immediately when the worker submits output. Agent review is rejected by the API in this release.
 
 ## Task UI
 
 The task UI exists because chat history is a bad project tracker. Use it to inspect:
 
 - Current task status.
-- Dependencies.
+- Dependencies and readiness.
 - Blockers.
-- Acceptance criteria.
 - Events and runs.
 - Review state.
+- Goal child tasks and rollup.
 
-The practical rule: use chat to give goals and context; use the task UI to inspect execution.
+The practical rule: use chat to describe goals and decisions; use tasks to track execution.

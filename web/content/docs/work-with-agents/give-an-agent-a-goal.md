@@ -43,8 +43,8 @@ That is why you can give a normal request instead of manually driving every step
 
 ## Use tasks for larger goals
 
-If the goal has multiple steps, ask the agent to track it:
+If the goal has multiple steps, ask the agent to track it as explicit tasks:
 
-> Turn this into tracked tasks with acceptance criteria and review points.
+> Create a goal for this work, then create the child tasks, dependencies, and human review points we need to track it.
 
-Use chat for context and decisions. Use the task UI for execution state.
+Use chat for context and decisions. Use the task UI for execution state. Automatic goal splitting is not part of this release, so the task list should be created explicitly.

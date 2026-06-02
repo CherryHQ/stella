@@ -56,6 +56,6 @@ Useful tools:
 
 ## Example request
 
-> Plan the release for the new billing workflow. Break it into tasks, add acceptance criteria, and mark anything that needs review before shipping.
+> Plan the release for the new billing workflow. Create explicit tracked tasks, add dependencies where order matters, and mark anything that needs human review before shipping.
 
-The Engineering agent should produce a plan, task DAG, verification checks, and review points.
+The Engineering agent should produce a concrete task list, dependency order, verification checks, and human review points.

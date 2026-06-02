@@ -56,6 +56,6 @@ title: 工程 Agent
 
 ## 示例请求
 
-> 为新的 billing workflow 规划发布。拆分 tasks，添加验收标准，并标记发布前需要 review 的事项。
+> 为新的 billing workflow 规划发布。创建显式追踪的 tasks，在有顺序要求时添加依赖，并标记发布前需要人工 review 的事项。
 
-工程 Agent 应该产出 plan、任务 DAG、验证检查和 review 节点。
+工程 Agent 应该产出具体任务列表、依赖顺序、验证检查和人工 review 节点。
