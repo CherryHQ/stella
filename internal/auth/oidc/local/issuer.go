@@ -14,9 +14,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,13 +31,11 @@ type Issuer struct {
 	tokens      auth.OIDCAccessTokenStore
 	users       auth.UserStore
 	credentials auth.CredentialStore
+	localAuth   *Service
 	// authSvc is used to validate an existing Stella OIDC session on the authorize endpoint.
 	// May be nil; when nil, the authorize endpoint always shows the login form.
 	authSvc    *auth.AuthService
 	sessionMgr *auth.SessionManager
-	// registerMu serialises the first-user-becomes-admin check to prevent
-	// two concurrent registrations from both acquiring the admin role.
-	registerMu sync.Mutex
 }
 
 // NewIssuer creates a new local OIDC issuer.
@@ -58,6 +54,7 @@ func NewIssuer(
 		tokens:      tokens,
 		users:       users,
 		credentials: credentials,
+		localAuth:   NewService(cfg, codes, users, credentials),
 		authSvc:     authSvc,
 		sessionMgr:  sessionMgr,
 	}
@@ -148,16 +145,12 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-
-	if r.Method == http.MethodPost {
-		if r.URL.Query().Get("mode") == "register" {
-			is.handleRegisterPost(w, r, ctx, params)
-		} else {
-			is.handleAuthorizePost(w, r, ctx, params)
-		}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	ctx := r.Context()
 
 	// GET: check for existing Stella OIDC session.
 	if is.sessionMgr != nil && is.authSvc != nil {
@@ -169,24 +162,14 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// No session — if it's a browser navigation request, redirect to the React login/signup page.
-	// Otherwise, return 200 OK for background OIDC initiation fetch requests.
-	if isNavigationRequest(r) {
-		dest := "/login"
-		if r.URL.Query().Get("mode") == "register" {
-			dest = "/signup"
-		}
-		if r.URL.RawQuery != "" {
-			dest += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, dest, http.StatusFound)
-		return
+	dest := "/login"
+	if r.URL.Query().Get("mode") == "register" {
+		dest = "/signup"
 	}
-
-	// Non-navigation request (e.g., SPA fetch following redirects to discover
-	// the authorize URL). Return 200 so the frontend can read response.url.
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"status": "login_required"})
+	if r.URL.RawQuery != "" {
+		dest += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
 type authorizeParams struct {
@@ -234,174 +217,12 @@ func (is *Issuer) parseAuthorizeParams(r *http.Request) (*authorizeParams, error
 	}, nil
 }
 
-func isJSONRequest(r *http.Request) bool {
-	accept := r.Header.Get("Accept")
-	return strings.Contains(accept, "application/json") || r.Header.Get("X-Requested-With") == "XMLHttpRequest"
-}
-
-func isNavigationRequest(r *http.Request) bool {
-	accept := r.Header.Get("Accept")
-	isHTML := strings.Contains(accept, "text/html")
-	isAJAX := r.Header.Get("X-Requested-With") == "XMLHttpRequest" || strings.Contains(accept, "application/json")
-	return r.Header.Get("Sec-Fetch-Mode") == "navigate" || (isHTML && !isAJAX)
-}
-
-func writeErrorStatus(w http.ResponseWriter, r *http.Request, status int, msg string) {
-	if isJSONRequest(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   msg,
-		})
-		return
-	}
-	http.Error(w, msg, status)
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, msg string) {
-	writeErrorStatus(w, r, http.StatusBadRequest, msg)
-}
-
-func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
-	if err := r.ParseForm(); err != nil {
-		writeError(w, r, "invalid form")
-		return
-	}
-	email := strings.TrimSpace(r.FormValue("email"))
-	password := r.FormValue("password")
-
-	if email == "" || password == "" {
-		writeError(w, r, "Email and password are required.")
-		return
-	}
-
-	user, err := is.users.GetUserByEmail(ctx, email)
-	if err != nil {
-		writeError(w, r, "Invalid email or password.")
-		return
-	}
-
-	if !user.IsActive {
-		writeError(w, r, "Account is disabled.")
-		return
-	}
-
-	credSvc := auth.NewCredentialService(is.credentials)
-	if err := credSvc.VerifyPassword(ctx, user.ID, password); err != nil {
-		writeError(w, r, "Invalid email or password.")
-		return
-	}
-
-	is.issueCodeAndRedirect(w, r, ctx, user.ID, params)
-}
-
-func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
-	if !is.cfg.AllowRegistration {
-		writeErrorStatus(w, r, http.StatusForbidden, "Registration is disabled.")
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		writeError(w, r, "invalid form")
-		return
-	}
-	name := strings.TrimSpace(r.FormValue("name"))
-	email := strings.TrimSpace(r.FormValue("email"))
-	password := r.FormValue("password")
-	confirmPassword := r.FormValue("confirm_password")
-
-	if name == "" || email == "" || password == "" || confirmPassword == "" {
-		writeError(w, r, "All fields are required.")
-		return
-	}
-
-	if len(password) < 8 {
-		writeError(w, r, "Password must be at least 8 characters long.")
-		return
-	}
-
-	if password != confirmPassword {
-		writeError(w, r, "Passwords do not match.")
-		return
-	}
-
-	if _, err := is.users.GetUserByEmail(ctx, email); err == nil {
-		writeError(w, r, "An account with this email already exists.")
-		return
-	}
-
-	// Serialise registration so two concurrent requests cannot both see
-	// count==0 and both become admin.
-	is.registerMu.Lock()
-	defer is.registerMu.Unlock()
-
-	count, err := is.users.CountUsers(ctx)
-	if err != nil {
-		writeError(w, r, "Registration failed. Please try again.")
-		return
-	}
-	role := auth.RoleUser
-	if count == 0 {
-		role = auth.RoleAdmin
-	}
-
-	newUser, err := is.users.CreateUser(ctx, auth.User{
-		ID:    uuid.NewString(),
-		Email: email,
-		Name:  name,
-		Role:  role,
-	})
-	if err != nil {
-		writeError(w, r, "Registration failed. Please try again.")
-		return
-	}
-
-	credSvc := auth.NewCredentialService(is.credentials)
-	if err := credSvc.SetPassword(ctx, newUser.ID, password); err != nil {
-		_ = is.users.DeleteUser(ctx, newUser.ID)
-		writeError(w, r, "Registration failed. Please try again.")
-		return
-	}
-
-	is.issueCodeAndRedirect(w, r, ctx, newUser.ID, params)
-}
-
 func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, ctx context.Context, userID string, params *authorizeParams) {
-	rawCode := generateOpaqueToken()
-	codeHash := hashToken(rawCode)
-
-	_, err := is.codes.CreateOIDCCode(ctx, auth.OIDCCode{
-		ID:            uuid.NewString(),
-		CodeHash:      codeHash,
-		UserID:        userID,
-		ClientID:      params.clientID,
-		RedirectURI:   params.redirectURI,
-		Scopes:        params.scopes,
-		Nonce:         params.nonce,
-		PKCEChallenge: params.pkceChallenge,
-		PKCEMethod:    params.pkceChallengeMethod,
-		ExpiresAt:     time.Now().Add(time.Duration(is.cfg.AuthCodeTTL) * time.Second),
-	})
+	redirectURL, err := is.localAuth.IssueCode(ctx, userID, params)
 	if err != nil {
 		http.Error(w, "server_error: could not create authorization code", http.StatusInternalServerError)
 		return
 	}
-
-	q := url.Values{"code": {rawCode}}
-	if params.state != "" {
-		q.Set("state", params.state)
-	}
-	redirectURL := params.redirectURI + "?" + q.Encode()
-
-	if isJSONRequest(r) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success":      true,
-			"redirect_url": redirectURL,
-		})
-		return
-	}
-
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 

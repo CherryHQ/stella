@@ -62,13 +62,16 @@ func (p *ClientProvider) AllowsRegistration() bool { return p.cfg.AllowRegistrat
 
 // LoginURL builds the PKCE authorization URL for the local issuer.
 func (p *ClientProvider) LoginURL(_ context.Context, state auth.AuthState) (string, error) {
-	sum := sha256.Sum256([]byte(state.CodeVerifier))
-	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
 	url := p.oauth2Cfg.AuthCodeURL(state.State,
-		oauth2.SetAuthURLParam("code_challenge", challenge),
+		oauth2.SetAuthURLParam("code_challenge", pkceChallengeFromVerifier(state.CodeVerifier)),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	)
 	return url, nil
+}
+
+func pkceChallengeFromVerifier(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // HandleCallback exchanges the authorization code, verifies the ID token, and

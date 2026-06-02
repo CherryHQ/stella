@@ -4,11 +4,18 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { listAuthProviders } from "@/lib/api-client/sdk.gen";
+import { listAuthProviders, registerLocal } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { OidcProviderList } from "@/lib/api-client/types.gen";
 import { Mail, Lock, User, Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/features/auth/AuthLayout";
+
+function authErrorMessage(err: unknown, fallback: string): string {
+  const apiMessage = (err as any)?.error?.message;
+  if (typeof apiMessage === "string" && apiMessage) return apiMessage;
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
 
 export function SignupPage() {
   const { t } = useI18n();
@@ -46,38 +53,14 @@ export function SignupPage() {
     setError("");
 
     try {
-      const initRes = await fetch("/auth/login/local?mode=register");
-      if (!initRes.ok) {
-        throw new Error("Failed to initialize registration flow");
-      }
-
-      const authorizeUrl = initRes.url;
-
-      const body = new URLSearchParams();
-      body.append("email", email);
-      body.append("password", password);
-      body.append("confirm_password", confirmPassword);
-      body.append("name", name);
-
-      const authRes = await fetch(authorizeUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: body.toString(),
+      const { data } = await registerLocal({
+        body: { email, password, confirm_password: confirmPassword, name },
+        throwOnError: true,
       });
-
-      const data = await authRes.json();
-      if (!authRes.ok || !data.success) {
-        setError(data.error || "Registration failed");
-        return;
-      }
-
       const redirectUrlObj = new URL(data.redirect_url, window.location.origin);
       window.location.href = redirectUrlObj.pathname + redirectUrlObj.search;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      setError(authErrorMessage(err, "Registration failed"));
     } finally {
       setLoading(false);
     }

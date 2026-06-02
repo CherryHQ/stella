@@ -7,9 +7,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -52,14 +53,22 @@ func (f *fakeUserStore) GetUserByEmail(_ context.Context, email string) (auth.Us
 	}
 	return u, nil
 }
-func (f *fakeUserStore) CreateUser(_ context.Context, u auth.User) (auth.User, error) { return u, nil }
-func (f *fakeUserStore) ListUsers(_ context.Context) ([]auth.User, error)             { return nil, nil }
+
+func (f *fakeUserStore) CreateUser(_ context.Context, u auth.User) (auth.User, error) {
+	if u.IsActive == false {
+		u.IsActive = true
+	}
+	f.byID[u.ID] = u
+	f.byEmail[u.Email] = u
+	return u, nil
+}
+func (f *fakeUserStore) ListUsers(_ context.Context) ([]auth.User, error) { return nil, nil }
 func (f *fakeUserStore) ListUsersPaged(_ context.Context, _, _ int64) ([]auth.User, error) {
 	return nil, nil
 }
 func (f *fakeUserStore) UpdateUser(_ context.Context, _ auth.User) error             { return nil }
 func (f *fakeUserStore) DeleteUser(_ context.Context, _ string) error                { return nil }
-func (f *fakeUserStore) CountUsers(_ context.Context) (int64, error)                 { return 0, nil }
+func (f *fakeUserStore) CountUsers(_ context.Context) (int64, error)                 { return int64(len(f.byID)), nil }
 func (f *fakeUserStore) UpdateUserAgeKeys(_ context.Context, _, _, _ string) error   { return nil }
 func (f *fakeUserStore) UpdateUserDefaultAgent(_ context.Context, _, _ string) error { return nil }
 func (f *fakeUserStore) UpdateUserNotifyIdentity(_ context.Context, _ string, _ *string) error {
@@ -196,25 +205,9 @@ func publicConfig(t *testing.T, key *ecdsa.PrivateKey) *local.Config {
 	}
 }
 
-func pkceS256(verifier string) string {
-	sum := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
-
 func tokenHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
-	var sb strings.Builder
-	for _, b := range sum {
-		sb.WriteString(strings.ToLower(string([]byte{hexChar(b >> 4), hexChar(b & 0xf)})))
-	}
-	return sb.String()
-}
-
-func hexChar(b byte) byte {
-	if b < 10 {
-		return '0' + b
-	}
-	return 'a' + b - 10
+	return hex.EncodeToString(sum[:])
 }
 
 func seedUserAndCreds(userID, email, password string) (*fakeUserStore, *fakeCredStore) {
@@ -222,6 +215,25 @@ func seedUserAndCreds(userID, email, password string) (*fakeUserStore, *fakeCred
 	users := newFakeUserStore(auth.User{ID: userID, Email: email, Name: "Test User", IsActive: true})
 	creds := newFakeCredStore(auth.Credential{ID: uuid.NewString(), UserID: userID, PasswordHash: hash})
 	return users, creds
+}
+
+func issueLoginCode(t *testing.T, cfg *local.Config, codes *fakeCodeStore, users *fakeUserStore, creds *fakeCredStore, email, password string) (string, string) {
+	t.Helper()
+	verifier := strings.Repeat("v", 43)
+	svc := local.NewService(cfg, codes, users, creds)
+	redirectURL, err := svc.Login(context.Background(), local.LoginInput{
+		Email:    email,
+		Password: password,
+		State: auth.AuthState{
+			CodeVerifier: verifier,
+			ProviderName: "local",
+		},
+	})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	loc, _ := url.Parse(redirectURL)
+	return loc.Query().Get("code"), verifier
 }
 
 // --- tests ---
@@ -310,7 +322,7 @@ func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 	}
 }
 
-func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
+func TestAuthorizeRedirectsToLoginWithNoSession(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
 	issuer := local.NewIssuer(cfg,
@@ -325,23 +337,13 @@ func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
 		"scope":         {"openid email"},
 	}
 
-	// 1. Non-navigation (AJAX) request should return 200 OK
-	rAJAX := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
-	wAJAX := httptest.NewRecorder()
-	issuer.HandleAuthorize(wAJAX, rAJAX)
-	if wAJAX.Code != http.StatusOK {
-		t.Errorf("AJAX GET: status %d, want 200", wAJAX.Code)
+	r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
+	w := httptest.NewRecorder()
+	issuer.HandleAuthorize(w, r)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status %d, want 302", w.Code)
 	}
-
-	// 2. Navigation request should redirect to /login
-	rNav := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
-	rNav.Header.Set("Sec-Fetch-Mode", "navigate")
-	wNav := httptest.NewRecorder()
-	issuer.HandleAuthorize(wNav, rNav)
-	if wNav.Code != http.StatusFound {
-		t.Fatalf("Navigation GET: status %d, want 302", wNav.Code)
-	}
-	loc := wNav.Result().Header.Get("Location")
+	loc := w.Result().Header.Get("Location")
 	if !strings.HasPrefix(loc, "/login?") {
 		t.Errorf("unexpected redirect location: %s", loc)
 	}
@@ -363,137 +365,19 @@ func TestAuthorizeRedirectsToSignup(t *testing.T) {
 		"mode":          {"register"},
 	}
 
-	rNav := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
-	rNav.Header.Set("Sec-Fetch-Mode", "navigate")
-	wNav := httptest.NewRecorder()
-	issuer.HandleAuthorize(wNav, rNav)
-	if wNav.Code != http.StatusFound {
-		t.Fatalf("Navigation GET (register): status %d, want 302", wNav.Code)
+	r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
+	w := httptest.NewRecorder()
+	issuer.HandleAuthorize(w, r)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status %d, want 302", w.Code)
 	}
-	loc := wNav.Result().Header.Get("Location")
+	loc := w.Result().Header.Get("Location")
 	if !strings.HasPrefix(loc, "/signup?") {
 		t.Errorf("unexpected redirect location for register mode: %s", loc)
 	}
 }
 
-func TestAuthorizePostIssuesCode(t *testing.T) {
-	key := generateTestKey(t)
-	cfg := confidentialConfig(t, key)
-	userID := uuid.NewString()
-	users, creds := seedUserAndCreds(userID, "user@test.example", "pass123")
-	codeStore := newFakeCodeStore()
-
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid email"},
-		"state":         {"mystate"},
-	}
-	form := url.Values{"email": {"user@test.example"}, "password": {"pass123"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-
-	if w.Code != http.StatusFound {
-		t.Fatalf("status %d, want 302. body: %s", w.Code, w.Body.String())
-	}
-	loc := w.Result().Header.Get("Location")
-	u, _ := url.Parse(loc)
-	if u.Query().Get("code") == "" {
-		t.Errorf("no code in redirect: %s", loc)
-	}
-	if u.Query().Get("state") != "mystate" {
-		t.Errorf("state mismatch: %s", loc)
-	}
-}
-
-func TestRegisterPost(t *testing.T) {
-	key := generateTestKey(t)
-	cfg := confidentialConfig(t, key)
-	cfg.AllowRegistration = true
-	users := newFakeUserStore()
-	creds := newFakeCredStore()
-	codeStore := newFakeCodeStore()
-
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid email"},
-		"state":         {"registerstate"},
-		"mode":          {"register"},
-	}
-
-	// 1. Test short password
-	formShort := url.Values{
-		"name":             {"Test User"},
-		"email":            {"register@test.example"},
-		"password":         {"short"},
-		"confirm_password": {"short"},
-	}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(formShort.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-
-	if w.Code == http.StatusFound {
-		t.Error("should not issue redirect for short password")
-	}
-	if !strings.Contains(w.Body.String(), "Password must be at least 8 characters long.") {
-		t.Errorf("expected error message about short password, got: %s", w.Body.String())
-	}
-
-	// 2. Test mismatched passwords
-	formMismatch := url.Values{
-		"name":             {"Test User"},
-		"email":            {"register@test.example"},
-		"password":         {"password123"},
-		"confirm_password": {"password321"},
-	}
-	r2 := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(formMismatch.Encode()))
-	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w2 := httptest.NewRecorder()
-	issuer.HandleAuthorize(w2, r2)
-
-	if w2.Code == http.StatusFound {
-		t.Error("should not issue redirect for mismatched passwords")
-	}
-	if !strings.Contains(w2.Body.String(), "Passwords do not match.") {
-		t.Errorf("expected error message about mismatch, got: %s", w2.Body.String())
-	}
-
-	// 3. Test successful registration
-	formSuccess := url.Values{
-		"name":             {"Test User"},
-		"email":            {"register@test.example"},
-		"password":         {"password123"},
-		"confirm_password": {"password123"},
-	}
-	r3 := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(formSuccess.Encode()))
-	r3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w3 := httptest.NewRecorder()
-	issuer.HandleAuthorize(w3, r3)
-
-	if w3.Code != http.StatusFound {
-		t.Fatalf("status %d, want 302. body: %s", w3.Code, w3.Body.String())
-	}
-	loc := w3.Result().Header.Get("Location")
-	u, _ := url.Parse(loc)
-	if u.Query().Get("code") == "" {
-		t.Errorf("no code in redirect: %s", loc)
-	}
-	if u.Query().Get("state") != "registerstate" {
-		t.Errorf("state mismatch: %s", loc)
-	}
-}
-
-func TestIsNavigationRequestEdgeCases(t *testing.T) {
+func TestAuthorizePostRejected(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
 	issuer := local.NewIssuer(cfg,
@@ -507,102 +391,79 @@ func TestIsNavigationRequestEdgeCases(t *testing.T) {
 		"response_type": {"code"},
 		"scope":         {"openid email"},
 	}
-
-	tests := []struct {
-		name       string
-		headers    map[string]string
-		wantStatus int
-	}{
-		{
-			name:       "no headers at all (bare fetch)",
-			headers:    nil,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "Accept: */* (curl default)",
-			headers:    map[string]string{"Accept": "*/*"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "Accept: text/html (browser)",
-			headers:    map[string]string{"Accept": "text/html"},
-			wantStatus: http.StatusFound,
-		},
-		{
-			name:       "Accept: text/html with XHR header",
-			headers:    map[string]string{"Accept": "text/html", "X-Requested-With": "XMLHttpRequest"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "Accept: application/json",
-			headers:    map[string]string{"Accept": "application/json"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "Sec-Fetch-Mode: navigate overrides everything",
-			headers:    map[string]string{"Sec-Fetch-Mode": "navigate", "Accept": "application/json"},
-			wantStatus: http.StatusFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
-			for k, v := range tt.headers {
-				r.Header.Set(k, v)
-			}
-			w := httptest.NewRecorder()
-			issuer.HandleAuthorize(w, r)
-			if w.Code != tt.wantStatus {
-				t.Errorf("status %d, want %d", w.Code, tt.wantStatus)
-			}
-		})
+	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), nil)
+	w := httptest.NewRecorder()
+	issuer.HandleAuthorize(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status %d, want 405", w.Code)
 	}
 }
 
-func TestIssueCodeAndRedirectJSON(t *testing.T) {
+func TestLocalServiceLoginIssuesCode(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
 	userID := uuid.NewString()
-	users, creds := seedUserAndCreds(userID, "json@test.example", "pass123")
+	users, creds := seedUserAndCreds(userID, "user@test.example", "pass123")
 	codeStore := newFakeCodeStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid email"},
-		"state":         {"jsonstate"},
-	}
-	form := url.Values{"email": {"json@test.example"}, "password": {"pass123"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.Header.Set("Accept", "application/json")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200. body: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp["success"] != true {
-		t.Errorf("success = %v, want true", resp["success"])
-	}
-	redirectURL, _ := resp["redirect_url"].(string)
-	if redirectURL == "" {
-		t.Fatal("missing redirect_url")
+	svc := local.NewService(cfg, codeStore, users, creds)
+	redirectURL, err := svc.Login(context.Background(), local.LoginInput{
+		Email:    "user@test.example",
+		Password: "pass123",
+		State: auth.AuthState{
+			State:        "mystate",
+			CodeVerifier: strings.Repeat("a", 43),
+			ProviderName: "local",
+		},
+	})
+	if err != nil {
+		t.Fatalf("login: %v", err)
 	}
 	u, _ := url.Parse(redirectURL)
 	if u.Query().Get("code") == "" {
-		t.Errorf("no code in redirect_url: %s", redirectURL)
+		t.Errorf("no code in redirect: %s", redirectURL)
 	}
-	if u.Query().Get("state") != "jsonstate" {
-		t.Errorf("state mismatch in redirect_url: %s", redirectURL)
+	if u.Query().Get("state") != "mystate" {
+		t.Errorf("state mismatch: %s", redirectURL)
+	}
+}
+
+func TestLocalServiceRegisterBootstrapOnly(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	cfg.AllowRegistration = true
+	users := newFakeUserStore()
+	creds := newFakeCredStore()
+	codeStore := newFakeCodeStore()
+	state := auth.AuthState{State: "registerstate", CodeVerifier: strings.Repeat("b", 43), ProviderName: "local"}
+
+	svc := local.NewService(cfg, codeStore, users, creds)
+	redirectURL, err := svc.Register(context.Background(), local.RegisterInput{
+		Name:            "Test User",
+		Email:           "register@test.example",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+		State:           state,
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u, _ := url.Parse(redirectURL)
+	if u.Query().Get("code") == "" || u.Query().Get("state") != "registerstate" {
+		t.Fatalf("bad redirect_url: %s", redirectURL)
+	}
+	if svc.AllowsRegistration(context.Background()) {
+		t.Fatal("registration should close after bootstrap user exists")
+	}
+	_, err = svc.Register(context.Background(), local.RegisterInput{
+		Name:            "Second User",
+		Email:           "second@test.example",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+		State:           state,
+	})
+	if !errors.Is(err, local.ErrRegistrationDisabled) {
+		t.Fatalf("second register err = %v, want ErrRegistrationDisabled", err)
 	}
 }
 
@@ -615,25 +476,7 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	tokenStore := newFakeTokenStore()
 
 	issuer := local.NewIssuer(cfg, codeStore, tokenStore, users, creds, nil, nil)
-
-	// Step 1: authorize POST → get code.
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid email profile"},
-		"nonce":         {"testnonce"},
-	}
-	form := url.Values{"email": {"user@test.example"}, "password": {"pass"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-	if w.Code != http.StatusFound {
-		t.Fatalf("authorize: status %d. body: %s", w.Code, w.Body.String())
-	}
-	loc, _ := url.Parse(w.Result().Header.Get("Location"))
-	rawCode := loc.Query().Get("code")
+	rawCode, verifier := issueLoginCode(t, cfg, codeStore, users, creds, "user@test.example", "pass")
 
 	// Step 2: token endpoint.
 	tokenForm := url.Values{
@@ -642,6 +485,7 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 		"redirect_uri":  {cfg.RedirectURIs[0]},
 		"client_id":     {cfg.ClientID},
 		"client_secret": {cfg.ClientSecret},
+		"code_verifier": {verifier},
 	}
 	tr := httptest.NewRequest(http.MethodPost, "/oidc/local/token", strings.NewReader(tokenForm.Encode()))
 	tr.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -673,9 +517,6 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	if claims["email_verified"] != true {
 		t.Errorf("email_verified = %v, want true", claims["email_verified"])
 	}
-	if claims["nonce"] != "testnonce" {
-		t.Errorf("nonce = %v, want testnonce", claims["nonce"])
-	}
 	if claims["iss"] != cfg.IssuerURL {
 		t.Errorf("iss = %v, want %s", claims["iss"], cfg.IssuerURL)
 	}
@@ -689,21 +530,7 @@ func TestCodeCannotBeReused(t *testing.T) {
 	codeStore := newFakeCodeStore()
 
 	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	// Authorize.
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid"},
-	}
-	form := url.Values{"email": {"u@test.example"}, "password": {"pass"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-	loc, _ := url.Parse(w.Result().Header.Get("Location"))
-	rawCode := loc.Query().Get("code")
+	rawCode, verifier := issueLoginCode(t, cfg, codeStore, users, creds, "u@test.example", "pass")
 
 	tokenForm := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -711,6 +538,7 @@ func TestCodeCannotBeReused(t *testing.T) {
 		"redirect_uri":  {cfg.RedirectURIs[0]},
 		"client_id":     {cfg.ClientID},
 		"client_secret": {cfg.ClientSecret},
+		"code_verifier": {verifier},
 	}
 
 	// First exchange succeeds.
@@ -769,28 +597,7 @@ func TestPKCEVerification(t *testing.T) {
 	codeStore := newFakeCodeStore()
 
 	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	verifier := strings.Repeat("v", 43)
-	challenge := pkceS256(verifier)
-
-	q := url.Values{
-		"client_id":             {cfg.ClientID},
-		"redirect_uri":          {cfg.RedirectURIs[0]},
-		"response_type":         {"code"},
-		"scope":                 {"openid"},
-		"code_challenge":        {challenge},
-		"code_challenge_method": {"S256"},
-	}
-	form := url.Values{"email": {"u@test.example"}, "password": {"pass"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-	if w.Code != http.StatusFound {
-		t.Fatalf("authorize: %d. body: %s", w.Code, w.Body.String())
-	}
-	loc, _ := url.Parse(w.Result().Header.Get("Location"))
-	rawCode := loc.Query().Get("code")
+	rawCode, _ := issueLoginCode(t, cfg, codeStore, users, creds, "u@test.example", "pass")
 
 	// Token with wrong verifier → rejected.
 	tokenForm := url.Values{

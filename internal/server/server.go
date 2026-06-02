@@ -13,6 +13,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
+	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -52,6 +53,7 @@ type Server struct {
 	authSvc       *auth.AuthService
 	sessionMgr    *auth.SessionManager
 	stateMgr      *oidc.StateManager
+	localAuth     *local.Service
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
 	baseURL string
 	// logins provides access to OIDC login identities (optional).
@@ -176,6 +178,7 @@ func (s *Server) SetOIDCAuth(result *oidc.SetupResult) {
 	s.authSvc = result.AuthSvc
 	s.sessionMgr = result.SessionMgr
 	s.stateMgr = result.StateMgr
+	s.localAuth = result.LocalAuth
 	if result.RegisterRoutes != nil {
 		result.RegisterRoutes(s.mux)
 	}

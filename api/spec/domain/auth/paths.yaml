@@ -11,6 +11,71 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
+  /api/auth/local/login:
+    post:
+      tags: [auth]
+      summary: Sign in with the built-in local provider
+      operationId: loginLocal
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/LocalLoginRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LocalAuthRedirect",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/auth/local/register:
+    post:
+      tags: [auth]
+      summary: Register the first local user
+      operationId: registerLocal
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/LocalRegisterRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LocalAuthRedirect",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "403": {
+          $ref: "../../components.yaml#/components/responses/Forbidden",
+        }
+        "409": {
+          $ref: "../../components.yaml#/components/responses/Conflict",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
   /api/auth/me:
     get:
       tags: [auth]

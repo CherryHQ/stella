@@ -55,6 +55,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			(r.Method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/")) ||
 			path == "/api/auth/logout" ||
 			path == "/api/auth/providers" ||
+			path == "/api/auth/local/login" ||
+			path == "/api/auth/local/register" ||
 			strings.HasPrefix(path, "/auth/login/") ||
 			strings.HasPrefix(path, "/auth/callback/") ||
 			(strings.HasPrefix(path, "/api/auth/oauth/") && strings.HasSuffix(path, "/callback")) ||

@@ -35,11 +35,6 @@ func NewOIDCStore(db *sql.DB) *OIDCStore {
 	return &OIDCStore{db: db, rawDB: db}
 }
 
-// withTx returns a copy of OIDCStore that runs all queries through tx.
-func (s *OIDCStore) withTx(tx *sql.Tx) *OIDCStore {
-	return &OIDCStore{db: tx}
-}
-
 // BeginAuthTx starts a database transaction and returns tx-scoped copies of
 // all auth stores. Implements auth.Transactioner so AuthService.ProcessOIDCLogin
 // can run the entire login flow atomically.
@@ -47,19 +42,38 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 	if s.rawDB == nil {
 		return auth.AuthStores{}, nil, nil, fmt.Errorf("oidcstore: BeginAuthTx called on a tx-scoped store")
 	}
-	tx, err := s.rawDB.BeginTx(ctx, nil)
+	conn, err := s.rawDB.Conn(ctx)
 	if err != nil {
 		return auth.AuthStores{}, nil, nil, err
 	}
-	txStore := s.withTx(tx)
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		_ = conn.Close()
+		return auth.AuthStores{}, nil, nil, err
+	}
+	txStore := &OIDCStore{db: conn}
 	stores := auth.AuthStores{
 		Users:       txStore,
 		Logins:      txStore,
 		Sessions:    txStore,
 		Credentials: txStore,
 	}
-	rollback := func() { _ = tx.Rollback() }
-	return stores, tx.Commit, rollback, nil
+	closed := false
+	closeConn := func() {
+		if !closed {
+			closed = true
+			_ = conn.Close()
+		}
+	}
+	commit := func() error {
+		_, err := conn.ExecContext(ctx, "COMMIT")
+		closeConn()
+		return err
+	}
+	rollback := func() {
+		_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		closeConn()
+	}
+	return stores, commit, rollback, nil
 }
 
 // Ensure OIDCStore satisfies auth.Transactioner at compile time.

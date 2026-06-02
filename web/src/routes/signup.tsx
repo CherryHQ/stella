@@ -1,6 +1,11 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { meQueryOptions } from "@/lib/queries/me";
 
+function authErrorStatus(e: unknown): number | undefined {
+  const err = e as any;
+  return err?.error?.code ?? err?.code ?? err?.status ?? err?.response?.status;
+}
+
 export const Route = createFileRoute("/signup")({
   beforeLoad: async ({ context: { queryClient } }) => {
     try {
@@ -8,8 +13,9 @@ export const Route = createFileRoute("/signup")({
       if (me) throw redirect({ to: "/sessions" as any });
     } catch (e) {
       if ((e as any)?.isRedirect) throw e;
-      if (e instanceof Response && e.status >= 500) throw e;
-      // 401/403 or network error — render signup
+      const status = authErrorStatus(e);
+      if (status === 401 || status === 403) return;
+      throw e;
     }
   },
 });
