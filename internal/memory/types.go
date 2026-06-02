@@ -62,7 +62,7 @@ func ProjectIDFromContext(ctx context.Context) string {
 }
 
 // Session identifies the context of a single conversation.
-// It is created by Pool.Chat and passed to all Provider methods.
+// It is created by the runtime and passed to all Provider methods.
 type Session struct {
 	ID      string // unique session key (e.g. "default:cli:<uuid>:main")
 	AgentID string // agent this session belongs to (e.g. "default")

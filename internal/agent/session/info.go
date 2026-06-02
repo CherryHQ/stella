@@ -4,8 +4,9 @@
 // policy, main-session resolution, review candidate selection, and the
 // conversion from a validated session record to a memory operation scope.
 //
-// Hard rule: production code outside this package and low-level memory tests
-// must not hand-build memory.Session — obtain it via Registry.MemoryScope.
+// Production code outside this package and runtime should obtain memory.Session
+// via Registry.MemoryScope. The runtime is allowed to construct it directly
+// from validated Info because its inputs always come through the Registry.
 package session
 
 import (

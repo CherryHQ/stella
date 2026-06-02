@@ -32,7 +32,7 @@ type Provider interface {
 	Name() string
 
 	// Bootstrap ensures the session is initialized and ready for use.
-	// Called once at the start of every Pool.Chat call before any Append or Assemble.
+	// Called once at the start of every chat turn before any Append or Assemble.
 	// Implementations use this to create conversation records, initialize caches,
 	// or establish remote connections for the session.
 	Bootstrap(ctx context.Context, session Session) error
@@ -62,7 +62,7 @@ type Provider interface {
 	Stats(ctx context.Context, session Session) (SessionStats, error)
 
 	// Close releases any resources held by the provider (DB connections, caches, etc.).
-	// Called when the Pool shuts down. Must be safe to call multiple times.
+	// Called on shutdown. Must be safe to call multiple times.
 	Close() error
 }
 
@@ -103,7 +103,7 @@ type CompactionResult struct {
 }
 
 // Compactor is implemented by providers that support background compaction.
-// The Pool calls NeedsCompaction before each chat turn and Compact when needed.
+// The runtime calls NeedsCompaction before each chat turn and Compact when needed.
 type Compactor interface {
 	// NeedsCompaction returns true if the session's context has grown large enough
 	// to warrant compaction. threshold is a fraction of the session's token budget

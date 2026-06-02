@@ -10,7 +10,7 @@ stella 的结构是一组松耦合的包，在启动时组装在一起。系统�
 
 1. 一个**通道**（CLI、Telegram、QQ、Feishu 或微信）接收用户输入。
 2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）。
-3. **PoolManager** 通过代理 ID 查找该代理的 `agent.Service`。
+3. **ServiceManager** 通过代理 ID 查找该代理的 `agent.Service`。
 4. `agent.Service` 通过 `session.Registry` 解析 session intent。
 5. `runtime.Runtime` 通过缓存的 **Runner** 执行这一轮。
 6. **Runner** 调用 LLM provider，并在循环中执行工具。
@@ -23,7 +23,7 @@ Channel (CLI / Telegram / QQ / Feishu / WeChat)
 Resolve user  -->  Resolve agent
     |
     v
-PoolManager.GetService(agentID)  -->  agent.Service
+ServiceManager.GetService(agentID)  -->  agent.Service
     |                                      |
     |                                      +--> session.Registry
     |                                      |
@@ -42,7 +42,7 @@ cmd/stella/              入口点，CLI 命令，服务组装
 internal/
   config/              Store 接口、DBStore（SQLite）、Snapshot、类型
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
-  agent/               Service、PoolManager、session registry、runtime、runner 工厂
+  agent/               Service、ServiceManager、session registry、runtime、runner 工厂
     session/           Session 生命周期、ownership、kind/channel policy
     runtime/           Runner cache、turn 执行、event 持久化
     engine/            代理循环引擎（多轮工具执行）
@@ -88,9 +88,9 @@ plugins/
    - 在群聊中，`chat_agents` 绑定将 `(platform, chat_id)` 映射到代理。
    - 如果两者都未设置，则使用第一个启用的代理作为回退。
 
-已解析的用户和代理被打包到 `ResolvedChat` 结构中，该结构贯穿所有处理器和命令路径。此结构包含目标 `Pool`、`User`、`AgentID` 和 `SessionKey`。
+已解析的用户和代理被打包到 `ResolvedChat` 结构中，该结构贯穿所有处理器和命令路径。此结构包含目标 `Service`、`User`、`AgentID` 和 `SessionKey`。
 
-`PoolManager` 维护 `map[agentID]*Pool` 并在首次访问时延迟创建池。每个池通过 runner 工厂使用其代理的 `Snapshot`（模型、凭证、工作区、系统提示）进行配置。
+`ServiceManager`（由 `PoolManager` 实现）维护 `map[agentID]*Service` 并在首次访问时延迟创建。每个 Service 通过 runner 工厂使用其代理的 `Snapshot`（模型、凭证、工作区、系统提示）进行配置。
 
 ### 代理切换
 
@@ -225,9 +225,9 @@ Runner 启动在以下情况下失败关闭：
 ## 会话生命周期
 
 1. 通道解析用户和代理，产生 `ResolvedChat`
-2. 调用 `ResolvedChat.Pool.Chat(ctx, sessionKey, message)` -- message 是 `string`（文本）或 `[]ContentBlock`（多模态）
-3. Pool 使用作用域键 `{agentID}:{platform}:{userID}:{context}` 查找或创建会话
-4. Pool 获取或为会话创建 runner，使用代理的 Snapshot 配置
+2. 调用 `ResolvedChat.Chat(ctx, message)` -- message 是 `string`（文本）或 `[]ContentBlock`（多模态）
+3. `Service.Chat` 通过 `session.Registry` 使用作用域键解析或创建会话
+4. `runtime.Runtime` 获取或为会话创建 runner，使用代理的 Snapshot 配置
 5. Runner 通过通道流回事件
 6. 空闲超时后，runner 被回收；会话通过 `memory.Provider` 持久化到 SQLite
 
@@ -259,4 +259,4 @@ Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
-分发器在设置早期创建，但后端在网关服务启动时稍后注册。PoolManager 通过 `BuiltinToolsFactory` 按代理注入通知工具，把通知保留在始终启用的内建工具集合中，而外部工具继续由插件管理。
+分发器在设置早期创建，但后端在网关服务启动时稍后注册。ServiceManager 通过 `BuiltinToolsFactory` 按代理注入通知工具，把通知保留在始终启用的内建工具集合中，而外部工具继续由插件管理。
