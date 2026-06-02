@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.2] - 2026-06-02
+
+### ⚡ Performance
+
+- **Database**: Allow concurrent SQLite reads instead of serializing every request through a single shared connection, so a running agent no longer slows down the whole server.
+
+**Full Changelog**: [v0.39.1...v0.39.2](https://github.com/CherryHQ/stella/compare/v0.39.1...v0.39.2)
+
 ## [0.39.1] - 2026-06-02
 
 ### ✨ Features
