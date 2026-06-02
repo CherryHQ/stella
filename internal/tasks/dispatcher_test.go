@@ -75,8 +75,12 @@ func TestDispatcher_DraftTaskNotPickedUp(t *testing.T) {
 
 func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	called := atomic.Int32{}
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
 	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
 		called.Add(1)
+		entered <- struct{}{}
+		<-release
 		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
 	})
 	h, d := newDispatcherHarness(t, exec)
@@ -85,12 +89,21 @@ func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	if err := h.svc.AddDep(context.Background(), downstream, upstream, DepKindHard, OnFailureBlock); err != nil {
 		t.Fatalf("AddDep: %v", err)
 	}
-	// First tick: only upstream should dispatch.
+	// First tick: only upstream is dispatchable. It blocks inside the executor,
+	// so it stays running and cannot satisfy downstream's dep within this tick.
+	// Blocking removes the race where a fast upstream completion ungates
+	// downstream mid-scan, which made this test flaky under load.
 	d.Tick(context.Background())
-	d.WaitIdle()
-	if called.Load() != 1 {
-		t.Errorf("only upstream should have run; got %d calls", called.Load())
+	<-entered // upstream worker has started executing
+	if got := h.getTask(t, downstream).Status; got != StatusReady {
+		t.Errorf("downstream dispatched while upstream running; status=%q want ready", got)
 	}
+	if got := called.Load(); got != 1 {
+		t.Errorf("only upstream should have run; got %d calls", got)
+	}
+	// Release upstream and let it reach done.
+	close(release)
+	d.WaitIdle()
 	if got := h.getTask(t, upstream).Status; got != StatusDone {
 		t.Errorf("upstream status=%q want done", got)
 	}
