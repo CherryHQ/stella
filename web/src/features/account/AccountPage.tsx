@@ -97,135 +97,147 @@ export function AccountPage() {
   });
 
   return (
-    <div className="p-6 sm:p-8 lg:p-10">
-      <SettingsPageHeader title={t("account.title")} description={t("account.description")} />
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10 space-y-8">
+        <SettingsPageHeader title={t("account.title")} description={t("account.description")} />
 
-      {/* Profile section */}
-      <div className="mb-10">
-        <h2 className="font-serif text-xl mb-4">{t("account.profile")}</h2>
-        <div className="border-t border-border pt-6">
-          <div className="flex items-start gap-5">
-            {me?.avatar_url ? (
-              <img
-                src={me.avatar_url}
-                alt=""
-                className="h-16 w-16 rounded-full border border-border object-cover"
-              />
+        {/* Profile section */}
+        <section>
+          <h2 className="text-base font-semibold text-foreground/90 mb-3">
+            {t("account.profile")}
+          </h2>
+          <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
+            <div className="flex items-start gap-5">
+              {me?.avatar_url ? (
+                <img
+                  src={me.avatar_url}
+                  alt=""
+                  className="h-16 w-16 rounded-full border border-border/60 object-cover shadow-2xs"
+                />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted/60 text-xl font-medium text-muted-foreground">
+                  {(me?.name || me?.username || "?").charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5">
+                {me?.name && <p className="text-base font-semibold text-foreground">{me.name}</p>}
+                {me?.username && (
+                  <p className="text-sm text-muted-foreground font-mono">{me.username}</p>
+                )}
+                {me?.email && me.email !== me.username && (
+                  <p className="text-sm text-muted-foreground">{me.email}</p>
+                )}
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant={me?.is_admin ? "default" : "outline"} size="sm">
+                    {me?.role ?? "user"}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Password change — only shown for users who have local credentials */}
+        {me?.has_credentials && (
+          <section>
+            <h2 className="text-base font-semibold text-foreground/90 mb-3">
+              {t("account.changePassword")}
+            </h2>
+            <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    {t("account.currentPassword")}
+                  </label>
+                  <Input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="current password"
+                    autoComplete="current-password"
+                    nativeInput
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    {t("account.newPassword")}
+                  </label>
+                  <Input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="min 8 characters"
+                    minLength={8}
+                    autoComplete="new-password"
+                    nativeInput
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    {t("account.confirmNewPassword")}
+                  </label>
+                  <Input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="confirm new password"
+                    autoComplete="new-password"
+                    nativeInput
+                  />
+                </div>
+              </div>
+              <div className="pt-2 flex justify-end">
+                <Button size="sm" loading={changingPassword} onClick={changePassword}>
+                  {t("account.changePassword")}
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Sessions section */}
+        <section>
+          <h2 className="text-base font-semibold text-foreground/90 mb-3">
+            {t("account.sessions")}
+          </h2>
+          <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
+            {!sessions?.length ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                {t("account.noSessions")}
+              </p>
             ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted text-xl font-medium text-muted-foreground">
-                {(me?.name || me?.username || "?").charAt(0).toUpperCase()}
+              <div className="space-y-3">
+                {sessions.map((sess) => (
+                  <div
+                    key={sess.id}
+                    className="flex items-center justify-between rounded-xl border border-border/30 bg-background/50 px-4 py-3 shadow-2xs"
+                  >
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <span className="text-sm font-mono text-foreground font-medium truncate">
+                        {sess.id.slice(0, 12)}...
+                      </span>
+                      <span className="text-xs text-muted-foreground/80">
+                        Created: {new Date(sess.created_at).toLocaleString()}
+                      </span>
+                      <span className="text-xs text-muted-foreground/80">
+                        Expires: {new Date(sess.expires_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:bg-destructive/10 shrink-0"
+                      loading={revokeSession.isPending}
+                      onClick={() => revokeSession.mutate(sess.id)}
+                    >
+                      {t("account.revokeSession")}
+                    </Button>
+                  </div>
+                ))}
               </div>
             )}
-            <div className="flex flex-col gap-2">
-              {me?.name && <p className="text-lg font-medium">{me.name}</p>}
-              {me?.username && <p className="text-sm text-muted-foreground">{me.username}</p>}
-              {me?.email && me.email !== me.username && (
-                <p className="text-sm text-muted-foreground">{me.email}</p>
-              )}
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant={me?.is_admin ? "default" : "outline"} size="sm">
-                  {me?.role ?? "user"}
-                </Badge>
-              </div>
-            </div>
           </div>
-        </div>
-      </div>
-
-      {/* Password change — only shown for users who have local credentials */}
-      {me?.has_credentials && (
-        <div className="mb-10">
-          <h2 className="font-serif text-xl mb-4">{t("account.changePassword")}</h2>
-          <div className="border-t border-border pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  {t("account.currentPassword")}
-                </label>
-                <Input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="current password"
-                  autoComplete="current-password"
-                  nativeInput
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  {t("account.newPassword")}
-                </label>
-                <Input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="min 8 characters"
-                  minLength={8}
-                  autoComplete="new-password"
-                  nativeInput
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  {t("account.confirmNewPassword")}
-                </label>
-                <Input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="confirm new password"
-                  autoComplete="new-password"
-                  nativeInput
-                />
-              </div>
-            </div>
-            <div className="mt-4">
-              <Button size="sm" loading={changingPassword} onClick={changePassword}>
-                {t("account.changePassword")}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sessions section */}
-      <div className="mb-10">
-        <h2 className="font-serif text-xl mb-4">{t("account.sessions")}</h2>
-        <div className="border-t border-border pt-6">
-          {!sessions?.length ? (
-            <p className="text-sm text-muted-foreground">{t("account.noSessions")}</p>
-          ) : (
-            <div className="space-y-3">
-              {sessions.map((sess) => (
-                <div
-                  key={sess.id}
-                  className="flex items-center justify-between rounded-md border border-border px-4 py-3"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-mono text-muted-foreground">
-                      {sess.id.slice(0, 12)}...
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Created: {new Date(sess.created_at).toLocaleString()}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Expires: {new Date(sess.expires_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive"
-                    loading={revokeSession.isPending}
-                    onClick={() => revokeSession.mutate(sess.id)}
-                  >
-                    {t("account.revokeSession")}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        </section>
       </div>
 
       <ToastAlert toast={toast} />

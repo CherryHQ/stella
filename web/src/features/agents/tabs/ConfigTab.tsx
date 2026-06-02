@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { Channel } from "@/lib/api-client";
 import type { AgentsPageState, ModelOption } from "../AgentsPage";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -89,14 +90,106 @@ function ModelComboField({
   );
 }
 
+const platformLabels: Record<string, string> = {
+  telegram: "Telegram",
+  qq: "QQ",
+  feishu: "Feishu",
+  weixin: "Weixin",
+};
+
+function channelDisplayName(ch: Channel): string {
+  return ch.name || platformLabels[ch.type] || ch.type;
+}
+
+function ChannelSelector({
+  channels,
+  selectedIds,
+  onToggle,
+  onRemove,
+}: {
+  channels: Channel[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const unselected = channels.filter((ch) => !selectedIds.includes(ch.id));
+  const selected = channels.filter((ch) => selectedIds.includes(ch.id));
+
+  return (
+    <div>
+      <label className="block text-sm font-mono mb-1">Dedicated channels</label>
+      <p className="text-xs text-muted-foreground mb-2">Bind channel instances to this agent.</p>
+      <div ref={containerRef} className="relative">
+        <div
+          className="min-h-9 w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm cursor-pointer flex flex-wrap gap-1.5 items-center"
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => e.key === "Enter" && setOpen((v) => !v)}
+          role="combobox"
+          aria-expanded={open}
+          tabIndex={0}
+        >
+          {selected.length === 0 && <span className="text-muted-foreground">Select channels…</span>}
+          {selected.map((ch) => (
+            <span
+              key={ch.id}
+              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-mono"
+            >
+              {channelDisplayName(ch)}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(ch.id);
+                }}
+                className="text-muted-foreground hover:text-foreground ml-0.5"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+            <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-lg py-1">
+              {unselected.length === 0 && (
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  No more channels available.
+                </div>
+              )}
+              {unselected.map((ch) => (
+                <button
+                  key={ch.id}
+                  type="button"
+                  onMouseDown={() => {
+                    onToggle(ch.id);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-muted cursor-pointer flex items-center justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm truncate">{channelDisplayName(ch)}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{ch.type}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ConfigTab({ state, onSetState }: Props) {
   const { t } = useI18n();
   const { form, cachedModels, isAdmin, editingId, channels, selectedChannelIDs } = state;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
-  const availableDedicatedChannels = channels.filter(
-    (ch) => ch.id !== ch.type && ch.enabled && (!ch.agent_id || ch.agent_id === editingId),
+  const availableChannels = channels.filter(
+    (ch) => ch.enabled && (!ch.agent_id || ch.agent_id === editingId),
   );
 
   const toggleChannel = (chId: string) => {
@@ -104,6 +197,10 @@ export function ConfigTab({ state, onSetState }: Props) {
       ? selectedChannelIDs.filter((id) => id !== chId)
       : [...selectedChannelIDs, chId];
     onSetState({ selectedChannelIDs: ids });
+  };
+
+  const removeChannel = (chId: string) => {
+    onSetState({ selectedChannelIDs: selectedChannelIDs.filter((id) => id !== chId) });
   };
 
   return (
@@ -170,31 +267,12 @@ export function ConfigTab({ state, onSetState }: Props) {
         </div>
       )}
       {isAdmin && editingId && (
-        <div>
-          <label className="block text-sm font-mono mb-1">Dedicated channels</label>
-          <p className="text-xs text-muted-foreground mb-2">
-            Bind dedicated channel instances to this agent.
-          </p>
-          <div className="space-y-1">
-            {availableDedicatedChannels.map((ch) => (
-              <label
-                key={ch.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 cursor-pointer"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-mono">{ch.type}</p>
-                </div>
-                <Switch
-                  checked={selectedChannelIDs.includes(ch.id)}
-                  onCheckedChange={() => toggleChannel(ch.id)}
-                />
-              </label>
-            ))}
-            {availableDedicatedChannels.length === 0 && (
-              <div className="text-xs text-muted-foreground">No dedicated channels available.</div>
-            )}
-          </div>
-        </div>
+        <ChannelSelector
+          channels={availableChannels}
+          selectedIds={selectedChannelIDs}
+          onToggle={toggleChannel}
+          onRemove={removeChannel}
+        />
       )}
       <div className="pt-2 border-t border-border">
         <label className="flex items-center gap-3 cursor-pointer">

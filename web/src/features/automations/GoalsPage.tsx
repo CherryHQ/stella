@@ -1,3 +1,4 @@
+import { useCallback, useEffect } from "react";
 import type { TFunction } from "i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -7,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { useAppShell } from "@/layouts/AppShell";
 import { StatusDot, StatusPill, avatarInitials, goalNeedsYou, statusLabel } from "./lib";
 
 export type GoalsView = "triage" | "board" | "table";
@@ -22,31 +24,39 @@ export function GoalsPage() {
   const { agentId } = useParams({ from: "/_app/agents/$agentId/automations/" });
   const { view } = useSearch({ from: "/_app/agents/$agentId/automations/" });
   const navigate = useNavigate();
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { data: goals = [], isLoading } = useQuery(goalsOptions(agentId));
 
   const cur: GoalsView = VIEWS.includes(view as GoalsView) ? (view as GoalsView) : "triage";
-  const setView = (v: GoalsView) =>
-    void navigate({
-      to: "/agents/$agentId/automations",
-      params: { agentId },
-      search: { view: v },
-    });
+  const setView = useCallback(
+    (v: GoalsView) =>
+      void navigate({
+        to: "/agents/$agentId/automations",
+        params: { agentId },
+        search: { view: v },
+      }),
+    [agentId, navigate],
+  );
   const openGoal = (g: ComponentsGoal) =>
     void navigate({
       to: "/agents/$agentId/automations/goals/$goalId",
       params: { agentId, goalId: g.id },
     });
 
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-5">
-        <div>
-          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            {t("goals.eyebrow")}
-          </div>
-          <h1 className="font-serif text-lg tracking-tight">{t("goals.title")}</h1>
+  useEffect(() => {
+    setHeaderTitle(
+      <div className="min-w-0">
+        <div className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+          {t("goals.eyebrow")}
         </div>
-        <div className="ml-auto inline-flex gap-1 rounded-full bg-muted p-0.5">
+        <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+          {t("goals.title")}
+        </h1>
+      </div>,
+    );
+    setHeaderActions(
+      <div className="flex items-center gap-3">
+        <div className="inline-flex gap-1 rounded-full bg-muted p-0.5">
           {VIEWS.map((v) => (
             <button
               key={v}
@@ -65,8 +75,16 @@ export function GoalsPage() {
         <span className="font-mono text-xs text-muted-foreground">
           {t("goals.unit", { count: goals.length })}
         </span>
-      </header>
+      </div>,
+    );
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
+  }, [cur, goals.length, setHeaderActions, setHeaderTitle, setView, t]);
 
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">

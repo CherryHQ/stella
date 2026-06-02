@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { TFunction } from "i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -22,12 +22,14 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { useAppShell } from "@/layouts/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ProgressBar, StatusDot, StatusPill, rollup, statusLabel } from "./lib";
 
 export function GoalDetailPage() {
   const { t } = useI18n();
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { agentId, goalId } = useParams({
     from: "/_app/agents/$agentId/automations/goals/$goalId",
   });
@@ -57,6 +59,19 @@ export function GoalDetailPage() {
       void qc.invalidateQueries({ queryKey: ["goals", agentId] });
     },
   });
+
+  useEffect(() => {
+    setHeaderTitle(
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {goal?.title ?? t("goals.title")}
+      </h1>,
+    );
+    setHeaderActions(null);
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
+  }, [goal?.title, setHeaderActions, setHeaderTitle, t]);
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-background">

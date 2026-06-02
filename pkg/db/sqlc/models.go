@@ -293,6 +293,7 @@ type AuthUserToken struct {
 
 type Channel struct {
 	ID        string         `json:"id"`
+	Name      string         `json:"name"`
 	Type      string         `json:"type"`
 	AgentID   sql.NullString `json:"agent_id"`
 	Enabled   int64          `json:"enabled"`

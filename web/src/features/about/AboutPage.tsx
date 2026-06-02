@@ -45,62 +45,75 @@ export function AboutPage() {
   });
 
   return (
-    <div className="p-6 sm:p-8 lg:p-10">
-      <SettingsPageHeader title={t("about.title")} description={t("about.description")} />
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10 space-y-8">
+        <SettingsPageHeader title={t("about.title")} description={t("about.description")} />
 
-      <div className="border-t border-border pt-6 pb-6 max-w-2xl">
-        <h2 className="font-serif text-xl mb-4">{t("about.versionInfo")}</h2>
-        <dl className="divide-y divide-border">
-          <InfoRow
-            label={t("about.status")}
-            value={isLoading ? t("common.loading") : status?.status}
-          />
-          <InfoRow
-            label={t("about.version")}
-            value={status?.version ? `v${status.version}` : "—"}
-          />
-          <InfoRow label={t("about.commit")} value={status?.commit || "—"} />
-          <InfoRow label={t("about.buildDate")} value={status?.buildDate || "—"} />
-          <InfoRow label={t("about.uptime")} value={formatDuration(status?.uptimeSeconds)} />
-        </dl>
+        <section>
+          <h2 className="text-base font-semibold text-foreground/90 mb-3">
+            {t("about.versionInfo")}
+          </h2>
+          <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
+            <dl className="divide-y divide-border/30">
+              <InfoRow
+                label={t("about.status")}
+                value={isLoading ? t("common.loading") : status?.status}
+              />
+              <InfoRow
+                label={t("about.version")}
+                value={status?.version ? `v${status.version}` : "—"}
+              />
+              <InfoRow label={t("about.commit")} value={status?.commit || "—"} />
+              <InfoRow label={t("about.buildDate")} value={status?.buildDate || "—"} />
+              <InfoRow label={t("about.uptime")} value={formatDuration(status?.uptimeSeconds)} />
+            </dl>
+          </div>
+        </section>
+
+        {(status?.runtime || status?.database || status?.plugins) && (
+          <section>
+            <h2 className="text-base font-semibold text-foreground/90 mb-3">
+              {t("about.adminInfo")}
+            </h2>
+            <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
+              <dl className="divide-y divide-border/30">
+                {status.database && (
+                  <InfoRow
+                    label={t("about.database")}
+                    value={
+                      status.database.latencyMs == null
+                        ? status.database.status
+                        : `${status.database.status} · ${status.database.latencyMs.toFixed(2)}ms`
+                    }
+                  />
+                )}
+                {status.runtime && (
+                  <>
+                    <InfoRow
+                      label={t("about.runtime")}
+                      value={`${status.runtime.goVersion} · ${status.runtime.os}/${status.runtime.arch}`}
+                    />
+                    <InfoRow
+                      label={t("about.goroutines")}
+                      value={String(status.runtime.goroutines)}
+                    />
+                    <InfoRow
+                      label={t("about.memory")}
+                      value={`${formatBytes(status.runtime.memory.heapAllocBytes)} heap · ${formatBytes(status.runtime.memory.sysBytes)} sys · ${status.runtime.memory.numGC} GC`}
+                    />
+                  </>
+                )}
+                {status.plugins && (
+                  <InfoRow
+                    label={t("about.plugins")}
+                    value={`${status.plugins.enabled}/${status.plugins.total} ${t("about.pluginsEnabled")}`}
+                  />
+                )}
+              </dl>
+            </div>
+          </section>
+        )}
       </div>
-
-      {(status?.runtime || status?.database || status?.plugins) && (
-        <div className="border-t border-border pt-6 pb-6 max-w-2xl">
-          <h2 className="font-serif text-xl mb-4">{t("about.adminInfo")}</h2>
-          <dl className="divide-y divide-border">
-            {status.database && (
-              <InfoRow
-                label={t("about.database")}
-                value={
-                  status.database.latencyMs == null
-                    ? status.database.status
-                    : `${status.database.status} · ${status.database.latencyMs.toFixed(2)}ms`
-                }
-              />
-            )}
-            {status.runtime && (
-              <>
-                <InfoRow
-                  label={t("about.runtime")}
-                  value={`${status.runtime.goVersion} · ${status.runtime.os}/${status.runtime.arch}`}
-                />
-                <InfoRow label={t("about.goroutines")} value={String(status.runtime.goroutines)} />
-                <InfoRow
-                  label={t("about.memory")}
-                  value={`${formatBytes(status.runtime.memory.heapAllocBytes)} heap · ${formatBytes(status.runtime.memory.sysBytes)} sys · ${status.runtime.memory.numGC} GC`}
-                />
-              </>
-            )}
-            {status.plugins && (
-              <InfoRow
-                label={t("about.plugins")}
-                value={`${status.plugins.enabled}/${status.plugins.total} ${t("about.pluginsEnabled")}`}
-              />
-            )}
-          </dl>
-        </div>
-      )}
     </div>
   );
 }

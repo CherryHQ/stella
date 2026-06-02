@@ -6,6 +6,8 @@ React SPA embedded by Go. Go serves built assets and falls back to `index.html`;
 
 > **Agent note:** When building or editing UI, read `.agents/skills/coss/SKILL.md` for CossUI component patterns, imports, composition rules, and particle examples.
 
+**CossUI first:** Always use CossUI components (`src/components/ui/`) before hand-writing UI primitives. If a CossUI component exists for the pattern (sidebar, dialog, sheet, popover, etc.), use it. Only hand-write a component when no CossUI equivalent exists, and get explicit approval first.
+
 ### Structure
 
 ```txt

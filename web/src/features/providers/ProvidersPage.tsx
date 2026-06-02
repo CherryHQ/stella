@@ -22,18 +22,15 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import {
   DetailPanel,
   DetailPanelHeader,
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import {
-  SettingsListBody,
-  SettingsListHeader,
-  SettingsListItem,
-} from "@/features/settings/SettingsListPanel";
+import { ArrowLeft, Cpu, Plus } from "lucide-react";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -311,21 +308,10 @@ function ProviderDetail({
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={handleSave} variant="default" size="sm">
-            {t("common.save")}
-          </Button>
-          <Button
-            onClick={() => setConfirmDeleteOpen(true)}
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-destructive"
-          >
-            {t("common.delete")}
-          </Button>
-        </>
-      }
+      onSave={handleSave}
+      onDelete={() => setConfirmDeleteOpen(true)}
+      saveLabel={t("common.save")}
+      deleteLabel={t("common.delete")}
     >
       <DetailPanelHeader
         title={provider.name || provider.id}
@@ -760,16 +746,11 @@ function NewProviderForm({
 
   return (
     <DetailPanel
-      footer={
-        <>
-          <Button onClick={handleSubmit} disabled={!type || !id.trim()} variant="default" size="sm">
-            Add provider
-          </Button>
-          <Button onClick={onCancel} variant="ghost" size="sm">
-            {t("common.cancel")}
-          </Button>
-        </>
-      }
+      onSave={handleSubmit}
+      onCancel={onCancel}
+      saveLabel="Add provider"
+      cancelLabel={t("common.cancel")}
+      canSave={!!type && !!id.trim()}
     >
       <DetailPanelHeader
         title="New provider"
@@ -1019,59 +1000,24 @@ export function ProvidersPage() {
   const selectedProvider = selectedId ? providers.find((p) => p.id === selectedId) : null;
   const existingIds = new Set(providers.map((p) => p.id));
 
-  // Left panel list header
-  const listHeader = (
-    <SettingsListHeader
-      title="Providers"
-      action={
-        <Button
-          onClick={() => {
-            setCreatingNew(true);
-            setSelectedId(null);
-          }}
-          variant="ghost"
-          size="xs"
-        >
-          New
-        </Button>
-      }
-    />
-  );
+  // Grouping computation for providers
+  const grouped = sortedProviders.reduce<Record<string, Provider[]>>((acc, p) => {
+    const type = p.type || "other";
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(p);
+    return acc;
+  }, {});
 
-  // Left panel list
-  const list = (
-    <SettingsListBody>
-      {sortedProviders.map((p) => {
-        const modelCount = (providerModels[p.id] || []).length;
-        const isSelected = !creatingNew && selectedId === p.id;
-        return (
-          <SettingsListItem
-            key={p.id}
-            onClick={() => {
-              setSelectedId(p.id);
-              setCreatingNew(false);
-            }}
-            active={isSelected}
-            className="flex items-center gap-2"
-          >
-            {/* Status dot */}
-            <span
-              className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                p.enabled ? "bg-green-500" : "bg-muted-foreground/40"
-              }`}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium leading-tight truncate">{p.name || p.id}</p>
-              <p className="text-[11px] font-mono text-muted-foreground truncate">{p.type}</p>
-            </div>
-            {modelCount > 0 && (
-              <span className="shrink-0 text-xs text-muted-foreground">{modelCount}</span>
-            )}
-          </SettingsListItem>
-        );
-      })}
-    </SettingsListBody>
-  );
+  const groupedPlatforms = Object.entries(grouped)
+    .map(([type, platformProviders]) => {
+      const typeMeta = providerTypes.find((pt) => pt.id === type);
+      return {
+        type,
+        label: typeMeta?.name || type,
+        providers: platformProviders,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   // Right panel detail
   let detail: React.ReactNode = undefined;
@@ -1105,20 +1051,137 @@ export function ProvidersPage() {
     );
   }
 
-  // Empty state
-  const emptyState = (
-    <p className="text-sm text-muted-foreground">Select a provider or add a new one.</p>
-  );
+  const hasActiveEditor = creatingNew || !!selectedProvider;
 
   return (
-    // Escape the p-8 px-10 padding from SettingsLayout's outlet wrapper
-    <div className="h-full">
-      <SettingsDetailLayout
-        listHeader={listHeader}
-        list={list}
-        detail={detail}
-        emptyState={emptyState}
-      />
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
+        {hasActiveEditor ? (
+          <div className="space-y-4">
+            <button
+              onClick={() => {
+                setSelectedId(null);
+                setCreatingNew(false);
+              }}
+              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
+            >
+              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+              Back to Providers
+            </button>
+            <div className="bg-card border border-border/40 rounded-2xl overflow-hidden shadow-sm">
+              {detail}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            <SettingsPageHeader
+              title="Providers"
+              description="Connect and configure LLM API providers."
+              action={
+                <Button
+                  onClick={() => {
+                    setCreatingNew(true);
+                    setSelectedId(null);
+                  }}
+                  variant="premium"
+                  size="sm"
+                  className="group flex items-center gap-1.5"
+                >
+                  <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                  Add provider
+                </Button>
+              }
+            />
+
+            {sortedProviders.length === 0 ? (
+              <SettingsEmptyState
+                message="No providers configured"
+                description="Add your first LLM provider to get started."
+                action={
+                  <Button
+                    onClick={() => {
+                      setCreatingNew(true);
+                      setSelectedId(null);
+                    }}
+                    variant="premium-outline"
+                    size="sm"
+                    className="group flex items-center gap-1.5"
+                  >
+                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                    Add provider
+                  </Button>
+                }
+              />
+            ) : (
+              <div className="space-y-8">
+                {groupedPlatforms.map((platform) => (
+                  <div key={platform.type} className="space-y-4">
+                    <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+                      <Cpu className="size-4 shrink-0 text-muted-foreground/80" />
+                      <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                        {platform.label}
+                      </h4>
+                      <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
+                        {platform.providers.length}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {platform.providers.map((p) => {
+                        const modelCount = (providerModels[p.id] || []).length;
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              setSelectedId(p.id);
+                              setCreatingNew(false);
+                            }}
+                            className="group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 transition-all hover:border-border/80 hover:shadow-sm cursor-pointer"
+                          >
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {/* Status dot */}
+                                  <span
+                                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                                      p.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                                    }`}
+                                  />
+                                  <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                                    {p.name || p.id}
+                                  </h3>
+                                </div>
+                                <Badge
+                                  variant="outline"
+                                  className="font-mono text-[10px] uppercase shrink-0"
+                                >
+                                  {p.type}
+                                </Badge>
+                              </div>
+                              {p.base_url && (
+                                <p className="font-mono text-[10px] text-muted-foreground truncate max-w-full">
+                                  {p.base_url}
+                                </p>
+                              )}
+                            </div>
+                            <div className="mt-4 flex items-center justify-between">
+                              <span className="text-xs text-muted-foreground">
+                                {modelCount} {modelCount === 1 ? "model" : "models"} configured
+                              </span>
+                              <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                                Configure →
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <ToastContainer messages={toasts} />
     </div>
   );

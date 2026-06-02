@@ -287,6 +287,7 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	}
 	return s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
 		ID:      ch.ID,
+		Name:    ch.Name,
 		Type:    channelType,
 		AgentID: sql.NullString{String: ch.AgentID, Valid: ch.AgentID != ""},
 		Enabled: boolToInt64(ch.Enabled),
@@ -737,8 +738,9 @@ func (s *DBStore) seedChannelInstances(ctx context.Context) error {
 		}
 		if err := s.UpsertChannel(ctx, config.Channel{
 			ID:      uuid.NewString(),
+			Name:    name,
 			Type:    name,
-			Enabled: true,
+			Enabled: false,
 			Config:  "{}",
 		}); err != nil {
 			return fmt.Errorf("seed: default channel instance %q: %w", name, err)
@@ -1010,6 +1012,7 @@ func channelFromDB(r sqlc.Channel) config.Channel {
 	}
 	return config.Channel{
 		ID:      r.ID,
+		Name:    r.Name,
 		Type:    channelType,
 		AgentID: agentID,
 		Enabled: r.Enabled == 1,

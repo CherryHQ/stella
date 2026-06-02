@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { InspectorPanel } from "./InspectorPanel";
 import { SessionDetail } from "./SessionDetail";
-import { useAgentLayout } from "./AgentLayoutContext";
 
 const RIGHT_MIN = 280;
 const RIGHT_MAX_RATIO = 0.45;
@@ -31,8 +30,6 @@ export function SessionView() {
   };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { sidebarOpen, toggleSidebar } = useAgentLayout();
-  const sidebarCollapsed = !sidebarOpen;
   const { data: me } = useQuery(meQueryOptions);
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const currentUserID = me?.id ?? "";
@@ -178,18 +175,13 @@ export function SessionView() {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative flex flex-1 min-w-0 overflow-hidden bg-card/70">
+    <div ref={containerRef} className="relative flex h-full min-w-0 overflow-hidden bg-card/70">
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <SessionDetail
           session={sessionDetail}
           currentUserID={currentUserID}
-          onBack={() => {
-            void navigate({ to: "/agents/$agentId", params: { agentId } });
-          }}
           onNewSession={() => void createTemporarySession()}
           onSessionUpdate={(s) => setSessionDetail(s)}
-          onToggleSidebar={toggleSidebar}
-          sidebarCollapsed={sidebarCollapsed}
           onToggleWorkspace={toggleInspector}
           workspaceOpen={showWorkspace}
           contextTitle={contextTitle}

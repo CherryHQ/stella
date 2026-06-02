@@ -8,7 +8,7 @@ import { getArticleOptions } from "@/lib/api-client/@tanstack/react-query.gen";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import type { Message } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Streamdown } from "streamdown";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import {
   createSessionTransport,
   mergeToolResults,
@@ -258,9 +258,10 @@ export function RecallyChat({ articleId, onClose }: Props) {
                   {isUser ? (
                     <p className="whitespace-pre-wrap">{text}</p>
                   ) : (
-                    <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground [&_pre]:bg-muted/40 [&_pre]:p-1.5 [&_code]:text-[10px]">
-                      <Streamdown>{text}</Streamdown>
-                    </div>
+                    <MarkdownPreview
+                      content={text}
+                      className="prose-headings:text-foreground [&_code]:text-[10px] [&_pre]:bg-muted/40 [&_pre]:p-1.5"
+                    />
                   )}
                 </div>
               </div>

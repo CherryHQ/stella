@@ -9,8 +9,6 @@ import { PromptTab } from "./tabs/PromptTab";
 import { SkillsTab } from "./tabs/SkillsTab";
 import { AdvancedTab } from "./tabs/AdvancedTab";
 import { UsersTab } from "./tabs/UsersTab";
-import { PersonalTab } from "./tabs/PersonalTab";
-
 interface Props {
   state: AgentsPageState;
   onSetState: (patch: Partial<AgentsPageState>) => void;
@@ -26,8 +24,6 @@ interface Props {
   onDeleteSkill: (sk: Skill) => void;
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
-  onSavePersonalisationSoul: () => void;
-  onSavePersonalisationProfile: () => void;
   onOpenSkillInstallModal: (scope?: "user" | "agent") => void;
 }
 
@@ -46,8 +42,6 @@ export function AgentForm({
   onDeleteSkill,
   onSelectSkillFile,
   onDeleteSkillFile,
-  onSavePersonalisationSoul,
-  onSavePersonalisationProfile,
   onOpenSkillInstallModal,
 }: Props) {
   const navigate = useNavigate();
@@ -62,8 +56,8 @@ export function AgentForm({
 
   return (
     <main className="px-6 py-6 min-w-0 block">
-      <div className="rounded-xl border border-border overflow-hidden">
-        <div className="border-b border-border px-4 py-3 bg-muted/30">
+      <div className="rounded-xl border border-border">
+        <div className="border-b border-border px-4 py-3 bg-muted/30 rounded-t-xl">
           <span className="font-medium text-sm">
             {editingId ? `Edit: ${form.name}` : "New agent"}
           </span>
@@ -90,7 +84,6 @@ export function AgentForm({
             <TabsTrigger value="skills">{t("agents.tabs.skills")}</TabsTrigger>
             <TabsTrigger value="advanced">{t("agents.tabs.advanced")}</TabsTrigger>
             {isAdmin && <TabsTrigger value="users">{t("agents.tabs.users")}</TabsTrigger>}
-            {editingId && <TabsTrigger value="personal">{t("agents.tabs.personal")}</TabsTrigger>}
           </TabsList>
           <div className="p-4 space-y-4">
             <TabsContent value="config">
@@ -124,17 +117,9 @@ export function AgentForm({
                 onRemoveUser={onRemoveUser}
               />
             </TabsContent>
-            <TabsContent value="personal">
-              <PersonalTab
-                state={state}
-                onSetState={onSetState}
-                onSaveSoul={onSavePersonalisationSoul}
-                onSaveProfile={onSavePersonalisationProfile}
-              />
-            </TabsContent>
           </div>
         </Tabs>
-        <div className="border-t border-border px-4 py-3 flex items-center justify-end gap-2 bg-muted/20">
+        <div className="border-t border-border px-4 py-3 flex items-center justify-end gap-2 bg-muted/20 rounded-b-xl">
           <Button onClick={onCancel} variant="ghost" size="sm">
             {t("common.cancel")}
           </Button>
