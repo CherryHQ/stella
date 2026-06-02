@@ -47,7 +47,7 @@ import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -1115,7 +1115,13 @@ export function AgentsPage() {
               title="Agents"
               description="Create and configure agent profiles with custom models, prompts, souls, and installed skills."
               action={
-                <Button onClick={startCreate} size="sm" className="rounded-xl">
+                <Button
+                  onClick={startCreate}
+                  variant="premium"
+                  size="sm"
+                  className="group flex items-center gap-1.5"
+                >
+                  <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
                   Add agent
                 </Button>
               }

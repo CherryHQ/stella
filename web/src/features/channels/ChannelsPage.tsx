@@ -32,7 +32,7 @@ import {
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 
 function BrandIcon({ path, className = "size-4 shrink-0" }: { path: string; className?: string }) {
   return (
@@ -1069,9 +1069,11 @@ export function ChannelsPage() {
                       setCreatingNew(true);
                       setSelectedId(null);
                     }}
+                    variant="premium"
                     size="sm"
-                    className="rounded-xl"
+                    className="group flex items-center gap-1.5"
                   >
+                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
                     Add channel
                   </Button>
                 }
@@ -1091,10 +1093,11 @@ export function ChannelsPage() {
                         setCreatingNew(true);
                         setSelectedId(null);
                       }}
-                      variant="outline"
+                      variant="premium-outline"
                       size="sm"
-                      className="rounded-xl"
+                      className="group flex items-center gap-1.5"
                     >
+                      <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
                       Add channel
                     </Button>
                   }

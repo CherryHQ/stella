@@ -41,7 +41,7 @@ import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
-import { Wrench, Webhook, Blocks } from "lucide-react";
+import { Wrench, Webhook, Blocks, Plus } from "lucide-react";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
   return { plugins: plugins.map((plugin) => ({ ...plugin })) };
@@ -439,11 +439,18 @@ export function PluginsPage() {
             </div>
             <Button
               onClick={() => setShowAddManifestTool(!showAddManifestTool)}
-              variant="outline"
+              variant={showAddManifestTool ? "outline" : "premium-outline"}
               size="xs"
-              className="rounded-lg h-7"
+              className="group h-7 flex items-center gap-1"
             >
-              {showAddManifestTool ? "Cancel" : "Add Tool"}
+              {showAddManifestTool ? (
+                "Cancel"
+              ) : (
+                <>
+                  <Plus className="size-3.5 group-hover:rotate-90 transition-transform duration-300" />
+                  Add Tool
+                </>
+              )}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground -mt-2">

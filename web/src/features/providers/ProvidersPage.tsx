@@ -30,7 +30,7 @@ import {
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { ArrowLeft, Cpu } from "lucide-react";
+import { ArrowLeft, Cpu, Plus } from "lucide-react";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1083,9 +1083,11 @@ export function ProvidersPage() {
                     setCreatingNew(true);
                     setSelectedId(null);
                   }}
+                  variant="premium"
                   size="sm"
-                  className="rounded-xl"
+                  className="group flex items-center gap-1.5"
                 >
+                  <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
                   Add provider
                 </Button>
               }
@@ -1101,10 +1103,11 @@ export function ProvidersPage() {
                       setCreatingNew(true);
                       setSelectedId(null);
                     }}
-                    variant="outline"
+                    variant="premium-outline"
                     size="sm"
-                    className="rounded-xl"
+                    className="group flex items-center gap-1.5"
                   >
+                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
                     Add provider
                   </Button>
                 }
