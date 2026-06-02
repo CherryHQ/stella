@@ -37,6 +37,7 @@ interface Props {
   pathname: string;
   onAgentChange: (id: string) => void;
   className?: string;
+  onCloseMobile?: () => void;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -419,11 +420,18 @@ function NavItem({
 
 // ── main component ───────────────────────────────────────────────────────────
 
-export function AgentSidebar({ agents, agentId, pathname, onAgentChange, className }: Props) {
+export function AgentSidebar({
+  agents,
+  agentId,
+  pathname,
+  onAgentChange,
+  className,
+  onCloseMobile,
+}: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const closeMobile = useCallback(() => {}, []);
+  const closeMobile = useCallback(() => onCloseMobile?.(), [onCloseMobile]);
 
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(false);

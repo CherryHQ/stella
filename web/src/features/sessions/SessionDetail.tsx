@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import {
+  Menu,
   MessageCircleDashed,
   PanelLeftClose,
   PanelLeftOpen,
@@ -27,10 +28,10 @@ import { Transcript } from "./Transcript";
 interface Props {
   session: Session | null;
   currentUserID: string;
-  onBack: () => void;
   onNewSession?: () => void;
   onSessionUpdate: (s: Session) => void;
   onToggleSidebar?: () => void;
+  onOpenMobileSidebar?: () => void;
   sidebarCollapsed?: boolean;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
@@ -41,9 +42,9 @@ interface Props {
 export function SessionDetail({
   session,
   currentUserID,
-  onBack,
   onNewSession,
   onToggleSidebar,
+  onOpenMobileSidebar,
   sidebarCollapsed,
   onToggleWorkspace,
   workspaceOpen,
@@ -261,12 +262,16 @@ export function SessionDetail({
               )}
             </Button>
           )}
-          <button
-            onClick={onBack}
-            className="lg:hidden text-xs text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
-          >
-            ←
-          </button>
+          {onOpenMobileSidebar && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={onOpenMobileSidebar}
+              className="h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground md:hidden"
+            >
+              <Menu className="size-4" />
+            </Button>
+          )}
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
               {contextTitle || session.title || "Untitled session"}

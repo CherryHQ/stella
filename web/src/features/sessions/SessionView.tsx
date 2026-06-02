@@ -31,7 +31,7 @@ export function SessionView() {
   };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { sidebarOpen, toggleSidebar } = useAgentLayout();
+  const { sidebarOpen, toggleSidebar, openMobileSidebar } = useAgentLayout();
   const sidebarCollapsed = !sidebarOpen;
   const { data: me } = useQuery(meQueryOptions);
   const { data: agents = [] } = useQuery(agentsQueryOptions);
@@ -183,12 +183,10 @@ export function SessionView() {
         <SessionDetail
           session={sessionDetail}
           currentUserID={currentUserID}
-          onBack={() => {
-            void navigate({ to: "/agents/$agentId", params: { agentId } });
-          }}
           onNewSession={() => void createTemporarySession()}
           onSessionUpdate={(s) => setSessionDetail(s)}
           onToggleSidebar={toggleSidebar}
+          onOpenMobileSidebar={openMobileSidebar}
           sidebarCollapsed={sidebarCollapsed}
           onToggleWorkspace={toggleInspector}
           workspaceOpen={showWorkspace}
