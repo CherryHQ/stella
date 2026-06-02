@@ -108,7 +108,7 @@ func sessionAndCreatorResolver(_ *sqlc.Queries, _ memory.Provider, _ *slog.Logge
 // registrySessionMinter creates task sessions through the session.Registry for
 // the executor agent. Sessions are created with KindTask/ChannelTask so they
 // are excluded from user-facing session lists and review candidates.
-func registrySessionMinter(sm agent.ServiceManager, log *slog.Logger) SessionMinter {
+func registrySessionMinter(sm agent.ServiceManager, _ *slog.Logger) SessionMinter {
 	return func(ctx context.Context, task sqlc.AgentTask, executorAgentID string) (string, error) {
 		if task.UserID == "" {
 			return "", fmt.Errorf("task has no user_id; cannot mint session")
@@ -124,9 +124,7 @@ func registrySessionMinter(sm agent.ServiceManager, log *slog.Logger) SessionMin
 		}
 		svc := sm.GetService(agentID)
 		if svc == nil {
-			log.Warn("registrySessionMinter: no service for agent; falling back to UUID session",
-				"agent_id", agentID)
-			return legacyMintSession(task.UserID)
+			return "", fmt.Errorf("no service for executor agent %q", agentID)
 		}
 		info, err := svc.MintTaskSession(ctx, task.UserID, agentID)
 		if err != nil {

@@ -90,7 +90,10 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 		Channel:   req.Channel,
 	}
 	if req.SessionID != "" {
-		ensureReq.RequireKind = kind
+		// Resume: accept main or chat sessions; reject internal kinds.
+		if req.Kind != "" {
+			ensureReq.RequireKind = kind
+		}
 	} else {
 		ensureReq.CreateIfMissing = true
 	}

@@ -297,12 +297,12 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 			return nil
 		}
 		agentSvc := poolMgr.GetService(job.AgentID)
-		if agentSvc == nil {
+		if agentSvc == nil && job.AgentID == "" {
 			agentSvc = poolMgr.Default()
 		}
 		if agentSvc == nil {
 			slog.Warn("scheduler: no service available for job", "job_id", job.ID, "agent_id", job.AgentID)
-			return fmt.Errorf("no agent service available for job %s", job.ID)
+			return fmt.Errorf("no agent service available for job %s (agent %q)", job.ID, job.AgentID)
 		}
 		agentID := agentSvc.AgentID
 		sessionID := scheduler.RunSessionIDFromContext(ctx)

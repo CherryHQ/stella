@@ -183,10 +183,17 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		}
 	}
 
+	siKind := session.Kind(si.Kind)
+	if siKind != session.KindMain && siKind != session.KindChat {
+		writeError(w, http.StatusBadRequest, "cannot send messages to internal sessions")
+		return
+	}
+
 	ch := svc.Chat(ctx, agent.ChatRequest{
 		SessionID: sessionID,
 		UserID:    si.UserID,
 		AgentID:   si.AgentID,
+		Kind:      siKind,
 		Channel:   session.Channel(si.Channel),
 		Message:   msgContent,
 	})

@@ -52,6 +52,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		SessionID: info.ID,
 		UserID:    rc.User.ID,
 		AgentID:   rc.AgentID,
+		Kind:      session.Kind(info.Kind),
 		Channel:   rc.Channel,
 		Message:   message,
 	})
