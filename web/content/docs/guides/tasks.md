@@ -78,6 +78,8 @@ A goal is a container for related tasks. It rolls up from child task states:
 - A required child blocked → goal blocked.
 - Pending children → goal remains in progress.
 
+A blocked goal recovers on its own: once you resolve the child's blocker (or waive its failed dependency), the goal returns to in progress automatically. There is no separate goal-unblock step.
+
 Goal final synthesis and goal reviews are rejected in this release. Use goals as containers, and create the child tasks explicitly.
 
 ## Worker completion

@@ -78,6 +78,8 @@ Goal 是一组相关 tasks 的容器。它从 child task 状态汇总：
 - 任一必需子任务阻塞 → goal blocked。
 - 仍有子任务未完成 → goal 保持进行中。
 
+被阻塞的 goal 会自动恢复：当你解决子任务的 blocker（或 waive 其失败依赖）后，goal 会自动回到进行中，无需单独的 goal-unblock 操作。
+
 本版本会拒绝 goal 最终综合输出和 goal review。请把 goal 当作容器使用，并显式创建 child tasks。
 
 ## Worker 如何完成任务

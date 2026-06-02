@@ -33,6 +33,9 @@ func (d *Dispatcher) rollupOneGoal(ctx context.Context, g sqlc.AgentGoal) {
 	}
 	hasOpenSynth := d.hasOpenRunForGoal(ctx, g.ID, RunKindSynthesizer)
 	next := RollupGoal(g, counts, hasOpenSynth)
+	if next.NextStatus == "" || next.NextStatus == g.Status {
+		return // steady state or dormant SpawnSynthesizer; nothing to apply
+	}
 	switch next.NextStatus {
 	case GoalStatusDone:
 		_ = d.cfg.Service.CompleteGoal(ctx, g.ID, g.Output, SystemActor())
@@ -40,6 +43,9 @@ func (d *Dispatcher) rollupOneGoal(ctx context.Context, g sqlc.AgentGoal) {
 		_ = d.cfg.Service.FailGoal(ctx, g.ID, next.Reason, SystemActor())
 	case GoalStatusBlocked:
 		_ = d.cfg.Service.BlockGoal(ctx, g.ID, next.Reason, SystemActor())
+	case GoalStatusRunning:
+		// Recovery: a blocked goal whose children unblocked returns to running.
+		_ = d.cfg.Service.UnblockGoal(ctx, g.ID, next.Reason, SystemActor())
 	}
 	// D8: SpawnSynthesizer stays dormant in this slice. RollupGoal still
 	// computes the verdict, but no dispatch path consumes it until the

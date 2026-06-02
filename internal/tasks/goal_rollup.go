@@ -37,13 +37,15 @@ type GoalNextState struct {
 // run is already in flight). Caller (dispatcher.rollupGoals) translates the
 // outcome into a transition call.
 func RollupGoal(goal sqlc.AgentGoal, counts sqlc.GoalChildCountsRow, hasOpenSynth bool) GoalNextState {
-	// Terminal / quiescent states are not rolled.
+	// Terminal / quiescent states are not rolled. 'blocked' is intentionally
+	// NOT quiescent: a blocked goal must keep rolling so it recovers once its
+	// children unblock. The caller skips no-op transitions (target == current).
 	switch goal.Status {
 	case GoalStatusDone, GoalStatusFailed, GoalStatusCancelled,
-		GoalStatusReviewing, GoalStatusDraft, GoalStatusPlanning, GoalStatusBlocked:
+		GoalStatusReviewing, GoalStatusDraft, GoalStatusPlanning:
 		return GoalNextState{}
 	}
-	// goal.Status == running from here on.
+	// goal.Status is running or blocked from here on.
 
 	failed := nullFloatToInt(counts.RequiredFailed)
 	blocked := nullFloatToInt(counts.RequiredBlocked)
@@ -56,7 +58,9 @@ func RollupGoal(goal sqlc.AgentGoal, counts sqlc.GoalChildCountsRow, hasOpenSynt
 		return GoalNextState{NextStatus: GoalStatusBlocked, Reason: "required_child_blocked"}
 	}
 	if pending > 0 {
-		return GoalNextState{}
+		// Required children still in flight and none blocked. A running goal
+		// stays running (no-op); a blocked goal recovers to running.
+		return GoalNextState{NextStatus: GoalStatusRunning, Reason: "required_children_pending"}
 	}
 
 	// All required children done.

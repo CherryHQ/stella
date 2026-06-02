@@ -27,7 +27,7 @@ func TestRollupGoal(t *testing.T) {
 	}{
 		{"draft-no-op", GoalStatusDraft, ReviewPolicyNone, count(0, 0, 0, 2), false, "", false},
 		{"reviewing-no-op", GoalStatusReviewing, ReviewPolicyHuman, count(2, 0, 0, 0), false, "", false},
-		{"running-pending", GoalStatusRunning, ReviewPolicyNone, count(1, 0, 0, 2), false, "", false},
+		{"running-pending", GoalStatusRunning, ReviewPolicyNone, count(1, 0, 0, 2), false, GoalStatusRunning, false},
 		{"running-failed-child", GoalStatusRunning, ReviewPolicyNone, count(1, 1, 0, 0), false, GoalStatusFailed, false},
 		{"running-blocked-child", GoalStatusRunning, ReviewPolicyNone, count(1, 0, 1, 0), false, GoalStatusBlocked, false},
 		{"running-all-done-none", GoalStatusRunning, ReviewPolicyNone, count(3, 0, 0, 0), false, GoalStatusDone, false},
@@ -35,6 +35,14 @@ func TestRollupGoal(t *testing.T) {
 		{"running-all-done-human-spawn", GoalStatusRunning, ReviewPolicyHuman, count(3, 0, 0, 0), false, "", true},
 		{"running-all-done-synth-in-flight", GoalStatusRunning, ReviewPolicyHuman, count(3, 0, 0, 0), true, "", false},
 		{"running-failed-beats-blocked", GoalStatusRunning, ReviewPolicyNone, count(1, 1, 1, 0), false, GoalStatusFailed, false},
+		// Blocked goals keep rolling so they recover: a cleared blocker
+		// (pending>0, blocked=0) returns the goal to running; an unchanged
+		// blocker re-asserts blocked (caller skips that no-op); all-done
+		// completes; a child failure escalates to failed.
+		{"blocked-recovers-to-running", GoalStatusBlocked, ReviewPolicyNone, count(1, 0, 0, 2), false, GoalStatusRunning, false},
+		{"blocked-stays-blocked", GoalStatusBlocked, ReviewPolicyNone, count(1, 0, 1, 0), false, GoalStatusBlocked, false},
+		{"blocked-all-done-completes", GoalStatusBlocked, ReviewPolicyNone, count(3, 0, 0, 0), false, GoalStatusDone, false},
+		{"blocked-child-fails", GoalStatusBlocked, ReviewPolicyNone, count(1, 1, 0, 0), false, GoalStatusFailed, false},
 		{"terminal-no-op", GoalStatusDone, ReviewPolicyNone, count(3, 0, 0, 0), false, "", false},
 	}
 	for _, tc := range tests {

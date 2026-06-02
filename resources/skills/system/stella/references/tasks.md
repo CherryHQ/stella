@@ -132,6 +132,7 @@ Goal rollup:
 - required child failed → goal failed
 - required child blocked → goal blocked
 - pending child work → goal remains running
+- blocked goal recovers → when the blocking child's blocker is resolved or its failed dependency is waived, the goal returns to running on the next rollup; no separate goal-unblock command is needed
 
 Caveat: Stella does **not** auto-split a goal into child tasks yet. Planner and synthesizer runtimes are not supported. You create and attach the child tasks explicitly.
 

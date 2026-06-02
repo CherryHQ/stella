@@ -235,6 +235,34 @@ func (s *TransitionService) BlockGoal(ctx context.Context, goalID, reason string
 	})
 }
 
+// UnblockGoal recovers a goal from blocked back to running once no required
+// child is blocked or failed. Mirror of BlockGoal; driven by rollup when a
+// child blocker is resolved or the failed dependency is waived. The goal then
+// resumes normal rollup (completing or re-blocking) on subsequent ticks.
+func (s *TransitionService) UnblockGoal(ctx context.Context, goalID, reason string, actor Actor) error {
+	return s.withTx(ctx, func(q *sqlc.Queries) error {
+		goal, err := getGoalForUpdate(ctx, q, goalID)
+		if err != nil {
+			return err
+		}
+		if goal.Status != GoalStatusBlocked {
+			return ErrInvalidTransition
+		}
+		now := s.now()
+		n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
+			Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: GoalStatusBlocked,
+		})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrInvalidTransition
+		}
+		return s.appendGoalEvent(ctx, q, goalID, "goal_unblock", GoalStatusBlocked, GoalStatusRunning, actor,
+			map[string]any{"reason": reason})
+	})
+}
+
 // CompleteGoalTx runs CompleteGoal's body in an existing transaction. Used
 // by the dispatcher rollup loop, which holds the tx open across multiple
 // goals.

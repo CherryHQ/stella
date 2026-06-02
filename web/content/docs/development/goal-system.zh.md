@@ -40,7 +40,7 @@ description: 由子任务和任务汇总支持的 goal 容器。本版本 gate o
 ```text
 draft --ActivateGoal--> running --all required children done--> done
                               |--required child failed--------> failed
-                              |--required child blocked-------> blocked
+                              |--required child blocked-------> blocked --child unblocks--> running
 non-terminal --CancelGoal-------------------------------------> cancelled
 ```
 
@@ -56,12 +56,14 @@ RollupGoal(goal, childCounts, hasOpenSynth) GoalNextState
 
 对支持的 `review_policy=none` goals：
 
-| 子任务状态                               | 结论                                                   |
-| ---------------------------------------- | ------------------------------------------------------ |
-| 任一必需子任务 failed                    | Goal → `failed`，reason 为 `required_child_failed`。   |
-| 任一必需子任务 blocked                   | Goal → `blocked`，reason 为 `required_child_blocked`。 |
-| 任一必需子任务 pending/running/reviewing | No-op。                                                |
-| 所有必需子任务 done                      | Goal → `done`。                                        |
+| 子任务状态                               | 结论                                                                          |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| 任一必需子任务 failed                    | Goal → `failed`，reason 为 `required_child_failed`。                          |
+| 任一必需子任务 blocked                   | Goal → `blocked`，reason 为 `required_child_blocked`。                        |
+| 任一必需子任务 pending/running/reviewing | Goal → `running`（对已 running 的 goal 是 no-op；可让 `blocked` goal 恢复）。 |
+| 所有必需子任务 done                      | Goal → `done`。                                                               |
+
+`blocked` goal 会持续 rollup，因此解决子任务的 blocker（或 waive 其失败依赖）会在下一个 tick 通过 `UnblockGoal` 让 goal 回到 `running`——不需要单独的 goal-unblock 操作。当 rollup 算出的目标状态与当前状态相同时，dispatcher 会跳过这个 no-op transition。
 
 对 `review_policy=auto`、`agent` 或 `human`，本版本 API 会拒绝 goal 创建/激活。最终 synthesis 和 goal review 需要未来的 synthesizer runtime。
 

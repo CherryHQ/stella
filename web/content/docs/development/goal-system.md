@@ -40,7 +40,7 @@ Supported container mode:
 ```text
 draft --ActivateGoal--> running --all required children done--> done
                               |--required child failed--------> failed
-                              |--required child blocked-------> blocked
+                              |--required child blocked-------> blocked --child unblocks--> running
 non-terminal --CancelGoal-------------------------------------> cancelled
 ```
 
@@ -56,12 +56,14 @@ RollupGoal(goal, childCounts, hasOpenSynth) GoalNextState
 
 For supported `review_policy=none` goals:
 
-| Child state                                  | Verdict                                                |
-| -------------------------------------------- | ------------------------------------------------------ |
-| Any required child failed                    | Goal → `failed` with reason `required_child_failed`.   |
-| Any required child blocked                   | Goal → `blocked` with reason `required_child_blocked`. |
-| Any required child pending/running/reviewing | No-op.                                                 |
-| All required children done                   | Goal → `done`.                                         |
+| Child state                                  | Verdict                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------- |
+| Any required child failed                    | Goal → `failed` with reason `required_child_failed`.                             |
+| Any required child blocked                   | Goal → `blocked` with reason `required_child_blocked`.                           |
+| Any required child pending/running/reviewing | Goal → `running` (no-op for an already-running goal; recovers a `blocked` goal). |
+| All required children done                   | Goal → `done`.                                                                   |
+
+A `blocked` goal keeps rolling up, so resolving a child blocker (or waiving its failed dependency) returns the goal to `running` on the next tick via `UnblockGoal` — there is no separate goal-unblock action. The dispatcher skips no-op transitions where the rolled-up target equals the current status.
 
 For `review_policy=auto`, `agent`, or `human`, the API rejects goal creation/activation in this release. Final synthesis and goal review require a future synthesizer runtime.
 
