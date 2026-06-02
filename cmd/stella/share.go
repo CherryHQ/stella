@@ -33,6 +33,7 @@ func shareArtifactCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "agent-id", Usage: "Stella agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "session-id", Usage: "Stella session ID (defaults to STELLA_SESSION_ID)"},
 			&ucli.StringFlag{Name: "expires-in", Usage: "Expiration: 1h, 1d, 7d, never", Value: "7d"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			path := c.Args().First()
@@ -65,8 +66,12 @@ func shareArtifactCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.App.Writer, share.Url)
-			return err
+			if isJSON(c) {
+				return printJSON(c, share)
+			}
+			o := stdout(c)
+			o.println(share.Url)
+			return o.Err()
 		},
 	}
 }
@@ -78,6 +83,7 @@ func shareArticleCommand() *ucli.Command {
 		ArgsUsage: "<article-id>",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "expires-in", Usage: "Expiration: 1h, 1d, 7d, never", Value: "7d"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			articleID := c.Args().First()
@@ -94,8 +100,12 @@ func shareArticleCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.App.Writer, share.Url)
-			return err
+			if isJSON(c) {
+				return printJSON(c, share)
+			}
+			o := stdout(c)
+			o.println(share.Url)
+			return o.Err()
 		},
 	}
 }

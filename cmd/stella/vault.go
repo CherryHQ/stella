@@ -51,7 +51,7 @@ func vaultListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List vault entries",
 		Flags: []ucli.Flag{
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			list, err := apiclient.Call[apitypes.VaultEntryList](func(api *apiclient.Client) (*http.Response, error) {
@@ -60,20 +60,21 @@ func vaultListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
+			if isJSON(c) {
+				return printJSON(c, list)
+			}
 			entries := list.Entries
-			if c.Bool("json") {
-				return printJSON(c, entries)
-			}
+			o := stdout(c)
 			if len(entries) == 0 {
-				fmt.Println("No vault entries.")
-				return nil
+				o.println("No vault entries.")
+				return o.Err()
 			}
-			fmt.Printf("%-30s  %-20s  %-20s\n", "NAME", "CREATED", "UPDATED")
+			o.printf("%-30s  %-20s  %-20s\n", "NAME", "CREATED", "UPDATED")
 			for _, e := range entries {
-				fmt.Printf("%-30s  %-20s  %-20s\n",
+				o.printf("%-30s  %-20s  %-20s\n",
 					truncate(e.Name, 30), e.CreatedAt.Format("2006-01-02 15:04:05"), e.UpdatedAt.Format("2006-01-02 15:04:05"))
 			}
-			return nil
+			return o.Err()
 		},
 	}
 }
@@ -84,7 +85,7 @@ func vaultGetCommand() *ucli.Command {
 		Usage:     "Get a vault entry value",
 		ArgsUsage: "<name>",
 		Flags: []ucli.Flag{
-			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
@@ -97,11 +98,14 @@ func vaultGetCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if c.Bool("json") {
+			if isJSON(c) {
 				return printJSON(c, entry)
 			}
-			fmt.Println(entry.Value)
-			return nil
+			// Deliberate exception to the no-secrets rule: `vault get <name>` is
+			// the explicit single-resource retrieval used for scripting.
+			o := stdout(c)
+			o.println(entry.Value)
+			return o.Err()
 		},
 	}
 }
@@ -111,6 +115,9 @@ func vaultSetCommand() *ucli.Command {
 		Name:      "set",
 		Usage:     "Set a vault entry (use '-' as value to read from stdin)",
 		ArgsUsage: "<name> <value>",
+		Flags: []ucli.Flag{
+			jsonFlag(),
+		},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().Get(0)
 			value := c.Args().Get(1)
@@ -132,8 +139,12 @@ func vaultSetCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			fmt.Printf("Vault entry %q set.\n", name)
-			return nil
+			if isJSON(c) {
+				return printJSON(c, map[string]any{"name": name, "set": true})
+			}
+			o := stdout(c)
+			o.printf("Vault entry %q set.\n", name)
+			return o.Err()
 		},
 	}
 }
@@ -143,6 +154,9 @@ func vaultDeleteCommand() *ucli.Command {
 		Name:      "delete",
 		Usage:     "Delete a vault entry",
 		ArgsUsage: "<name>",
+		Flags: []ucli.Flag{
+			jsonFlag(),
+		},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
@@ -153,8 +167,12 @@ func vaultDeleteCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			fmt.Printf("Vault entry %q deleted.\n", name)
-			return nil
+			if isJSON(c) {
+				return printDeleted(c, name)
+			}
+			o := stdout(c)
+			o.printf("Vault entry %q deleted.\n", name)
+			return o.Err()
 		},
 	}
 }

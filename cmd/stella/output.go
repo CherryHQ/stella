@@ -20,6 +20,10 @@ type lineWriter struct {
 // stdout returns a lineWriter over the command's stdout sink.
 func stdout(c *ucli.Context) *lineWriter { return &lineWriter{w: c.App.Writer} }
 
+// stderr returns a lineWriter over the command's stderr sink, for progress and
+// prompt text that must not pollute machine-readable stdout.
+func stderr(c *ucli.Context) *lineWriter { return &lineWriter{w: c.App.ErrWriter} }
+
 func (l *lineWriter) printf(format string, a ...any) {
 	if l.err != nil {
 		return

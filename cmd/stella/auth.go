@@ -55,6 +55,7 @@ Requires an active stella server and admin credentials.`,
 				Name:  "name",
 				Usage: "Display name for this identity (optional)",
 			},
+			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			req := apitypes.LinkLoginIdentityRequest{
@@ -74,12 +75,16 @@ Requires an active stella server and admin credentials.`,
 				return fmt.Errorf("link identity: %w", err)
 			}
 
-			fmt.Printf("Linked identity %s\n", identity.Id)
-			fmt.Printf("  User:     %s\n", identity.UserId)
-			fmt.Printf("  Provider: %s\n", identity.Provider)
-			fmt.Printf("  Subject:  %s\n", identity.ProviderSubject)
-			fmt.Printf("  Email:    %s\n", identity.Email)
-			return nil
+			if isJSON(c) {
+				return printJSON(c, identity)
+			}
+			o := stdout(c)
+			o.printf("Linked identity %s\n", identity.Id)
+			o.printf("  User:     %s\n", identity.UserId)
+			o.printf("  Provider: %s\n", identity.Provider)
+			o.printf("  Subject:  %s\n", identity.ProviderSubject)
+			o.printf("  Email:    %s\n", identity.Email)
+			return o.Err()
 		},
 	}
 }

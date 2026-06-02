@@ -99,7 +99,6 @@ func recallyFeedListCommand() *ucli.Command {
 func recallyFeedRemoveCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "remove",
-		Aliases:   []string{"rm"},
 		Usage:     "Unsubscribe from an RSS feed",
 		ArgsUsage: "<feed-id>",
 		Flags:     []ucli.Flag{jsonFlag()},
