@@ -142,6 +142,12 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	// Convert AI SDK parts to internal MessageContent.
 	msgContent := partsToMessageContent(body.Parts)
 
+	siKind := session.Kind(si.Kind)
+	if siKind != session.KindMain && siKind != session.KindChat {
+		writeError(w, http.StatusBadRequest, "cannot send messages to internal sessions")
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -181,12 +187,6 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 			writeData(map[string]string{"type": "reasoning-end", "id": reasoningID})
 			inReasoning = false
 		}
-	}
-
-	siKind := session.Kind(si.Kind)
-	if siKind != session.KindMain && siKind != session.KindChat {
-		writeError(w, http.StatusBadRequest, "cannot send messages to internal sessions")
-		return
 	}
 
 	ch := svc.Chat(ctx, agent.ChatRequest{
