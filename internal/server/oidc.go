@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
@@ -42,19 +43,36 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+
+	ip := clientIP(r)
+	email := string(body.Email)
+	if err := s.rateLimiter.CheckIP(ip); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+	if err := s.rateLimiter.CheckUsername(email); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+
 	state, ok := s.startLocalAuthFlow(w, r)
 	if !ok {
 		return
 	}
 	redirectURL, err := s.localAuth.Login(r.Context(), local.LoginInput{
-		Email:    string(body.Email),
+		Email:    email,
 		Password: body.Password,
 		State:    state,
 	})
 	if err != nil {
+		s.rateLimiter.RecordIPAttempt(ip)
+		if errors.Is(err, local.ErrInvalidLogin) {
+			s.rateLimiter.RecordLoginFailure(email)
+		}
 		s.writeLocalAuthError(w, err)
 		return
 	}
+	s.rateLimiter.RecordLoginSuccess(email)
 	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: redirectURL})
 }
 
@@ -68,6 +86,13 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+
+	ip := clientIP(r)
+	if err := s.rateLimiter.CheckIP(ip); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+
 	state, ok := s.startLocalAuthFlow(w, r)
 	if !ok {
 		return
@@ -80,6 +105,7 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 		State:           state,
 	})
 	if err != nil {
+		s.rateLimiter.RecordIPAttempt(ip)
 		s.writeLocalAuthError(w, err)
 		return
 	}
@@ -117,6 +143,14 @@ func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 	default:
 		s.writeInternalError(w, err)
 	}
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // handleOIDCLogin handles GET /auth/login/{provider}.

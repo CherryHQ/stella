@@ -60,7 +60,7 @@ func (s *Service) AllowsRegistration(ctx context.Context) bool {
 }
 
 func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
-	email := strings.TrimSpace(in.Email)
+	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if email == "" || in.Password == "" {
 		return "", ErrInvalidInput
 	}
@@ -87,7 +87,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error
 	}
 
 	name := strings.TrimSpace(in.Name)
-	email := strings.TrimSpace(in.Email)
+	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if name == "" || email == "" || in.Password == "" || in.ConfirmPassword == "" {
 		return "", ErrInvalidInput
 	}
@@ -148,6 +148,7 @@ func createBootstrapUserNoTx(ctx context.Context, users auth.UserStore, credenti
 
 	credSvc := auth.NewCredentialService(credentials)
 	if err := credSvc.SetPassword(ctx, newUser.ID, password); err != nil {
+		_ = users.DeleteUser(ctx, newUser.ID)
 		return "", err
 	}
 	return newUser.ID, nil
