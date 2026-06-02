@@ -408,6 +408,87 @@ func TestAuthorizePostIssuesCode(t *testing.T) {
 	}
 }
 
+func TestRegisterPost(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	users := newFakeUserStore()
+	creds := newFakeCredStore()
+	codeStore := newFakeCodeStore()
+
+	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
+
+	q := url.Values{
+		"client_id":     {cfg.ClientID},
+		"redirect_uri":  {cfg.RedirectURIs[0]},
+		"response_type": {"code"},
+		"scope":         {"openid email"},
+		"state":         {"registerstate"},
+		"mode":          {"register"},
+	}
+
+	// 1. Test short password
+	formShort := url.Values{
+		"name":             {"Test User"},
+		"email":            {"register@test.example"},
+		"password":         {"short"},
+		"confirm_password": {"short"},
+	}
+	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(formShort.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	issuer.HandleAuthorize(w, r)
+
+	if w.Code == http.StatusFound {
+		t.Error("should not issue redirect for short password")
+	}
+	if !strings.Contains(w.Body.String(), "Password must be at least 8 characters long.") {
+		t.Errorf("expected error message about short password, got: %s", w.Body.String())
+	}
+
+	// 2. Test mismatched passwords
+	formMismatch := url.Values{
+		"name":             {"Test User"},
+		"email":            {"register@test.example"},
+		"password":         {"password123"},
+		"confirm_password": {"password321"},
+	}
+	r2 := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(formMismatch.Encode()))
+	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	issuer.HandleAuthorize(w2, r2)
+
+	if w2.Code == http.StatusFound {
+		t.Error("should not issue redirect for mismatched passwords")
+	}
+	if !strings.Contains(w2.Body.String(), "Passwords do not match.") {
+		t.Errorf("expected error message about mismatch, got: %s", w2.Body.String())
+	}
+
+	// 3. Test successful registration
+	formSuccess := url.Values{
+		"name":             {"Test User"},
+		"email":            {"register@test.example"},
+		"password":         {"password123"},
+		"confirm_password": {"password123"},
+	}
+	r3 := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(formSuccess.Encode()))
+	r3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w3 := httptest.NewRecorder()
+	issuer.HandleAuthorize(w3, r3)
+
+	if w3.Code != http.StatusFound {
+		t.Fatalf("status %d, want 302. body: %s", w3.Code, w3.Body.String())
+	}
+	loc := w3.Result().Header.Get("Location")
+	u, _ := url.Parse(loc)
+	if u.Query().Get("code") == "" {
+		t.Errorf("no code in redirect: %s", loc)
+	}
+	if u.Query().Get("state") != "registerstate" {
+		t.Errorf("state mismatch: %s", loc)
+	}
+}
+
 func TestTokenExchangeAndIDToken(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)

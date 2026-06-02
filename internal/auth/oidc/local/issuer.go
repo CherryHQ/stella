@@ -219,6 +219,11 @@ func (is *Issuer) parseAuthorizeParams(r *http.Request) (*authorizeParams, error
 	}, nil
 }
 
+func isJSONRequest(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json") || r.Header.Get("X-Requested-With") == "XMLHttpRequest"
+}
+
 func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -226,25 +231,39 @@ func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ct
 	}
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
+
+	showError := func(errMsg string) {
+		if isJSONRequest(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   errMsg,
+			})
+			return
+		}
+		is.renderLoginForm(w, params, errMsg)
+	}
+
 	if email == "" || password == "" {
-		is.renderLoginForm(w, params, "Email and password are required.")
+		showError("Email and password are required.")
 		return
 	}
 
 	user, err := is.users.GetUserByEmail(ctx, email)
 	if err != nil {
-		is.renderLoginForm(w, params, "Invalid email or password.")
+		showError("Invalid email or password.")
 		return
 	}
 
 	if !user.IsActive {
-		is.renderLoginForm(w, params, "Account is disabled.")
+		showError("Account is disabled.")
 		return
 	}
 
 	credSvc := auth.NewCredentialService(is.credentials)
 	if err := credSvc.VerifyPassword(ctx, user.ID, password); err != nil {
-		is.renderLoginForm(w, params, "Invalid email or password.")
+		showError("Invalid email or password.")
 		return
 	}
 
@@ -259,20 +278,45 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 	name := strings.TrimSpace(r.FormValue("name"))
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
-	if name == "" || email == "" || password == "" {
-		is.renderRegisterForm(w, params, "All fields are required.")
+	confirmPassword := r.FormValue("confirm_password")
+
+	showError := func(errMsg string) {
+		if isJSONRequest(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   errMsg,
+			})
+			return
+		}
+		is.renderRegisterForm(w, params, errMsg)
+	}
+
+	if name == "" || email == "" || password == "" || confirmPassword == "" {
+		showError("All fields are required.")
+		return
+	}
+
+	if len(password) < 8 {
+		showError("Password must be at least 8 characters long.")
+		return
+	}
+
+	if password != confirmPassword {
+		showError("Passwords do not match.")
 		return
 	}
 
 	if _, err := is.users.GetUserByEmail(ctx, email); err == nil {
-		is.renderRegisterForm(w, params, "An account with this email already exists.")
+		showError("An account with this email already exists.")
 		return
 	}
 
 	// First registered user becomes admin.
 	count, err := is.users.CountUsers(ctx)
 	if err != nil {
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		showError("Registration failed. Please try again.")
 		return
 	}
 	role := auth.RoleUser
@@ -287,14 +331,14 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		Role:  role,
 	})
 	if err != nil {
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		showError("Registration failed. Please try again.")
 		return
 	}
 
 	credSvc := auth.NewCredentialService(is.credentials)
 	if err := credSvc.SetPassword(ctx, newUser.ID, password); err != nil {
 		_ = is.users.DeleteUser(ctx, newUser.ID)
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
+		showError("Registration failed. Please try again.")
 		return
 	}
 
@@ -326,20 +370,253 @@ func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, c
 	if params.state != "" {
 		redirectURL += "&state=" + params.state
 	}
+
+	if isJSONRequest(r) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success":      true,
+			"redirect_url": redirectURL,
+		})
+		return
+	}
+
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
-const formCSS = `body{font-family:system-ui,sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12);padding:2rem;width:100%;max-width:360px}
-h1{font-size:1.25rem;margin:0 0 1.5rem}
-label{display:block;font-size:.875rem;margin-bottom:.25rem;color:#555}
-input[type=email],input[type=password],input[type=text]{width:100%;box-sizing:border-box;padding:.5rem .75rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;margin-bottom:1rem}
-button{width:100%;padding:.625rem;background:#0070f3;color:#fff;border:none;border-radius:4px;font-size:1rem;cursor:pointer}
-button:hover{background:#0051bb}
-.error{background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:.5rem .75rem;margin-bottom:1rem;font-size:.875rem}
-.switch{text-align:center;margin-top:1rem;font-size:.875rem;color:#555}
-.switch a{color:#0070f3;text-decoration:none}
-.switch a:hover{text-decoration:underline}`
+const formCSS = `
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+
+:root {
+	--bg-color: #0f0f10;
+	--text-color: #f0f0f0;
+	--muted-color: #9b9b9b;
+	--card-bg: rgba(25, 25, 26, 0.45);
+	--card-border: rgba(255, 255, 255, 0.08);
+	--input-bg: rgba(255, 255, 255, 0.03);
+	--input-border: rgba(255, 255, 255, 0.1);
+	--input-focus-border: #a855f7;
+	--input-focus-shadow: rgba(168, 85, 247, 0.25);
+	--primary-color: #a855f7;
+	--primary-hover: #9333ea;
+	--primary-text: #ffffff;
+	--error-bg: rgba(239, 68, 68, 0.1);
+	--error-border: rgba(239, 68, 68, 0.2);
+	--error-text: #ef4444;
+	--orb-1: rgba(124, 58, 237, 0.12);
+	--orb-2: rgba(168, 85, 247, 0.08);
+	--grid-color: rgba(255, 255, 255, 0.02);
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		--bg-color: #fafafa;
+		--text-color: #0f0f10;
+		--muted-color: #5c5c5e;
+		--card-bg: rgba(255, 255, 255, 0.7);
+		--card-border: rgba(0, 0, 0, 0.08);
+		--input-bg: #ffffff;
+		--input-border: rgba(0, 0, 0, 0.1);
+		--input-focus-border: #7c3aed;
+		--input-focus-shadow: rgba(124, 58, 237, 0.15);
+		--primary-color: #7c3aed;
+		--primary-hover: #6d28d9;
+		--primary-text: #ffffff;
+		--error-bg: rgba(220, 38, 38, 0.05);
+		--error-border: rgba(220, 38, 38, 0.15);
+		--error-text: #dc2626;
+		--orb-1: rgba(124, 58, 237, 0.06);
+		--orb-2: rgba(168, 85, 247, 0.04);
+		--grid-color: rgba(0, 0, 0, 0.02);
+	}
+}
+
+body {
+	font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+	background-color: var(--bg-color);
+	background-image: 
+		linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+		linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+	background-size: 24px 24px;
+	background-position: center;
+	color: var(--text-color);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 100vh;
+	margin: 0;
+	position: relative;
+	overflow: hidden;
+}
+
+body::before {
+	content: '';
+	position: absolute;
+	top: -20%;
+	left: -20%;
+	width: 60%;
+	height: 60%;
+	border-radius: 50%;
+	background: radial-gradient(circle, var(--orb-1) 0%, transparent 70%);
+	filter: blur(80px);
+	z-index: -1;
+	pointer-events: none;
+}
+
+body::after {
+	content: '';
+	position: absolute;
+	bottom: -20%;
+	right: -20%;
+	width: 60%;
+	height: 60%;
+	border-radius: 50%;
+	background: radial-gradient(circle, var(--orb-2) 0%, transparent 70%);
+	filter: blur(80px);
+	z-index: -1;
+	pointer-events: none;
+}
+
+.card {
+	background: var(--card-bg);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	border: 1px solid var(--card-border);
+	border-radius: 16px;
+	box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+	padding: 2.5rem 2rem;
+	width: 100%;
+	max-width: 340px;
+	z-index: 10;
+	transition: all 0.3s ease;
+}
+
+.card:hover {
+	box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3), 0 0 40px rgba(124, 58, 237, 0.05);
+	border-color: rgba(124, 58, 237, 0.2);
+}
+
+.brand-header {
+	text-align: center;
+	margin-bottom: 2rem;
+}
+
+.logo-container {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.75rem;
+	border-radius: 12px;
+	background: rgba(124, 58, 237, 0.05);
+	border: 1px solid rgba(124, 58, 237, 0.1);
+	margin-bottom: 1.25rem;
+}
+
+h1 {
+	font-size: 1.5rem;
+	font-weight: 600;
+	margin: 0;
+	letter-spacing: -0.025em;
+	color: var(--text-color);
+}
+
+.subtitle {
+	font-size: 0.875rem;
+	color: var(--muted-color);
+	margin-top: 0.375rem;
+	margin-bottom: 0;
+}
+
+label {
+	display: block;
+	font-size: 0.875rem;
+	font-weight: 500;
+	margin-bottom: 0.375rem;
+	color: var(--text-color);
+	opacity: 0.9;
+}
+
+input[type=email], input[type=password], input[type=text] {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 0.75rem 1rem;
+	background: var(--input-bg);
+	border: 1px solid var(--input-border);
+	border-radius: 8px;
+	font-size: 0.95rem;
+	color: var(--text-color);
+	margin-bottom: 1.25rem;
+	transition: all 0.2s ease;
+	outline: none;
+}
+
+input[type=email]:focus, input[type=password]:focus, input[type=text]:focus {
+	border-color: var(--input-focus-border);
+	box-shadow: 0 0 0 3px var(--input-focus-shadow);
+	background: rgba(255, 255, 255, 0.01);
+}
+
+button {
+	width: 100%;
+	padding: 0.75rem 1rem;
+	background: var(--primary-color);
+	color: var(--primary-text);
+	border: none;
+	border-radius: 8px;
+	font-size: 0.95rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	box-shadow: 0 4px 12px rgba(124, 58, 237, 0.15);
+}
+
+button:hover {
+	background: var(--primary-hover);
+	transform: translateY(-1px);
+	box-shadow: 0 6px 16px rgba(124, 58, 237, 0.25);
+}
+
+button:active {
+	transform: translateY(0);
+}
+
+.error {
+	background: var(--error-bg);
+	color: var(--error-text);
+	border: 1px solid var(--error-border);
+	border-radius: 8px;
+	padding: 0.75rem 1rem;
+	margin-bottom: 1.25rem;
+	font-size: 0.875rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	animation: shake 0.4s ease-in-out;
+}
+
+@keyframes shake {
+	0%, 100% { transform: translateX(0); }
+	25% { transform: translateX(-4px); }
+	75% { transform: translateX(4px); }
+}
+
+.switch {
+	text-align: center;
+	margin-top: 1.5rem;
+	font-size: 0.875rem;
+	color: var(--muted-color);
+}
+
+.switch a {
+	color: var(--primary-color);
+	text-decoration: none;
+	font-weight: 500;
+	transition: color 0.2s ease;
+}
+
+.switch a:hover {
+	text-decoration: underline;
+}
+`
 
 var loginFormTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <html lang="en">
@@ -351,8 +628,40 @@ var loginFormTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 </head>
 <body>
 <div class="card">
-  <h1>Sign in to Stella</h1>
-  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+  <div class="brand-header">
+    <div class="logo-container">
+      <svg width="32" height="32" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="logo-bg" cx="35%" cy="30%" r="90%">
+            <stop offset="0%" stop-color="#18315b"/>
+            <stop offset="70%" stop-color="#0d1b34"/>
+            <stop offset="100%" stop-color="#091223"/>
+          </radialGradient>
+          <linearGradient id="logo-gold" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#f2d08b"/>
+            <stop offset="100%" stop-color="#c99546"/>
+          </linearGradient>
+        </defs>
+        <circle cx="512" cy="512" r="512" fill="url(#logo-bg)"/>
+        <g fill="none" stroke="url(#logo-gold)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M360 735 L512 300 L664 735"/>
+          <path d="M423 565 L601 565"/>
+        </g>
+      </svg>
+    </div>
+    <h1>Sign in to Stella</h1>
+    <p class="subtitle">Sign in to continue</p>
+  </div>
+  {{if .Error}}
+  <div class="error">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="8" x2="12" y2="12"></line>
+      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+    </svg>
+    <span>{{.Error}}</span>
+  </div>
+  {{end}}
   <form method="POST" action="{{.Action}}">
     <label for="email">Email</label>
     <input type="email" id="email" name="email" autocomplete="email" required>
@@ -375,8 +684,40 @@ var registerFormTmpl = template.Must(template.New("register").Parse(`<!DOCTYPE h
 </head>
 <body>
 <div class="card">
-  <h1>Create an account</h1>
-  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+  <div class="brand-header">
+    <div class="logo-container">
+      <svg width="32" height="32" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="logo-bg" cx="35%" cy="30%" r="90%">
+            <stop offset="0%" stop-color="#18315b"/>
+            <stop offset="70%" stop-color="#0d1b34"/>
+            <stop offset="100%" stop-color="#091223"/>
+          </radialGradient>
+          <linearGradient id="logo-gold" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#f2d08b"/>
+            <stop offset="100%" stop-color="#c99546"/>
+          </linearGradient>
+        </defs>
+        <circle cx="512" cy="512" r="512" fill="url(#logo-bg)"/>
+        <g fill="none" stroke="url(#logo-gold)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M360 735 L512 300 L664 735"/>
+          <path d="M423 565 L601 565"/>
+        </g>
+      </svg>
+    </div>
+    <h1>Create an account</h1>
+    <p class="subtitle">Register to get started</p>
+  </div>
+  {{if .Error}}
+  <div class="error">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="8" x2="12" y2="12"></line>
+      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+    </svg>
+    <span>{{.Error}}</span>
+  </div>
+  {{end}}
   <form method="POST" action="{{.Action}}">
     <label for="name">Name</label>
     <input type="text" id="name" name="name" autocomplete="name" required>
@@ -384,6 +725,8 @@ var registerFormTmpl = template.Must(template.New("register").Parse(`<!DOCTYPE h
     <input type="email" id="email" name="email" autocomplete="email" required>
     <label for="password">Password</label>
     <input type="password" id="password" name="password" autocomplete="new-password" required>
+    <label for="confirm_password">Confirm Password</label>
+    <input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" required>
     <button type="submit">Sign up</button>
   </form>
   <div class="switch">Already have an account? <a href="{{.LoginURL}}">Sign in</a></div>

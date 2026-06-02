@@ -45,8 +45,38 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:25678",
       "/api-references": "http://localhost:25678",
-      "/auth": "http://localhost:25678",
-      "/oidc": "http://localhost:25678",
+      "/auth": {
+        target: "http://localhost:25678",
+        configure: (proxy) => {
+          proxy.on("proxyRes", (proxyRes) => {
+            const location = proxyRes.headers.location;
+            if (location) {
+              try {
+                const url = new URL(location, "http://localhost");
+                proxyRes.headers.location = url.pathname + url.search;
+              } catch {
+                // Ignore parse errors
+              }
+            }
+          });
+        },
+      },
+      "/oidc": {
+        target: "http://localhost:25678",
+        configure: (proxy) => {
+          proxy.on("proxyRes", (proxyRes) => {
+            const location = proxyRes.headers.location;
+            if (location) {
+              try {
+                const url = new URL(location, "http://localhost");
+                proxyRes.headers.location = url.pathname + url.search;
+              } catch {
+                // Ignore parse errors
+              }
+            }
+          });
+        },
+      },
     },
   },
 });

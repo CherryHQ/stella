@@ -5,15 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { listAuthProviders } from "@/lib/api-client/sdk.gen";
-import { useI18n } from "@/lib/i18n";
-import type { OidcProviderList } from "@/lib/api-client/types.gen";
-import { Mail, Lock, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
+import { Mail, Lock, User, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 
-export function LoginPage() {
-  const { t } = useI18n();
+export function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,23 +22,31 @@ export function LoginPage() {
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
   });
-  const providers = (providersData?.data as OidcProviderList)?.providers ?? [];
-
-  const hasLocalProvider = providers.some((p) => p.name === "local");
-  const otherProviders = providers.filter((p) => p.name !== "local");
-  const hasRegisterEnabled = providers.some((p) => p.name === "local" && p.register_url);
+  const providers = (providersData?.data as any)?.providers ?? [];
+  const hasLocalProvider = providers.some((p: any) => p.name === "local");
+  const hasRegisterEnabled = providers.some((p: any) => p.name === "local" && p.register_url);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
-      // 1. Initiate OIDC request to set PKCE/state cookies
-      const initialUrl = "/auth/login/local";
+      // 1. Initiate OIDC request to set PKCE/state cookies for registration
+      const initialUrl = "/auth/login/local?mode=register";
       const initRes = await fetch(initialUrl);
       if (!initRes.ok) {
-        throw new Error("Failed to initialize authentication flow");
+        throw new Error("Failed to initialize registration flow");
       }
 
       // The response URL is the direct same-origin /oidc/local/authorize?... endpoint
@@ -48,6 +56,8 @@ export function LoginPage() {
       const body = new URLSearchParams();
       body.append("email", email);
       body.append("password", password);
+      body.append("confirm_password", confirmPassword);
+      body.append("name", name);
 
       const authRes = await fetch(authorizeUrl, {
         method: "POST",
@@ -60,7 +70,7 @@ export function LoginPage() {
 
       const data = await authRes.json();
       if (!authRes.ok || !data.success) {
-        setError(data.error || "Authentication failed");
+        setError(data.error || "Registration failed");
         return;
       }
 
@@ -86,7 +96,7 @@ export function LoginPage() {
 
       {/* Main glass card container */}
       <div className="w-full max-w-[420px] mx-4 rounded-2xl border border-border/40 bg-card/45 backdrop-blur-xl shadow-2xl p-8 relative z-10 transition-all duration-300 hover:shadow-primary/5 hover:border-border/60">
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-primary/5 border border-primary/10 mb-4 shadow-inner">
             <img
               src="/stella-monogram.svg"
@@ -99,7 +109,7 @@ export function LoginPage() {
           <h1 className="font-serif italic text-primary text-4xl tracking-tight select-none">
             stella
           </h1>
-          <p className="text-muted-foreground text-sm mt-2">{t("login.subtitle")}</p>
+          <p className="text-muted-foreground text-sm mt-2">Create an account to get started</p>
         </div>
 
         {error && (
@@ -109,8 +119,32 @@ export function LoginPage() {
           </div>
         )}
 
-        {hasLocalProvider ? (
+        {!hasLocalProvider ? (
+          <p className="text-center text-sm text-muted-foreground">
+            Local registration is not available. Please contact your administrator.
+          </p>
+        ) : !hasRegisterEnabled ? (
+          <p className="text-center text-sm text-muted-foreground">
+            Registration is currently disabled on this instance.
+          </p>
+        ) : (
           <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="name">Name</Label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  id="name"
+                  type="text"
+                  required
+                  placeholder="John Doe"
+                  className="pl-9 bg-background/50"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
               <div className="relative">
@@ -128,16 +162,14 @@ export function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="password">Password</Label>
-              </div>
+              <Label htmlFor="password">Password</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
                   required
-                  placeholder="••••••••"
+                  placeholder="•••••••• (min 8 chars)"
                   className="pl-9 pr-10 bg-background/50"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -152,6 +184,29 @@ export function LoginPage() {
               </div>
             </div>
 
+            <div className="space-y-1.5">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? "text" : "password"}
+                  required
+                  placeholder="••••••••"
+                  className="pl-9 pr-10 bg-background/50"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </div>
+
             <Button
               type="submit"
               disabled={loading}
@@ -160,55 +215,20 @@ export function LoginPage() {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <Loader2 className="size-4 animate-spin" />
-                  Signing in...
+                  Signing up...
                 </span>
               ) : (
-                t("login.signIn")
+                "Sign up"
               )}
             </Button>
 
-            {hasRegisterEnabled && (
-              <p className="text-center text-sm text-muted-foreground mt-4">
-                Don't have an account?{" "}
-                <Link to="/signup" className="text-primary hover:underline font-medium ml-1">
-                  Sign up
-                </Link>
-              </p>
-            )}
+            <p className="text-center text-sm text-muted-foreground mt-4">
+              Already have an account?{" "}
+              <Link to="/login" className="text-primary hover:underline font-medium ml-1">
+                Sign in
+              </Link>
+            </p>
           </form>
-        ) : (
-          providers.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground">{t("login.noProviders")}</p>
-          )
-        )}
-
-        {otherProviders.length > 0 && (
-          <div className="mt-6 space-y-4">
-            {hasLocalProvider && (
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-border/40" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card/45 px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {otherProviders.map((p) => (
-                <a key={p.name} href={p.login_url} className="block group">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
-                  >
-                    {t("login.signIn")} {p.name}
-                  </Button>
-                </a>
-              ))}
-            </div>
-          </div>
         )}
       </div>
     </div>
