@@ -38,6 +38,7 @@ type SetupResult struct {
 	AuthSvc    *auth.AuthService
 	SessionMgr *auth.SessionManager
 	StateMgr   *StateManager
+	LocalAuth  *local.Service
 	// RegisterRoutes mounts local OIDC issuer endpoints on the mux.
 	// Nil for external OIDC providers.
 	RegisterRoutes func(mux *http.ServeMux)
@@ -89,13 +90,14 @@ func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, s
 
 	callbackURL := p.BaseURL + "/auth/callback/local"
 	cfg := &local.Config{
-		IssuerURL:      p.BaseURL + "/oidc/local",
-		ClientID:       local.AutoClientID,
-		SigningKey:     signingKey,
-		KeyID:          local.AutoKeyID,
-		RedirectURIs:   []string{callbackURL},
-		AccessTokenTTL: 3600,
-		AuthCodeTTL:    120,
+		IssuerURL:         p.BaseURL + "/oidc/local",
+		ClientID:          local.AutoClientID,
+		SigningKey:        signingKey,
+		KeyID:             local.AutoKeyID,
+		RedirectURIs:      []string{callbackURL},
+		AccessTokenTTL:    3600,
+		AuthCodeTTL:       120,
+		AllowRegistration: true,
 	}
 
 	clientProvider, err := local.NewClientProvider(cfg, callbackURL)
@@ -106,18 +108,19 @@ func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, s
 	s := p.AuthStores
 	issuerAuthSvc := auth.NewAuthService(p.DB, s, s, s)
 	issuerSessionMgr := sessionMgr.WithStore(s)
-	issuer := local.NewIssuer(cfg, s, s, s, s, issuerAuthSvc, issuerSessionMgr)
+	localAuth := local.NewService(cfg, s, s, s)
+	issuer := local.NewIssuer(cfg, s, s, s, localAuth, issuerAuthSvc, issuerSessionMgr)
 
 	return &SetupResult{
 		Providers:  []auth.AuthProvider{clientProvider},
 		AuthSvc:    authSvc,
 		SessionMgr: sessionMgr,
 		StateMgr:   stateMgr,
+		LocalAuth:  localAuth,
 		RegisterRoutes: func(mux *http.ServeMux) {
 			mux.HandleFunc("GET /oidc/local/.well-known/openid-configuration", issuer.HandleDiscovery)
 			mux.HandleFunc("GET /oidc/local/jwks.json", issuer.HandleJWKS)
 			mux.HandleFunc("GET /oidc/local/authorize", issuer.HandleAuthorize)
-			mux.HandleFunc("POST /oidc/local/authorize", issuer.HandleAuthorize)
 			mux.HandleFunc("POST /oidc/local/token", issuer.HandleToken)
 			mux.HandleFunc("GET /oidc/local/userinfo", issuer.HandleUserinfo)
 		},

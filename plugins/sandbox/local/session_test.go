@@ -169,6 +169,47 @@ func TestResolvePath_acceptsInsideRoot(t *testing.T) {
 	}
 }
 
+// TestResolvePath_realRootSymlink verifies that resolvePath works when realRoot
+// contains symlink components (e.g. /home/user → /Users/user on macOS autofs,
+// or any symlinked home directory). CreateSession resolves realRoot through
+// symlinks so the pathWithinRoot comparison succeeds.
+func TestResolvePath_realRootSymlink(t *testing.T) {
+	// Create the actual workspace directory.
+	actualDir := t.TempDir()
+	actualDir, _ = filepath.EvalSymlinks(actualDir)
+	if err := os.WriteFile(filepath.Join(actualDir, "main.go"), []byte("package main"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Create a symlink that points to the actual directory.
+	symlinkParent := t.TempDir()
+	symlinkPath := filepath.Join(symlinkParent, "link")
+	if err := os.Symlink(actualDir, symlinkPath); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	// Simulate CreateSession's EvalSymlinks on realRoot: the session stores
+	// the resolved root, not the symlinked one.
+	resolvedRoot := actualDir // as if EvalSymlinks(symlinkPath) ran
+
+	s := &localSession{
+		id:          "test",
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: resolvedRoot, WorkingDir: resolvedRoot}},
+		realRoot:    resolvedRoot,
+		sandboxRoot: "/workspace",
+		done:        make(chan struct{}),
+	}
+
+	got, err := s.ResolvePath("/workspace/main.go")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := filepath.Join(actualDir, "main.go")
+	if got != want {
+		t.Errorf("ResolvePath = %q, want %q", got, want)
+	}
+}
+
 // TestToRealPath verifies the sandbox→real path translation.
 func TestToRealPath(t *testing.T) {
 	s := &localSession{
@@ -399,6 +440,59 @@ func TestResolveCwd_rejectsOutsideRoot(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("expected outside-root error, got: %v", err)
+	}
+}
+
+// TestAdjustPolicy_rewritesMiseEnvPaths verifies that adjustPolicy rewrites
+// MISE_* path-valued env vars from host STELLA_HOME to the sandbox-adjusted
+// path so that mise shims resolve correctly inside bwrap.
+func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
+	hostSH := "/home/user/.stella"
+	sandboxSH := adjustStellaHome(hostSH)
+
+	policy := sandboxpkg.Policy{
+		Env: map[string]string{
+			"MISE_DATA_DIR":               hostSH + "/.mise-tools",
+			"MISE_CONFIG_DIR":             hostSH + "/.mise-tools/config",
+			"MISE_CACHE_DIR":              hostSH + "/.mise-tools/cache",
+			"MISE_STATE_DIR":              hostSH + "/.mise-tools/state",
+			"MISE_GLOBAL_CONFIG_FILE":     hostSH + "/.mise-tools/configs/_builtin.toml",
+			"MISE_TRUSTED_CONFIG_PATHS":   hostSH + "/.mise-tools/configs/_builtin.toml",
+			"MISE_YES":                    "1",
+			"MISE_NOT_FOUND_AUTO_INSTALL": "false",
+			"OTHER_VAR":                   "keep-as-is",
+		},
+	}
+
+	f := &Factory{cfg: Config{StellaHome: hostSH}}
+	adjusted := f.adjustPolicy(policy)
+
+	if hostSH == sandboxSH {
+		t.Skip("no path remapping on this platform")
+	}
+
+	for _, tc := range []struct {
+		key  string
+		want string
+	}{
+		{"MISE_DATA_DIR", sandboxSH + "/.mise-tools"},
+		{"MISE_CONFIG_DIR", sandboxSH + "/.mise-tools/config"},
+		{"MISE_CACHE_DIR", sandboxSH + "/.mise-tools/cache"},
+		{"MISE_STATE_DIR", sandboxSH + "/.mise-tools/state"},
+		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
+		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
+		{"MISE_YES", "1"},
+		{"MISE_NOT_FOUND_AUTO_INSTALL", "false"},
+		{"STELLA_HOME", sandboxSH},
+	} {
+		got := adjusted.Env[tc.key]
+		if got != tc.want {
+			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+
+	if adjusted.Env["OTHER_VAR"] != "keep-as-is" {
+		t.Errorf("OTHER_VAR was unexpectedly modified: %q", adjusted.Env["OTHER_VAR"])
 	}
 }
 

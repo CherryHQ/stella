@@ -1,12 +1,17 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 
+	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -20,13 +25,144 @@ func (s *Server) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
 			Name:     p.Name(),
 			LoginUrl: fmt.Sprintf("/auth/login/%s", p.Name()),
 		}
-		if p.Name() == "local" {
-			regURL := fmt.Sprintf("/auth/login/%s?mode=register", p.Name())
+		if p.Name() == "local" && s.localAuth != nil && s.localAuth.AllowsRegistration(r.Context()) {
+			regURL := "/signup"
 			prov.RegisterUrl = &regURL
 		}
 		out.Providers = append(out.Providers, prov)
 	}
 	writeData(w, http.StatusOK, out)
+}
+
+func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
+	if s.localAuth == nil || s.stateMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	var body apiserver.LoginLocalJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	ip := clientIP(r)
+	email := string(body.Email)
+	if err := s.rateLimiter.CheckIP(ip); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+	if err := s.rateLimiter.CheckUsername(email); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+
+	state, ok := s.startLocalAuthFlow(w, r)
+	if !ok {
+		return
+	}
+	redirectURL, err := s.localAuth.Login(r.Context(), local.LoginInput{
+		Email:    email,
+		Password: body.Password,
+		State:    state,
+	})
+	if err != nil {
+		s.rateLimiter.RecordIPAttempt(ip)
+		if errors.Is(err, local.ErrInvalidLogin) {
+			s.rateLimiter.RecordLoginFailure(email)
+		}
+		s.writeLocalAuthError(w, err)
+		return
+	}
+	s.rateLimiter.RecordLoginSuccess(email)
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: redirectURL})
+}
+
+func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
+	if s.localAuth == nil || s.stateMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	var body apiserver.RegisterLocalJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	ip := clientIP(r)
+	if err := s.rateLimiter.CheckIP(ip); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+
+	state, ok := s.startLocalAuthFlow(w, r)
+	if !ok {
+		return
+	}
+	redirectURL, err := s.localAuth.Register(r.Context(), local.RegisterInput{
+		Name:            body.Name,
+		Email:           string(body.Email),
+		Password:        body.Password,
+		ConfirmPassword: body.ConfirmPassword,
+		State:           state,
+	})
+	if err != nil {
+		s.rateLimiter.RecordIPAttempt(ip)
+		s.writeLocalAuthError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: redirectURL})
+}
+
+func (s *Server) startLocalAuthFlow(w http.ResponseWriter, r *http.Request) (auth.AuthState, bool) {
+	payload, err := s.stateMgr.Generate()
+	if err != nil {
+		slog.Error("local auth: generate state", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return auth.AuthState{}, false
+	}
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	if err := s.stateMgr.SetCookie(w, payload, secure); err != nil {
+		slog.Error("local auth: set state cookie", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return auth.AuthState{}, false
+	}
+	return auth.AuthState{State: payload.State, CodeVerifier: payload.CodeVerifier, ProviderName: "local"}, true
+}
+
+func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, local.ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, "invalid request")
+	case errors.Is(err, local.ErrInvalidLogin):
+		writeError(w, http.StatusUnauthorized, "invalid email or password")
+	case errors.Is(err, local.ErrAccountDisabled):
+		writeError(w, http.StatusUnauthorized, "account is disabled")
+	case errors.Is(err, local.ErrRegistrationDisabled):
+		writeError(w, http.StatusForbidden, "registration is disabled")
+	case errors.Is(err, local.ErrEmailExists):
+		writeError(w, http.StatusConflict, "an account with this email already exists")
+	default:
+		s.writeInternalError(w, err)
+	}
+}
+
+func clientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return strings.TrimSpace(ip)
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if ip, _, ok := strings.Cut(xff, ","); ok {
+			return strings.TrimSpace(ip)
+		}
+		return strings.TrimSpace(xff)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // handleOIDCLogin handles GET /auth/login/{provider}.
@@ -43,6 +179,18 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	if provider == nil {
 		slog.Warn("oidc: unknown provider", "provider", providerName, "available", s.providerNames())
 		http.NotFound(w, r)
+		return
+	}
+
+	// Local provider: redirect to the SPA login page directly. The SPA
+	// generates its own OIDC state via the JSON API, so setting one here
+	// would only be overwritten.
+	if providerName == "local" {
+		dest := "/login"
+		if r.URL.Query().Get("mode") == "register" {
+			dest = "/signup"
+		}
+		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}
 
@@ -72,8 +220,8 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if mode := r.URL.Query().Get("mode"); mode != "" {
-		loginURL += "&mode=" + mode
+	if r.URL.Query().Get("mode") == "register" {
+		loginURL += "&mode=register"
 	}
 
 	http.Redirect(w, r, loginURL, http.StatusFound)

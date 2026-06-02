@@ -60,6 +60,10 @@ paths:
   # ── Auth ───────────────────────────────────────────────────────────────────
   /api/auth/logout:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1logout"
+  /api/auth/local/login:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1local~1login"
+  /api/auth/local/register:
+    $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1local~1register"
   /api/auth/me:
     $ref: "./domain/auth/paths.yaml#/paths/~1api~1auth~1me"
   /api/auth/providers:

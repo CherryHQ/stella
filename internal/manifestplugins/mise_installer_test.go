@@ -349,6 +349,123 @@ esac
 	}
 }
 
+func TestRelinkShims(t *testing.T) {
+	stellaHome := t.TempDir()
+	binDir := filepath.Join(stellaHome, "bin")
+	shimsDir := filepath.Join(stellaHome, ".mise-tools", "shims")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(shimsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Place mise in $STELLA_HOME/bin/ (relinkShims requires it there).
+	localMise := filepath.Join(binDir, runtimeBinaryName("mise"))
+	if err := os.WriteFile(localMise, []byte("#!/bin/sh\necho mise"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	hostMise := filepath.Join(t.TempDir(), "mise")
+	if err := os.WriteFile(hostMise, []byte("#!/bin/sh\necho mise"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create shim symlinks pointing to the host mise (absolute path).
+	for _, name := range []string{"bun", "fd", "lark-cli"} {
+		if err := os.Symlink(hostMise, filepath.Join(shimsDir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Also create a non-symlink file that should be left alone.
+	if err := os.WriteFile(filepath.Join(shimsDir, "regular"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := relinkShims(stellaHome, hostMise); err != nil {
+		t.Fatalf("relinkShims: %v", err)
+	}
+
+	// Verify shims now use relative paths.
+	wantTarget := filepath.Join("..", "..", "bin", runtimeBinaryName("mise"))
+	for _, name := range []string{"bun", "fd", "lark-cli"} {
+		target, err := os.Readlink(filepath.Join(shimsDir, name))
+		if err != nil {
+			t.Fatalf("Readlink(%s): %v", name, err)
+		}
+		if target != wantTarget {
+			t.Errorf("shim %s -> %q, want %q", name, target, wantTarget)
+		}
+	}
+
+	// Verify regular file was not touched.
+	data, err := os.ReadFile(filepath.Join(shimsDir, "regular"))
+	if err != nil || string(data) != "x" {
+		t.Errorf("regular file was modified")
+	}
+
+	// Verify the relative symlink actually resolves to the local binary.
+	resolved, err := filepath.EvalSymlinks(filepath.Join(shimsDir, "bun"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	resolvedLocal, _ := filepath.EvalSymlinks(localMise)
+	if resolved != resolvedLocal {
+		t.Errorf("resolved shim = %q, want %q", resolved, resolvedLocal)
+	}
+
+	// Simulate another process running mise reshim after a previous successful
+	// relink. Reconcile must scan again instead of trusting process-local state.
+	fdShim := filepath.Join(shimsDir, "fd")
+	if err := os.Remove(fdShim); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hostMise, fdShim); err != nil {
+		t.Fatal(err)
+	}
+	if err := relinkShims(stellaHome, hostMise); err != nil {
+		t.Fatalf("relinkShims after external reshim: %v", err)
+	}
+	if target, err := os.Readlink(fdShim); err != nil || target != wantTarget {
+		t.Fatalf("shim fd -> %q, %v; want %q", target, err, wantTarget)
+	}
+}
+
+func TestRelinkShims_skipsWithoutLocalMise(t *testing.T) {
+	stellaHome := t.TempDir()
+	shimsDir := filepath.Join(stellaHome, ".mise-tools", "shims")
+	if err := os.MkdirAll(shimsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	hostMise := filepath.Join(t.TempDir(), "mise")
+	if err := os.WriteFile(hostMise, []byte("#!/bin/sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hostMise, filepath.Join(shimsDir, "tool")); err != nil {
+		t.Fatal(err)
+	}
+
+	// No $STELLA_HOME/bin/mise — relinkShims should be a no-op.
+	if err := relinkShims(stellaHome, hostMise); err != nil {
+		t.Fatalf("relinkShims: %v", err)
+	}
+
+	// Shim should still point to hostMise (not relinked).
+	target, err := os.Readlink(filepath.Join(shimsDir, "tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != hostMise {
+		t.Errorf("shim was relinked to %q, expected unchanged %q", target, hostMise)
+	}
+
+	// And mise should NOT have been copied into bin/.
+	if _, err := os.Stat(filepath.Join(stellaHome, "bin", "mise")); !os.IsNotExist(err) {
+		t.Error("mise should not have been copied into $STELLA_HOME/bin/")
+	}
+}
+
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

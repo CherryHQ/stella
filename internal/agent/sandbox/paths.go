@@ -26,8 +26,14 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	if p.StellaHome == "" {
 		p.StellaHome = config.StellaHome()
 	}
+	if resolved, err := filepath.EvalSymlinks(p.StellaHome); err == nil {
+		p.StellaHome = resolved
+	}
 	if p.AgentRoot == "" {
 		return Paths{}, fmt.Errorf("agent_root is required")
+	}
+	if resolved, err := filepath.EvalSymlinks(p.AgentRoot); err == nil {
+		p.AgentRoot = resolved
 	}
 	if p.UserRoot == "" {
 		return Paths{}, fmt.Errorf("user_root is required")
@@ -36,6 +42,9 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	if err != nil {
 		return Paths{}, fmt.Errorf("resolve user_root: %w", err)
 	}
+	if resolved, err := filepath.EvalSymlinks(userRoot); err == nil {
+		userRoot = resolved
+	}
 	p.UserRoot = userRoot
 	p.WorkDir = userRoot
 
@@ -43,6 +52,9 @@ func ResolvePaths(cfg Config) (Paths, error) {
 		pr, err := filepath.Abs(p.ProjectRoot)
 		if err != nil {
 			return Paths{}, fmt.Errorf("resolve project_root: %w", err)
+		}
+		if resolved, err := filepath.EvalSymlinks(pr); err == nil {
+			pr = resolved
 		}
 		rel, relErr := filepath.Rel(userRoot, pr)
 		if relErr == nil && !strings.HasPrefix(rel, "..") {

@@ -54,6 +54,11 @@ type Config struct {
 
 	// AuthCodeTTL is the authorization code lifetime in seconds. Default: 120.
 	AuthCodeTTL int
+
+	// AllowRegistration controls whether the local issuer accepts new user
+	// registrations via the authorize endpoint. When false, registration
+	// requests are rejected with 403.
+	AllowRegistration bool
 }
 
 // Validate returns an error if any required field is missing or invalid.

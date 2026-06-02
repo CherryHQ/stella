@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -46,20 +47,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Exempt paths: login page, static assets, public shares, auth endpoints, OAuth callbacks.
-		if path == "/login" ||
-			strings.HasPrefix(path, "/api-references") ||
-			strings.HasPrefix(path, "/assets/") ||
-			strings.HasPrefix(path, "/static/") ||
-			strings.HasPrefix(path, "/s/") ||
-			(r.Method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/")) ||
-			path == "/api/auth/logout" ||
-			path == "/api/auth/providers" ||
-			strings.HasPrefix(path, "/auth/login/") ||
-			strings.HasPrefix(path, "/auth/callback/") ||
-			(strings.HasPrefix(path, "/api/auth/oauth/") && strings.HasSuffix(path, "/callback")) ||
-			(strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback")) ||
-			strings.HasPrefix(path, "/oidc/local/") {
+		if isAuthExempt(r.Method, path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -163,6 +151,42 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
 		return nil
 	}
 	return info
+}
+
+// Public auth API paths that don't require a session.
+var publicAuthAPIPaths = []string{
+	"/api/auth/logout",
+	"/api/auth/providers",
+	"/api/auth/local/login",
+	"/api/auth/local/register",
+}
+
+// isAuthExempt returns true for paths that bypass session validation:
+// login/signup pages, static assets, public shares, auth flow endpoints,
+// OAuth callbacks, and the local OIDC issuer.
+func isAuthExempt(method, path string) bool {
+	switch {
+	case path == "/login" || path == "/signup":
+		return true
+	case strings.HasPrefix(path, "/assets/") ||
+		strings.HasPrefix(path, "/static/") ||
+		strings.HasPrefix(path, "/api-references") ||
+		strings.HasPrefix(path, "/s/"):
+		return true
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/"):
+		return true
+	case strings.HasPrefix(path, "/auth/login/") || strings.HasPrefix(path, "/auth/callback/"):
+		return true
+	case strings.HasPrefix(path, "/oidc/local/"):
+		return true
+	case strings.HasPrefix(path, "/api/auth/"):
+		if slices.Contains(publicAuthAPIPaths, path) {
+			return true
+		}
+		return strings.HasSuffix(path, "/callback") &&
+			(strings.HasPrefix(path, "/api/auth/oauth/") || strings.HasPrefix(path, "/api/auth/profile/oauth/"))
+	}
+	return false
 }
 
 // denyAccess returns 401 for API routes or redirects to /login for page routes.
