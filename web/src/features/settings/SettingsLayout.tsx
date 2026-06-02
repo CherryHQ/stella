@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { Menu } from "lucide-react";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { SidebarContainer, SidebarHeader, SidebarFooter } from "@/components/AppSidebar";
+import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 
 const settingsNav: {
   section: string;
@@ -263,7 +265,7 @@ function NavItems({ isAdmin, onItemClick }: { isAdmin: boolean; onItemClick?: ()
 
 function SettingsNavSidebar({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <SidebarContainer>
+    <SidebarContainer className="hidden md:flex">
       <SidebarHeader />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
         <NavItems isAdmin={isAdmin} />
@@ -277,6 +279,7 @@ export function SettingsLayout() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const allItems = settingsNav.flatMap((g) => g.items);
@@ -288,6 +291,13 @@ export function SettingsLayout() {
       <SettingsNavSidebar isAdmin={isAdmin} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            <Menu className="size-4" />
+          </button>
           {activeLabel && <span className="text-sm font-semibold">{activeLabel}</span>}
         </header>
         <div className="flex-1 overflow-y-auto">
@@ -296,6 +306,18 @@ export function SettingsLayout() {
           </div>
         </div>
       </div>
+
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetPopup side="left" showCloseButton={false} className="w-[280px] md:hidden">
+          <SheetTitle className="sr-only">{t("nav.settings")}</SheetTitle>
+          <SheetDescription className="sr-only">Settings navigation</SheetDescription>
+          <SidebarHeader />
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+            <NavItems isAdmin={isAdmin} onItemClick={() => setMobileNavOpen(false)} />
+          </div>
+          <SidebarFooter />
+        </SheetPopup>
+      </Sheet>
     </div>
   );
 }
