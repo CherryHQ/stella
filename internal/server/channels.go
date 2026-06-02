@@ -13,6 +13,7 @@ import (
 // Config is serialized as a JSON string for the admin frontend.
 type channelView struct {
 	ID      string `json:"id"`
+	Name    string `json:"name"`
 	Type    string `json:"type"`
 	AgentID string `json:"agent_id,omitempty"`
 	Enabled bool   `json:"enabled"`
@@ -30,6 +31,7 @@ type publicChannelView struct {
 
 type channelWriteRequest struct {
 	ID      string  `json:"id"`
+	Name    string  `json:"name"`
 	Type    *string `json:"type"`
 	AgentID *string `json:"agent_id"`
 	Config  string  `json:"config"`
@@ -52,6 +54,7 @@ var channelLinkOrder = []string{
 func channelToView(ch config.Channel) channelView {
 	return channelView{
 		ID:      ch.ID,
+		Name:    ch.Name,
 		Type:    ch.Type,
 		AgentID: ch.AgentID,
 		Enabled: ch.Enabled,
@@ -257,6 +260,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 
 	ch := config.Channel{
 		ID:      req.ID,
+		Name:    req.Name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
 		Enabled: s.defaultChannelEnabled(r, channelType),
@@ -291,6 +295,11 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 		agentID = existing.AgentID
 	}
 
+	name := req.Name
+	if name == "" && hasExisting {
+		name = existing.Name
+	}
+
 	enabled := s.defaultChannelEnabled(r, channelType)
 	if hasExisting {
 		enabled = existing.Enabled
@@ -298,6 +307,7 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 
 	return config.Channel{
 		ID:      req.ID,
+		Name:    name,
 		Type:    channelType,
 		AgentID: agentID,
 		Enabled: enabled,

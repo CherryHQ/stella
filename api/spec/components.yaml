@@ -391,9 +391,11 @@ components:
             $ref: "#/components/schemas/BuiltinResource"
     Channel:
       type: object
-      required: [id, type, enabled, config]
+      required: [id, name, type, enabled, config]
       properties:
         id:
+          type: string
+        name:
           type: string
         type:
           type: string
@@ -440,6 +442,8 @@ components:
       type: object
       properties:
         id:
+          type: string
+        name:
           type: string
         type:
           type: string

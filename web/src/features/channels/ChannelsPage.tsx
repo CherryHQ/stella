@@ -119,6 +119,7 @@ function hasConfig(type: string, data: Record<string, unknown>): boolean {
 
 interface NormalizedChannel extends Record<string, unknown> {
   id: string;
+  name: string;
   type: string;
   label?: string;
   agent_id: string;
@@ -130,6 +131,7 @@ function normalizeChannel(ch: Channel): NormalizedChannel {
   const type = ch.type || ch.id;
   return {
     ...ch,
+    name: ch.name || "",
     type,
     agent_id: ch.agent_id || "",
     ...platformConfigDefaults(type),
@@ -349,7 +351,7 @@ function ChannelDetail({
             {platformMeta[channel.type]?.icon && (
               <BrandIcon path={platformMeta[channel.type].icon!} className="size-5 shrink-0" />
             )}
-            {platformLabel}
+            {channel.name || platformLabel}
           </span>
         }
         subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
@@ -363,6 +365,18 @@ function ChannelDetail({
           </>
         }
       />
+
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Name</label>
+        <Input
+          nativeInput
+          type="text"
+          value={(channel.name as string) || ""}
+          onChange={(e) => updateField("name", (e.target as HTMLInputElement).value)}
+          placeholder={platformLabel}
+          className="w-full text-sm"
+        />
+      </div>
 
       {/* Config section */}
       {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
@@ -534,6 +548,18 @@ function NewChannelForm({
         </div>
 
         <div className="w-full space-y-1.5">
+          <label className="text-sm font-medium">Name</label>
+          <Input
+            nativeInput
+            type="text"
+            value={(draft.name as string) || ""}
+            onChange={(e) => updateField("name", e.target.value)}
+            placeholder="e.g. Feishu Coder"
+            className="w-full text-sm"
+          />
+        </div>
+
+        <div className="w-full space-y-1.5">
           <label className="text-sm font-medium font-mono">Channel ID</label>
           <Input
             nativeInput
@@ -544,7 +570,7 @@ function NewChannelForm({
             className="w-full text-sm font-mono"
           />
           <p className="text-xs text-muted-foreground">
-            Must not match the platform ID (e.g. not "telegram" for a Telegram channel).
+            Must not match the platform ID (e.g. not &quot;telegram&quot; for a Telegram channel).
           </p>
         </div>
 
@@ -949,7 +975,12 @@ export function ChannelsPage() {
     try {
       const { data: saved } = await updateChannel({
         path: { id: ch.id },
-        body: { type: ch.type, agent_id: ch.agent_id || "", config: channelConfig(ch) },
+        body: {
+          name: ch.name || "",
+          type: ch.type,
+          agent_id: ch.agent_id || "",
+          config: channelConfig(ch),
+        },
         throwOnError: true,
       });
       const normalized = normalizeChannel(saved as Channel);
@@ -989,7 +1020,13 @@ export function ChannelsPage() {
     setCreatingInstance(true);
     try {
       const { data: saved } = await createChannelRequest({
-        body: { id, type: draft.type as string, agent_id: "", config: channelConfig(draft) },
+        body: {
+          id,
+          name: (draft.name as string) || "",
+          type: draft.type as string,
+          agent_id: "",
+          config: channelConfig(draft),
+        },
         throwOnError: true,
       });
       setCreatingNew(false);
@@ -1072,7 +1109,9 @@ export function ChannelsPage() {
                 />
               )}
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium leading-tight truncate">{platformLabel}</p>
+                <p className="text-sm font-medium leading-tight truncate">
+                  {ch.name || platformLabel}
+                </p>
                 <p className="text-[11px] font-mono text-muted-foreground truncate">{ch.type}</p>
               </div>
             </SettingsListItem>

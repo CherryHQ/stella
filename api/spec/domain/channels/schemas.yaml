@@ -7,9 +7,10 @@ components:
   schemas:
     Channel:
       type: object
-      required: [id, type, enabled, config]
+      required: [id, name, type, enabled, config]
       properties:
         id: { type: string }
+        name: { type: string }
         type: { type: string }
         agent_id: { type: string }
         enabled: { type: boolean }
@@ -50,6 +51,7 @@ components:
       type: object
       properties:
         id: { type: string }
+        name: { type: string }
         type: { type: string, nullable: true }
         agent_id: { type: string, nullable: true }
         config: {
