@@ -90,7 +90,7 @@ For when to use tasks/goals and how to combine the subcommands, read [references
 
 ## Delegation
 
-You have a `delegate` tool that spawns isolated child loops for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation.
+You have a `delegate` tool that spawns isolated persistent child sessions for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation. Delegates return a `session_id`; pass it back to resume that delegate when useful.
 
 ### Presets
 
@@ -108,11 +108,12 @@ Project-local presets override builtins with the same name. Use presets for comm
 ### Examples
 
 - **Preset**: `{"tasks": [{"id": "review", "task": "Review auth module for issues", "preset": "reviewer"}]}`
-- **With context**: `{"tasks": [{"id": "fix", "task": "Fix the bug", "preset": "coder", "context": "File content of auth.go:\n..."}]}`
+- **With context**: `{"tasks": [{"id": "fix", "task": "Fix the bug. Context: file auth.go contains ...", "preset": "coder"}]}`
 - **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently (max 5 tasks, 3 parallel)
-- **Options per task**: `preset`, `context`, `model` (override model), `system` (additional instructions appended to base prompt; replaces preset system if both set), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
-- Delegates get fresh context (no parent history) and cannot spawn further delegates
-- Results are returned as JSON: `{"results": {"id": {"output": "...", "complete": true}}}`
+- **Resume**: include `session_id` to continue a previous delegate session; omit it to create a new persistent delegate session
+- **Options per task**: `preset`, `model` (override model), `session_id` (resume). Put any extra context directly in `task`; preset files may define system/tool/timeout defaults.
+- Delegates start with fresh context when no `session_id` is supplied, persist their full transcript, and cannot spawn further delegates
+- Results are returned as JSON: `{"results": {"id": {"output": "...", "session_id": "...", "complete": true}}}`
 - Prefer presets over manual configuration. Delegate when a subtask benefits from fresh context or parallel execution
 
 ## Memory, scheduler, notifications
@@ -127,7 +128,7 @@ Memory is an agent tool; task, scheduler, skills, vault, oauth, and notification
 - **Knowledge**: The skills table can store `knowledge_type=skill|fact|context`. `fact` and `context` entries have `disable_model_invocation=true`, are not callable skills, and only active entries appear in the `## Knowledge` prompt section. Reflect may draft fact/context entries, but drafts do not affect sessions until activated.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (search by keyword), `describe` (inspect summary metadata and lineage), and `expand` (drill into compacted summaries to recover original detail) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Execution modes**: use `delegate` for synchronous focused subtasks, `task` for async persistent work that can pause/resume/request review, and `scheduler` for one-time or recurring time triggers. Scheduler jobs can create async tasks for long-running/reviewable work; async tasks can use `delegate` for short focused subtasks.
+- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, `task` for async persistent work that can pause/resume/request review, and `scheduler` for one-time or recurring time triggers. Scheduler jobs can create async tasks for long-running/reviewable work; async tasks can use `delegate` for short focused subtasks.
 - **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool.
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.

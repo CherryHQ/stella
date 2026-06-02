@@ -1,0 +1,335 @@
+package session
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/CherryHQ/stella/internal/memory"
+)
+
+// fakeStore is an in-memory store for tests.
+type fakeStore struct {
+	sessions map[string]Info
+}
+
+func newFakeStore() *fakeStore {
+	return &fakeStore{sessions: make(map[string]Info)}
+}
+
+func (f *fakeStore) save(_ context.Context, info Info) error {
+	f.sessions[info.ID] = info
+	return nil
+}
+
+func (f *fakeStore) load(_ context.Context, sessionID, userID, _ string) (Info, error) {
+	info, ok := f.sessions[sessionID]
+	if !ok {
+		return Info{}, errors.New("not found")
+	}
+	if userID != "" && info.UserID != userID {
+		return Info{}, errors.New("not found")
+	}
+	return info, nil
+}
+
+func (f *fakeStore) list(_ context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error) {
+	var out []Info
+	for _, info := range f.sessions {
+		if userID != "" && info.UserID != userID {
+			continue
+		}
+		if agentID != "" && info.AgentID != agentID {
+			continue
+		}
+		if opts.Kind != "" && info.Kind != opts.Kind {
+			continue
+		}
+		if !opts.IncludeArchived && info.Archived {
+			continue
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) listForReview(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error) {
+	return f.list(ctx, "", agentID, opts)
+}
+
+func newTestRegistry(t *testing.T) (*Registry, *fakeStore) {
+	t.Helper()
+	s := newFakeStore()
+	r := NewRegistryWithStore(s, "agent1")
+	return r, s
+}
+
+// TestEnsure_GeneratedCreate creates a new session with a generated ID.
+func TestEnsure_GeneratedCreate(t *testing.T) {
+	r, _ := newTestRegistry(t)
+	info, err := r.Ensure(context.Background(), Request{
+		UserID:          "u1",
+		Kind:            KindChat,
+		Channel:         ChannelWeb,
+		CreateIfMissing: true,
+	})
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if info.ID == "" {
+		t.Error("expected generated ID")
+	}
+	if info.Kind != string(KindChat) {
+		t.Errorf("kind = %q, want %q", info.Kind, KindChat)
+	}
+	if info.UserID != "u1" {
+		t.Errorf("userID = %q, want u1", info.UserID)
+	}
+}
+
+// TestEnsure_ExactIDCreate creates a session with an explicit ID.
+func TestEnsure_ExactIDCreate(t *testing.T) {
+	r, _ := newTestRegistry(t)
+	info, err := r.Ensure(context.Background(), Request{
+		ID:                 "explicit-id-1",
+		UserID:             "u1",
+		Kind:               KindDelegate,
+		Channel:            ChannelDelegate,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+	})
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if info.ID != "explicit-id-1" {
+		t.Errorf("ID = %q, want explicit-id-1", info.ID)
+	}
+}
+
+// TestEnsure_Resume resumes an existing session.
+func TestEnsure_Resume(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	existing := NewInfo("sess-1", "agent1", "u1", "web", KindChat, "", now)
+	s.sessions["sess-1"] = existing
+
+	info, err := r.Ensure(context.Background(), Request{
+		ID:     "sess-1",
+		UserID: "u1",
+	})
+	if err != nil {
+		t.Fatalf("Ensure resume: %v", err)
+	}
+	if info.ID != "sess-1" {
+		t.Errorf("ID = %q, want sess-1", info.ID)
+	}
+}
+
+// TestEnsure_WrongKind rejects resuming with the wrong kind.
+func TestEnsure_WrongKind(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	existing := NewInfo("sess-1", "agent1", "u1", "web", KindChat, "", now)
+	s.sessions["sess-1"] = existing
+
+	_, err := r.Ensure(context.Background(), Request{
+		ID:          "sess-1",
+		UserID:      "u1",
+		RequireKind: KindDelegate,
+	})
+	if !errors.Is(err, ErrWrongKind) {
+		t.Errorf("expected ErrWrongKind, got %v", err)
+	}
+}
+
+// TestEnsure_WrongUser returns not-found for cross-user access.
+func TestEnsure_WrongUser(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	existing := NewInfo("sess-1", "agent1", "u1", "web", KindChat, "", now)
+	s.sessions["sess-1"] = existing
+
+	_, err := r.Ensure(context.Background(), Request{
+		ID:     "sess-1",
+		UserID: "other-user",
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound for wrong user, got %v", err)
+	}
+}
+
+// TestEnsure_ArchivedRejected rejects writes to archived sessions.
+func TestEnsure_ArchivedRejected(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	archived := NewInfo("sess-archived", "agent1", "u1", "web", KindChat, "", now)
+	archived.Archived = true
+	s.sessions["sess-archived"] = archived
+
+	_, err := r.Ensure(context.Background(), Request{
+		ID:     "sess-archived",
+		UserID: "u1",
+	})
+	if !errors.Is(err, ErrArchived) {
+		t.Errorf("expected ErrArchived, got %v", err)
+	}
+}
+
+// TestEnsure_MissingUserID returns error when UserID is absent.
+func TestEnsure_MissingUserID(t *testing.T) {
+	r, _ := newTestRegistry(t)
+	_, err := r.Ensure(context.Background(), Request{
+		Kind:            KindChat,
+		CreateIfMissing: true,
+	})
+	if err == nil {
+		t.Error("expected error for missing UserID")
+	}
+}
+
+// TestGet_Success retrieves an existing session.
+func TestGet_Success(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["s1"] = NewInfo("s1", "agent1", "u1", "web", KindChat, "", now)
+
+	info, err := r.Get(context.Background(), Scope{UserID: "u1", AgentID: "agent1"}, "s1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if info.ID != "s1" {
+		t.Errorf("ID = %q, want s1", info.ID)
+	}
+}
+
+// TestGet_CrossUserDenied denies cross-user access (returns not found, not forbidden, to hide existence).
+func TestGet_CrossUserDenied(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["s1"] = NewInfo("s1", "agent1", "u1", "web", KindChat, "", now)
+
+	_, err := r.Get(context.Background(), Scope{UserID: "u2", AgentID: "agent1"}, "s1")
+	if err == nil {
+		t.Error("expected error for cross-user access")
+	}
+}
+
+// TestList_KindFilter returns only sessions matching the requested kind.
+func TestList_KindFilter(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["chat-1"] = NewInfo("chat-1", "agent1", "u1", "web", KindChat, "", now)
+	s.sessions["del-1"] = NewInfo("del-1", "agent1", "u1", "delegate", KindDelegate, "", now)
+
+	scope := Scope{UserID: "u1", AgentID: "agent1"}
+	infos, err := r.List(context.Background(), scope, ListOptions{Kinds: []Kind{KindChat}})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(infos) != 1 || infos[0].ID != "chat-1" {
+		t.Errorf("expected [chat-1], got %v", infos)
+	}
+}
+
+// TestArchive archives a session.
+func TestArchive(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["s1"] = NewInfo("s1", "agent1", "u1", "web", KindChat, "", now)
+
+	if err := r.Archive(context.Background(), Scope{UserID: "u1", AgentID: "agent1"}, "s1"); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
+	if !s.sessions["s1"].Archived {
+		t.Error("expected session to be archived")
+	}
+}
+
+// TestReviewPolicy_ExcludesDelegate verifies delegate sessions are excluded by default.
+func TestReviewPolicy_ExcludesDelegate(t *testing.T) {
+	policy := DefaultReviewPolicy()
+	if policy.Includes(KindDelegate) {
+		t.Error("default policy should exclude delegate sessions")
+	}
+	if !policy.Includes(KindChat) {
+		t.Error("default policy should include chat sessions")
+	}
+	if !policy.Includes(KindMain) {
+		t.Error("default policy should include main sessions")
+	}
+}
+
+// TestListForReview excludes delegate and archived sessions.
+func TestListForReview(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["chat-1"] = NewInfo("chat-1", "agent1", "u1", "web", KindChat, "", now)
+	s.sessions["del-1"] = NewInfo("del-1", "agent1", "u2", "delegate", KindDelegate, "", now)
+	archived := NewInfo("arch-1", "agent1", "u1", "web", KindChat, "", now)
+	archived.Archived = true
+	s.sessions["arch-1"] = archived
+
+	infos, err := r.ListForReview(context.Background(), ReviewRequest{AgentID: "agent1"})
+	if err != nil {
+		t.Fatalf("ListForReview: %v", err)
+	}
+	for _, i := range infos {
+		if Kind(i.Kind) == KindDelegate {
+			t.Errorf("delegate session %q should be excluded", i.ID)
+		}
+		if i.Archived {
+			t.Errorf("archived session %q should be excluded", i.ID)
+		}
+	}
+	if len(infos) != 1 || infos[0].ID != "chat-1" {
+		t.Errorf("expected [chat-1], got %v", infos)
+	}
+}
+
+// TestMemoryScope converts session Info to memory.Session without hand-building.
+func TestMemoryScope(t *testing.T) {
+	r, _ := newTestRegistry(t)
+	now := time.Now().UTC()
+	info := NewInfo("s1", "agent1", "u1", "web", KindChat, "", now)
+
+	scope := r.MemoryScope(info)
+	if scope.ID != "s1" || scope.AgentID != "agent1" || scope.UserID != "u1" {
+		t.Errorf("unexpected scope: %+v", scope)
+	}
+}
+
+// TestResolveMain_CreatesFresh creates a main session when none exists.
+func TestResolveMain_CreatesFresh(t *testing.T) {
+	r, _ := newTestRegistry(t)
+
+	info, err := r.ResolveMain(context.Background(), MainRequest{
+		UserID:  "u1",
+		AgentID: "agent1",
+	})
+	if err != nil {
+		t.Fatalf("ResolveMain: %v", err)
+	}
+	if info.Kind != string(KindMain) {
+		t.Errorf("kind = %q, want %q", info.Kind, KindMain)
+	}
+}
+
+// TestResolveMain_ReturnsExisting returns an existing main session.
+func TestResolveMain_ReturnsExisting(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	main := NewInfo("main-1", "agent1", "u1", "agent1:user:u1:private", KindMain, "", now)
+	s.sessions["main-1"] = main
+
+	info, err := r.ResolveMain(context.Background(), MainRequest{
+		UserID:  "u1",
+		AgentID: "agent1",
+	})
+	if err != nil {
+		t.Fatalf("ResolveMain: %v", err)
+	}
+	if info.ID != "main-1" {
+		t.Errorf("ID = %q, want main-1", info.ID)
+	}
+}

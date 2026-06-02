@@ -19,6 +19,7 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -46,22 +47,32 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 
-	pool := s.poolManager.Get(agentID)
-	if pool == nil {
-		writeError(w, http.StatusBadRequest, "no pool available for the given agent_id")
+	svc := s.poolManager.GetService(agentID)
+	if svc == nil {
+		writeError(w, http.StatusBadRequest, "no service available for the given agent_id")
 		return
 	}
 
-	kind := "chat"
+	kind := session.KindChat
 	if body.Kind != nil {
-		kind = string(*body.Kind)
+		kind = session.Kind(*body.Kind)
+		if kind != session.KindChat && kind != session.KindMain {
+			writeError(w, http.StatusBadRequest, "unsupported session kind")
+			return
+		}
 	}
 	projectID := ""
 	if body.ProjectId != nil {
 		projectID = *body.ProjectId
 	}
 
-	info, err := pool.CreateSessionWithKind("admin", kind, projectID, authInfo.UserID)
+	var info session.Info
+	var err error
+	if kind == session.KindMain && projectID == "" {
+		info, err = svc.ResolveMainSession(r.Context(), authInfo.UserID, agentID)
+	} else {
+		info, err = svc.NewSession(r.Context(), authInfo.UserID, agentID, projectID, kind, session.ChannelWeb)
+	}
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -111,14 +122,14 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	var pool *agent.Pool
+	var svc *agent.Service
 	if si.AgentID != "" {
-		pool = s.poolManager.Get(si.AgentID)
+		svc = s.poolManager.GetService(si.AgentID)
 	} else {
-		pool = s.poolManager.DefaultPool()
+		svc = s.poolManager.Default()
 	}
-	if pool == nil {
-		writeError(w, http.StatusBadRequest, "no pool available for this session")
+	if svc == nil {
+		writeError(w, http.StatusBadRequest, "no service available for this session")
 		return
 	}
 
@@ -130,6 +141,12 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 
 	// Convert AI SDK parts to internal MessageContent.
 	msgContent := partsToMessageContent(body.Parts)
+
+	siKind := session.Kind(si.Kind)
+	if siKind != session.KindMain && siKind != session.KindChat {
+		writeError(w, http.StatusBadRequest, "cannot send messages to internal sessions")
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -172,7 +189,14 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		}
 	}
 
-	ch := pool.Chat(ctx, sessionID, msgContent)
+	ch := svc.Chat(ctx, agent.ChatRequest{
+		SessionID: sessionID,
+		UserID:    si.UserID,
+		AgentID:   si.AgentID,
+		Kind:      siKind,
+		Channel:   session.Channel(si.Channel),
+		Message:   msgContent,
+	})
 	for {
 		select {
 		case <-r.Context().Done():

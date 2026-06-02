@@ -250,12 +250,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	return waitErr
 }
 
-func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
+func schedulerJobContext(ctx context.Context, agentID string, job scheduler.Job) context.Context {
 	if job.UserID != "" {
 		ctx = memory.WithUserID(ctx, job.UserID)
 	}
-	if pool.AgentID() != "" {
-		ctx = memory.WithAgentID(ctx, pool.AgentID())
+	if agentID != "" {
+		ctx = memory.WithAgentID(ctx, agentID)
 	}
 	ctx = agent.WithExcludedTools(ctx, "scheduler")
 	return ctx

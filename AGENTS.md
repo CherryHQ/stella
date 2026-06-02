@@ -22,6 +22,7 @@ You are working on **stella**, a Go CLI/service project. Act as an engineering c
   - `mise run build`
   - `mise run test`
 - Do not run Go tests with `-race` locally by default.
+- **Never build the `stella` binary into the repo root.** Always use `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stella` explicitly. A binary at the repo root will be committed accidentally — `dist/` is gitignored, the root is not.
 
 ## Database migrations
 

@@ -14,6 +14,28 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
+// lazyServiceManager resolves the underlying ServiceManager at call time.
+// Used when ServiceManager is not yet set at struct-initialization time.
+type lazyServiceManager struct {
+	get func() agent.ServiceManager
+}
+
+func (l *lazyServiceManager) GetService(agentID string) *agent.Service {
+	sm := l.get()
+	if sm == nil {
+		return nil
+	}
+	return sm.GetService(agentID)
+}
+
+func (l *lazyServiceManager) Default() *agent.Service {
+	sm := l.get()
+	if sm == nil {
+		return nil
+	}
+	return sm.Default()
+}
+
 func buildToolLifecycle(phost *pluginhost.Host) *coreagent.ToolLifecycle {
 	return &coreagent.ToolLifecycle{
 		BeforeCall: func(ctx context.Context, call coreagent.ToolCallContext) (coreagent.ToolCallMutation, error) {

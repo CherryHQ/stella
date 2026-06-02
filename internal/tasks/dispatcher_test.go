@@ -22,7 +22,7 @@ func newDispatcherHarness(t *testing.T, runner RunnerFunc) (*testHarness, *Dispa
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return h.agentID, true
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask) (string, error) {
+		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
 			return "sess-" + uuid.NewString()[:8], nil
 		},
 		TickEvery:  0,
@@ -178,7 +178,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "resolver-agent", true // should be ignored
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask) (string, error) {
+		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
 			return "sess", nil
 		},
 	})
@@ -212,7 +212,7 @@ func TestDispatcher_NoExecutorResolved_EmitsProtocolError(t *testing.T) {
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "", false
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask) (string, error) {
+		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
 			return "sess", nil
 		},
 	})
@@ -263,7 +263,7 @@ func TestDispatcher_ConcurrencyCapHonored(t *testing.T) {
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "agent", true
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask) (string, error) {
+		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
 			return uuid.NewString(), nil
 		},
 		MaxWorkers: cap,

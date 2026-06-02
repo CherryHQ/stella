@@ -206,6 +206,38 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	return result, nil
 }
 
+// ListInfoForReview lists review candidates across users for one agent.
+func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
+	if opts.AgentID == "" {
+		return nil, fmt.Errorf("missing agent context")
+	}
+	convs, err := p.q.ListConversationsForReviewByAgent(ctx, nullAgent(opts.AgentID))
+	if err != nil {
+		return nil, fmt.Errorf("list review conversations: %w", err)
+	}
+
+	result := make([]memory.SessionInfo, 0, len(convs))
+	skipped := 0
+	for _, c := range convs {
+		info := convToSessionInfo(c)
+		if opts.Kind != "" && info.Kind != opts.Kind {
+			continue
+		}
+		if opts.ProjectID != "" && info.ProjectID != opts.ProjectID {
+			continue
+		}
+		if skipped < opts.Offset {
+			skipped++
+			continue
+		}
+		result = append(result, info)
+		if opts.Limit > 0 && len(result) >= opts.Limit {
+			break
+		}
+	}
+	return result, nil
+}
+
 // LoadHistory implements memory.SessionManager.
 func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
 	userID, agentID, err := requireSessionScope(ctx, "", "")

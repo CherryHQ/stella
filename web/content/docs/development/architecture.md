@@ -6,32 +6,34 @@ title: Architecture
 
 ## System Overview
 
-stella is structured as a set of loosely coupled packages wired together in `main.go`. The system supports multiple users and multiple agents, with routing handled per-message. The core flow:
+stella is structured as a set of loosely coupled packages wired together at startup. The system supports multiple users and multiple agents, with routing handled per message. The core flow:
 
-1. A **channel** (CLI, Telegram, QQ, Feishu, or WeChat) receives user input
-2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback)
-3. The **PoolManager** looks up (or creates) the agent's **Pool** by agent ID
-4. The **Pool** manages sessions and dispatches to a **Runner**
-5. The **Runner** calls LLM providers via `internal/ai/`, executing tools in a loop
-6. Responses stream back through the channel to the user
+1. A **channel** (CLI, Telegram, QQ, Feishu, or WeChat) receives user input.
+2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback).
+3. The **ServiceManager** looks up the agent's `agent.Service` by agent ID.
+4. `agent.Service` resolves session intent through `session.Registry`.
+5. `runtime.Runtime` executes the turn through a cached **Runner**.
+6. The **Runner** calls LLM providers and executes tools in a loop.
+7. Responses stream back through the channel to the user.
 
 ```
 Channel (CLI / Telegram / QQ / Feishu / WeChat)
     |
     v
-Resolve user (identity.go)  -->  Resolve agent (identity.go)
+Resolve user  -->  Resolve agent
     |
     v
-PoolManager.Get(agentID)  -->  Pool (sessions + runner lifecycle)
-    |
-    v
-Go Runner (agent loop + tools)
-    |
-    v
-LLM Provider (Anthropic / OpenAI / OpenAI-compatible)
+ServiceManager.GetService(agentID)  -->  agent.Service
+    |                                      |
+    |                                      +--> session.Registry
+    |                                      |
+    |                                      +--> runtime.Runtime --> Runner
+    |                                                             |
+    v                                                             v
+Channel response stream                                      LLM Provider
 ```
 
-Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, ensuring that the same user talking to different agents gets independent conversation histories.
+Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, ensuring that the same user talking to different agents gets independent conversation histories. See [Agent architecture](/docs/development/agent-architecture) for the session/runtime/memory design rules.
 
 ## Package Layout
 
@@ -40,9 +42,11 @@ cmd/stella/              Entry point, CLI commands, service wiring
 internal/
   config/              Store interface, DBStore (SQLite), Snapshot, types
   ai/                  Message/Content types, Model, Provider interface, streaming events
-  agent/               PoolManager, Pool, Session, workspace setup, runner factory
+  agent/               Service, ServiceManager, session registry, runtime, runner factory
+    session/           Session lifecycle, ownership, kind/channel policy
+    runtime/           Runner cache, turn execution, event persistence
     engine/            Agent loop engine (multi-turn tool execution)
-    runner/            Runner, system prompt builder, skill loading
+    prompt/            System prompt builder and templates
   channel/             Channel interface, identity resolution, slash commands, notify
     cli/               Bubble Tea TUI
     telegram/          Telegram bot
@@ -84,9 +88,9 @@ Each incoming message goes through a two-step resolution before reaching the age
    - In group chats, a `chat_agents` binding maps `(platform, chat_id)` to an agent.
    - If neither is set, the first enabled agent is used as fallback.
 
-The resolved user and agent are bundled into a `ResolvedChat` struct that threads through all handler and command paths. This struct holds the target `Pool`, the `User`, the `AgentID`, and the `SessionKey`.
+The resolved user and agent are bundled into a `ResolvedChat` struct that threads through all handler and command paths. This struct holds the target `Service`, the `User`, the `AgentID`, and the `SessionKey`.
 
-The `PoolManager` maintains a `map[agentID]*Pool` and lazily creates pools on first access. Each pool is configured with its agent's `Snapshot` (model, credentials, workspace, system prompt) via the runner factory.
+The `ServiceManager` (implemented by `PoolManager`) maintains a `map[agentID]*Service` and lazily creates services on first access. Each service is configured with its agent's `Snapshot` (model, credentials, workspace, system prompt) via the runner factory.
 
 ### Agent Switching
 
@@ -221,9 +225,9 @@ The memory tool is auto-generated by `memory.BuildTool(provider)`, which inspect
 ## Session Lifecycle
 
 1. Channel resolves user and agent, producing a `ResolvedChat`
-2. `ResolvedChat.Pool.Chat(ctx, sessionKey, message)` is called -- message is `string` (text) or `[]ContentBlock` (multimodal)
-3. Pool finds or creates a session using the scoped key `{agentID}:{platform}:{userID}:{context}`
-4. Pool acquires or creates a runner for the session, configured with the agent's Snapshot
+2. `ResolvedChat.Chat(ctx, message)` is called -- message is `string` (text) or `[]ContentBlock` (multimodal)
+3. `Service.Chat` resolves or creates a session through `session.Registry` using the scoped key
+4. `runtime.Runtime` acquires or creates a runner for the session, configured with the agent's Snapshot
 5. Runner streams events back through a channel
 6. On idle timeout, runners are reaped; sessions persist to SQLite via `memory.Provider`
 
@@ -255,4 +259,4 @@ Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
-The dispatcher is created early in setup, but backends are registered later when gateway services start. The PoolManager wires per-agent notification tool injection through the `BuiltinToolsFactory`, keeping notifications in the always-on builtin tool set while external tools remain plugin-managed.
+The dispatcher is created early in setup, but backends are registered later when gateway services start. The ServiceManager wires per-agent notification tool injection through the `BuiltinToolsFactory`, keeping notifications in the always-on builtin tool set while external tools remain plugin-managed.

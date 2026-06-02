@@ -6,7 +6,7 @@ title: Session Compaction
 
 ## Status
 
-Implemented — `internal/agent/pool_compaction.go` (orchestration), `memory.Engine` (SQLite persistence), channels expose `/compact`.
+Implemented — `internal/agent/service.go` and `internal/agent/runtime/chat.go` orchestrate compaction through the active `memory.Provider`; channels expose `/compact`.
 
 ## Problem
 
@@ -58,15 +58,13 @@ changed, current state, blockers, and next steps.
 Channel (/compact or auto)
     |
     v
-Pool.CompactSession(ctx, sessionID)
+agent.Service.CompactSession(ctx, validatedSessionInfo)
     |
-    ├─ getOrCreateRunner()       load session from SQLite if needed, ensure runner
+    ├─ Runtime.Memory()          use the active memory provider
     │
-    ├─ collectFullResponse()     send compaction prompt to runner, collect summary
+    ├─ memory.Compactor.Compact  create summaries and preserve the fresh tail
     │
-    ├─ memory.Engine compaction  store summary + tail in SQLite
-    │
-    └─ kill runner               next Chat() starts fresh with clean context
+    └─ Runtime.CloseSession      next Chat() recreates runner with compacted context
 ```
 
 ### Token Estimation
@@ -106,13 +104,11 @@ Available in both CLI and Telegram:
 /compact
 ```
 
-Calls `Pool.CompactSession()` directly. Returns the summary text to the user.
+Resolves the current session through the channel/session policy and calls `agent.Service.CompactSession()`. Returns the summary text to the user.
 
 ### Automatic — token threshold
 
-`Pool.Chat()` checks `Pool.NeedsCompaction()` before each message. If the
-estimated token count exceeds the threshold, compaction runs automatically
-before the user's message is sent.
+`runtime.Runtime.Chat()` checks whether the validated session needs compaction before each message. If the estimated token count exceeds the threshold, compaction runs automatically before the user's message is sent.
 
 If auto-compaction fails, the system logs a warning and continues with the full
 history — it never blocks the user's message.

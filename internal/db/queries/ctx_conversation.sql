@@ -48,6 +48,12 @@ WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id) IS NULL OR agent_id = sqlc.narg(agent_id))
 ORDER BY last_active DESC;
 
+-- name: ListConversationsForReviewByAgent :many
+SELECT * FROM ctx_conversation
+WHERE agent_id = sqlc.arg(agent_id)
+  AND archived = 0
+ORDER BY last_active DESC;
+
 -- name: ListConversationsByKind :many
 SELECT * FROM ctx_conversation WHERE agent_id = ? AND user_id = ? AND kind = ? AND archived = 0 ORDER BY last_active DESC;
 

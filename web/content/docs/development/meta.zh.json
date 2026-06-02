@@ -4,6 +4,7 @@
     "rules/api-design",
     "rules/schema-design",
     "architecture",
+    "agent-architecture",
     "cli-as-client",
     "sandbox",
     "memory-internals",

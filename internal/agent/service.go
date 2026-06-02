@@ -1,0 +1,363 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/memory"
+	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	"github.com/CherryHQ/stella/pkg/ai"
+)
+
+// Service is a thin composition facade over session.Registry and runtime.Runtime.
+// It provides ergonomic entry points for common use cases without hiding the
+// conceptual split: policy lives in Session, execution lives in Runtime.
+//
+// Callers that need fine-grained control can use Sessions and Runtime directly.
+type Service struct {
+	Sessions *session.Registry
+	Runtime  *agentruntime.Runtime
+	// AgentID is the agent this service belongs to.
+	// Used by RunDelegateSession when the caller does not supply an agent ID.
+	AgentID string
+}
+
+// ChatRequest describes a foreground chat turn.
+type ChatRequest struct {
+	SessionID string
+	UserID    string
+	AgentID   string
+	ProjectID string
+	Channel   session.Channel
+	// Kind overrides the default session kind (KindChat). Used by non-chat
+	// callers such as the scheduler (KindScheduler).
+	Kind    session.Kind
+	Message MessageContent
+	Model   string
+	// RuntimeOpts are forwarded verbatim to Runtime.Chat.
+	RuntimeOpts []agentruntime.Option
+}
+
+// DelegateRequest describes a delegate session turn.
+type DelegateRequest struct {
+	// SessionID, when non-empty, resumes an existing delegate session.
+	// When empty, a new delegate session is created.
+	SessionID     string
+	UserID        string
+	AgentID       string
+	ProjectID     string
+	Task          string
+	System        string
+	Model         string
+	ExcludedTools []string
+}
+
+// DelegateResult is the output of a delegate turn.
+type DelegateResult struct {
+	SessionID string
+	Output    string
+	Complete  bool
+}
+
+// ServiceManager provides multi-agent Service lookup.
+// It replaces PoolManager for callers migrated to the new model.
+type ServiceManager interface {
+	// GetService returns the Service for the given agent ID, or nil if not found.
+	GetService(agentID string) *Service
+	// Default returns any service (first found). Useful for single-agent deployments.
+	Default() *Service
+}
+
+// Chat resolves (or creates) a session and executes a chat turn.
+//
+// When SessionID is empty, a new session is created with a generated ID.
+// When SessionID is non-empty, the session must already exist (resume-only);
+// unknown IDs return an error instead of silently creating.
+func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
+	kind := req.Kind
+	if kind == "" {
+		kind = session.KindChat
+	}
+	ensureReq := session.Request{
+		ID:        req.SessionID,
+		UserID:    req.UserID,
+		AgentID:   req.AgentID,
+		ProjectID: req.ProjectID,
+		Kind:      kind,
+		Channel:   req.Channel,
+	}
+	if req.SessionID != "" {
+		// Resume: accept main or chat sessions; reject internal kinds.
+		if req.Kind != "" {
+			ensureReq.RequireKind = kind
+		}
+	} else {
+		ensureReq.CreateIfMissing = true
+	}
+	info, err := s.Sessions.Ensure(ctx, ensureReq)
+	if err != nil {
+		out := make(chan Event, 1)
+		out <- Event{Err: fmt.Errorf("resolve session: %w", err)}
+		close(out)
+		return out
+	}
+
+	opts := req.RuntimeOpts
+	if req.Model != "" {
+		opts = append(opts, agentruntime.WithModel(req.Model))
+	}
+	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+}
+
+// ChannelChatRequest describes a chat turn on a non-private channel/group session
+// identified by a Stella-derived session key.
+type ChannelChatRequest struct {
+	SessionKey string // system-derived session key (e.g. "agent:telegram:group:123")
+	UserID     string
+	AgentID    string
+	Channel    session.Channel
+	Message    MessageContent
+	Model      string
+}
+
+// ChatForChannel resolves or creates a channel/group chat session using a
+// trusted system-derived session key. Unlike Chat, this method allows exact-ID
+// creation because the key is derived by Stella, not by user/model input.
+func (s *Service) ChatForChannel(ctx context.Context, req ChannelChatRequest) <-chan Event {
+	info, err := s.Sessions.Ensure(ctx, session.Request{
+		ID:                 req.SessionKey,
+		UserID:             req.UserID,
+		AgentID:            req.AgentID,
+		Kind:               session.KindChat,
+		Channel:            req.Channel,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindChat,
+	})
+	if err != nil {
+		out := make(chan Event, 1)
+		out <- Event{Err: fmt.Errorf("resolve channel session: %w", err)}
+		close(out)
+		return out
+	}
+
+	var opts []agentruntime.Option
+	if req.Model != "" {
+		opts = append(opts, agentruntime.WithModel(req.Model))
+	}
+	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+}
+
+// SchedulerChatRequest describes a scheduler-initiated chat turn.
+type SchedulerChatRequest struct {
+	SessionID string // scheduler-derived session ID
+	UserID    string
+	AgentID   string
+	Message   MessageContent
+	Model     string
+}
+
+// ChatForScheduler resolves or creates a scheduler session using a trusted
+// scheduler-derived session ID. Exact-ID creation is allowed because the
+// scheduler system owns the ID derivation.
+func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest) <-chan Event {
+	info, err := s.Sessions.Ensure(ctx, session.Request{
+		ID:                 req.SessionID,
+		UserID:             req.UserID,
+		AgentID:            req.AgentID,
+		Kind:               session.KindScheduler,
+		Channel:            session.ChannelScheduler,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindScheduler,
+	})
+	if err != nil {
+		out := make(chan Event, 1)
+		out <- Event{Err: fmt.Errorf("resolve scheduler session: %w", err)}
+		close(out)
+		return out
+	}
+
+	var opts []agentruntime.Option
+	if req.Model != "" {
+		opts = append(opts, agentruntime.WithModel(req.Model))
+	}
+	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+}
+
+// ResolveChannelSession resolves or creates a channel/group chat session using a
+// trusted system-derived session key. This is the session-only variant of
+// ChatForChannel — it returns the Info without executing a chat turn.
+func (s *Service) ResolveChannelSession(ctx context.Context, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.Sessions.Ensure(ctx, session.Request{
+		ID:                 sessionKey,
+		UserID:             userID,
+		AgentID:            agentID,
+		Kind:               session.KindChat,
+		Channel:            channel,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindChat,
+	})
+}
+
+// NewSession creates a new session with a generated ID. Used by the HTTP API
+// when the web UI creates a session — always new, never resume.
+func (s *Service) NewSession(ctx context.Context, userID, agentID, projectID string, kind session.Kind, channel session.Channel) (session.Info, error) {
+	return s.Sessions.Ensure(ctx, session.Request{
+		UserID:          userID,
+		AgentID:         agentID,
+		ProjectID:       projectID,
+		Kind:            kind,
+		Channel:         channel,
+		CreateIfMissing: true,
+	})
+}
+
+// MintTaskSession creates a new task session under the resolved executor agent.
+// The session is always new (generated ID) and uses KindTask/ChannelTask.
+func (s *Service) MintTaskSession(ctx context.Context, userID, executorAgentID string) (session.Info, error) {
+	return s.Sessions.Ensure(ctx, session.Request{
+		UserID:          userID,
+		AgentID:         executorAgentID,
+		Kind:            session.KindTask,
+		Channel:         session.ChannelTask,
+		CreateIfMissing: true,
+	})
+}
+
+// Delegate runs a delegate turn through a persisted child session.
+//
+// When SessionID is empty, a new delegate session is created with a generated ID.
+// When SessionID is non-empty, the session must already exist (resume-only);
+// this prevents model-supplied session_id from reserving arbitrary future IDs.
+func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateResult, error) {
+	ensureReq := session.Request{
+		ID:              req.SessionID,
+		UserID:          req.UserID,
+		AgentID:         req.AgentID,
+		ProjectID:       req.ProjectID,
+		Kind:            session.KindDelegate,
+		Channel:         session.ChannelDelegate,
+		CreateIfMissing: req.SessionID == "",
+		RequireKind:     session.KindDelegate,
+	}
+	info, err := s.Sessions.Ensure(ctx, ensureReq)
+	if err != nil {
+		return DelegateResult{SessionID: req.SessionID}, fmt.Errorf("ensure delegate session: %w", err)
+	}
+
+	opts := []agentruntime.Option{}
+	if req.Model != "" {
+		opts = append(opts, agentruntime.WithModel(req.Model))
+	}
+	if req.System != "" {
+		opts = append(opts, agentruntime.WithSystemOverride(req.System))
+	}
+	if len(req.ExcludedTools) > 0 {
+		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
+	}
+
+	stream := s.Runtime.Chat(ctx, info, req.Task, opts...)
+	result := DelegateResult{SessionID: info.ID}
+	var output strings.Builder
+	for ev := range stream {
+		if ev.Text != "" {
+			output.WriteString(ev.Text)
+		}
+		if ev.Err != nil {
+			return DelegateResult{SessionID: info.ID, Output: output.String()}, ev.Err
+		}
+	}
+	result.Output = output.String()
+	result.Complete = true
+	return result, nil
+}
+
+// RunDelegateSession implements delegatetool.SessionRunner so that Service can
+// be passed directly to delegate tool constructors.
+// UserID is resolved from ctx; AgentID falls back to s.AgentID.
+func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.SessionRunRequest) (delegatetool.SessionRunResult, error) {
+	userID := memory.UserIDFromContext(ctx)
+	agentID := memory.AgentIDFromContext(ctx)
+	if agentID == "" {
+		agentID = s.AgentID
+	}
+	projectID := req.ProjectID
+	if projectID == "" {
+		projectID = memory.ProjectIDFromContext(ctx)
+	}
+	res, err := s.Delegate(ctx, DelegateRequest{
+		SessionID:     req.SessionID,
+		UserID:        userID,
+		AgentID:       agentID,
+		ProjectID:     projectID,
+		Task:          req.Task,
+		System:        req.System,
+		Model:         req.Model,
+		ExcludedTools: req.ExcludedTools,
+	})
+	return delegatetool.SessionRunResult{
+		SessionID: res.SessionID,
+		Output:    res.Output,
+		Complete:  res.Complete,
+	}, err
+}
+
+// ResolveMainSession resolves the main session for a user+agent pair, creating
+// one if missing. It is the canonical replacement for Pool.ResolveSession on
+// private user channels.
+func (s *Service) ResolveMainSession(ctx context.Context, userID, agentID string) (session.Info, error) {
+	if agentID == "" {
+		agentID = s.AgentID
+	}
+	return s.Sessions.ResolveMain(ctx, session.MainRequest{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+}
+
+// CompactSession runs full compaction on the session identified by sessionID.
+// This is a best-effort operation: it returns the compaction summary or an error.
+func (s *Service) CompactSession(ctx context.Context, info session.Info) (string, error) {
+	mem := s.Runtime.Memory()
+	if mem == nil {
+		return "", fmt.Errorf("no memory provider")
+	}
+	c, ok := mem.(interface {
+		Compact(ctx context.Context, session memory.Session, mode memory.CompactionMode) (*memory.CompactionResult, error)
+	})
+	if !ok {
+		return "", fmt.Errorf("memory provider does not support compaction")
+	}
+	memSess := s.Sessions.MemoryScope(info)
+	result, err := c.Compact(ctx, memSess, memory.CompactionFull)
+	if err != nil {
+		return "", fmt.Errorf("compact: %w", err)
+	}
+	return fmt.Sprintf("compacted: %d leaf + %d condensed summaries, %d→%d tokens",
+		result.LeafSummariesCreated, result.CondensedSummariesCreated,
+		result.TokensBefore, result.TokensAfter), nil
+}
+
+// History returns the raw message history for the given session.
+func (s *Service) History(ctx context.Context, info session.Info) []ai.Message {
+	mem := s.Runtime.Memory()
+	if mem == nil {
+		return nil
+	}
+	sm, ok := mem.(memory.SessionManager)
+	if !ok {
+		return nil
+	}
+	saveCtx := memory.WithUserID(ctx, info.UserID)
+	saveCtx = memory.WithAgentID(saveCtx, info.AgentID)
+	msgs, err := sm.LoadHistory(saveCtx, info.ID)
+	if err != nil {
+		return nil
+	}
+	return msgs
+}

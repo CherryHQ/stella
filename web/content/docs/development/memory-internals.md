@@ -103,7 +103,7 @@ Reflect is explicitly instructed not to add, remove, or edit constraints. The cu
 
 Session snapshots prevent background memory updates from changing an active conversation mid-stream.
 
-On the first chat turn, Stella stores a frozen `ctx_agent_memory.version` in `memory_snapshots` for `(session_id, user_id, agent_id)`. On every turn, the pool rebuilds the system prompt at that snapshot version and injects it with a per-run system override.
+On the first chat turn, Stella stores a frozen `ctx_agent_memory.version` in `memory_snapshots` for `(session_id, user_id, agent_id)`. On every turn, `runtime.Runtime` rebuilds the system prompt at that snapshot version and injects it with a per-run system override.
 
 Visibility rules:
 

@@ -46,10 +46,11 @@ func TestParseAgentTasks_AllFields(t *testing.T) {
 	args := map[string]any{
 		"tasks": []any{
 			map[string]any{
-				"id":     "t1",
-				"task":   "write code",
-				"preset": "worker",
-				"model":  "claude-haiku",
+				"id":         "t1",
+				"task":       "write code",
+				"preset":     "worker",
+				"model":      "claude-haiku",
+				"session_id": "delegate-session-1",
 			},
 		},
 	}
@@ -63,6 +64,9 @@ func TestParseAgentTasks_AllFields(t *testing.T) {
 	}
 	if tc.Model != "claude-haiku" {
 		t.Errorf("expected model 'claude-haiku', got %q", tc.Model)
+	}
+	if tc.SessionID != "delegate-session-1" {
+		t.Errorf("expected session_id 'delegate-session-1', got %q", tc.SessionID)
 	}
 }
 

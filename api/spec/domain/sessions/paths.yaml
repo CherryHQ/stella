@@ -17,7 +17,10 @@ paths:
           description: Opaque pagination token from a previous response
         - name: kind
           in: query
-          schema: { type: string, enum: [main, chat, scheduler, task] }
+          schema: {
+            type: string,
+            enum: [main, chat, delegate, scheduler, task],
+          }
           description: Filter by session kind
         - name: project_id
           in: query

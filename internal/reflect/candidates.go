@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
@@ -38,6 +39,52 @@ func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, 
 		candidates = candidates[:s.batch]
 	}
 	return candidates, nil
+}
+
+// listUnreviewedFromRegistry uses session.Registry.ListForReview to apply the
+// default review policy (excludes delegate/task/scheduler sessions) and
+// Registry.MemoryScope to build authorised memory.Session values.
+func (s *Service) listUnreviewedFromRegistry(ctx context.Context, reg *session.Registry, agentID string) ([]candidate, error) {
+	infos, err := reg.ListForReview(ctx, session.ReviewRequest{AgentID: agentID, Policy: session.DefaultReviewPolicy()})
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]candidate, 0, len(infos))
+	for _, info := range infos {
+		cand, ok := s.unreviewedCandidateFromRegistry(ctx, reg, info)
+		if !ok {
+			continue
+		}
+		candidates = append(candidates, cand)
+	}
+
+	sortCandidates(candidates)
+	if len(candidates) > s.batch {
+		candidates = candidates[:s.batch]
+	}
+	return candidates, nil
+}
+
+func (s *Service) unreviewedCandidateFromRegistry(ctx context.Context, reg *session.Registry, info session.Info) (candidate, bool) {
+	if info.UserID == "" {
+		return candidate{}, false
+	}
+
+	wm, err := s.wm.get(ctx, info.ID)
+	if err != nil {
+		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", info.ID, "error", err)
+		return candidate{}, false
+	}
+	if !info.LastActive.After(wm) {
+		return candidate{}, false
+	}
+
+	return candidate{
+		session:    reg.MemoryScope(info),
+		lastActive: info.LastActive,
+		lastReview: wm,
+	}, true
 }
 
 func (s *Service) unreviewedCandidate(ctx context.Context, sess memory.SessionInfo) (candidate, bool) {

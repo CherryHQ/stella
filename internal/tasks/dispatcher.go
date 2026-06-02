@@ -25,10 +25,10 @@ type SchedulerLike interface {
 type ExecutorResolver func(ctx context.Context, task sqlc.AgentTask) (agentID string, ok bool)
 
 // SessionMinter returns a fresh session id for a first-run dispatch (i.e.
-// task.session_id IS NULL). It must produce a unique id per call. In
-// production this is wired to memory.Provider.NewSession; in tests it can be
-// a simple uuid generator.
-type SessionMinter func(ctx context.Context, task sqlc.AgentTask) (string, error)
+// task.session_id IS NULL). It must produce a unique id per call.
+// executorAgentID is the resolved agent that will run the task — the session
+// must be attributed to this agent, not the task's creator.
+type SessionMinter func(ctx context.Context, task sqlc.AgentTask, executorAgentID string) (string, error)
 
 // DispatcherConfig holds the wiring for a Dispatcher.
 type DispatcherConfig struct {
@@ -250,7 +250,7 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 			d.emitProtocolError(ctx, task.ID, "no executor resolved")
 			continue
 		}
-		sessionID, err := d.cfg.NewSession(ctx, task)
+		sessionID, err := d.cfg.NewSession(ctx, task, execID)
 		if err != nil {
 			d.cfg.Logger.Warn("dispatcher: mint session", "task", task.ID, "err", err)
 			continue

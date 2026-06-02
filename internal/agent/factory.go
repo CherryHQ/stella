@@ -176,6 +176,7 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 				PluginTools:     cfg.PluginToolsBuilder,
 				HookPlugins:     hookPlugins,
 				ToolLifecycle:   cfg.ToolLifecycle,
+				DelegateRunner:  params.DelegateRunner,
 				DelegateTimeout: cfg.Snap.Runner.DelegateTimeoutDuration(),
 			})
 		}, nil

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -30,6 +31,10 @@ type Config struct {
 	Workspace  string
 	Log        *slog.Logger
 	Providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	// Services provides per-agent session registries for review candidate listing.
+	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
+	// instead of calling memory.SessionManager directly.
+	Services agent.ServiceManager
 }
 
 // watermarker abstracts watermark storage for testability.
@@ -49,6 +54,7 @@ type Service struct {
 	batch      int
 	log        *slog.Logger
 	providers  func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	services   agent.ServiceManager
 }
 
 // New creates a new reflect service.
@@ -66,5 +72,6 @@ func New(cfg Config) *Service {
 		batch:      defaultReviewBatch,
 		log:        cfg.Log,
 		providers:  cfg.Providers,
+		services:   cfg.Services,
 	}
 }

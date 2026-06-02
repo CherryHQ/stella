@@ -10,12 +10,15 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/tools/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -24,11 +27,9 @@ import (
 )
 
 // PluginToolsBuilder creates tools from enabled plugin state.
-// Called per runner so tool builders receive the active sandbox host.
 type PluginToolsBuilder func(ctx context.Context, build pkgplugins.ToolBuildContext) []tools.Tool
 
 // PluginHooksBuilder creates hook plugins from enabled plugin state.
-// Called at startup and on hot-reload when a hook plugin is toggled.
 type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
 type (
@@ -40,117 +41,80 @@ type (
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
 
-// WithIdleTimeoutPM sets the idle timeout for all pools.
 func WithIdleTimeoutPM(d time.Duration) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.idleTimeout = d
-	}
+	return func(pm *PoolManager) { pm.idleTimeout = d }
 }
 
-// WithCompactionPM sets the compaction config for all pools.
 func WithCompactionPM(cfg CompactionConfig) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.compaction = cfg
-	}
+	return func(pm *PoolManager) { pm.compaction = cfg }
 }
 
-// WithBuiltinTools sets the always-on builtin tools available to all agents.
 func WithBuiltinTools(tools []tools.Tool) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.builtinTools = tools
-	}
+	return func(pm *PoolManager) { pm.builtinTools = tools }
 }
 
-// WithPluginToolsBuilder sets the function that builds tools from plugin state.
 func WithPluginToolsBuilder(b PluginToolsBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.pluginToolsBuilder = b
-	}
+	return func(pm *PoolManager) { pm.pluginToolsBuilder = b }
 }
 
-// WithPluginHooksBuilder sets the function that builds hooks from plugin state.
 func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.pluginHooksBuilder = b
-	}
+	return func(pm *PoolManager) { pm.pluginHooksBuilder = b }
 }
 
 func WithPromptSectionsBuilder(b prompt.SectionsBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.promptSectionsBuilder = b
-	}
+	return func(pm *PoolManager) { pm.promptSectionsBuilder = b }
 }
 
 func WithSessionPluginViewBuilder(b SessionPluginViewBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.sessionPluginViewBuilder = b
-	}
+	return func(pm *PoolManager) { pm.sessionPluginViewBuilder = b }
 }
 
 func WithBeforeRunBuilderPM(b BeforeRunBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.beforeRunBuilder = b
-	}
+	return func(pm *PoolManager) { pm.beforeRunBuilder = b }
 }
 
 func WithToolLifecyclePM(tl *coreagent.ToolLifecycle) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.toolLifecycle = tl
-	}
+	return func(pm *PoolManager) { pm.toolLifecycle = tl }
 }
 
 func WithProviderStreamBuilder(b ProviderStreamBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.providerStreamBuilder = b
-	}
+	return func(pm *PoolManager) { pm.providerStreamBuilder = b }
 }
 
-// WithSkillStore sets the skill store for runner factories.
 func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.skillStore = s
-	}
+	return func(pm *PoolManager) { pm.skillStore = s }
 }
 
-// WithVaultEnvLoader sets the vault env loader for sandbox secret injection.
 func WithVaultEnvLoader(v sandbox.VaultEnvLoader) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.vaultEnvLoader = v
-	}
+	return func(pm *PoolManager) { pm.vaultEnvLoader = v }
 }
 
-// WithTokenManager sets the OAuth token manager for runtime token injection.
 func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.tokenManager = tm
-	}
+	return func(pm *PoolManager) { pm.tokenManager = tm }
 }
 
 func WithProjectResolver(r ProjectResolverFunc) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.projectResolver = r
-	}
+	return func(pm *PoolManager) { pm.projectResolver = r }
 }
 
 func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.projectEnsurer = fn
-	}
+	return func(pm *PoolManager) { pm.projectEnsurer = fn }
 }
 
-// PoolManager manages a map of agent ID to Pool. It reads enabled agents
-// from the config Store and creates one Pool per agent.
+// PoolManager manages one Service per enabled agent. It reads enabled agents
+// from the config Store and creates a Service (session.Registry + runtime.Runtime)
+// per agent.
 type PoolManager struct {
-	pools                    map[string]*Pool
+	services                 map[string]*Service
 	store                    config.Store
 	mem                      memory.Provider
 	mu                       sync.RWMutex
 	idleTimeout              time.Duration
 	compaction               CompactionConfig
-	builtinTools             []tools.Tool       // always-on builtin tools (memory, credentials, etc.)
-	pluginToolsBuilder       PluginToolsBuilder // builds external tools from enabled plugin state
-	hookPlugins              []hooks.HookPlugin // current enabled hook plugins
-	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state
+	builtinTools             []tools.Tool
+	pluginToolsBuilder       PluginToolsBuilder
+	hookPlugins              []hooks.HookPlugin
+	pluginHooksBuilder       PluginHooksBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
@@ -166,10 +130,9 @@ type PoolManager struct {
 	log                      *slog.Logger
 }
 
-// NewPoolManager creates a new PoolManager.
 func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManagerOption) *PoolManager {
 	pm := &PoolManager{
-		pools:       make(map[string]*Pool),
+		services:    make(map[string]*Service),
 		store:       store,
 		mem:         mem,
 		idleTimeout: 10 * time.Minute,
@@ -181,9 +144,6 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 	return pm
 }
 
-// SetOAuthRegistry wires the provider registry into the pool manager. When a
-// vault env loader is later set, the constructed TokenManager also receives the
-// registry so runners can resolve oauth.* session env sources.
 func (pm *PoolManager) SetOAuthRegistry(r *oauth.ProviderRegistry) {
 	pm.mu.Lock()
 	pm.oauthRegistry = r
@@ -193,10 +153,6 @@ func (pm *PoolManager) SetOAuthRegistry(r *oauth.ProviderRegistry) {
 	pm.mu.Unlock()
 }
 
-// SetVaultEnvLoader sets the vault env loader and rebuilds all pool factories
-// so existing pools pick up the loader. Must be called after StartAll.
-// If vs also satisfies oauth.VaultStore, a TokenManager is constructed and
-// wired into the pool manager so runners can inject runtime OAuth tokens.
 func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnvLoader) {
 	pm.mu.Lock()
 	pm.vaultEnvLoader = v
@@ -206,12 +162,12 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 			pm.tokenManager.SetRegistry(pm.oauthRegistry)
 		}
 	}
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
 	pm.mu.Unlock()
 
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+	for agentID := range services {
+		if err := pm.rebuildFactory(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
 		}
 	}
@@ -222,26 +178,18 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 func (pm *PoolManager) SetTokenEnsurer(ctx context.Context, te sandbox.TokenEnsurer) {
 	pm.mu.Lock()
 	pm.tokenEnsurer = te
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
 	pm.mu.Unlock()
 
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+	for agentID := range services {
+		if err := pm.rebuildFactory(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after token ensurer set", "agent_id", agentID, "error", err)
 		}
 	}
 }
 
-// Get returns the Pool for the given agent ID, or nil if not found.
-func (pm *PoolManager) Get(agentID string) *Pool {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-	return pm.pools[agentID]
-}
-
 // HookPlugins returns a snapshot copy of the current enabled hook plugins.
-// Returns a copy so callers cannot mutate or alias the internal slice.
 func (pm *PoolManager) HookPlugins() []hooks.HookPlugin {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -250,10 +198,8 @@ func (pm *PoolManager) HookPlugins() []hooks.HookPlugin {
 	return out
 }
 
-// StartAll reads enabled agents from the store, creates a Pool per agent
-// with per-agent runner factory, and starts reapers.
+// StartAll reads enabled agents from the store and creates a Service per agent.
 func (pm *PoolManager) StartAll(ctx context.Context) error {
-	// Build initial hook plugins.
 	if pm.pluginHooksBuilder != nil {
 		pm.hookPlugins = pm.pluginHooksBuilder(ctx)
 	}
@@ -276,7 +222,7 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	}
 
 	pm.mu.RLock()
-	count := len(pm.pools)
+	count := len(pm.services)
 	pm.mu.RUnlock()
 
 	if count == 0 {
@@ -288,66 +234,164 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	return nil
 }
 
-// startAgent sets up workspace, builds runner factory, creates pool, and starts reaper.
 func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	snap, workspace, err := pm.loadAgentSnapshot(ctx, ag.ID)
 	if err != nil {
 		return err
 	}
 
-	factory, err := pm.buildFactory(ctx, snap)
+	factory, err := pm.buildFactory_(ctx, snap)
 	if err != nil {
 		return err
 	}
 
-	poolOpts := []PoolOption{
-		WithAgentID(ag.ID),
-		WithIdleTimeout(pm.idleTimeout),
-		WithCompaction(pm.compaction.WithDefaults()),
-		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
-		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
-		WithBeforeRunBuilder(pm.beforeRunBuilder),
-		WithProjectEnsurer(pm.projectEnsurer),
-		pm.buildSnapshotPromptOption(snap),
+	svc, err := pm.buildService(ctx, ag.ID, factory, snap)
+	if err != nil {
+		return fmt.Errorf("build service for agent %q: %w", ag.ID, err)
 	}
 
-	pool := NewPool(factory, pm.mem, poolOpts...)
-	pool.SetHooks(pm.HookPlugins)
-	go pool.StartReaper(ctx)
-
 	pm.mu.Lock()
-	pm.pools[ag.ID] = pool
+	pm.services[ag.ID] = svc
 	pm.mu.Unlock()
 
 	pm.log.Info("agent started", "agent_id", ag.ID, "workspace", workspace)
 	return nil
 }
 
-// DefaultPool returns the first pool found in the map, or nil if empty.
-// Useful for backward compatibility with code expecting a single pool.
-func (pm *PoolManager) DefaultPool() *Pool {
+func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory NewRunnerFunc, snap *config.Snapshot) (*Service, error) {
+	reg, err := session.NewRegistry(pm.mem, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("build session registry for %q: %w", agentID, err)
+	}
+
+	cfg := agentruntime.Config{
+		Factory:        factory,
+		Memory:         pm.mem,
+		IdleTimeout:    pm.idleTimeout,
+		DefaultModel:   snap.ResolveModelID(config.ModelTierStrong),
+		HooksFn:        pm.HookPlugins,
+		BeforeRun:      pm.runtimeBeforeRun,
+		SnapshotPrompt: pm.buildSnapshotPromptFunc(snap),
+		Compaction: agentruntime.CompactionConfig{
+			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
+			KeepTail:  pm.compaction.WithDefaults().KeepTail,
+		},
+	}
+	rt, err := agentruntime.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build runtime for %q: %w", agentID, err)
+	}
+	go rt.StartReaper(ctx)
+
+	svc := &Service{Sessions: reg, Runtime: rt, AgentID: agentID}
+	rt.SetDelegateRunner(svc)
+	return svc, nil
+}
+
+func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentruntime.SnapshotPromptFunc {
+	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) string {
+		userRoot := ""
+		if info.UserID != "" {
+			if dir, err := SetupUserWorkspace(snap.AgentID, config.StellaHome(), info.UserID); err == nil {
+				userRoot = dir
+			}
+		}
+
+		homeDir, _ := os.UserHomeDir()
+		pluginView := pkgplugins.SessionPluginView{}
+		if pm.sessionPluginViewBuilder != nil {
+			pluginView, _ = pm.sessionPluginViewBuilder(ctx)
+		}
+		promptBuild := pkgplugins.SystemPromptContext{
+			StellaHome:          config.StellaHome(),
+			HomeDir:             homeDir,
+			AgentRoot:           snap.Workspace,
+			UserID:              info.UserID,
+			AgentID:             info.AgentID,
+			UserRoot:            userRoot,
+			SkillStore:          pm.skillStore,
+			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
+			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+		}
+		var sections []pkgplugins.SystemPromptSection
+		if pm.promptSectionsBuilder != nil {
+			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+		}
+		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+			sections = append(sections, skillsSection)
+		}
+
+		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+			SystemPrompt:      snap.SystemPrompt,
+			AgentSoul:         snap.Soul,
+			Memory:            pm.mem,
+			UserID:            info.UserID,
+			AgentID:           info.AgentID,
+			StellaHome:        config.StellaHome(),
+			AgentRoot:         snap.Workspace,
+			UserRoot:          userRoot,
+			Sections:          sections,
+			SnapshotVersion:   ss.Version,
+			SnapshotUpdatedAt: ss.UpdatedAt,
+		})
+	}
+}
+
+func (pm *PoolManager) runtimeBeforeRun(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
+	if pm.beforeRunBuilder == nil {
+		return system, nil
+	}
+	result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
+		SessionID:    info.ID,
+		Channel:      info.Channel,
+		UserID:       info.UserID,
+		AgentID:      info.AgentID,
+		Model:        model,
+		MessageText:  msgText,
+		SystemPrompt: system,
+		History:      append([]ai.Message(nil), history...),
+	})
+	if err != nil {
+		return "", err
+	}
+	if result.SystemPrompt == "" {
+		return system, nil
+	}
+	return result.SystemPrompt, nil
+}
+
+// GetService returns the Service for the given agent ID, or nil if not found.
+func (pm *PoolManager) GetService(agentID string) *Service {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	for _, p := range pm.pools {
-		return p
+	return pm.services[agentID]
+}
+
+// Default returns any service (first found).
+func (pm *PoolManager) Default() *Service {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	for _, svc := range pm.services {
+		return svc
 	}
 	return nil
 }
 
-// ReloadPluginTools updates the runner factory for every pool. Plugin tools are
-// built per runner so builders can receive the active sandbox host.
+// ReloadPluginTools rebuilds the runner factory for every service.
 func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	if pm.pluginToolsBuilder == nil {
 		return nil
 	}
 
 	pm.mu.RLock()
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
+	agentIDs := make([]string, 0, len(pm.services))
+	for id := range pm.services {
+		agentIDs = append(agentIDs, id)
+	}
 	pm.mu.RUnlock()
 
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+	for _, agentID := range agentIDs {
+		if err := pm.rebuildFactory(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after plugin reload", "agent_id", agentID, "error", err)
 		}
 	}
@@ -356,9 +400,7 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	return nil
 }
 
-// ReloadPluginHooks rebuilds the hook plugin set from current plugin state
-// and propagates it to every pool. No factory rebuild is needed — hooks live
-// on the Pool and are injected via RunnerParams at runner-creation time.
+// ReloadPluginHooks rebuilds the hook plugin set and propagates to every service.
 func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	if pm.pluginHooksBuilder == nil {
 		return nil
@@ -369,33 +411,30 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	pm.mu.Lock()
 	oldPlugins := pm.hookPlugins
 	pm.hookPlugins = hookPlugins
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
 	pm.mu.Unlock()
 
-	for _, pool := range pools {
-		pool.SetHooks(pm.HookPlugins)
+	for _, svc := range services {
+		svc.Runtime.SetHooks(pm.HookPlugins)
 	}
 
-	// Close old hook plugins that implement io.Closer (e.g. OTel exporter).
 	pluginhooks.CloseHookPlugins(oldPlugins)
-
 	pm.log.Info("plugin hooks reloaded", "hook_count", len(hookPlugins))
 	return nil
 }
 
-// ReloadPluginProviders rebuilds the runner factory for every pool so new
-// sessions pick up changed provider credentials or enabled state. Provider
-// creds are resolved from the Snapshot at factory-build time, so a simple
-// factory rebuild is sufficient.
+// ReloadPluginProviders rebuilds the runner factory for every service.
 func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 	pm.mu.RLock()
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
+	agentIDs := make([]string, 0, len(pm.services))
+	for id := range pm.services {
+		agentIDs = append(agentIDs, id)
+	}
 	pm.mu.RUnlock()
 
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+	for _, agentID := range agentIDs {
+		if err := pm.rebuildFactory(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after provider reload", "agent_id", agentID, "error", err)
 		}
 	}
@@ -404,110 +443,69 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 	return nil
 }
 
-// rebuildPoolFactory rebuilds and replaces the runner factory for a single pool.
-func (pm *PoolManager) rebuildPoolFactory(ctx context.Context, agentID string, pool *Pool) error {
+// rebuildFactory rebuilds and replaces the runner factory for a single agent's service.
+func (pm *PoolManager) rebuildFactory(ctx context.Context, agentID string) error {
 	snap, _, err := pm.loadAgentSnapshot(ctx, agentID)
 	if err != nil {
 		return err
 	}
-	factory, err := pm.buildFactory(ctx, snap)
+	factory, err := pm.buildFactory_(ctx, snap)
 	if err != nil {
 		return err
-	}
-	pool.SetFactory(factory)
-	pool.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong))
-	pool.SetFastModel(snap.ResolveModelID(config.ModelTierFast))
-	return nil
-}
-
-// SyncAgent reloads one agent's pool configuration immediately. If the agent
-// was deleted or disabled, its pool is closed and removed. If it exists and is
-// enabled, an existing pool is rebuilt and its live session runners are reset
-// so subsequent requests use the latest snapshot.
-func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
-	ag, err := pm.store.GetAgent(ctx, agentID)
-	if err != nil {
-		return pm.removeAgentPool(agentID)
-	}
-	if !ag.Enabled {
-		return pm.removeAgentPool(agentID)
 	}
 
 	pm.mu.RLock()
-	pool := pm.pools[agentID]
+	svc := pm.services[agentID]
 	pm.mu.RUnlock()
-
-	if pool == nil {
-		return pm.startAgent(ctx, ag)
+	if svc != nil {
+		svc.Runtime.SetFactory(factory)
+		svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong))
+		svc.Runtime.SetHooks(pm.HookPlugins)
 	}
-	if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
-		return err
-	}
-	if err := pool.ResetRunners(); err != nil {
-		pm.log.Warn("failed to reset agent runners after sync", "agent_id", agentID, "error", err)
-	}
-	pm.log.Info("agent pool reloaded", "agent_id", agentID)
 	return nil
 }
 
-func (pm *PoolManager) removeAgentPool(agentID string) error {
+// SyncAgent reloads one agent's configuration. If the agent was deleted or
+// disabled, its service is closed and removed. Otherwise the factory and
+// runners are rebuilt.
+func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
+	ag, err := pm.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return pm.removeAgent(agentID)
+	}
+	if !ag.Enabled {
+		return pm.removeAgent(agentID)
+	}
+
+	pm.mu.RLock()
+	svc := pm.services[agentID]
+	pm.mu.RUnlock()
+
+	if svc == nil {
+		return pm.startAgent(ctx, ag)
+	}
+	if err := pm.rebuildFactory(ctx, agentID); err != nil {
+		return err
+	}
+	if err := svc.Runtime.ResetRunners(); err != nil {
+		pm.log.Warn("failed to reset runners after sync", "agent_id", agentID, "error", err)
+	}
+	pm.log.Info("agent reloaded", "agent_id", agentID)
+	return nil
+}
+
+func (pm *PoolManager) removeAgent(agentID string) error {
 	pm.mu.Lock()
-	pool := pm.pools[agentID]
-	delete(pm.pools, agentID)
+	svc := pm.services[agentID]
+	delete(pm.services, agentID)
 	pm.mu.Unlock()
-	if pool == nil {
+	if svc == nil {
 		return nil
 	}
-	pm.log.Info("removing agent pool", "agent_id", agentID)
-	return pool.closeSessions()
+	pm.log.Info("removing agent service", "agent_id", agentID)
+	return svc.Runtime.Close()
 }
 
-// buildSnapshotPromptOption returns a PoolOption that sets a snapshotPromptFn on the Pool.
-// The closure captures snap at startAgent time. On rebuildPoolFactory the option is not
-// updated (acceptable for Phase 3 — a future pass can extend rebuildPoolFactory).
-func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOption {
-	return WithSnapshotPromptBuilder(func(ctx context.Context, userID string, agentID string, memSnap memory.SessionSnapshot) string {
-		homeDir, _ := os.UserHomeDir()
-		pluginView := pkgplugins.SessionPluginView{}
-		if pm.sessionPluginViewBuilder != nil {
-			pluginView, _ = pm.sessionPluginViewBuilder(ctx)
-		}
-		promptBuild := pkgplugins.SystemPromptContext{
-			StellaHome:          config.StellaHome(),
-			HomeDir:             homeDir,
-			AgentRoot:           snap.Workspace,
-			UserID:              userID,
-			AgentID:             agentID,
-			SkillStore:          pm.skillStore,
-			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
-		}
-		var sections []pkgplugins.SystemPromptSection
-		if pm.promptSectionsBuilder != nil {
-			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
-		}
-		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
-			sections = append(sections, skillsSection)
-		}
-		params := prompt.DBPromptParams{
-			SystemPrompt:      snap.SystemPrompt,
-			AgentSoul:         snap.Soul,
-			Memory:            pm.mem,
-			UserID:            userID,
-			AgentID:           agentID,
-			StellaHome:        config.StellaHome(),
-			AgentRoot:         snap.Workspace,
-			SnapshotVersion:   memSnap.Version,
-			SnapshotUpdatedAt: memSnap.UpdatedAt,
-			Sections:          sections,
-		}
-		if ks, ok := pm.skillStore.(pkgplugins.KnowledgeStore); ok {
-			params.KnowledgeStore = ks
-		}
-		return prompt.BuildSystemPromptFromDB(ctx, params)
-	})
-}
-
-// loadAgentSnapshot loads the config snapshot for an agent and sets up its workspace.
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
 	workspace, err := SetupWorkspace(agentID, config.StellaHome())
 	if err != nil {
@@ -521,10 +519,8 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 	return snap, workspace, nil
 }
 
-// buildFactory creates a runner factory with builtin tools and external plugin
-// tools. Hooks are not part of the factory — they are stored on the Pool and
-// injected via RunnerParams.HooksFn at runner-creation time.
-func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (NewRunnerFunc, error) {
+// buildFactory_ creates a runner factory with builtin tools and external plugin tools.
+func (pm *PoolManager) buildFactory_(_ context.Context, snap *config.Snapshot) (NewRunnerFunc, error) {
 	pm.mu.RLock()
 	builtinTools := append([]tools.Tool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
@@ -550,43 +546,34 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 	})
 }
 
-// mergeTools creates a new slice containing builtin tools followed by more
-// builtin additions.
-func mergeTools(builtin, additions []tools.Tool) []tools.Tool {
-	merged := make([]tools.Tool, 0, len(builtin)+len(additions))
-	merged = append(merged, builtin...)
-	merged = append(merged, additions...)
-	return merged
-}
-
-// AddBuiltinTool appends a tool to the shared builtin list and rebuilds all
-// pool factories so subsequent runners see the new tool.
+// AddBuiltinTool appends a tool and rebuilds all service factories.
 func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) error {
 	pm.mu.Lock()
 	pm.builtinTools = append(pm.builtinTools, tool)
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
+	agentIDs := make([]string, 0, len(pm.services))
+	for id := range pm.services {
+		agentIDs = append(agentIDs, id)
+	}
 	pm.mu.Unlock()
 
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+	for _, agentID := range agentIDs {
+		if err := pm.rebuildFactory(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after adding builtin tool", "agent_id", agentID, "error", err)
 		}
 	}
 	return nil
 }
 
-// InvalidateUser closes all live runners for userID across all pools.
-// Satisfies the credentials.RunnerInvalidator interface.
+// InvalidateUser closes all live runners for userID across all services.
 func (pm *PoolManager) InvalidateUser(userID string) error {
 	pm.mu.RLock()
-	pools := make(map[string]*Pool, len(pm.pools))
-	maps.Copy(pools, pm.pools)
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
 	pm.mu.RUnlock()
 
 	var lastErr error
-	for _, pool := range pools {
-		if err := pool.ResetRunnersForUser(userID); err != nil {
+	for _, svc := range services {
+		if err := svc.Runtime.ResetRunnersForUser(userID); err != nil {
 			pm.log.Error("reset runners for user", "user_id", userID, "error", err)
 			lastErr = err
 		}
@@ -594,20 +581,20 @@ func (pm *PoolManager) InvalidateUser(userID string) error {
 	return lastErr
 }
 
-// Close shuts down all pools and hook plugins.
+// Close shuts down all services and hook plugins.
 func (pm *PoolManager) Close() error {
 	pm.mu.Lock()
-	pools := pm.pools
-	pm.pools = make(map[string]*Pool)
+	services := pm.services
+	pm.services = make(map[string]*Service)
 	hookPlugins := pm.hookPlugins
 	pm.hookPlugins = nil
 	pm.mu.Unlock()
 
 	var lastErr error
-	for id, pool := range pools {
-		pm.log.Info("closing agent pool", "agent_id", id)
-		if err := pool.closeSessions(); err != nil {
-			pm.log.Error("failed to close pool", "agent_id", id, "error", err)
+	for id, svc := range services {
+		pm.log.Info("closing agent service", "agent_id", id)
+		if err := svc.Runtime.Close(); err != nil {
+			pm.log.Error("failed to close service runtime", "agent_id", id, "error", err)
 			lastErr = err
 		}
 	}

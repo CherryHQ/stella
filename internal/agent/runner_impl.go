@@ -2,13 +2,13 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
@@ -43,6 +43,7 @@ type runnerConfig struct {
 	PluginTools     func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
 	HookPlugins     []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle   *coreagent.ToolLifecycle
+	DelegateRunner  delegatetool.SessionRunner
 	DelegateTimeout time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout     time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 }
@@ -115,6 +116,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		Presets:        presets,
 		Hooks:          hookSet,
 		ToolLifecycle:  cfg.ToolLifecycle,
+		SessionRunner:  cfg.DelegateRunner,
 		DefaultTimeout: cfg.DelegateTimeout,
 	}))
 
@@ -287,7 +289,7 @@ func buildHookSet(cfg runnerConfig) *hooks.HookSet {
 const defaultChatTimeout = 30 * time.Minute
 
 // ErrChatTimeout is returned when the main agent chat exceeds its wall-clock timeout.
-var ErrChatTimeout = errors.New("chat timeout exceeded")
+var ErrChatTimeout = agenterr.ErrChatTimeout
 
 // Chat runs the Engine agent loop with the provided history and forwards events.
 func (r *runner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {

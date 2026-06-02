@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -168,6 +169,7 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 			UserID:    snap.UserID,
 			AgentID:   snap.AgentID,
 			Version:   snap.Version,
+			UpdatedAt: parseUTCTime(snap.UpdatedAt),
 		}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -195,6 +197,7 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 		UserID:    created.UserID,
 		AgentID:   created.AgentID,
 		Version:   created.Version,
+		UpdatedAt: parseUTCTime(created.UpdatedAt),
 	}, nil
 }
 
@@ -293,4 +296,9 @@ func changelogRowToEntry(r sqlc.CtxAgentMemoryChangelog) memory.ChangeEntry {
 		e.AfterText = r.AfterText.String
 	}
 	return e
+}
+
+func parseUTCTime(s string) time.Time {
+	t, _ := time.Parse("2006-01-02 15:04:05", s)
+	return t.UTC()
 }

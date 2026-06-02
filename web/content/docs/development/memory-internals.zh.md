@@ -103,7 +103,7 @@ Reflect 被明确禁止添加、删除或编辑约束。当前保护是约定级
 
 会话快照用于防止后台记忆更新在活跃对话中途改变行为。
 
-第一次聊天时，Stella 会为 `(session_id, user_id, agent_id)` 在 `memory_snapshots` 中保存冻结的 `ctx_agent_memory.version`。每一轮对话前，Pool 使用该快照版本重建系统提示，并通过 per-run system override 注入。
+第一次聊天时，Stella 会为 `(session_id, user_id, agent_id)` 在 `memory_snapshots` 中保存冻结的 `ctx_agent_memory.version`。每一轮对话前，`runtime.Runtime` 使用该快照版本重建系统提示，并通过 per-run system override 注入。
 
 可见性规则：
 

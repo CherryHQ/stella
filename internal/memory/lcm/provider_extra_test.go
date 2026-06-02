@@ -340,3 +340,44 @@ func TestLCMProvider_LoadHistory(t *testing.T) {
 		t.Errorf("expected at least 2 messages in history, got %d", len(history))
 	}
 }
+
+func TestLCMProvider_ListInfoForReviewDoesNotRequireUserScope(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := memory.WithAgentID(context.Background(), "test")
+	if err := p.SaveInfo(ctx, memory.SessionInfo{
+		ID:         "review-chat",
+		AgentID:    "test",
+		UserID:     "1",
+		Channel:    "web",
+		Kind:       "chat",
+		LastActive: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveInfo chat: %v", err)
+	}
+	if err := p.SaveInfo(ctx, memory.SessionInfo{
+		ID:         "review-task",
+		AgentID:    "test",
+		UserID:     "1",
+		Channel:    "task",
+		Kind:       "task",
+		LastActive: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveInfo task: %v", err)
+	}
+
+	infos, err := p.ListInfoForReview(context.Background(), memory.ListOptions{AgentID: "test"})
+	if err != nil {
+		t.Fatalf("ListInfoForReview: %v", err)
+	}
+	if len(infos) != 2 {
+		t.Fatalf("len(infos) = %d, want 2", len(infos))
+	}
+}

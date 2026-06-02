@@ -28,8 +28,15 @@ type channelAuthStore interface {
 // management, command handling, account linking, and model/agent switching.
 // A per-session message queue ensures that only one chat turn runs at a time
 // per resolved Stella session; later messages are serialised in arrival order.
+// userInvalidator is satisfied by *agent.PoolManager so the coordinator can
+// invalidate per-user runners after a /config update without importing PoolManager.
+type userInvalidator interface {
+	InvalidateUser(userID string) error
+}
+
 type Coordinator struct {
-	poolManager      *agent.PoolManager
+	serviceManager   agent.ServiceManager
+	invalidator      userInvalidator
 	store            config.Store
 	auth             channelAuthStore
 	engine           *auth.PolicyEngine
@@ -63,19 +70,25 @@ func WithVaultRecipient(r *age.X25519Recipient) CoordinatorOption {
 }
 
 // NewCoordinator creates a Coordinator that satisfies pkgchannel.Handler.
+// pm must implement both agent.ServiceManager (for routing) and userInvalidator
+// (for /config secret updates). *agent.PoolManager satisfies both.
 func NewCoordinator(
-	pm *agent.PoolManager,
+	pm interface {
+		agent.ServiceManager
+		userInvalidator
+	},
 	store config.Store,
 	listFn func() []pkgchannel.ModelOption,
 	switchFn func(provider, model string) error,
 	opts ...CoordinatorOption,
 ) *Coordinator {
 	c := &Coordinator{
-		poolManager: pm,
-		store:       store,
-		listFn:      listFn,
-		switchFn:    switchFn,
-		queue:       newSessionQueue(),
+		serviceManager: pm,
+		invalidator:    pm,
+		store:          store,
+		listFn:         listFn,
+		switchFn:       switchFn,
+		queue:          newSessionQueue(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -103,7 +116,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 		channelID = msg.Platform
 	}
 
-	return ResolveWithChannel(ctx, c.poolManager, c.store, c.auth, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -179,7 +192,7 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 	key := strings.ToUpper(strings.Fields(args)[0])
 
 	// Invalidate all live runners for this user so fresh env is used next turn.
-	if err := c.poolManager.InvalidateUser(rc.User.ID); err != nil {
+	if err := c.invalidator.InvalidateUser(rc.User.ID); err != nil {
 		_ = err
 	}
 

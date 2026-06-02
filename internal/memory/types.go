@@ -14,6 +14,7 @@ const (
 	sessionIDKey contextKey = "memory_session_id"
 	userIDKey    contextKey = "memory_user_id"
 	agentIDKey   contextKey = "memory_agent_id"
+	projectIDKey contextKey = "memory_project_id"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -49,8 +50,19 @@ func AgentIDFromContext(ctx context.Context) string {
 	return s
 }
 
+// WithProjectID attaches a project ID to the context.
+func WithProjectID(ctx context.Context, projectID string) context.Context {
+	return context.WithValue(ctx, projectIDKey, projectID)
+}
+
+// ProjectIDFromContext extracts the project ID from context.
+func ProjectIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(projectIDKey).(string)
+	return s
+}
+
 // Session identifies the context of a single conversation.
-// It is created by Pool.Chat and passed to all Provider methods.
+// It is created by the runtime and passed to all Provider methods.
 type Session struct {
 	ID      string // unique session key (e.g. "default:cli:<uuid>:main")
 	AgentID string // agent this session belongs to (e.g. "default")

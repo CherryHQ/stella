@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -171,6 +172,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		StateStore: pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
 		Workspace:  config.StellaHome(),
 		Providers:  providerStreamBuilder,
+		Services:   &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 	}); err != nil {
 		return nil, err
 	}
@@ -187,24 +189,22 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return phost.SessionPluginView(ctx)
 	}
 
-	// v2 task system (Phase 6 boot wiring). The runner is a noop until the
-	// agent.Pool adapter is wired; this still validates the boot path,
-	// scheduler registration, dispatcher tick, and DB plumbing.
 	tasksSvc := tasks.New(tasks.BootConfig{
-		DB:     db,
-		Memory: memProvider,
+		DB:       db,
+		Memory:   memProvider,
+		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		Pools: func(agentID string) (agent.NewRunnerFunc, bool) {
 			if poolMgr == nil {
 				return nil, false
 			}
-			p := poolMgr.Get(agentID)
-			if p == nil {
-				p = poolMgr.DefaultPool()
+			svc := poolMgr.GetService(agentID)
+			if svc == nil {
+				svc = poolMgr.Default()
 			}
-			if p == nil {
+			if svc == nil {
 				return nil, false
 			}
-			return p.Factory(), true
+			return svc.Runtime.Factory(), true
 		},
 	})
 
@@ -296,16 +296,29 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		if job.OwnerKind == scheduler.JobOwnerPlugin {
 			return nil
 		}
-		pool := poolMgr.Get(job.AgentID)
-		if pool == nil {
-			pool = poolMgr.DefaultPool()
+		agentSvc := poolMgr.GetService(job.AgentID)
+		if agentSvc == nil && job.AgentID == "" {
+			agentSvc = poolMgr.Default()
 		}
-		if pool == nil {
-			slog.Warn("scheduler: no pool available for job", "job_id", job.ID, "agent_id", job.AgentID)
-			return fmt.Errorf("no agent pool available for job %s", job.ID)
+		if agentSvc == nil {
+			slog.Warn("scheduler: no service available for job", "job_id", job.ID, "agent_id", job.AgentID)
+			return fmt.Errorf("no agent service available for job %s (agent %q)", job.ID, job.AgentID)
 		}
-		sessionID := job.SessionID()
-		ch := pool.Chat(schedulerJobContext(ctx, pool, job), sessionID, schedulerJobMessage(job))
+		agentID := agentSvc.AgentID
+		sessionID := scheduler.RunSessionIDFromContext(ctx)
+		if sessionID == "" {
+			if job.UserID != "" {
+				sessionID = job.UserSessionID(job.UserID)
+			} else {
+				sessionID = job.SessionID()
+			}
+		}
+		ch := agentSvc.ChatForScheduler(schedulerJobContext(ctx, agentID, job), agent.SchedulerChatRequest{
+			SessionID: sessionID,
+			UserID:    job.UserID,
+			AgentID:   agentID,
+			Message:   schedulerJobMessage(job),
+		})
 		var runErr error
 		for evt := range ch {
 			if evt.Err != nil {
