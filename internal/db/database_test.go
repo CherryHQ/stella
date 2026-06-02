@@ -35,8 +35,8 @@ func TestOpenDBConfiguresSQLiteContentionPolicy(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	if got := db.Stats().MaxOpenConnections; got != 1 {
-		t.Fatalf("MaxOpenConnections = %d, want 1", got)
+	if got := db.Stats().MaxOpenConnections; got < 4 {
+		t.Fatalf("MaxOpenConnections = %d, want >= 4 for read concurrency", got)
 	}
 
 	var journalMode string
