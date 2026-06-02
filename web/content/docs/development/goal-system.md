@@ -26,12 +26,12 @@ It is not an automatic planning system yet. Stella does not currently split a go
 
 ## Mental model
 
-| Concept                  | Purpose                                                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `agent_goal`             | Container for a related set of tasks. Stores status, priority, review policy, context, output, and active review pointer. |
-| `agent_task.goal_id`     | Optional link from a task to one goal. Standalone tasks have no goal.                                                     |
-| `agent_task_run.goal_id` | Schema support for future goal-targeted planner/synthesizer runs. Dispatcher scan paths are removed in this release.      |
-| `agent_review.goal_id`   | Schema support for future goal-parented reviews. API validation gates this off in this release.                           |
+| Concept                  | Purpose                                                                                                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_goal`             | Container for a related set of tasks. Stores required owner agent, optional project, status, priority, review policy, context, output, and active review pointer. |
+| `agent_task.goal_id`     | Optional link from a task to one goal. Standalone tasks have no goal. Child tasks inherit/validate the goal's agent and project context.                          |
+| `agent_task_run.goal_id` | Schema support for future goal-targeted planner/synthesizer runs. Dispatcher scan paths are removed in this release.                                              |
+| `agent_review.goal_id`   | Schema support for future goal-parented reviews. API validation gates this off in this release.                                                                   |
 
 ## Supported lifecycle
 

@@ -63,6 +63,9 @@ func TestTaskListUsesAgentIDFromEnv(t *testing.T) {
 		if got := r.URL.Query().Get("agent_id"); got != "agent-1" {
 			t.Fatalf("agent_id query = %q", got)
 		}
+		if got := r.URL.Query().Get("project_id"); got != "project-1" {
+			t.Fatalf("project_id query = %q", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"tasks":[]}`))
 	}))
@@ -73,7 +76,7 @@ func TestTaskListUsesAgentIDFromEnv(t *testing.T) {
 
 	app := ucli.NewApp()
 	app.Commands = []*ucli.Command{taskCommand()}
-	if err := app.Run([]string{"stella", "task", "list"}); err != nil {
+	if err := app.Run([]string{"stella", "task", "list", "--project-id", "project-1"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 }

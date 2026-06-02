@@ -25,18 +25,20 @@ This page describes the implementation contract. User-facing task behavior is do
 
 Durable state is stored in SQLite-backed tables, not in the runtime process.
 
-| Table                      | Purpose                                                                                                                      |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `agent_task`               | One executable unit. Stores business status, goal link, review policy, context, output, retry counters, and active pointers. |
-| `agent_task_run`           | One execution attempt. Stores run kind, attempt number, executor, session, lease, heartbeat, result, and error.              |
-| `agent_task_event`         | Append-only audit log for transitions and protocol errors.                                                                   |
-| `agent_task_dep`           | DAG edges between tasks, including hard/soft semantics and failure policy.                                                   |
-| `agent_task_blocker`       | Why a task is paused. At most one open blocker per task.                                                                     |
-| `agent_review`             | Human/auto review records for tasks and goals.                                                                               |
-| `agent_goal`               | Container for related tasks; status rolls up from children in the supported mode.                                            |
-| `agent_task_dispatch_hint` | One-shot hint that tells the dispatcher which executor agent to use for the next claim.                                      |
+| Table                      | Purpose                                                                                                                                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_task`               | One executable unit. Stores required owner agent, required worker session, optional goal/project links, business status, review policy, context, output, retry counters, and active pointers. |
+| `agent_task_run`           | One execution attempt. Stores run kind, attempt number, executor, session, lease, heartbeat, result, and error.                                                                               |
+| `agent_task_event`         | Append-only audit log for transitions and protocol errors.                                                                                                                                    |
+| `agent_task_dep`           | DAG edges between tasks, including hard/soft semantics and failure policy.                                                                                                                    |
+| `agent_task_blocker`       | Why a task is paused. At most one open blocker per task.                                                                                                                                      |
+| `agent_review`             | Human/auto review records for tasks and goals.                                                                                                                                                |
+| `agent_goal`               | Container for related tasks; status rolls up from children in the supported mode.                                                                                                             |
+| `agent_task_dispatch_hint` | One-shot hint that tells the dispatcher which executor agent to use for the next claim.                                                                                                       |
 
 Runtime state is intentionally small and temporary. During one run, the worker executor records only the terminal action the agent declared (`submit`, `block`, or `fail`) plus its payload. The worker then applies that result through `TransitionService`.
+
+Migration note: the task context-model migration makes `agent_task.agent_id` and `agent_task.session_id` required and adds a unique task-session index. Databases with old experimental rows that have NULL/duplicate task sessions must be reset or manually repaired before applying that migration; Stella does not include a runtime backfill path for those rows.
 
 ## State authority
 
@@ -136,24 +138,27 @@ Planner, synthesizer, and agent-reviewer scan paths are not part of the supporte
 When claiming a worker task, the dispatcher resolves the executor in this order:
 
 1. Live dispatch hint for `(task_id, kind='worker')`.
-2. Existing task session owner, when `task.session_id` is set.
-3. Task creator agent (`agent_task.agent_id`).
+2. Latest worker run executor for the task, when the task has previous runs.
+3. Task owner/manager agent (`agent_task.agent_id`).
 4. Reject by writing an event and leaving the task unclaimed.
 
 The system must not silently choose a default agent. If no executor can be resolved, the task is misconfigured.
 
 ## Session continuity
 
-Each run records the session it used in `agent_task_run.session_id`. The task row also stores `session_id` as the default session for the next worker run.
+Each task is created with a durable worker session in `agent_task.session_id`; each run records the same session in `agent_task_run.session_id`. The dispatcher never mints worker sessions for normal tasks — creation does.
 
 ```text
-if task.session_id exists:
-    reuse it for the next worker run
-else:
-    mint a new task session and store it on the task
+CreateTask
+  -> resolve required agent_id, optional goal_id/project_id
+  -> mint task worker session (kind=task, channel=task)
+  -> persist agent_task.session_id
+
+Claim
+  -> reuse agent_task.session_id for every worker run
 ```
 
-Clear `task.session_id` only when you intentionally want a fresh worker conversation on the next run.
+`agent_task.session_id` is the worker session, not the source chat session that requested the task.
 
 ## Worker executor runtime
 

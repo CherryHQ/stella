@@ -46,7 +46,6 @@ type BootConfig struct {
 func New(cfg BootConfig) *Service {
 	q := sqlc.New(cfg.DB)
 	svc := NewTransitionService(cfg.DB, q)
-	facade := NewServiceFacade(cfg.DB, q, svc)
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default().With("component", "tasks")
@@ -63,8 +62,9 @@ func New(cfg BootConfig) *Service {
 	if cfg.Services != nil {
 		newSession = registrySessionMinter(cfg.Services, logger)
 	} else {
-		newSession = legacySessionMinter(cfg.Memory, logger)
+		newSession = legacySessionMinter(cfg.Memory, q, logger)
 	}
+	facade := NewServiceFacade(cfg.DB, q, svc, newSession)
 
 	disp := NewDispatcher(DispatcherConfig{
 		Service:    svc,
@@ -98,21 +98,21 @@ func noopExecutor(log *slog.Logger) Executor {
 
 // sessionOwnerResolver resolves the executor for a task that has already run by
 // reusing the executor_agent_id of its latest worker run. This sits between the
-// dispatch hint and the creator fallback in the dispatcher's precedence chain
+// dispatch hint and owner-agent fallback in the dispatcher's precedence chain
 // (D13), so a retry keeps the original executor and runs in the task's
-// persisted session — even when the first run was handed to an agent other than
-// the task creator via a dispatch hint.
+// persisted session — even when the first run was handed to another agent via a
+// dispatch hint.
 //
 // It resolves from durable task-run data rather than memory.SessionManager:
 // LoadInfo requires user_id+agent_id already in the context scope, but the
-// dispatcher's scheduler context has neither, and agent_id is precisely the
-// owner we are trying to discover — a circular dependency that made the old
-// memory-backed lookup always fail and silently fall back to the creator.
+// dispatcher's scheduler context has neither, and agent_id was precisely the
+// owner the old resolver tried to discover — a circular dependency that made the
+// memory-backed lookup fail and silently fall back to the owner-agent path.
 // Returns (false) when the task has no recorded session/run or that run carried
 // no executor, letting the dispatcher fall back to task.agent_id.
 func sessionOwnerResolver(q *sqlc.Queries, logger *slog.Logger) ExecutorResolver {
 	return func(ctx context.Context, task sqlc.AgentTask) (string, bool) {
-		if !task.SessionID.Valid || task.SessionID.String == "" {
+		if task.SessionID == "" {
 			return "", false
 		}
 		run, err := q.LatestAgentTaskRunForTask(ctx, sqlc.LatestAgentTaskRunForTaskParams{
@@ -132,18 +132,12 @@ func sessionOwnerResolver(q *sqlc.Queries, logger *slog.Logger) ExecutorResolver
 }
 
 // registrySessionMinter creates task sessions through the session.Registry for
-// the executor agent. Sessions are created with KindTask/ChannelTask so they
+// the resolved agent. Sessions are created with KindTask/ChannelTask so they
 // are excluded from user-facing session lists and review candidates.
 func registrySessionMinter(sm agent.ServiceManager, _ *slog.Logger) SessionMinter {
-	return func(ctx context.Context, task sqlc.AgentTask, executorAgentID string) (string, error) {
-		if task.UserID == "" {
+	return func(ctx context.Context, userID, agentID, projectID string) (string, error) {
+		if userID == "" {
 			return "", fmt.Errorf("task has no user_id; cannot mint session")
-		}
-		agentID := executorAgentID
-		if agentID == "" {
-			if task.AgentID.Valid {
-				agentID = task.AgentID.String
-			}
 		}
 		if agentID == "" {
 			return "", fmt.Errorf("task has no agent_id; cannot mint session")
@@ -152,7 +146,7 @@ func registrySessionMinter(sm agent.ServiceManager, _ *slog.Logger) SessionMinte
 		if svc == nil {
 			return "", fmt.Errorf("no service for executor agent %q", agentID)
 		}
-		info, err := svc.MintTaskSession(ctx, task.UserID, agentID)
+		info, err := svc.MintTaskSession(ctx, userID, agentID, projectID)
 		if err != nil {
 			return "", err
 		}
@@ -161,15 +155,38 @@ func registrySessionMinter(sm agent.ServiceManager, _ *slog.Logger) SessionMinte
 }
 
 // legacySessionMinter is the pre-registry fallback used when ServiceManager is nil.
-func legacySessionMinter(_ memory.Provider, _ *slog.Logger) SessionMinter {
-	return func(_ context.Context, task sqlc.AgentTask, _ string) (string, error) {
-		if task.UserID == "" {
+func legacySessionMinter(mem memory.Provider, q *sqlc.Queries, _ *slog.Logger) SessionMinter {
+	return func(ctx context.Context, userID, agentID, projectID string) (string, error) {
+		if userID == "" {
 			return "", fmt.Errorf("task has no user_id; cannot mint session")
 		}
-		return legacyMintSession(task.UserID)
+		if agentID == "" {
+			return "", fmt.Errorf("task has no agent_id; cannot mint session")
+		}
+		sessionID := legacyMintSession(userID)
+		now := time.Now().UTC()
+		if sm, ok := mem.(memory.SessionManager); ok {
+			if err := sm.SaveInfo(ctx, memory.SessionInfo{
+				ID: sessionID, UserID: userID, AgentID: agentID, ProjectID: projectID,
+				Kind: "task", Channel: "task", CreatedAt: now, LastActive: now,
+			}); err != nil {
+				return "", err
+			}
+		} else {
+			if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+				ID: uuid.NewString(), SessionID: sessionID,
+				Title:   sql.NullString{String: "Task", Valid: true},
+				Channel: "task", Kind: "task", ProjectID: nullable(projectID), Archived: 0,
+				LastActive: now.Format("2006-01-02 15:04:05"),
+				AgentID:    nullable(agentID), UserID: nullable(userID),
+			}); err != nil {
+				return "", err
+			}
+		}
+		return sessionID, nil
 	}
 }
 
-func legacyMintSession(_ string) (string, error) {
-	return "task-" + uuid.NewString(), nil
+func legacyMintSession(_ string) string {
+	return "task-" + uuid.NewString()
 }

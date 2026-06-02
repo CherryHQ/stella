@@ -18,7 +18,7 @@ func (h *testHarness) createGoal(t *testing.T, status, policy string) string {
 	id := uuid.NewString()
 	now := time.Now().Format(time.RFC3339Nano)
 	if _, err := h.q.CreateAgentGoal(context.Background(), sqlc.CreateAgentGoalParams{
-		ID: id, UserID: h.userID,
+		ID: id, UserID: h.userID, AgentID: h.agentID,
 		Title: "g-" + id[:8], Description: "", Status: status, Priority: "routine",
 		ReviewPolicy: policy, Context: "{}", Output: "{}",
 		CreatedAt: now, UpdatedAt: now,
@@ -32,12 +32,13 @@ func (h *testHarness) createGoal(t *testing.T, status, policy string) string {
 func (h *testHarness) createChildTask(t *testing.T, goalID, status string) string {
 	t.Helper()
 	id := uuid.NewString()
+	sessionID := h.createTaskSession(t, "child-"+id[:8])
 	now := time.Now().Format(time.RFC3339Nano)
 	if _, err := h.db.ExecContext(context.Background(), `
-		INSERT INTO agent_task (id, user_id, goal_id, title, status, priority,
+		INSERT INTO agent_task (id, user_id, agent_id, session_id, goal_id, title, status, priority,
 		    required, retry_count, max_retries, context, output, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 'routine', 1, 0, 3, '{}', '{}', ?, ?)`,
-		id, h.userID, goalID, "child-"+id[:8], status, now, now,
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'routine', 1, 0, 3, '{}', '{}', ?, ?)`,
+		id, h.userID, h.agentID, sessionID, goalID, "child-"+id[:8], status, now, now,
 	); err != nil {
 		t.Fatalf("create child: %v", err)
 	}
@@ -90,10 +91,10 @@ func TestActivateGoal_NonNonePolicy_Rejected(t *testing.T) {
 
 func TestCreateGoal_NonNonePolicy_Rejected(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc)
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
 	for _, policy := range []string{ReviewPolicyAuto, ReviewPolicyAgent, ReviewPolicyHuman} {
 		_, err := f.CreateGoal(context.Background(), CreateGoalInput{
-			UserID: h.userID, Title: "g", ReviewPolicy: policy,
+			UserID: h.userID, AgentID: h.agentID, Title: "g", ReviewPolicy: policy,
 		})
 		if !errors.Is(err, ErrUnsupportedReviewPolicy) {
 			t.Errorf("policy=%q: got %v want ErrUnsupportedReviewPolicy", policy, err)
@@ -103,8 +104,8 @@ func TestCreateGoal_NonNonePolicy_Rejected(t *testing.T) {
 
 func TestCreateGoal_NonePolicy_OK(t *testing.T) {
 	h := newHarness(t)
-	f := NewServiceFacade(h.db, h.q, h.svc)
-	g, err := f.CreateGoal(context.Background(), CreateGoalInput{UserID: h.userID, Title: "g"})
+	f := NewServiceFacade(h.db, h.q, h.svc, testSessionMinter)
+	g, err := f.CreateGoal(context.Background(), CreateGoalInput{UserID: h.userID, AgentID: h.agentID, Title: "g"})
 	if err != nil {
 		t.Fatalf("CreateGoal(none): %v", err)
 	}

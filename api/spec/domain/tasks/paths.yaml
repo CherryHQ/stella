@@ -13,6 +13,12 @@ paths:
             schema: { type: string },
           }
         - {
+            name: project_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - {
             name: page_size,
             in: query,
             required: false,

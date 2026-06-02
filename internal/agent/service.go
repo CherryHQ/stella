@@ -217,12 +217,13 @@ func (s *Service) NewSession(ctx context.Context, userID, agentID, projectID str
 	})
 }
 
-// MintTaskSession creates a new task session under the resolved executor agent.
+// MintTaskSession creates a new task worker session under the resolved agent.
 // The session is always new (generated ID) and uses KindTask/ChannelTask.
-func (s *Service) MintTaskSession(ctx context.Context, userID, executorAgentID string) (session.Info, error) {
+func (s *Service) MintTaskSession(ctx context.Context, userID, executorAgentID, projectID string) (session.Info, error) {
 	return s.Sessions.Ensure(ctx, session.Request{
 		UserID:          userID,
 		AgentID:         executorAgentID,
+		ProjectID:       projectID,
 		Kind:            session.KindTask,
 		Channel:         session.ChannelTask,
 		CreateIfMissing: true,

@@ -25,18 +25,20 @@ description: 持久化任务执行，包含计算型 readiness、运行尝试、
 
 持久化状态存储在 SQLite 表中，而不是 runtime 进程内存中。
 
-| 表                         | 作用                                                                                                  |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `agent_task`               | 一个可执行工作单元。存储业务状态、goal 关联、review policy、context、output、重试计数和 active 指针。 |
-| `agent_task_run`           | 一次执行尝试。存储 run kind、attempt number、executor、session、lease、heartbeat、result 和 error。   |
-| `agent_task_event`         | 追加式审计日志，记录 transition 和 protocol error。                                                   |
-| `agent_task_dep`           | Task 之间的 DAG 边，包括 hard/soft 语义和失败策略。                                                   |
-| `agent_task_blocker`       | Task 暂停的原因。每个 task 最多一个 open blocker。                                                    |
-| `agent_review`             | Task 和 goal 的 human/auto review 记录。                                                              |
-| `agent_goal`               | 相关 tasks 的容器；支持模式下状态从 children 汇总。                                                   |
-| `agent_task_dispatch_hint` | 一次性 hint，告诉 dispatcher 下一次 claim 使用哪个 executor agent。                                   |
+| 表                         | 作用                                                                                                                                                      |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_task`               | 一个可执行工作单元。存储必填 owner agent、必填 worker session、可选 goal/project 关联、业务状态、review policy、context、output、重试计数和 active 指针。 |
+| `agent_task_run`           | 一次执行尝试。存储 run kind、attempt number、executor、session、lease、heartbeat、result 和 error。                                                       |
+| `agent_task_event`         | 追加式审计日志，记录 transition 和 protocol error。                                                                                                       |
+| `agent_task_dep`           | Task 之间的 DAG 边，包括 hard/soft 语义和失败策略。                                                                                                       |
+| `agent_task_blocker`       | Task 暂停的原因。每个 task 最多一个 open blocker。                                                                                                        |
+| `agent_review`             | Task 和 goal 的 human/auto review 记录。                                                                                                                  |
+| `agent_goal`               | 相关 tasks 的容器；支持模式下状态从 children 汇总。                                                                                                       |
+| `agent_task_dispatch_hint` | 一次性 hint，告诉 dispatcher 下一次 claim 使用哪个 executor agent。                                                                                       |
 
 Runtime 状态应该很小且短暂。一次 run 期间，worker executor 只记录 Agent 声明的终止动作（`submit`、`block` 或 `fail`）及其 payload。随后 worker 通过 `TransitionService` 应用这个结果。
+
+Migration note：task context-model migration 会把 `agent_task.agent_id` 和 `agent_task.session_id` 变成必填，并给 task session 加唯一索引。包含旧实验 rows（NULL/重复 task session）的数据库需要在应用迁移前 reset 或手动修复；Stella 不提供 runtime backfill。
 
 ## 状态权威
 
@@ -136,24 +138,27 @@ Planner、synthesizer 和 agent-reviewer scan paths 不属于当前支持的 run
 Claim worker task 时，dispatcher 按以下顺序解析 executor：
 
 1. `(task_id, kind='worker')` 的 live dispatch hint。
-2. 如果 `task.session_id` 存在，使用该 session 的 owner。
-3. Task 创建者 Agent（`agent_task.agent_id`）。
+2. 如果 task 已有 worker runs，使用最新 worker run 的 executor。
+3. Task owner/manager Agent（`agent_task.agent_id`）。
 4. 写事件并保持 task 未 claim。
 
 系统不能静默选择默认 Agent。无法解析 executor 说明 task 配置错误。
 
 ## Session 连续性
 
-每个 run 都在 `agent_task_run.session_id` 记录使用的 session。Task 行也保存 `session_id`，作为下一次 worker run 的默认 session。
+每个 task 创建时都会在 `agent_task.session_id` 绑定一个 durable worker session；每个 run 也会在 `agent_task_run.session_id` 记录同一个 session。Dispatcher 不再为正常 task 铸造 worker session —— 创建 task 时就完成。
 
 ```text
-if task.session_id exists:
-    reuse it for the next worker run
-else:
-    mint a new task session and store it on the task
+CreateTask
+  -> resolve required agent_id, optional goal_id/project_id
+  -> mint task worker session (kind=task, channel=task)
+  -> persist agent_task.session_id
+
+Claim
+  -> reuse agent_task.session_id for every worker run
 ```
 
-只有在你明确希望下一次 run 使用全新 worker 对话时，才清空 `task.session_id`。
+`agent_task.session_id` 表示 worker session，不表示请求创建 task 的 source chat session。
 
 ## Worker executor runtime
 

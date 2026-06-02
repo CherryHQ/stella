@@ -89,7 +89,8 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		UserID:      info.UserID,
 		Title:       req.Title,
 		Description: strPtr(req.Description),
-		AgentID:     strPtr(req.AgentId),
+		AgentID:     req.AgentId,
+		ProjectID:   strPtr(req.ProjectId),
 		Context:     marshalContext(req.Context),
 	}
 	if req.Priority != nil {
@@ -342,9 +343,10 @@ func goalToAPI(g sqlc.AgentGoal) apitypes.Goal {
 		CreatedAt:    parseTS(g.CreatedAt),
 		UpdatedAt:    parseTS(g.UpdatedAt),
 	}
-	if g.AgentID.Valid {
-		v := g.AgentID.String
-		out.AgentId = &v
+	out.AgentId = g.AgentID
+	if g.ProjectID.Valid {
+		v := g.ProjectID.String
+		out.ProjectId = &v
 	}
 	if g.ActiveReviewID.Valid {
 		v := g.ActiveReviewID.String

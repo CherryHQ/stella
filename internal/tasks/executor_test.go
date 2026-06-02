@@ -54,7 +54,7 @@ func claimSetup(t *testing.T, h *testHarness) (string, string) {
 	t.Helper()
 	id := h.createTask(t, StatusReady)
 	res, err := h.svc.Claim(context.Background(), ClaimParams{
-		TaskID: id, NewSessionID: "sess-test", LeaseDuration: time.Minute,
+		TaskID: id, SessionID: "sess-test", LeaseDuration: time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("Claim: %v", err)

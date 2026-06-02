@@ -2,10 +2,10 @@
 
 -- name: CreateAgentGoal :one
 INSERT INTO agent_goal (
-    id, user_id, agent_id, title, description, status, priority,
+    id, user_id, agent_id, project_id, title, description, status, priority,
     review_policy, context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentGoal :one

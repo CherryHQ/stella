@@ -166,8 +166,7 @@ func (s *TransitionService) activateInTx(ctx context.Context, q *sqlc.Queries, t
 }
 
 // ClaimResult describes the run that was minted by Claim. SessionID is the
-// session the worker should run in; on a first claim the dispatcher minted a
-// fresh one, on a retry it's the task's persisted session.
+// task's durable worker session.
 type ClaimResult struct {
 	RunID     string
 	SessionID string
@@ -180,7 +179,7 @@ type ClaimParams struct {
 	ExecutorAgentID string
 	WorkerID        string
 	LeaseDuration   time.Duration // 0 => no lease
-	NewSessionID    string        // used when task.session_id is null
+	SessionID       string        // ignored; task.session_id is the source of truth
 	Actor           Actor
 	// HintID, when set, identifies the live dispatch hint the dispatcher used
 	// to resolve ExecutorAgentID. Claim consumes that exact hint inside its
@@ -194,14 +193,10 @@ type ClaimParams struct {
 // Returns ErrInvalidTransition if the row's status changed underfoot — the
 // caller (dispatcher) should re-scan candidates and try again.
 //
-// Session-id rule (D12): if task.session_id is non-null, reuse it; otherwise
-// adopt p.NewSessionID and persist it on the task row.
+// Session-id rule: task.session_id is required at creation time and reused for every run.
 func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResult, error) {
 	if p.TaskID == "" {
 		return ClaimResult{}, fmt.Errorf("Claim: task id required")
-	}
-	if p.NewSessionID == "" {
-		return ClaimResult{}, fmt.Errorf("Claim: new session id required")
 	}
 	var out ClaimResult
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -228,17 +223,16 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 		if p.LeaseDuration > 0 {
 			leaseExpires = sql.NullString{String: s.clock().Add(p.LeaseDuration).UTC().Format(time.RFC3339Nano), Valid: true}
 		}
-		// Choose the session per D12 before inserting the run.
-		sessionID := p.NewSessionID
-		if task.SessionID.Valid && task.SessionID.String != "" {
-			sessionID = task.SessionID.String
+		if task.SessionID == "" {
+			return fmt.Errorf("Claim: task has no worker session")
 		}
+		sessionID := task.SessionID
 		_, err = q.CreateAgentTaskRun(ctx, sqlc.CreateAgentTaskRunParams{
 			ID:              runID,
 			TaskID:          nullable(p.TaskID),
 			GoalID:          sql.NullString{},
 			UserID:          task.UserID,
-			AgentID:         task.AgentID,
+			AgentID:         nullable(task.AgentID),
 			ExecutorAgentID: nullable(p.ExecutorAgentID),
 			Kind:            RunKindWorker,
 			AttemptNo:       nextAttempt,
@@ -256,11 +250,9 @@ func (s *TransitionService) Claim(ctx context.Context, p ClaimParams) (ClaimResu
 		if err != nil {
 			return fmt.Errorf("create run: %w", err)
 		}
-		// Atomic claim: ready + no active run -> running, set active_run_id and
-		// persist session if first time.
+		// Atomic claim: ready + no active run -> running, set active_run_id.
 		n, err := q.ClaimAgentTask(ctx, sqlc.ClaimAgentTaskParams{
 			ActiveRunID: nullable(runID),
-			SessionID:   nullable(sessionID),
 			UpdatedAt:   now,
 			ID:          p.TaskID,
 		})

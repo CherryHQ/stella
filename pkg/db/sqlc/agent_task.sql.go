@@ -14,7 +14,6 @@ const claimAgentTask = `-- name: ClaimAgentTask :execrows
 UPDATE agent_task
 SET status = 'running',
     active_run_id = ?,
-    session_id = COALESCE(session_id, ?),
     updated_at = ?
 WHERE id = ?
   AND status = 'ready'
@@ -23,39 +22,17 @@ WHERE id = ?
 
 type ClaimAgentTaskParams struct {
 	ActiveRunID sql.NullString `json:"active_run_id"`
-	SessionID   sql.NullString `json:"session_id"`
 	UpdatedAt   string         `json:"updated_at"`
 	ID          string         `json:"id"`
 }
 
-// Atomic claim: ready + no active run  running, set active_run_id and session_id.
+// Atomic claim: ready + no active run -> running. session_id is required at task creation.
 func (q *Queries) ClaimAgentTask(ctx context.Context, arg ClaimAgentTaskParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, claimAgentTask,
-		arg.ActiveRunID,
-		arg.SessionID,
-		arg.UpdatedAt,
-		arg.ID,
-	)
+	result, err := q.db.ExecContext(ctx, claimAgentTask, arg.ActiveRunID, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const clearAgentTaskSession = `-- name: ClearAgentTaskSession :exec
-UPDATE agent_task
-SET session_id = NULL, updated_at = ?
-WHERE id = ?
-`
-
-type ClearAgentTaskSessionParams struct {
-	UpdatedAt string `json:"updated_at"`
-	ID        string `json:"id"`
-}
-
-func (q *Queries) ClearAgentTaskSession(ctx context.Context, arg ClearAgentTaskSessionParams) error {
-	_, err := q.db.ExecContext(ctx, clearAgentTaskSession, arg.UpdatedAt, arg.ID)
-	return err
 }
 
 const countRunningAgentTasks = `-- name: CountRunningAgentTasks :one
@@ -72,19 +49,21 @@ func (q *Queries) CountRunningAgentTasks(ctx context.Context) (int64, error) {
 const createAgentTask = `-- name: CreateAgentTask :one
 
 INSERT INTO agent_task (
-    id, user_id, agent_id, goal_id, title, description, status, priority,
+    id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority,
     required, retry_count, max_retries, not_before, deadline_at,
-    session_id, context, output, created_at, updated_at
+    context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at
 `
 
 type CreateAgentTaskParams struct {
 	ID          string         `json:"id"`
 	UserID      string         `json:"user_id"`
-	AgentID     sql.NullString `json:"agent_id"`
+	AgentID     string         `json:"agent_id"`
+	SessionID   string         `json:"session_id"`
 	GoalID      sql.NullString `json:"goal_id"`
+	ProjectID   sql.NullString `json:"project_id"`
 	Title       string         `json:"title"`
 	Description string         `json:"description"`
 	Status      string         `json:"status"`
@@ -94,7 +73,6 @@ type CreateAgentTaskParams struct {
 	MaxRetries  int64          `json:"max_retries"`
 	NotBefore   sql.NullString `json:"not_before"`
 	DeadlineAt  sql.NullString `json:"deadline_at"`
-	SessionID   sql.NullString `json:"session_id"`
 	Context     string         `json:"context"`
 	Output      string         `json:"output"`
 	CreatedAt   string         `json:"created_at"`
@@ -110,7 +88,9 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		arg.ID,
 		arg.UserID,
 		arg.AgentID,
+		arg.SessionID,
 		arg.GoalID,
+		arg.ProjectID,
 		arg.Title,
 		arg.Description,
 		arg.Status,
@@ -120,7 +100,6 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		arg.MaxRetries,
 		arg.NotBefore,
 		arg.DeadlineAt,
-		arg.SessionID,
 		arg.Context,
 		arg.Output,
 		arg.CreatedAt,
@@ -131,7 +110,9 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		&i.ID,
 		&i.UserID,
 		&i.AgentID,
+		&i.SessionID,
 		&i.GoalID,
+		&i.ProjectID,
 		&i.Title,
 		&i.Description,
 		&i.Status,
@@ -143,7 +124,6 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		&i.MaxRetries,
 		&i.NotBefore,
 		&i.DeadlineAt,
-		&i.SessionID,
 		&i.ActiveRunID,
 		&i.ActiveBlockerID,
 		&i.Context,
@@ -166,7 +146,7 @@ func (q *Queries) DeleteAgentTask(ctx context.Context, id string) error {
 }
 
 const getAgentTask = `-- name: GetAgentTask :one
-SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task WHERE id = ?
 `
 
 func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error) {
@@ -176,7 +156,9 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 		&i.ID,
 		&i.UserID,
 		&i.AgentID,
+		&i.SessionID,
 		&i.GoalID,
+		&i.ProjectID,
 		&i.Title,
 		&i.Description,
 		&i.Status,
@@ -188,7 +170,6 @@ func (q *Queries) GetAgentTask(ctx context.Context, id string) (AgentTask, error
 		&i.MaxRetries,
 		&i.NotBefore,
 		&i.DeadlineAt,
-		&i.SessionID,
 		&i.ActiveRunID,
 		&i.ActiveBlockerID,
 		&i.Context,
@@ -218,7 +199,7 @@ func (q *Queries) IncrementAgentTaskRetry(ctx context.Context, arg IncrementAgen
 }
 
 const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentTasksParams struct {
@@ -239,7 +220,9 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 			&i.ID,
 			&i.UserID,
 			&i.AgentID,
+			&i.SessionID,
 			&i.GoalID,
+			&i.ProjectID,
 			&i.Title,
 			&i.Description,
 			&i.Status,
@@ -251,7 +234,6 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 			&i.MaxRetries,
 			&i.NotBefore,
 			&i.DeadlineAt,
-			&i.SessionID,
 			&i.ActiveRunID,
 			&i.ActiveBlockerID,
 			&i.Context,
@@ -275,20 +257,22 @@ func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) 
 }
 
 const listAgentTasksByUser = `-- name: ListAgentTasksByUser :many
-SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
 WHERE user_id = ?1
   AND (?2 IS NULL OR agent_id = ?2)
   AND (?3 IS NULL OR status = ?3)
+  AND (?4 IS NULL OR project_id = ?4)
 ORDER BY created_at DESC, id DESC
-LIMIT ?5 OFFSET ?4
+LIMIT ?6 OFFSET ?5
 `
 
 type ListAgentTasksByUserParams struct {
-	UserID  string      `json:"user_id"`
-	AgentID interface{} `json:"agent_id"`
-	Status  interface{} `json:"status"`
-	Offset  int64       `json:"offset"`
-	Limit   int64       `json:"limit"`
+	UserID    string      `json:"user_id"`
+	AgentID   interface{} `json:"agent_id"`
+	Status    interface{} `json:"status"`
+	ProjectID interface{} `json:"project_id"`
+	Offset    int64       `json:"offset"`
+	Limit     int64       `json:"limit"`
 }
 
 func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksByUserParams) ([]AgentTask, error) {
@@ -296,6 +280,7 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 		arg.UserID,
 		arg.AgentID,
 		arg.Status,
+		arg.ProjectID,
 		arg.Offset,
 		arg.Limit,
 	)
@@ -310,7 +295,9 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 			&i.ID,
 			&i.UserID,
 			&i.AgentID,
+			&i.SessionID,
 			&i.GoalID,
+			&i.ProjectID,
 			&i.Title,
 			&i.Description,
 			&i.Status,
@@ -322,7 +309,6 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 			&i.MaxRetries,
 			&i.NotBefore,
 			&i.DeadlineAt,
-			&i.SessionID,
 			&i.ActiveRunID,
 			&i.ActiveBlockerID,
 			&i.Context,
@@ -346,7 +332,7 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 }
 
 const listReadyCandidates = `-- name: ListReadyCandidates :many
-SELECT id, user_id, agent_id, goal_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, session_id, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
+SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
 WHERE status = 'ready'
   AND active_run_id IS NULL
   AND (not_before IS NULL OR not_before <= ?)
@@ -374,7 +360,9 @@ func (q *Queries) ListReadyCandidates(ctx context.Context, arg ListReadyCandidat
 			&i.ID,
 			&i.UserID,
 			&i.AgentID,
+			&i.SessionID,
 			&i.GoalID,
+			&i.ProjectID,
 			&i.Title,
 			&i.Description,
 			&i.Status,
@@ -386,7 +374,6 @@ func (q *Queries) ListReadyCandidates(ctx context.Context, arg ListReadyCandidat
 			&i.MaxRetries,
 			&i.NotBefore,
 			&i.DeadlineAt,
-			&i.SessionID,
 			&i.ActiveRunID,
 			&i.ActiveBlockerID,
 			&i.Context,

@@ -19,16 +19,15 @@ type SchedulerLike interface {
 }
 
 // ExecutorResolver decides which agent should execute a given run.
-// Resolution per D13: live dispatch hint -> session-derived -> creator
+// Resolution per D13: live dispatch hint -> latest-run executor -> owner agent
 // fallback. The function may return ("", false) if it cannot resolve; the
 // dispatcher will refuse the claim and emit a protocol_error event.
 type ExecutorResolver func(ctx context.Context, task sqlc.AgentTask) (agentID string, ok bool)
 
-// SessionMinter returns a fresh session id for a first-run dispatch (i.e.
-// task.session_id IS NULL). It must produce a unique id per call.
-// executorAgentID is the resolved agent that will run the task — the session
-// must be attributed to this agent, not the task's creator.
-type SessionMinter func(ctx context.Context, task sqlc.AgentTask, executorAgentID string) (string, error)
+// SessionMinter returns a fresh durable worker session id for a task. It must
+// produce a unique id per call and scope the session to the resolved agent and
+// optional project context.
+type SessionMinter func(ctx context.Context, userID, agentID, projectID string) (string, error)
 
 // DispatcherConfig holds the wiring for a Dispatcher.
 type DispatcherConfig struct {
@@ -247,26 +246,15 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 			d.emitProtocolError(ctx, task.ID, "no executor resolved")
 			continue
 		}
-		// Reuse the task's persisted session on a retry; mint a fresh one only
-		// for a first claim. Claim's D12 rule keeps an existing session_id and
-		// ignores NewSessionID, so unconditionally minting here would orphan a
-		// session per retry tick.
-		sessionID := ""
-		if task.SessionID.Valid && task.SessionID.String != "" {
-			sessionID = task.SessionID.String
-		} else {
-			var err error
-			sessionID, err = d.cfg.NewSession(ctx, task, execID)
-			if err != nil {
-				d.cfg.Logger.Warn("dispatcher: mint session", "task", task.ID, "err", err)
-				continue
-			}
+		sessionID := task.SessionID
+		if sessionID == "" {
+			d.emitProtocolError(ctx, task.ID, "task has no worker session")
+			continue
 		}
 		res, err := d.cfg.Service.Claim(ctx, ClaimParams{
 			TaskID: task.ID, ExecutorAgentID: execID,
 			WorkerID: "", LeaseDuration: d.cfg.LeaseTTL,
-			NewSessionID: sessionID, Actor: SystemActor(),
-			HintID: hintID,
+			Actor: SystemActor(), HintID: hintID,
 		})
 		if errors.Is(err, ErrInvalidTransition) {
 			continue // lost the race
@@ -309,15 +297,15 @@ func (d *Dispatcher) resolveExecutor(ctx context.Context, task sqlc.AgentTask) (
 	if err == nil && hint.ExecutorAgentID != "" {
 		return hint.ExecutorAgentID, hint.ID, true
 	}
-	// 2) Caller-supplied resolver (session/creator chain).
+	// 2) Caller-supplied resolver (latest-run executor preservation).
 	if d.cfg.Resolver != nil {
 		if a, ok := d.cfg.Resolver(ctx, task); ok {
 			return a, "", true
 		}
 	}
-	// 3) Creator fallback.
-	if task.AgentID.Valid && task.AgentID.String != "" {
-		return task.AgentID.String, "", true
+	// 3) Owner/manager agent fallback.
+	if task.AgentID != "" {
+		return task.AgentID, "", true
 	}
 	return "", "", false
 }

@@ -50,6 +50,8 @@ func (s *Server) taskError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "blocker_already_closed")
 	case errors.Is(err, tasks.ErrUnsupportedReviewPolicy):
 		writeError(w, http.StatusBadRequest, "unsupported_review_policy")
+	case errors.Is(err, tasks.ErrInvalidTaskContext):
+		writeError(w, http.StatusBadRequest, "invalid_task_context")
 	default:
 		var conflict *tasks.ErrReopenConflict
 		if errors.As(err, &conflict) {
@@ -113,11 +115,15 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
+	projectID := ""
+	if params.ProjectId != nil {
+		projectID = *params.ProjectId
+	}
 	status := ""
 	if params.Status != nil {
 		status = *params.Status
 	}
-	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, status, int64(limit+1), int64(offset))
+	rows, err := s.tasksSvc.Facade.ListTasksByUser(r.Context(), info.UserID, agentID, projectID, status, int64(limit+1), int64(offset))
 	if err != nil {
 		s.taskError(w, err)
 		return
@@ -159,29 +165,13 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	agentID := strPtr(req.AgentId)
 	goalID := strPtr(req.GoalId)
-	if goalID != "" {
-		g, ok := s.loadGoal(r.Context(), w, info.UserID, goalID)
-		if !ok {
-			return
-		}
-		if !g.AgentID.Valid || g.AgentID.String == "" {
-			writeError(w, http.StatusBadRequest, "goal has no agent_id")
-			return
-		}
-		if agentID == "" {
-			agentID = g.AgentID.String
-		} else if agentID != g.AgentID.String {
-			writeError(w, http.StatusBadRequest, "goal_id must belong to the same agent_id")
-			return
-		}
-	}
-
 	in := tasks.CreateTaskInput{
 		UserID:          info.UserID,
 		Title:           req.Title,
 		Description:     strPtr(req.Description),
 		AgentID:         agentID,
 		GoalID:          goalID,
+		ProjectID:       strPtr(req.ProjectId),
 		ExecutorAgentID: strPtr(req.ExecutorAgentId),
 		Required:        req.Required,
 		Context:         marshalContext(req.Context),
@@ -673,13 +663,14 @@ func taskToAPI(t sqlc.AgentTask) apitypes.Task {
 		CreatedAt:    parseTS(t.CreatedAt),
 		UpdatedAt:    parseTS(t.UpdatedAt),
 	}
-	if t.AgentID.Valid {
-		v := t.AgentID.String
-		out.AgentId = &v
-	}
+	out.AgentId = t.AgentID
 	if t.GoalID.Valid {
 		v := t.GoalID.String
 		out.GoalId = &v
+	}
+	if t.ProjectID.Valid {
+		v := t.ProjectID.String
+		out.ProjectId = &v
 	}
 	if t.NotBefore.Valid {
 		v := parseTS(t.NotBefore.String)
@@ -689,10 +680,7 @@ func taskToAPI(t sqlc.AgentTask) apitypes.Task {
 		v := parseTS(t.DeadlineAt.String)
 		out.DeadlineAt = &v
 	}
-	if t.SessionID.Valid {
-		v := t.SessionID.String
-		out.SessionId = &v
-	}
+	out.SessionId = t.SessionID
 	if t.ActiveRunID.Valid {
 		v := t.ActiveRunID.String
 		out.ActiveRunId = &v

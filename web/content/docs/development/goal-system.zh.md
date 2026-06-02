@@ -26,12 +26,12 @@ description: 由子任务和任务汇总支持的 goal 容器。本版本 gate o
 
 ## 心智模型
 
-| 概念                     | 作用                                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `agent_goal`             | 一组相关 tasks 的容器。存储 status、priority、review policy、context、output 和 active review 指针。 |
-| `agent_task.goal_id`     | 从 task 到一个 goal 的可选链接。Standalone task 没有 goal。                                          |
-| `agent_task_run.goal_id` | Schema 支持未来 goal-targeted planner/synthesizer runs；本版本删除 dispatcher scan paths。           |
-| `agent_review.goal_id`   | Schema 支持未来 goal-parented reviews；本版本通过 API validation gate off。                          |
+| 概念                     | 作用                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_goal`             | 一组相关 tasks 的容器。存储必填 owner agent、可选 project、status、priority、review policy、context、output 和 active review 指针。 |
+| `agent_task.goal_id`     | 从 task 到一个 goal 的可选链接。Standalone task 没有 goal。Child task 会继承/校验 goal 的 agent 和 project context。                |
+| `agent_task_run.goal_id` | Schema 支持未来 goal-targeted planner/synthesizer runs；本版本删除 dispatcher scan paths。                                          |
+| `agent_review.goal_id`   | Schema 支持未来 goal-parented reviews；本版本通过 API validation gate off。                                                         |
 
 ## 支持的生命周期
 

@@ -11,6 +11,8 @@ components:
         [
           id,
           user_id,
+          agent_id,
+          session_id,
           title,
           status,
           priority,
@@ -26,10 +28,16 @@ components:
         user_id: { type: string }
         agent_id:
           type: string
-          description: Creator agent (D12); empty when the task was created by a user.
+          description: Owner/manager agent context.
+        session_id:
+          type: string
+          description: Durable worker session for this task.
         goal_id:
           type: string
-          description: Parent goal.
+          description: Optional parent goal.
+        project_id:
+          type: string
+          description: Optional project/workspace context.
         title: { type: string }
         description: { type: string }
         status:
@@ -47,7 +55,6 @@ components:
         max_retries: { type: integer, format: int64 }
         not_before: { type: string, format: date-time }
         deadline_at: { type: string, format: date-time }
-        session_id: { type: string }
         active_run_id: { type: string }
         active_blocker_id: { type: string }
         active_review_id: { type: string }
@@ -101,10 +108,13 @@ components:
           enum: [routine, urgent]
         agent_id:
           type: string
-          description: Creator agent (optional).
+          description: Owner/manager agent context. Required unless inherited from goal_id.
         goal_id:
           type: string
-          description: Parent goal. When set, it must belong to the caller and the same agent.
+          description: Optional parent goal. When set, it must belong to the caller and the same agent.
+        project_id:
+          type: string
+          description: Optional project/workspace context. Must belong to the caller and resolved agent.
         executor_agent_id:
           type: string
           description: Explicit executor (D13); written as a dispatch hint.

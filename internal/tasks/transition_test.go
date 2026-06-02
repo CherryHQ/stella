@@ -54,9 +54,10 @@ func newHarness(t *testing.T) *testHarness {
 func (h *testHarness) createTask(t *testing.T, status string) string {
 	t.Helper()
 	id := uuid.NewString()
+	sessionID := h.createTaskSession(t, "task-"+id[:8])
 	now := time.Now().Format(time.RFC3339Nano)
 	if _, err := h.q.CreateAgentTask(context.Background(), sqlc.CreateAgentTaskParams{
-		ID: id, UserID: h.userID,
+		ID: id, UserID: h.userID, AgentID: h.agentID, SessionID: sessionID,
 		Title: "t-" + id[:8], Status: status, Priority: "routine",
 		Required: 1, RetryCount: 0, MaxRetries: 3,
 		Context: "{}", Output: "{}",
@@ -65,6 +66,23 @@ func (h *testHarness) createTask(t *testing.T, status string) string {
 		t.Fatalf("create task: %v", err)
 	}
 	return id
+}
+
+func (h *testHarness) createTaskSession(t *testing.T, title string) string {
+	t.Helper()
+	sessionID := "task-" + uuid.NewString()
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	if _, err := h.db.ExecContext(context.Background(), `
+		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active, created_at, updated_at)
+		VALUES (?, ?, ?, 'task', 'task', ?, ?, ?, ?, ?)`,
+		uuid.NewString(), sessionID, title, h.agentID, h.userID, now, now, now); err != nil {
+		t.Fatalf("create task session: %v", err)
+	}
+	return sessionID
+}
+
+func testSessionMinter(ctx context.Context, userID, agentID, projectID string) (string, error) {
+	return "task-" + uuid.NewString(), nil
 }
 
 func (h *testHarness) getTask(t *testing.T, id string) sqlc.AgentTask {
@@ -103,15 +121,16 @@ func TestActivate_FromReady_ReturnsInvalidTransition(t *testing.T) {
 func TestClaim_ReadyToRunning_InsertsRun_SetsActiveRun(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
+	before := h.getTask(t, id)
 	res, err := h.svc.Claim(context.Background(), ClaimParams{
-		TaskID: id, ExecutorAgentID: "", NewSessionID: "sess-1",
+		TaskID: id, ExecutorAgentID: "", SessionID: "sess-1",
 		WorkerID: "w-1", LeaseDuration: 30 * time.Second,
 		Actor: SystemActor(),
 	})
 	if err != nil {
 		t.Fatalf("Claim: %v", err)
 	}
-	if res.RunID == "" || res.SessionID != "sess-1" {
+	if res.RunID == "" || res.SessionID != before.SessionID {
 		t.Fatalf("ClaimResult: %+v", res)
 	}
 	task := h.getTask(t, id)
@@ -121,16 +140,17 @@ func TestClaim_ReadyToRunning_InsertsRun_SetsActiveRun(t *testing.T) {
 	if !task.ActiveRunID.Valid || task.ActiveRunID.String != res.RunID {
 		t.Errorf("active_run_id=%v want %s", task.ActiveRunID, res.RunID)
 	}
-	if !task.SessionID.Valid || task.SessionID.String != "sess-1" {
-		t.Errorf("session_id=%v want sess-1 (persisted on first run)", task.SessionID)
+	if task.SessionID != before.SessionID {
+		t.Errorf("session_id=%v want %s", task.SessionID, before.SessionID)
 	}
 }
 
 func TestClaim_SecondClaimReusesSession(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
+	before := h.getTask(t, id)
 	if _, err := h.svc.Claim(context.Background(), ClaimParams{
-		TaskID: id, NewSessionID: "sess-1",
+		TaskID: id, SessionID: "sess-1",
 	}); err != nil {
 		t.Fatalf("first claim: %v", err)
 	}
@@ -143,12 +163,12 @@ func TestClaim_SecondClaimReusesSession(t *testing.T) {
 		t.Fatalf("Fail: %v", err)
 	}
 	res, err := h.svc.Claim(context.Background(), ClaimParams{
-		TaskID: id, NewSessionID: "sess-2", // ignored because task already has session
+		TaskID: id, SessionID: "sess-2", // ignored because task already has session
 	})
 	if err != nil {
 		t.Fatalf("second claim: %v", err)
 	}
-	if res.SessionID != "sess-1" {
+	if res.SessionID != before.SessionID {
 		t.Errorf("retry should reuse session, got %q", res.SessionID)
 	}
 }
@@ -156,7 +176,7 @@ func TestClaim_SecondClaimReusesSession(t *testing.T) {
 func TestClaim_FromDraft_Rejected(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusDraft)
-	_, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	_, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	if !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("want ErrInvalidTransition, got %v", err)
 	}
@@ -165,7 +185,7 @@ func TestClaim_FromDraft_Rejected(t *testing.T) {
 func TestSubmit_RunningToDone_FinalizesRun_ClearsActiveRun(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	if err := h.svc.Submit(context.Background(), id, res.RunID, `{"ok":true}`, SystemActor()); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -187,7 +207,7 @@ func TestSubmit_RunningToDone_FinalizesRun_ClearsActiveRun(t *testing.T) {
 func TestBlock_RunningToBlocked_CreatesBlocker(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	err := h.svc.Block(context.Background(), BlockParams{
 		TaskID: id, Kind: BlockerKindUserInput, Question: "need approval",
 		RunID: res.RunID, Actor: SystemActor(),
@@ -214,7 +234,7 @@ func TestBlock_RunningToBlocked_CreatesBlocker(t *testing.T) {
 func TestBlock_SecondBlockMergesIntoExistingDetail(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	if err := h.svc.Block(context.Background(), BlockParams{
 		TaskID: id, Kind: BlockerKindUserInput, Question: "Q1", RunID: res.RunID,
 	}); err != nil {
@@ -241,7 +261,7 @@ func TestBlock_SecondBlockMergesIntoExistingDetail(t *testing.T) {
 func TestResolveBlocker_BlockedToReady(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	_ = h.svc.Block(context.Background(), BlockParams{TaskID: id, Kind: BlockerKindUserInput, RunID: res.RunID})
 	bl, _ := h.q.GetOpenBlockerForTask(context.Background(), id)
 	if err := h.svc.ResolveBlocker(context.Background(), bl.ID, `{"answer":"ok"}`, SystemActor()); err != nil {
@@ -301,7 +321,7 @@ func TestWaiveDep_UnblocksTask(t *testing.T) {
 func TestFail_RetryableReturnsToReady_IncrementsRetry(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	if err := h.svc.Fail(context.Background(), FailParams{
 		TaskID: id, RunID: res.RunID, Reason: "transient", Retryable: true,
 	}); err != nil {
@@ -324,12 +344,12 @@ func TestFail_BudgetExhausted_GoesTerminal(t *testing.T) {
 		t.Fatalf("set max_retries: %v", err)
 	}
 	// First fail: should retry.
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	if err := h.svc.Fail(context.Background(), FailParams{TaskID: id, RunID: res.RunID, Retryable: true}); err != nil {
 		t.Fatalf("first fail: %v", err)
 	}
 	// Second fail: budget exhausted → failed.
-	res, _ = h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ = h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	if err := h.svc.Fail(context.Background(), FailParams{TaskID: id, RunID: res.RunID, Retryable: true}); err != nil {
 		t.Fatalf("second fail: %v", err)
 	}
@@ -347,7 +367,7 @@ func TestRunIdentityGuard_StaleWorkerCannotTransitionRetry(t *testing.T) {
 	id := h.createTask(t, StatusReady)
 
 	// Run 1 claims the task, then fails retryably -> task back to ready.
-	r1, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, NewSessionID: "s"})
+	r1, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, SessionID: "s"})
 	if err != nil {
 		t.Fatalf("claim r1: %v", err)
 	}
@@ -356,7 +376,7 @@ func TestRunIdentityGuard_StaleWorkerCannotTransitionRetry(t *testing.T) {
 	}
 
 	// Run 2 re-claims the task: it is now the live run.
-	r2, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, NewSessionID: "s"})
+	r2, err := h.svc.Claim(ctx, ClaimParams{TaskID: id, SessionID: "s"})
 	if err != nil {
 		t.Fatalf("claim r2: %v", err)
 	}
@@ -406,7 +426,7 @@ func TestCancel_FromAnyNonTerminal_Works(t *testing.T) {
 func TestCancel_FromRunning_CancelsActiveRun(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	if err := h.svc.Cancel(context.Background(), id, "user cancelled", SystemActor()); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
@@ -491,7 +511,7 @@ func TestResolveBlocker_NotFound(t *testing.T) {
 func TestCancel_FromTerminal_Rejected(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"})
+	res, _ := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"})
 	_ = h.svc.Submit(context.Background(), id, res.RunID, "{}", SystemActor())
 	// Now done → cancel rejected.
 	err := h.svc.Cancel(context.Background(), id, "after-the-fact", SystemActor())
@@ -570,7 +590,7 @@ func TestAddDep_ThreeNodeTransitiveCycleRejected(t *testing.T) {
 func TestInvariant_RunningHasActiveRun(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	if _, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"}); err != nil {
+	if _, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"}); err != nil {
 		t.Fatalf("Claim: %v", err)
 	}
 	task := h.getTask(t, id)
@@ -601,11 +621,11 @@ func TestInvariant_BlockedHasOpenBlocker(t *testing.T) {
 func TestInvariant_AtMostOneActiveWorkerRun(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
-	if _, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s"}); err != nil {
+	if _, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s"}); err != nil {
 		t.Fatalf("first claim: %v", err)
 	}
 	// Second claim should fail — task is running.
-	_, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s2"})
+	_, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s2"})
 	if !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("want ErrInvalidTransition on double claim, got %v", err)
 	}

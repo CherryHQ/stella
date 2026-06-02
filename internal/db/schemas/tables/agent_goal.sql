@@ -6,7 +6,8 @@
 CREATE TABLE agent_goal (
     id              TEXT NOT NULL PRIMARY KEY,
     user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id        TEXT REFERENCES agent(id) ON DELETE SET NULL,
+    agent_id        TEXT NOT NULL REFERENCES agent(id) ON DELETE RESTRICT,
+    project_id      TEXT REFERENCES project(id) ON DELETE SET NULL,
     title           TEXT NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
     status          TEXT NOT NULL DEFAULT 'draft',
@@ -20,3 +21,6 @@ CREATE TABLE agent_goal (
     completed_at    TEXT,
     cancelled_at    TEXT
 );
+
+CREATE INDEX idx_agent_goal_agent_project ON agent_goal(agent_id, project_id);
+CREATE INDEX idx_agent_goal_project       ON agent_goal(project_id);
