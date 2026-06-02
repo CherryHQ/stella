@@ -1,11 +1,14 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -26,16 +29,12 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: create dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", dataSourceName(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
 
 	configurePool(db)
-	if err := ConfigureDB(db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 
 	if err := migrate(db); err != nil {
 		_ = db.Close()
@@ -45,36 +44,30 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// ConfigureDB enables the SQLite connection policy Stella relies on.
-// Connection-level pragmas are safe here because OpenDB constrains each handle
-// to a single long-lived underlying connection.
-func ConfigureDB(db *sql.DB) error {
-	configurePool(db)
-	pragmas := []struct {
-		query string
-		name  string
-	}{
-		{query: "PRAGMA journal_mode=WAL", name: "enable WAL"},
-		{query: fmt.Sprintf("PRAGMA busy_timeout=%d", sqliteBusyTimeout.Milliseconds()), name: "set busy timeout"},
-		{query: "PRAGMA foreign_keys=ON", name: "enable foreign keys"},
-	}
-	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma.query); err != nil {
-			return fmt.Errorf("db: %s: %w", pragma.name, err)
-		}
-	}
-	return nil
+// dataSourceName builds the modernc.org/sqlite DSN. Pragmas are carried in the
+// DSN so every pooled connection is configured identically at open time; this
+// is what makes a multi-connection pool safe (a one-shot PRAGMA via db.Exec
+// would only configure whichever connection happened to run it). WAL lets
+// readers run concurrently with a single writer, busy_timeout serializes
+// writers without surfacing SQLITE_BUSY, and foreign keys stay enforced.
+func dataSourceName(dbPath string) string {
+	q := url.Values{}
+	q.Add("_pragma", "journal_mode(WAL)")
+	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout.Milliseconds()))
+	q.Add("_pragma", "foreign_keys(ON)")
+	return dbPath + "?" + q.Encode()
 }
 
 func configurePool(db *sql.DB) {
 	if db == nil {
 		return
 	}
-	// SQLite only allows one writer at a time. Keeping one underlying
-	// connection per handle makes connection-scoped PRAGMAs deterministic and
-	// avoids self-contention inside a single *sql.DB pool.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// WAL mode allows many concurrent readers alongside one writer, so the pool
+	// is sized for read parallelism. Writes still serialize inside SQLite and
+	// wait out contention via busy_timeout rather than failing.
+	maxConns := max(runtime.NumCPU(), 4)
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 	db.SetConnMaxLifetime(0)
 	db.SetConnMaxIdleTime(0)
 }
@@ -82,18 +75,32 @@ func configurePool(db *sql.DB) {
 // migrate applies pending SQL migration files from the embedded migrations
 // directory. Each migration is executed in its own transaction and tracked
 // in a schema_migrations table.
+//
+// All work runs on a single pinned connection: toggling PRAGMA foreign_keys
+// around each transaction is connection-scoped, so the disable, the
+// transaction, and the re-enable must land on the same underlying connection.
+// With a multi-connection pool, issuing them against *sql.DB directly could
+// scatter them across connections and run table-rebuild migrations with
+// foreign keys still on.
 func migrate(db *sql.DB) error {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
 	// Create tracking table.
 	const createTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version TEXT PRIMARY KEY,
 		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`
-	if _, err := db.Exec(createTable); err != nil {
+	if _, err := conn.ExecContext(ctx, createTable); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
 	// Collect applied versions.
-	applied, err := appliedVersions(db)
+	applied, err := appliedVersions(ctx, conn)
 	if err != nil {
 		return fmt.Errorf("read applied versions: %w", err)
 	}
@@ -117,30 +124,30 @@ func migrate(db *sql.DB) error {
 		// (the statement is silently ignored). Disable it on the connection
 		// before the transaction so Atlas-style table-rebuild migrations work,
 		// then re-enable it after commit.
-		if _, err := db.Exec("PRAGMA foreign_keys = off"); err != nil {
+		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = off"); err != nil {
 			return fmt.Errorf("disable fk for %s: %w", f, err)
 		}
-		tx, err := db.Begin()
+		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("begin tx for %s: %w", f, err)
 		}
-		if _, err := tx.Exec(string(data)); err != nil {
+		if _, err := tx.ExecContext(ctx, string(data)); err != nil {
 			_ = tx.Rollback()
-			_, _ = db.Exec("PRAGMA foreign_keys = on")
+			_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = on")
 			return fmt.Errorf("exec %s: %w", f, err)
 		}
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO schema_migrations (version) VALUES (?)", version,
 		); err != nil {
 			_ = tx.Rollback()
-			_, _ = db.Exec("PRAGMA foreign_keys = on")
+			_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = on")
 			return fmt.Errorf("record %s: %w", f, err)
 		}
 		if err := tx.Commit(); err != nil {
-			_, _ = db.Exec("PRAGMA foreign_keys = on")
+			_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = on")
 			return fmt.Errorf("commit %s: %w", f, err)
 		}
-		if _, err := db.Exec("PRAGMA foreign_keys = on"); err != nil {
+		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = on"); err != nil {
 			return fmt.Errorf("re-enable fk after %s: %w", f, err)
 		}
 	}
@@ -150,8 +157,8 @@ func migrate(db *sql.DB) error {
 
 // appliedVersions returns a set of migration versions already recorded
 // in schema_migrations.
-func appliedVersions(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query("SELECT version FROM schema_migrations")
+func appliedVersions(ctx context.Context, conn *sql.Conn) (map[string]bool, error) {
+	rows, err := conn.QueryContext(ctx, "SELECT version FROM schema_migrations")
 	if err != nil {
 		return nil, err
 	}
