@@ -21,9 +21,7 @@ type DBStore struct {
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
-// It sets MaxOpenConns(1) to mitigate SQLite concurrency issues.
 func NewDBStore(db *sql.DB) *DBStore {
-	db.SetMaxOpenConns(1)
 	return &DBStore{q: sqlc.New(db)}
 }
 

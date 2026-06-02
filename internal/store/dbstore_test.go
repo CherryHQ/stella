@@ -33,6 +33,14 @@ func setupDBStoreWithDB(t *testing.T) (*store.DBStore, *sql.DB) {
 	return s, db
 }
 
+func TestNewDBStorePreservesDBPoolPolicy(t *testing.T) {
+	_, db := setupDBStoreWithDB(t)
+
+	if got := db.Stats().MaxOpenConnections; got < 4 {
+		t.Fatalf("MaxOpenConnections = %d, want >= 4", got)
+	}
+}
+
 func TestSeed(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
