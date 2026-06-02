@@ -3,12 +3,63 @@ package tasks
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
+
+// fakeRunner emits events from a caller-provided channel.
+type fakeRunner struct {
+	events chan agent.Event
+	closed bool
+}
+
+func (f *fakeRunner) Chat(_ context.Context, _ []ai.Message, _ agent.MessageContent) <-chan agent.Event {
+	return f.events
+}
+func (f *fakeRunner) Alive() bool             { return !f.closed }
+func (f *fakeRunner) Busy() bool              { return false }
+func (f *fakeRunner) LastActivity() time.Time { return time.Now() }
+func (f *fakeRunner) SystemPrompt() string    { return "" }
+func (f *fakeRunner) Close() error            { f.closed = true; return nil }
+
+// claimSetup creates a task, claims it, and returns the task id + run id.
+func claimSetup(t *testing.T, h *testHarness) (string, string) {
+	t.Helper()
+	id := h.createTask(t, StatusReady)
+	res, err := h.svc.Claim(context.Background(), ClaimParams{
+		TaskID: id, NewSessionID: "sess-test", LeaseDuration: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	return id, res.RunID
+}
+
+func TestBuildTaskPromptRequiresTerminalTaskControl(t *testing.T) {
+	prompt := buildTaskPrompt(sqlc.AgentTask{
+		Title:       "Do the work",
+		Description: "Check everything",
+	})
+	for _, want := range []string{
+		"MUST call task_control exactly once",
+		`action="submit"`,
+		`action="block"`,
+		`action="fail"`,
+		"Do not just answer in chat",
+		"Do the work",
+		"Check everything",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
 
 func TestTerminalRecorder_FirstWins(t *testing.T) {
 	rec := &terminalRecorder{}
@@ -131,6 +182,38 @@ func TestWorkerExecutor_DoubleTerminal_OnlyFirst(t *testing.T) {
 	}
 	if res.Action != TerminalSubmit {
 		t.Fatalf("action=%q want submit (first wins)", res.Action)
+	}
+}
+
+func TestWorkerExecutor_ProgressShallowMerges(t *testing.T) {
+	h := newHarness(t)
+	res, err := runExecutor(t, h, func(tc tools.Tool) error {
+		if _, err := tc.Execute(context.Background(), map[string]any{
+			"action": "progress", "patch": map[string]any{"phase": "step-1", "count": 1},
+		}); err != nil {
+			return err
+		}
+		if _, err := tc.Execute(context.Background(), map[string]any{
+			"action": "progress", "patch": map[string]any{"phase": "step-2"},
+		}); err != nil {
+			return err
+		}
+		_, err := tc.Execute(context.Background(), map[string]any{"action": "submit", "output": map[string]any{}})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Action != TerminalSubmit {
+		t.Fatalf("action=%q want submit", res.Action)
+	}
+	// progress persists into agent_task.context: phase overwritten, count kept.
+	var ctx string
+	if err := h.db.QueryRow(`SELECT context FROM agent_task ORDER BY created_at DESC LIMIT 1`).Scan(&ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ctx, `"phase":"step-2"`) || !strings.Contains(ctx, `"count":1`) {
+		t.Errorf("context didn't merge as expected: %s", ctx)
 	}
 }
 

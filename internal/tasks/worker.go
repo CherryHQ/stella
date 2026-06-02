@@ -3,7 +3,6 @@ package tasks
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,15 +10,6 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-// RunnerFunc is the agent-execution callback that the worker invokes for a
-// claimed run. The runner must call exactly one of tool.Submit / tool.Block /
-// tool.Fail before returning; otherwise the worker applies the protocol-error
-// fallback per D14 / HP5.
-//
-// The runner runs inside the dispatcher's worker goroutine and must honor ctx
-// cancellation (e.g. on dispatcher shutdown).
-type RunnerFunc func(ctx context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error
 
 // HeartbeatInterval is how often the worker extends lease_expires_at on the
 // run row while the runner is executing. Set to 0 to disable heartbeats.
@@ -33,18 +23,18 @@ const LeaseDuration = 90 * time.Second
 type Worker struct {
 	svc       *TransitionService
 	q         *sqlc.Queries
-	runner    RunnerFunc
+	exec      Executor
 	heartbeat time.Duration
 	lease     time.Duration
 	log       *slog.Logger
 }
 
 // NewWorker wires a worker.
-func NewWorker(svc *TransitionService, q *sqlc.Queries, runner RunnerFunc) *Worker {
+func NewWorker(svc *TransitionService, q *sqlc.Queries, exec Executor) *Worker {
 	return &Worker{
 		svc:       svc,
 		q:         q,
-		runner:    runner,
+		exec:      exec,
 		heartbeat: HeartbeatInterval,
 		lease:     LeaseDuration,
 		log:       slog.Default().With("component", "tasks/worker"),
@@ -57,18 +47,22 @@ func (w *Worker) SetHeartbeat(d time.Duration) { w.heartbeat = d }
 // SetLease overrides the lease duration (for tests).
 func (w *Worker) SetLease(d time.Duration) { w.lease = d }
 
-// Run drives the runner for one claimed task. Responsibilities:
+// Run drives the executor for one claimed task. Responsibilities:
 //   - flip the run from queued to running with started_at + initial lease
-//   - keep lease_expires_at fresh while the runner executes (heartbeat)
-//   - apply the protocol-error fallback if the runner returns without a
-//     terminal control action (HP5 / D14)
-//   - turn runner panics into a non-retryable Fail
-//
-// Run does not transition the task itself; the control tool does that.
+//   - keep lease_expires_at fresh while the executor runs (heartbeat)
+//   - apply exactly one terminal transition (submit/block/fail) from the
+//     executor's Result at the worker boundary (D3)
+//   - apply the protocol-error fallback when the executor reports no terminal
+//     action (HP5 / D14)
+//   - turn executor panics into a non-retryable Fail
 func (w *Worker) Run(ctx context.Context, taskID, runID string, actor Actor) (err error) {
 	run, err := w.q.GetAgentTaskRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("worker: load run: %w", err)
+	}
+	task, err := w.q.GetAgentTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("worker: load task: %w", err)
 	}
 
 	now := w.svc.now()
@@ -82,8 +76,6 @@ func (w *Worker) Run(ctx context.Context, taskID, runID string, actor Actor) (er
 		return fmt.Errorf("worker: promote run: %w", perr)
 	}
 
-	tool := NewTaskControlTool(w.svc, w.q, taskID, runID, actor)
-
 	// Start heartbeat in the background.
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	var hbWG sync.WaitGroup
@@ -96,39 +88,65 @@ func (w *Worker) Run(ctx context.Context, taskID, runID string, actor Actor) (er
 		hbCancel()
 		hbWG.Wait()
 		if r := recover(); r != nil {
-			w.log.Error("worker runner panicked", "task_id", taskID, "panic", r)
+			w.log.Error("worker executor panicked", "task_id", taskID, "panic", r)
 			_ = w.svc.Fail(context.Background(), FailParams{
 				TaskID: taskID, RunID: runID,
-				Reason: fmt.Sprintf("runner panic: %v", r), Retryable: false, Actor: actor,
+				Reason: fmt.Sprintf("executor panic: %v", r), Retryable: false, Actor: actor,
 			})
-			err = fmt.Errorf("runner panic: %v", r)
+			err = fmt.Errorf("executor panic: %v", r)
 		}
 	}()
 
-	rerr := w.runner(ctx, run, tool)
+	res, eerr := w.exec.Execute(ctx, Request{Run: run, Task: &task})
+	if eerr != nil {
+		// The executor encodes outcomes in Result; a returned error is
+		// unexpected. Treat it as a retryable failure so the task can recover.
+		w.log.Warn("worker: executor returned error", "task_id", taskID, "run_id", runID, "err", eerr)
+		res = failResult(fmt.Sprintf("executor error: %v", eerr), true)
+	}
+	return w.applyResult(taskID, runID, actor, res)
+}
 
-	if !tool.Finished() {
-		reason := "agent exited without calling submit/block/fail"
-		retryable := true
-		if rerr != nil {
-			reason = fmt.Sprintf("agent error: %v", rerr)
-			// A ctx-cancellation means we initiated shutdown; do not consume
-			// retry budget so the task picks up cleanly on next boot.
-			if errors.Is(rerr, context.Canceled) {
-				retryable = true
-			}
+// applyResult writes the single durable transition implied by the executor's
+// Result. A fresh context is used so the outcome is recorded even if the
+// dispatch context was cancelled (e.g. on shutdown).
+func (w *Worker) applyResult(taskID, runID string, actor Actor, res Result) error {
+	ctx := context.Background()
+	switch res.Action {
+	case TerminalSubmit:
+		return w.svc.Submit(ctx, taskID, runID, detailJSON(res.Output), actor)
+	case TerminalBlock:
+		b := res.Blocker
+		if b == nil {
+			b = &BlockerResult{}
 		}
-		// Use a fresh context: if ctx was cancelled, we still need to write
-		// the failure record.
-		if ferr := w.svc.Fail(context.Background(), FailParams{
-			TaskID: taskID, RunID: runID, Reason: reason, Retryable: retryable, Actor: actor,
+		kind := b.Kind
+		if kind == "" {
+			kind = BlockerKindUserInput
+		}
+		return w.svc.Block(ctx, BlockParams{
+			TaskID: taskID, Kind: kind, Question: b.Question,
+			Detail: detailJSON(b.Detail), RunID: runID, Actor: actor,
+		})
+	case TerminalFail:
+		f := res.Failure
+		if f == nil {
+			f = &FailureResult{Reason: "unspecified failure"}
+		}
+		return w.svc.Fail(ctx, FailParams{
+			TaskID: taskID, RunID: runID, Reason: f.Reason, Retryable: f.Retryable, Actor: actor,
+		})
+	default:
+		// TerminalNone: the executor ran but no terminal action fired (HP5 / D14).
+		reason := "agent exited without calling submit/block/fail"
+		if ferr := w.svc.Fail(ctx, FailParams{
+			TaskID: taskID, RunID: runID, Reason: reason, Retryable: true, Actor: actor,
 		}); ferr != nil {
 			w.log.Warn("worker: fail bookkeeping returned error", "err", ferr)
 		}
 		w.appendProtocolError(taskID, runID, reason, actor)
 		return nil
 	}
-	return rerr
 }
 
 func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, runID string) {

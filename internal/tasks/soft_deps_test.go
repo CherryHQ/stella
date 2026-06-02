@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // Slice 5 (PR 7) acceptance tests. Soft dep semantics are implemented in
@@ -20,10 +18,7 @@ func forceTaskStatus(t *testing.T, h *testHarness, id, status string) {
 }
 
 func TestSoftDep_FailedUpstream_DownstreamDispatches(t *testing.T) {
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		return tool.Submit(ctx, "{}")
-	}
-	h, d := newDispatcherHarness(t, runner)
+	h, d := newDispatcherHarness(t, submitExec())
 	upstream := h.createTask(t, StatusReady)
 	downstream := h.createTask(t, StatusReady)
 	if err := h.svc.AddDep(context.Background(), downstream, upstream, DepKindSoft, OnFailureBlock); err != nil {
@@ -41,10 +36,7 @@ func TestSoftDep_FailedUpstream_DownstreamDispatches(t *testing.T) {
 }
 
 func TestSoftDep_CancelledUpstream_DownstreamDispatches(t *testing.T) {
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		return tool.Submit(ctx, "{}")
-	}
-	h, d := newDispatcherHarness(t, runner)
+	h, d := newDispatcherHarness(t, submitExec())
 	upstream := h.createTask(t, StatusReady)
 	downstream := h.createTask(t, StatusReady)
 	_ = h.svc.AddDep(context.Background(), downstream, upstream, DepKindSoft, OnFailureBlock)
@@ -57,10 +49,7 @@ func TestSoftDep_CancelledUpstream_DownstreamDispatches(t *testing.T) {
 }
 
 func TestSoftDep_PendingUpstream_DownstreamWaits(t *testing.T) {
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		return tool.Submit(ctx, "{}")
-	}
-	h, d := newDispatcherHarness(t, runner)
+	h, d := newDispatcherHarness(t, submitExec())
 	upstream := h.createTask(t, StatusReady)
 	downstream := h.createTask(t, StatusReady)
 	_ = h.svc.AddDep(context.Background(), downstream, upstream, DepKindSoft, OnFailureBlock)
@@ -81,10 +70,7 @@ func TestSoftDep_PendingUpstream_DownstreamWaits(t *testing.T) {
 func TestSoftDep_OnFailureIgnored(t *testing.T) {
 	// Per D11: on_failure is consulted only for hard deps. A soft dep with
 	// on_failure='fail' must NOT propagate failure.
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		return tool.Submit(ctx, "{}")
-	}
-	h, d := newDispatcherHarness(t, runner)
+	h, d := newDispatcherHarness(t, submitExec())
 	upstream := h.createTask(t, StatusReady)
 	downstream := h.createTask(t, StatusReady)
 	_ = h.svc.AddDep(context.Background(), downstream, upstream, DepKindSoft, OnFailureFail)
@@ -100,10 +86,7 @@ func TestSoftDep_OnFailureIgnored(t *testing.T) {
 
 func TestHardDep_OnFailureBlock_RequiresWaiverToProceed(t *testing.T) {
 	// Tests the full waiver flow end-to-end via the dispatcher.
-	runner := func(ctx context.Context, _ sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		return tool.Submit(ctx, "{}")
-	}
-	h, d := newDispatcherHarness(t, runner)
+	h, d := newDispatcherHarness(t, submitExec())
 	upstream := h.createTask(t, StatusReady)
 	downstream := h.createTask(t, StatusReady)
 	_ = h.svc.AddDep(context.Background(), downstream, upstream, DepKindHard, OnFailureBlock)

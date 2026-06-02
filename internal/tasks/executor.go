@@ -63,6 +63,16 @@ type Executor interface {
 	Execute(ctx context.Context, req Request) (Result, error)
 }
 
+// executorFunc adapts a function to the Executor interface.
+type executorFunc func(ctx context.Context, req Request) (Result, error)
+
+func (f executorFunc) Execute(ctx context.Context, req Request) (Result, error) { return f(ctx, req) }
+
+// PoolLookup resolves an agent ID to a Runner factory. Returned (nil, false)
+// means no pool is available for that agent; the executor surfaces this as a
+// non-retryable Fail.
+type PoolLookup func(agentID string) (agent.NewRunnerFunc, bool)
+
 // terminalRecorder captures the first terminal action declared during an
 // execution attempt. Later terminal declarations are rejected so a stray
 // second tool call can't change the outcome.
@@ -182,6 +192,35 @@ func (e *workerExecutor) Execute(ctx context.Context, req Request) (Result, erro
 // failResult is a small constructor for a non-agent failure outcome.
 func failResult(reason string, retryable bool) Result {
 	return Result{Action: TerminalFail, Failure: &FailureResult{Reason: reason, Retryable: retryable}}
+}
+
+// drainEvents consumes remaining events so the runner can close cleanly after a
+// terminal action has been recorded.
+func drainEvents(ch <-chan agent.Event) {
+	for range ch {
+	}
+}
+
+// buildTaskPrompt assembles the worker turn. The terminal task_control rule is
+// repeated in the user message because workers run as normal agents with extra
+// tools; relying on the tool description alone makes protocol errors too easy.
+func buildTaskPrompt(task sqlc.AgentTask) string {
+	body := task.Title
+	if task.Description != "" {
+		body += "\n\n" + task.Description
+	}
+	return `You are executing a durable Stella task.
+
+Protocol:
+- You may use tools normally while working.
+- Before ending this turn, you MUST call task_control exactly once with one terminal action:
+  - action="submit" with output when the task is complete.
+  - action="block" with kind/question when you need input or an external dependency.
+  - action="fail" with reason/retryable when the task cannot be completed.
+- Do not just answer in chat. A final text response without task_control is treated as a protocol failure and the task will be retried or failed.
+
+Task:
+` + body
 }
 
 // recordingControlTool is the agent-facing task_control tool. progress

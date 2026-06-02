@@ -34,7 +34,7 @@ type SessionMinter func(ctx context.Context, task sqlc.AgentTask, executorAgentI
 type DispatcherConfig struct {
 	Service    *TransitionService
 	Queries    *sqlc.Queries
-	Runner     RunnerFunc
+	Executor   Executor
 	Resolver   ExecutorResolver
 	NewSession SessionMinter
 	TickEvery  time.Duration // 0 => 2s
@@ -346,7 +346,7 @@ func (d *Dispatcher) spawnWorker(ctx context.Context, taskID, runID string) {
 	d.inc()
 	d.wg.Go(func() {
 		defer d.dec()
-		w := NewWorker(d.cfg.Service, d.cfg.Queries, d.cfg.Runner)
+		w := NewWorker(d.cfg.Service, d.cfg.Queries, d.cfg.Executor)
 		if err := w.Run(ctx, taskID, runID, SystemActor()); err != nil {
 			d.cfg.Logger.Warn("dispatcher: worker returned error", "task", taskID, "err", err)
 		}

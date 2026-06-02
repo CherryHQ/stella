@@ -26,8 +26,8 @@ type Service struct {
 type BootConfig struct {
 	DB       *sql.DB
 	Memory   memory.Provider                                  // used to mint sessions when Services is nil
-	Services agent.ServiceManager                             // preferred: registry-backed session minting and chat
-	Pools    func(agentID string) (agent.NewRunnerFunc, bool) // legacy: kept for gradual migration
+	Services agent.ServiceManager                             // registry-backed session minting
+	Pools    func(agentID string) (agent.NewRunnerFunc, bool) // resolves executor agents to runner factories
 	// MaxWorkers, TickEvery, LeaseTTL override defaults; zero values use the
 	// dispatcher's defaults.
 	MaxWorkers int
@@ -39,9 +39,9 @@ type BootConfig struct {
 // New constructs the task system. The dispatcher is constructed but not
 // started; the caller registers it on a scheduler via dispatcher.Start.
 //
-// If BootConfig.Services is non-nil, the dispatcher uses Service-backed
-// session minting and PoolAdapter for execution. Otherwise it falls back to a
-// noop runner that fails with a clear message.
+// If BootConfig.Pools is non-nil, the dispatcher uses the agent-backed worker
+// executor. Otherwise it falls back to a noop executor that fails with a clear
+// message.
 func New(cfg BootConfig) *Service {
 	q := sqlc.New(cfg.DB)
 	svc := NewTransitionService(cfg.DB, q)
@@ -51,11 +51,11 @@ func New(cfg BootConfig) *Service {
 		logger = slog.Default().With("component", "tasks")
 	}
 
-	var runner RunnerFunc
+	var exec Executor
 	if cfg.Pools != nil {
-		runner = NewPoolAdapter(cfg.Pools, cfg.Memory, logger).AsRunnerFunc(q)
+		exec = newWorkerExecutor(cfg.Pools, cfg.Memory, q, svc, logger)
 	} else {
-		runner = noopRunner(logger)
+		exec = noopExecutor(logger)
 	}
 
 	var newSession SessionMinter
@@ -68,7 +68,7 @@ func New(cfg BootConfig) *Service {
 	disp := NewDispatcher(DispatcherConfig{
 		Service:    svc,
 		Queries:    q,
-		Runner:     runner,
+		Executor:   exec,
 		Resolver:   sessionAndCreatorResolver(q, cfg.Memory, logger),
 		NewSession: newSession,
 		MaxWorkers: cfg.MaxWorkers,
@@ -85,16 +85,14 @@ func New(cfg BootConfig) *Service {
 	}
 }
 
-// noopRunner returns a RunnerFunc that always fails.
-func noopRunner(log *slog.Logger) RunnerFunc {
-	return func(_ context.Context, run sqlc.AgentTaskRun, tool *TaskControlTool) error {
-		log.Warn("tasks v2 noop runner invoked",
-			"task_id", run.TaskID.String, "run_id", run.ID,
-			"hint", "wire BootConfig.Services to a real agent.ServiceManager to execute tasks")
-		return tool.Fail(context.Background(),
-			"task system v2 runner not wired (noop): connect cmd/stella to agent.ServiceManager",
-			false)
-	}
+// noopExecutor returns an Executor that always fails non-retryably.
+func noopExecutor(log *slog.Logger) Executor {
+	return executorFunc(func(_ context.Context, req Request) (Result, error) {
+		log.Warn("tasks v2 noop executor invoked",
+			"task_id", req.Run.TaskID.String, "run_id", req.Run.ID,
+			"hint", "wire BootConfig.Pools to a real agent pool to execute tasks")
+		return failResult("task system v2 executor not wired (noop): connect cmd/stella to an agent pool", false), nil
+	})
 }
 
 // sessionAndCreatorResolver covers executor resolution from a session row.
