@@ -59,3 +59,8 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    ServiceUnavailable:
+      description: service is not configured or temporarily unavailable
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

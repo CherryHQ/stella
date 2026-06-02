@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
@@ -58,6 +59,11 @@ import { Route as AppAgentsAgentIdAutomationsJobIdEditRouteImport } from './rout
 import { Route as AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRouteImport } from './routes/_app/agents.$agentId/projects.$projectId/sessions.$sessionId'
 import { Route as AppAgentsAgentIdAutomationsJobIdRunsRunIdRouteImport } from './routes/_app/agents.$agentId/automations/$jobId.runs.$runId'
 
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/signup.lazy').then((d) => d.Route))
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -420,6 +426,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/signup': typeof SignupRoute
   '/agents': typeof AppAgentsRouteWithChildren
   '/automations': typeof AppAutomationsRouteWithChildren
   '/recally': typeof AppRecallyRoute
@@ -469,6 +476,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/signup': typeof SignupRoute
   '/automations': typeof AppAutomationsRouteWithChildren
   '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
@@ -517,6 +525,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
+  '/signup': typeof SignupRoute
   '/_app/agents': typeof AppAgentsRouteWithChildren
   '/_app/automations': typeof AppAutomationsRouteWithChildren
   '/_app/recally': typeof AppRecallyRoute
@@ -568,6 +577,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/profile'
+    | '/signup'
     | '/agents'
     | '/automations'
     | '/recally'
@@ -617,6 +627,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/profile'
+    | '/signup'
     | '/automations'
     | '/recally'
     | '/scheduler'
@@ -664,6 +675,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/profile'
+    | '/signup'
     | '/_app/agents'
     | '/_app/automations'
     | '/_app/recally'
@@ -715,12 +727,20 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   ProfileRoute: typeof ProfileRoute
+  SignupRoute: typeof SignupRoute
   DocsSplatRoute: typeof DocsSplatRoute
   STokenRoute: typeof STokenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profile': {
       id: '/profile'
       path: '/profile'
@@ -1257,6 +1277,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   ProfileRoute: ProfileRoute,
+  SignupRoute: SignupRoute,
   DocsSplatRoute: DocsSplatRoute,
   STokenRoute: STokenRoute,
 }

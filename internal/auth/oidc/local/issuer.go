@@ -12,10 +12,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"html/template"
 	"math/big"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -28,11 +26,11 @@ import (
 // It exposes discovery, JWKS, authorize, token, and userinfo under a stable
 // URL prefix (recommended: /oidc/local).
 type Issuer struct {
-	cfg         *Config
-	codes       auth.OIDCCodeStore
-	tokens      auth.OIDCAccessTokenStore
-	users       auth.UserStore
-	credentials auth.CredentialStore
+	cfg       *Config
+	codes     auth.OIDCCodeStore
+	tokens    auth.OIDCAccessTokenStore
+	users     auth.UserStore
+	localAuth *Service
 	// authSvc is used to validate an existing Stella OIDC session on the authorize endpoint.
 	// May be nil; when nil, the authorize endpoint always shows the login form.
 	authSvc    *auth.AuthService
@@ -45,18 +43,18 @@ func NewIssuer(
 	codes auth.OIDCCodeStore,
 	tokens auth.OIDCAccessTokenStore,
 	users auth.UserStore,
-	credentials auth.CredentialStore,
+	localAuth *Service,
 	authSvc *auth.AuthService,
 	sessionMgr *auth.SessionManager,
 ) *Issuer {
 	return &Issuer{
-		cfg:         cfg,
-		codes:       codes,
-		tokens:      tokens,
-		users:       users,
-		credentials: credentials,
-		authSvc:     authSvc,
-		sessionMgr:  sessionMgr,
+		cfg:        cfg,
+		codes:      codes,
+		tokens:     tokens,
+		users:      users,
+		localAuth:  localAuth,
+		authSvc:    authSvc,
+		sessionMgr: sessionMgr,
 	}
 }
 
@@ -92,7 +90,7 @@ func (is *Issuer) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 		ScopesSupported:                   []string{"openid", "email", "profile"},
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "none"},
 		ClaimsSupported: []string{
-			"sub", "iss", "aud", "iat", "exp", "nonce",
+			"sub", "iss", "aud", "iat", "exp",
 			"email", "email_verified", "name", "picture",
 			"role",
 		},
@@ -145,16 +143,12 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-
-	if r.Method == http.MethodPost {
-		if r.URL.Query().Get("mode") == "register" {
-			is.handleRegisterPost(w, r, ctx, params)
-		} else {
-			is.handleAuthorizePost(w, r, ctx, params)
-		}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	ctx := r.Context()
 
 	// GET: check for existing Stella OIDC session.
 	if is.sessionMgr != nil && is.authSvc != nil {
@@ -166,12 +160,14 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// No session — show login or register form based on mode param.
+	dest := "/login"
 	if r.URL.Query().Get("mode") == "register" {
-		is.renderRegisterForm(w, params, "")
-	} else {
-		is.renderLoginForm(w, params, "")
+		dest = "/signup"
 	}
+	if r.URL.RawQuery != "" {
+		dest += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
 type authorizeParams struct {
@@ -219,217 +215,13 @@ func (is *Issuer) parseAuthorizeParams(r *http.Request) (*authorizeParams, error
 	}, nil
 }
 
-func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
-		return
-	}
-	email := strings.TrimSpace(r.FormValue("email"))
-	password := r.FormValue("password")
-	if email == "" || password == "" {
-		is.renderLoginForm(w, params, "Email and password are required.")
-		return
-	}
-
-	user, err := is.users.GetUserByEmail(ctx, email)
-	if err != nil {
-		is.renderLoginForm(w, params, "Invalid email or password.")
-		return
-	}
-
-	if !user.IsActive {
-		is.renderLoginForm(w, params, "Account is disabled.")
-		return
-	}
-
-	credSvc := auth.NewCredentialService(is.credentials)
-	if err := credSvc.VerifyPassword(ctx, user.ID, password); err != nil {
-		is.renderLoginForm(w, params, "Invalid email or password.")
-		return
-	}
-
-	is.issueCodeAndRedirect(w, r, ctx, user.ID, params)
-}
-
-func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
-		return
-	}
-	name := strings.TrimSpace(r.FormValue("name"))
-	email := strings.TrimSpace(r.FormValue("email"))
-	password := r.FormValue("password")
-	if name == "" || email == "" || password == "" {
-		is.renderRegisterForm(w, params, "All fields are required.")
-		return
-	}
-
-	if _, err := is.users.GetUserByEmail(ctx, email); err == nil {
-		is.renderRegisterForm(w, params, "An account with this email already exists.")
-		return
-	}
-
-	// First registered user becomes admin.
-	count, err := is.users.CountUsers(ctx)
-	if err != nil {
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
-		return
-	}
-	role := auth.RoleUser
-	if count == 0 {
-		role = auth.RoleAdmin
-	}
-
-	newUser, err := is.users.CreateUser(ctx, auth.User{
-		ID:    uuid.NewString(),
-		Email: email,
-		Name:  name,
-		Role:  role,
-	})
-	if err != nil {
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
-		return
-	}
-
-	credSvc := auth.NewCredentialService(is.credentials)
-	if err := credSvc.SetPassword(ctx, newUser.ID, password); err != nil {
-		_ = is.users.DeleteUser(ctx, newUser.ID)
-		is.renderRegisterForm(w, params, "Registration failed. Please try again.")
-		return
-	}
-
-	is.issueCodeAndRedirect(w, r, ctx, newUser.ID, params)
-}
-
 func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, ctx context.Context, userID string, params *authorizeParams) {
-	rawCode := generateOpaqueToken()
-	codeHash := hashToken(rawCode)
-
-	_, err := is.codes.CreateOIDCCode(ctx, auth.OIDCCode{
-		ID:            uuid.NewString(),
-		CodeHash:      codeHash,
-		UserID:        userID,
-		ClientID:      params.clientID,
-		RedirectURI:   params.redirectURI,
-		Scopes:        params.scopes,
-		Nonce:         params.nonce,
-		PKCEChallenge: params.pkceChallenge,
-		PKCEMethod:    params.pkceChallengeMethod,
-		ExpiresAt:     time.Now().Add(time.Duration(is.cfg.AuthCodeTTL) * time.Second),
-	})
+	redirectURL, err := is.localAuth.issueCode(ctx, userID, params)
 	if err != nil {
 		http.Error(w, "server_error: could not create authorization code", http.StatusInternalServerError)
 		return
 	}
-
-	redirectURL := params.redirectURI + "?code=" + rawCode
-	if params.state != "" {
-		redirectURL += "&state=" + params.state
-	}
 	http.Redirect(w, r, redirectURL, http.StatusFound)
-}
-
-const formCSS = `body{font-family:system-ui,sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12);padding:2rem;width:100%;max-width:360px}
-h1{font-size:1.25rem;margin:0 0 1.5rem}
-label{display:block;font-size:.875rem;margin-bottom:.25rem;color:#555}
-input[type=email],input[type=password],input[type=text]{width:100%;box-sizing:border-box;padding:.5rem .75rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;margin-bottom:1rem}
-button{width:100%;padding:.625rem;background:#0070f3;color:#fff;border:none;border-radius:4px;font-size:1rem;cursor:pointer}
-button:hover{background:#0051bb}
-.error{background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:.5rem .75rem;margin-bottom:1rem;font-size:.875rem}
-.switch{text-align:center;margin-top:1rem;font-size:.875rem;color:#555}
-.switch a{color:#0070f3;text-decoration:none}
-.switch a:hover{text-decoration:underline}`
-
-var loginFormTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in — Stella</title>
-<style>` + formCSS + `</style>
-</head>
-<body>
-<div class="card">
-  <h1>Sign in to Stella</h1>
-  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-  <form method="POST" action="{{.Action}}">
-    <label for="email">Email</label>
-    <input type="email" id="email" name="email" autocomplete="email" required>
-    <label for="password">Password</label>
-    <input type="password" id="password" name="password" autocomplete="current-password" required>
-    <button type="submit">Sign in</button>
-  </form>
-  <div class="switch">Don't have an account? <a href="{{.RegisterURL}}">Sign up</a></div>
-</div>
-</body>
-</html>`))
-
-var registerFormTmpl = template.Must(template.New("register").Parse(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign up — Stella</title>
-<style>` + formCSS + `</style>
-</head>
-<body>
-<div class="card">
-  <h1>Create an account</h1>
-  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-  <form method="POST" action="{{.Action}}">
-    <label for="name">Name</label>
-    <input type="text" id="name" name="name" autocomplete="name" required>
-    <label for="email">Email</label>
-    <input type="email" id="email" name="email" autocomplete="email" required>
-    <label for="password">Password</label>
-    <input type="password" id="password" name="password" autocomplete="new-password" required>
-    <button type="submit">Sign up</button>
-  </form>
-  <div class="switch">Already have an account? <a href="{{.LoginURL}}">Sign in</a></div>
-</div>
-</body>
-</html>`))
-
-func (is *Issuer) renderLoginForm(w http.ResponseWriter, params *authorizeParams, errMsg string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = loginFormTmpl.Execute(w, map[string]any{
-		"Action":      buildAuthorizeAction(params, ""),
-		"RegisterURL": buildAuthorizeAction(params, "register"),
-		"Error":       errMsg,
-	})
-}
-
-func (is *Issuer) renderRegisterForm(w http.ResponseWriter, params *authorizeParams, errMsg string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = registerFormTmpl.Execute(w, map[string]any{
-		"Action":   buildAuthorizeAction(params, "register"),
-		"LoginURL": buildAuthorizeAction(params, ""),
-		"Error":    errMsg,
-	})
-}
-
-func buildAuthorizeAction(p *authorizeParams, mode string) string {
-	q := url.Values{
-		"client_id":     {p.clientID},
-		"redirect_uri":  {p.redirectURI},
-		"response_type": {"code"},
-		"scope":         {strings.Join(p.scopes, " ")},
-	}
-	if p.state != "" {
-		q.Set("state", p.state)
-	}
-	if p.nonce != "" {
-		q.Set("nonce", p.nonce)
-	}
-	if p.pkceChallenge != "" {
-		q.Set("code_challenge", p.pkceChallenge)
-		q.Set("code_challenge_method", p.pkceChallengeMethod)
-	}
-	if mode != "" {
-		q.Set("mode", mode)
-	}
-	return "authorize?" + q.Encode()
 }
 
 // HandleToken serves POST /token.

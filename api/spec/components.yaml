@@ -284,6 +284,38 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AuthSession"
+    LocalLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    LocalRegisterRequest:
+      type: object
+      required: [name, email, password, confirm_password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        confirm_password:
+          type: string
+          format: password
+    LocalAuthRedirect:
+      type: object
+      required: [redirect_url]
+      properties:
+        redirect_url:
+          type: string
+          description: URL the browser should navigate to after local authentication.
     OIDCProvider:
       type: object
       required: [name, login_url]
@@ -2620,6 +2652,12 @@ components:
             $ref: "#/components/schemas/Error"
     Conflict:
       description: request conflicts with current state
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: service is not configured or temporarily unavailable
       content:
         application/json:
           schema:

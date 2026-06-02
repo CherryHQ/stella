@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { meQueryOptions } from "@/lib/queries/me";
 import { authErrorStatus } from "@/lib/auth-error";
 
-export const Route = createFileRoute("/login")({
+export const Route = createFileRoute("/signup")({
   beforeLoad: async ({ context: { queryClient } }) => {
     try {
       const me = await queryClient.ensureQueryData(meQueryOptions);

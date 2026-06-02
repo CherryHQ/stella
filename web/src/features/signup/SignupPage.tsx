@@ -4,18 +4,21 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { listAuthProviders, loginLocal } from "@/lib/api-client/sdk.gen";
+import { listAuthProviders, registerLocal } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { OidcProviderList } from "@/lib/api-client/types.gen";
-import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Mail, Lock, User, Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/features/auth/AuthLayout";
 import { authErrorMessage } from "@/lib/auth-error";
 
-export function LoginPage() {
+export function SignupPage() {
   const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -25,38 +28,70 @@ export function LoginPage() {
     staleTime: 60_000,
   });
   const providers = (providersData?.data as OidcProviderList)?.providers ?? [];
-
   const hasLocalProvider = providers.some((p) => p.name === "local");
-  const otherProviders = providers.filter((p) => p.name !== "local");
   const hasRegisterEnabled = providers.some((p) => p.name === "local" && p.register_url);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (password !== confirmPassword) {
+      setError(t("login.passwordMismatch"));
+      return;
+    }
+    if (password.length < 8) {
+      setError(t("login.passwordTooShort"));
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
-      const { data } = await loginLocal({
-        body: { email, password },
+      const { data } = await registerLocal({
+        body: { email, password, confirm_password: confirmPassword, name },
         throwOnError: true,
       });
       const redirectUrlObj = new URL(data.redirect_url, window.location.origin);
       window.location.href = redirectUrlObj.pathname + redirectUrlObj.search;
     } catch (err) {
-      setError(authErrorMessage(err, "Authentication failed"));
+      setError(authErrorMessage(err, "Registration failed"));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthLayout subtitle={t("login.subtitle")} error={error || undefined}>
+    <AuthLayout subtitle={t("login.signupSubtitle")} error={error || undefined}>
       {providersLoading ? (
         <div className="flex justify-center py-8">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
-      ) : hasLocalProvider ? (
+      ) : !hasLocalProvider ? (
+        <p className="text-center text-sm text-muted-foreground">
+          {t("login.noLocalRegistration")}
+        </p>
+      ) : !hasRegisterEnabled ? (
+        <p className="text-center text-sm text-muted-foreground">
+          {t("login.registrationDisabled")}
+        </p>
+      ) : (
         <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Name</Label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                id="name"
+                type="text"
+                required
+                placeholder="John Doe"
+                className="pl-9 bg-background/50"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <div className="relative">
@@ -74,16 +109,14 @@ export function LoginPage() {
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="password">Password</Label>
-            </div>
+            <Label htmlFor="password">Password</Label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
                 id="password"
                 type={showPassword ? "text" : "password"}
                 required
-                placeholder="••••••••"
+                placeholder="•••••••• (min 8 chars)"
                 className="pl-9 pr-10 bg-background/50"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -98,6 +131,29 @@ export function LoginPage() {
             </div>
           </div>
 
+          <div className="space-y-1.5">
+            <Label htmlFor="confirmPassword">Confirm Password</Label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                id="confirmPassword"
+                type={showConfirmPassword ? "text" : "password"}
+                required
+                placeholder="••••••••"
+                className="pl-9 pr-10 bg-background/50"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </div>
+
           <Button
             type="submit"
             disabled={loading}
@@ -106,57 +162,20 @@ export function LoginPage() {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
-                {t("login.signingIn")}
+                {t("login.signingUp")}
               </span>
             ) : (
-              t("login.signIn")
+              t("login.signUp")
             )}
           </Button>
 
-          {hasRegisterEnabled && (
-            <p className="text-center text-sm text-muted-foreground mt-4">
-              {t("login.noAccount")}{" "}
-              <Link to="/signup" className="text-primary hover:underline font-medium ml-1">
-                {t("login.signUpLink")}
-              </Link>
-            </p>
-          )}
+          <p className="text-center text-sm text-muted-foreground mt-4">
+            {t("login.hasAccount")}{" "}
+            <Link to="/login" className="text-primary hover:underline font-medium ml-1">
+              {t("login.signInLink")}
+            </Link>
+          </p>
         </form>
-      ) : (
-        providers.length === 0 && (
-          <p className="text-center text-sm text-muted-foreground">{t("login.noProviders")}</p>
-        )
-      )}
-
-      {otherProviders.length > 0 && (
-        <div className="mt-6 space-y-4">
-          {hasLocalProvider && (
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border/40" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card/45 px-2 text-muted-foreground">
-                  {t("login.orContinueWith")}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-3">
-            {otherProviders.map((p) => (
-              <a key={p.name} href={p.login_url} className="block group">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
-                >
-                  {t("login.signIn")} {p.name}
-                </Button>
-              </a>
-            ))}
-          </div>
-        </div>
       )}
     </AuthLayout>
   );

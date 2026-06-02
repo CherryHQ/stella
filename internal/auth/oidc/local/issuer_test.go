@@ -7,9 +7,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -52,14 +53,22 @@ func (f *fakeUserStore) GetUserByEmail(_ context.Context, email string) (auth.Us
 	}
 	return u, nil
 }
-func (f *fakeUserStore) CreateUser(_ context.Context, u auth.User) (auth.User, error) { return u, nil }
-func (f *fakeUserStore) ListUsers(_ context.Context) ([]auth.User, error)             { return nil, nil }
+
+func (f *fakeUserStore) CreateUser(_ context.Context, u auth.User) (auth.User, error) {
+	if u.IsActive == false {
+		u.IsActive = true
+	}
+	f.byID[u.ID] = u
+	f.byEmail[u.Email] = u
+	return u, nil
+}
+func (f *fakeUserStore) ListUsers(_ context.Context) ([]auth.User, error) { return nil, nil }
 func (f *fakeUserStore) ListUsersPaged(_ context.Context, _, _ int64) ([]auth.User, error) {
 	return nil, nil
 }
 func (f *fakeUserStore) UpdateUser(_ context.Context, _ auth.User) error             { return nil }
 func (f *fakeUserStore) DeleteUser(_ context.Context, _ string) error                { return nil }
-func (f *fakeUserStore) CountUsers(_ context.Context) (int64, error)                 { return 0, nil }
+func (f *fakeUserStore) CountUsers(_ context.Context) (int64, error)                 { return int64(len(f.byID)), nil }
 func (f *fakeUserStore) UpdateUserAgeKeys(_ context.Context, _, _, _ string) error   { return nil }
 func (f *fakeUserStore) UpdateUserDefaultAgent(_ context.Context, _, _ string) error { return nil }
 func (f *fakeUserStore) UpdateUserNotifyIdentity(_ context.Context, _ string, _ *string) error {
@@ -196,25 +205,9 @@ func publicConfig(t *testing.T, key *ecdsa.PrivateKey) *local.Config {
 	}
 }
 
-func pkceS256(verifier string) string {
-	sum := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
-
 func tokenHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
-	var sb strings.Builder
-	for _, b := range sum {
-		sb.WriteString(strings.ToLower(string([]byte{hexChar(b >> 4), hexChar(b & 0xf)})))
-	}
-	return sb.String()
-}
-
-func hexChar(b byte) byte {
-	if b < 10 {
-		return '0' + b
-	}
-	return 'a' + b - 10
+	return hex.EncodeToString(sum[:])
 }
 
 func seedUserAndCreds(userID, email, password string) (*fakeUserStore, *fakeCredStore) {
@@ -224,15 +217,39 @@ func seedUserAndCreds(userID, email, password string) (*fakeUserStore, *fakeCred
 	return users, creds
 }
 
+func issueLoginCode(t *testing.T, cfg *local.Config, codes *fakeCodeStore, users *fakeUserStore, creds *fakeCredStore, email, password string) (string, string) {
+	t.Helper()
+	verifier := strings.Repeat("v", 43)
+	svc := local.NewService(cfg, codes, users, creds)
+	redirectURL, err := svc.Login(context.Background(), local.LoginInput{
+		Email:    email,
+		Password: password,
+		State: auth.AuthState{
+			CodeVerifier: verifier,
+			ProviderName: "local",
+		},
+	})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	loc, _ := url.Parse(redirectURL)
+	return loc.Query().Get("code"), verifier
+}
+
+func newTestIssuer(cfg *local.Config, codes *fakeCodeStore, tokens *fakeTokenStore, users *fakeUserStore, creds *fakeCredStore) *local.Issuer {
+	svc := local.NewService(cfg, codes, users, creds)
+	return local.NewIssuer(cfg, codes, tokens, users, svc, nil, nil)
+}
+
 // --- tests ---
 
 func TestDiscovery(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/.well-known/openid-configuration", nil)
 	w := httptest.NewRecorder()
@@ -259,10 +276,10 @@ func TestDiscovery(t *testing.T) {
 func TestJWKS(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/jwks.json", nil)
 	w := httptest.NewRecorder()
@@ -290,10 +307,10 @@ func TestJWKS(t *testing.T) {
 func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -310,13 +327,13 @@ func TestAuthorizeRejectsUnknownRedirectURI(t *testing.T) {
 	}
 }
 
-func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
+func TestAuthorizeRedirectsToLoginWithNoSession(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -324,87 +341,134 @@ func TestAuthorizeShowsLoginFormWithNoSession(t *testing.T) {
 		"response_type": {"code"},
 		"scope":         {"openid email"},
 	}
+
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
 	w := httptest.NewRecorder()
 	issuer.HandleAuthorize(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200", w.Code)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status %d, want 302", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "<form") {
-		t.Error("response should contain a login form")
+	loc := w.Result().Header.Get("Location")
+	if !strings.HasPrefix(loc, "/login?") {
+		t.Errorf("unexpected redirect location: %s", loc)
 	}
 }
 
-func TestAuthorizeLoginFormURLsAreEscaped(t *testing.T) {
+func TestAuthorizeRedirectsToSignup(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	cfg.RedirectURIs = []string{"https://stella.cherry-ai.com/auth/callback/local"}
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
-		"client_id":             {cfg.ClientID},
-		"redirect_uri":          {cfg.RedirectURIs[0]},
-		"response_type":         {"code"},
-		"scope":                 {"openid email profile"},
-		"state":                 {"state-with-safe-chars"},
-		"code_challenge":        {"QV-Zas6OPNdkq7Cfo9FWNBNTW40jy1_aVcJiR1hbGNY"},
-		"code_challenge_method": {"S256"},
+		"client_id":     {cfg.ClientID},
+		"redirect_uri":  {cfg.RedirectURIs[0]},
+		"response_type": {"code"},
+		"scope":         {"openid email"},
+		"mode":          {"register"},
 	}
+
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
 	w := httptest.NewRecorder()
 	issuer.HandleAuthorize(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200", w.Code)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status %d, want 302", w.Code)
 	}
-	body := w.Body.String()
-	if strings.Contains(body, "ZgotmplZ") {
-		t.Fatalf("response contains unsafe template fallback: %s", body)
-	}
-	if !strings.Contains(body, "redirect_uri=https%3A%2F%2Fstella.cherry-ai.com%2Fauth%2Fcallback%2Flocal") {
-		t.Fatalf("response does not contain escaped redirect_uri: %s", body)
-	}
-	if !strings.Contains(body, "mode=register") {
-		t.Fatalf("response does not contain register mode link: %s", body)
+	loc := w.Result().Header.Get("Location")
+	if !strings.HasPrefix(loc, "/signup?") {
+		t.Errorf("unexpected redirect location for register mode: %s", loc)
 	}
 }
 
-func TestAuthorizePostIssuesCode(t *testing.T) {
+func TestAuthorizePostRejected(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	issuer := newTestIssuer(cfg,
+		newFakeCodeStore(), newFakeTokenStore(),
+		newFakeUserStore(),
+		newFakeCredStore())
+
+	q := url.Values{
+		"client_id":     {cfg.ClientID},
+		"redirect_uri":  {cfg.RedirectURIs[0]},
+		"response_type": {"code"},
+		"scope":         {"openid email"},
+	}
+	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), nil)
+	w := httptest.NewRecorder()
+	issuer.HandleAuthorize(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status %d, want 405", w.Code)
+	}
+}
+
+func TestLocalServiceLoginIssuesCode(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
 	userID := uuid.NewString()
 	users, creds := seedUserAndCreds(userID, "user@test.example", "pass123")
 	codeStore := newFakeCodeStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid email"},
-		"state":         {"mystate"},
+	svc := local.NewService(cfg, codeStore, users, creds)
+	redirectURL, err := svc.Login(context.Background(), local.LoginInput{
+		Email:    "user@test.example",
+		Password: "pass123",
+		State: auth.AuthState{
+			State:        "mystate",
+			CodeVerifier: strings.Repeat("a", 43),
+			ProviderName: "local",
+		},
+	})
+	if err != nil {
+		t.Fatalf("login: %v", err)
 	}
-	form := url.Values{"email": {"user@test.example"}, "password": {"pass123"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-
-	if w.Code != http.StatusFound {
-		t.Fatalf("status %d, want 302. body: %s", w.Code, w.Body.String())
-	}
-	loc := w.Result().Header.Get("Location")
-	u, _ := url.Parse(loc)
+	u, _ := url.Parse(redirectURL)
 	if u.Query().Get("code") == "" {
-		t.Errorf("no code in redirect: %s", loc)
+		t.Errorf("no code in redirect: %s", redirectURL)
 	}
 	if u.Query().Get("state") != "mystate" {
-		t.Errorf("state mismatch: %s", loc)
+		t.Errorf("state mismatch: %s", redirectURL)
+	}
+}
+
+func TestLocalServiceRegisterBootstrapOnly(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	cfg.AllowRegistration = true
+	users := newFakeUserStore()
+	creds := newFakeCredStore()
+	codeStore := newFakeCodeStore()
+	state := auth.AuthState{State: "registerstate", CodeVerifier: strings.Repeat("b", 43), ProviderName: "local"}
+
+	svc := local.NewService(cfg, codeStore, users, creds)
+	redirectURL, err := svc.Register(context.Background(), local.RegisterInput{
+		Name:            "Test User",
+		Email:           "register@test.example",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+		State:           state,
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u, _ := url.Parse(redirectURL)
+	if u.Query().Get("code") == "" || u.Query().Get("state") != "registerstate" {
+		t.Fatalf("bad redirect_url: %s", redirectURL)
+	}
+	if svc.AllowsRegistration(context.Background()) {
+		t.Fatal("registration should close after bootstrap user exists")
+	}
+	_, err = svc.Register(context.Background(), local.RegisterInput{
+		Name:            "Second User",
+		Email:           "second@test.example",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+		State:           state,
+	})
+	if !errors.Is(err, local.ErrRegistrationDisabled) {
+		t.Fatalf("second register err = %v, want ErrRegistrationDisabled", err)
 	}
 }
 
@@ -416,26 +480,8 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	codeStore := newFakeCodeStore()
 	tokenStore := newFakeTokenStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, tokenStore, users, creds, nil, nil)
-
-	// Step 1: authorize POST → get code.
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid email profile"},
-		"nonce":         {"testnonce"},
-	}
-	form := url.Values{"email": {"user@test.example"}, "password": {"pass"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-	if w.Code != http.StatusFound {
-		t.Fatalf("authorize: status %d. body: %s", w.Code, w.Body.String())
-	}
-	loc, _ := url.Parse(w.Result().Header.Get("Location"))
-	rawCode := loc.Query().Get("code")
+	issuer := newTestIssuer(cfg, codeStore, tokenStore, users, creds)
+	rawCode, verifier := issueLoginCode(t, cfg, codeStore, users, creds, "user@test.example", "pass")
 
 	// Step 2: token endpoint.
 	tokenForm := url.Values{
@@ -444,6 +490,7 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 		"redirect_uri":  {cfg.RedirectURIs[0]},
 		"client_id":     {cfg.ClientID},
 		"client_secret": {cfg.ClientSecret},
+		"code_verifier": {verifier},
 	}
 	tr := httptest.NewRequest(http.MethodPost, "/oidc/local/token", strings.NewReader(tokenForm.Encode()))
 	tr.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -475,9 +522,6 @@ func TestTokenExchangeAndIDToken(t *testing.T) {
 	if claims["email_verified"] != true {
 		t.Errorf("email_verified = %v, want true", claims["email_verified"])
 	}
-	if claims["nonce"] != "testnonce" {
-		t.Errorf("nonce = %v, want testnonce", claims["nonce"])
-	}
 	if claims["iss"] != cfg.IssuerURL {
 		t.Errorf("iss = %v, want %s", claims["iss"], cfg.IssuerURL)
 	}
@@ -490,22 +534,8 @@ func TestCodeCannotBeReused(t *testing.T) {
 	users, creds := seedUserAndCreds(userID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	// Authorize.
-	q := url.Values{
-		"client_id":     {cfg.ClientID},
-		"redirect_uri":  {cfg.RedirectURIs[0]},
-		"response_type": {"code"},
-		"scope":         {"openid"},
-	}
-	form := url.Values{"email": {"u@test.example"}, "password": {"pass"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-	loc, _ := url.Parse(w.Result().Header.Get("Location"))
-	rawCode := loc.Query().Get("code")
+	issuer := newTestIssuer(cfg, codeStore, newFakeTokenStore(), users, creds)
+	rawCode, verifier := issueLoginCode(t, cfg, codeStore, users, creds, "u@test.example", "pass")
 
 	tokenForm := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -513,6 +543,7 @@ func TestCodeCannotBeReused(t *testing.T) {
 		"redirect_uri":  {cfg.RedirectURIs[0]},
 		"client_id":     {cfg.ClientID},
 		"client_secret": {cfg.ClientSecret},
+		"code_verifier": {verifier},
 	}
 
 	// First exchange succeeds.
@@ -542,10 +573,10 @@ func TestCodeCannotBeReused(t *testing.T) {
 func TestPKCERequired(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := publicConfig(t, key) // public client requires PKCE
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	q := url.Values{
 		"client_id":     {cfg.ClientID},
@@ -570,29 +601,8 @@ func TestPKCEVerification(t *testing.T) {
 	users, creds := seedUserAndCreds(userID, "u@test.example", "pass")
 	codeStore := newFakeCodeStore()
 
-	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
-
-	verifier := strings.Repeat("v", 43)
-	challenge := pkceS256(verifier)
-
-	q := url.Values{
-		"client_id":             {cfg.ClientID},
-		"redirect_uri":          {cfg.RedirectURIs[0]},
-		"response_type":         {"code"},
-		"scope":                 {"openid"},
-		"code_challenge":        {challenge},
-		"code_challenge_method": {"S256"},
-	}
-	form := url.Values{"email": {"u@test.example"}, "password": {"pass"}}
-	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	issuer.HandleAuthorize(w, r)
-	if w.Code != http.StatusFound {
-		t.Fatalf("authorize: %d. body: %s", w.Code, w.Body.String())
-	}
-	loc, _ := url.Parse(w.Result().Header.Get("Location"))
-	rawCode := loc.Query().Get("code")
+	issuer := newTestIssuer(cfg, codeStore, newFakeTokenStore(), users, creds)
+	rawCode, _ := issueLoginCode(t, cfg, codeStore, users, creds, "u@test.example", "pass")
 
 	// Token with wrong verifier → rejected.
 	tokenForm := url.Values{
@@ -618,9 +628,9 @@ func TestUserinfoWithValidToken(t *testing.T) {
 	users := newFakeUserStore(auth.User{ID: userID, Email: "info@test.example", Name: "Info User", IsActive: true})
 	tokenStore := newFakeTokenStore()
 
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), tokenStore,
-		users, newFakeCredStore(), nil, nil)
+		users, newFakeCredStore())
 
 	// Seed an access token directly.
 	rawToken := strings.Repeat("a", 64)
@@ -655,10 +665,10 @@ func TestUserinfoWithValidToken(t *testing.T) {
 func TestUserinfoWithNoToken(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	r := httptest.NewRequest(http.MethodGet, "/oidc/local/userinfo", nil)
 	w := httptest.NewRecorder()
@@ -671,10 +681,10 @@ func TestUserinfoWithNoToken(t *testing.T) {
 func TestWrongClientIDRejected(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
-	issuer := local.NewIssuer(cfg,
+	issuer := newTestIssuer(cfg,
 		newFakeCodeStore(), newFakeTokenStore(),
 		newFakeUserStore(),
-		newFakeCredStore(), nil, nil)
+		newFakeCredStore())
 
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
