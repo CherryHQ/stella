@@ -20,6 +20,7 @@ const en = {
   // Common actions
   "common.cancel": "Cancel",
   "common.save": "Save",
+  "common.saving": "Saving…",
   "common.delete": "Delete",
   "common.loading": "Loading…",
   "common.error": "Error",
@@ -548,6 +549,28 @@ const en = {
   "sessions.soul.placeholder": "Describe the agent's personality, tone, and behavior…",
   "sessions.soul.saving": "Saving…",
 
+  // Memories
+  "memories.title": "Memory",
+  "memories.soul.title": "Agent Soul",
+  "memories.soul.description": "The agent's personality, tone, and default behavior.",
+  "memories.soul.empty": "No soul configured yet.",
+  "memories.soul.placeholder": "Describe the agent's personality, tone, and behavior…",
+  "memories.profile.title": "User Profile",
+  "memories.profile.description": "Persistent context this agent remembers about you.",
+  "memories.profile.empty": "No profile memory yet.",
+  "memories.profile.placeholder":
+    "What should this agent remember? Use natural language or bullet points.",
+  "memories.constraints.title": "Constraints",
+  "memories.constraints.description": "Hard rules the agent must always follow.",
+  "memories.constraints.empty":
+    "No constraints set. Constraints are hard rules the agent must always follow.",
+  "memories.constraints.error": "Failed to load constraints.",
+  "memories.constraints.addPlaceholder": "Add a hard rule…",
+  "memories.constraints.add": "Add",
+  "memories.changelog.title": "Recent Changes",
+  "memories.changelog.description": "Latest memory updates for this agent.",
+  "memories.changelog.empty": "No recent changes.",
+
   // Sessions panel — task (new)
   "sessions.task.eyebrow": "New task",
   "sessions.task.title": "Create a task",
@@ -634,6 +657,7 @@ const zh: Record<MessageKey, string> = {
   // Common actions
   "common.cancel": "取消",
   "common.save": "保存",
+  "common.saving": "保存中…",
   "common.delete": "删除",
   "common.loading": "加载中…",
   "common.error": "错误",
@@ -1159,6 +1183,26 @@ const zh: Record<MessageKey, string> = {
   "sessions.soul.empty": "未配置灵魂。",
   "sessions.soul.placeholder": "描述 agent 的个性、语气和行为…",
   "sessions.soul.saving": "保存中…",
+
+  // Memories
+  "memories.title": "记忆",
+  "memories.soul.title": "Agent 灵魂",
+  "memories.soul.description": "Agent 的个性、语气和默认行为。",
+  "memories.soul.empty": "还没有配置灵魂。",
+  "memories.soul.placeholder": "描述 agent 的个性、语气和行为…",
+  "memories.profile.title": "用户档案",
+  "memories.profile.description": "该 agent 会持续记住的你的上下文。",
+  "memories.profile.empty": "还没有用户档案记忆。",
+  "memories.profile.placeholder": "该 agent 应该记住什么？用自然语言或要点列表。",
+  "memories.constraints.title": "约束",
+  "memories.constraints.description": "Agent 必须始终遵守的硬规则。",
+  "memories.constraints.empty": "暂无约束。约束是 agent 必须始终遵守的硬规则。",
+  "memories.constraints.error": "加载约束失败。",
+  "memories.constraints.addPlaceholder": "添加一条硬规则…",
+  "memories.constraints.add": "添加",
+  "memories.changelog.title": "最近变更",
+  "memories.changelog.description": "该 agent 最近的记忆更新。",
+  "memories.changelog.empty": "暂无最近变更。",
 
   // Sessions panel — task (new)
   "sessions.task.eyebrow": "新建任务",

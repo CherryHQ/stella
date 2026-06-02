@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, PackagePlus, Search, Upload, User } from "lucide-react";
@@ -13,6 +13,7 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { SkillSearchResult } from "@/lib/types";
+import { useAppShell } from "@/layouts/AppShell";
 
 export function SkillNewPage() {
   const { agentId } = useParams({ from: "/_app/agents/$agentId/skills/new" });
@@ -20,6 +21,7 @@ export function SkillNewPage() {
   const activeTab = tab ?? "catalog";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { data: me } = useQuery(meQueryOptions);
   const [scope, setScope] = useState<"user" | "agent">("user");
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,6 +36,17 @@ export function SkillNewPage() {
   const [uploadError, setUploadError] = useState("");
 
   const canInstallAgentSkill = me?.is_admin ?? false;
+
+  useEffect(() => {
+    setHeaderTitle(
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">Install a skill</h1>,
+    );
+    setHeaderActions(null);
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
+  }, [setHeaderActions, setHeaderTitle]);
 
   async function openInstalledSkill(res: { id?: string; name?: string }, installedScope = scope) {
     await queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });

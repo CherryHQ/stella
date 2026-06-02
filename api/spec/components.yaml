@@ -806,6 +806,64 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OAuthProviderStatus"
+    ConstraintEntry:
+      type: object
+      required: [id, text, created_at]
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ConstraintList:
+      type: object
+      required: [constraints]
+      properties:
+        constraints:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConstraintEntry"
+    AddConstraintRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+    ChangelogEntry:
+      type: object
+      required: [id, scope, action, source, created_at]
+      properties:
+        id:
+          type: string
+        scope:
+          type: string
+        action:
+          type: string
+        source:
+          type: string
+        memory_version_before:
+          type: integer
+          nullable: true
+        memory_version_after:
+          type: integer
+          nullable: true
+        before_text:
+          type: string
+        after_text:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ChangelogList:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangelogEntry"
     Project:
       type: object
       required: [

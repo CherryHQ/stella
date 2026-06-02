@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
 
 interface Props {
   skillId: string | null;
@@ -61,6 +62,10 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(isNew);
+  const [files, setFiles] = useState<string[]>(["SKILL.md"]);
+  const [activeFile, setActiveFile] = useState("SKILL.md");
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
+  const [fileLoading, setFileLoading] = useState(false);
 
   const isReadOnly = !isNew && skill !== null && skill.scope === "system";
 
@@ -77,9 +82,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         throwOnError: true,
       });
       const sk = skRaw as Skill;
+      const skillFiles = sk.files?.length ? sk.files : ["SKILL.md"];
+      const initialFile = skillFiles.includes("SKILL.md") ? "SKILL.md" : skillFiles[0];
       const res = await getAgentSkillFile({
         path: { id: agentId, skillId },
-        query: { path: "SKILL.md", scope: skillScope },
+        query: { path: initialFile, scope: skillScope },
         throwOnError: true,
       }).catch(() => null);
       const content = (res?.data as { content?: string })?.content ?? "";
@@ -88,9 +95,12 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         description: sk.description ?? "",
         status: (sk.status as Form["status"]) ?? "active",
         disable_model_invocation: sk.disable_model_invocation ?? false,
-        content,
+        content: initialFile === "SKILL.md" ? content : "",
       };
       setSkill(sk);
+      setFiles(skillFiles);
+      setActiveFile(initialFile);
+      setFileContents({ [initialFile]: content });
       setSavedForm(f);
       setForm(f);
       setEditing(false);
@@ -106,11 +116,37 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       const f = emptyForm();
       setForm(f);
       setSavedForm(f);
+      setFiles(["SKILL.md"]);
+      setActiveFile("SKILL.md");
+      setFileContents({ "SKILL.md": "" });
       setEditing(true);
     } else {
       void load();
     }
   }, [isNew, load]);
+
+  const selectFile = useCallback(
+    async (path: string) => {
+      setActiveFile(path);
+      if (!skillId || fileContents[path] !== undefined) return;
+      setFileLoading(true);
+      try {
+        const res = await getAgentSkillFile({
+          path: { id: agentId, skillId },
+          query: { path, scope: scope as UpdateAgentSkillData["query"]["scope"] },
+          throwOnError: true,
+        });
+        const content = (res.data as { content?: string })?.content ?? "";
+        setFileContents((current) => ({ ...current, [path]: content }));
+      } catch (e) {
+        console.error(e);
+        setFileContents((current) => ({ ...current, [path]: "" }));
+      } finally {
+        setFileLoading(false);
+      }
+    },
+    [agentId, fileContents, scope, skillId],
+  );
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -182,14 +218,16 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
   }
 
   const dirty = JSON.stringify(form) !== JSON.stringify(savedForm);
+  const activeFileContent =
+    activeFile === "SKILL.md" ? form.content : (fileContents[activeFile] ?? "");
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-5">
         {/* Header */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-base font-semibold">
+        <div className="flex min-w-0 items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold">
               {isNew ? t("sessions.skill.newSkill") : form.name}
             </h2>
             {!isNew && skill && (
@@ -208,7 +246,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {!isNew && !isReadOnly && !editing && (
               <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                 {t("common.edit")}
@@ -230,23 +268,39 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
 
         {/* Read view — shown for all scopes when not editing */}
         {!editing && !isNew && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {form.description && (
-              <p className="text-sm text-muted-foreground">{form.description}</p>
+              <p className="break-words text-sm text-muted-foreground">{form.description}</p>
             )}
-            <div>
-              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2">
-                SKILL.md
-              </p>
-              {form.content ? (
-                <pre className="text-sm font-mono whitespace-pre-wrap text-foreground/90 leading-relaxed bg-muted/40 rounded-lg p-4">
-                  {form.content}
-                </pre>
-              ) : (
-                <p className="text-sm text-muted-foreground italic">
-                  {t("sessions.skill.noContent")}
+            <div className="min-w-0 rounded-xl border border-border bg-background/60">
+              <div className="flex min-w-0 items-center gap-2 overflow-x-auto border-b border-border p-2">
+                {files.map((file) => (
+                  <Button
+                    key={file}
+                    variant={activeFile === file ? "secondary" : "ghost"}
+                    size="xs"
+                    onClick={() => void selectFile(file)}
+                    className="max-w-56 shrink-0 font-mono"
+                    title={file}
+                  >
+                    <span className="truncate">{file}</span>
+                  </Button>
+                ))}
+              </div>
+              <div className="min-w-0 p-4">
+                <p className="mb-3 truncate text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                  {activeFile}
                 </p>
-              )}
+                {fileLoading ? (
+                  <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+                ) : (
+                  <SkillFilePreview
+                    path={activeFile}
+                    content={activeFileContent}
+                    emptyText={t("sessions.skill.noContent")}
+                  />
+                )}
+              </div>
             </div>
             {!isReadOnly && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -262,7 +316,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         {/* Editable form (user scope or new) */}
         {!isReadOnly && (editing || isNew) && (
           <>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-mono mb-1">
                   {t("sessions.skill.fieldName")}
@@ -289,7 +343,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                   <option value="deprecated">deprecated</option>
                 </select>
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="block text-sm font-mono mb-1">
                   {t("sessions.skill.fieldDescription")}
                 </label>
@@ -301,7 +355,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                   className="text-sm"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="block text-sm font-mono mb-1">
                   {t("sessions.skill.fieldContent")}
                 </label>

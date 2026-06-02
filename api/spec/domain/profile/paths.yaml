@@ -179,6 +179,106 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
+  # ── Constraints ──────────────────────────────────────────────────────────────
+  /api/users/me/memories/{agentId}/constraints:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: List constraints for a specific agent
+      operationId: listProfileConstraints
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ConstraintList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+    post:
+      tags: [profile]
+      summary: Add a constraint for a specific agent
+      operationId: addProfileConstraint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/AddConstraintRequest",
+            }
+      responses:
+        "200":
+          description: added
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ConstraintList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/users/me/memories/{agentId}/constraints/{constraintId}:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - {
+          name: constraintId,
+          in: path,
+          required: true,
+          schema: { type: string },
+        }
+    delete:
+      tags: [profile]
+      summary: Remove a constraint
+      operationId: deleteProfileConstraint
+      responses:
+        "200":
+          description: removed
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ConstraintList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  # ── Changelog ────────────────────────────────────────────────────────────────
+  /api/users/me/memories/{agentId}/changelog:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: List recent memory changelog entries
+      operationId: listProfileChangelog
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string }
+          description: Filter by scope (profile, soul, constraint)
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+          description: Maximum number of entries to return
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ChangelogList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
   # ── Vault ───────────────────────────────────────────────────────────────────
   /api/users/me/vault:
     get:

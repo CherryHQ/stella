@@ -216,6 +216,12 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}"
   /api/users/me/soul/{agentId}:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1soul~1{agentId}"
+  /api/users/me/memories/{agentId}/constraints:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1constraints"
+  /api/users/me/memories/{agentId}/constraints/{constraintId}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1constraints~1{constraintId}"
+  /api/users/me/memories/{agentId}/changelog:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1changelog"
   /api/users/me/vault:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1vault"
   /api/users/me/vault/{name}:
@@ -587,4 +593,19 @@ components:
     }
     CancelGoalRequest: {
       $ref: "./components.yaml#/components/schemas/CancelGoalRequest",
+    }
+    ConstraintEntry: {
+      $ref: "./components.yaml#/components/schemas/ConstraintEntry",
+    }
+    ConstraintList: {
+      $ref: "./components.yaml#/components/schemas/ConstraintList",
+    }
+    AddConstraintRequest: {
+      $ref: "./components.yaml#/components/schemas/AddConstraintRequest",
+    }
+    ChangelogEntry: {
+      $ref: "./components.yaml#/components/schemas/ChangelogEntry",
+    }
+    ChangelogList: {
+      $ref: "./components.yaml#/components/schemas/ChangelogList",
     }

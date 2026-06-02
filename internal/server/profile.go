@@ -1,7 +1,10 @@
 package server
 
 import (
+	"database/sql"
 	"net/http"
+	"sort"
+	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -221,6 +224,199 @@ func (s *Server) writeProfileMemory(w http.ResponseWriter, r *http.Request, user
 // DeleteProfileMemory handles DELETE /api/users/me/memories/{agentID}.
 func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, agentID string) {
 	s.DeleteUserMemory(w, r, "me", agentID)
+}
+
+// ListProfileConstraints handles GET /api/users/me/memories/{agentID}/constraints.
+func (s *Server) ListProfileConstraints(w http.ResponseWriter, r *http.Request, agentID string) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	constraints, err := memorywrite.GetConstraints(r.Context(), s.q, info.UserID, agentID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, profileConstraintListToAPI(constraints))
+}
+
+// AddProfileConstraint handles POST /api/users/me/memories/{agentID}/constraints.
+func (s *Server) AddProfileConstraint(w http.ResponseWriter, r *http.Request, agentID string) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	text := strings.TrimSpace(body.Text)
+	if text == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
+	constraints, err := memorywrite.AddConstraint(ctx, s.db, s.q, info.UserID, agentID, text)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, profileConstraintListToAPI(constraints))
+}
+
+// DeleteProfileConstraint handles DELETE /api/users/me/memories/{agentID}/constraints/{constraintID}.
+func (s *Server) DeleteProfileConstraint(w http.ResponseWriter, r *http.Request, agentID string, constraintID string) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	constraints, err := memorywrite.GetConstraints(r.Context(), s.q, info.UserID, agentID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	found := false
+	for _, constraint := range constraints {
+		if constraint.ID == constraintID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "constraint not found")
+		return
+	}
+
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
+	updated, err := memorywrite.RemoveConstraint(ctx, s.db, s.q, info.UserID, agentID, constraintID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, profileConstraintListToAPI(updated))
+}
+
+// ListProfileChangelog handles GET /api/users/me/memories/{agentID}/changelog.
+func (s *Server) ListProfileChangelog(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListProfileChangelogParams) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
+
+	limit := 20
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	if limit <= 0 {
+		writeError(w, http.StatusBadRequest, "limit must be positive")
+		return
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	scopes := []string{"profile", "soul", "constraint"}
+	if params.Scope != nil && *params.Scope != "" {
+		scope := *params.Scope
+		if scope != "profile" && scope != "soul" && scope != "constraint" {
+			writeError(w, http.StatusBadRequest, "scope must be profile, soul, or constraint")
+			return
+		}
+		scopes = []string{scope}
+	}
+
+	entries := make([]apiserver.ChangelogEntry, 0, limit)
+	for _, scope := range scopes {
+		rows, err := s.q.ListMemoryChangelog(r.Context(), sqlc.ListMemoryChangelogParams{
+			UserID:  info.UserID,
+			AgentID: agentID,
+			Scope:   scope,
+			Limit:   int64(limit),
+		})
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		for _, row := range rows {
+			entries = append(entries, profileChangelogEntryToAPI(row))
+		}
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].CreatedAt.After(entries[j].CreatedAt)
+	})
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+	writeData(w, http.StatusOK, apiserver.ChangelogList{Entries: entries})
+}
+
+func profileConstraintListToAPI(constraints []memory.ConstraintEntry) apiserver.ConstraintList {
+	out := make([]apiserver.ConstraintEntry, len(constraints))
+	for i, constraint := range constraints {
+		out[i] = apiserver.ConstraintEntry{
+			Id:        constraint.ID,
+			Text:      constraint.Text,
+			CreatedAt: parseTime(constraint.CreatedAt),
+		}
+	}
+	return apiserver.ConstraintList{Constraints: out}
+}
+
+func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.ChangelogEntry {
+	return apiserver.ChangelogEntry{
+		Id:                  row.ID,
+		Scope:               row.Scope,
+		Action:              row.Action,
+		Source:              row.Source,
+		MemoryVersionBefore: nullIntToPtr(row.MemoryVersionBefore),
+		MemoryVersionAfter:  nullIntToPtr(row.MemoryVersionAfter),
+		BeforeText:          nullStringToPtr(row.BeforeText),
+		AfterText:           nullStringToPtr(row.AfterText),
+		CreatedAt:           parseTime(row.CreatedAt),
+	}
+}
+
+func nullIntToPtr(value sql.NullInt64) *int {
+	if !value.Valid {
+		return nil
+	}
+	v := int(value.Int64)
+	return &v
+}
+
+func nullStringToPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
 }
 
 // OauthCallback handles GET /api/auth/oauth/{provider}/callback.
