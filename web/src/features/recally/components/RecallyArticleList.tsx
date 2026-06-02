@@ -212,7 +212,7 @@ export function RecallyArticleList({
       className={cn(
         "flex min-h-0 flex-col overflow-hidden bg-card/40 transition-[width,opacity] duration-200 ease-out",
         sidebarOpen
-          ? "border-r border-border w-[var(--recally-center-width)]"
+          ? "w-full border-r border-border xl:w-[var(--recally-center-width)]"
           : "w-0 opacity-0 pointer-events-none border-r-0",
       )}
     >
@@ -253,9 +253,9 @@ export function RecallyArticleList({
             <PopoverContent
               align="start"
               sideOffset={8}
-              className="w-[560px] p-4 bg-popover/95 border border-border rounded-xl shadow-lg backdrop-blur-md"
+              className="w-[calc(100vw-2rem)] max-w-[560px] p-4 bg-popover/95 border border-border rounded-xl shadow-lg backdrop-blur-md"
             >
-              <div className="grid grid-cols-3 divide-x divide-border/30 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border/30">
                 {/* Library / Folders */}
                 <div className="space-y-2">
                   <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
@@ -337,7 +337,7 @@ export function RecallyArticleList({
                 </div>
 
                 {/* Subscriptions */}
-                <div className="space-y-2 px-4 flex flex-col min-h-0">
+                <div className="space-y-2 sm:px-4 flex flex-col min-h-0">
                   <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
                     {t("recally.section.feeds")}
                   </div>
@@ -414,7 +414,7 @@ export function RecallyArticleList({
                 </div>
 
                 {/* Tags */}
-                <div className="space-y-2 pl-4">
+                <div className="space-y-2 sm:pl-4">
                   <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
                     {t("recally.section.tags")}
                   </div>
