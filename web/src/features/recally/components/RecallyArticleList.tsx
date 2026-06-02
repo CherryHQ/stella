@@ -34,8 +34,6 @@ export function RecallyArticleList({
   selectedId,
   setSelectedId,
 
-  sidebarOpen,
-
   // Filters State
   searchText,
   setSearchText,
@@ -124,7 +122,6 @@ export function RecallyArticleList({
     variables?: { path: { id: string } };
   };
   feedPollResults: Record<string, { newCount: number; error?: string }>;
-  sidebarOpen: boolean;
 }) {
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [refinementsOpen, setRefinementsOpen] = useState(false);
@@ -208,14 +205,7 @@ export function RecallyArticleList({
   };
 
   return (
-    <section
-      className={cn(
-        "flex min-h-0 flex-col overflow-hidden bg-card/40 transition-[width,opacity] duration-200 ease-out",
-        sidebarOpen
-          ? "w-full border-r border-border xl:w-[var(--recally-center-width)]"
-          : "w-0 opacity-0 pointer-events-none border-r-0",
-      )}
-    >
+    <section className="flex min-h-0 w-full flex-col overflow-hidden bg-card/40">
       <SidebarHeader />
 
       {/* Source Selector + Search + Filters Toolbar */}

@@ -1,7 +1,8 @@
 import { useState, type CSSProperties } from "react";
 import { useI18n } from "@/lib/i18n";
-import { X, PanelLeftOpen, PanelLeftClose } from "lucide-react";
+import { X, Menu, PanelLeftOpen, PanelLeftClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { CENTER_WIDTH_DEFAULT, CENTER_WIDTH_MIN, CENTER_WIDTH_MAX } from "./constants";
 import { useRecallyFilters } from "./hooks/useRecallyFilters";
 import { useRecallyMutations } from "./hooks/useRecallyMutations";
@@ -13,12 +14,59 @@ import { RecallyChat } from "./components/RecallyChat";
 import { ToastAlert } from "./components/ToastAlert";
 import { cn } from "@/lib/utils";
 
+function ArticleListProps(
+  t: ReturnType<typeof useI18n>["t"],
+  filters: ReturnType<typeof useRecallyFilters>,
+  feeds: ReturnType<typeof useRecallyFeeds>,
+  selectedId: string | null,
+  setSelectedId: (id: string | null) => void,
+  handleSelectDigest: (date: string) => void,
+) {
+  return {
+    t,
+    displayArticles: filters.displayArticles,
+    articlesQuery: filters.articlesQuery,
+    selectedId,
+    setSelectedId,
+    searchText: filters.searchText,
+    setSearchText: filters.setSearchText,
+    statusFilter: filters.statusFilter,
+    setStatusFilter: filters.setStatusFilter,
+    starredFilter: filters.starredFilter,
+    setStarredFilter: filters.setStarredFilter,
+    sourceTypeFilter: filters.sourceTypeFilter,
+    setSourceTypeFilter: filters.setSourceTypeFilter,
+    tagFilter: filters.tagFilter,
+    setTagFilter: filters.setTagFilter,
+    digest: filters.digest,
+    digestView: filters.digestView,
+    setDigestView: filters.setDigestView,
+    storedDigests: filters.storedDigests,
+    storedDigestsLoading: filters.storedDigestsQuery.isLoading,
+    selectedDigestDate: filters.selectedDigestDate,
+    onSelectDigest: handleSelectDigest,
+    clearFilters: filters.clearFilters,
+    sortedTags: filters.sortedTags,
+    visibleTags: filters.visibleTags,
+    showAllTags: filters.showAllTags,
+    setShowAllTags: filters.setShowAllTags,
+    tagCounts: filters.tagCounts,
+    feeds: feeds.feeds,
+    feedUrl: feeds.feedUrl,
+    setFeedUrl: feeds.setFeedUrl,
+    createFeedMut: feeds.createFeedMut,
+    pollFeedMut: feeds.pollFeedMut,
+    feedPollResults: feeds.feedPollResults,
+  };
+}
+
 export function RecallyPage() {
   const { t } = useI18n();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [centerWidth, setCenterWidth] = useState(CENTER_WIDTH_DEFAULT);
   const [chatOpen, setChatOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const filters = useRecallyFilters();
   const mutations = useRecallyMutations(selectedId, setSelectedId);
@@ -55,96 +103,79 @@ export function RecallyPage() {
   const showDigestDetail =
     filters.digestView && !!filters.selectedDigestDate && !selectedId && !!filters.selectedDigest;
 
+  const listProps = ArticleListProps(
+    t,
+    filters,
+    feeds,
+    selectedId,
+    setSelectedId,
+    handleSelectDigest,
+  );
+
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden">
-      {/* Grid layout: List | Reader | Chat */}
+      {/* Desktop sidebar: article list */}
       <div
         className={cn(
-          "min-w-0 flex-1 grid grid-cols-1 overflow-hidden transition-all duration-200",
-          chatOpen && selectedId && !showDigestDetail
-            ? "xl:grid-cols-[var(--recally-center-width)_1fr_340px]"
-            : "xl:grid-cols-[var(--recally-center-width)_1fr]",
+          "hidden transition-[width,opacity] duration-200 ease-out md:flex",
+          sidebarOpen ? "border-r border-border" : "w-0 opacity-0 pointer-events-none border-r-0",
         )}
-        style={{ "--recally-center-width": `${sidebarOpen ? centerWidth : 0}px` } as CSSProperties}
+        style={
+          sidebarOpen
+            ? ({ width: centerWidth, minWidth: CENTER_WIDTH_MIN } as CSSProperties)
+            : undefined
+        }
       >
-        {/* Column 1: Unified sidebar + reading list */}
-        <RecallyArticleList
-          t={t}
-          displayArticles={filters.displayArticles}
-          articlesQuery={filters.articlesQuery}
-          selectedId={selectedId}
-          setSelectedId={setSelectedId}
-          sidebarOpen={sidebarOpen}
-          // Filters states
-          searchText={filters.searchText}
-          setSearchText={filters.setSearchText}
-          statusFilter={filters.statusFilter}
-          setStatusFilter={filters.setStatusFilter}
-          starredFilter={filters.starredFilter}
-          setStarredFilter={filters.setStarredFilter}
-          sourceTypeFilter={filters.sourceTypeFilter}
-          setSourceTypeFilter={filters.setSourceTypeFilter}
-          tagFilter={filters.tagFilter}
-          setTagFilter={filters.setTagFilter}
-          // Stored digests / history view
-          digest={filters.digest}
-          digestView={filters.digestView}
-          setDigestView={filters.setDigestView}
-          storedDigests={filters.storedDigests}
-          storedDigestsLoading={filters.storedDigestsQuery.isLoading}
-          selectedDigestDate={filters.selectedDigestDate}
-          onSelectDigest={handleSelectDigest}
-          clearFilters={filters.clearFilters}
-          // Tags configuration
-          sortedTags={filters.sortedTags}
-          visibleTags={filters.visibleTags}
-          showAllTags={filters.showAllTags}
-          setShowAllTags={filters.setShowAllTags}
-          tagCounts={filters.tagCounts}
-          // Feeds operations
-          feeds={feeds.feeds}
-          feedUrl={feeds.feedUrl}
-          setFeedUrl={feeds.setFeedUrl}
-          createFeedMut={feeds.createFeedMut}
-          pollFeedMut={feeds.pollFeedMut}
-          feedPollResults={feeds.feedPollResults}
-        />
+        <RecallyArticleList {...listProps} />
+      </div>
 
-        {/* Column 2: Article Reader Panel */}
-        <aside className="relative hidden min-h-0 flex-col bg-background xl:flex">
+      {/* Main content: reader + chat */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Mobile header */}
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
           <button
             type="button"
-            aria-label={t("recally.resizeList")}
-            onMouseDown={startResize}
-            className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border/70 transition-colors hover:bg-accent"
-          />
+            onClick={() => setMobileSidebarOpen(true)}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            <Menu className="size-4" />
+          </button>
+          <span className="text-sm font-semibold">{t("nav.recally")}</span>
+        </div>
 
-          {/* Sticky Top Header Bar */}
-          <div className="flex h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl">
-            <div className="flex items-center gap-2.5 w-full min-w-0">
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground inline-flex"
-                title={!sidebarOpen ? "Show sidebar" : "Hide sidebar"}
-              >
-                {!sidebarOpen ? (
-                  <PanelLeftOpen className="size-3.5" />
-                ) : (
-                  <PanelLeftClose className="size-3.5" />
-                )}
-              </Button>
-              <div className="min-w-0 flex-1">
-                <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground/80">
-                  {showDigestDetail
-                    ? `${t("recally.nav.digest")} — ${filters.selectedDigestDate}`
-                    : t("recally.title")}
-                </h1>
-              </div>
+        {/* Desktop reader header */}
+        <div className="hidden h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl md:flex">
+          <div className="flex items-center gap-2.5 w-full min-w-0">
+            <button
+              type="button"
+              onMouseDown={startResize}
+              className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border/70 transition-colors hover:bg-accent"
+            />
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground inline-flex"
+              title={!sidebarOpen ? "Show sidebar" : "Hide sidebar"}
+            >
+              {!sidebarOpen ? (
+                <PanelLeftOpen className="size-3.5" />
+              ) : (
+                <PanelLeftClose className="size-3.5" />
+              )}
+            </Button>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground/80">
+                {showDigestDetail
+                  ? `${t("recally.nav.digest")} — ${filters.selectedDigestDate}`
+                  : t("recally.title")}
+              </h1>
             </div>
           </div>
+        </div>
 
+        {/* Reader content */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto">
             {showDigestDetail ? (
               <DigestDetail
@@ -163,19 +194,34 @@ export function RecallyPage() {
               />
             )}
           </div>
-        </aside>
 
-        {/* Column 3: AI Chat Workspace */}
-        {chatOpen && selectedId && !showDigestDetail && (
-          <aside className="relative hidden min-h-0 flex-col xl:flex shrink-0">
-            <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
-          </aside>
-        )}
+          {/* Chat panel */}
+          {chatOpen && selectedId && !showDigestDetail && (
+            <aside className="hidden w-[340px] shrink-0 border-l border-border md:flex">
+              <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
+            </aside>
+          )}
+        </div>
       </div>
+
+      {/* Mobile sidebar Sheet */}
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetPopup side="left" showCloseButton={false} className="w-[300px] md:hidden">
+          <SheetTitle className="sr-only">{t("nav.recally")}</SheetTitle>
+          <SheetDescription className="sr-only">Article list</SheetDescription>
+          <RecallyArticleList
+            {...listProps}
+            setSelectedId={(id) => {
+              setSelectedId(id);
+              if (id) setMobileSidebarOpen(false);
+            }}
+          />
+        </SheetPopup>
+      </Sheet>
 
       {/* Mobile digest detail overlay */}
       {showDigestDetail && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
             <span className="text-sm font-medium">{t("recally.nav.digest")}</span>
             <button
@@ -192,7 +238,7 @@ export function RecallyPage() {
 
       {/* Mobile reader / Chat overlay */}
       {selectedId && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col border-t border-border bg-background shadow-lg xl:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5 bg-card">
             <span className="text-xs font-semibold text-foreground">
               {chatOpen ? t("AI 边读边问" as any) || "AI Chat" : t("recally.title")}
