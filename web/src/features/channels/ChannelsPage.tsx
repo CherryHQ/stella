@@ -7,8 +7,6 @@ import {
   deleteChannel,
   generateLinkCode,
   listChannels,
-  listPlugins,
-  togglePlugin as togglePluginRequest,
   listProfileIdentities,
   listPublicChannels,
   pollWeixinQrStatus,
@@ -17,7 +15,7 @@ import {
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
 import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
-import type { Channel, Identity, Plugin } from "@/lib/types";
+import type { Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -479,22 +477,14 @@ function ChannelDetail({
 // ─── NewChannelForm ───────────────────────────────────────────────────────────
 
 interface NewChannelFormProps {
-  enabledChannelTypeIDs: string[];
   fallbackChannelType: string;
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
   creating: boolean;
 }
 
-function NewChannelForm({
-  enabledChannelTypeIDs,
-  fallbackChannelType,
-  onAdd,
-  onCancel,
-  creating,
-}: NewChannelFormProps) {
+function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewChannelFormProps) {
   const { t } = useI18n();
-  const availableTypes = channelTypes.filter((ct) => enabledChannelTypeIDs.includes(ct.id));
   const [draft, setDraft] = useState<Record<string, unknown>>(
     newInstanceDraft(fallbackChannelType, ""),
   );
@@ -540,7 +530,7 @@ function NewChannelForm({
             <option value="" disabled>
               Select platform…
             </option>
-            {availableTypes.map((ct) => (
+            {channelTypes.map((ct) => (
               <option key={ct.id} value={ct.id}>
                 {ct.label}
               </option>
@@ -725,11 +715,6 @@ export function ChannelsPage() {
   const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
-  const [enabledChannelTypeIDs, setEnabledChannelTypeIDs] = useState<string[]>(
-    channelTypes.map((t) => t.id),
-  );
-  const [channelPlugins, setChannelPlugins] = useState<Plugin[]>([]);
-  const [loadingPlatforms, setLoadingPlatforms] = useState(false);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
   // Selection state
@@ -754,8 +739,7 @@ export function ChannelsPage() {
 
   // ── helpers ──
 
-  const fallbackChannelType =
-    channelTypes.find((t) => enabledChannelTypeIDs.includes(t.id))?.id || defaultChannelType;
+  const fallbackChannelType = defaultChannelType;
 
   const identityFor = useCallback(
     (platform: string): Identity | null =>
@@ -777,99 +761,46 @@ export function ChannelsPage() {
   }, [showToast]);
 
   const loadPublicChannels = useCallback(async () => {
-    setLoadingPlatforms(true);
     try {
       const { data } = await listPublicChannels({ throwOnError: true });
       setPublicChannels(data?.channels ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
-    } finally {
-      setLoadingPlatforms(false);
     }
   }, [showToast]);
 
-  const loadChannelPlugins = useCallback(async () => {
+  const loadInstances = useCallback(async () => {
+    setLoadingInstances(true);
     try {
-      const { data } = await listPlugins({ throwOnError: true });
-      const plugins = (data?.plugins as Plugin[]) ?? [];
-      const chPlugins = plugins.filter((p) => p.kind === "channel");
-      setChannelPlugins(chPlugins);
-      const enabled = chPlugins
-        .filter((p) => p.enabled)
-        .map((p) => p.name || String(p.id || "").replace(/^channel\//, ""));
-      setEnabledChannelTypeIDs(enabled);
-      return enabled;
-    } catch {
-      setChannelPlugins([]);
-      setEnabledChannelTypeIDs([]);
-      return [] as string[];
+      const { data } = await listChannels({ throwOnError: true });
+      const channels = data?.channels ?? [];
+      const normalized = (channels || []).map(normalizeChannel).sort((a, b) => {
+        const aDefault = a.id === a.type;
+        const bDefault = b.id === b.type;
+        if (aDefault !== bDefault) return aDefault ? -1 : 1;
+        if (a.type !== b.type) return a.type.localeCompare(b.type);
+        return a.id.localeCompare(b.id);
+      });
+      setInstances(normalized);
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    } finally {
+      setLoadingInstances(false);
     }
-  }, []);
-
-  const loadInstances = useCallback(
-    async (currentEnabledIDs: string[]) => {
-      setLoadingInstances(true);
-      try {
-        const { data } = await listChannels({ throwOnError: true });
-        const channels = data?.channels ?? [];
-        const normalized = (channels || [])
-          .map(normalizeChannel)
-          .filter((ch) => currentEnabledIDs.includes(ch.type))
-          .sort((a, b) => {
-            const aDefault = a.id === a.type;
-            const bDefault = b.id === b.type;
-            if (aDefault !== bDefault) return aDefault ? -1 : 1;
-            if (a.type !== b.type) return a.type.localeCompare(b.type);
-            return a.id.localeCompare(b.id);
-          });
-        setInstances(normalized);
-      } catch (e) {
-        showToast((e as Error).message, "error");
-      } finally {
-        setLoadingInstances(false);
-      }
-    },
-    [showToast],
-  );
-
-  const toggleChannelPlugin = useCallback(
-    async (plugin: Plugin, enabled: boolean) => {
-      try {
-        setChannelPlugins((prev) => prev.map((p) => (p.id === plugin.id ? { ...p, enabled } : p)));
-        await togglePluginRequest({
-          path: { kind: plugin.kind, name: plugin.name },
-          body: { enabled },
-          throwOnError: true,
-        });
-        const newEnabled = await loadChannelPlugins();
-        await loadInstances(newEnabled);
-        showToast(plugin.name + (enabled ? " enabled" : " disabled"));
-      } catch (e) {
-        setChannelPlugins((prev) =>
-          prev.map((p) => (p.id === plugin.id ? { ...p, enabled: !enabled } : p)),
-        );
-        showToast((e as Error).message, "error");
-      }
-    },
-    [loadChannelPlugins, loadInstances, showToast],
-  );
+  }, [showToast]);
 
   // ── init ──
 
   useEffect(() => {
-    const init = async () => {
-      if (isAdmin) {
-        const enabled = await loadChannelPlugins();
-        await Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(enabled)]);
-      } else {
-        await Promise.all([loadPublicChannels(), loadIdentities()]);
-      }
-    };
-    void init();
+    if (isAdmin) {
+      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances()]);
+    } else {
+      void Promise.all([loadPublicChannels(), loadIdentities()]);
+    }
     return () => {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
-  }, [isAdmin, loadChannelPlugins, loadPublicChannels, loadIdentities, loadInstances]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances]);
 
   // Clear selection if selected instance is removed
   useEffect(() => {
@@ -990,6 +921,7 @@ export function ChannelsPage() {
           name: ch.name || "",
           type: ch.type,
           agent_id: ch.agent_id || "",
+          enabled: ch.enabled,
           config: channelConfig(ch),
         },
         throwOnError: true,
@@ -1011,7 +943,7 @@ export function ChannelsPage() {
     try {
       await deleteChannel({ path: { id: String(id) }, throwOnError: true });
       setSelectedId(null);
-      await loadInstances(enabledChannelTypeIDs);
+      await loadInstances();
       showToast(id + " deleted");
     } catch (e) {
       showToast((e as Error).message, "error");
@@ -1041,7 +973,7 @@ export function ChannelsPage() {
         throwOnError: true,
       });
       setCreatingNew(false);
-      await loadInstances(enabledChannelTypeIDs);
+      await loadInstances();
       setSelectedId(saved.id);
       showToast(saved.id + " created");
     } catch (e) {
@@ -1053,7 +985,7 @@ export function ChannelsPage() {
 
   // ── render ──
 
-  const isLoading = loadingPlatforms || (isAdmin && loadingInstances);
+  const isLoading = isAdmin && loadingInstances;
 
   const wxQrStatusVariant = (
     status: string,
@@ -1094,39 +1026,6 @@ export function ChannelsPage() {
       </div>
     ) : (
       <div>
-        {channelPlugins.length > 0 && (
-          <div className="px-3 pb-2 pt-1">
-            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-1 mb-1.5">
-              Platforms
-            </p>
-            <div className="space-y-0.5">
-              {channelPlugins.map((p) => {
-                const label = platformMeta[p.name]?.label || p.name;
-                return (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {platformMeta[p.name]?.icon && (
-                        <BrandIcon
-                          path={platformMeta[p.name].icon!}
-                          className="size-3.5 shrink-0 text-muted-foreground"
-                        />
-                      )}
-                      <span className="text-xs font-medium truncate">{label}</span>
-                    </div>
-                    <Switch
-                      checked={p.enabled}
-                      onCheckedChange={(checked) => void toggleChannelPlugin(p, checked)}
-                      className="scale-75"
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
         <SettingsListBody>
           {instances.map((ch) => {
             const isSelected = !creatingNew && selectedId === ch.id;
@@ -1170,7 +1069,6 @@ export function ChannelsPage() {
     if (creatingNew) {
       detail = (
         <NewChannelForm
-          enabledChannelTypeIDs={enabledChannelTypeIDs}
           fallbackChannelType={fallbackChannelType}
           onAdd={createChannel}
           onCancel={() => setCreatingNew(false)}

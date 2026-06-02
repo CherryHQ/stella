@@ -451,6 +451,9 @@ components:
         agent_id:
           type: string
           nullable: true
+        enabled:
+          type: boolean
+          nullable: true
         config:
           type: string
           description: "JSON string of the channel config"

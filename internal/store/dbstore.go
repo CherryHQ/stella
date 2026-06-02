@@ -740,7 +740,7 @@ func (s *DBStore) seedChannelInstances(ctx context.Context) error {
 			ID:      uuid.NewString(),
 			Name:    name,
 			Type:    name,
-			Enabled: true,
+			Enabled: false,
 			Config:  "{}",
 		}); err != nil {
 			return fmt.Errorf("seed: default channel instance %q: %w", name, err)

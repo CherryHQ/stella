@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -34,6 +35,7 @@ type channelWriteRequest struct {
 	Name    string  `json:"name"`
 	Type    *string `json:"type"`
 	AgentID *string `json:"agent_id"`
+	Enabled *bool   `json:"enabled"`
 	Config  string  `json:"config"`
 }
 
@@ -263,7 +265,6 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		Name:    req.Name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
-		Enabled: s.defaultChannelEnabled(r, channelType),
 	}
 	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
 }
@@ -300,8 +301,10 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 		name = existing.Name
 	}
 
-	enabled := s.defaultChannelEnabled(r, channelType)
-	if hasExisting {
+	enabled := false
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	} else if hasExisting {
 		enabled = existing.Enabled
 	}
 
@@ -312,11 +315,6 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 		AgentID: agentID,
 		Enabled: enabled,
 	}
-}
-
-func (s *Server) defaultChannelEnabled(r *http.Request, channelType string) bool {
-	plugin, err := s.store.GetPlugin(r.Context(), config.PluginID(config.PluginKindChannel, channelType))
-	return err == nil && plugin.Enabled
 }
 
 func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
@@ -335,18 +333,9 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 		s.writeInternalError(w, err)
 		return false
 	}
-	if ch.ID == ch.Type {
-		pluginEnabled := s.defaultChannelEnabled(r, ch.Type)
-		if err := s.store.UpsertPlugin(r.Context(), config.Plugin{
-			ID:      pluginID,
-			Kind:    config.PluginKindChannel,
-			Name:    ch.Type,
-			Enabled: pluginEnabled,
-			Config:  map[string]any{},
-		}); err != nil {
-			s.writeInternalError(w, err)
-			return false
-		}
+	if err := s.ensureChannelPluginEnabled(r.Context(), ch.Type); err != nil {
+		s.writeInternalError(w, err)
+		return false
 	}
 	if err := s.pluginHost.ApplyChannel(r.Context(), ch); err != nil {
 		s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
@@ -358,6 +347,17 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 	}
 	writeData(w, status, channelToView(saved))
 	return true
+}
+
+func (s *Server) ensureChannelPluginEnabled(ctx context.Context, channelType string) error {
+	pluginID := config.PluginID(config.PluginKindChannel, channelType)
+	return s.store.UpsertPlugin(ctx, config.Plugin{
+		ID:      pluginID,
+		Kind:    config.PluginKindChannel,
+		Name:    channelType,
+		Enabled: true,
+		Config:  map[string]any{},
+	})
 }
 
 func parseChannelConfig(raw string) (map[string]any, error) {
