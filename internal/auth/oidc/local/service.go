@@ -45,18 +45,15 @@ var (
 	ErrInvalidLogin         = errors.New("invalid login")
 	ErrAccountDisabled      = errors.New("account disabled")
 	ErrEmailExists          = errors.New("email exists")
+	ErrEmailNotAllowed      = errors.New("email domain not allowed")
 )
 
 func NewService(cfg *Config, codes auth.OIDCCodeStore, users auth.UserStore, credentials auth.CredentialStore) *Service {
 	return &Service{cfg: cfg, codes: codes, users: users, credentials: credentials}
 }
 
-func (s *Service) AllowsRegistration(ctx context.Context) bool {
-	if !s.cfg.AllowRegistration {
-		return false
-	}
-	count, err := s.users.CountUsers(ctx)
-	return err == nil && count == 0
+func (s *Service) AllowsRegistration(_ context.Context) bool {
+	return s.cfg.AllowRegistration
 }
 
 func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
@@ -101,8 +98,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error
 	if len(in.Password) < 8 || len(in.Password) > 72 || in.Password != in.ConfirmPassword {
 		return "", ErrInvalidInput
 	}
+	if !s.cfg.IsEmailAllowed(email) {
+		return "", ErrEmailNotAllowed
+	}
 
-	userID, err := s.createBootstrapUser(ctx, name, email, in.Password)
+	userID, err := s.createRegisteredUser(ctx, name, email, in.Password)
 	if err != nil {
 		return "", err
 	}
@@ -113,14 +113,14 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error
 	return s.issueCode(ctx, userID, params)
 }
 
-func (s *Service) createBootstrapUser(ctx context.Context, name, email, password string) (string, error) {
+func (s *Service) createRegisteredUser(ctx context.Context, name, email, password string) (string, error) {
 	if txner, ok := s.users.(auth.Transactioner); ok {
 		stores, commit, rollback, err := txner.BeginAuthTx(ctx)
 		if err != nil {
 			return "", err
 		}
 		defer rollback()
-		userID, err := createBootstrapUserNoTx(ctx, stores.Users, stores.Credentials, name, email, password)
+		userID, err := createRegisteredUserNoTx(ctx, stores.Users, stores.Credentials, name, email, password)
 		if err != nil {
 			return "", err
 		}
@@ -129,29 +129,32 @@ func (s *Service) createBootstrapUser(ctx context.Context, name, email, password
 		}
 		return userID, nil
 	}
-	return createBootstrapUserNoTx(ctx, s.users, s.credentials, name, email, password)
+	return createRegisteredUserNoTx(ctx, s.users, s.credentials, name, email, password)
 }
 
-func createBootstrapUserNoTx(ctx context.Context, users auth.UserStore, credentials auth.CredentialStore, name, email, password string) (string, error) {
+func createRegisteredUserNoTx(ctx context.Context, users auth.UserStore, credentials auth.CredentialStore, name, email, password string) (string, error) {
 	if _, err := users.GetUserByEmail(ctx, email); err == nil {
 		return "", ErrEmailExists
 	} else if !errors.Is(err, auth.ErrNotFound) {
 		return "", err
 	}
 
+	// The first account ever registered bootstraps the admin; everyone after is
+	// a regular user.
 	count, err := users.CountUsers(ctx)
 	if err != nil {
 		return "", err
 	}
-	if count > 0 {
-		return "", ErrRegistrationDisabled
+	role := auth.RoleUser
+	if count == 0 {
+		role = auth.RoleAdmin
 	}
 
 	newUser, err := users.CreateUser(ctx, auth.User{
 		ID:    uuid.NewString(),
 		Email: email,
 		Name:  name,
-		Role:  auth.RoleAdmin,
+		Role:  role,
 	})
 	if err != nil {
 		return "", err

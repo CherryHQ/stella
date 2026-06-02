@@ -433,7 +433,7 @@ func TestLocalServiceLoginIssuesCode(t *testing.T) {
 	}
 }
 
-func TestLocalServiceRegisterBootstrapOnly(t *testing.T) {
+func TestLocalServiceRegisterOpen(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
 	cfg.AllowRegistration = true
@@ -457,18 +457,54 @@ func TestLocalServiceRegisterBootstrapOnly(t *testing.T) {
 	if u.Query().Get("code") == "" || u.Query().Get("state") != "registerstate" {
 		t.Fatalf("bad redirect_url: %s", redirectURL)
 	}
-	if svc.AllowsRegistration(context.Background()) {
-		t.Fatal("registration should close after bootstrap user exists")
+	if first, _ := users.GetUserByEmail(context.Background(), "register@test.example"); first.Role != auth.RoleAdmin {
+		t.Fatalf("first user role = %q, want admin", first.Role)
 	}
-	_, err = svc.Register(context.Background(), local.RegisterInput{
+	if !svc.AllowsRegistration(context.Background()) {
+		t.Fatal("registration should remain open after the first user exists")
+	}
+	if _, err := svc.Register(context.Background(), local.RegisterInput{
 		Name:            "Second User",
 		Email:           "second@test.example",
 		Password:        "password123",
 		ConfirmPassword: "password123",
 		State:           state,
-	})
-	if !errors.Is(err, local.ErrRegistrationDisabled) {
-		t.Fatalf("second register err = %v, want ErrRegistrationDisabled", err)
+	}); err != nil {
+		t.Fatalf("second register: %v", err)
+	}
+	if second, _ := users.GetUserByEmail(context.Background(), "second@test.example"); second.Role != auth.RoleUser {
+		t.Fatalf("second user role = %q, want user", second.Role)
+	}
+}
+
+func TestLocalServiceRegisterEmailDomainRestricted(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	cfg.AllowRegistration = true
+	cfg.AllowedEmailDomains = []string{"allowed.example"}
+	users := newFakeUserStore()
+	creds := newFakeCredStore()
+	codeStore := newFakeCodeStore()
+	state := auth.AuthState{State: "registerstate", CodeVerifier: strings.Repeat("b", 43), ProviderName: "local"}
+
+	svc := local.NewService(cfg, codeStore, users, creds)
+	if _, err := svc.Register(context.Background(), local.RegisterInput{
+		Name:            "Blocked User",
+		Email:           "blocked@other.example",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+		State:           state,
+	}); !errors.Is(err, local.ErrEmailNotAllowed) {
+		t.Fatalf("disallowed domain err = %v, want ErrEmailNotAllowed", err)
+	}
+	if _, err := svc.Register(context.Background(), local.RegisterInput{
+		Name:            "Allowed User",
+		Email:           "ok@mail.allowed.example",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+		State:           state,
+	}); err != nil {
+		t.Fatalf("allowed subdomain register: %v", err)
 	}
 }
 

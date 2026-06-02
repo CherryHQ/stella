@@ -141,6 +141,8 @@ func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnauthorized, "account is disabled")
 	case errors.Is(err, local.ErrRegistrationDisabled):
 		writeError(w, http.StatusForbidden, "registration is disabled")
+	case errors.Is(err, local.ErrEmailNotAllowed):
+		writeError(w, http.StatusForbidden, "this email domain is not allowed to register")
 	case errors.Is(err, local.ErrEmailExists):
 		writeError(w, http.StatusConflict, "an account with this email already exists")
 	default:

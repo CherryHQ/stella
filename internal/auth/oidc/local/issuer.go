@@ -203,7 +203,7 @@ func (is *Issuer) parseAuthorizeParams(r *http.Request) (*authorizeParams, error
 			return nil, fmt.Errorf("only code_challenge_method=S256 is supported")
 		}
 	}
-	scopes := splitTrimmed(strings.ReplaceAll(q.Get("scope"), " ", ","))
+	scopes := SplitTrimmed(strings.ReplaceAll(q.Get("scope"), " ", ","))
 	return &authorizeParams{
 		clientID:            clientID,
 		redirectURI:         redirectURI,

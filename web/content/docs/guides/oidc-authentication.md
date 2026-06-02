@@ -10,9 +10,15 @@ Stella also includes a **built-in local OIDC issuer** that is enabled by default
 
 When no external OIDC provider is configured (`OIDC_ISSUER_URL` is not set), Stella automatically enables a built-in local OIDC issuer. No environment variables are needed — a signing key is auto-generated and stored in the data directory.
 
-The login page shows a **Sign in** button. You can also register a new account by clicking **Sign up** on the login page.
+The login page shows a **Sign in** button. You can also register a new account by clicking **Sign up** on the login page. Registration stays open as long as the built-in issuer is in use.
 
-The first user to register automatically becomes an admin.
+The first user to register automatically becomes an admin; everyone who registers after that gets the regular user role.
+
+To restrict who can self-register, set `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email.
+
+```bash
+LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
+```
 
 The local issuer exposes standard OIDC endpoints under `/oidc/local`:
 

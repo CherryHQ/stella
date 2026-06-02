@@ -59,6 +59,11 @@ type Config struct {
 	// registrations via the authorize endpoint. When false, registration
 	// requests are rejected with 403.
 	AllowRegistration bool
+
+	// AllowedEmailDomains restricts self-registration to email addresses whose
+	// domain matches one of these entries (case-insensitive, exact domain or
+	// subdomain). An empty list allows any email domain.
+	AllowedEmailDomains []string
 }
 
 // Validate returns an error if any required field is missing or invalid.
@@ -89,6 +94,31 @@ func (c *Config) IsRedirectURIAllowed(uri string) bool {
 
 // IsPublicClient reports whether the client is public (no secret).
 func (c *Config) IsPublicClient() bool { return c.ClientSecret == "" }
+
+// IsEmailAllowed reports whether email may self-register given the configured
+// domain allowlist. An empty allowlist permits any domain. Matching is
+// case-insensitive against the domain part, accepting the exact domain or any
+// subdomain of an allowed entry.
+func (c *Config) IsEmailAllowed(email string) bool {
+	if len(c.AllowedEmailDomains) == 0 {
+		return true
+	}
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at == len(email)-1 {
+		return false
+	}
+	domain := strings.ToLower(email[at+1:])
+	for _, d := range c.AllowedEmailDomains {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d == "" {
+			continue
+		}
+		if domain == d || strings.HasSuffix(domain, "."+d) {
+			return true
+		}
+	}
+	return false
+}
 
 // parseSigningKey decodes an ECDSA P-256 private key from a PEM string or
 // base64-encoded PEM string.
@@ -121,7 +151,9 @@ func parseSigningKey(raw string) (*ecdsa.PrivateKey, error) {
 	return key, nil
 }
 
-func splitTrimmed(s string) []string {
+// SplitTrimmed splits a comma-separated string, trimming whitespace and
+// dropping empty entries.
+func SplitTrimmed(s string) []string {
 	parts := strings.Split(s, ",")
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
