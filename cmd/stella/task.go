@@ -38,7 +38,7 @@ func requireTaskAgent(c *ucli.Context) error {
 func taskCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:        "task",
-		Usage:       "Manage durable background tasks (flat /api/tasks v2)",
+		Usage:       "Manage durable background tasks",
 		Category:    "Feature",
 		Description: `Create, track, and act on durable background tasks.`,
 		Subcommands: []*ucli.Command{
@@ -124,7 +124,7 @@ func taskCreateCmd() *ucli.Command {
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Task title"},
 			&ucli.StringFlag{Name: "description", Usage: "Task description"},
 			&ucli.StringFlag{Name: "goal-id", Usage: "Parent goal ID"},
-			&ucli.StringFlag{Name: "executor", Usage: "Explicit executor agent ID (D13)"},
+			&ucli.StringFlag{Name: "executor", Usage: "Explicit executor agent ID"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency: <task-id>[:kind[:on_failure]]; may be repeated"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},

@@ -66,7 +66,7 @@ func recallyFeedListCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Feeds)
+				return printJSON(c, list.Feeds)
 			}
 			if len(list.Feeds) == 0 {
 				fmt.Println("No RSS feeds subscribed.")
@@ -170,7 +170,7 @@ func recallyFeedPollCommand() *ucli.Command {
 			}
 
 			if c.Bool("json") {
-				return printJSON(results)
+				return printJSON(c, results)
 			}
 			for _, r := range results {
 				if r.Error != nil && *r.Error != "" {

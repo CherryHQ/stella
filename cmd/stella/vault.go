@@ -62,7 +62,7 @@ func vaultListCommand() *ucli.Command {
 			}
 			entries := list.Entries
 			if c.Bool("json") {
-				return printJSON(entries)
+				return printJSON(c, entries)
 			}
 			if len(entries) == 0 {
 				fmt.Println("No vault entries.")
@@ -98,7 +98,7 @@ func vaultGetCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(entry)
+				return printJSON(c, entry)
 			}
 			fmt.Println(entry.Value)
 			return nil

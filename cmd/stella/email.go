@@ -291,7 +291,7 @@ func emailConfigListCommand() *ucli.Command {
 			if c.Bool("json") {
 				// Mask passwords before printing.
 				masked := maskConfigPasswords(cfg)
-				return printJSON(masked)
+				return printJSON(c, masked)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -342,7 +342,7 @@ func emailConfigShowCommand() *ucli.Command {
 			acct.Password = "****"
 
 			if c.Bool("json") {
-				return printJSON(acct)
+				return printJSON(c, acct)
 			}
 
 			fmt.Printf("Name:      %s\n", name)
@@ -419,7 +419,7 @@ func emailFoldersCommand() *ucli.Command {
 			}
 
 			if c.Bool("json") {
-				return printJSON(folders)
+				return printJSON(c, folders)
 			}
 			for _, f := range folders {
 				fmt.Println(f)
@@ -483,7 +483,7 @@ func emailListCommand() *ucli.Command {
 			}
 
 			if c.Bool("json") {
-				return printJSON(msgs)
+				return printJSON(c, msgs)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -556,7 +556,7 @@ func emailReadCommand() *ucli.Command {
 			}
 
 			if c.Bool("json") {
-				return printJSON(msg)
+				return printJSON(c, msg)
 			}
 
 			if c.Bool("raw") {

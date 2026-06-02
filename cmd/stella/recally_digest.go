@@ -28,7 +28,7 @@ func recallyDigestCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			return printJSON(digest)
+			return printJSON(c, digest)
 		},
 	}
 }
@@ -61,7 +61,7 @@ func recallyDigestSaveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			return printJSON(stored)
+			return printJSON(c, stored)
 		},
 	}
 }

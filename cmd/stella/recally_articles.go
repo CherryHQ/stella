@@ -91,7 +91,7 @@ func recallySaveCommand() *ucli.Command {
 			} else {
 				result["message"] = "Article already exists, updated metadata"
 			}
-			return printJSON(result)
+			return printJSON(c, result)
 		},
 	}
 }
@@ -129,7 +129,7 @@ func recallyListCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Articles)
+				return printJSON(c, list.Articles)
 			}
 			if len(list.Articles) == 0 {
 				fmt.Println("No articles found.")
@@ -168,7 +168,7 @@ func recallySearchCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Articles)
+				return printJSON(c, list.Articles)
 			}
 			if len(list.Articles) == 0 {
 				fmt.Println("No articles found matching your query.")
@@ -317,15 +317,6 @@ func printArticleSummary(a apiclient.Article, summaryWidth int) {
 	}
 	fmt.Printf("    Status: %s | Source: %s | Saved: %s\n", a.Status, a.SourceType, a.SavedAt.Format("2006-01-02"))
 	fmt.Println()
-}
-
-func printJSON(v any) error {
-	out, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal json: %w", err)
-	}
-	fmt.Println(string(out))
-	return nil
 }
 
 // shortID returns the first 8 chars of an ID for display.

@@ -90,7 +90,7 @@ func schedulerAddCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			return printJSON(job)
+			return printJSON(c, job)
 		},
 	}
 }
@@ -115,7 +115,7 @@ func schedulerListCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(list.Jobs)
+				return printJSON(c, list.Jobs)
 			}
 			if len(list.Jobs) == 0 {
 				fmt.Println("No scheduled jobs.")

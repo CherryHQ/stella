@@ -44,7 +44,7 @@ func oauthProvidersCommand() *ucli.Command {
 			}
 			providers := list.Providers
 			if c.Bool("json") {
-				return printJSON(providers)
+				return printJSON(c, providers)
 			}
 			if len(providers) == 0 {
 				fmt.Println("No OAuth providers configured.")
@@ -136,7 +136,7 @@ func oauthStatusCommand() *ucli.Command {
 				return err
 			}
 			if c.Bool("json") {
-				return printJSON(status)
+				return printJSON(c, status)
 			}
 			if status.Connected {
 				username := ""
