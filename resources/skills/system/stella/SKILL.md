@@ -71,7 +71,7 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
 ## CLI commands
 
-The `stella` CLI is self-documenting. These are the command groups and their subcommands — **always run `stella <command> [<subcommand>] --help` (via bash) for exact flags and usage before invoking one.**
+The `stella` CLI is self-documenting. These are the command groups and their subcommands — **always run `stella <command> [<subcommand>] --help` (via bash) for exact flags and usage before invoking one.** Use the canonical command names shown here; do not guess historical aliases. Prefer `--json` for scriptable output when a command supports it.
 
 ```
 stella server                   # Start server (channels + scheduler); web UI at http://localhost:25678
