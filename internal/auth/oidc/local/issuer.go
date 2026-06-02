@@ -178,7 +178,10 @@ func (is *Issuer) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	// Non-navigation request (e.g., SPA fetch following redirects to discover
+	// the authorize URL). Return 200 so the frontend can read response.url.
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": "login_required"})
 }
 
 type authorizeParams struct {
@@ -238,6 +241,19 @@ func isNavigationRequest(r *http.Request) bool {
 	return r.Header.Get("Sec-Fetch-Mode") == "navigate" || (isHTML && !isAJAX)
 }
 
+func writeError(w http.ResponseWriter, r *http.Request, msg string) {
+	if isJSONRequest(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"error":   msg,
+		})
+		return
+	}
+	http.Error(w, msg, http.StatusBadRequest)
+}
+
 func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ctx context.Context, params *authorizeParams) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -246,38 +262,25 @@ func (is *Issuer) handleAuthorizePost(w http.ResponseWriter, r *http.Request, ct
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
 
-	showError := func(errMsg string) {
-		if isJSONRequest(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"success": false,
-				"error":   errMsg,
-			})
-			return
-		}
-		http.Error(w, errMsg, http.StatusBadRequest)
-	}
-
 	if email == "" || password == "" {
-		showError("Email and password are required.")
+		writeError(w, r, "Email and password are required.")
 		return
 	}
 
 	user, err := is.users.GetUserByEmail(ctx, email)
 	if err != nil {
-		showError("Invalid email or password.")
+		writeError(w, r, "Invalid email or password.")
 		return
 	}
 
 	if !user.IsActive {
-		showError("Account is disabled.")
+		writeError(w, r, "Account is disabled.")
 		return
 	}
 
 	credSvc := auth.NewCredentialService(is.credentials)
 	if err := credSvc.VerifyPassword(ctx, user.ID, password); err != nil {
-		showError("Invalid email or password.")
+		writeError(w, r, "Invalid email or password.")
 		return
 	}
 
@@ -294,43 +297,30 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 	password := r.FormValue("password")
 	confirmPassword := r.FormValue("confirm_password")
 
-	showError := func(errMsg string) {
-		if isJSONRequest(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"success": false,
-				"error":   errMsg,
-			})
-			return
-		}
-		http.Error(w, errMsg, http.StatusBadRequest)
-	}
-
 	if name == "" || email == "" || password == "" || confirmPassword == "" {
-		showError("All fields are required.")
+		writeError(w, r, "All fields are required.")
 		return
 	}
 
 	if len(password) < 8 {
-		showError("Password must be at least 8 characters long.")
+		writeError(w, r, "Password must be at least 8 characters long.")
 		return
 	}
 
 	if password != confirmPassword {
-		showError("Passwords do not match.")
+		writeError(w, r, "Passwords do not match.")
 		return
 	}
 
 	if _, err := is.users.GetUserByEmail(ctx, email); err == nil {
-		showError("An account with this email already exists.")
+		writeError(w, r, "An account with this email already exists.")
 		return
 	}
 
 	// First registered user becomes admin.
 	count, err := is.users.CountUsers(ctx)
 	if err != nil {
-		showError("Registration failed. Please try again.")
+		writeError(w, r, "Registration failed. Please try again.")
 		return
 	}
 	role := auth.RoleUser
@@ -345,14 +335,14 @@ func (is *Issuer) handleRegisterPost(w http.ResponseWriter, r *http.Request, ctx
 		Role:  role,
 	})
 	if err != nil {
-		showError("Registration failed. Please try again.")
+		writeError(w, r, "Registration failed. Please try again.")
 		return
 	}
 
 	credSvc := auth.NewCredentialService(is.credentials)
 	if err := credSvc.SetPassword(ctx, newUser.ID, password); err != nil {
 		_ = is.users.DeleteUser(ctx, newUser.ID)
-		showError("Registration failed. Please try again.")
+		writeError(w, r, "Registration failed. Please try again.")
 		return
 	}
 

@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { listAuthProviders } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { OidcProviderList } from "@/lib/api-client/types.gen";
-import { Mail, Lock, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { AuthLayout } from "@/features/auth/AuthLayout";
 
 export function LoginPage() {
   const { t } = useI18n();
@@ -34,17 +35,13 @@ export function LoginPage() {
     setError("");
 
     try {
-      // 1. Initiate OIDC request to set PKCE/state cookies
-      const initialUrl = "/auth/login/local";
-      const initRes = await fetch(initialUrl);
+      const initRes = await fetch("/auth/login/local");
       if (!initRes.ok) {
         throw new Error("Failed to initialize authentication flow");
       }
 
-      // The response URL is the direct same-origin /oidc/local/authorize?... endpoint
       const authorizeUrl = initRes.url;
 
-      // 2. Submit credentials in the background
       const body = new URLSearchParams();
       body.append("email", email);
       body.append("password", password);
@@ -64,8 +61,6 @@ export function LoginPage() {
         return;
       }
 
-      // 3. Success! The redirect_url points to the callback.
-      // Parse relative path to avoid SSL/port issues.
       const redirectUrlObj = new URL(data.redirect_url, window.location.origin);
       window.location.href = redirectUrlObj.pathname + redirectUrlObj.search;
     } catch (err) {
@@ -76,141 +71,110 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background relative overflow-hidden">
-      {/* Background Gradients */}
-      <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-primary/10 blur-[150px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-violet-600/10 blur-[150px] pointer-events-none" />
-
-      {/* Decorative Grid Overlay */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_80%,transparent_100%)]" />
-
-      {/* Main glass card container */}
-      <div className="w-full max-w-[420px] mx-4 rounded-2xl border border-border/40 bg-card/45 backdrop-blur-xl shadow-2xl p-8 relative z-10 transition-all duration-300 hover:shadow-primary/5 hover:border-border/60">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-primary/5 border border-primary/10 mb-4 shadow-inner">
-            <img
-              src="/stella-monogram.svg"
-              alt="Stella"
-              width={40}
-              height={40}
-              className="rounded-lg shadow-sm animate-pulse"
-            />
-          </div>
-          <h1 className="font-serif italic text-primary text-4xl tracking-tight select-none">
-            stella
-          </h1>
-          <p className="text-muted-foreground text-sm mt-2">{t("login.subtitle")}</p>
-        </div>
-
-        {error && (
-          <div className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-start gap-3 animate-shake">
-            <AlertCircle className="size-4 mt-0.5 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {hasLocalProvider ? (
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  required
-                  placeholder="name@example.com"
-                  className="pl-9 bg-background/50"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
+    <AuthLayout subtitle={t("login.subtitle")} error={error || undefined}>
+      {hasLocalProvider ? (
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="email">Email</Label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                id="email"
+                type="email"
+                required
+                placeholder="name@example.com"
+                className="pl-9 bg-background/50"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
+          </div>
 
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="password">Password</Label>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  placeholder="••••••••"
-                  className="pl-9 pr-10 bg-background/50"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center">
+              <Label htmlFor="password">Password</Label>
             </div>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                required
+                placeholder="••••••••"
+                className="pl-9 pr-10 bg-background/50"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </div>
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full py-6 mt-2 relative overflow-hidden group"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <Loader2 className="size-4 animate-spin" />
-                  Signing in...
+          <Button
+            type="submit"
+            disabled={loading}
+            className="w-full py-6 mt-2 relative overflow-hidden group"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                {t("login.signingIn")}
+              </span>
+            ) : (
+              t("login.signIn")
+            )}
+          </Button>
+
+          {hasRegisterEnabled && (
+            <p className="text-center text-sm text-muted-foreground mt-4">
+              {t("login.noAccount")}{" "}
+              <Link to="/signup" className="text-primary hover:underline font-medium ml-1">
+                {t("login.signUpLink")}
+              </Link>
+            </p>
+          )}
+        </form>
+      ) : (
+        providers.length === 0 && (
+          <p className="text-center text-sm text-muted-foreground">{t("login.noProviders")}</p>
+        )
+      )}
+
+      {otherProviders.length > 0 && (
+        <div className="mt-6 space-y-4">
+          {hasLocalProvider && (
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border/40" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card/45 px-2 text-muted-foreground">
+                  {t("login.orContinueWith")}
                 </span>
-              ) : (
-                t("login.signIn")
-              )}
-            </Button>
-
-            {hasRegisterEnabled && (
-              <p className="text-center text-sm text-muted-foreground mt-4">
-                Don't have an account?{" "}
-                <Link to="/signup" className="text-primary hover:underline font-medium ml-1">
-                  Sign up
-                </Link>
-              </p>
-            )}
-          </form>
-        ) : (
-          providers.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground">{t("login.noProviders")}</p>
-          )
-        )}
-
-        {otherProviders.length > 0 && (
-          <div className="mt-6 space-y-4">
-            {hasLocalProvider && (
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-border/40" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card/45 px-2 text-muted-foreground">Or continue with</span>
-                </div>
               </div>
-            )}
-
-            <div className="space-y-3">
-              {otherProviders.map((p) => (
-                <a key={p.name} href={p.login_url} className="block group">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
-                  >
-                    {t("login.signIn")} {p.name}
-                  </Button>
-                </a>
-              ))}
             </div>
+          )}
+
+          <div className="space-y-3">
+            {otherProviders.map((p) => (
+              <a key={p.name} href={p.login_url} className="block group">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
+                >
+                  {t("login.signIn")} {p.name}
+                </Button>
+              </a>
+            ))}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </AuthLayout>
   );
 }

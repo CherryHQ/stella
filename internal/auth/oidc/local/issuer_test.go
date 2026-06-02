@@ -492,6 +492,119 @@ func TestRegisterPost(t *testing.T) {
 	}
 }
 
+func TestIsNavigationRequestEdgeCases(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	issuer := local.NewIssuer(cfg,
+		newFakeCodeStore(), newFakeTokenStore(),
+		newFakeUserStore(),
+		newFakeCredStore(), nil, nil)
+
+	q := url.Values{
+		"client_id":     {cfg.ClientID},
+		"redirect_uri":  {cfg.RedirectURIs[0]},
+		"response_type": {"code"},
+		"scope":         {"openid email"},
+	}
+
+	tests := []struct {
+		name       string
+		headers    map[string]string
+		wantStatus int
+	}{
+		{
+			name:       "no headers at all (bare fetch)",
+			headers:    nil,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "Accept: */* (curl default)",
+			headers:    map[string]string{"Accept": "*/*"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "Accept: text/html (browser)",
+			headers:    map[string]string{"Accept": "text/html"},
+			wantStatus: http.StatusFound,
+		},
+		{
+			name:       "Accept: text/html with XHR header",
+			headers:    map[string]string{"Accept": "text/html", "X-Requested-With": "XMLHttpRequest"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "Accept: application/json",
+			headers:    map[string]string{"Accept": "application/json"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "Sec-Fetch-Mode: navigate overrides everything",
+			headers:    map[string]string{"Sec-Fetch-Mode": "navigate", "Accept": "application/json"},
+			wantStatus: http.StatusFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/oidc/local/authorize?"+q.Encode(), nil)
+			for k, v := range tt.headers {
+				r.Header.Set(k, v)
+			}
+			w := httptest.NewRecorder()
+			issuer.HandleAuthorize(w, r)
+			if w.Code != tt.wantStatus {
+				t.Errorf("status %d, want %d", w.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestIssueCodeAndRedirectJSON(t *testing.T) {
+	key := generateTestKey(t)
+	cfg := confidentialConfig(t, key)
+	userID := uuid.NewString()
+	users, creds := seedUserAndCreds(userID, "json@test.example", "pass123")
+	codeStore := newFakeCodeStore()
+
+	issuer := local.NewIssuer(cfg, codeStore, newFakeTokenStore(), users, creds, nil, nil)
+
+	q := url.Values{
+		"client_id":     {cfg.ClientID},
+		"redirect_uri":  {cfg.RedirectURIs[0]},
+		"response_type": {"code"},
+		"scope":         {"openid email"},
+		"state":         {"jsonstate"},
+	}
+	form := url.Values{"email": {"json@test.example"}, "password": {"pass123"}}
+	r := httptest.NewRequest(http.MethodPost, "/oidc/local/authorize?"+q.Encode(), strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	issuer.HandleAuthorize(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200. body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["success"] != true {
+		t.Errorf("success = %v, want true", resp["success"])
+	}
+	redirectURL, _ := resp["redirect_url"].(string)
+	if redirectURL == "" {
+		t.Fatal("missing redirect_url")
+	}
+	u, _ := url.Parse(redirectURL)
+	if u.Query().Get("code") == "" {
+		t.Errorf("no code in redirect_url: %s", redirectURL)
+	}
+	if u.Query().Get("state") != "jsonstate" {
+		t.Errorf("state mismatch in redirect_url: %s", redirectURL)
+	}
+}
+
 func TestTokenExchangeAndIDToken(t *testing.T) {
 	key := generateTestKey(t)
 	cfg := confidentialConfig(t, key)
