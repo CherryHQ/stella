@@ -24,9 +24,11 @@ export function DetailPanelHeader({
 }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <div>
-        <h2 className="font-serif text-xl tracking-tight">{title}</h2>
-        {subtitle && <div className="mt-1">{subtitle}</div>}
+      <div className="space-y-1">
+        <h2 className="text-[1.25rem] font-semibold tracking-tight leading-snug text-foreground/90">
+          {title}
+        </h2>
+        {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
       </div>
       {action && <div className="flex items-center gap-3 shrink-0">{action}</div>}
     </div>

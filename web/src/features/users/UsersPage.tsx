@@ -21,10 +21,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { SettingsListBody, SettingsListItem } from "@/features/settings/SettingsListPanel";
+import { ArrowLeft } from "lucide-react";
 
 interface LegacyUser extends User {
   _defaultAgent: string;
@@ -372,37 +373,16 @@ export function UsersPage() {
     ? (legacyUsers.find((u) => u.id === selectedUser.id) ?? null)
     : null;
 
-  // ── Left panel ──────────────────────────────────────────────────────────────
-
-  const list = (
-    <SettingsListBody>
-      {authUsers.map((u) => (
-        <SettingsListItem
-          key={u.id}
-          onClick={() => void selectUser(u)}
-          active={selectedUser?.id === u.id}
-        >
-          <div className="truncate text-sm font-medium">{u.name || u.email}</div>
-          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
-            {u.role === "admin" ? (
-              <span className="text-primary">{u.role}</span>
-            ) : (
-              <span>{u.role}</span>
-            )}
-          </div>
-        </SettingsListItem>
-      ))}
-    </SettingsListBody>
-  );
-
   // ── Right panel — user detail ────────────────────────────────────────────────
 
   const detail = selectedUser ? (
-    <div className="flex flex-col h-full">
+    <div className="space-y-6 p-6 sm:p-8">
       {/* Detail header */}
-      <div className="shrink-0 px-6 py-4 border-b border-border">
-        <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-medium">{selectedUser.name || selectedUser.email}</h2>
+      <div className="flex items-center justify-between border-b border-border/40 pb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold tracking-tight text-foreground/90">
+            {selectedUser.name || selectedUser.email}
+          </h2>
           <Badge variant={selectedUser.role === "admin" ? "default" : "outline"} size="sm">
             {selectedUser.role}
           </Badge>
@@ -413,10 +393,10 @@ export function UsersPage() {
           )}
         </div>
         {/* Tab switcher */}
-        <div className="flex gap-4 border-b border-border -mb-4 pb-0">
+        <div className="flex gap-4 border-b border-border -mb-[17px] pb-0">
           <button
             onClick={() => setTab("auth")}
-            className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
+            className={`pb-3 text-sm font-semibold transition-colors border-b-2 cursor-pointer ${
               tab === "auth"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -426,7 +406,7 @@ export function UsersPage() {
           </button>
           <button
             onClick={() => setTab("memory")}
-            className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
+            className={`pb-3 text-sm font-semibold transition-colors border-b-2 cursor-pointer ${
               tab === "memory"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -438,7 +418,7 @@ export function UsersPage() {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="space-y-6">
         {/* Auth Tab */}
         {tab === "auth" && (
           <div className="space-y-4">
@@ -829,14 +809,83 @@ export function UsersPage() {
   ) : undefined;
 
   return (
-    <div className="h-full">
-      <SettingsDetailLayout
-        list={list}
-        detail={detail}
-        emptyState={
-          <p className="text-sm text-muted-foreground">Select a user to manage their settings.</p>
-        }
-      />
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
+        {selectedUser ? (
+          <div className="space-y-4">
+            <button
+              onClick={() => {
+                setSelectedUser(null);
+              }}
+              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
+            >
+              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+              Back to Users
+            </button>
+            <div className="bg-card border border-border/40 rounded-2xl overflow-hidden shadow-sm">
+              {detail}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            <SettingsPageHeader
+              title="Users"
+              description="Manage authentication, roles, linked accounts, and memory databases for your users."
+            />
+
+            {authUsers.length === 0 ? (
+              <SettingsEmptyState
+                message="No users found"
+                description="User accounts will appear here once they log in or are provisioned."
+              />
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {authUsers.map((u) => {
+                  return (
+                    <div
+                      key={u.id}
+                      onClick={() => void selectUser(u)}
+                      className="group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 transition-all hover:border-border/80 hover:shadow-sm cursor-pointer"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                                u.is_active ? "bg-green-500" : "bg-muted-foreground/40"
+                              }`}
+                            />
+                            <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                              {u.name || u.email}
+                            </h3>
+                          </div>
+                          <Badge
+                            variant={u.role === "admin" ? "default" : "outline"}
+                            className="text-[10px] tracking-wide uppercase shrink-0"
+                          >
+                            {u.role}
+                          </Badge>
+                        </div>
+                        <p className="font-mono text-[10px] text-muted-foreground truncate max-w-full">
+                          ID: {u.id}
+                        </p>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {u.is_active ? "Active" : "Inactive"}
+                        </span>
+                        <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                          Manage →
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <ConfirmDialog
         open={!!confirmState}

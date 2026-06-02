@@ -40,6 +40,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { Wrench, Webhook, Blocks } from "lucide-react";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
   return { plugins: plugins.map((plugin) => ({ ...plugin })) };
@@ -417,31 +419,44 @@ export function PluginsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl p-6 space-y-8">
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10 space-y-8">
+        <SettingsPageHeader
+          title={t("settings.nav.plugins")}
+          description="Manage CLI tools, hooks, and background services."
+        />
         {/* Tools */}
-        <section>
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="text-lg font-semibold">{t("plugins.tab.tools")}</h2>
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-2">
+            <div className="flex items-center gap-2">
+              <Wrench className="size-4 shrink-0 text-muted-foreground/80" />
+              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                {t("plugins.tab.tools")}
+              </h4>
+              <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
+                {toolPlugins.length}
+              </Badge>
+            </div>
             <Button
               onClick={() => setShowAddManifestTool(!showAddManifestTool)}
-              variant="default"
-              size="sm"
+              variant="outline"
+              size="xs"
+              className="rounded-lg h-7"
             >
               {showAddManifestTool ? "Cancel" : "Add Tool"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mb-4">
+          <p className="text-xs text-muted-foreground -mt-2">
             CLI tools and tool plugins. Manifest-backed tools are installed and synced
             automatically.
           </p>
 
           {showAddManifestTool && (
-            <div className="rounded-xl border border-border bg-card p-4 mb-4 space-y-4">
-              <div className="flex items-center justify-between gap-3">
+            <div className="rounded-2xl border border-border/40 bg-card p-5 mb-6 space-y-5 shadow-xs">
+              <div className="flex items-center justify-between gap-3 border-b border-border/30 pb-3">
                 <div>
-                  <p className="text-sm font-medium">Add Tool</p>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-sm font-semibold">Add Tool</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Declare a GitHub release binary. Stella writes it to{" "}
                     <code className="font-mono">$STELLA_HOME/plugins.yaml</code> and syncs
                     automatically.
@@ -463,12 +478,13 @@ export function PluginsPage() {
                   }
                   variant="ghost"
                   size="xs"
+                  className="rounded-lg h-7.5"
                 >
                   Reset
                 </Button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Binary name</label>
                   <Input
                     nativeInput
@@ -482,11 +498,11 @@ export function PluginsPage() {
                     onBlur={fillNewManifestToolDefaults}
                     type="text"
                     placeholder="my-cli"
-                    className="font-mono"
+                    className="font-mono text-sm"
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">GitHub repo</label>
                   <Input
                     nativeInput
@@ -499,11 +515,11 @@ export function PluginsPage() {
                     }
                     type="text"
                     placeholder="owner/repo"
-                    className="font-mono"
+                    className="font-mono text-sm"
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Plugin ID</label>
                   <Input
                     nativeInput
@@ -516,11 +532,11 @@ export function PluginsPage() {
                     }
                     type="text"
                     placeholder="tool/my-cli"
-                    className="font-mono"
+                    className="font-mono text-sm"
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Name</label>
                   <Input
                     nativeInput
@@ -533,11 +549,11 @@ export function PluginsPage() {
                     }
                     type="text"
                     placeholder="my-cli"
-                    className="font-mono"
+                    className="font-mono text-sm"
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Display name</label>
                   <Input
                     nativeInput
@@ -551,9 +567,10 @@ export function PluginsPage() {
                     type="text"
                     placeholder="My CLI"
                     size="sm"
+                    className="text-sm"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Version</label>
                   <Input
                     nativeInput
@@ -566,11 +583,11 @@ export function PluginsPage() {
                     }
                     type="text"
                     placeholder="latest or v1.2.3"
-                    className="font-mono"
+                    className="font-mono text-sm"
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Bin path</label>
                   <Input
                     nativeInput
@@ -583,11 +600,11 @@ export function PluginsPage() {
                     }
                     type="text"
                     placeholder="bin"
-                    className="font-mono"
+                    className="font-mono text-sm"
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Exe override</label>
                   <Input
                     nativeInput
@@ -600,11 +617,11 @@ export function PluginsPage() {
                     }
                     type="text"
                     placeholder="archive binary name"
-                    className="font-mono"
+                    className="font-mono text-sm"
                     size="sm"
                   />
                 </div>
-                <div className="space-y-1 md:col-span-2">
+                <div className="space-y-1.5 md:col-span-2">
                   <label className="text-xs font-medium text-muted-foreground">Description</label>
                   <Input
                     nativeInput
@@ -618,11 +635,17 @@ export function PluginsPage() {
                     type="text"
                     placeholder="What this CLI does"
                     size="sm"
+                    className="text-sm"
                   />
                 </div>
               </div>
-              <div className="flex justify-end">
-                <Button onClick={createManifestTool} variant="default" size="sm">
+              <div className="flex justify-end pt-2 border-t border-border/30">
+                <Button
+                  onClick={createManifestTool}
+                  variant="default"
+                  size="sm"
+                  className="rounded-xl"
+                >
                   Save and sync
                 </Button>
               </div>
@@ -638,8 +661,16 @@ export function PluginsPage() {
         </section>
 
         {/* Hooks */}
-        <section>
-          <h2 className="text-lg font-semibold mb-3">{t("plugins.tab.hooks")}</h2>
+        <section className="space-y-4">
+          <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+            <Webhook className="size-4 shrink-0 text-muted-foreground/80" />
+            <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+              {t("plugins.tab.hooks")}
+            </h4>
+            <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
+              {hookPlugins.length}
+            </Badge>
+          </div>
           <PluginList
             {...pluginListProps}
             plugins={hookPlugins}
@@ -650,9 +681,17 @@ export function PluginsPage() {
 
         {/* Others */}
         {standalonePlugins.length > 0 && (
-          <section>
-            <h2 className="text-lg font-semibold mb-1">{t("plugins.tab.others")}</h2>
-            <p className="text-xs text-muted-foreground mb-3">
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+              <Blocks className="size-4 shrink-0 text-muted-foreground/80" />
+              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                {t("plugins.tab.others")}
+              </h4>
+              <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
+                {standalonePlugins.length}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">
               Background services that run independently.
             </p>
             <PluginList
@@ -715,7 +754,7 @@ function PluginList({
   showManifestEditor = false,
 }: PluginListProps) {
   return (
-    <div className="border border-border rounded-lg divide-y divide-border">
+    <div className="space-y-4">
       {plugins.map((p) => {
         const hasConfig = hasGenericConfigEditor(p, schemas);
         const isConfigOpen = !!pluginConfigOpen[p.id];
@@ -723,11 +762,16 @@ function PluginList({
         const badges = pluginMetaBadges(p);
 
         return (
-          <div key={p.id}>
-            <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <div
+            key={p.id}
+            className={`flex flex-col rounded-2xl border bg-card transition-all ${
+              p.enabled ? "border-primary/45 shadow-xs" : "border-border/40 shadow-2xs"
+            } overflow-hidden`}
+          >
+            <div className="flex items-center justify-between gap-4 px-5 py-4">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{pluginLabel(p)}</span>
+                  <span className="font-semibold text-sm">{pluginLabel(p)}</span>
                   <span className="font-mono text-[11px] text-muted-foreground">{p.id}</span>
                   {p.enabled && (
                     <Badge variant="success" size="sm">
@@ -745,7 +789,7 @@ function PluginList({
                   ))}
                 </div>
                 {pluginDescription(p) && (
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
                     {pluginDescription(p)}
                   </p>
                 )}
@@ -755,14 +799,24 @@ function PluginList({
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5 shrink-0">
                 {hasConfig && (
-                  <Button onClick={() => onToggleConfigEditor(p)} variant="ghost" size="xs">
+                  <Button
+                    onClick={() => onToggleConfigEditor(p)}
+                    variant={isConfigOpen ? "default" : "ghost"}
+                    size="xs"
+                    className="rounded-lg h-7.5"
+                  >
                     {isConfigOpen ? "Hide config" : "Configure"}
                   </Button>
                 )}
                 {showManifestEditor && p._manifest && (
-                  <Button onClick={() => onToggleManifestEditor(p)} variant="ghost" size="xs">
+                  <Button
+                    onClick={() => onToggleManifestEditor(p)}
+                    variant={isManifestOpen ? "default" : "ghost"}
+                    size="xs"
+                    className="rounded-lg h-7.5"
+                  >
                     {isManifestOpen ? "Hide definition" : "Edit definition"}
                   </Button>
                 )}
@@ -796,7 +850,9 @@ function PluginList({
         );
       })}
       {plugins.length === 0 && (
-        <div className="px-4 py-8 text-center text-muted-foreground text-sm">{emptyMessage}</div>
+        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border/40 rounded-2xl bg-card/45">
+          {emptyMessage}
+        </div>
       )}
     </div>
   );
