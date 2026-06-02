@@ -19,7 +19,6 @@ these commands let you browse, search, and curate it from the terminal.`,
 			recallyDeleteCommand(),
 			recallyFeedCommand(),
 			recallyDigestCommand(),
-			recallyDigestSaveCommand(),
 		},
 	}
 }
