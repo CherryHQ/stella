@@ -91,8 +91,27 @@ export function RecallyPage() {
     </h1>
   );
 
+  const mobileOverlayActive = !!(selectedId || showDigestDetail);
+  const headerActions = mobileOverlayActive ? (
+    <button
+      type="button"
+      onClick={() => {
+        if (chatOpen) setChatOpen(false);
+        else if (selectedId) setSelectedId(null);
+        else filters.setSelectedDigestDate(null);
+      }}
+      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer md:hidden"
+    >
+      <X className="size-4" />
+    </button>
+  ) : undefined;
+
   return (
-    <AppShell sidebar={<RecallyArticleList {...listProps} />} title={headerTitle}>
+    <AppShell
+      sidebar={<RecallyArticleList {...listProps} />}
+      title={headerTitle}
+      headerActions={headerActions}
+    >
       <div className="flex h-full min-h-0 overflow-hidden">
         <div className="flex-1 min-h-0 overflow-y-auto">
           {showDigestDetail ? (
@@ -118,39 +137,14 @@ export function RecallyPage() {
 
       {/* Mobile digest detail overlay */}
       {showDigestDetail && (
-        <div className="fixed inset-0 z-40 flex flex-col bg-background md:hidden">
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
-            <span className="text-sm font-medium">{t("recally.nav.digest")}</span>
-            <button
-              type="button"
-              onClick={() => filters.setSelectedDigestDate(null)}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+        <div className="fixed inset-x-0 bottom-0 top-12 z-40 flex flex-col bg-background md:hidden">
           <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
         </div>
       )}
 
       {/* Mobile reader / Chat overlay */}
       {selectedId && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background md:hidden">
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5 bg-card">
-            <span className="text-xs font-semibold text-foreground">
-              {chatOpen ? t("AI 边读边问" as any) || "AI Chat" : t("recally.title")}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                if (chatOpen) setChatOpen(false);
-                else setSelectedId(null);
-              }}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+        <div className="fixed inset-x-0 bottom-0 top-12 z-50 flex flex-col bg-background md:hidden">
           {chatOpen ? (
             <div className="flex-1 min-h-0 flex flex-col w-full bg-background">
               <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
