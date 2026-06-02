@@ -15,12 +15,8 @@ import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
-import {
-  SidebarContainer,
-  SidebarHeader,
-  SidebarFooter,
-  SectionLabel,
-} from "@/components/AppSidebar";
+import { SectionLabel } from "@/components/AppSidebar";
+import { useSidebar } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -36,8 +32,6 @@ interface Props {
   agentId: string;
   pathname: string;
   onAgentChange: (id: string) => void;
-  className?: string;
-  onCloseMobile?: () => void;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -420,18 +414,12 @@ function NavItem({
 
 // ── main component ───────────────────────────────────────────────────────────
 
-export function AgentSidebar({
-  agents,
-  agentId,
-  pathname,
-  onAgentChange,
-  className,
-  onCloseMobile,
-}: Props) {
+export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const closeMobile = useCallback(() => onCloseMobile?.(), [onCloseMobile]);
+  const { setOpenMobile } = useSidebar();
+  const closeMobile = useCallback(() => setOpenMobile(false), [setOpenMobile]);
 
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(false);
@@ -529,9 +517,7 @@ export function AgentSidebar({
   }, [sessionsQuery]);
 
   return (
-    <SidebarContainer className={className}>
-      <SidebarHeader />
-
+    <div className="flex min-h-0 w-full flex-col overflow-hidden">
       {/* ── Agents ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 px-3">
         <SectionLabel>Agents</SectionLabel>
@@ -760,7 +746,6 @@ export function AgentSidebar({
           )}
         </section>
       </div>
-      <SidebarFooter />
-    </SidebarContainer>
+    </div>
   );
 }

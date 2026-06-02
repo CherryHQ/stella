@@ -12,25 +12,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/menu";
 
-interface SidebarContainerProps {
-  children?: React.ReactNode;
-  className?: string;
-}
-
-export function SidebarContainer({ children, className }: SidebarContainerProps) {
-  return (
-    <aside
-      className={cn(
-        "flex h-full w-[260px] shrink-0 flex-col overflow-hidden border-r border-border bg-card/40",
-        className,
-      )}
-    >
-      {children}
-    </aside>
-  );
-}
-
-export function SidebarHeader() {
+export function AppSidebarHeader() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const routePathname = useRouterState({ select: (s) => s.location.pathname });
@@ -150,7 +132,7 @@ export function SidebarHeader() {
   );
 }
 
-export function SidebarFooter() {
+export function AppSidebarFooter() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const routePathname = useRouterState({ select: (s) => s.location.pathname });

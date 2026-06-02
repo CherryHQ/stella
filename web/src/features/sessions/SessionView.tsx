@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { InspectorPanel } from "./InspectorPanel";
 import { SessionDetail } from "./SessionDetail";
-import { useAgentLayout } from "./AgentLayoutContext";
 
 const RIGHT_MIN = 280;
 const RIGHT_MAX_RATIO = 0.45;
@@ -31,8 +30,6 @@ export function SessionView() {
   };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { sidebarOpen, toggleSidebar, openMobileSidebar } = useAgentLayout();
-  const sidebarCollapsed = !sidebarOpen;
   const { data: me } = useQuery(meQueryOptions);
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const currentUserID = me?.id ?? "";
@@ -185,9 +182,6 @@ export function SessionView() {
           currentUserID={currentUserID}
           onNewSession={() => void createTemporarySession()}
           onSessionUpdate={(s) => setSessionDetail(s)}
-          onToggleSidebar={toggleSidebar}
-          onOpenMobileSidebar={openMobileSidebar}
-          sidebarCollapsed={sidebarCollapsed}
           onToggleWorkspace={toggleInspector}
           workspaceOpen={showWorkspace}
           contextTitle={contextTitle}

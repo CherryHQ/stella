@@ -1,9 +1,7 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { useI18n } from "@/lib/i18n";
-import { X, Menu, PanelLeftOpen, PanelLeftClose } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { CENTER_WIDTH_DEFAULT, CENTER_WIDTH_MIN, CENTER_WIDTH_MAX } from "./constants";
+import { X } from "lucide-react";
+import { AppShell } from "@/layouts/AppShell";
 import { useRecallyFilters } from "./hooks/useRecallyFilters";
 import { useRecallyMutations } from "./hooks/useRecallyMutations";
 import { useRecallyFeeds } from "./hooks/useRecallyFeeds";
@@ -12,7 +10,6 @@ import { DigestDetail } from "./components/DigestDetail";
 import { RecallyReader } from "./components/RecallyReader";
 import { RecallyChat } from "./components/RecallyChat";
 import { ToastAlert } from "./components/ToastAlert";
-import { cn } from "@/lib/utils";
 
 function ArticleListProps(
   t: ReturnType<typeof useI18n>["t"],
@@ -63,10 +60,7 @@ function ArticleListProps(
 export function RecallyPage() {
   const { t } = useI18n();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [centerWidth, setCenterWidth] = useState(CENTER_WIDTH_DEFAULT);
   const [chatOpen, setChatOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const filters = useRecallyFilters();
   const mutations = useRecallyMutations(selectedId, setSelectedId);
@@ -75,29 +69,6 @@ export function RecallyPage() {
   function handleSelectDigest(date: string) {
     filters.setSelectedDigestDate(date);
     setSelectedId(null);
-  }
-
-  function startResize(e: React.MouseEvent<HTMLButtonElement>) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = centerWidth;
-
-    function onMove(ev: MouseEvent) {
-      const nextWidth = startWidth + ev.clientX - startX;
-      setCenterWidth(Math.max(CENTER_WIDTH_MIN, Math.min(CENTER_WIDTH_MAX, nextWidth)));
-    }
-
-    function onUp() {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    }
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
   }
 
   const showDigestDetail =
@@ -112,116 +83,42 @@ export function RecallyPage() {
     handleSelectDigest,
   );
 
+  const headerTitle = (
+    <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground/80">
+      {showDigestDetail
+        ? `${t("recally.nav.digest")} — ${filters.selectedDigestDate}`
+        : t("recally.title")}
+    </h1>
+  );
+
   return (
-    <div className="relative flex h-full min-h-0 overflow-hidden">
-      {/* Desktop sidebar: article list */}
-      <div
-        className={cn(
-          "hidden transition-[width,opacity] duration-200 ease-out md:flex",
-          sidebarOpen ? "border-r border-border" : "w-0 opacity-0 pointer-events-none border-r-0",
-        )}
-        style={
-          sidebarOpen
-            ? ({ width: centerWidth, minWidth: CENTER_WIDTH_MIN } as CSSProperties)
-            : undefined
-        }
-      >
-        <RecallyArticleList {...listProps} />
-      </div>
-
-      {/* Main content: reader + chat */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Mobile header */}
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/85 px-4 md:hidden">
-          <button
-            type="button"
-            onClick={() => setMobileSidebarOpen(true)}
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-          >
-            <Menu className="size-4" />
-          </button>
-          <span className="text-sm font-semibold">{t("nav.recally")}</span>
-        </div>
-
-        {/* Desktop reader header */}
-        <div className="hidden h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl md:flex">
-          <div className="flex items-center gap-2.5 w-full min-w-0">
-            <button
-              type="button"
-              onMouseDown={startResize}
-              className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-col-resize border-l border-border/70 transition-colors hover:bg-accent"
+    <AppShell sidebar={<RecallyArticleList {...listProps} />} title={headerTitle}>
+      <div className="flex h-full min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {showDigestDetail ? (
+            <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
+          ) : (
+            <RecallyReader
+              t={t}
+              selectedId={selectedId}
+              chatOpen={chatOpen}
+              onToggleChat={() => setChatOpen(!chatOpen)}
+              updateArticleMut={mutations.updateArticleMut}
+              deleteArticleMut={mutations.deleteArticleMut}
             />
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground inline-flex"
-              title={!sidebarOpen ? "Show sidebar" : "Hide sidebar"}
-            >
-              {!sidebarOpen ? (
-                <PanelLeftOpen className="size-3.5" />
-              ) : (
-                <PanelLeftClose className="size-3.5" />
-              )}
-            </Button>
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground/80">
-                {showDigestDetail
-                  ? `${t("recally.nav.digest")} — ${filters.selectedDigestDate}`
-                  : t("recally.title")}
-              </h1>
-            </div>
-          </div>
-        </div>
-
-        {/* Reader content */}
-        <div className="flex-1 min-h-0 flex overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            {showDigestDetail ? (
-              <DigestDetail
-                t={t}
-                digest={filters.selectedDigest!}
-                onSelectArticle={setSelectedId}
-              />
-            ) : (
-              <RecallyReader
-                t={t}
-                selectedId={selectedId}
-                chatOpen={chatOpen}
-                onToggleChat={() => setChatOpen(!chatOpen)}
-                updateArticleMut={mutations.updateArticleMut}
-                deleteArticleMut={mutations.deleteArticleMut}
-              />
-            )}
-          </div>
-
-          {/* Chat panel */}
-          {chatOpen && selectedId && !showDigestDetail && (
-            <aside className="hidden w-[340px] shrink-0 border-l border-border md:flex">
-              <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
-            </aside>
           )}
         </div>
-      </div>
 
-      {/* Mobile sidebar Sheet */}
-      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <SheetPopup side="left" showCloseButton={false} className="w-[300px] md:hidden">
-          <SheetTitle className="sr-only">{t("nav.recally")}</SheetTitle>
-          <SheetDescription className="sr-only">Article list</SheetDescription>
-          <RecallyArticleList
-            {...listProps}
-            setSelectedId={(id) => {
-              setSelectedId(id);
-              if (id) setMobileSidebarOpen(false);
-            }}
-          />
-        </SheetPopup>
-      </Sheet>
+        {chatOpen && selectedId && !showDigestDetail && (
+          <aside className="hidden w-[340px] shrink-0 border-l border-border md:flex">
+            <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
+          </aside>
+        )}
+      </div>
 
       {/* Mobile digest detail overlay */}
       {showDigestDetail && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-12 z-40 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
             <span className="text-sm font-medium">{t("recally.nav.digest")}</span>
             <button
@@ -238,7 +135,7 @@ export function RecallyPage() {
 
       {/* Mobile reader / Chat overlay */}
       {selectedId && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-12 z-50 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5 bg-card">
             <span className="text-xs font-semibold text-foreground">
               {chatOpen ? t("AI 边读边问" as any) || "AI Chat" : t("recally.title")}
@@ -272,6 +169,6 @@ export function RecallyPage() {
       )}
 
       <ToastAlert toast={mutations.toast} />
-    </div>
+    </AppShell>
   );
 }

@@ -2,10 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import {
-  Menu,
   MessageCircleDashed,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   ArrowUp,
@@ -23,6 +20,7 @@ import {
   messageToUIMessage,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
+import { useAppShell } from "@/layouts/AppShell";
 import { Transcript } from "./Transcript";
 
 interface Props {
@@ -30,9 +28,6 @@ interface Props {
   currentUserID: string;
   onNewSession?: () => void;
   onSessionUpdate: (s: Session) => void;
-  onToggleSidebar?: () => void;
-  onOpenMobileSidebar?: () => void;
-  sidebarCollapsed?: boolean;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
   contextTitle?: string;
@@ -43,9 +38,6 @@ export function SessionDetail({
   session,
   currentUserID,
   onNewSession,
-  onToggleSidebar,
-  onOpenMobileSidebar,
-  sidebarCollapsed,
   onToggleWorkspace,
   workspaceOpen,
   contextTitle,
@@ -228,10 +220,69 @@ export function SessionDetail({
     void chatSendMessage({ text });
   }, [userInput, isStreaming, session, attachments, chatSendMessage]);
 
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
+
+  const titleText = session ? contextTitle || session.title || "Untitled session" : "";
+  const subtitleText = session
+    ? contextSubtitle || `${messages.length} messages · ${channelLabel(session.channel) || "chat"}`
+    : "";
+
+  useEffect(() => {
+    setHeaderTitle(
+      titleText ? (
+        <div className="min-w-0">
+          <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{titleText}</h1>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtitleText}</p>
+        </div>
+      ) : null,
+    );
+  }, [titleText, subtitleText, setHeaderTitle]);
+
+  useEffect(() => {
+    setHeaderActions(
+      session ? (
+        <div className="flex items-center gap-1 shrink-0">
+          {onNewSession && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={onNewSession}
+                    className="hidden h-7 w-7 rounded-full p-0 text-muted-foreground sm:inline-flex"
+                    aria-label="Start temporary thread"
+                  >
+                    <MessageCircleDashed className="size-3.5" />
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">Start temporary thread</TooltipPopup>
+            </Tooltip>
+          )}
+          {onToggleWorkspace && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={onToggleWorkspace}
+              className="h-7 w-7 rounded-full p-0 text-muted-foreground"
+              title={workspaceOpen ? "Hide inspector" : "Show inspector"}
+            >
+              {workspaceOpen ? (
+                <PanelRightClose className="size-3.5" />
+              ) : (
+                <PanelRightOpen className="size-3.5" />
+              )}
+            </Button>
+          )}
+        </div>
+      ) : null,
+    );
+  }, [session, onNewSession, onToggleWorkspace, workspaceOpen, setHeaderActions]);
+
   if (!session) {
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="flex-shrink-0 h-12 border-b border-border/60 bg-background" />
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <p className="text-sm text-muted-foreground/70">Select a session from the sidebar</p>
           <p className="text-[11px] text-muted-foreground/40 font-mono">
@@ -244,81 +295,6 @@ export function SessionDetail({
 
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-gradient-to-b from-card/80 to-card">
-      {/* Header */}
-      <div className="flex h-12 flex-shrink-0 items-center border-b border-border/70 bg-card/65 px-4 backdrop-blur-xl">
-        <div className="flex items-center gap-2.5 w-full min-w-0">
-          {onToggleSidebar && (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onToggleSidebar}
-              className="hidden h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground md:inline-flex"
-              title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-            >
-              {sidebarCollapsed ? (
-                <PanelLeftOpen className="size-3.5" />
-              ) : (
-                <PanelLeftClose className="size-3.5" />
-              )}
-            </Button>
-          )}
-          {onOpenMobileSidebar && (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onOpenMobileSidebar}
-              className="h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground md:hidden"
-            >
-              <Menu className="size-4" />
-            </Button>
-          )}
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
-              {contextTitle || session.title || "Untitled session"}
-            </h1>
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {contextSubtitle ||
-                `${messages.length} messages · ${channelLabel(session.channel) || "chat"}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {onNewSession && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={onNewSession}
-                      className="hidden h-7 w-7 rounded-full p-0 text-muted-foreground sm:inline-flex"
-                      aria-label="Start temporary thread"
-                    >
-                      <MessageCircleDashed className="size-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Start temporary thread</TooltipPopup>
-              </Tooltip>
-            )}
-            {onToggleWorkspace && (
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={onToggleWorkspace}
-                className="h-7 w-7 rounded-full p-0 text-muted-foreground"
-                title={workspaceOpen ? "Hide inspector" : "Show inspector"}
-              >
-                {workspaceOpen ? (
-                  <PanelRightClose className="size-3.5" />
-                ) : (
-                  <PanelRightOpen className="size-3.5" />
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {/* Transcript */}

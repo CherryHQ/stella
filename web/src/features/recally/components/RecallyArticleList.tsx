@@ -12,7 +12,7 @@ import {
   ChevronDown,
   Tag,
 } from "lucide-react";
-import { SidebarHeader, SidebarFooter } from "@/components/AppSidebar";
+import { useSidebar } from "@/components/ui/sidebar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import type {
   Article,
@@ -204,10 +204,20 @@ export function RecallyArticleList({
     }
   };
 
-  return (
-    <section className="flex min-h-0 w-full flex-col overflow-hidden bg-card/40">
-      <SidebarHeader />
+  const { setOpenMobile } = useSidebar();
 
+  const handleSelectArticle = (id: string) => {
+    setSelectedId(id);
+    setOpenMobile(false);
+  };
+
+  const handleDigestSelect = (date: string) => {
+    onSelectDigest(date);
+    setOpenMobile(false);
+  };
+
+  return (
+    <section className="flex min-h-0 w-full flex-col overflow-hidden">
       {/* Source Selector + Search + Filters Toolbar */}
       <div className="shrink-0 border-b border-border bg-card/65 px-3 py-2 backdrop-blur-xl">
         <div className="flex items-center gap-2">
@@ -553,7 +563,7 @@ export function RecallyArticleList({
               <button
                 key={d.id}
                 type="button"
-                onClick={() => onSelectDigest(d.date)}
+                onClick={() => handleDigestSelect(d.date)}
                 className={cn(
                   "w-full rounded-xl border p-3.5 text-left transition-all duration-200 cursor-pointer",
                   selectedDigestDate === d.date
@@ -596,15 +606,13 @@ export function RecallyArticleList({
                 key={article.id}
                 article={article}
                 selected={selectedId === article.id}
-                onClick={() => setSelectedId(article.id)}
+                onClick={() => handleSelectArticle(article.id)}
                 t={t}
               />
             ))}
           </>
         )}
       </div>
-
-      <SidebarFooter />
     </section>
   );
 }
