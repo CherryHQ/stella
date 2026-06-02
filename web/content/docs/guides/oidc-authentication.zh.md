@@ -2,42 +2,32 @@
 title: OIDC 认证
 ---
 
-Stella 支持通过任何兼容 OIDC 的身份提供商登录——Zitadel、Keycloak、Authentik、Auth0 等。也支持飞书、Google、GitHub 等 OAuth 登录提供商。配置外部登录后，登录页会显示对应的登录按钮，点击后浏览器会跳转到提供商完成认证并返回。
+Stella 支持三种登录方式：
 
-Stella 还内置了一个**本地 OIDC 发行方**，在未配置外部提供商时默认启用。无需任何额外配置即可使用本地账号登录。
+1. **本地密码登录**：Stella 保存 bcrypt 密码哈希，并直接创建 Stella 会话。
+2. **外部 OIDC**：接入一个标准 OpenID Connect 身份提供商，例如 Zitadel、Keycloak、Authentik、Auth0、Okta 或 Azure AD。
+3. **OAuth 登录提供商**：同一个 Stella 实例可以显示多个登录按钮，例如飞书、Google、GitHub 或自定义 OAuth 提供商。
 
-## 内置本地 OIDC 发行方
+配置外部登录后，登录页会显示对应的登录按钮，点击后浏览器会跳转到提供商完成认证并返回。
 
-未配置外部 OIDC 提供商（未设置 `OIDC_ISSUER_URL`）时，Stella 会自动启用内置的本地 OIDC 发行方。无需设置任何环境变量——签名密钥会自动生成并存储在数据目录中。
+## 本地密码登录
 
-登录页面会显示**登录**按钮。你也可以点击**注册**来创建新账号。只要使用内置签发器，注册入口将一直开放。
+未配置外部 OIDC 提供商（未设置 `OIDC_ISSUER_URL`）时，Stella 会启用本地邮箱密码登录。本地登录不再暴露 OIDC issuer 端点；密码提交通过 Stella 的 JSON API 完成，并直接创建 Stella 会话。
 
-第一个注册的用户自动成为管理员；之后注册的用户均为普通用户。
+第一个注册的用户自动成为管理员；之后注册的用户均为普通用户。设置 `LOCAL_OIDC_ALLOW_REGISTRATION=false` 可以在 bootstrap 后关闭本地自助注册。
 
 如需减少误注册，设置 `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 为逗号分隔的允许邮箱域名列表。只有这些域名（及其子域名）下的邮箱才能注册；不设置则允许任意邮箱。它**不会**验证邮箱所有权——真正的安全边界请使用外部 OIDC/OAuth 提供商。
 
 ```bash
+LOCAL_OIDC_ALLOW_REGISTRATION=false
 LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
 ```
 
-本地发行方在 `/oidc/local` 下暴露标准 OIDC 端点：
-
-| 端点      | 路径                                           |
-| --------- | ---------------------------------------------- |
-| Discovery | `/oidc/local/.well-known/openid-configuration` |
-| JWKS      | `/oidc/local/jwks`                             |
-| 授权      | `/oidc/local/authorize`                        |
-| Token     | `/oidc/local/token`                            |
-| Userinfo  | `/oidc/local/userinfo`                         |
-
 ### 安全限制
 
-- 仅支持**授权码 + PKCE** 流程。
-- 重定向 URI 精确匹配——不支持通配符。
-- 签名密钥在启动时加载；密钥轮换需要重启服务器。
-- 不支持动态客户端注册，客户端配置为静态配置。
-- 未使用 TLS 时请勿将本地发行方暴露到公网。
-- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 只检查用户提交的邮箱字符串，不是邮箱验证。
+- 本地密码登录只受密码保护。
+- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 只在注册时检查用户提交的邮箱字符串，不是邮箱验证，也不影响已有用户登录。
+- 生产访问控制优先使用飞书 tenant allowlist、Google/GitHub verified email allowlist，或外部 OIDC 提供商。
 
 ## 外部 OIDC 提供商
 
@@ -71,7 +61,7 @@ stella server
 | `OIDC_CLIENT_SECRET` | 否       | Client Secret；公开客户端（仅 PKCE）请留空                       |
 | `OIDC_SCOPES`        | 否       | 逗号分隔的 scope（默认：`openid,email,profile`）                 |
 
-设置 `OIDC_ISSUER_URL` 后，外部提供商将替换登录页面上的内置本地发行方。
+设置 `OIDC_ISSUER_URL` 后，登录页会用外部 OIDC 提供商替换本地密码登录。已配置的 OAuth provider 仍会同时显示。
 
 ## OAuth 登录提供商
 

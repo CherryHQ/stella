@@ -59,7 +59,11 @@ Feishu is a chat channel only. Lark workspace operations no longer ship as built
 
 ## Login providers
 
-Standard OIDC login uses `OIDC_*` env vars (`OIDC_PROVIDER_NAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL`, `OIDC_SCOPES`).
+Stella supports local password login, one external OIDC provider, and multiple OAuth login providers.
+
+Local password login is enabled when `OIDC_ISSUER_URL` is not set. `LOCAL_OIDC_ALLOW_REGISTRATION=false` disables local self-registration. `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` optionally restricts self-registration by submitted email domain; it does not verify mailbox ownership and does not affect existing-user login.
+
+Standard external OIDC login uses `OIDC_*` env vars (`OIDC_PROVIDER_NAME`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL`, `OIDC_SCOPES`). Setting `OIDC_ISSUER_URL` replaces local password login on the login page.
 
 OAuth login supports multiple providers through env vars:
 

@@ -2,42 +2,32 @@
 title: OIDC Authentication
 ---
 
-Stella supports signing in through any OIDC-compatible identity provider — Zitadel, Keycloak, Authentik, Auth0, and others. It also supports OAuth login providers such as Feishu, Google, and GitHub. When external login is configured, the login page shows provider buttons that redirect your browser to the provider and back.
+Stella supports three login paths:
 
-Stella also includes a **built-in local OIDC issuer** that is enabled by default when no external provider is configured. This lets you sign in with a local account without any additional setup.
+1. **Local password** — Stella stores a bcrypt password and signs users in directly.
+2. **External OIDC** — one standard OpenID Connect identity provider such as Zitadel, Keycloak, Authentik, Auth0, Okta, or Azure AD.
+3. **OAuth login providers** — multiple provider buttons such as Feishu, Google, GitHub, or custom OAuth providers.
 
-## Built-in local OIDC issuer
+When external login is configured, the login page shows provider buttons that redirect your browser to the provider and back.
 
-When no external OIDC provider is configured (`OIDC_ISSUER_URL` is not set), Stella automatically enables a built-in local OIDC issuer. No environment variables are needed — a signing key is auto-generated and stored in the data directory.
+## Local password login
 
-The login page shows a **Sign in** button. You can also register a new account by clicking **Sign up** on the login page. Registration stays open as long as the built-in issuer is in use.
+When no external OIDC provider is configured (`OIDC_ISSUER_URL` is not set), Stella enables local email/password login. No OIDC issuer endpoints are exposed for local login; credential submission happens through Stella's JSON API and creates a Stella session directly.
 
-The first user to register automatically becomes an admin; everyone who registers after that gets the regular user role.
+The first user to register automatically becomes an admin; everyone who registers after that gets the regular user role. Set `LOCAL_OIDC_ALLOW_REGISTRATION=false` to disable local self-registration after bootstrap.
 
 To reduce accidental self-registration, set `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email. This does **not** verify mailbox ownership — use an external OIDC/OAuth provider for a real security boundary.
 
 ```bash
+LOCAL_OIDC_ALLOW_REGISTRATION=false
 LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
 ```
 
-The local issuer exposes standard OIDC endpoints under `/oidc/local`:
-
-| Endpoint      | Path                                           |
-| ------------- | ---------------------------------------------- |
-| Discovery     | `/oidc/local/.well-known/openid-configuration` |
-| JWKS          | `/oidc/local/jwks`                             |
-| Authorization | `/oidc/local/authorize`                        |
-| Token         | `/oidc/local/token`                            |
-| Userinfo      | `/oidc/local/userinfo`                         |
-
 ### Security limitations
 
-- Only **Authorization Code + PKCE** flow is supported.
-- Redirect URIs are exact-match — no wildcards.
-- The signing key is loaded at startup; key rotation requires a server restart.
-- There is no dynamic client registration. Client config is static.
-- Do not expose the local issuer publicly without TLS.
-- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` only checks the submitted email string. It is not email verification.
+- Local password login is protected by the password only.
+- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` only checks the submitted email string during registration. It is not email verification and does not affect existing-user login.
+- For production access control, prefer Feishu tenant allowlisting, Google/GitHub verified email allowlisting, or an external OIDC provider.
 
 ## External OIDC provider
 
@@ -71,7 +61,7 @@ The login page will show a **Sign in Zitadel** button. Clicking it starts the OI
 | `OIDC_CLIENT_SECRET` | No       | Client secret; leave empty for public clients (PKCE only)            |
 | `OIDC_SCOPES`        | No       | Comma-separated scopes (default: `openid,email,profile`)             |
 
-When `OIDC_ISSUER_URL` is set, the external provider replaces the built-in local issuer on the login page.
+When `OIDC_ISSUER_URL` is set, the external OIDC provider replaces local password login on the login page. Any configured OAuth providers are still shown alongside it.
 
 ## OAuth login providers
 
