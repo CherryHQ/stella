@@ -37,11 +37,20 @@ description: 由子任务和任务汇总支持的 goal 容器。本版本 gate o
 
 支持的容器模式：
 
-```text
-draft --ActivateGoal--> running --all required children done--> done
-                              |--required child failed--------> failed
-                              |--required child blocked-------> blocked --child unblocks--> running
-non-terminal --CancelGoal-------------------------------------> cancelled
+```mermaid
+stateDiagram-v2
+    [*] --> draft
+    draft --> running: ActivateGoal
+    running --> done: 所有 required children 完成
+    running --> failed: required child 失败
+    running --> blocked: required child 被阻塞
+    blocked --> running: child 解除阻塞 (UnblockGoal)
+    draft --> cancelled: CancelGoal
+    running --> cancelled: CancelGoal
+    blocked --> cancelled: CancelGoal
+    done --> [*]
+    failed --> [*]
+    cancelled --> [*]
 ```
 
 Activation 会在同一个事务中把 draft child tasks 提升到 ready。随后 dispatcher 通过普通 task readiness 路径派发这些 tasks。

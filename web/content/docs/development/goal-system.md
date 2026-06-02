@@ -37,11 +37,20 @@ It is not an automatic planning system yet. Stella does not currently split a go
 
 Supported container mode:
 
-```text
-draft --ActivateGoal--> running --all required children done--> done
-                              |--required child failed--------> failed
-                              |--required child blocked-------> blocked --child unblocks--> running
-non-terminal --CancelGoal-------------------------------------> cancelled
+```mermaid
+stateDiagram-v2
+    [*] --> draft
+    draft --> running: ActivateGoal
+    running --> done: all required children done
+    running --> failed: required child failed
+    running --> blocked: required child blocked
+    blocked --> running: child unblocks (UnblockGoal)
+    draft --> cancelled: CancelGoal
+    running --> cancelled: CancelGoal
+    blocked --> cancelled: CancelGoal
+    done --> [*]
+    failed --> [*]
+    cancelled --> [*]
 ```
 
 Activation promotes draft child tasks to ready in the same transaction. The dispatcher then picks up those tasks through the normal task readiness path.

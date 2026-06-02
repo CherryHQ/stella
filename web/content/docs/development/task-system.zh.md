@@ -56,12 +56,31 @@ Progress 是例外：task-control progress action 可以在执行期间把 shall
 
 ## Task 生命周期
 
-```text
-draft --activate--> ready --claim--> running --submit--> done or reviewing
-  |                    |              |
-  |                    |              +-- block --> blocked --resolve/waive--> ready
-  |                    |              +-- fail  --> ready (retry) or failed
-  +-- cancel --> cancelled
+```mermaid
+stateDiagram-v2
+    [*] --> draft
+    draft --> ready: activate
+    ready --> running: claim
+    running --> done: submit (policy none/auto)
+    running --> reviewing: submit (policy human)
+    running --> blocked: block
+    ready --> blocked: 依赖失败 (on_failure=block)
+    running --> ready: fail (有重试预算)
+    running --> failed: fail (预算耗尽)
+    blocked --> ready: resolve / waive
+    reviewing --> done: approve
+    reviewing --> failed: reject
+    reviewing --> ready: request-changes (有重试预算)
+    reviewing --> failed: request-changes (预算耗尽)
+    draft --> cancelled: cancel
+    ready --> cancelled: cancel
+    running --> cancelled: cancel
+    blocked --> cancelled: cancel
+    done --> ready: reopen
+    failed --> ready: reopen
+    done --> [*]
+    failed --> [*]
+    cancelled --> [*]
 ```
 
 只有支持的 review policy 需要决策时才进入 `reviewing`。`human` review 等待 API/CLI 决策。`auto` 立即决策。`agent` review 当前不是支持的 runtime 路径。

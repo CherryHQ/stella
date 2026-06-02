@@ -56,12 +56,31 @@ Progress is the exception: the task-control progress action may persist a shallo
 
 ## Task lifecycle
 
-```text
-draft --activate--> ready --claim--> running --submit--> done or reviewing
-  |                    |              |
-  |                    |              +-- block --> blocked --resolve/waive--> ready
-  |                    |              +-- fail  --> ready (retry) or failed
-  +-- cancel --> cancelled
+```mermaid
+stateDiagram-v2
+    [*] --> draft
+    draft --> ready: activate
+    ready --> running: claim
+    running --> done: submit (policy none/auto)
+    running --> reviewing: submit (policy human)
+    running --> blocked: block
+    ready --> blocked: dep failure (on_failure=block)
+    running --> ready: fail (retry budget)
+    running --> failed: fail (budget exhausted)
+    blocked --> ready: resolve / waive
+    reviewing --> done: approve
+    reviewing --> failed: reject
+    reviewing --> ready: request-changes (retry budget)
+    reviewing --> failed: request-changes (budget exhausted)
+    draft --> cancelled: cancel
+    ready --> cancelled: cancel
+    running --> cancelled: cancel
+    blocked --> cancelled: cancel
+    done --> ready: reopen
+    failed --> ready: reopen
+    done --> [*]
+    failed --> [*]
+    cancelled --> [*]
 ```
 
 `reviewing` is entered only when a supported review policy requires a decision. `human` reviews wait for API/CLI decisions. `auto` is decided immediately. `agent` review is not a supported runtime path yet.
