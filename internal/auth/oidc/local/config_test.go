@@ -7,7 +7,7 @@ func TestAllowRegistrationFromEnv(t *testing.T) {
 		value string
 		want  bool
 	}{
-		{"", true},
+		{"", false},
 		{"true", true},
 		{"1", true},
 		{"yes", true},

@@ -159,9 +159,12 @@ func (c *OAuthConfig) Validate() error {
 	if c.TokenRequestStyle != "form" && c.TokenRequestStyle != "json" {
 		errs = append(errs, c.envName("TOKEN_REQUEST_STYLE")+" must be form or json")
 	}
-	if c.Kind == "feishu" && len(c.AllowedTenantKeys) == 0 {
+	switch {
+	case c.Kind == "feishu" && len(c.AllowedTenantKeys) == 0:
 		errs = append(errs, c.envName("ALLOWED_TENANT_KEYS")+" is required for Feishu login")
-	} else if len(c.AllowedEmailDomains) == 0 && len(c.AllowedTenantKeys) == 0 {
+	case c.Kind == "google" && len(c.AllowedTenantKeys) > 0:
+		errs = append(errs, c.envName("ALLOWED_TENANT_KEYS")+" is not supported for Google login; use "+c.envName("ALLOWED_EMAIL_DOMAINS"))
+	case len(c.AllowedEmailDomains) == 0 && len(c.AllowedTenantKeys) == 0:
 		errs = append(errs, c.envName("ALLOWED_EMAIL_DOMAINS")+" or "+c.envName("ALLOWED_TENANT_KEYS")+" is required")
 	}
 	if len(errs) > 0 {

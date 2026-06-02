@@ -4,8 +4,13 @@ import "strings"
 
 // Config holds local password authentication configuration.
 type Config struct {
-	// AllowRegistration controls whether local password self-registration is enabled.
+	// AllowRegistration controls whether local password self-registration stays
+	// open after the first bootstrap user exists.
 	AllowRegistration bool
+
+	// BootstrapRegistration allows the first local user to create the admin
+	// account even when ongoing self-registration is disabled.
+	BootstrapRegistration bool
 
 	// AllowedEmailDomains restricts self-registration to email addresses whose
 	// domain matches one of these entries (case-insensitive, exact domain or
@@ -38,11 +43,11 @@ func (c *Config) IsEmailAllowed(email string) bool {
 	return false
 }
 
-// AllowRegistrationFromEnv parses LOCAL_OIDC_ALLOW_REGISTRATION. Empty means enabled
-// to preserve the existing first-run local signup behavior.
+// AllowRegistrationFromEnv parses LOCAL_OIDC_ALLOW_REGISTRATION. Empty means
+// ongoing self-registration is closed; first-user bootstrap is handled separately.
 func AllowRegistrationFromEnv(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "1", "true", "yes", "on":
+	case "1", "true", "yes", "on":
 		return true
 	case "0", "false", "no", "off":
 		return false

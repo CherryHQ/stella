@@ -53,6 +53,18 @@ func TestOAuthConfigsFromEnvRequiresAllowRule(t *testing.T) {
 	}
 }
 
+func TestOAuthConfigsFromEnvRejectsGoogleTenantAllowlist(t *testing.T) {
+	t.Setenv("AUTH_OAUTH_PROVIDERS", "google")
+	t.Setenv("AUTH_OAUTH_GOOGLE_CLIENT_ID", "client")
+	t.Setenv("AUTH_OAUTH_GOOGLE_CLIENT_SECRET", "secret")
+	t.Setenv("AUTH_OAUTH_GOOGLE_ALLOWED_TENANT_KEYS", "tenant-1")
+
+	_, err := OAuthConfigsFromEnv("https://stella.example")
+	if err == nil {
+		t.Fatal("expected unsupported Google tenant allowlist error")
+	}
+}
+
 func TestOAuthConfigsFromEnvRejectsReservedLocalProvider(t *testing.T) {
 	t.Setenv("AUTH_OAUTH_PROVIDERS", "local")
 	t.Setenv("AUTH_OAUTH_LOCAL_CLIENT_ID", "client")

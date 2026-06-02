@@ -14,12 +14,12 @@ Stella 支持三种登录方式：
 
 未配置外部 OIDC 提供商（未设置 `OIDC_ISSUER_URL`）时，Stella 会启用本地邮箱密码登录。本地登录不再暴露 OIDC issuer 端点；密码提交通过 Stella 的 JSON API 完成，并直接创建 Stella 会话。
 
-第一个注册的用户自动成为管理员；之后注册的用户均为普通用户。设置 `LOCAL_OIDC_ALLOW_REGISTRATION=false` 可以在 bootstrap 后关闭本地自助注册。
+第一个注册的用户自动成为管理员。创建 bootstrap 管理员后，本地自助注册默认关闭。只有当你希望后续用户也能自行创建本地账号时，才设置 `LOCAL_OIDC_ALLOW_REGISTRATION=true`。
 
-如需减少误注册，设置 `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 为逗号分隔的允许邮箱域名列表。只有这些域名（及其子域名）下的邮箱才能注册；不设置则允许任意邮箱。它**不会**验证邮箱所有权——真正的安全边界请使用外部 OIDC/OAuth 提供商。
+启用自助注册时，如需减少误注册，设置 `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 为逗号分隔的允许邮箱域名列表。只有这些域名（及其子域名）下的邮箱才能注册；不设置则允许任意邮箱。它**不会**验证邮箱所有权——真正的安全边界请使用外部 OIDC/OAuth 提供商。
 
 ```bash
-LOCAL_OIDC_ALLOW_REGISTRATION=false
+LOCAL_OIDC_ALLOW_REGISTRATION=true
 LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
 ```
 
@@ -104,7 +104,7 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key_from_feishu
 | `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | 是\*     | 允许登录的租户 key；飞书登录必填                                 |
 | `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | 否       | 针对 generic OAuth provider，要求 `email_verified`；默认：`true` |
 
-每个 OAuth provider 必须设置 `ALLOWED_EMAIL_DOMAINS` 或 `ALLOWED_TENANT_KEYS`。飞书必须设置 `ALLOWED_TENANT_KEYS`。这样可以避免误把 Stella 开放给该 provider 下的所有账号。
+每个 OAuth provider 必须设置 `ALLOWED_EMAIL_DOMAINS` 或该 provider 明确支持的 tenant allowlist。Google 和 GitHub 使用 `ALLOWED_EMAIL_DOMAINS`；飞书必须设置 `ALLOWED_TENANT_KEYS`。这样可以避免误把 Stella 开放给该 provider 下的所有账号。
 
 ### 飞书登录
 
@@ -199,24 +199,24 @@ OIDC_SCOPES=openid,email,profile,urn:zitadel:iam:org:project:id:zitadel:aud
 
 ## 账号关联机制
 
-首次通过 OIDC 登录时，Stella 会根据 ID Token 中的邮箱地址查找账号：
+通过 OIDC 或 OAuth 登录时，Stella 会根据提供商返回的 provider 和 subject 标识关联账号。Stella 不会因为邮箱地址相同，就把一个新的外部身份静默绑定到已有账号。
 
-- **邮箱与已有账号匹配** — Stella 将 OIDC 身份关联到该账号，已有数据（智能体、对话、密钥库）完整保留。
-- **未找到匹配** — Stella 为你创建新账号。第一个注册的用户自动获得管理员角色，后续用户获得普通用户角色。
+- **Provider subject 已绑定** — Stella 登录到该账号，已有数据（智能体、对话、密钥库）完整保留。
+- **Provider subject 未绑定** — Stella 为你创建新账号。第一个注册的用户自动获得管理员角色，后续用户获得普通用户角色。
 
-管理员可以在 Web UI 的**设置 > 用户**页面管理用户和角色。
+管理员可以在 Web UI 的**设置 > 用户**页面管理用户、角色和显式登录身份绑定，也可以使用 `stella auth link-user`。
 
 ## 从已有安装升级
 
 Stella 在首次启动时会自动将现有用户和渠道身份复制到新认证表中，无需手动迁移。
 
-如果已有用户名不是邮箱地址，需要在启用 OIDC 前更新，以便自动关联生效：
+如需把外部登录绑定到已有账号，请显式绑定 provider subject：
 
 ```bash
-stella auth link-user --user-id <id> --email <your@email.com>
+stella auth link-user --user-id <id> --provider <provider> --provider-subject <subject> --email <your@email.com>
 ```
 
-此命令会更新该用户存储的邮箱，使 OIDC 登录时能自动找到并关联账号。
+此命令会为该用户创建明确的登录身份绑定。仅邮箱匹配不会自动关联账号。
 
 ## 安全说明
 

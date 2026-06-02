@@ -163,15 +163,14 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		AuthStores: oidcStore,
 	})
 	if err != nil {
-		slog.Warn("oidc: setup failed", "error", err)
-	} else {
-		adminSrv.SetLoginIdentityStore(oidcStore)
-		adminSrv.SetUserStore(oidcStore)
-		adminSrv.SetSessionStore(oidcStore)
-		adminSrv.SetCredentialStore(oidcStore)
-		adminSrv.SetOIDCAuth(oidcResult)
-		slog.Info("oidc: authentication configured")
+		return fmt.Errorf("oidc: setup: %w", err)
 	}
+	adminSrv.SetLoginIdentityStore(oidcStore)
+	adminSrv.SetUserStore(oidcStore)
+	adminSrv.SetSessionStore(oidcStore)
+	adminSrv.SetCredentialStore(oidcStore)
+	adminSrv.SetOIDCAuth(oidcResult)
+	slog.Info("oidc: authentication configured")
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))

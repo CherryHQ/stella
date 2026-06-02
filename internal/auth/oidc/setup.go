@@ -158,8 +158,9 @@ func (p *emailDomainProvider) HandleCallback(ctx context.Context, r *http.Reques
 
 func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
 	cfg := &local.Config{
-		AllowRegistration:   local.AllowRegistrationFromEnv(os.Getenv("LOCAL_OIDC_ALLOW_REGISTRATION")),
-		AllowedEmailDomains: local.SplitTrimmed(os.Getenv("LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS")),
+		AllowRegistration:     local.AllowRegistrationFromEnv(os.Getenv("LOCAL_OIDC_ALLOW_REGISTRATION")),
+		BootstrapRegistration: true,
+		AllowedEmailDomains:   local.SplitTrimmed(os.Getenv("LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS")),
 	}
 
 	s := p.AuthStores

@@ -169,11 +169,6 @@ func clientIP(r *http.Request) string {
 // Generates PKCE + state, sets a signed cookie, and redirects the browser to
 // the IdP authorization endpoint.
 func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
-	if s.stateMgr == nil || len(s.authProviders) == 0 {
-		http.Error(w, "OIDC not configured", http.StatusServiceUnavailable)
-		return
-	}
-
 	providerName := r.PathValue("provider")
 	// Local provider: redirect to the SPA login page directly. The SPA submits
 	// credentials through the JSON API and does not use an OIDC redirect flow.
@@ -183,6 +178,11 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 			dest = "/signup"
 		}
 		http.Redirect(w, r, dest, http.StatusFound)
+		return
+	}
+
+	if s.stateMgr == nil || len(s.authProviders) == 0 {
+		http.Error(w, "OIDC not configured", http.StatusServiceUnavailable)
 		return
 	}
 

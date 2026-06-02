@@ -14,12 +14,12 @@ When external login is configured, the login page shows provider buttons that re
 
 When no external OIDC provider is configured (`OIDC_ISSUER_URL` is not set), Stella enables local email/password login. No OIDC issuer endpoints are exposed for local login; credential submission happens through Stella's JSON API and creates a Stella session directly.
 
-The first user to register automatically becomes an admin; everyone who registers after that gets the regular user role. Set `LOCAL_OIDC_ALLOW_REGISTRATION=false` to disable local self-registration after bootstrap.
+The first user to register automatically becomes an admin. After that bootstrap account exists, local self-registration is closed by default. Set `LOCAL_OIDC_ALLOW_REGISTRATION=true` only when you want additional users to create their own local accounts.
 
-To reduce accidental self-registration, set `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email. This does **not** verify mailbox ownership — use an external OIDC/OAuth provider for a real security boundary.
+To reduce accidental self-registration when you enable it, set `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email. This does **not** verify mailbox ownership — use an external OIDC/OAuth provider for a real security boundary.
 
 ```bash
-LOCAL_OIDC_ALLOW_REGISTRATION=false
+LOCAL_OIDC_ALLOW_REGISTRATION=true
 LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
 ```
 
@@ -104,7 +104,7 @@ If `STELLA_BASE_URL` is set, Stella derives callback URLs automatically as `http
 | `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | Yes\*    | Allowed tenant keys; required for Feishu                                |
 | `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | No       | For generic OAuth providers, require `email_verified`; default: `true`  |
 
-`ALLOWED_EMAIL_DOMAINS` or `ALLOWED_TENANT_KEYS` is required for every OAuth provider. Feishu specifically requires `ALLOWED_TENANT_KEYS`. This prevents accidentally opening your Stella instance to any account from that provider.
+`ALLOWED_EMAIL_DOMAINS` or a provider-supported tenant allowlist is required for every OAuth provider. Google and GitHub use `ALLOWED_EMAIL_DOMAINS`; Feishu specifically requires `ALLOWED_TENANT_KEYS`. This prevents accidentally opening your Stella instance to any account from that provider.
 
 ### Feishu login
 
@@ -199,24 +199,24 @@ Any OIDC-compliant provider works. The only requirement is that the identity pro
 
 ## How accounts are linked
 
-When you log in through OIDC for the first time, Stella looks up your account by the email address in the ID token:
+When you log in through OIDC or OAuth, Stella links the account by the provider and subject identifier returned by that provider. Stella does not silently link a new external identity to an existing account just because the email address matches.
 
-- **Email matches an existing account** — Stella links your OIDC identity to that account. Your existing data (agents, conversations, vault secrets) is preserved.
-- **No match** — Stella creates a new account for you. The first user to register is automatically assigned the admin role; subsequent users get the regular user role.
+- **Provider subject already linked** — Stella signs you in to that account. Your existing data (agents, conversations, vault secrets) is preserved.
+- **Provider subject not linked** — Stella creates a new account for you. The first user to register is automatically assigned the admin role; subsequent users get the regular user role.
 
-Admins can manage users and roles from **Settings > Users** in the web UI.
+Admins can manage users, roles, and explicit login identity links from **Settings > Users** in the web UI or with `stella auth link-user`.
 
 ## Upgrading an existing installation
 
 Stella automatically copies your existing users and channel identities into the new auth tables on first startup. No manual migration is needed.
 
-If your existing usernames are not email addresses, you must update them before enabling OIDC so the auto-link works:
+To attach an external login to an existing account, link the provider subject explicitly:
 
 ```bash
-stella auth link-user --user-id <id> --email <your@email.com>
+stella auth link-user --user-id <id> --provider <provider> --provider-subject <subject> --email <your@email.com>
 ```
 
-This updates the stored email for that user so the OIDC login can find and link the account automatically.
+This creates an explicit login identity link for that user. A matching email alone is not enough to link accounts automatically.
 
 ## Security notes
 

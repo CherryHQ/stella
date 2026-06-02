@@ -48,8 +48,23 @@ func NewService(cfg *Config, users auth.UserStore, credentials auth.CredentialSt
 	return &Service{cfg: cfg, users: users, credentials: credentials}
 }
 
-func (s *Service) AllowsRegistration(_ context.Context) bool {
-	return s.cfg.AllowRegistration
+func (s *Service) AllowsRegistration(ctx context.Context) bool {
+	ok, err := s.allowsRegistration(ctx, s.users)
+	return err == nil && ok
+}
+
+func (s *Service) allowsRegistration(ctx context.Context, users auth.UserStore) (bool, error) {
+	if s.cfg.AllowRegistration {
+		return true, nil
+	}
+	if !s.cfg.BootstrapRegistration {
+		return false, nil
+	}
+	count, err := users.CountUsers(ctx)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
 }
 
 func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
@@ -76,7 +91,11 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
 }
 
 func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error) {
-	if !s.cfg.AllowRegistration {
+	allowed, err := s.allowsRegistration(ctx, s.users)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
 		return "", ErrRegistrationDisabled
 	}
 
@@ -109,7 +128,7 @@ func (s *Service) createRegisteredUser(ctx context.Context, name, email, passwor
 			return "", err
 		}
 		defer rollback()
-		userID, err := createRegisteredUserNoTx(ctx, stores.Users, stores.Credentials, name, email, password)
+		userID, err := s.createRegisteredUserNoTx(ctx, stores.Users, stores.Credentials, name, email, password)
 		if err != nil {
 			return "", err
 		}
@@ -118,10 +137,10 @@ func (s *Service) createRegisteredUser(ctx context.Context, name, email, passwor
 		}
 		return userID, nil
 	}
-	return createRegisteredUserNoTx(ctx, s.users, s.credentials, name, email, password)
+	return s.createRegisteredUserNoTx(ctx, s.users, s.credentials, name, email, password)
 }
 
-func createRegisteredUserNoTx(ctx context.Context, users auth.UserStore, credentials auth.CredentialStore, name, email, password string) (string, error) {
+func (s *Service) createRegisteredUserNoTx(ctx context.Context, users auth.UserStore, credentials auth.CredentialStore, name, email, password string) (string, error) {
 	if _, err := users.GetUserByEmail(ctx, email); err == nil {
 		return "", ErrEmailExists
 	} else if !errors.Is(err, auth.ErrNotFound) {
@@ -133,6 +152,9 @@ func createRegisteredUserNoTx(ctx context.Context, users auth.UserStore, credent
 	count, err := users.CountUsers(ctx)
 	if err != nil {
 		return "", err
+	}
+	if count > 0 && !s.cfg.AllowRegistration {
+		return "", ErrRegistrationDisabled
 	}
 	role := auth.RoleUser
 	if count == 0 {

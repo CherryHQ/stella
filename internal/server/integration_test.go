@@ -12,6 +12,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
+	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/server"
 )
@@ -117,6 +118,21 @@ func TestExternalIdentityDoesNotAutoLinkByEmail(t *testing.T) {
 	}
 	if _, err := env.oidcStore.GetLoginIdentityByProvider(ctx, "oauth", "attacker-subject"); err == nil {
 		t.Fatal("unexpected login identity created for duplicate email")
+	}
+}
+
+func TestLocalLoginURLWorksWithoutExternalProviders(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetOIDCAuth(&oidc.SetupResult{
+		LocalAuth: local.NewService(&local.Config{BootstrapRegistration: true}, env.oidcStore, env.oidcStore),
+	})
+
+	rr := doUnauthRequest(t, env.srv, http.MethodGet, "/auth/login/local", nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusFound, rr.Body.String())
+	}
+	if got := rr.Header().Get("Location"); got != "/login" {
+		t.Fatalf("Location = %q, want /login", got)
 	}
 }
 
