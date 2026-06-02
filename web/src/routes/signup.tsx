@@ -10,7 +10,7 @@ export const Route = createFileRoute("/signup")({
     } catch (e) {
       if ((e as any)?.isRedirect) throw e;
       const status = authErrorStatus(e);
-      if (status === 401 || status === 403) return;
+      if (status === 401 || status === 403 || status == null) return;
       throw e;
     }
   },

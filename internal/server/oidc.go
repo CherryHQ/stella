@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -38,6 +39,7 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	var body apiserver.LoginLocalJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -81,6 +83,7 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	var body apiserver.RegisterLocalJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -146,6 +149,15 @@ func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 }
 
 func clientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return strings.TrimSpace(ip)
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if ip, _, ok := strings.Cut(xff, ","); ok {
+			return strings.TrimSpace(ip)
+		}
+		return strings.TrimSpace(xff)
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -167,6 +179,18 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	if provider == nil {
 		slog.Warn("oidc: unknown provider", "provider", providerName, "available", s.providerNames())
 		http.NotFound(w, r)
+		return
+	}
+
+	// Local provider: redirect to the SPA login page directly. The SPA
+	// generates its own OIDC state via the JSON API, so setting one here
+	// would only be overwritten.
+	if providerName == "local" {
+		dest := "/login"
+		if r.URL.Query().Get("mode") == "register" {
+			dest = "/signup"
+		}
+		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}
 

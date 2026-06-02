@@ -78,7 +78,11 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
 		return "", ErrInvalidLogin
 	}
 
-	return s.IssueCode(ctx, user.ID, s.authorizeParams(in.State, in.RedirectURI))
+	params, err := s.authorizeParams(in.State, in.RedirectURI)
+	if err != nil {
+		return "", err
+	}
+	return s.issueCode(ctx, user.ID, params)
 }
 
 func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error) {
@@ -91,6 +95,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error
 	if name == "" || email == "" || in.Password == "" || in.ConfirmPassword == "" {
 		return "", ErrInvalidInput
 	}
+	if len(name) > 255 || len(email) > 254 {
+		return "", ErrInvalidInput
+	}
 	if len(in.Password) < 8 || len(in.Password) > 72 || in.Password != in.ConfirmPassword {
 		return "", ErrInvalidInput
 	}
@@ -99,7 +106,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error
 	if err != nil {
 		return "", err
 	}
-	return s.IssueCode(ctx, userID, s.authorizeParams(in.State, in.RedirectURI))
+	params, err := s.authorizeParams(in.State, in.RedirectURI)
+	if err != nil {
+		return "", err
+	}
+	return s.issueCode(ctx, userID, params)
 }
 
 func (s *Service) createBootstrapUser(ctx context.Context, name, email, password string) (string, error) {
@@ -154,9 +165,12 @@ func createBootstrapUserNoTx(ctx context.Context, users auth.UserStore, credenti
 	return newUser.ID, nil
 }
 
-func (s *Service) authorizeParams(state auth.AuthState, redirectURI string) *authorizeParams {
+func (s *Service) authorizeParams(state auth.AuthState, redirectURI string) (*authorizeParams, error) {
 	if redirectURI == "" && len(s.cfg.RedirectURIs) > 0 {
 		redirectURI = s.cfg.RedirectURIs[0]
+	}
+	if !s.cfg.IsRedirectURIAllowed(redirectURI) {
+		return nil, fmt.Errorf("redirect_uri not allowed: %s", redirectURI)
 	}
 	return &authorizeParams{
 		clientID:            s.cfg.ClientID,
@@ -165,10 +179,10 @@ func (s *Service) authorizeParams(state auth.AuthState, redirectURI string) *aut
 		scopes:              []string{"openid", "email", "profile"},
 		pkceChallenge:       pkceChallengeFromVerifier(state.CodeVerifier),
 		pkceChallengeMethod: "S256",
-	}
+	}, nil
 }
 
-func (s *Service) IssueCode(ctx context.Context, userID string, params *authorizeParams) (string, error) {
+func (s *Service) issueCode(ctx context.Context, userID string, params *authorizeParams) (string, error) {
 	rawCode := generateOpaqueToken()
 	codeHash := hashToken(rawCode)
 

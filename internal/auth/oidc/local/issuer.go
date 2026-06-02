@@ -26,12 +26,11 @@ import (
 // It exposes discovery, JWKS, authorize, token, and userinfo under a stable
 // URL prefix (recommended: /oidc/local).
 type Issuer struct {
-	cfg         *Config
-	codes       auth.OIDCCodeStore
-	tokens      auth.OIDCAccessTokenStore
-	users       auth.UserStore
-	credentials auth.CredentialStore
-	localAuth   *Service
+	cfg       *Config
+	codes     auth.OIDCCodeStore
+	tokens    auth.OIDCAccessTokenStore
+	users     auth.UserStore
+	localAuth *Service
 	// authSvc is used to validate an existing Stella OIDC session on the authorize endpoint.
 	// May be nil; when nil, the authorize endpoint always shows the login form.
 	authSvc    *auth.AuthService
@@ -44,20 +43,18 @@ func NewIssuer(
 	codes auth.OIDCCodeStore,
 	tokens auth.OIDCAccessTokenStore,
 	users auth.UserStore,
-	credentials auth.CredentialStore,
 	localAuth *Service,
 	authSvc *auth.AuthService,
 	sessionMgr *auth.SessionManager,
 ) *Issuer {
 	return &Issuer{
-		cfg:         cfg,
-		codes:       codes,
-		tokens:      tokens,
-		users:       users,
-		credentials: credentials,
-		localAuth:   localAuth,
-		authSvc:     authSvc,
-		sessionMgr:  sessionMgr,
+		cfg:        cfg,
+		codes:      codes,
+		tokens:     tokens,
+		users:      users,
+		localAuth:  localAuth,
+		authSvc:    authSvc,
+		sessionMgr: sessionMgr,
 	}
 }
 
@@ -93,7 +90,7 @@ func (is *Issuer) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 		ScopesSupported:                   []string{"openid", "email", "profile"},
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "none"},
 		ClaimsSupported: []string{
-			"sub", "iss", "aud", "iat", "exp", "nonce",
+			"sub", "iss", "aud", "iat", "exp",
 			"email", "email_verified", "name", "picture",
 			"role",
 		},
@@ -219,7 +216,7 @@ func (is *Issuer) parseAuthorizeParams(r *http.Request) (*authorizeParams, error
 }
 
 func (is *Issuer) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, ctx context.Context, userID string, params *authorizeParams) {
-	redirectURL, err := is.localAuth.IssueCode(ctx, userID, params)
+	redirectURL, err := is.localAuth.issueCode(ctx, userID, params)
 	if err != nil {
 		http.Error(w, "server_error: could not create authorization code", http.StatusInternalServerError)
 		return

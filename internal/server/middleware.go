@@ -175,7 +175,7 @@ func isAuthExempt(method, path string) bool {
 		return true
 	case method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/"):
 		return true
-	case strings.HasPrefix(path, "/auth/"):
+	case strings.HasPrefix(path, "/auth/login/") || strings.HasPrefix(path, "/auth/callback/"):
 		return true
 	case strings.HasPrefix(path, "/oidc/local/"):
 		return true

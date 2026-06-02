@@ -238,7 +238,7 @@ func issueLoginCode(t *testing.T, cfg *local.Config, codes *fakeCodeStore, users
 
 func newTestIssuer(cfg *local.Config, codes *fakeCodeStore, tokens *fakeTokenStore, users *fakeUserStore, creds *fakeCredStore) *local.Issuer {
 	svc := local.NewService(cfg, codes, users, creds)
-	return local.NewIssuer(cfg, codes, tokens, users, creds, svc, nil, nil)
+	return local.NewIssuer(cfg, codes, tokens, users, svc, nil, nil)
 }
 
 // --- tests ---

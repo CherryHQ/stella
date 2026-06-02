@@ -67,7 +67,9 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 	}
 	commit := func() error {
 		_, err := conn.ExecContext(ctx, "COMMIT")
-		committed = true
+		if err == nil {
+			committed = true
+		}
 		closeConn()
 		return err
 	}

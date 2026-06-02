@@ -109,7 +109,7 @@ func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, s
 	issuerAuthSvc := auth.NewAuthService(p.DB, s, s, s)
 	issuerSessionMgr := sessionMgr.WithStore(s)
 	localAuth := local.NewService(cfg, s, s, s)
-	issuer := local.NewIssuer(cfg, s, s, s, s, localAuth, issuerAuthSvc, issuerSessionMgr)
+	issuer := local.NewIssuer(cfg, s, s, s, localAuth, issuerAuthSvc, issuerSessionMgr)
 
 	return &SetupResult{
 		Providers:  []auth.AuthProvider{clientProvider},
