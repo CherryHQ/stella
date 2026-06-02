@@ -70,7 +70,7 @@ importers:
         specifier: ^1.14.0
         version: 1.16.0(react@19.2.6)
       mermaid:
-        specifier: ^11.15.0
+        specifier: '>=11.15.0'
         version: 11.15.0
       qrcode:
         specifier: ^1.5.4
