@@ -136,6 +136,47 @@ func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
 	}
 }
 
+// TestDispatcher_RetryReusesSessionNoOrphan proves a retried task reuses its
+// persisted session instead of minting a fresh one each dispatch — the
+// orphan-session half of CR-002.
+func TestDispatcher_RetryReusesSessionNoOrphan(t *testing.T) {
+	var mintCalls, attempts atomic.Int32
+	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		if attempts.Add(1) == 1 {
+			return Result{Action: TerminalFail, Failure: &FailureResult{Reason: "transient", Retryable: true}}, nil
+		}
+		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
+	})
+	h := newHarness(t)
+	d := NewDispatcher(DispatcherConfig{
+		Service:  h.svc,
+		Queries:  h.q,
+		Executor: exec,
+		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) { return h.agentID, true },
+		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
+			mintCalls.Add(1)
+			return "sess-fixed", nil
+		},
+		MaxWorkers: 5,
+		LeaseTTL:   60 * time.Second,
+	})
+	id := h.createTask(t, StatusReady)
+
+	d.Tick(context.Background()) // claim run 1; executor fails retryably -> ready
+	d.WaitIdle()
+	if got := h.getTask(t, id).Status; got != StatusReady {
+		t.Fatalf("after first tick status=%q want ready", got)
+	}
+	d.Tick(context.Background()) // re-dispatch retry; must reuse session
+	d.WaitIdle()
+	if got := h.getTask(t, id).Status; got != StatusDone {
+		t.Fatalf("after second tick status=%q want done", got)
+	}
+	if mintCalls.Load() != 1 {
+		t.Errorf("NewSession called %d times, want 1 (no orphan session on retry)", mintCalls.Load())
+	}
+}
+
 func TestDispatcher_DepFailurePropagatesAsBlock(t *testing.T) {
 	h, d := newDispatcherHarness(t, submitExec())
 	// Upstream task in failed state. Downstream depends on it hard+block.

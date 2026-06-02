@@ -2,99 +2,74 @@ package tasks
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"log/slog"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/google/uuid"
 )
 
-// fakeSessionProvider implements memory.Provider and memory.SessionManager.
-// Only LoadInfo carries behavior; everything else is an inert stub.
-type fakeSessionProvider struct {
-	info    memory.SessionInfo
-	loadErr error
-	calls   int
-}
-
-func (f *fakeSessionProvider) Name() string                                    { return "fake" }
-func (f *fakeSessionProvider) Bootstrap(context.Context, memory.Session) error { return nil }
-func (f *fakeSessionProvider) Append(context.Context, memory.Session, ...ai.Message) error {
-	return nil
-}
-
-func (f *fakeSessionProvider) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
-	return nil, nil
-}
-
-func (f *fakeSessionProvider) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
-	return memory.SessionStats{}, nil
-}
-func (f *fakeSessionProvider) Close() error { return nil }
-
-func (f *fakeSessionProvider) SaveInfo(context.Context, memory.SessionInfo) error { return nil }
-func (f *fakeSessionProvider) LoadInfo(_ context.Context, _ string) (memory.SessionInfo, error) {
-	f.calls++
-	if f.loadErr != nil {
-		return memory.SessionInfo{}, f.loadErr
+// seedAgent inserts an extra agent row and returns its id, for tests that need
+// an executor distinct from the task creator.
+func (h *testHarness) seedAgent(t *testing.T, name string) string {
+	t.Helper()
+	id := uuid.NewString()
+	if _, err := h.db.ExecContext(context.Background(),
+		`INSERT INTO agent (id, name, workspace) VALUES (?, ?, '/tmp')`,
+		id, name); err != nil {
+		t.Fatalf("seed agent %s: %v", name, err)
 	}
-	return f.info, nil
+	return id
 }
 
-func (f *fakeSessionProvider) ListInfo(context.Context, memory.ListOptions) ([]memory.SessionInfo, error) {
-	return nil, nil
-}
+// TestSessionOwnerResolver_ReusesLatestRunExecutor proves the resolver returns
+// the executor of the task's latest worker run — not the task creator — so a
+// task first dispatched to another agent via a hint keeps that executor on
+// retry. (CR-002)
+func TestSessionOwnerResolver_ReusesLatestRunExecutor(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	execB := h.seedAgent(t, "executor-b")
 
-func (f *fakeSessionProvider) LoadHistory(context.Context, string) ([]ai.Message, error) {
-	return nil, nil
-}
-
-func taskWithSession(sessionID string) sqlc.AgentTask {
-	t := sqlc.AgentTask{ID: "task-1"}
-	if sessionID != "" {
-		t.SessionID = sql.NullString{String: sessionID, Valid: true}
+	id := h.createTask(t, StatusReady) // creator is h.agentID
+	if _, err := h.svc.Claim(ctx, ClaimParams{
+		TaskID: id, ExecutorAgentID: execB, NewSessionID: "sess-1",
+	}); err != nil {
+		t.Fatalf("claim: %v", err)
 	}
-	return t
-}
 
-func TestSessionResolver_SessionOwnerWins(t *testing.T) {
-	prov := &fakeSessionProvider{info: memory.SessionInfo{AgentID: "owner-agent"}}
-	r := sessionAndCreatorResolver(nil, prov, slog.Default())
-	got, ok := r(context.Background(), taskWithSession("sess-1"))
-	if !ok || got != "owner-agent" {
-		t.Fatalf("got (%q,%v), want (owner-agent,true)", got, ok)
-	}
-	if prov.calls != 1 {
-		t.Errorf("LoadInfo calls=%d want 1", prov.calls)
+	r := sessionOwnerResolver(h.q, slog.Default())
+	got, ok := r(ctx, h.getTask(t, id))
+	if !ok || got != execB {
+		t.Fatalf("resolver = (%q,%v), want (%q,true)", got, ok, execB)
 	}
 }
 
-func TestSessionResolver_NoSessionFalls(t *testing.T) {
-	prov := &fakeSessionProvider{info: memory.SessionInfo{AgentID: "owner-agent"}}
-	r := sessionAndCreatorResolver(nil, prov, slog.Default())
-	if _, ok := r(context.Background(), taskWithSession("")); ok {
-		t.Fatal("resolver should not resolve a task with no session_id")
-	}
-	if prov.calls != 0 {
-		t.Errorf("LoadInfo should not be called without a session; calls=%d", prov.calls)
-	}
-}
-
-func TestSessionResolver_LoadErrorFalls(t *testing.T) {
-	prov := &fakeSessionProvider{loadErr: errors.New("boom")}
-	r := sessionAndCreatorResolver(nil, prov, slog.Default())
-	if _, ok := r(context.Background(), taskWithSession("sess-1")); ok {
-		t.Fatal("resolver should fall back when LoadInfo errors")
+// TestSessionOwnerResolver_NoSessionFalls: a task that has never run carries no
+// session_id, so the resolver declines and the dispatcher falls back to the
+// creator.
+func TestSessionOwnerResolver_NoSessionFalls(t *testing.T) {
+	h := newHarness(t)
+	id := h.createTask(t, StatusReady)
+	r := sessionOwnerResolver(h.q, slog.Default())
+	if _, ok := r(context.Background(), h.getTask(t, id)); ok {
+		t.Fatal("resolver should decline a task with no session_id")
 	}
 }
 
-func TestSessionResolver_EmptyOwnerFalls(t *testing.T) {
-	prov := &fakeSessionProvider{info: memory.SessionInfo{AgentID: ""}}
-	r := sessionAndCreatorResolver(nil, prov, slog.Default())
-	if _, ok := r(context.Background(), taskWithSession("sess-1")); ok {
-		t.Fatal("resolver should fall back when session has no owning agent")
+// TestSessionOwnerResolver_NoExecutorOnRunFalls: a session exists but its run
+// recorded no executor (creator-dispatched, executor agent unknown), so the
+// resolver declines rather than inventing one.
+func TestSessionOwnerResolver_NoExecutorOnRunFalls(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	id := h.createTask(t, StatusReady)
+	if _, err := h.svc.Claim(ctx, ClaimParams{
+		TaskID: id, ExecutorAgentID: "", NewSessionID: "sess-1",
+	}); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	r := sessionOwnerResolver(h.q, slog.Default())
+	if _, ok := r(ctx, h.getTask(t, id)); ok {
+		t.Fatal("resolver should decline when the latest run carried no executor")
 	}
 }

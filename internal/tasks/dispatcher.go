@@ -247,10 +247,20 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 			d.emitProtocolError(ctx, task.ID, "no executor resolved")
 			continue
 		}
-		sessionID, err := d.cfg.NewSession(ctx, task, execID)
-		if err != nil {
-			d.cfg.Logger.Warn("dispatcher: mint session", "task", task.ID, "err", err)
-			continue
+		// Reuse the task's persisted session on a retry; mint a fresh one only
+		// for a first claim. Claim's D12 rule keeps an existing session_id and
+		// ignores NewSessionID, so unconditionally minting here would orphan a
+		// session per retry tick.
+		sessionID := ""
+		if task.SessionID.Valid && task.SessionID.String != "" {
+			sessionID = task.SessionID.String
+		} else {
+			var err error
+			sessionID, err = d.cfg.NewSession(ctx, task, execID)
+			if err != nil {
+				d.cfg.Logger.Warn("dispatcher: mint session", "task", task.ID, "err", err)
+				continue
+			}
 		}
 		res, err := d.cfg.Service.Claim(ctx, ClaimParams{
 			TaskID: task.ID, ExecutorAgentID: execID,

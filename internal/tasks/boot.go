@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -69,7 +70,7 @@ func New(cfg BootConfig) *Service {
 		Service:    svc,
 		Queries:    q,
 		Executor:   exec,
-		Resolver:   sessionAndCreatorResolver(q, cfg.Memory, logger),
+		Resolver:   sessionOwnerResolver(q, logger),
 		NewSession: newSession,
 		MaxWorkers: cfg.MaxWorkers,
 		TickEvery:  cfg.TickEvery,
@@ -95,32 +96,38 @@ func noopExecutor(log *slog.Logger) Executor {
 	})
 }
 
-// sessionAndCreatorResolver resolves the executor from an existing task
-// session: when task.session_id is set, the session owner becomes the
-// executor. This sits between the dispatch hint and the creator fallback in
-// the dispatcher's precedence chain (D13), so a task that already ran in a
-// session keeps running under the same owning agent. Returns (false) when no
-// session is recorded or the provider can't report session ownership, letting
-// the dispatcher fall back to task.agent_id.
-func sessionAndCreatorResolver(_ *sqlc.Queries, mem memory.Provider, logger *slog.Logger) ExecutorResolver {
-	sm, ok := mem.(memory.SessionManager)
-	if !ok {
-		return func(_ context.Context, _ sqlc.AgentTask) (string, bool) { return "", false }
-	}
+// sessionOwnerResolver resolves the executor for a task that has already run by
+// reusing the executor_agent_id of its latest worker run. This sits between the
+// dispatch hint and the creator fallback in the dispatcher's precedence chain
+// (D13), so a retry keeps the original executor and runs in the task's
+// persisted session — even when the first run was handed to an agent other than
+// the task creator via a dispatch hint.
+//
+// It resolves from durable task-run data rather than memory.SessionManager:
+// LoadInfo requires user_id+agent_id already in the context scope, but the
+// dispatcher's scheduler context has neither, and agent_id is precisely the
+// owner we are trying to discover — a circular dependency that made the old
+// memory-backed lookup always fail and silently fall back to the creator.
+// Returns (false) when the task has no recorded session/run or that run carried
+// no executor, letting the dispatcher fall back to task.agent_id.
+func sessionOwnerResolver(q *sqlc.Queries, logger *slog.Logger) ExecutorResolver {
 	return func(ctx context.Context, task sqlc.AgentTask) (string, bool) {
 		if !task.SessionID.Valid || task.SessionID.String == "" {
 			return "", false
 		}
-		info, err := sm.LoadInfo(ctx, task.SessionID.String)
+		run, err := q.LatestAgentTaskRunForTask(ctx, sqlc.LatestAgentTaskRunForTaskParams{
+			TaskID: nullable(task.ID), Kind: RunKindWorker,
+		})
 		if err != nil {
-			logger.Warn("tasks: session owner lookup failed",
-				"task", task.ID, "session", task.SessionID.String, "err", err)
+			if !errors.Is(err, sql.ErrNoRows) {
+				logger.Warn("tasks: latest run lookup failed", "task", task.ID, "err", err)
+			}
 			return "", false
 		}
-		if info.AgentID == "" {
+		if !run.ExecutorAgentID.Valid || run.ExecutorAgentID.String == "" {
 			return "", false
 		}
-		return info.AgentID, true
+		return run.ExecutorAgentID.String, true
 	}
 }
 
