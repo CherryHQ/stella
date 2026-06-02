@@ -118,7 +118,7 @@ export function RecallyPage() {
 
       {/* Mobile digest detail overlay */}
       {showDigestDetail && (
-        <div className="fixed inset-x-0 bottom-0 top-12 z-40 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
+        <div className="fixed inset-0 z-40 flex flex-col bg-background md:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
             <span className="text-sm font-medium">{t("recally.nav.digest")}</span>
             <button
@@ -135,7 +135,7 @@ export function RecallyPage() {
 
       {/* Mobile reader / Chat overlay */}
       {selectedId && (
-        <div className="fixed inset-x-0 bottom-0 top-12 z-50 flex flex-col border-t border-border bg-background shadow-lg md:hidden">
+        <div className="fixed inset-0 z-50 flex flex-col bg-background md:hidden">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5 bg-card">
             <span className="text-xs font-semibold text-foreground">
               {chatOpen ? t("AI 边读边问" as any) || "AI Chat" : t("recally.title")}
