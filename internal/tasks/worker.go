@@ -144,7 +144,7 @@ func (w *Worker) applyResult(taskID, runID string, actor Actor, res Result) erro
 		}); ferr != nil {
 			w.log.Warn("worker: fail bookkeeping returned error", "err", ferr)
 		}
-		w.appendProtocolError(taskID, runID, reason, actor)
+		w.appendProtocolError(taskID, runID, reason, res.RepairAttempted, actor)
 		return nil
 	}
 }
@@ -176,8 +176,10 @@ func (w *Worker) leaseUntil() sql.NullString {
 }
 
 // appendProtocolError writes one event row recording the protocol violation.
-// Best-effort; failure to write the event must not mask the protocol error.
-func (w *Worker) appendProtocolError(taskID, runID, reason string, actor Actor) {
+// repairAttempted distinguishes a silent miss (false) from a failed bounded
+// repair turn (true). Best-effort; failure to write the event must not mask the
+// protocol error.
+func (w *Worker) appendProtocolError(taskID, runID, reason string, repairAttempted bool, actor Actor) {
 	ctx := context.Background()
 	if err := w.svc.appendEvent(ctx, w.q, sqlc.InsertAgentTaskEventParams{
 		TaskID:    nullable(taskID),
@@ -185,7 +187,7 @@ func (w *Worker) appendProtocolError(taskID, runID, reason string, actor Actor) 
 		EventType: "protocol_error",
 		ActorType: actorTypeOrSystem(actor),
 		ActorID:   nullable(actor.ID),
-		Detail:    detailJSON(map[string]any{"reason": reason}),
+		Detail:    detailJSON(map[string]any{"reason": reason, "repair_attempted": repairAttempted}),
 	}); err != nil {
 		w.log.Warn("worker: append protocol_error event failed", "err", err)
 	}

@@ -13,14 +13,35 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// fakeRunner emits events from a caller-provided channel.
+// turnFn simulates one agent Chat turn. It receives the task_control tool and
+// an emit callback that streams assistant text; returning a non-nil error
+// surfaces as a stream error event.
+type turnFn func(tc tools.Tool, emit func(text string)) error
+
+// fakeRunner runs a sequence of turns, one per Chat call, so tests can exercise
+// the bounded protocol-repair second turn.
 type fakeRunner struct {
-	events chan agent.Event
+	tc     tools.Tool
+	turns  []turnFn
+	idx    int
 	closed bool
 }
 
 func (f *fakeRunner) Chat(_ context.Context, _ []ai.Message, _ agent.MessageContent) <-chan agent.Event {
-	return f.events
+	ev := make(chan agent.Event, 8)
+	i := f.idx
+	f.idx++
+	go func() {
+		defer close(ev)
+		if i >= len(f.turns) {
+			return
+		}
+		emit := func(text string) { ev <- agent.Event{Text: text} }
+		if err := f.turns[i](f.tc, emit); err != nil {
+			ev <- agent.Event{Err: err}
+		}
+	}()
+	return ev
 }
 func (f *fakeRunner) Alive() bool             { return !f.closed }
 func (f *fakeRunner) Busy() bool              { return false }
@@ -75,10 +96,9 @@ func TestTerminalRecorder_FirstWins(t *testing.T) {
 	}
 }
 
-// runExecutor claims a task, wires a fake pool whose runner behavior is driven
-// by onRun, and returns the workerExecutor's Result. onRun receives the
-// task_control tool and simulates the agent.
-func runExecutor(t *testing.T, h *testHarness, onRun func(tc tools.Tool) error) (Result, error) {
+// runExecutorTurns claims a task, wires a fake pool whose runner replays the
+// given turns (one per Chat call), and returns the workerExecutor's Result.
+func runExecutorTurns(t *testing.T, h *testHarness, turns ...turnFn) (Result, error) {
 	t.Helper()
 	taskID, runID := claimSetup(t, h)
 	if _, err := h.db.Exec(`UPDATE agent_task_run SET executor_agent_id = ? WHERE id = ?`, h.agentID, runID); err != nil {
@@ -102,18 +122,18 @@ func runExecutor(t *testing.T, h *testHarness, onRun func(tc tools.Tool) error) 
 			if tc == nil {
 				t.Fatalf("task_control tool missing from ExtraTools")
 			}
-			ev := make(chan agent.Event, 4)
-			go func() {
-				defer close(ev)
-				if err := onRun(tc); err != nil {
-					ev <- agent.Event{Err: err}
-				}
-			}()
-			return &fakeRunner{events: ev}, nil
+			return &fakeRunner{tc: tc, turns: turns}, nil
 		}, true
 	}
 	exec := newWorkerExecutor(pools, nil, h.q, h.svc, nil)
 	return exec.Execute(context.Background(), Request{Run: run, Task: &task})
+}
+
+// runExecutor is the single-turn convenience wrapper: the runner performs one
+// Chat turn driven by onRun (assistant text is not exercised).
+func runExecutor(t *testing.T, h *testHarness, onRun func(tc tools.Tool) error) (Result, error) {
+	t.Helper()
+	return runExecutorTurns(t, h, func(tc tools.Tool, _ func(string)) error { return onRun(tc) })
 }
 
 func TestWorkerExecutor_SubmitRecorded(t *testing.T) {
@@ -269,6 +289,81 @@ func TestWorkerExecutor_NoPool_NonRetryableFail(t *testing.T) {
 	}
 	if res.Action != TerminalFail || res.Failure == nil || res.Failure.Retryable {
 		t.Fatalf("res=%+v want non-retryable fail", res)
+	}
+}
+
+// Phase 3: bounded protocol repair.
+
+func TestWorkerExecutor_TextThenRepairSubmit(t *testing.T) {
+	h := newHarness(t)
+	res, err := runExecutorTurns(t, h,
+		func(_ tools.Tool, emit func(string)) error { emit("Here is my answer in plain text."); return nil },
+		func(tc tools.Tool, _ func(string)) error {
+			_, e := tc.Execute(context.Background(), map[string]any{"action": "submit", "output": map[string]any{"answer": "42"}})
+			return e
+		},
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Action != TerminalSubmit {
+		t.Fatalf("action=%q want submit after repair", res.Action)
+	}
+}
+
+func TestWorkerExecutor_TextThenRepairBlock(t *testing.T) {
+	h := newHarness(t)
+	res, err := runExecutorTurns(t, h,
+		func(_ tools.Tool, emit func(string)) error { emit("I need more info."); return nil },
+		func(tc tools.Tool, _ func(string)) error {
+			_, e := tc.Execute(context.Background(), map[string]any{"action": "block", "kind": BlockerKindUserInput, "question": "approve?"})
+			return e
+		},
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Action != TerminalBlock || res.Blocker == nil || res.Blocker.Question != "approve?" {
+		t.Fatalf("res=%+v want block after repair", res)
+	}
+}
+
+func TestWorkerExecutor_TextThenTextStaysProtocolMiss(t *testing.T) {
+	h := newHarness(t)
+	res, err := runExecutorTurns(t, h,
+		func(_ tools.Tool, emit func(string)) error { emit("first text"); return nil },
+		func(_ tools.Tool, emit func(string)) error { emit("still just text"); return nil },
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Action != TerminalNone {
+		t.Fatalf("action=%q want none (repair failed)", res.Action)
+	}
+	if !res.RepairAttempted {
+		t.Fatalf("RepairAttempted should be true after a failed repair turn")
+	}
+}
+
+func TestWorkerExecutor_SilentExitSkipsRepair(t *testing.T) {
+	h := newHarness(t)
+	// First turn emits no text and no terminal; repair turn would submit. A
+	// silent miss must NOT trigger repair, so the result stays TerminalNone.
+	res, err := runExecutorTurns(t, h,
+		func(_ tools.Tool, _ func(string)) error { return nil },
+		func(tc tools.Tool, _ func(string)) error {
+			_, e := tc.Execute(context.Background(), map[string]any{"action": "submit", "output": map[string]any{}})
+			return e
+		},
+	)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Action != TerminalNone {
+		t.Fatalf("action=%q want none (silent exit, no repair)", res.Action)
+	}
+	if res.RepairAttempted {
+		t.Fatalf("RepairAttempted should be false for a silent exit")
 	}
 }
 

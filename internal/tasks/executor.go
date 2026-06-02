@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -53,6 +54,11 @@ type Result struct {
 	Output  any
 	Blocker *BlockerResult
 	Failure *FailureResult
+	// RepairAttempted is set when a text-only first turn triggered one bounded
+	// repair turn that still produced no terminal action. It only carries
+	// meaning for TerminalNone and lets the worker distinguish a silent miss
+	// from a failed repair in the protocol_error detail.
+	RepairAttempted bool
 }
 
 // Executor owns agent interaction and the terminal protocol for one run. It
@@ -166,27 +172,65 @@ func (e *workerExecutor) Execute(ctx context.Context, req Request) (Result, erro
 	}
 	defer func() { _ = runner.Close() }()
 
-	prompt := buildTaskPrompt(*req.Task)
+	// First turn.
+	text, res, done, fail := e.runTurn(ctx, runner, rec, buildTaskPrompt(*req.Task))
+	if fail != nil {
+		return *fail, nil
+	}
+	if done {
+		return res, nil
+	}
+
+	// The turn ended without a terminal action. A silent exit (no assistant
+	// text) is an unrecoverable protocol miss; a text-only answer gets exactly
+	// one bounded repair turn that re-states the protocol with the prior text
+	// as context. There is no auto-submit of free text (D5).
+	if strings.TrimSpace(text) == "" {
+		return Result{Action: TerminalNone}, nil
+	}
+
+	_, res, done, fail = e.runTurn(ctx, runner, rec, buildRepairPrompt(text))
+	if fail != nil {
+		return *fail, nil
+	}
+	if done {
+		return res, nil
+	}
+	return Result{Action: TerminalNone, RepairAttempted: true}, nil
+}
+
+// runTurn pumps one Chat turn until a terminal action is recorded or the event
+// channel closes. It returns the assistant text emitted during the turn, the
+// recorded Result (when done), whether a terminal action fired, and a non-nil
+// fail Result if the stream errored before any terminal action.
+func (e *workerExecutor) runTurn(ctx context.Context, runner agent.Runner, rec *terminalRecorder, prompt string) (text string, res Result, done bool, fail *Result) {
 	events := runner.Chat(ctx, nil, prompt)
+	var buf strings.Builder
 	for ev := range events {
 		if ev.Err != nil {
 			if rec.isDone() {
 				go drainEvents(events)
-				res, _ := rec.snapshot()
-				return res, nil
+				r, _ := rec.snapshot()
+				return buf.String(), r, true, nil
 			}
-			e.log.Warn("worker executor stream error",
-				"task_id", req.Task.ID, "run_id", req.Run.ID, "err", ev.Err)
-			return failResult(fmt.Sprintf("runner error: %v", ev.Err), true), nil
+			e.log.Warn("worker executor stream error", "err", ev.Err)
+			f := failResult(fmt.Sprintf("runner error: %v", ev.Err), true)
+			return buf.String(), Result{}, false, &f
+		}
+		if ev.Text != "" {
+			buf.WriteString(ev.Text)
 		}
 		if rec.isDone() {
 			go drainEvents(events)
-			break
+			r, _ := rec.snapshot()
+			return buf.String(), r, true, nil
 		}
 	}
-
-	res, _ := rec.snapshot()
-	return res, nil
+	if rec.isDone() {
+		r, _ := rec.snapshot()
+		return buf.String(), r, true, nil
+	}
+	return buf.String(), Result{}, false, nil
 }
 
 // failResult is a small constructor for a non-agent failure outcome.
@@ -221,6 +265,26 @@ Protocol:
 
 Task:
 ` + body
+}
+
+// buildRepairPrompt is the single bounded correction turn for a worker that
+// answered in plain text without calling task_control. It echoes the prior
+// answer as context and demands exactly one terminal action — it never submits
+// the text automatically (D5).
+func buildRepairPrompt(priorText string) string {
+	return `Your previous response did not call task_control, so this task is not yet resolved.
+
+Your previous message was:
+"""
+` + priorText + `
+"""
+
+You MUST now call task_control exactly once with one terminal action:
+  - action="submit" with output if the task is complete.
+  - action="block" with kind/question if you need input or an external dependency.
+  - action="fail" with reason/retryable if the task cannot be completed.
+
+Do not answer in plain text again.`
 }
 
 // recordingControlTool is the agent-facing task_control tool. progress
