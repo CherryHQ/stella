@@ -276,10 +276,15 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.finalizeLogin(w, r, result)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result auth.OIDCLoginResult) {
 	// Ensure every user has an auto-generated API token (idempotent).
 	if s.tokenSvc != nil {
 		if err := s.tokenSvc.EnsureAutoToken(r.Context(), result.User.ID); err != nil {
-			slog.Warn("oidc: ensure auto token failed", "user_id", result.User.ID, "error", err)
+			slog.Warn("auth: ensure auto token failed", "user_id", result.User.ID, "error", err)
 		}
 	}
 
@@ -287,16 +292,14 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if result.User.AgePublicKey == "" && s.vaultRecipient != nil {
 		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
 		if err != nil {
-			slog.Warn("oidc: generate age keys failed", "user_id", result.User.ID, "error", err)
+			slog.Warn("auth: generate age keys failed", "user_id", result.User.ID, "error", err)
 		} else if err := s.authSvc.UpdateUserAgeKeys(r.Context(), result.User.ID, pubKey, encPrivKey); err != nil {
-			slog.Warn("oidc: store age keys failed", "user_id", result.User.ID, "error", err)
+			slog.Warn("auth: store age keys failed", "user_id", result.User.ID, "error", err)
 		}
 	}
 
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	s.sessionMgr.SetCookie(w, result.SessionToken, secure)
-
-	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *Server) findProvider(name string) auth.AuthProvider {
