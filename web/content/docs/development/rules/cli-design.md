@@ -299,6 +299,19 @@ exit behavior as compatibility surfaces.
 - Prefer additive JSON fields; do not change field types.
 - Remove behavior only after checking docs, tests, and known callers.
 
+**Pre-launch exception.** Stella has not shipped a stable release yet, so there
+are no external scripts to protect. Until the first release, prefer full
+conformance over compatibility shims: rename commands to the correct shape and
+drop legacy aliases (including `rm`-style destructive aliases) outright instead
+of keeping them around. After launch, the compatibility rules above apply in
+full.
+
+**`vault get <name>` secret exception.** `vault get <name>` deliberately prints
+the raw secret value to stdout — it is the explicit single-resource retrieval
+used for scripting, and is the one sanctioned exception to "never print
+secrets." Every other surface (e.g. `vault list`, `email config get/list`) must
+keep secrets masked in both human and JSON output.
+
 ## Implementation Checklist
 
 When adding or changing a command under `cmd/stella/`:
