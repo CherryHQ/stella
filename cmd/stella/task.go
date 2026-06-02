@@ -24,6 +24,17 @@ func taskAgentID(c *ucli.Context) (string, error) {
 	return "", fmt.Errorf("agent ID is required (pass --agent-id or set STELLA_AGENT_ID)")
 }
 
+func taskAgentFlags() []ucli.Flag {
+	return []ucli.Flag{
+		&ucli.StringFlag{Name: "agent-id", Aliases: []string{"agent"}, Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
+	}
+}
+
+func requireTaskAgent(c *ucli.Context) error {
+	_, err := taskAgentID(c)
+	return err
+}
+
 func taskCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:        "task",
@@ -53,15 +64,15 @@ func taskListCmd() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
 		Usage: "List tasks",
-		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent", Usage: "Filter by creator agent ID"},
+		Flags: append(taskAgentFlags(),
 			&ucli.StringFlag{Name: "status", Usage: "Filter by status"},
-		},
+		),
 		Action: func(c *ucli.Context) error {
-			params := &apiclient.ListTasksParams{}
-			if a := c.String("agent"); a != "" {
-				params.AgentId = &a
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
 			}
+			params := &apiclient.ListTasksParams{AgentId: &agentID}
 			if s := c.String("status"); s != "" {
 				params.Status = &s
 			}
@@ -84,10 +95,14 @@ func taskGetCmd() *ucli.Command {
 		Name:      "get",
 		Usage:     "Show a task",
 		ArgsUsage: "<task-id>",
+		Flags:     taskAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			task, err := apiclient.Call[apitypes.Task](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetTask(c.Context, id)
@@ -105,15 +120,14 @@ func taskCreateCmd() *ucli.Command {
 	return &ucli.Command{
 		Name:  "create",
 		Usage: "Create a task",
-		Flags: []ucli.Flag{
+		Flags: append(taskAgentFlags(),
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Task title"},
 			&ucli.StringFlag{Name: "description", Usage: "Task description"},
-			&ucli.StringFlag{Name: "agent-id", Aliases: []string{"agent"}, Usage: "Creator agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "executor", Usage: "Explicit executor agent ID (D13)"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency: <task-id>[:kind[:on_failure]]; may be repeated"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
-		},
+		),
 		Action: func(c *ucli.Context) error {
 			agentID, err := taskAgentID(c)
 			if err != nil {
@@ -164,11 +178,14 @@ func taskCancelCmd() *ucli.Command {
 		Name:      "cancel",
 		Usage:     "Cancel a task",
 		ArgsUsage: "<task-id>",
-		Flags:     []ucli.Flag{&ucli.StringFlag{Name: "reason", Usage: "Cancellation reason"}},
+		Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Cancellation reason"}),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			body := apitypes.CancelRequest{}
 			if r := c.String("reason"); r != "" {
@@ -191,11 +208,14 @@ func taskReopenCmd() *ucli.Command {
 		Name:      "reopen",
 		Usage:     "Reopen a done/failed task",
 		ArgsUsage: "<task-id>",
-		Flags:     []ucli.Flag{&ucli.BoolFlag{Name: "cascade", Usage: "Cascade-reset downstream tasks"}},
+		Flags:     append(taskAgentFlags(), &ucli.BoolFlag{Name: "cascade", Usage: "Cascade-reset downstream tasks"}),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			body := apitypes.ReopenRequest{}
 			if c.Bool("cascade") {
@@ -219,10 +239,14 @@ func taskReadinessCmd() *ucli.Command {
 		Name:      "readiness",
 		Usage:     "Show task readiness",
 		ArgsUsage: "<task-id>",
+		Flags:     taskAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			rd, err := apiclient.Call[apitypes.Readiness](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetTaskReadiness(c.Context, id)
@@ -254,10 +278,14 @@ func taskEventsCmd() *ucli.Command {
 		Name:      "events",
 		Usage:     "List task events",
 		ArgsUsage: "<task-id>",
+		Flags:     taskAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			list, err := apiclient.Call[apitypes.EventList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListTaskEvents(c.Context, id, nil)
@@ -287,10 +315,14 @@ func taskDepsCmd() *ucli.Command {
 		Name:      "deps",
 		Usage:     "List dependency edges",
 		ArgsUsage: "<task-id>",
+		Flags:     taskAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			list, err := apiclient.Call[apitypes.DepList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListTaskDeps(c.Context, id, nil)
@@ -328,10 +360,13 @@ func taskReviewEscalateCmd() *ucli.Command {
 		Name:      "escalate",
 		Usage:     "Escalate an agent review to a human",
 		ArgsUsage: "<task-id> <review-id>",
-		Flags:     []ucli.Flag{&ucli.StringFlag{Name: "reason", Usage: "Escalation reason"}},
+		Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Escalation reason"}),
 		Action: func(c *ucli.Context) error {
 			if c.NArg() < 2 {
 				return fmt.Errorf("usage: stella task review escalate <task-id> <review-id>")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			taskID := c.Args().Get(0)
 			reviewID := c.Args().Get(1)
@@ -356,10 +391,14 @@ func taskReviewsCmd() *ucli.Command {
 		Name:      "reviews",
 		Usage:     "List task reviews",
 		ArgsUsage: "<task-id>",
+		Flags:     taskAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			list, err := apiclient.Call[apitypes.ReviewList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListTaskReviews(c.Context, id, nil)
@@ -378,10 +417,14 @@ func taskRunsCmd() *ucli.Command {
 		Name:      "runs",
 		Usage:     "List task run attempts",
 		ArgsUsage: "<task-id>",
+		Flags:     taskAgentFlags(),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
 				return fmt.Errorf("task id is required")
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			list, err := apiclient.Call[apitypes.RunList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListTaskRuns(c.Context, id, nil)
@@ -412,9 +455,13 @@ func taskDepCmd() *ucli.Command {
 				ArgsUsage: "<task-id> <dep-spec>",
 				Description: "dep-spec is <dep-task-id>[:kind[:on_failure]] " +
 					"(kind: hard|soft, on_failure: block|fail|ignore).",
+				Flags: taskAgentFlags(),
 				Action: func(c *ucli.Context) error {
 					if c.NArg() < 2 {
 						return fmt.Errorf("usage: stella task dep add <task-id> <dep-spec>")
+					}
+					if err := requireTaskAgent(c); err != nil {
+						return err
 					}
 					taskID := c.Args().Get(0)
 					spec, err := parseDepSpec(c.Args().Get(1))
@@ -443,10 +490,13 @@ func taskDepCmd() *ucli.Command {
 				Name:      "waive",
 				Usage:     "Waive a failed hard dependency",
 				ArgsUsage: "<task-id> <dep-task-id>",
-				Flags:     []ucli.Flag{&ucli.StringFlag{Name: "reason", Usage: "Waiver reason"}},
+				Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Waiver reason"}),
 				Action: func(c *ucli.Context) error {
 					if c.NArg() < 2 {
 						return fmt.Errorf("usage: stella task dep waive <task-id> <dep-task-id>")
+					}
+					if err := requireTaskAgent(c); err != nil {
+						return err
 					}
 					taskID := c.Args().Get(0)
 					depTaskID := c.Args().Get(1)
@@ -478,10 +528,13 @@ func taskBlockerCmd() *ucli.Command {
 				ArgsUsage: "<task-id> <blocker-id>",
 				Description: "Get the blocker id from `stella task get` (active_blocker). " +
 					"dep_failure blockers must be cleared with `stella task dep waive` instead.",
-				Flags: []ucli.Flag{&ucli.StringFlag{Name: "resolution", Usage: "Resolution note / answer"}},
+				Flags: append(taskAgentFlags(), &ucli.StringFlag{Name: "resolution", Usage: "Resolution note / answer"}),
 				Action: func(c *ucli.Context) error {
 					if c.NArg() < 2 {
 						return fmt.Errorf("usage: stella task blocker resolve <task-id> <blocker-id>")
+					}
+					if err := requireTaskAgent(c); err != nil {
+						return err
 					}
 					taskID := c.Args().Get(0)
 					blockerID := c.Args().Get(1)
@@ -514,13 +567,16 @@ func reviewDecisionCmd(verb, usage string) *ucli.Command {
 		Name:      verb,
 		Usage:     usage,
 		ArgsUsage: "<task-id> <review-id>",
-		Flags: []ucli.Flag{
+		Flags: append(taskAgentFlags(),
 			&ucli.StringFlag{Name: "summary", Usage: "Decision summary"},
 			&ucli.StringFlag{Name: "feedback", Usage: "Feedback to the worker (reject / request-changes)"},
-		},
+		),
 		Action: func(c *ucli.Context) error {
 			if c.NArg() < 2 {
 				return fmt.Errorf("usage: stella task review %s <task-id> <review-id>", verb)
+			}
+			if err := requireTaskAgent(c); err != nil {
+				return err
 			}
 			taskID := c.Args().Get(0)
 			reviewID := c.Args().Get(1)

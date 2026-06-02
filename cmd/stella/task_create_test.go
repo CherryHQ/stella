@@ -51,3 +51,37 @@ func TestTaskCreateRequiresAgentID(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestTaskListUsesAgentIDFromEnv(t *testing.T) {
+	t.Setenv("STELLA_TOKEN", "test-token")
+	t.Setenv("STELLA_AGENT_ID", "agent-1")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/tasks" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query().Get("agent_id"); got != "agent-1" {
+			t.Fatalf("agent_id query = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tasks":[]}`))
+	}))
+	defer server.Close()
+	t.Setenv("STELLA_SERVER_URL", server.URL)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	app := ucli.NewApp()
+	app.Commands = []*ucli.Command{taskCommand()}
+	if err := app.Run([]string{"stella", "task", "list"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestTaskGetRequiresAgentID(t *testing.T) {
+	app := ucli.NewApp()
+	app.Commands = []*ucli.Command{taskCommand()}
+	err := app.Run([]string{"stella", "task", "get", "task-1"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
