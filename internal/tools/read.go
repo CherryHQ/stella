@@ -6,14 +6,18 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/disintegration/imaging"
-	_ "golang.org/x/image/webp" // register webp decoder for imaging.Decode
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp" // register webp decoder for image.Decode
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -191,32 +195,53 @@ func validateImageBudget(data []byte) (image.Config, error) {
 
 // prepareInlineImage downsizes an image to fit maxImageDim on its longest edge,
 // re-encoding only when a resize is needed. Images already within bounds are
-// returned untouched. WebP is re-encoded as PNG since imaging cannot encode it.
-// The caller must pass the config from a prior validateImageBudget check.
+// returned untouched. WebP is re-encoded as PNG since the standard library
+// cannot encode it. The caller must pass the config from a prior
+// validateImageBudget check.
 func prepareInlineImage(data []byte, cfg image.Config, mime string) ([]byte, string, error) {
 	if cfg.Width <= maxImageDim && cfg.Height <= maxImageDim && mime != "image/webp" {
 		return data, mime, nil
 	}
 
-	img, err := imaging.Decode(bytes.NewReader(data))
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, "", err
 	}
-	fitted := imaging.Fit(img, maxImageDim, maxImageDim, imaging.Lanczos)
-
-	format, outMime := imaging.PNG, "image/png"
-	switch mime {
-	case "image/jpeg":
-		format, outMime = imaging.JPEG, "image/jpeg"
-	case "image/gif":
-		format, outMime = imaging.GIF, "image/gif"
-	}
+	fitted := fitImage(img, maxImageDim)
 
 	var buf bytes.Buffer
-	if err := imaging.Encode(&buf, fitted, format); err != nil {
+	outMime := "image/png"
+	switch mime {
+	case "image/jpeg":
+		outMime = "image/jpeg"
+		err = jpeg.Encode(&buf, fitted, &jpeg.Options{Quality: 90})
+	case "image/gif":
+		outMime = "image/gif"
+		err = gif.Encode(&buf, fitted, nil)
+	default:
+		err = png.Encode(&buf, fitted)
+	}
+	if err != nil {
 		return nil, "", err
 	}
 	return buf.Bytes(), outMime, nil
+}
+
+// fitImage scales src down so its longest edge is at most maxDim, preserving
+// aspect ratio. Images already within bounds are returned unchanged; src is
+// never upscaled.
+func fitImage(src image.Image, maxDim int) image.Image {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= maxDim && h <= maxDim {
+		return src
+	}
+	scale := math.Min(float64(maxDim)/float64(w), float64(maxDim)/float64(h))
+	dstW := max(int(math.Round(float64(w)*scale)), 1)
+	dstH := max(int(math.Round(float64(h)*scale)), 1)
+	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Src, nil)
+	return dst
 }
 
 // extractWithKreuzberg shells out to the kreuzberg CLI to extract text from a

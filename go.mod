@@ -11,7 +11,6 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.18.0
-	github.com/disintegration/imaging v1.6.2
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/go-co-op/gocron/v2 v2.19.1
