@@ -3,6 +3,7 @@ package tracehook
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -47,6 +48,18 @@ func redactSecrets(s string) string {
 	return s
 }
 
+// recordSpanError marks span as failed without leaking the raw error message.
+// Provider/LLM/memory errors routinely embed upstream HTTP bodies, tokens, or
+// prompt fragments; the message is exported as a span event/status, so it runs
+// through redactSecrets first. The concrete Go type is preserved separately in
+// error.type since redaction only touches the human-readable string.
+func recordSpanError(span trace.Span, err error) {
+	msg := redactSecrets(err.Error())
+	span.RecordError(errors.New(msg))
+	span.SetStatus(codes.Error, msg)
+	span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
+}
+
 func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
 	input := redactSecrets(summarizeArgs(hctx.ToolName, hctx.Arguments))
 	h.log.Info("pre_tool_call",
@@ -70,16 +83,19 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 				parentCtx = st.loopCtx
 			}
 
+			attrs := []attribute.KeyValue{
+				attribute.String("gen_ai.operation.name", "execute_tool"),
+				attribute.String("gen_ai.tool.name", hctx.ToolName),
+				attribute.String("gen_ai.tool.call.id", hctx.ToolCallID),
+				attribute.String("user_id", hctx.UserID),
+				attribute.String("agent_id", hctx.AgentID),
+				attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
+			}
+			if h.recordIO {
+				attrs = append(attrs, attribute.String("gen_ai.tool.input", input))
+			}
 			toolCtx, span := h.tracer().Start(parentCtx, "gen_ai.execute_tool",
-				trace.WithAttributes(
-					attribute.String("gen_ai.operation.name", "execute_tool"),
-					attribute.String("gen_ai.tool.name", hctx.ToolName),
-					attribute.String("gen_ai.tool.call.id", hctx.ToolCallID),
-					attribute.String("user_id", hctx.UserID),
-					attribute.String("agent_id", hctx.AgentID),
-					attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
-					attribute.String("gen_ai.tool.input", input),
-				),
+				trace.WithAttributes(attrs...),
 			)
 
 			st.toolSpans[hctx.ToolCallID] = span
@@ -137,9 +153,11 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 
 	span.SetAttributes(
 		attribute.Int("gen_ai.tool.result_len", len(hctx.Result)),
-		attribute.String("gen_ai.tool.result", resultSnippet),
 		attribute.Float64("gen_ai.tool.duration_s", hctx.Duration.Seconds()),
 	)
+	if h.recordIO {
+		span.SetAttributes(attribute.String("gen_ai.tool.result", resultSnippet))
+	}
 	if hctx.IsError {
 		span.SetStatus(codes.Error, "tool execution failed")
 		span.SetAttributes(attribute.String("error.type", "tool_error"))

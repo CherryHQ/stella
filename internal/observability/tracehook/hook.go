@@ -9,6 +9,7 @@ package tracehook
 import (
 	"context"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,8 +22,9 @@ import (
 // Hook logs LLM, tool, and memory call details via slog, and records OTel
 // spans when tracing is enabled.
 type Hook struct {
-	log     *slog.Logger
-	enabled bool // mirrors whether OTel export is configured
+	log      *slog.Logger
+	enabled  bool // mirrors whether OTel export is configured
+	recordIO bool // record full tool input/result text on spans (opt-in)
 
 	mu       sync.Mutex
 	sessions map[string]*sessionTrace
@@ -63,6 +65,7 @@ func New(enabled bool) *Hook {
 	h := &Hook{
 		log:      slog.With("hook", "trace"),
 		enabled:  enabled,
+		recordIO: os.Getenv("OTEL_STELLA_RECORD_TOOL_IO") == "true",
 		sessions: make(map[string]*sessionTrace),
 		done:     make(chan struct{}),
 	}

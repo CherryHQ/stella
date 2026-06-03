@@ -70,7 +70,7 @@ func Init(ctx context.Context) (*Provider, error) {
 		"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		"service", cfg.ServiceName)
 	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
-		slog.Warn("otel exporter transport is insecure; spans (including tool commands and results) are sent without TLS")
+		slog.Warn("otel exporter transport is insecure; spans are sent without TLS")
 	}
 	return &Provider{tp: tp}, nil
 }

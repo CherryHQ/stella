@@ -43,14 +43,15 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
 
-| Environment Variable                | Default                    | Description                                                                                                                                                                               |
-| ----------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`       | _(empty -- OTel disabled)_ | OTLP base endpoint. For OTLP/HTTP, use a full URL such as `https://collector.example.com/api/default`. For OTLP/gRPC, use a URL with scheme such as `https://collector.example.com:4317`. |
-| `OTEL_EXPORTER_OTLP_PROTOCOL`       | SDK default                | Export protocol. Common values: `grpc` or `http/protobuf`.                                                                                                                                |
-| `OTEL_EXPORTER_OTLP_HEADERS`        | _(empty)_                  | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`.                                                                                          |
-| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(empty)_                  | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces.                                                                                                |
-| `OTEL_SERVICE_NAME`                 | `stella`                   | Service name shown in your trace backend.                                                                                                                                                 |
-| `OTEL_EXPORTER_OTLP_INSECURE`       | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                            |
+| Environment Variable                | Default                    | Description                                                                                                                                                                                          |
+| ----------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`       | _(empty -- OTel disabled)_ | OTLP base endpoint. For OTLP/HTTP, use a full URL such as `https://collector.example.com/api/default`. For OTLP/gRPC, use a URL with scheme such as `https://collector.example.com:4317`.            |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`       | SDK default                | Export protocol. Common values: `grpc` or `http/protobuf`.                                                                                                                                           |
+| `OTEL_EXPORTER_OTLP_HEADERS`        | _(empty)_                  | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`.                                                                                                     |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(empty)_                  | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces.                                                                                                           |
+| `OTEL_SERVICE_NAME`                 | `stella`                   | Service name shown in your trace backend.                                                                                                                                                            |
+| `OTEL_EXPORTER_OTLP_INSECURE`       | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                                       |
+| `OTEL_STELLA_RECORD_TOOL_IO`        | `false`                    | Set to `true` to record tool input (e.g. bash commands) and result text on spans. Off by default so this content is never exported; spans always carry tool name, argument count, and result length. |
 
 When OTel is enabled, both modes run simultaneously -- you get log lines and exported traces.
 
@@ -61,6 +62,7 @@ When OTel is enabled, both modes run simultaneously -- you get log lines and exp
 - **For OTLP/HTTP, set the base path, not `/v1/traces`.** The exporter appends `/v1/traces` automatically.
 - **Do not set `OTEL_EXPORTER_OTLP_INSECURE=true` for TLS endpoints.** Secure collectors should use `OTEL_EXPORTER_OTLP_INSECURE=false`.
 - **Header values are comma-separated `key=value` pairs without shell quotes inside the value.** Example: `authorization=Basic abc123,organization=default`.
+- **Tool input/result is not exported unless you opt in.** Set `OTEL_STELLA_RECORD_TOOL_IO=true` only when you trust the collector — it ships bash commands and tool output off-box, and the best-effort secret redaction is not a guarantee.
 
 ## Using with Jaeger
 

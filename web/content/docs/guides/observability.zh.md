@@ -51,6 +51,7 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(空)_              | 仅应用于 traces 的逗号分隔请求头。会覆盖针对 traces 的通用 OTLP 请求头。                                                                                         |
 | `OTEL_SERVICE_NAME`                 | `stella`            | 在追踪后端显示的服务名。                                                                                                                                         |
 | `OTEL_EXPORTER_OTLP_INSECURE`       | SDK 默认            | 设为 `false` 以要求 TLS。HTTPS 或安全 gRPC 端点请使用 `false`。                                                                                                  |
+| `OTEL_STELLA_RECORD_TOOL_IO`        | `false`             | 设为 `true` 才会把工具输入(如 bash 命令)和结果文本记录到 span。默认关闭,因此这些内容永不导出;span 始终携带工具名、参数数量与结果长度。                           |
 
 启用 OTel 后，两种模式会同时运行——你既能看到日志行，也能导出追踪。
 
@@ -61,6 +62,7 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 - **OTLP/HTTP 请设置基础路径，而非 `/v1/traces`。** 导出器会自动追加 `/v1/traces`。
 - **TLS 端点不要设 `OTEL_EXPORTER_OTLP_INSECURE=true`。** 安全的采集器应使用 `OTEL_EXPORTER_OTLP_INSECURE=false`。
 - **请求头是逗号分隔的 `key=value` 对，值内不要加 shell 引号。** 例如：`authorization=Basic abc123,organization=default`。
+- **工具输入/结果默认不导出，需显式开启。** 仅在你信任采集器时才设 `OTEL_STELLA_RECORD_TOOL_IO=true`——它会把 bash 命令和工具输出送出本机,且尽力而为的密钥脱敏并非保证。
 
 ## 配合 Jaeger 使用
 

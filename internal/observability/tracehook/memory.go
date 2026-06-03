@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -125,8 +124,7 @@ func (h *Hook) OnPostMemoryCall(ctx context.Context, hctx *hooks.PostMemoryCallC
 	}
 	span.SetAttributes(memoryResultAttrs(hctx)...)
 	if hctx.Error != nil {
-		span.RecordError(hctx.Error)
-		span.SetStatus(codes.Error, hctx.Error.Error())
+		recordSpanError(span, hctx.Error)
 	}
 	span.End()
 

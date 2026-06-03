@@ -2,11 +2,9 @@ package tracehook
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -70,9 +68,7 @@ func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallConte
 		attribute.Int("stella.agent_loop.turn_count", st.turnNum),
 	)
 	if hctx.Error != nil {
-		st.loopSpan.RecordError(hctx.Error)
-		st.loopSpan.SetStatus(codes.Error, hctx.Error.Error())
-		st.loopSpan.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", hctx.Error)))
+		recordSpanError(st.loopSpan, hctx.Error)
 	}
 	st.mu.Unlock()
 

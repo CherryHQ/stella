@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -174,9 +173,7 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		span.SetAttributes(attribute.Float64("gen_ai.usage.cost_usd", hctx.Usage.Cost.Total))
 	}
 	if hctx.Error != nil {
-		span.RecordError(hctx.Error)
-		span.SetStatus(codes.Error, hctx.Error.Error())
-		span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", hctx.Error)))
+		recordSpanError(span, hctx.Error)
 	}
 	span.End()
 
