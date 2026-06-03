@@ -9,8 +9,9 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-// ToolFunc executes one tool invocation.
-type ToolFunc func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error)
+// ToolFunc executes one tool invocation, returning its result as content blocks
+// (text and/or images).
+type ToolFunc func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error)
 
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc

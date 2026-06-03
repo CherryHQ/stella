@@ -163,8 +163,8 @@ func TestRunMultiTurnLoop(t *testing.T) {
 	runner := newTestRunner(stream)
 	// Override tools after construction — tests use the unexported run() path via Runner.
 	runner.tools = ToolSet{
-		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
-			return ai.TextContent{Text: "tool result"}, nil
+		"test_tool": func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "tool result"}}, nil
 		},
 	}
 
@@ -233,8 +233,8 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 
 	runner := newTestRunner(stream, WithInterrupt(interrupt))
 	runner.tools = ToolSet{
-		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
-			return ai.TextContent{Text: "ok"}, nil
+		"test_tool": func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 		},
 	}
 

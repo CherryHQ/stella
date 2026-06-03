@@ -135,23 +135,20 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)
 
-		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: []ai.ContentBlock{content}}
+		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: content}
 		if err != nil {
 			result.IsError = true
 			errText := err.Error()
-			if content.Text != "" {
-				errText = content.Text + "\n" + errText
+			if t := ai.FlattenText(content); t != "" {
+				errText = t + "\n" + errText
 			}
 			result.Content = []ai.ContentBlock{ai.TextContent{Text: errText}}
 		}
-
-		resultText := ""
-		for _, block := range result.Content {
-			if tc, ok := block.(ai.TextContent); ok {
-				resultText = tc.Text
-				break
-			}
+		if len(result.Content) == 0 {
+			result.Content = []ai.ContentBlock{ai.TextContent{Text: ""}}
 		}
+
+		resultText := ai.FlattenText(result.Content)
 
 		if lifecycle != nil && lifecycle.AfterCall != nil {
 			mutation, err := lifecycle.AfterCall(ctx, ToolResultContext{

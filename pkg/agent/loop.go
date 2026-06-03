@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // run executes the agent loop: repeatedly generating assistant responses
@@ -150,7 +151,8 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			}
 		}
 
-		results, err := executeToolCalls(ctx, calls, cfg.Tools, toolCallbacks{
+		toolExecCtx := tools.WithVision(ctx, effectiveModel.SupportsImage())
+		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {
 					emit(ToolStarted{ToolCall: call})

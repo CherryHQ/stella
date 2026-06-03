@@ -83,11 +83,11 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 			var capturedCity string
 
 			tools := agent.ToolSet{
-				"get_weather": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+				"get_weather": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
 					toolCalled.Store(true)
 					city, _ := call.Arguments["city"].(string)
 					capturedCity = city
-					return ai.TextContent{Text: fmt.Sprintf("Weather in %s: 22°C, sunny", city)}, nil
+					return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Weather in %s: 22°C, sunny", city)}}, nil
 				},
 			}
 
