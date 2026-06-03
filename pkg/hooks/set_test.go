@@ -373,6 +373,19 @@ func (p *postAgentPlugin) OnPostAgentCall(_ context.Context, hctx *PostAgentCall
 	p.dur = hctx.Duration
 }
 
+type preMemoryPlugin struct {
+	mockPlugin
+	called bool
+	op     MemoryOp
+	ctx    context.Context
+}
+
+func (p *preMemoryPlugin) OnPreMemoryCall(_ context.Context, hctx *PreMemoryCallContext) (PreMemoryCallResult, error) {
+	p.called = true
+	p.op = hctx.Op
+	return PreMemoryCallResult{Context: p.ctx}, nil
+}
+
 type postMemoryPlugin struct {
 	mockPlugin
 	called bool
@@ -423,6 +436,37 @@ func TestRunPostAgentCall(t *testing.T) {
 func TestRunPostAgentCall_Nil(t *testing.T) {
 	var hs *HookSet
 	hs.RunPostAgentCall(context.Background(), &PostAgentCallContext{})
+}
+
+func TestRunPreMemoryCall(t *testing.T) {
+	key := contextKey("memory")
+	h := &preMemoryPlugin{
+		mockPlugin: mockPlugin{name: "memory-pre", priority: 1},
+		ctx:        context.WithValue(context.Background(), key, "span"),
+	}
+	hs := NewHookSet([]HookPlugin{h})
+
+	result, err := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{Op: MemoryOpAppend})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.called {
+		t.Error("expected hook to be called")
+	}
+	if h.op != MemoryOpAppend {
+		t.Errorf("expected op MemoryOpAppend, got %q", h.op)
+	}
+	if result.Context == nil || result.Context.Value(key) != "span" {
+		t.Fatal("expected enriched context")
+	}
+}
+
+func TestRunPreMemoryCall_Nil(t *testing.T) {
+	var hs *HookSet
+	result, err := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{})
+	if err != nil || result.Context != nil {
+		t.Fatal("nil hook set should be no-op")
+	}
 }
 
 func TestRunPostMemoryCall(t *testing.T) {

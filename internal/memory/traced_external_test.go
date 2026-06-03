@@ -12,6 +12,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
+type memoryContextKey string
+
 // collectingHook records every PostMemoryCall invocation.
 type collectingHook struct {
 	events []*hooks.PostMemoryCallContext
@@ -24,11 +26,36 @@ func (c *collectingHook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMem
 	c.events = append(c.events, &copied)
 }
 
+type contextInjectingHook struct {
+	key memoryContextKey
+}
+
+func (h contextInjectingHook) Name() string  { return "inject" }
+func (h contextInjectingHook) Priority() int { return 0 }
+func (h contextInjectingHook) OnPreMemoryCall(ctx context.Context, _ *hooks.PreMemoryCallContext) (hooks.PreMemoryCallResult, error) {
+	return hooks.PreMemoryCallResult{Context: context.WithValue(ctx, h.key, "memory-span")}, nil
+}
+func (h contextInjectingHook) OnPostMemoryCall(context.Context, *hooks.PostMemoryCallContext) {}
+
 func newTracedWithCollector(inner memory.Provider) (memory.Provider, *collectingHook) {
 	col := &collectingHook{}
 	hs := hooks.NewHookSet([]hooks.HookPlugin{col})
 	traced := memory.WithTracing(inner, func() *hooks.HookSet { return hs })
 	return traced, col
+}
+
+type contextCheckingProvider struct {
+	memory.Provider
+	key memoryContextKey
+	t   *testing.T
+}
+
+func (p *contextCheckingProvider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
+	p.t.Helper()
+	if got := ctx.Value(p.key); got != "memory-span" {
+		p.t.Fatalf("inner provider saw context value %#v, want memory-span", got)
+	}
+	return p.Provider.Append(ctx, session, msgs...)
 }
 
 var testSession = memory.Session{ID: "sess-1", AgentID: "agent-1", UserID: "42"}
@@ -71,6 +98,18 @@ func TestTracedProvider_Bootstrap(t *testing.T) {
 	}
 	if col.events[0].Op != hooks.MemoryOpBootstrap {
 		t.Errorf("expected Bootstrap op, got %q", col.events[0].Op)
+	}
+}
+
+func TestTracedProvider_PreMemoryContextReachesInnerProvider(t *testing.T) {
+	key := memoryContextKey("trace")
+	inner := &contextCheckingProvider{Provider: memorytest.New(), key: key, t: t}
+	traced := memory.WithTracing(inner, func() *hooks.HookSet {
+		return hooks.NewHookSet([]hooks.HookPlugin{contextInjectingHook{key: key}})
+	})
+
+	if err := traced.Append(context.Background(), testSession, ai.UserMessage{Content: "hi"}); err != nil {
+		t.Fatal(err)
 	}
 }
 

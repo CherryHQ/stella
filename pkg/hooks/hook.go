@@ -129,31 +129,54 @@ type PostLLMCallHook interface {
 	OnPostLLMCall(ctx context.Context, hctx *PostLLMCallContext)
 }
 
-// --- PostMemoryCall ---
+// --- MemoryCall ---
 
 // MemoryOp identifies the memory operation being traced.
 type MemoryOp string
 
 const (
-	MemoryOpBootstrap       MemoryOp = "bootstrap"
-	MemoryOpAppend          MemoryOp = "append"
-	MemoryOpAssemble        MemoryOp = "assemble"
-	MemoryOpStats           MemoryOp = "stats"
-	MemoryOpNeedsCompaction MemoryOp = "needs_compaction"
-	MemoryOpCompact         MemoryOp = "compact"
-	MemoryOpSearch          MemoryOp = "search"
-	MemoryOpDescribe        MemoryOp = "describe"
-	MemoryOpExpand          MemoryOp = "expand"
-	MemoryOpGetProfile      MemoryOp = "get_profile"
-	MemoryOpSetProfile      MemoryOp = "set_profile"
-	MemoryOpGetAgentSoul    MemoryOp = "get_agent_soul"
-	MemoryOpSetAgentSoul    MemoryOp = "set_agent_soul"
-	MemoryOpSaveInfo        MemoryOp = "save_info"
-	MemoryOpLoadInfo        MemoryOp = "load_info"
-	MemoryOpListInfo        MemoryOp = "list_info"
-	MemoryOpLoadHistory     MemoryOp = "load_history"
-	MemoryOpBuildReview     MemoryOp = "build_review"
+	MemoryOpBootstrap                  MemoryOp = "bootstrap"
+	MemoryOpAppend                     MemoryOp = "append"
+	MemoryOpAssemble                   MemoryOp = "assemble"
+	MemoryOpStats                      MemoryOp = "stats"
+	MemoryOpNeedsCompaction            MemoryOp = "needs_compaction"
+	MemoryOpCompact                    MemoryOp = "compact"
+	MemoryOpSearch                     MemoryOp = "search"
+	MemoryOpDescribe                   MemoryOp = "describe"
+	MemoryOpExpand                     MemoryOp = "expand"
+	MemoryOpGetProfile                 MemoryOp = "get_profile"
+	MemoryOpSetProfile                 MemoryOp = "set_profile"
+	MemoryOpGetAgentSoul               MemoryOp = "get_agent_soul"
+	MemoryOpSetAgentSoul               MemoryOp = "set_agent_soul"
+	MemoryOpSaveInfo                   MemoryOp = "save_info"
+	MemoryOpLoadInfo                   MemoryOp = "load_info"
+	MemoryOpListInfo                   MemoryOp = "list_info"
+	MemoryOpLoadHistory                MemoryOp = "load_history"
+	MemoryOpGetOrCreateSessionSnapshot MemoryOp = "get_or_create_session_snapshot"
+	MemoryOpAdvanceSessionSnapshot     MemoryOp = "advance_session_snapshot"
+	MemoryOpBuildReview                MemoryOp = "build_review"
 )
+
+// PreMemoryCallContext is the typed payload for PreMemoryCall hooks.
+// Fired before the memory provider touches storage so hooks can enrich ctx;
+// DB spans created inside the operation then nest under the memory span.
+type PreMemoryCallContext struct {
+	HookMeta
+	Op        MemoryOp
+	SessionID string // memory session ID, empty for global/user memory ops
+}
+
+// PreMemoryCallResult carries mutations from a PreMemoryCall hook.
+type PreMemoryCallResult struct {
+	Context context.Context // non-nil = enriched context for the memory operation
+}
+
+// PreMemoryCallHook intercepts memory operations before storage access.
+type PreMemoryCallHook interface {
+	Name() string
+	Priority() int
+	OnPreMemoryCall(ctx context.Context, hctx *PreMemoryCallContext) (PreMemoryCallResult, error)
+}
 
 // PostMemoryCallContext is the typed payload for PostMemoryCall hooks.
 type PostMemoryCallContext struct {
