@@ -153,6 +153,7 @@ const (
 	MemoryOpSaveInfo                   MemoryOp = "save_info"
 	MemoryOpLoadInfo                   MemoryOp = "load_info"
 	MemoryOpListInfo                   MemoryOp = "list_info"
+	MemoryOpListInfoForReview          MemoryOp = "list_info_for_review"
 	MemoryOpLoadHistory                MemoryOp = "load_history"
 	MemoryOpGetOrCreateSessionSnapshot MemoryOp = "get_or_create_session_snapshot"
 	MemoryOpAdvanceSessionSnapshot     MemoryOp = "advance_session_snapshot"

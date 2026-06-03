@@ -408,6 +408,47 @@ func TestTracedProvider_ListInfo(t *testing.T) {
 	}
 }
 
+// reviewListerProvider augments Fake with the optional ListInfoForReview
+// capability, mirroring what the LCM provider exposes.
+type reviewListerProvider struct {
+	memory.Provider
+	called bool
+}
+
+func (p *reviewListerProvider) ListInfoForReview(_ context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
+	p.called = true
+	return []memory.SessionInfo{{ID: "sess-1", AgentID: opts.AgentID}}, nil
+}
+
+func TestTracedProvider_ListInfoForReview(t *testing.T) {
+	inner := &reviewListerProvider{Provider: memorytest.New()}
+	traced, col := newTracedWithCollector(inner)
+	col.events = nil
+
+	// The session adapter discovers this capability via type assertion; the
+	// wrapper must expose it or callers fall back to ListInfo (user-scoped).
+	lister, ok := traced.(interface {
+		ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)
+	})
+	if !ok {
+		t.Fatal("traced provider must expose ListInfoForReview")
+	}
+
+	infos, err := lister.ListInfoForReview(context.Background(), memory.ListOptions{AgentID: "agent-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inner.called {
+		t.Error("expected call to forward to inner provider")
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(infos))
+	}
+	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpListInfoForReview {
+		t.Errorf("expected ListInfoForReview event, got %v", col.events)
+	}
+}
+
 func TestTracedProvider_LoadHistory(t *testing.T) {
 	fake := memorytest.New()
 	traced, col := newTracedWithCollector(fake)

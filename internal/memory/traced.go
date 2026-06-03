@@ -426,6 +426,27 @@ func (t *tracedProvider) ListInfo(ctx context.Context, opts ListOptions) ([]Sess
 	return infos, err
 }
 
+// ListInfoForReview forwards the optional review-listing capability so that
+// callers (e.g. reflect) can list candidates across users without a user scope.
+// Without this passthrough the wrapper hides the inner method and callers fall
+// back to ListInfo, which requires a user context and fails.
+func (t *tracedProvider) ListInfoForReview(ctx context.Context, opts ListOptions) ([]SessionInfo, error) {
+	lister, ok := t.inner.(interface {
+		ListInfoForReview(ctx context.Context, opts ListOptions) ([]SessionInfo, error)
+	})
+	if !ok {
+		return nil, errCapabilityNotSupported("ListInfoForReview")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{AgentID: opts.AgentID}, Op: hooks.MemoryOpListInfoForReview}
+	ctx, start := t.begin(ctx, hctx)
+	infos, err := lister.ListInfoForReview(ctx, opts)
+	hctx.Error = err
+	hctx.ResultCount = len(infos)
+	hctx.Detail = fmt.Sprintf("agent=%s limit=%d → %d results", opts.AgentID, opts.Limit, len(infos))
+	t.finish(ctx, start, hctx)
+	return infos, err
+}
+
 func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
 	sm, ok := t.inner.(SessionManager)
 	if !ok {
