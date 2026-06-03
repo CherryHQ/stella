@@ -262,6 +262,64 @@ func TestFormatMessageForSummarizer(t *testing.T) {
 	}
 }
 
+func TestToolResultImageRoundTrip(t *testing.T) {
+	orig := ai.ToolResultMessage{
+		ToolCallID: "tc1",
+		ToolName:   "read",
+		Content: []ai.ContentBlock{
+			ai.TextContent{Text: "Read image file [image/png]"},
+			ai.ImageContent{Data: "BASE64DATA", MimeType: "image/png"},
+		},
+	}
+
+	rows := toolResultToRows(orig)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	restored := rowToToolResult(sqlc.CtxMessage{
+		Role:      roleTool,
+		EventType: eventTypeToolResult,
+		Content:   rows[0].content,
+	})
+
+	if restored.ToolCallID != "tc1" || restored.ToolName != "read" {
+		t.Fatalf("envelope metadata lost: %+v", restored)
+	}
+	if !ai.HasImage(restored.Content) {
+		t.Fatal("image block lost on round-trip")
+	}
+	var img ai.ImageContent
+	for _, b := range restored.Content {
+		if ic, ok := b.(ai.ImageContent); ok {
+			img = ic
+		}
+	}
+	if img.Data != "BASE64DATA" || img.MimeType != "image/png" {
+		t.Errorf("image not restored byte-identical: %+v", img)
+	}
+}
+
+func TestToolResultTextOnlyRoundTrip(t *testing.T) {
+	// Text-only results must not gain a Blocks field (keeps rows compact).
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "tc1",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "output"}},
+	})
+	var env toolResultEnvelope
+	if err := json.Unmarshal([]byte(rows[0].content), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if env.Blocks != nil {
+		t.Errorf("text-only result must not store Blocks, got %v", env.Blocks)
+	}
+	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
+	if got := ai.FlattenText(restored.Content); got != "output" {
+		t.Errorf("text round-trip = %q, want output", got)
+	}
+}
+
 func TestCompactOversizedTailResults(t *testing.T) {
 	largeText := strings.Repeat("a", 10000) // ~2500 tokens
 	largeTool := ai.ToolResultMessage{

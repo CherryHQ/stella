@@ -100,11 +100,16 @@ type toolCallEnvelope struct {
 }
 
 // toolResultEnvelope is the JSON structure stored for tool_result events.
+// Blocks is populated only for multimodal results (e.g. images); it carries the
+// exact content blocks so a reloaded transcript reproduces byte-identical input
+// and the provider's prompt cache stays valid. Result remains the flattened text
+// for backward compatibility and token estimation.
 type toolResultEnvelope struct {
-	ID     string          `json:"id"`
-	Tool   string          `json:"tool"`
-	Result json.RawMessage `json:"result"`
-	Error  string          `json:"error,omitempty"`
+	ID     string             `json:"id"`
+	Tool   string             `json:"tool"`
+	Result json.RawMessage    `json:"result"`
+	Error  string             `json:"error,omitempty"`
+	Blocks []contentBlockJSON `json:"blocks,omitempty"`
 }
 
 // storageRow is a single DB row to be written for an ai.Message.
@@ -114,7 +119,6 @@ type storageRow struct {
 	content   string
 }
 
-// TODO: messageToRows/rowsToMessages are duplicated between simple/ and lcm/ — extract into a shared helper in internal/memory/.
 func messageToRows(msg ai.Message) []storageRow {
 	switch m := msg.(type) {
 	case ai.UserMessage:
@@ -185,6 +189,9 @@ func toolResultToRows(m ai.ToolResultMessage) []storageRow {
 		Result: resultJSON,
 		Error:  errStr,
 	}
+	if ai.HasImage(m.Content) {
+		envelope.Blocks = contentBlocksToJSON(m.Content)
+	}
 	data, _ := json.Marshal(envelope)
 	return []storageRow{{role: roleTool, eventType: eventTypeToolResult, content: string(data)}}
 }
@@ -208,6 +215,24 @@ func contentBlocksToJSON(blocks []ai.ContentBlock) []contentBlockJSON {
 		}
 	}
 	return out
+}
+
+// contentBlocksFromJSON is the inverse of contentBlocksToJSON. It returns nil
+// when there are no decodable blocks, letting callers fall back to a text path.
+func contentBlocksFromJSON(blocks []contentBlockJSON) []ai.ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	content := make([]ai.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Kind {
+		case "text":
+			content = append(content, ai.TextContent{Text: b.Text})
+		case "image":
+			content = append(content, ai.ImageContent{Data: b.Data, MimeType: b.MimeType})
+		}
+	}
+	return content
 }
 
 // rowsToMessages merges consecutive DB rows back into ai.Messages.
@@ -239,17 +264,10 @@ func rowToUserMessage(msg sqlc.CtxMessage) ai.UserMessage {
 	ts, _ := time.Parse("2006-01-02 15:04:05", msg.CreatedAt)
 	if msg.EventType == eventTypeMultimodal {
 		var blocks []contentBlockJSON
-		if json.Unmarshal([]byte(msg.Content), &blocks) == nil && len(blocks) > 0 {
-			content := make([]ai.ContentBlock, 0, len(blocks))
-			for _, b := range blocks {
-				switch b.Kind {
-				case "text":
-					content = append(content, ai.TextContent{Text: b.Text})
-				case "image":
-					content = append(content, ai.ImageContent{Data: b.Data, MimeType: b.MimeType})
-				}
+		if json.Unmarshal([]byte(msg.Content), &blocks) == nil {
+			if content := contentBlocksFromJSON(blocks); content != nil {
+				return ai.UserMessage{Content: content, Timestamp: ts}
 			}
-			return ai.UserMessage{Content: content, Timestamp: ts}
 		}
 	}
 	return ai.UserMessage{Content: msg.Content, Timestamp: ts}
@@ -322,12 +340,16 @@ func rowToToolResult(msg sqlc.CtxMessage) ai.ToolResultMessage {
 			Content: []ai.ContentBlock{ai.TextContent{Text: msg.Content}},
 		}
 	}
-	var text string
-	_ = json.Unmarshal(env.Result, &text)
+	content := contentBlocksFromJSON(env.Blocks)
+	if content == nil {
+		var text string
+		_ = json.Unmarshal(env.Result, &text)
+		content = []ai.ContentBlock{ai.TextContent{Text: text}}
+	}
 	return ai.ToolResultMessage{
 		ToolCallID: env.ID,
 		ToolName:   env.Tool,
-		Content:    []ai.ContentBlock{ai.TextContent{Text: text}},
+		Content:    content,
 		IsError:    env.Error != "",
 	}
 }
