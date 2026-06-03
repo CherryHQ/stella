@@ -10,6 +10,9 @@ SELECT * FROM ctx_message WHERE id = ? AND conversation_id = ?;
 SELECT * FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC;
 
 -- name: ListMessagesByLogicalPage :many
+-- Keep this logical-message boundary in sync with serializeDBMessages in
+-- internal/server/sessions.go: consecutive assistant rows render as one
+-- response message, so SQL pagination must count them as one too.
 WITH ordered AS (
     SELECT
         *,

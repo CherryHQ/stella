@@ -33,6 +33,8 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 		byID[u.ID] = u.Email
 	}
 
+	// Stale auth_user_agent links should not break the admin list; real query
+	// failures are surfaced above, while missing users are intentionally skipped.
 	users := make([]agentUser, 0, len(userIDs))
 	for _, uid := range userIDs {
 		if email, ok := byID[uid]; ok {

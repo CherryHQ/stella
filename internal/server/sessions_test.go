@@ -1,10 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -112,6 +116,65 @@ func TestSerializeDBMessages_mixed(t *testing.T) {
 	}
 	if result[0]["role"] != "user" {
 		t.Errorf("first role = %v", result[0]["role"])
+	}
+}
+
+func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
+	ctx := context.Background()
+	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	q := sqlc.New(db)
+
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID:         "conv-1",
+		SessionID:  "session-1",
+		Channel:    "chat",
+		Kind:       "chat",
+		Archived:   0,
+		LastActive: "2026-01-01 00:00:00",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	toolCall, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "args": map[string]any{"command": "ls"}})
+	toolResult, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "result": "output"})
+	rows := []sqlc.CreateMessageParams{
+		{ID: "m1", ConversationID: conv.ID, Seq: 1, Role: "user", EventType: "text", Content: "u1"},
+		{ID: "m2", ConversationID: conv.ID, Seq: 2, Role: "assistant", EventType: "text", Content: "a1"},
+		{ID: "m3", ConversationID: conv.ID, Seq: 3, Role: "assistant", EventType: "tool_call", Content: string(toolCall)},
+		{ID: "m4", ConversationID: conv.ID, Seq: 4, Role: "tool", EventType: "text", Content: string(toolResult)},
+		{ID: "m5", ConversationID: conv.ID, Seq: 5, Role: "assistant", EventType: "text", Content: "a2"},
+		{ID: "m6", ConversationID: conv.ID, Seq: 6, Role: "assistant", EventType: "thinking", Content: "think"},
+		{ID: "m7", ConversationID: conv.ID, Seq: 7, Role: "user", EventType: "text", Content: "u2"},
+	}
+	for _, row := range rows {
+		if _, err := q.CreateMessage(ctx, row); err != nil {
+			t.Fatalf("CreateMessage %s: %v", row.ID, err)
+		}
+	}
+
+	allRows, err := q.GetMessagesByConversation(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("GetMessagesByConversation: %v", err)
+	}
+	all := serializeDBMessages(allRows)
+
+	pageRows, err := q.ListMessagesByLogicalPage(ctx, sqlc.ListMessagesByLogicalPageParams{
+		ConversationID: conv.ID,
+		Limit:          3,
+		Offset:         1,
+	})
+	if err != nil {
+		t.Fatalf("ListMessagesByLogicalPage: %v", err)
+	}
+	got := serializeDBMessages(logicalPageRowsToMessages(pageRows))
+	want := all[1:4]
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("logical page mismatch\ngot:  %#v\nwant: %#v", got, want)
 	}
 }
 

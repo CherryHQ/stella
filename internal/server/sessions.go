@@ -1191,7 +1191,9 @@ func filterMessageRowsByTime(rows []sqlc.CtxMessage, after, before *string) []sq
 }
 
 // serializeDBMessages converts raw DB message rows to JSON-friendly maps,
-// preserving the created_at timestamp from the database.
+// preserving the created_at timestamp from the database. Keep assistant-row
+// grouping in sync with ListMessagesByLogicalPage: the SQL query uses the same
+// logical-message boundary so paginated responses never split a rendered message.
 func serializeDBMessages(rows []sqlc.CtxMessage) []map[string]any {
 	result := make([]map[string]any, 0, len(rows))
 	i := 0

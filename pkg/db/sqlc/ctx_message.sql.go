@@ -440,6 +440,9 @@ type ListMessagesByLogicalPageRow struct {
 	CreatedAt      string `json:"created_at"`
 }
 
+// Keep this logical-message boundary in sync with serializeDBMessages in
+// internal/server/sessions.go: consecutive assistant rows render as one
+// response message, so SQL pagination must count them as one too.
 func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessagesByLogicalPageParams) ([]ListMessagesByLogicalPageRow, error) {
 	rows, err := q.db.QueryContext(ctx, listMessagesByLogicalPage,
 		arg.ConversationID,
