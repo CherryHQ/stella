@@ -14,57 +14,66 @@ import (
 func convertMessages(ctx ai.Context) responses.ResponseInputParam {
 	items := make(responses.ResponseInputParam, 0, len(ctx.Messages))
 
-	for _, msg := range ctx.Messages {
-		switch m := msg.(type) {
+	for i := 0; i < len(ctx.Messages); i++ {
+		switch m := ctx.Messages[i].(type) {
 		case ai.UserMessage:
 			items = append(items, userMessage(m.TimestampedContent()))
 		case ai.AssistantMessage:
 			items = append(items, convertAssistantMessage(m)...)
 		case ai.ToolResultMessage:
-			items = append(items, toolResultItems(m)...)
+			i = appendToolResults(&items, ctx.Messages, i)
 		}
 	}
 	return items
 }
 
-// toolResultItems converts a tool result into response input items. A function
-// call output only carries string content, so an image result is emitted as a
-// text output followed by a user message holding the image inline — the only
-// place the API lets a tool's image reach the model.
-func toolResultItems(m ai.ToolResultMessage) responses.ResponseInputParam {
-	text := ai.FlattenText(m.Content)
-	output := responses.ResponseInputItemUnionParam{
-		OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-			CallID: m.ToolCallID,
-			Output: text,
-		},
-	}
-	if !ai.HasImage(m.Content) {
-		return responses.ResponseInputParam{output}
-	}
-
-	if text == "" {
-		output.OfFunctionCallOutput.Output = "[image returned by tool; see the following message]"
-	}
-	parts := make(responses.ResponseInputMessageContentListParam, 0, len(m.Content))
-	for _, block := range m.Content {
-		if img, ok := block.(ai.ImageContent); ok {
-			parts = append(parts, responses.ResponseInputContentUnionParam{
-				OfInputImage: &responses.ResponseInputImageParam{
-					ImageURL: param.NewOpt(img.DataURI()),
-				},
-			})
+// appendToolResults converts the run of consecutive tool results starting at
+// index start, returning the index of the last one consumed. A function call
+// output only carries string content, so images are siphoned out and appended
+// as a single user message *after* every function output in the run — inserting
+// the image carrier between outputs would break the function-call output chain.
+func appendToolResults(items *responses.ResponseInputParam, msgs []ai.Message, start int) int {
+	var parts responses.ResponseInputMessageContentListParam
+	i := start
+	for i < len(msgs) {
+		m, ok := msgs[i].(ai.ToolResultMessage)
+		if !ok {
+			break
 		}
-	}
-	return responses.ResponseInputParam{
-		output,
-		{OfMessage: &responses.EasyInputMessageParam{
-			Role: responses.EasyInputMessageRoleUser,
-			Content: responses.EasyInputMessageContentUnionParam{
-				OfInputItemContentList: parts,
+		text := ai.FlattenText(m.Content)
+		if ai.HasImage(m.Content) {
+			if text == "" {
+				text = "[image returned by tool; see the following message]"
+			}
+			for _, block := range m.Content {
+				if img, ok := block.(ai.ImageContent); ok {
+					parts = append(parts, responses.ResponseInputContentUnionParam{
+						OfInputImage: &responses.ResponseInputImageParam{
+							ImageURL: param.NewOpt(img.DataURI()),
+						},
+					})
+				}
+			}
+		}
+		*items = append(*items, responses.ResponseInputItemUnionParam{
+			OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+				CallID: m.ToolCallID,
+				Output: text,
 			},
-		}},
+		})
+		i++
 	}
+	if len(parts) > 0 {
+		*items = append(*items, responses.ResponseInputItemUnionParam{
+			OfMessage: &responses.EasyInputMessageParam{
+				Role: responses.EasyInputMessageRoleUser,
+				Content: responses.EasyInputMessageContentUnionParam{
+					OfInputItemContentList: parts,
+				},
+			},
+		})
+	}
+	return i - 1
 }
 
 func convertAssistantMessage(m ai.AssistantMessage) responses.ResponseInputParam {

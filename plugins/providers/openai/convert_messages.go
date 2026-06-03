@@ -18,44 +18,53 @@ func convertMessages(ctx ai.Context) []sdk.ChatCompletionMessageParamUnion {
 		messages = append(messages, sdk.SystemMessage(ctx.System))
 	}
 
-	for _, msg := range ctx.Messages {
-		switch m := msg.(type) {
+	for i := 0; i < len(ctx.Messages); i++ {
+		switch m := ctx.Messages[i].(type) {
 		case ai.UserMessage:
 			messages = append(messages, userMessage(m.TimestampedContent()))
 		case ai.AssistantMessage:
 			messages = append(messages, convertAssistantMessage(m))
 		case ai.ToolResultMessage:
-			messages = append(messages, toolResultMessages(m)...)
+			i = appendToolResults(&messages, ctx.Messages, i)
 		}
 	}
 	return messages
 }
 
-// toolResultMessages converts a tool result into provider messages. The Chat
-// Completions tool role only accepts string content, so an image result is
-// emitted as a text tool message followed by a user message that carries the
-// image parts inline — the only place the API lets a tool's image reach the model.
-func toolResultMessages(m ai.ToolResultMessage) []sdk.ChatCompletionMessageParamUnion {
-	text := ai.FlattenText(m.Content)
-	if !ai.HasImage(m.Content) {
-		return []sdk.ChatCompletionMessageParamUnion{sdk.ToolMessage(text, m.ToolCallID)}
-	}
-
-	if text == "" {
-		text = "[image returned by tool; see the following message]"
-	}
-	parts := make([]sdk.ChatCompletionContentPartUnionParam, 0, len(m.Content))
-	for _, block := range m.Content {
-		if img, ok := block.(ai.ImageContent); ok {
-			parts = append(parts, sdk.ImageContentPart(sdk.ChatCompletionContentPartImageImageURLParam{
-				URL: img.DataURI(),
-			}))
+// appendToolResults converts the run of consecutive tool results starting at
+// index start, returning the index of the last one consumed. The Chat
+// Completions tool role only accepts string content, so images are siphoned out
+// and appended as a single user message *after* every tool message in the run —
+// inserting the image carrier between tool messages would break the API's
+// requirement that each assistant tool_call be answered before any other role.
+func appendToolResults(messages *[]sdk.ChatCompletionMessageParamUnion, msgs []ai.Message, start int) int {
+	var images []sdk.ChatCompletionContentPartUnionParam
+	i := start
+	for i < len(msgs) {
+		m, ok := msgs[i].(ai.ToolResultMessage)
+		if !ok {
+			break
 		}
+		text := ai.FlattenText(m.Content)
+		if ai.HasImage(m.Content) {
+			if text == "" {
+				text = "[image returned by tool; see the following message]"
+			}
+			for _, block := range m.Content {
+				if img, ok := block.(ai.ImageContent); ok {
+					images = append(images, sdk.ImageContentPart(sdk.ChatCompletionContentPartImageImageURLParam{
+						URL: img.DataURI(),
+					}))
+				}
+			}
+		}
+		*messages = append(*messages, sdk.ToolMessage(text, m.ToolCallID))
+		i++
 	}
-	return []sdk.ChatCompletionMessageParamUnion{
-		sdk.ToolMessage(text, m.ToolCallID),
-		sdk.UserMessage(parts),
+	if len(images) > 0 {
+		*messages = append(*messages, sdk.UserMessage(images))
 	}
+	return i - 1
 }
 
 func convertAssistantMessage(m ai.AssistantMessage) sdk.ChatCompletionMessageParamUnion {

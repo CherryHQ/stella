@@ -150,6 +150,39 @@ func TestConvertMessagesToolResultImageNoText(t *testing.T) {
 	}
 }
 
+// An image result from an earlier tool call in a multi-call turn must not insert
+// its user image carrier between the tool messages — every tool_call has to be
+// answered by a tool message before any other role appears.
+func TestConvertMessagesMultiToolCallImageOrdering(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.AssistantMessage{Content: []ai.ContentBlock{
+				ai.ToolCall{ID: "c1", Name: "read", Arguments: map[string]any{}},
+				ai.ToolCall{ID: "c2", Name: "bash", Arguments: map[string]any{}},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c1", Content: []ai.ContentBlock{
+				ai.TextContent{Text: "Read image file [image/png]"},
+				ai.ImageContent{Data: "base64", MimeType: "image/png"},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c2", Content: []ai.ContentBlock{ai.TextContent{Text: "done"}}},
+		},
+	}
+	msgs := convertMessages(ctx)
+	// assistant + tool(c1) + tool(c2) + user(image) = 4
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(msgs))
+	}
+	if msgs[1].OfTool == nil || msgs[1].OfTool.ToolCallID != "c1" {
+		t.Fatalf("msg[1] must be tool result c1")
+	}
+	if msgs[2].OfTool == nil || msgs[2].OfTool.ToolCallID != "c2" {
+		t.Fatalf("msg[2] must be tool result c2, not the image carrier")
+	}
+	if msgs[3].OfUser == nil {
+		t.Fatalf("msg[3] must be the user image carrier, after all tool results")
+	}
+}
+
 func TestConvertMessagesFullConversation(t *testing.T) {
 	ctx := ai.Context{
 		System: "helper",

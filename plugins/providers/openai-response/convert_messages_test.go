@@ -155,6 +155,46 @@ func TestConvertMessagesToolResultImageNoText(t *testing.T) {
 	}
 }
 
+// An image result from an earlier tool call in a multi-call turn must not insert
+// its user image carrier between the function_call_output items.
+func TestConvertMessagesMultiToolCallImageOrdering(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.AssistantMessage{Content: []ai.ContentBlock{
+				ai.ToolCall{ID: "c1", Name: "read", Arguments: map[string]any{}},
+				ai.ToolCall{ID: "c2", Name: "bash", Arguments: map[string]any{}},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c1", Content: []ai.ContentBlock{
+				ai.TextContent{Text: "Read image file [image/png]"},
+				ai.ImageContent{Data: "base64", MimeType: "image/png"},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c2", Content: []ai.ContentBlock{ai.TextContent{Text: "done"}}},
+		},
+	}
+	items := convertMessages(ctx)
+	// assistant(text omitted, only tool calls) -> funcCall c1, c2 then outputs.
+	// We only assert the tail ordering of the two outputs + image carrier.
+	var outIdx []int
+	var userIdx []int
+	for i, it := range items {
+		if it.OfFunctionCallOutput != nil {
+			outIdx = append(outIdx, i)
+		}
+		if it.OfMessage != nil && it.OfMessage.Role == "user" {
+			userIdx = append(userIdx, i)
+		}
+	}
+	if len(outIdx) != 2 {
+		t.Fatalf("expected 2 function_call_output items, got %d", len(outIdx))
+	}
+	if len(userIdx) != 1 {
+		t.Fatalf("expected 1 user image carrier, got %d", len(userIdx))
+	}
+	if userIdx[0] < outIdx[1] {
+		t.Fatalf("image carrier (idx %d) must come after both outputs (last at %d)", userIdx[0], outIdx[1])
+	}
+}
+
 func TestConvertMessagesMultipleTypes(t *testing.T) {
 	ctx := ai.Context{
 		Messages: []ai.Message{
