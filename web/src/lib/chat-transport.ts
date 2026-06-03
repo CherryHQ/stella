@@ -1,5 +1,6 @@
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
+import { normalizeGeneratedToolName } from "./tool-names";
 import type { Message } from "./types";
 
 export function createSessionTransport(agentId: string, sessionId: string) {
@@ -68,7 +69,7 @@ export function messageToUIMessage(m: Message, index: number): UIMessage {
         case "tool_call":
           parts.push({
             type: "dynamic-tool",
-            toolName: block.name,
+            toolName: block.name ? normalizeGeneratedToolName(block.name) : block.name,
             toolCallId: block.id,
             state: block.result
               ? block.result.is_error
@@ -115,8 +116,10 @@ function isToolPart(
 }
 
 function extractToolName(part: AnyToolPart): string {
-  if (part.toolName) return part.toolName;
-  if (part.type.startsWith("tool-") && part.type.length > 5) return part.type.slice(5);
+  if (part.toolName) return normalizeGeneratedToolName(part.toolName);
+  if (part.type.startsWith("tool-") && part.type.length > 5) {
+    return normalizeGeneratedToolName(part.type.slice(5));
+  }
   return "";
 }
 

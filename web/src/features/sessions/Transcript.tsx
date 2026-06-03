@@ -2,6 +2,7 @@ import { forwardRef, useState, useEffect } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { Message, ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
+import { normalizeGeneratedToolName } from "@/lib/tool-names";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Terminal, Brain, FileText } from "lucide-react";
 
@@ -249,7 +250,7 @@ function StepsGroup({ blocks }: { blocks: ContentBlock[] }) {
 
 function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const [open, setOpen] = useState(false);
-  const n = block.name ?? "tool";
+  const n = normalizeGeneratedToolName(block.name ?? "tool");
   const args = block.arguments ?? {};
 
   let cmdPreview = "";
