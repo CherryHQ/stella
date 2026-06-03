@@ -7,6 +7,7 @@ require (
 	filippo.io/age v1.3.1
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/Mad-Pixels/goldmark-tgmd v0.0.10
+	github.com/XSAM/otelsql v0.42.0
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.18.0

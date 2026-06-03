@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/XSAM/otelsql"
+	"go.opentelemetry.io/otel/attribute"
 	_ "modernc.org/sqlite"
 )
 
@@ -29,7 +31,21 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: create dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dataSourceName(dbPath))
+	// otelsql wraps the driver so every query/exec emits a span on the global
+	// tracer provider. When tracing is disabled the provider is a no-op, so this
+	// adds negligible overhead — same always-on pattern as the HTTP handler.
+	// Only statements are recorded (SQL text, no bound args), and the noisy
+	// connection-lifecycle spans (connect, prepare, reset, per-row) are omitted
+	// to keep traces focused on actual queries.
+	db, err := otelsql.Open("sqlite", dataSourceName(dbPath),
+		otelsql.WithAttributes(attribute.String("db.system", "sqlite")),
+		otelsql.WithSpanOptions(otelsql.SpanOptions{
+			OmitConnectorConnect: true,
+			OmitConnResetSession: true,
+			OmitConnPrepare:      true,
+			OmitRows:             true,
+		}),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
