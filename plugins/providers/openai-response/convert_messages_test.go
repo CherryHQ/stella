@@ -1,7 +1,10 @@
 package openairesponse
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/openai/openai-go/responses"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -192,6 +195,53 @@ func TestConvertMessagesMultiToolCallImageOrdering(t *testing.T) {
 	}
 	if userIdx[0] < outIdx[1] {
 		t.Fatalf("image carrier (idx %d) must come after both outputs (last at %d)", userIdx[0], outIdx[1])
+	}
+}
+
+// When several tool results in one turn return images, the carrier user message
+// must label each result's images with its tool name and call ID so the model
+// can attribute them instead of guessing by position.
+func TestConvertMessagesMultiImageAttribution(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.AssistantMessage{Content: []ai.ContentBlock{
+				ai.ToolCall{ID: "c1", Name: "read", Arguments: map[string]any{}},
+				ai.ToolCall{ID: "c2", Name: "read", Arguments: map[string]any{}},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c1", ToolName: "read", Content: []ai.ContentBlock{
+				ai.ImageContent{Data: "a", MimeType: "image/png"},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c2", ToolName: "read", Content: []ai.ContentBlock{
+				ai.ImageContent{Data: "b", MimeType: "image/png"},
+			}},
+		},
+	}
+	items := convertMessages(ctx)
+	var carrier responses.ResponseInputMessageContentListParam
+	for i := range items {
+		if items[i].OfMessage != nil && items[i].OfMessage.Role == "user" {
+			carrier = items[i].OfMessage.Content.OfInputItemContentList
+		}
+	}
+	if carrier == nil {
+		t.Fatal("expected a user image carrier")
+	}
+	var labels []string
+	var images int
+	for _, p := range carrier {
+		if p.OfInputText != nil {
+			labels = append(labels, p.OfInputText.Text)
+		}
+		if p.OfInputImage != nil {
+			images++
+		}
+	}
+	if images != 2 {
+		t.Fatalf("expected 2 images in carrier, got %d", images)
+	}
+	joined := strings.Join(labels, "\n")
+	if !strings.Contains(joined, "c1") || !strings.Contains(joined, "c2") {
+		t.Errorf("carrier must label both call IDs, got labels: %q", joined)
 	}
 }
 

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -180,6 +181,48 @@ func TestConvertMessagesMultiToolCallImageOrdering(t *testing.T) {
 	}
 	if msgs[3].OfUser == nil {
 		t.Fatalf("msg[3] must be the user image carrier, after all tool results")
+	}
+}
+
+// When several tool results in one turn return images, the carrier user message
+// must label each result's images with its tool name and call ID so the model
+// can attribute them instead of guessing by position.
+func TestConvertMessagesMultiImageAttribution(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.AssistantMessage{Content: []ai.ContentBlock{
+				ai.ToolCall{ID: "c1", Name: "read", Arguments: map[string]any{}},
+				ai.ToolCall{ID: "c2", Name: "read", Arguments: map[string]any{}},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c1", ToolName: "read", Content: []ai.ContentBlock{
+				ai.ImageContent{Data: "a", MimeType: "image/png"},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c2", ToolName: "read", Content: []ai.ContentBlock{
+				ai.ImageContent{Data: "b", MimeType: "image/png"},
+			}},
+		},
+	}
+	msgs := convertMessages(ctx)
+	carrier := msgs[len(msgs)-1]
+	if carrier.OfUser == nil {
+		t.Fatal("last message must be the user image carrier")
+	}
+	var labels []string
+	var images int
+	for _, p := range carrier.OfUser.Content.OfArrayOfContentParts {
+		if p.OfText != nil {
+			labels = append(labels, p.OfText.Text)
+		}
+		if p.OfImageURL != nil {
+			images++
+		}
+	}
+	if images != 2 {
+		t.Fatalf("expected 2 images in carrier, got %d", images)
+	}
+	joined := strings.Join(labels, "\n")
+	if !strings.Contains(joined, "c1") || !strings.Contains(joined, "c2") {
+		t.Errorf("carrier must label both call IDs, got labels: %q", joined)
 	}
 }
 
