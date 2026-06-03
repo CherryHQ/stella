@@ -29,6 +29,7 @@ func TestStateManager_GenerateAndValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	payload.ProviderName = "acme"
 	if payload.State == "" {
 		t.Error("state is empty")
 	}
@@ -51,6 +52,9 @@ func TestStateManager_GenerateAndValidate(t *testing.T) {
 	}
 	if got.CodeVerifier != payload.CodeVerifier {
 		t.Errorf("code verifier mismatch: got %q want %q", got.CodeVerifier, payload.CodeVerifier)
+	}
+	if got.ProviderName != payload.ProviderName {
+		t.Errorf("provider mismatch: got %q want %q", got.ProviderName, payload.ProviderName)
 	}
 }
 

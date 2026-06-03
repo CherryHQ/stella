@@ -1,5 +1,32 @@
 -- Disable the enforcement of foreign-keys constraints
 PRAGMA foreign_keys = off;
+-- Backfill legacy goals/tasks that predate required agent/task-session context.
+INSERT OR IGNORE INTO `agent` (`id`, `name`, `workspace`, `scope`, `creator_id`)
+SELECT 'legacy-agent-' || `id`, 'Legacy Agent', '', 'user', `id`
+FROM `auth_user`
+WHERE EXISTS (SELECT 1 FROM `agent_goal` WHERE `agent_goal`.`user_id` = `auth_user`.`id` AND (`agent_goal`.`agent_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `agent` WHERE `agent`.`id` = `agent_goal`.`agent_id`)))
+   OR EXISTS (SELECT 1 FROM `agent_task` WHERE `agent_task`.`user_id` = `auth_user`.`id` AND (`agent_task`.`agent_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `agent` WHERE `agent`.`id` = `agent_task`.`agent_id`)));
+UPDATE `agent_goal`
+SET `agent_id` = COALESCE(
+  (SELECT `agent`.`id` FROM `agent` WHERE `agent`.`id` = `agent_goal`.`agent_id`),
+  (SELECT `agent`.`id` FROM `auth_user` JOIN `agent` ON `agent`.`id` = `auth_user`.`default_agent_id` WHERE `auth_user`.`id` = `agent_goal`.`user_id`),
+  (SELECT `auth_user_agent`.`agent_id` FROM `auth_user_agent` JOIN `agent` ON `agent`.`id` = `auth_user_agent`.`agent_id` WHERE `auth_user_agent`.`user_id` = `agent_goal`.`user_id` ORDER BY `auth_user_agent`.`agent_id` LIMIT 1),
+  'legacy-agent-' || `user_id`
+)
+WHERE `agent_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `agent` WHERE `agent`.`id` = `agent_goal`.`agent_id`);
+UPDATE `agent_task`
+SET `agent_id` = COALESCE(
+  (SELECT `agent`.`id` FROM `agent` WHERE `agent`.`id` = `agent_task`.`agent_id`),
+  (SELECT `agent_goal`.`agent_id` FROM `agent_goal` WHERE `agent_goal`.`id` = `agent_task`.`goal_id`),
+  (SELECT `agent`.`id` FROM `auth_user` JOIN `agent` ON `agent`.`id` = `auth_user`.`default_agent_id` WHERE `auth_user`.`id` = `agent_task`.`user_id`),
+  (SELECT `auth_user_agent`.`agent_id` FROM `auth_user_agent` JOIN `agent` ON `agent`.`id` = `auth_user_agent`.`agent_id` WHERE `auth_user_agent`.`user_id` = `agent_task`.`user_id` ORDER BY `auth_user_agent`.`agent_id` LIMIT 1),
+  'legacy-agent-' || `user_id`
+)
+WHERE `agent_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `agent` WHERE `agent`.`id` = `agent_task`.`agent_id`);
+INSERT OR IGNORE INTO `ctx_conversation` (`id`, `session_id`, `title`, `channel`, `kind`, `agent_id`, `user_id`, `last_active`, `created_at`, `updated_at`)
+SELECT 'legacy-task-conversation-' || `id`, 'task:' || `id`, `title`, 'task', 'task', `agent_id`, `user_id`, COALESCE(`updated_at`, datetime('now')), COALESCE(`created_at`, datetime('now')), COALESCE(`updated_at`, datetime('now'))
+FROM `agent_task`;
+UPDATE `agent_task` SET `session_id` = 'task:' || `id`;
 -- Create "new_agent_goal" table
 CREATE TABLE `new_agent_goal` (
   `id` text NOT NULL,

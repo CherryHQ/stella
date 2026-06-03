@@ -209,31 +209,6 @@ type AuthIdentity struct {
 	UpdatedAt       string `json:"updated_at"`
 }
 
-type AuthOidcAccessToken struct {
-	ID        string `json:"id"`
-	TokenHash string `json:"token_hash"`
-	UserID    string `json:"user_id"`
-	ClientID  string `json:"client_id"`
-	Scopes    string `json:"scopes"`
-	ExpiresAt string `json:"expires_at"`
-	CreatedAt string `json:"created_at"`
-}
-
-type AuthOidcCode struct {
-	ID            string         `json:"id"`
-	CodeHash      string         `json:"code_hash"`
-	UserID        string         `json:"user_id"`
-	ClientID      string         `json:"client_id"`
-	RedirectUri   string         `json:"redirect_uri"`
-	Scopes        string         `json:"scopes"`
-	Nonce         string         `json:"nonce"`
-	PkceChallenge string         `json:"pkce_challenge"`
-	PkceMethod    string         `json:"pkce_method"`
-	ExpiresAt     string         `json:"expires_at"`
-	ConsumedAt    sql.NullString `json:"consumed_at"`
-	CreatedAt     string         `json:"created_at"`
-}
-
 type AuthPolicy struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`

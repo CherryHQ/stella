@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -50,6 +51,19 @@ func seedAgent(t *testing.T, db *sql.DB, id string) {
 		ID: id, Name: id, Model: "p/m", Workspace: "/tmp/" + id, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed agent %q: %v", id, err)
+	}
+}
+
+func TestGetUserMissingReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	_, oidc, _ := setupAuthStore(t)
+	ctx := context.Background()
+
+	if _, err := oidc.GetUserByEmail(ctx, "nobody@example.com"); !errors.Is(err, auth.ErrNotFound) {
+		t.Fatalf("GetUserByEmail(missing) err = %v, want auth.ErrNotFound", err)
+	}
+	if _, err := oidc.GetUser(ctx, uuid.NewString()); !errors.Is(err, auth.ErrNotFound) {
+		t.Fatalf("GetUser(missing) err = %v, want auth.ErrNotFound", err)
 	}
 }
 

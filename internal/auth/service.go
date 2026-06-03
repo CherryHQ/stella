@@ -36,7 +36,7 @@ func NewAuthService(
 }
 
 // OIDCLoginResult holds everything the HTTP handler needs after a successful
-// OIDC callback.
+// login callback.
 type OIDCLoginResult struct {
 	User         User
 	Session      Session
@@ -44,7 +44,7 @@ type OIDCLoginResult struct {
 	SessionToken string // raw token for the session cookie (not stored in DB)
 }
 
-// ProcessOIDCLogin is the single transaction entry point for an OIDC callback.
+// ProcessOIDCLogin is the single transaction entry point for external identity callbacks.
 // It resolves or creates the user and login identity, then creates a new session.
 func (s *AuthService) ProcessOIDCLogin(ctx context.Context, ext ExternalIdentity, sessionMgr *SessionManager) (OIDCLoginResult, error) {
 	// Use a real DB transaction when the store supports it (OIDCStore does).
@@ -80,6 +80,23 @@ func (s *AuthService) processOIDCLoginTx(ctx context.Context, txner Transactione
 	}
 
 	return result, nil
+}
+
+// CreateSessionForUser creates a login session for a user that has already been
+// authenticated by Stella itself, such as local password login.
+func (s *AuthService) CreateSessionForUser(ctx context.Context, userID string, sessionMgr *SessionManager) (OIDCLoginResult, error) {
+	user, err := s.users.GetUser(ctx, userID)
+	if err != nil {
+		return OIDCLoginResult{}, fmt.Errorf("auth: get user: %w", err)
+	}
+	if !user.IsActive {
+		return OIDCLoginResult{}, errors.New("auth: user is deactivated")
+	}
+	rawToken, session, err := sessionMgr.Create(ctx, user.ID)
+	if err != nil {
+		return OIDCLoginResult{}, fmt.Errorf("auth: create session: %w", err)
+	}
+	return OIDCLoginResult{User: user, Session: session, SessionToken: rawToken}, nil
 }
 
 // processOIDCLoginNoTx is the non-transactional implementation shared by both paths.
@@ -170,26 +187,9 @@ func (s *AuthService) resolveUser(ctx context.Context, ext ExternalIdentity) (Us
 		return User{}, false, err
 	}
 
-	// Email auto-linking: if an existing user has this email, link identity to them.
-	if ext.Email != "" {
-		if user, err := s.users.GetUserByEmail(ctx, ext.Email); err == nil {
-			if _, err := s.logins.CreateLoginIdentity(ctx, LoginIdentity{
-				ID:              uuid.NewString(),
-				UserID:          user.ID,
-				Provider:        ext.Provider,
-				ProviderSubject: ext.Subject,
-				Email:           ext.Email,
-				Name:            ext.Name,
-				AvatarURL:       ext.AvatarURL,
-				RawClaims:       ext.Claims,
-			}); err != nil {
-				return User{}, false, fmt.Errorf("auth: create login identity for existing user: %w", err)
-			}
-			return user, false, nil
-		}
-	}
-
-	// Create new user + identity. First user becomes admin.
+	// Create new user + identity. First user becomes admin. Stella deliberately
+	// does not silently link external identities by matching email: provider-specific
+	// email verification strength varies, and linking needs explicit user intent.
 	count, err := s.users.CountUsers(ctx)
 	if err != nil {
 		return User{}, false, fmt.Errorf("auth: count users: %w", err)

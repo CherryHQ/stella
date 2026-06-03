@@ -111,7 +111,7 @@ func (p *Provider) HandleCallback(ctx context.Context, r *http.Request, state au
 		return nil, errors.New("oidc: email claim missing")
 	}
 
-	emailVerified, _ := claims["email_verified"].(bool)
+	emailVerified := boolClaim(claims, "email_verified")
 	if !emailVerified {
 		return nil, errors.New("oidc: email not verified by IdP")
 	}

@@ -154,25 +154,23 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	// Wire OIDC authentication (external provider or built-in local issuer).
+	// Wire authentication (external OIDC/OAuth providers and local password auth).
 	oidcStore := appdb.NewOIDCStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
-		Store:      s.store,
 		BaseURL:    resolveBaseURL(adminHost, adminPort),
 		VaultKey:   os.Getenv("STELLA_VAULT_KEY"),
 		AuthStores: oidcStore,
 	})
 	if err != nil {
-		slog.Warn("oidc: setup failed", "error", err)
-	} else {
-		adminSrv.SetLoginIdentityStore(oidcStore)
-		adminSrv.SetUserStore(oidcStore)
-		adminSrv.SetSessionStore(oidcStore)
-		adminSrv.SetCredentialStore(oidcStore)
-		adminSrv.SetOIDCAuth(oidcResult)
-		slog.Info("oidc: authentication configured")
+		return fmt.Errorf("oidc: setup: %w", err)
 	}
+	adminSrv.SetLoginIdentityStore(oidcStore)
+	adminSrv.SetUserStore(oidcStore)
+	adminSrv.SetSessionStore(oidcStore)
+	adminSrv.SetCredentialStore(oidcStore)
+	adminSrv.SetOIDCAuth(oidcResult)
+	slog.Info("oidc: authentication configured")
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))

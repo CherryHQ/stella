@@ -81,9 +81,11 @@ func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	// dispatch in the same tick — a real eager cascade, but it makes the
 	// one-level-per-tick assertion below racy under load.
 	firstRun := atomic.Bool{}
+	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
 		if firstRun.CompareAndSwap(false, true) {
+			entered <- struct{}{}
 			<-release
 		}
 		called.Add(1)
@@ -99,10 +101,18 @@ func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	// spawned; upstream is claimed ('running') and parked in its executor, so
 	// the same-tick downstream evaluation sees an unsatisfied hard dep.
 	d.Tick(context.Background())
+	<-entered // upstream worker has started executing
+	if got := h.getTask(t, downstream).Status; got != StatusReady {
+		t.Errorf("downstream dispatched while upstream running; status=%q want ready", got)
+	}
+	if got := called.Load(); got != 0 {
+		t.Errorf("upstream should still be parked; got %d completed calls", got)
+	}
+	// Release upstream and let it reach done.
 	close(release)
 	d.WaitIdle()
-	if called.Load() != 1 {
-		t.Errorf("only upstream should have run; got %d calls", called.Load())
+	if got := called.Load(); got != 1 {
+		t.Errorf("only upstream should have run; got %d calls", got)
 	}
 	if got := h.getTask(t, upstream).Status; got != StatusDone {
 		t.Errorf("upstream status=%q want done", got)

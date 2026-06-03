@@ -67,6 +67,7 @@ const en = {
   // Login page
   "login.subtitle": "Sign in to continue",
   "login.signIn": "Sign in",
+  "login.signInWith": "Sign in with {{provider}}",
   "login.signingIn": "Signing in…",
   "login.signUp": "Sign up",
   "login.signingUp": "Signing up…",
@@ -75,6 +76,7 @@ const en = {
   "login.signUpLink": "Sign up",
   "login.signInLink": "Sign in",
   "login.noProviders": "No login providers configured. Contact your administrator.",
+  "login.providersUnavailable": "Authentication providers are unavailable. Try again later.",
   "login.orContinueWith": "Or continue with",
   "login.signupSubtitle": "Create an account to get started",
   "login.noLocalRegistration":
@@ -704,6 +706,7 @@ const zh: Record<MessageKey, string> = {
   // Login page
   "login.subtitle": "登录以继续",
   "login.signIn": "登录",
+  "login.signInWith": "使用 {{provider}} 登录",
   "login.signingIn": "登录中…",
   "login.signUp": "注册",
   "login.signingUp": "注册中…",
@@ -712,6 +715,7 @@ const zh: Record<MessageKey, string> = {
   "login.signUpLink": "注册",
   "login.signInLink": "登录",
   "login.noProviders": "未配置登录提供商，请联系管理员。",
+  "login.providersUnavailable": "认证服务暂不可用，请稍后重试。",
   "login.orContinueWith": "或使用以下方式继续",
   "login.signupSubtitle": "创建账号以开始使用",
   "login.noLocalRegistration": "本地注册不可用，请联系管理员。",

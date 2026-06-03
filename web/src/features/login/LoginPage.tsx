@@ -10,6 +10,37 @@ import type { OidcProviderList } from "@/lib/api-client/types.gen";
 import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/features/auth/AuthLayout";
 import { authErrorMessage } from "@/lib/auth-error";
+import feishuIcon from "@/assets/auth/feishu.svg";
+
+const AUTH_PROVIDER_LABELS: Record<string, string> = {
+  feishu: "飞书",
+  github: "GitHub",
+  google: "Google",
+};
+
+function authProviderLabel(name: string): string {
+  const key = name.toLowerCase();
+  return (
+    AUTH_PROVIDER_LABELS[key] ??
+    name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function authProviderIcon(name: string, label: string) {
+  const key = name.toLowerCase();
+  if (key === "github") return <span className="font-semibold text-[13px]">GH</span>;
+  if (key === "google") return <span className="font-semibold text-[13px]">G</span>;
+  if (key === "feishu") return <img src={feishuIcon} alt="" className="size-5" />;
+  return <span className="font-semibold text-[11px]">{label.slice(0, 2).toUpperCase()}</span>;
+}
+
+function authProviderIconClass(name: string): string {
+  const key = name.toLowerCase();
+  if (key === "github") return "bg-foreground text-background";
+  if (key === "google") return "bg-white text-[#4285f4] border border-border";
+  if (key === "feishu") return "bg-white border border-border";
+  return "bg-primary/10 text-primary border border-primary/20";
+}
 
 export function LoginPage() {
   const { t } = useI18n();
@@ -19,7 +50,12 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: providersData, isPending: providersLoading } = useQuery({
+  const {
+    data: providersData,
+    error: providersError,
+    isError: providersFailed,
+    isPending: providersLoading,
+  } = useQuery({
     queryKey: ["auth-providers"],
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
@@ -55,6 +91,10 @@ export function LoginPage() {
         <div className="flex justify-center py-8">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
+      ) : providersFailed ? (
+        <p className="text-center text-sm text-muted-foreground">
+          {authErrorMessage(providersError, t("login.providersUnavailable"))}
+        </p>
       ) : hasLocalProvider ? (
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-1.5">
@@ -144,17 +184,25 @@ export function LoginPage() {
           )}
 
           <div className="space-y-3">
-            {otherProviders.map((p) => (
-              <a key={p.name} href={p.login_url} className="block group">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
-                >
-                  {t("login.signIn")} {p.name}
-                </Button>
-              </a>
-            ))}
+            {otherProviders.map((p) => {
+              const label = authProviderLabel(p.name);
+              return (
+                <a key={p.name} href={p.login_url} className="block group">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full py-5 text-sm font-medium border-border/60 hover:border-primary/40 hover:bg-primary/5 group-hover:scale-[1.01] transition-all duration-200"
+                  >
+                    <span
+                      className={`mr-2 inline-flex size-6 shrink-0 items-center justify-center rounded-full ${authProviderIconClass(p.name)}`}
+                    >
+                      {authProviderIcon(p.name, label)}
+                    </span>
+                    {t("login.signInWith", { provider: label })}
+                  </Button>
+                </a>
+              );
+            })}
           </div>
         </div>
       )}

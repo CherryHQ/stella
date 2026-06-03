@@ -25,6 +25,7 @@ const (
 type StateCookiePayload struct {
 	State        string    `json:"state"`
 	CodeVerifier string    `json:"code_verifier"`
+	ProviderName string    `json:"provider_name"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

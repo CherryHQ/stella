@@ -16,7 +16,7 @@ const oidcTimeLayout = "2006-01-02 15:04:05"
 
 // OIDCStore implements auth store interfaces using raw SQL against the OIDC
 // tables (auth_user, auth_identity, auth_session, channel_identity,
-// auth_credential, auth_oidc_code, auth_oidc_access_token).
+// auth_credential).
 type OIDCStore struct {
 	db    dbQuerier
 	rawDB *sql.DB // non-nil only for the root store; nil for tx-scoped copies
@@ -94,8 +94,6 @@ var (
 	_ auth.ChannelIdentityStore = (*OIDCStore)(nil)
 	_ auth.SessionStore         = (*OIDCStore)(nil)
 	_ auth.CredentialStore      = (*OIDCStore)(nil)
-	_ auth.OIDCCodeStore        = (*OIDCStore)(nil)
-	_ auth.OIDCAccessTokenStore = (*OIDCStore)(nil)
 )
 
 // ---- Agent assignments ----
@@ -180,7 +178,7 @@ func (s *OIDCStore) GetUser(ctx context.Context, id string) (auth.User, error) {
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user WHERE id = ?`
 	row := s.db.QueryRowContext(ctx, q, id)
-	return scanUser(row)
+	return scanUserResult(row)
 }
 
 func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User, error) {
@@ -188,7 +186,17 @@ func (s *OIDCStore) GetUserByEmail(ctx context.Context, email string) (auth.User
 	           age_public_key, age_private_key, created_at, updated_at
 	           FROM auth_user WHERE email = ?`
 	row := s.db.QueryRowContext(ctx, q, email)
-	return scanUser(row)
+	return scanUserResult(row)
+}
+
+// scanUser maps a missing row to auth.ErrNotFound so callers can distinguish
+// "no such user" from a real scan failure.
+func scanUserResult(r rowScanner) (auth.User, error) {
+	u, err := scanUser(r)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.User{}, auth.ErrNotFound
+	}
+	return u, err
 }
 
 func (s *OIDCStore) ListUsers(ctx context.Context) ([]auth.User, error) {
@@ -594,131 +602,4 @@ func scanCredential(r rowScanner) (auth.Credential, error) {
 	c.CreatedAt = parseOIDCTime(createdAt)
 	c.UpdatedAt = parseOIDCTime(updatedAt)
 	return c, nil
-}
-
-// ---- OIDCCodeStore ----
-
-func (s *OIDCStore) CreateOIDCCode(ctx context.Context, c auth.OIDCCode) (auth.OIDCCode, error) {
-	scopesJSON, err := json.Marshal(c.Scopes)
-	if err != nil {
-		return auth.OIDCCode{}, fmt.Errorf("auth_oidc_code: marshal scopes: %w", err)
-	}
-	const q = `INSERT INTO auth_oidc_code
-		(id, code_hash, user_id, client_id, redirect_uri, scopes, nonce,
-		 pkce_challenge, pkce_method, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		RETURNING id, code_hash, user_id, client_id, redirect_uri, scopes, nonce,
-		          pkce_challenge, pkce_method, expires_at, consumed_at, created_at`
-	row := s.db.QueryRowContext(ctx, q,
-		c.ID, c.CodeHash, c.UserID, c.ClientID, c.RedirectURI,
-		string(scopesJSON), c.Nonce, c.PKCEChallenge, c.PKCEMethod,
-		c.ExpiresAt.UTC().Format(oidcTimeLayout),
-	)
-	return scanOIDCCode(row)
-}
-
-func (s *OIDCStore) ConsumeOIDCCode(ctx context.Context, codeHash string) (auth.OIDCCode, error) {
-	now := time.Now().UTC().Format(oidcTimeLayout)
-	const q = `UPDATE auth_oidc_code SET consumed_at = ?
-		WHERE code_hash = ? AND consumed_at IS NULL AND expires_at > ?
-		RETURNING id, code_hash, user_id, client_id, redirect_uri, scopes, nonce,
-		          pkce_challenge, pkce_method, expires_at, consumed_at, created_at`
-	row := s.db.QueryRowContext(ctx, q, now, codeHash, now)
-	code, err := scanOIDCCode(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		// Distinguish "already consumed" from "not found" / "expired".
-		var dummy string
-		checkErr := s.db.QueryRowContext(ctx,
-			`SELECT id FROM auth_oidc_code WHERE code_hash = ?`, codeHash,
-		).Scan(&dummy)
-		if errors.Is(checkErr, sql.ErrNoRows) {
-			return auth.OIDCCode{}, auth.ErrNotFound
-		}
-		// Row exists but was consumed or expired.
-		var consumedAt *string
-		var expiresAt string
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT consumed_at, expires_at FROM auth_oidc_code WHERE code_hash = ?`, codeHash,
-		).Scan(&consumedAt, &expiresAt)
-		if consumedAt != nil {
-			return auth.OIDCCode{}, auth.ErrAlreadyConsumed
-		}
-		return auth.OIDCCode{}, auth.ErrExpired
-	}
-	return code, err
-}
-
-func scanOIDCCode(r rowScanner) (auth.OIDCCode, error) {
-	var c auth.OIDCCode
-	var scopesJSON, expiresAt, createdAt string
-	var consumedAt *string
-	if err := r.Scan(
-		&c.ID, &c.CodeHash, &c.UserID, &c.ClientID, &c.RedirectURI,
-		&scopesJSON, &c.Nonce, &c.PKCEChallenge, &c.PKCEMethod,
-		&expiresAt, &consumedAt, &createdAt,
-	); err != nil {
-		return auth.OIDCCode{}, fmt.Errorf("auth_oidc_code scan: %w", err)
-	}
-	if err := json.Unmarshal([]byte(scopesJSON), &c.Scopes); err != nil {
-		return auth.OIDCCode{}, fmt.Errorf("auth_oidc_code: unmarshal scopes: %w", err)
-	}
-	c.ExpiresAt = parseOIDCTime(expiresAt)
-	c.CreatedAt = parseOIDCTime(createdAt)
-	if consumedAt != nil {
-		t := parseOIDCTime(*consumedAt)
-		c.ConsumedAt = &t
-	}
-	return c, nil
-}
-
-// ---- OIDCAccessTokenStore ----
-
-func (s *OIDCStore) CreateOIDCAccessToken(ctx context.Context, t auth.OIDCAccessToken) (auth.OIDCAccessToken, error) {
-	scopesJSON, err := json.Marshal(t.Scopes)
-	if err != nil {
-		return auth.OIDCAccessToken{}, fmt.Errorf("auth_oidc_access_token: marshal scopes: %w", err)
-	}
-	const q = `INSERT INTO auth_oidc_access_token
-		(id, token_hash, user_id, client_id, scopes, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-		RETURNING id, token_hash, user_id, client_id, scopes, expires_at, created_at`
-	row := s.db.QueryRowContext(ctx, q,
-		t.ID, t.TokenHash, t.UserID, t.ClientID,
-		string(scopesJSON), t.ExpiresAt.UTC().Format(oidcTimeLayout),
-	)
-	return scanOIDCAccessToken(row)
-}
-
-func (s *OIDCStore) GetOIDCAccessTokenByHash(ctx context.Context, tokenHash string) (auth.OIDCAccessToken, error) {
-	const q = `SELECT id, token_hash, user_id, client_id, scopes, expires_at, created_at
-		FROM auth_oidc_access_token WHERE token_hash = ?`
-	row := s.db.QueryRowContext(ctx, q, tokenHash)
-	t, err := scanOIDCAccessToken(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return auth.OIDCAccessToken{}, auth.ErrNotFound
-	}
-	return t, err
-}
-
-func (s *OIDCStore) DeleteExpiredOIDCAccessTokens(ctx context.Context) error {
-	now := time.Now().UTC().Format(oidcTimeLayout)
-	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_oidc_access_token WHERE expires_at <= ?`, now)
-	return err
-}
-
-func scanOIDCAccessToken(r rowScanner) (auth.OIDCAccessToken, error) {
-	var t auth.OIDCAccessToken
-	var scopesJSON, expiresAt, createdAt string
-	if err := r.Scan(
-		&t.ID, &t.TokenHash, &t.UserID, &t.ClientID,
-		&scopesJSON, &expiresAt, &createdAt,
-	); err != nil {
-		return auth.OIDCAccessToken{}, fmt.Errorf("auth_oidc_access_token scan: %w", err)
-	}
-	if err := json.Unmarshal([]byte(scopesJSON), &t.Scopes); err != nil {
-		return auth.OIDCAccessToken{}, fmt.Errorf("auth_oidc_access_token: unmarshal scopes: %w", err)
-	}
-	t.ExpiresAt = parseOIDCTime(expiresAt)
-	t.CreatedAt = parseOIDCTime(createdAt)
-	return t, nil
 }

@@ -162,8 +162,7 @@ var publicAuthAPIPaths = []string{
 }
 
 // isAuthExempt returns true for paths that bypass session validation:
-// login/signup pages, static assets, public shares, auth flow endpoints,
-// OAuth callbacks, and the local OIDC issuer.
+// login/signup pages, static assets, public shares, auth flow endpoints, and OAuth callbacks.
 func isAuthExempt(method, path string) bool {
 	switch {
 	case path == "/login" || path == "/signup":
@@ -176,8 +175,6 @@ func isAuthExempt(method, path string) bool {
 	case method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/"):
 		return true
 	case strings.HasPrefix(path, "/auth/login/") || strings.HasPrefix(path, "/auth/callback/"):
-		return true
-	case strings.HasPrefix(path, "/oidc/local/"):
 		return true
 	case strings.HasPrefix(path, "/api/auth/"):
 		if slices.Contains(publicAuthAPIPaths, path) {

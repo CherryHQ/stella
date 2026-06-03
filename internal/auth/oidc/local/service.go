@@ -3,31 +3,23 @@ package local
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/url"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
-// Service owns local username/password authentication while the issuer owns
-// the OIDC protocol endpoints. Keeping credential submission here prevents
-// /authorize from becoming a JSON API with content-negotiation tricks.
+// Service owns local username/password authentication.
 type Service struct {
 	cfg         *Config
-	codes       auth.OIDCCodeStore
 	users       auth.UserStore
 	credentials auth.CredentialStore
 }
 
 type LoginInput struct {
-	Email       string
-	Password    string
-	State       auth.AuthState
-	RedirectURI string
+	Email    string
+	Password string
 }
 
 type RegisterInput struct {
@@ -35,8 +27,6 @@ type RegisterInput struct {
 	Email           string
 	Password        string
 	ConfirmPassword string
-	State           auth.AuthState
-	RedirectURI     string
 }
 
 var (
@@ -45,18 +35,36 @@ var (
 	ErrInvalidLogin         = errors.New("invalid login")
 	ErrAccountDisabled      = errors.New("account disabled")
 	ErrEmailExists          = errors.New("email exists")
+	ErrEmailNotAllowed      = errors.New("email domain not allowed")
 )
 
-func NewService(cfg *Config, codes auth.OIDCCodeStore, users auth.UserStore, credentials auth.CredentialStore) *Service {
-	return &Service{cfg: cfg, codes: codes, users: users, credentials: credentials}
+const dummyPasswordHash = "$2a$12$CeeBKQWOCBTpIR6Gg2zU4u/fKqV3QzpEH2aCLVqA0dZ1ZfqOyLvMu"
+
+func verifyDummyPassword(password string) {
+	_ = auth.CheckPassword(dummyPasswordHash, password)
+}
+
+func NewService(cfg *Config, users auth.UserStore, credentials auth.CredentialStore) *Service {
+	return &Service{cfg: cfg, users: users, credentials: credentials}
 }
 
 func (s *Service) AllowsRegistration(ctx context.Context) bool {
-	if !s.cfg.AllowRegistration {
-		return false
+	ok, err := s.allowsRegistration(ctx, s.users)
+	return err == nil && ok
+}
+
+func (s *Service) allowsRegistration(ctx context.Context, users auth.UserStore) (bool, error) {
+	if s.cfg.AllowRegistration {
+		return true, nil
 	}
-	count, err := s.users.CountUsers(ctx)
-	return err == nil && count == 0
+	if !s.cfg.BootstrapRegistration {
+		return false, nil
+	}
+	count, err := users.CountUsers(ctx)
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
 }
 
 func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
@@ -67,26 +75,26 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
 
 	user, err := s.users.GetUserByEmail(ctx, email)
 	if err != nil {
+		verifyDummyPassword(in.Password)
+		return "", ErrInvalidLogin
+	}
+	credSvc := auth.NewCredentialService(s.credentials)
+	if err := credSvc.VerifyPassword(ctx, user.ID, in.Password); err != nil {
 		return "", ErrInvalidLogin
 	}
 	if !user.IsActive {
 		return "", ErrAccountDisabled
 	}
 
-	credSvc := auth.NewCredentialService(s.credentials)
-	if err := credSvc.VerifyPassword(ctx, user.ID, in.Password); err != nil {
-		return "", ErrInvalidLogin
-	}
-
-	params, err := s.authorizeParams(in.State, in.RedirectURI)
-	if err != nil {
-		return "", err
-	}
-	return s.issueCode(ctx, user.ID, params)
+	return user.ID, nil
 }
 
 func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error) {
-	if !s.cfg.AllowRegistration {
+	allowed, err := s.allowsRegistration(ctx, s.users)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
 		return "", ErrRegistrationDisabled
 	}
 
@@ -101,26 +109,25 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (string, error
 	if len(in.Password) < 8 || len(in.Password) > 72 || in.Password != in.ConfirmPassword {
 		return "", ErrInvalidInput
 	}
+	if !s.cfg.IsEmailAllowed(email) {
+		return "", ErrEmailNotAllowed
+	}
 
-	userID, err := s.createBootstrapUser(ctx, name, email, in.Password)
+	userID, err := s.createRegisteredUser(ctx, name, email, in.Password)
 	if err != nil {
 		return "", err
 	}
-	params, err := s.authorizeParams(in.State, in.RedirectURI)
-	if err != nil {
-		return "", err
-	}
-	return s.issueCode(ctx, userID, params)
+	return userID, nil
 }
 
-func (s *Service) createBootstrapUser(ctx context.Context, name, email, password string) (string, error) {
+func (s *Service) createRegisteredUser(ctx context.Context, name, email, password string) (string, error) {
 	if txner, ok := s.users.(auth.Transactioner); ok {
 		stores, commit, rollback, err := txner.BeginAuthTx(ctx)
 		if err != nil {
 			return "", err
 		}
 		defer rollback()
-		userID, err := createBootstrapUserNoTx(ctx, stores.Users, stores.Credentials, name, email, password)
+		userID, err := s.createRegisteredUserNoTx(ctx, stores.Users, stores.Credentials, name, email, password)
 		if err != nil {
 			return "", err
 		}
@@ -129,29 +136,35 @@ func (s *Service) createBootstrapUser(ctx context.Context, name, email, password
 		}
 		return userID, nil
 	}
-	return createBootstrapUserNoTx(ctx, s.users, s.credentials, name, email, password)
+	return s.createRegisteredUserNoTx(ctx, s.users, s.credentials, name, email, password)
 }
 
-func createBootstrapUserNoTx(ctx context.Context, users auth.UserStore, credentials auth.CredentialStore, name, email, password string) (string, error) {
+func (s *Service) createRegisteredUserNoTx(ctx context.Context, users auth.UserStore, credentials auth.CredentialStore, name, email, password string) (string, error) {
 	if _, err := users.GetUserByEmail(ctx, email); err == nil {
 		return "", ErrEmailExists
 	} else if !errors.Is(err, auth.ErrNotFound) {
 		return "", err
 	}
 
+	// The first account ever registered bootstraps the admin; everyone after is
+	// a regular user.
 	count, err := users.CountUsers(ctx)
 	if err != nil {
 		return "", err
 	}
-	if count > 0 {
+	if count > 0 && !s.cfg.AllowRegistration {
 		return "", ErrRegistrationDisabled
+	}
+	role := auth.RoleUser
+	if count == 0 {
+		role = auth.RoleAdmin
 	}
 
 	newUser, err := users.CreateUser(ctx, auth.User{
 		ID:    uuid.NewString(),
 		Email: email,
 		Name:  name,
-		Role:  auth.RoleAdmin,
+		Role:  role,
 	})
 	if err != nil {
 		return "", err
@@ -163,53 +176,4 @@ func createBootstrapUserNoTx(ctx context.Context, users auth.UserStore, credenti
 		return "", err
 	}
 	return newUser.ID, nil
-}
-
-func (s *Service) authorizeParams(state auth.AuthState, redirectURI string) (*authorizeParams, error) {
-	if redirectURI == "" && len(s.cfg.RedirectURIs) > 0 {
-		redirectURI = s.cfg.RedirectURIs[0]
-	}
-	if !s.cfg.IsRedirectURIAllowed(redirectURI) {
-		return nil, fmt.Errorf("redirect_uri not allowed: %s", redirectURI)
-	}
-	return &authorizeParams{
-		clientID:            s.cfg.ClientID,
-		redirectURI:         redirectURI,
-		state:               state.State,
-		scopes:              []string{"openid", "email", "profile"},
-		pkceChallenge:       pkceChallengeFromVerifier(state.CodeVerifier),
-		pkceChallengeMethod: "S256",
-	}, nil
-}
-
-func (s *Service) issueCode(ctx context.Context, userID string, params *authorizeParams) (string, error) {
-	rawCode := generateOpaqueToken()
-	codeHash := hashToken(rawCode)
-
-	_, err := s.codes.CreateOIDCCode(ctx, auth.OIDCCode{
-		ID:            uuid.NewString(),
-		CodeHash:      codeHash,
-		UserID:        userID,
-		ClientID:      params.clientID,
-		RedirectURI:   params.redirectURI,
-		Scopes:        params.scopes,
-		Nonce:         params.nonce,
-		PKCEChallenge: params.pkceChallenge,
-		PKCEMethod:    params.pkceChallengeMethod,
-		ExpiresAt:     time.Now().Add(time.Duration(s.cfg.AuthCodeTTL) * time.Second),
-	})
-	if err != nil {
-		return "", fmt.Errorf("local auth: create authorization code: %w", err)
-	}
-
-	q := url.Values{"code": {rawCode}}
-	if params.state != "" {
-		q.Set("state", params.state)
-	}
-	u, err := url.Parse(params.redirectURI)
-	if err != nil {
-		return "", fmt.Errorf("local auth: parse redirect URI: %w", err)
-	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
 }

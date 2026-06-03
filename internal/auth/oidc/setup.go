@@ -14,7 +14,6 @@ import (
 // SetupParams contains dependencies for OIDC setup.
 type SetupParams struct {
 	DB       *sql.DB
-	Store    local.SettingStore
 	BaseURL  string
 	VaultKey string
 	// AuthStores is a store that implements all auth store interfaces.
@@ -28,8 +27,6 @@ type AuthStores interface {
 	auth.LoginIdentityStore
 	auth.SessionStore
 	auth.CredentialStore
-	auth.OIDCCodeStore
-	auth.OIDCAccessTokenStore
 }
 
 // SetupResult contains the OIDC components created by Setup.
@@ -39,14 +36,10 @@ type SetupResult struct {
 	SessionMgr *auth.SessionManager
 	StateMgr   *StateManager
 	LocalAuth  *local.Service
-	// RegisterRoutes mounts local OIDC issuer endpoints on the mux.
-	// Nil for external OIDC providers.
-	RegisterRoutes func(mux *http.ServeMux)
 }
 
-// Setup configures OIDC authentication. When OIDC_ISSUER_URL is set it
-// connects to the external provider; otherwise it auto-configures the
-// built-in local issuer.
+// Setup configures login authentication. When OIDC_ISSUER_URL is set it
+// connects to the external provider; otherwise it enables local password auth.
 func Setup(ctx context.Context, p SetupParams) (*SetupResult, error) {
 	s := p.AuthStores
 	sessionMgr, err := auth.NewSessionManager(s, p.VaultKey)
@@ -60,12 +53,12 @@ func Setup(ctx context.Context, p SetupParams) (*SetupResult, error) {
 	authSvc := auth.NewAuthService(p.DB, s, s, s)
 
 	if os.Getenv("OIDC_ISSUER_URL") != "" {
-		return setupExternal(ctx, authSvc, sessionMgr, stateMgr)
+		return setupExternal(ctx, p.BaseURL, authSvc, sessionMgr, stateMgr)
 	}
 	return setupLocal(ctx, p, authSvc, sessionMgr, stateMgr)
 }
 
-func setupExternal(ctx context.Context, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
+func setupExternal(ctx context.Context, baseURL string, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
 	cfg, err := ConfigFromEnv()
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
@@ -74,55 +67,125 @@ func setupExternal(ctx context.Context, authSvc *auth.AuthService, sessionMgr *a
 	if err != nil {
 		return nil, fmt.Errorf("provider %q: %w", cfg.ProviderName, err)
 	}
+	providers := []auth.AuthProvider{provider}
+	oauthProviders, err := setupOAuthProviders(ctx, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkProviderNameConflicts(providers, oauthProviders); err != nil {
+		return nil, err
+	}
+	providers = append(providers, oauthProviders...)
 	return &SetupResult{
-		Providers:  []auth.AuthProvider{provider},
+		Providers:  providers,
 		AuthSvc:    authSvc,
 		SessionMgr: sessionMgr,
 		StateMgr:   stateMgr,
 	}, nil
 }
 
+func checkProviderNameConflicts(existing, added []auth.AuthProvider) error {
+	seen := make(map[string]struct{}, len(existing)+len(added))
+	for _, p := range existing {
+		seen[p.Name()] = struct{}{}
+	}
+	for _, p := range added {
+		if _, ok := seen[p.Name()]; ok {
+			return fmt.Errorf("duplicate auth provider name %q", p.Name())
+		}
+		seen[p.Name()] = struct{}{}
+	}
+	return nil
+}
+
+func setupOAuthProviders(ctx context.Context, baseURL string) ([]auth.AuthProvider, error) {
+	if !OAuthConfiguredFromEnv() {
+		return nil, nil
+	}
+	configs, err := OAuthConfigsFromEnv(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("oauth providers: %w", err)
+	}
+	providers := make([]auth.AuthProvider, 0, len(configs))
+	for _, cfg := range configs {
+		var provider auth.AuthProvider
+		if cfg.Kind == "google" {
+			p, err := NewProvider(ctx, &Config{
+				ProviderName: cfg.ProviderName,
+				IssuerURL:    "https://accounts.google.com",
+				ClientID:     cfg.ClientID,
+				ClientSecret: cfg.ClientSecret,
+				RedirectURL:  cfg.RedirectURL,
+				Scopes:       cfg.Scopes,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("oauth provider %q: %w", cfg.ProviderName, err)
+			}
+			provider = &emailDomainProvider{provider: p, allowedDomains: cfg.AllowedEmailDomains}
+		} else {
+			p, err := NewOAuthProvider(cfg)
+			if err != nil {
+				return nil, fmt.Errorf("oauth provider %q: %w", cfg.ProviderName, err)
+			}
+			provider = p
+		}
+		providers = append(providers, provider)
+	}
+	return providers, nil
+}
+
+type emailDomainProvider struct {
+	provider       auth.AuthProvider
+	allowedDomains []string
+}
+
+func (p *emailDomainProvider) Name() string { return p.provider.Name() }
+
+func (p *emailDomainProvider) LoginURL(ctx context.Context, state auth.AuthState) (string, error) {
+	return p.provider.LoginURL(ctx, state)
+}
+
+func (p *emailDomainProvider) HandleCallback(ctx context.Context, r *http.Request, state auth.AuthState) (*auth.ExternalIdentity, error) {
+	identity, err := p.provider.HandleCallback(ctx, r, state)
+	if err != nil {
+		return nil, err
+	}
+	if len(p.allowedDomains) > 0 && !emailDomainAllowed(identity.Email, p.allowedDomains) {
+		return nil, fmt.Errorf("oauth login: email domain not allowed")
+	}
+	return identity, nil
+}
+
 func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
-	signingKey, err := local.LoadOrGenerateSigningKey(ctx, p.Store)
-	if err != nil {
-		return nil, fmt.Errorf("signing key: %w", err)
-	}
-
-	callbackURL := p.BaseURL + "/auth/callback/local"
 	cfg := &local.Config{
-		IssuerURL:         p.BaseURL + "/oidc/local",
-		ClientID:          local.AutoClientID,
-		SigningKey:        signingKey,
-		KeyID:             local.AutoKeyID,
-		RedirectURIs:      []string{callbackURL},
-		AccessTokenTTL:    3600,
-		AuthCodeTTL:       120,
-		AllowRegistration: true,
-	}
-
-	clientProvider, err := local.NewClientProvider(cfg, callbackURL)
-	if err != nil {
-		return nil, fmt.Errorf("local client provider: %w", err)
+		AllowRegistration:     local.AllowRegistrationFromEnv(localPasswordEnv("ALLOW_REGISTRATION")),
+		BootstrapRegistration: true,
+		AllowedEmailDomains:   local.SplitTrimmed(localPasswordEnv("ALLOWED_EMAIL_DOMAINS")),
 	}
 
 	s := p.AuthStores
-	issuerAuthSvc := auth.NewAuthService(p.DB, s, s, s)
-	issuerSessionMgr := sessionMgr.WithStore(s)
-	localAuth := local.NewService(cfg, s, s, s)
-	issuer := local.NewIssuer(cfg, s, s, s, localAuth, issuerAuthSvc, issuerSessionMgr)
+	localAuth := local.NewService(cfg, s, s)
+
+	oauthProviders, err := setupOAuthProviders(ctx, p.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkProviderNameConflicts(nil, oauthProviders); err != nil {
+		return nil, err
+	}
 
 	return &SetupResult{
-		Providers:  []auth.AuthProvider{clientProvider},
+		Providers:  oauthProviders,
 		AuthSvc:    authSvc,
 		SessionMgr: sessionMgr,
 		StateMgr:   stateMgr,
 		LocalAuth:  localAuth,
-		RegisterRoutes: func(mux *http.ServeMux) {
-			mux.HandleFunc("GET /oidc/local/.well-known/openid-configuration", issuer.HandleDiscovery)
-			mux.HandleFunc("GET /oidc/local/jwks.json", issuer.HandleJWKS)
-			mux.HandleFunc("GET /oidc/local/authorize", issuer.HandleAuthorize)
-			mux.HandleFunc("POST /oidc/local/token", issuer.HandleToken)
-			mux.HandleFunc("GET /oidc/local/userinfo", issuer.HandleUserinfo)
-		},
 	}, nil
+}
+
+func localPasswordEnv(name string) string {
+	if v := os.Getenv("LOCAL_PASSWORD_" + name); v != "" {
+		return v
+	}
+	return os.Getenv("LOCAL_OIDC_" + name)
 }

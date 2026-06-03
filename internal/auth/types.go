@@ -162,36 +162,7 @@ type UserToken struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
-// OIDCCode is an authorization code issued by the local OIDC issuer.
-// CodeHash is the SHA-256 hash of the raw opaque code sent to the client.
-type OIDCCode struct {
-	ID            string     `json:"id"`
-	CodeHash      string     `json:"-"`
-	UserID        string     `json:"user_id"`
-	ClientID      string     `json:"client_id"`
-	RedirectURI   string     `json:"redirect_uri"`
-	Scopes        []string   `json:"scopes"`
-	Nonce         string     `json:"nonce"`
-	PKCEChallenge string     `json:"-"`
-	PKCEMethod    string     `json:"pkce_method"`
-	ExpiresAt     time.Time  `json:"expires_at"`
-	ConsumedAt    *time.Time `json:"consumed_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-}
-
-// OIDCAccessToken is an opaque access token issued by the local OIDC issuer.
-// TokenHash is the SHA-256 hash of the raw token sent to the client.
-type OIDCAccessToken struct {
-	ID        string    `json:"id"`
-	TokenHash string    `json:"-"`
-	UserID    string    `json:"user_id"`
-	ClientID  string    `json:"client_id"`
-	Scopes    []string  `json:"scopes"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// Credential stores the bcrypt password hash for a local OIDC authorize screen.
+// Credential stores the bcrypt password hash for local password login.
 // It lives in auth_credential and is keyed by user_id (one per user).
 type Credential struct {
 	ID           string    `json:"id"`

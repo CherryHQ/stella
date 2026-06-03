@@ -1,15 +1,22 @@
 package server
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
+	"os"
 	"strings"
+
+	"github.com/google/uuid"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -20,22 +27,28 @@ import (
 // login buttons. Public endpoint — no authentication required.
 func (s *Server) ListAuthProviders(w http.ResponseWriter, r *http.Request) {
 	out := apitypes.OIDCProviderList{Providers: []apitypes.OIDCProvider{}}
-	for _, p := range s.authProviders {
+	if s.localAuth != nil {
 		prov := apitypes.OIDCProvider{
-			Name:     p.Name(),
-			LoginUrl: fmt.Sprintf("/auth/login/%s", p.Name()),
+			Name:     "local",
+			LoginUrl: "/auth/login/local",
 		}
-		if p.Name() == "local" && s.localAuth != nil && s.localAuth.AllowsRegistration(r.Context()) {
+		if s.localAuth.AllowsRegistration(r.Context()) {
 			regURL := "/signup"
 			prov.RegisterUrl = &regURL
 		}
 		out.Providers = append(out.Providers, prov)
 	}
+	for _, p := range s.authProviders {
+		out.Providers = append(out.Providers, apitypes.OIDCProvider{
+			Name:     p.Name(),
+			LoginUrl: fmt.Sprintf("/auth/login/%s", p.Name()),
+		})
+	}
 	writeData(w, http.StatusOK, out)
 }
 
 func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
-	if s.localAuth == nil || s.stateMgr == nil {
+	if s.localAuth == nil || s.authSvc == nil || s.sessionMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
 		return
 	}
@@ -47,39 +60,45 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
-	email := string(body.Email)
+	email := normalizeEmail(string(body.Email))
 	if err := s.rateLimiter.CheckIP(ip); err != nil {
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
-	if err := s.rateLimiter.CheckUsername(email); err != nil {
-		writeError(w, http.StatusTooManyRequests, err.Error())
-		return
+	if email != "" {
+		if err := s.rateLimiter.CheckUsername(email); err != nil {
+			writeError(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
 	}
 
-	state, ok := s.startLocalAuthFlow(w, r)
-	if !ok {
-		return
-	}
-	redirectURL, err := s.localAuth.Login(r.Context(), local.LoginInput{
+	userID, err := s.localAuth.Login(r.Context(), local.LoginInput{
 		Email:    email,
 		Password: body.Password,
-		State:    state,
 	})
 	if err != nil {
 		s.rateLimiter.RecordIPAttempt(ip)
-		if errors.Is(err, local.ErrInvalidLogin) {
+		if email != "" && errors.Is(err, local.ErrInvalidLogin) {
 			s.rateLimiter.RecordLoginFailure(email)
 		}
 		s.writeLocalAuthError(w, err)
 		return
 	}
-	s.rateLimiter.RecordLoginSuccess(email)
-	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: redirectURL})
+	result, err := s.authSvc.CreateSessionForUser(r.Context(), userID, s.sessionMgr)
+	if err != nil {
+		slog.Error("local auth: create session", "error", err)
+		writeError(w, http.StatusInternalServerError, "login failed")
+		return
+	}
+	s.finalizeLogin(w, r, result)
+	if email != "" {
+		s.rateLimiter.RecordLoginSuccess(email)
+	}
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
 }
 
 func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
-	if s.localAuth == nil || s.stateMgr == nil {
+	if s.localAuth == nil || s.authSvc == nil || s.sessionMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "local authentication is not configured")
 		return
 	}
@@ -91,73 +110,105 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
+	email := normalizeEmail(string(body.Email))
 	if err := s.rateLimiter.CheckIP(ip); err != nil {
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
-
-	state, ok := s.startLocalAuthFlow(w, r)
-	if !ok {
-		return
+	if email != "" {
+		if err := s.rateLimiter.CheckRegistration(email); err != nil {
+			writeError(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
 	}
-	redirectURL, err := s.localAuth.Register(r.Context(), local.RegisterInput{
+
+	userID, err := s.localAuth.Register(r.Context(), local.RegisterInput{
 		Name:            body.Name,
-		Email:           string(body.Email),
+		Email:           email,
 		Password:        body.Password,
 		ConfirmPassword: body.ConfirmPassword,
-		State:           state,
 	})
 	if err != nil {
 		s.rateLimiter.RecordIPAttempt(ip)
+		if email != "" {
+			s.rateLimiter.RecordRegistrationFailure(email)
+		}
 		s.writeLocalAuthError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: redirectURL})
-}
-
-func (s *Server) startLocalAuthFlow(w http.ResponseWriter, r *http.Request) (auth.AuthState, bool) {
-	payload, err := s.stateMgr.Generate()
+	result, err := s.authSvc.CreateSessionForUser(r.Context(), userID, s.sessionMgr)
 	if err != nil {
-		slog.Error("local auth: generate state", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return auth.AuthState{}, false
+		slog.Error("local auth: create registration session", "error", err)
+		writeError(w, http.StatusInternalServerError, "registration failed")
+		return
 	}
-	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	if err := s.stateMgr.SetCookie(w, payload, secure); err != nil {
-		slog.Error("local auth: set state cookie", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return auth.AuthState{}, false
+	s.finalizeLogin(w, r, result)
+	if email != "" {
+		s.rateLimiter.RecordRegistrationSuccess(email)
 	}
-	return auth.AuthState{State: payload.State, CodeVerifier: payload.CodeVerifier, ProviderName: "local"}, true
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
 }
 
 func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, local.ErrInvalidInput):
+	// ErrEmailExists is deliberately folded into the generic invalid-input
+	// response so the endpoint never confirms whether an email is registered
+	// (prevents account enumeration). The real reason is logged server-side.
+	case errors.Is(err, local.ErrInvalidInput), errors.Is(err, local.ErrEmailExists):
+		if errors.Is(err, local.ErrEmailExists) {
+			slog.Info("local auth: registration rejected for existing email")
+		}
 		writeError(w, http.StatusBadRequest, "invalid request")
-	case errors.Is(err, local.ErrInvalidLogin):
+	case errors.Is(err, local.ErrInvalidLogin), errors.Is(err, local.ErrAccountDisabled):
+		if errors.Is(err, local.ErrAccountDisabled) {
+			slog.Info("local auth: login rejected for disabled account")
+		}
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
-	case errors.Is(err, local.ErrAccountDisabled):
-		writeError(w, http.StatusUnauthorized, "account is disabled")
 	case errors.Is(err, local.ErrRegistrationDisabled):
 		writeError(w, http.StatusForbidden, "registration is disabled")
-	case errors.Is(err, local.ErrEmailExists):
-		writeError(w, http.StatusConflict, "an account with this email already exists")
+	case errors.Is(err, local.ErrEmailNotAllowed):
+		writeError(w, http.StatusForbidden, "this email domain is not allowed to register")
 	default:
 		s.writeInternalError(w, err)
 	}
 }
 
 func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return strings.TrimSpace(ip)
+	remote := remoteIP(r)
+	if trustedProxy(remote) {
+		if ip := forwardedClientIP(r); ip != "" {
+			return ip
+		}
+	}
+	return remote
+}
+
+func forwardedClientIP(r *http.Request) string {
+	if ip := validIP(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
 	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if ip, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(ip)
+			return validIP(ip)
 		}
-		return strings.TrimSpace(xff)
+		return validIP(xff)
 	}
+	return ""
+}
+
+func validIP(s string) string {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return ""
+	}
+	return addr.String()
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -165,32 +216,59 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+func trustedProxy(remote string) bool {
+	raw := os.Getenv("STELLA_TRUSTED_PROXIES")
+	if strings.TrimSpace(raw) == "" {
+		return false
+	}
+	addr, err := netip.ParseAddr(remote)
+	if err != nil {
+		return false
+	}
+	for item := range strings.SplitSeq(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if prefix, err := netip.ParsePrefix(item); err == nil {
+			if prefix.Contains(addr) {
+				return true
+			}
+			continue
+		}
+		proxy, err := netip.ParseAddr(item)
+		if err == nil && proxy == addr {
+			return true
+		}
+	}
+	return false
+}
+
 // handleOIDCLogin handles GET /auth/login/{provider}.
 // Generates PKCE + state, sets a signed cookie, and redirects the browser to
 // the IdP authorization endpoint.
 func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
-	if s.stateMgr == nil || len(s.authProviders) == 0 {
-		http.Error(w, "OIDC not configured", http.StatusServiceUnavailable)
-		return
-	}
-
 	providerName := r.PathValue("provider")
-	provider := s.findProvider(providerName)
-	if provider == nil {
-		slog.Warn("oidc: unknown provider", "provider", providerName, "available", s.providerNames())
-		http.NotFound(w, r)
-		return
-	}
-
-	// Local provider: redirect to the SPA login page directly. The SPA
-	// generates its own OIDC state via the JSON API, so setting one here
-	// would only be overwritten.
-	if providerName == "local" {
+	// Local provider: redirect to the SPA login page directly. The SPA submits
+	// credentials through the JSON API and does not use an OIDC redirect flow.
+	if providerName == "local" && s.localAuth != nil {
 		dest := "/login"
 		if r.URL.Query().Get("mode") == "register" {
 			dest = "/signup"
 		}
 		http.Redirect(w, r, dest, http.StatusFound)
+		return
+	}
+
+	if s.stateMgr == nil || len(s.authProviders) == 0 {
+		http.Error(w, "OIDC not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	provider := s.findProvider(providerName)
+	if provider == nil {
+		slog.Warn("oidc: unknown provider", "provider", providerName, "available", s.providerNames())
+		http.NotFound(w, r)
 		return
 	}
 
@@ -201,6 +279,7 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	payload.ProviderName = providerName
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	if err := s.stateMgr.SetCookie(w, payload, secure); err != nil {
 		slog.Error("oidc: set state cookie", "error", err)
@@ -251,6 +330,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if payload.ProviderName != providerName {
+		slog.Warn("oidc: provider mismatch in state", "provider", providerName, "state_provider", payload.ProviderName)
+		http.Error(w, "invalid or expired login session", http.StatusBadRequest)
+		return
+	}
+
 	state := auth.AuthState{
 		State:        payload.State,
 		CodeVerifier: payload.CodeVerifier,
@@ -270,10 +355,44 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.linkFeishuChannelIdentity(r.Context(), result.User.ID, *identity)
+	s.finalizeLogin(w, r, result)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, identity auth.ExternalIdentity) {
+	if identity.Provider != "feishu" || identity.Subject == "" || s.users == nil {
+		return
+	}
+	existing, err := s.users.GetChannelIdentityByPlatform(ctx, "feishu", identity.Subject)
+	if err == nil {
+		if existing.UserID != userID {
+			slog.Warn("feishu auth: channel identity already linked to another user", "external_id", identity.Subject, "login_user_id", userID, "channel_user_id", existing.UserID)
+		}
+		return
+	}
+	if !errors.Is(err, auth.ErrNotFound) && !errors.Is(err, sql.ErrNoRows) {
+		slog.Warn("feishu auth: lookup channel identity failed", "external_id", identity.Subject, "user_id", userID, "error", err)
+		return
+	}
+	if _, err := s.users.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
+		UserID:     userID,
+		Platform:   "feishu",
+		ExternalID: identity.Subject,
+		Name:       identity.Name,
+	}); err != nil {
+		slog.Warn("feishu auth: create channel identity failed", "external_id", identity.Subject, "user_id", userID, "error", err)
+		return
+	}
+	slog.Info("feishu auth: linked channel identity from login", "external_id", identity.Subject, "user_id", userID)
+}
+
+func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result auth.OIDCLoginResult) {
 	// Ensure every user has an auto-generated API token (idempotent).
 	if s.tokenSvc != nil {
 		if err := s.tokenSvc.EnsureAutoToken(r.Context(), result.User.ID); err != nil {
-			slog.Warn("oidc: ensure auto token failed", "user_id", result.User.ID, "error", err)
+			slog.Warn("auth: ensure auto token failed", "user_id", result.User.ID, "error", err)
 		}
 	}
 
@@ -281,16 +400,14 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if result.User.AgePublicKey == "" && s.vaultRecipient != nil {
 		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
 		if err != nil {
-			slog.Warn("oidc: generate age keys failed", "user_id", result.User.ID, "error", err)
+			slog.Warn("auth: generate age keys failed", "user_id", result.User.ID, "error", err)
 		} else if err := s.authSvc.UpdateUserAgeKeys(r.Context(), result.User.ID, pubKey, encPrivKey); err != nil {
-			slog.Warn("oidc: store age keys failed", "user_id", result.User.ID, "error", err)
+			slog.Warn("auth: store age keys failed", "user_id", result.User.ID, "error", err)
 		}
 	}
 
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	s.sessionMgr.SetCookie(w, result.SessionToken, secure)
-
-	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *Server) findProvider(name string) auth.AuthProvider {

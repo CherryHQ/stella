@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 )
@@ -48,6 +50,13 @@ func ResolveUserCandidates(ctx context.Context, store channelAuthStore, platform
 		if err != nil {
 			if isNotFound(err) {
 				lastNotFound = err
+				resolved, match, ok, err := linkLoginIdentityAsChannelIdentity(ctx, store, platform, externalID, "")
+				if err != nil {
+					return ResolvedIdentity{}, identityMatch{}, err
+				}
+				if ok {
+					return resolved, match, nil
+				}
 				continue
 			}
 			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup identity: %w", err)
@@ -69,6 +78,53 @@ func ResolveUserCandidates(ctx context.Context, store channelAuthStore, platform
 		log.Debug("no linked identity found, user must link via link code")
 	}
 	return ResolvedIdentity{}, identityMatch{}, nil
+}
+
+func linkLoginIdentityAsChannelIdentity(ctx context.Context, store channelAuthStore, platform, externalID, senderName string) (ResolvedIdentity, identityMatch, bool, error) {
+	loginIdentity, err := store.GetLoginIdentityByProvider(ctx, platform, externalID)
+	if err != nil {
+		if isNotFound(err) {
+			return ResolvedIdentity{}, identityMatch{}, false, nil
+		}
+		return ResolvedIdentity{}, identityMatch{}, false, fmt.Errorf("lookup login identity: %w", err)
+	}
+
+	user, err := store.GetUser(ctx, loginIdentity.UserID)
+	if err != nil {
+		if isNotFound(err) {
+			slog.Error("auth user not found for login identity", "user_id", loginIdentity.UserID, "provider", platform, "subject", externalID, "error", err)
+			return ResolvedIdentity{}, identityMatch{}, true, nil
+		}
+		return ResolvedIdentity{}, identityMatch{}, false, fmt.Errorf("lookup login identity user: %w", err)
+	}
+
+	name := senderName
+	if name == "" {
+		name = loginIdentity.Name
+	}
+	identity, err := store.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
+		UserID:     user.ID,
+		Platform:   platform,
+		ExternalID: externalID,
+		Name:       name,
+	})
+	if err != nil {
+		// Another request may have linked the same identity first. Reuse it if it
+		// points at the same user; otherwise keep the explicit channel link authoritative.
+		existing, lookupErr := store.GetChannelIdentityByPlatform(ctx, platform, externalID)
+		if lookupErr != nil {
+			return ResolvedIdentity{}, identityMatch{}, false, fmt.Errorf("create channel identity from login identity: %w", err)
+		}
+		if existing.UserID != user.ID {
+			slog.Warn("login identity conflicts with existing channel identity", "platform", platform, "external_id", externalID, "login_user_id", user.ID, "channel_user_id", existing.UserID)
+			return ResolvedIdentity{}, identityMatch{}, true, nil
+		}
+		identity = existing
+	}
+
+	slog.Info("linked channel identity from login identity", "platform", platform, "external_id", externalID, "user_id", user.ID)
+	return ResolvedIdentity{User: user}, identityMatch{Identity: identity, Matched: externalID}, true, nil
 }
 
 func orderedIDs(ids ...string) []string {

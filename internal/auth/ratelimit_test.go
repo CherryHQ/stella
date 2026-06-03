@@ -99,3 +99,17 @@ func TestRateLimiterBelowThreshold(t *testing.T) {
 		t.Errorf("4 failures should not trigger rate limit, got %v", err)
 	}
 }
+
+func TestRateLimiterRegistrationFailuresDoNotBlockLogin(t *testing.T) {
+	rl := auth.NewRateLimiter()
+
+	for range 5 {
+		rl.RecordRegistrationFailure("user@example.com")
+	}
+	if err := rl.CheckRegistration("user@example.com"); !errors.Is(err, auth.ErrRateLimitRegistration) {
+		t.Errorf("expected ErrRateLimitRegistration, got %v", err)
+	}
+	if err := rl.CheckUsername("user@example.com"); err != nil {
+		t.Errorf("registration failures should not block login, got %v", err)
+	}
+}
