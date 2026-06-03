@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,8 +12,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -350,8 +355,37 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.linkFeishuChannelIdentity(r.Context(), result.User.ID, *identity)
 	s.finalizeLogin(w, r, result)
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, identity auth.ExternalIdentity) {
+	if identity.Provider != "feishu" || identity.Subject == "" || s.users == nil {
+		return
+	}
+	existing, err := s.users.GetChannelIdentityByPlatform(ctx, "feishu", identity.Subject)
+	if err == nil {
+		if existing.UserID != userID {
+			slog.Warn("feishu auth: channel identity already linked to another user", "external_id", identity.Subject, "login_user_id", userID, "channel_user_id", existing.UserID)
+		}
+		return
+	}
+	if !errors.Is(err, auth.ErrNotFound) && !errors.Is(err, sql.ErrNoRows) {
+		slog.Warn("feishu auth: lookup channel identity failed", "external_id", identity.Subject, "user_id", userID, "error", err)
+		return
+	}
+	if _, err := s.users.CreateChannelIdentity(ctx, auth.ChannelIdentity{
+		ID:         uuid.NewString(),
+		UserID:     userID,
+		Platform:   "feishu",
+		ExternalID: identity.Subject,
+		Name:       identity.Name,
+	}); err != nil {
+		slog.Warn("feishu auth: create channel identity failed", "external_id", identity.Subject, "user_id", userID, "error", err)
+		return
+	}
+	slog.Info("feishu auth: linked channel identity from login", "external_id", identity.Subject, "user_id", userID)
 }
 
 func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result auth.OIDCLoginResult) {

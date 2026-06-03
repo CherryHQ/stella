@@ -52,7 +52,7 @@ The builtin `lark` skill maps the retired `feishu_calendar`, `feishu_task`, `fei
 
 ## Auto-Provisioning
 
-When a user has already signed in to Stella with Feishu OAuth, Stella automatically links the Feishu channel identity the first time that user messages the bot. No `/link` command is needed.
+When a user signs in to Stella with Feishu OAuth, Stella links the Feishu channel identity immediately using the Feishu `union_id`. No `/link` command is needed.
 
 When you enable auto-provisioning for a Feishu channel instance, Stella can also create an account for each employee the first time they message that bot. This is for users who have not signed in with Feishu OAuth yet.
 
@@ -69,7 +69,7 @@ When you enable auto-provisioning for a Feishu channel instance, Stella can also
 7. The provisioned user has no password -- they can chat with the bot immediately but cannot log into the Web UI until an admin sets a password for them.
 8. Provisioned users are assigned the `user` role and the system default agent.
 
-Auto-provisioning is best-effort. If tenant detection or the Contact API lookup fails, the message still goes through the normal channel flow, but no Stella user is created. If a matching Feishu OAuth login identity already exists, Stella links the channel identity from that login identity instead of creating a separate user.
+Auto-provisioning is best-effort. If tenant detection or the Contact API lookup fails, the message still goes through the normal channel flow, but no Stella user is created. If a matching Feishu OAuth login identity already exists and was not linked during Web UI login, Stella links the channel identity from that login identity instead of creating a separate user.
 
 ### Required app scopes
 
