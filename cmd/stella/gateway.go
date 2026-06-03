@@ -74,6 +74,8 @@ func serverAction(c *ucli.Context) error {
 
 	ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
 
+	startDiagnostics(ctx)
+
 	s, err := setup(ctx, true)
 	if err != nil {
 		cancel()
