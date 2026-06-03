@@ -303,6 +303,8 @@ export function SessionDetail({
             messages={messages}
             messagesLoading={messagesQuery.isLoading || messagesQuery.isFetchingNextPage}
             onScroll={handleTranscriptScroll}
+            agentId={agentId}
+            sessionId={sessionId}
           />
 
           {/* Message input */}

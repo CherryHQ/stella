@@ -81,6 +81,8 @@ func (h *Host) AfterToolResult(ctx context.Context, build pkgplugins.AfterToolRe
 
 	resultText := build.Result
 	isError := build.IsError
+	resultChanged := false
+	errorChanged := false
 	for _, reg := range regs {
 		if reg.Run == nil {
 			continue
@@ -120,14 +122,24 @@ func (h *Host) AfterToolResult(ctx context.Context, build pkgplugins.AfterToolRe
 		}
 		if mutation.Result != nil {
 			resultText = *mutation.Result
+			resultChanged = true
 		}
 		if mutation.IsError != nil {
 			isError = *mutation.IsError
+			errorChanged = true
 		}
 	}
 
+	var result *string
+	if resultChanged {
+		result = &resultText
+	}
+	var isErr *bool
+	if errorChanged {
+		isErr = &isError
+	}
 	return pkgplugins.AfterToolResult{
-		Result:  &resultText,
-		IsError: &isError,
+		Result:  result,
+		IsError: isErr,
 	}, nil
 }

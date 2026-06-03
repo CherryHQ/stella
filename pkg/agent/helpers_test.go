@@ -49,8 +49,8 @@ func TestToolSetFromRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Text != "pong" {
-		t.Errorf("expected 'pong', got %q", result.Text)
+	if ai.FlattenText(result) != "pong" {
+		t.Errorf("expected 'pong', got %q", ai.FlattenText(result))
 	}
 }
 
@@ -95,8 +95,8 @@ func TestWrapTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Text != "pong" {
-		t.Errorf("expected 'pong', got %q", result.Text)
+	if ai.FlattenText(result) != "pong" {
+		t.Errorf("expected 'pong', got %q", ai.FlattenText(result))
 	}
 }
 
@@ -109,8 +109,8 @@ func TestWrapTool_NilArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Text != "ok" {
-		t.Errorf("expected 'ok', got %q", result.Text)
+	if ai.FlattenText(result) != "ok" {
+		t.Errorf("expected 'ok', got %q", ai.FlattenText(result))
 	}
 }
 

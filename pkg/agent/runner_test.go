@@ -99,8 +99,8 @@ func TestRunner_Continue_InvalidTail(t *testing.T) {
 }
 
 func TestNewRunner_CopiesToolsAndDefs(t *testing.T) {
-	tools := ToolSet{"foo": func(context.Context, ai.ToolCall) (ai.TextContent, error) {
-		return ai.TextContent{Text: "ok"}, nil
+	tools := ToolSet{"foo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 	}}
 	defs := []ai.ToolDefinition{{Name: "foo"}}
 

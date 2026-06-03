@@ -89,8 +89,8 @@ func TestFilterRunnerTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute filtered bash tool: %v", err)
 	}
-	if result.Text != "bash" {
-		t.Fatalf("filtered bash result = %q, want bash", result.Text)
+	if ai.FlattenText(result) != "bash" {
+		t.Fatalf("filtered bash result = %q, want bash", ai.FlattenText(result))
 	}
 }
 

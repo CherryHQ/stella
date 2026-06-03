@@ -928,6 +928,10 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if params.Raw != nil && *params.Raw {
+		// jsonMiddleware pre-sets application/json for every /api/ route; clear it
+		// so ServeFile can detect the real type. Otherwise top-level navigations
+		// (which don't content-sniff) render image bytes as garbled text.
+		w.Header().Del("Content-Type")
 		w.Header().Set("Content-Disposition", "inline")
 		http.ServeFile(w, r, abs)
 		return

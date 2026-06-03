@@ -144,6 +144,8 @@ export function SessionConversation({
         messages={messages}
         messagesLoading={messagesQuery.isLoading || messagesQuery.isFetchingNextPage}
         onScroll={() => void loadOlderMessages()}
+        agentId={agentId}
+        sessionId={sessionId}
       />
       <div className="flex flex-col gap-2 border-t border-border p-2 sm:flex-row sm:p-3">
         <input

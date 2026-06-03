@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 // closeableTool is an optional interface for tools that need cleanup.
@@ -57,6 +59,16 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
 	return t.Execute(ctx, args)
+}
+
+// ExecuteContent runs the named tool and returns its result as content blocks,
+// preserving non-text content (e.g. images) from tools that emit it.
+func (r *Registry) ExecuteContent(ctx context.Context, name string, args map[string]any) ([]ai.ContentBlock, error) {
+	t, ok := r.tools[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown tool: %s", name)
+	}
+	return ExecuteToolContent(ctx, t, args)
 }
 
 // Close shuts down any tools that expose a Close method.

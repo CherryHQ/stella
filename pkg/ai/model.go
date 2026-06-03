@@ -1,5 +1,7 @@
 package ai
 
+import "slices"
+
 // ToolDefinition describes a callable tool exposed to a model.
 type ToolDefinition struct {
 	Name        string
@@ -81,6 +83,22 @@ type Model struct {
 	ContextWindow int
 	MaxTokens     int
 	Headers       map[string]string
+}
+
+// SupportsImage reports whether the model accepts image input. It fails open:
+// a model with no declared input modalities is assumed image-capable, since most
+// current models are multimodal and sending images is the primary intent.
+//
+// Accepted risk: a non-vision model whose config omits Input will receive the
+// inlined image instead of the kreuzberg text fallback. We accept this because
+// the modern default is multimodal and a stricter fail-closed policy would
+// silently degrade the common case; non-vision models must declare Input
+// explicitly to opt into the text path.
+func (m Model) SupportsImage() bool {
+	if len(m.Input) == 0 {
+		return true
+	}
+	return slices.Contains(m.Input, "image")
 }
 
 // Context carries all conversation and tool state for a model request.

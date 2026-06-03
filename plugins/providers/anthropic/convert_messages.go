@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/param"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -87,12 +88,36 @@ func assistantContentBlocks(blocks []ai.ContentBlock) []sdk.ContentBlockParamUni
 }
 
 func toolResultBlock(m ai.ToolResultMessage) sdk.ContentBlockParamUnion {
-	text := ""
+	if !ai.HasImage(m.Content) {
+		text := ""
+		for _, block := range m.Content {
+			if t, ok := block.(ai.TextContent); ok && t.Text != "" {
+				text = t.Text
+				break
+			}
+		}
+		return sdk.NewToolResultBlock(m.ToolCallID, text, m.IsError)
+	}
+
+	content := make([]sdk.ToolResultBlockParamContentUnion, 0, len(m.Content))
 	for _, block := range m.Content {
-		if t, ok := block.(ai.TextContent); ok && t.Text != "" {
-			text = t.Text
-			break
+		switch b := block.(type) {
+		case ai.TextContent:
+			if b.Text != "" {
+				content = append(content, sdk.ToolResultBlockParamContentUnion{OfText: &sdk.TextBlockParam{Text: b.Text}})
+			}
+		case ai.ImageContent:
+			content = append(content, sdk.ToolResultBlockParamContentUnion{OfImage: &sdk.ImageBlockParam{
+				Source: sdk.ImageBlockParamSourceUnion{OfBase64: &sdk.Base64ImageSourceParam{
+					Data:      b.Data,
+					MediaType: sdk.Base64ImageSourceMediaType(b.MimeType),
+				}},
+			}})
 		}
 	}
-	return sdk.NewToolResultBlock(m.ToolCallID, text, m.IsError)
+	return sdk.ContentBlockParamUnion{OfToolResult: &sdk.ToolResultBlockParam{
+		ToolUseID: m.ToolCallID,
+		IsError:   param.NewOpt(m.IsError),
+		Content:   content,
+	}}
 }

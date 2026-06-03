@@ -248,6 +248,35 @@ func TestAfterToolResultUsesPluginIDDirectly(t *testing.T) {
 	}
 }
 
+func TestAfterToolResultNoopDoesNotReturnTextMutation(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/noop")
+	host.AddAfterToolResult(pkgplugins.AfterToolResultSpec{
+		PluginID: "tool/noop",
+		Name:     "noop",
+		Required: true,
+		Run: func(context.Context, pkgplugins.AfterToolResultContext) (pkgplugins.AfterToolResult, error) {
+			return pkgplugins.AfterToolResult{}, nil
+		},
+	})
+
+	result, err := host.AfterToolResult(context.Background(), pkgplugins.AfterToolResultContext{
+		ToolName: "read",
+		Result:   "Read image file [image/jpeg]",
+		IsError:  false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Result != nil {
+		t.Fatalf("noop lifecycle must not return text mutation: %#v", result)
+	}
+	if result.IsError != nil {
+		t.Fatalf("noop lifecycle must not return error mutation: %#v", result)
+	}
+}
+
 func TestValidateRegistrationsChecksPromptAndLifecycleCapabilities(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)

@@ -13,8 +13,8 @@ import (
 func TestToolExecution(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "echo"}, {ID: "2", Name: "missing"}}
 	tools := ToolSet{
-		"echo": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
-			return ai.TextContent{Text: "ok"}, nil
+		"echo": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 		},
 	}
 
@@ -36,8 +36,8 @@ func TestToolExecution(t *testing.T) {
 func TestToolExecutionToolError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "fail"}}
 	tools := ToolSet{
-		"fail": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
-			return ai.TextContent{}, errors.New("boom")
+		"fail": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, errors.New("boom")
 		},
 	}
 
@@ -53,8 +53,8 @@ func TestToolExecutionToolError(t *testing.T) {
 func TestToolExecutionPreservesContentOnError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "bash"}}
 	tools := ToolSet{
-		"bash": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
-			return ai.TextContent{Text: "pip: command not found"}, errors.New("bash: exit code 127")
+		"bash": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "pip: command not found"}}, errors.New("bash: exit code 127")
 		},
 	}
 
@@ -80,8 +80,8 @@ func TestToolExecutionPreservesContentOnError(t *testing.T) {
 func TestToolExecutionEmptyContentOnError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "fail"}}
 	tools := ToolSet{
-		"fail": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
-			return ai.TextContent{Text: ""}, errors.New("boom")
+		"fail": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+			return nil, errors.New("boom")
 		},
 	}
 
@@ -98,11 +98,11 @@ func TestToolExecutionEmptyContentOnError(t *testing.T) {
 func TestToolExecutionAppliesLifecycleMutations(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "echo", Arguments: map[string]any{"q": "original"}}}
 	tools := ToolSet{
-		"echo": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+		"echo": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
 			if got := call.Arguments["q"]; got != "rewritten" {
 				t.Fatalf("unexpected arguments: %#v", call.Arguments)
 			}
-			return ai.TextContent{Text: "raw"}, nil
+			return []ai.ContentBlock{ai.TextContent{Text: "raw"}}, nil
 		},
 	}
 	lifecycle := &ToolLifecycle{
@@ -134,16 +134,43 @@ func TestToolExecutionAppliesLifecycleMutations(t *testing.T) {
 	}
 }
 
+func TestToolExecutionLifecycleTextMutationPreservesImages(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "read"}}
+	tools := ToolSet{
+		"read": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{
+				ai.TextContent{Text: "Read image file [image/jpeg]"},
+				ai.ImageContent{Data: "base64", MimeType: "image/jpeg"},
+			}, nil
+		},
+	}
+	lifecycle := &ToolLifecycle{AfterCall: func(context.Context, ToolResultContext) (ToolResultMutation, error) {
+		text := "rewritten"
+		return ToolResultMutation{Result: &text}, nil
+	}}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, lifecycle)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := ai.FlattenText(results[0].Content); got != "rewritten" {
+		t.Fatalf("text = %q, want rewritten", got)
+	}
+	if !ai.HasImage(results[0].Content) {
+		t.Fatalf("image block was dropped: %#v", results[0].Content)
+	}
+}
+
 func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 	var order []string
 	calls := []ai.ToolCall{{ID: "1", Name: "echo", Arguments: map[string]any{"q": "original"}}}
 	tools := ToolSet{
-		"echo": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+		"echo": func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
 			order = append(order, "tool")
 			if got := call.Arguments["q"]; got != "hooked" {
 				t.Fatalf("unexpected tool arguments: %#v", call.Arguments)
 			}
-			return ai.TextContent{Text: "raw"}, nil
+			return []ai.ContentBlock{ai.TextContent{Text: "raw"}}, nil
 		},
 	}
 	lifecycle := &ToolLifecycle{
@@ -202,9 +229,9 @@ func TestToolExecutionRunsPostHookWhenPreHookBlocks(t *testing.T) {
 		},
 	}})
 
-	results, err := executeToolCalls(context.Background(), calls, ToolSet{"bash": func(context.Context, ai.ToolCall) (ai.TextContent, error) {
+	results, err := executeToolCalls(context.Background(), calls, ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		t.Fatal("blocked tool should not execute")
-		return ai.TextContent{}, nil
+		return nil, nil
 	}}, toolCallbacks{}, hs, hooks.HookMeta{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -238,8 +265,8 @@ func TestToolExecutionRunsPostHookWhenLifecycleAfterFails(t *testing.T) {
 		return ToolResultMutation{}, errors.New("after failed")
 	}}
 
-	_, err := executeToolCalls(context.Background(), calls, ToolSet{"echo": func(context.Context, ai.ToolCall) (ai.TextContent, error) {
-		return ai.TextContent{Text: "raw"}, nil
+	_, err := executeToolCalls(context.Background(), calls, ToolSet{"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "raw"}}, nil
 	}}, toolCallbacks{}, hs, hooks.HookMeta{}, lifecycle)
 	if err == nil {
 		t.Fatal("expected lifecycle error")
