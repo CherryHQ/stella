@@ -21,6 +21,7 @@ You are working on **stella**, a Go CLI/service project. Act as an engineering c
   - `mise run format`
   - `mise run build`
   - `mise run test`
+- When code changes touch platform-specific behavior or cross-platform build surfaces, run a targeted build for the affected OS/architecture matrix before committing (for example, `GOOS=windows GOARCH=amd64 go build -o dist/bin/stella-windows-amd64.exe ./cmd/stella`).
 - Do not run Go tests with `-race` locally by default.
 - **Never build the `stella` binary into the repo root.** Always use `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stella` explicitly. A binary at the repo root will be committed accidentally — `dist/` is gitignored, the root is not.
 
