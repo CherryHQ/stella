@@ -1,7 +1,7 @@
 // Package httpclient provides a shared resty HTTP client factory with
 // optional OpenTelemetry tracing. OTel transport instrumentation activates
-// only when OTEL_EXPORTER_OTLP_ENDPOINT is set, aligned with the trace
-// hook in plugins/hooks/trace/.
+// only when OTEL_EXPORTER_OTLP_ENDPOINT is set, aligned with the global
+// tracer provider in package observability.
 package httpclient
 
 import (

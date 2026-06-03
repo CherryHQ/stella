@@ -1,12 +1,12 @@
 ---
-title: Trace
+title: Observability
 ---
 
 ## Overview
 
-The **trace** plugin gives you visibility into what stella is doing under the hood. Every LLM call, tool execution, and memory operation is tracked with timing, token usage, and error details.
+Observability gives you visibility into what stella is doing under the hood. Every LLM call, tool execution, and memory operation is tracked with timing, token usage, and error details. Inbound HTTP requests to the Web UI and API are traced too.
 
-It operates in two modes:
+Tracing is built into the server — there is nothing to enable on the Plugins page. It operates in two modes:
 
 - **Log mode** (always on) -- structured log lines via Go's `slog`, visible in stderr. Zero configuration needed.
 - **OpenTelemetry mode** (opt-in) -- exports distributed traces via standard OTLP environment variables. Both OTLP/gRPC and OTLP/HTTP are supported, including authenticated backends. Activate by setting an OTLP endpoint.
@@ -15,7 +15,7 @@ It operates in two modes:
 
 ### Log Mode
 
-Log mode is always active when the plugin is enabled. Control verbosity with `LOG_LEVEL`:
+Log mode is always active. Control verbosity with `LOG_LEVEL`:
 
 | Level            | What You See                                                                                            |
 | ---------------- | ------------------------------------------------------------------------------------------------------- |
@@ -163,6 +163,10 @@ Sandbox startup is captured with `sandbox.*` spans so sandbox failures can be tr
 
 These spans include Stella-specific attributes such as sandbox backend, source/destination roots, working directory, network mode, read-only bind count, and captured error type.
 
+### HTTP Requests
+
+Inbound requests to the Web UI and API are captured as `http.server` spans, so you can trace user-facing latency end to end.
+
 ### Trace Structure
 
 Spans are organized into a hierarchy per chat session:
@@ -233,8 +237,6 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 | `stella.sandbox.server.version`     | Handshake-reported sandbox server version        |
 | `stella.sandbox.protocol_version`   | RPC protocol version returned by the sandbox     |
 
-## Managing the Plugin
+## Turning It Off
 
-The trace plugin is enabled by default. Use the Web UI (Plugins section) to enable or disable the trace plugin.
-
-Disabling the trace plugin turns off both log mode and OTel mode. LLM calls, tool executions, and memory operations will no longer be logged or exported.
+There is no plugin to disable. Log mode follows `LOG_LEVEL`; set it to `WARN` or `ERROR` to quiet the per-call INFO lines. OTel export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so leaving that variable empty disables distributed tracing entirely.
