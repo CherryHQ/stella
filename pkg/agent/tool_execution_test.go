@@ -134,6 +134,33 @@ func TestToolExecutionAppliesLifecycleMutations(t *testing.T) {
 	}
 }
 
+func TestToolExecutionLifecycleTextMutationPreservesImages(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "read"}}
+	tools := ToolSet{
+		"read": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{
+				ai.TextContent{Text: "Read image file [image/jpeg]"},
+				ai.ImageContent{Data: "base64", MimeType: "image/jpeg"},
+			}, nil
+		},
+	}
+	lifecycle := &ToolLifecycle{AfterCall: func(context.Context, ToolResultContext) (ToolResultMutation, error) {
+		text := "rewritten"
+		return ToolResultMutation{Result: &text}, nil
+	}}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, lifecycle)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := ai.FlattenText(results[0].Content); got != "rewritten" {
+		t.Fatalf("text = %q, want rewritten", got)
+	}
+	if !ai.HasImage(results[0].Content) {
+		t.Fatalf("image block was dropped: %#v", results[0].Content)
+	}
+}
+
 func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 	var order []string
 	calls := []ai.ToolCall{{ID: "1", Name: "echo", Arguments: map[string]any{"q": "original"}}}

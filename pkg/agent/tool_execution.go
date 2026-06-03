@@ -169,7 +169,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 			if mutation.Result != nil {
 				resultText = *mutation.Result
-				result.Content = []ai.ContentBlock{ai.TextContent{Text: resultText}}
+				result.Content = replaceTextContent(result.Content, resultText)
 			}
 			if mutation.IsError != nil {
 				result.IsError = *mutation.IsError
@@ -189,4 +189,16 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 	}
 
 	return results, nil
+}
+
+func replaceTextContent(blocks []ai.ContentBlock, text string) []ai.ContentBlock {
+	out := make([]ai.ContentBlock, len(blocks))
+	copy(out, blocks)
+	for i, block := range out {
+		if _, ok := block.(ai.TextContent); ok {
+			out[i] = ai.TextContent{Text: text}
+			return out
+		}
+	}
+	return append([]ai.ContentBlock{ai.TextContent{Text: text}}, out...)
 }
