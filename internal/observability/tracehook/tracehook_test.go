@@ -55,11 +55,15 @@ func TestRedactSecrets(t *testing.T) {
 		in     string
 		secret string // substring that must NOT survive
 	}{
-		{"bearer", "curl -H 'Authorization: Bearer sk-abc123'", "sk-abc123"},
+		{"bearer", "curl -H 'Authorization: Bearer sk-abc123def456'", "sk-abc123def456"},
 		{"apikey assign", "export API_KEY=secret123", "secret123"},
-		{"token colon", "token: ghp_xyz", "ghp_xyz"},
+		{"token colon", "token: ghp_xyz0123456789abcd", "ghp_xyz0123456789abcd"},
 		{"password", "PGPASSWORD=hunter2 psql", "hunter2"},
 		{"url creds", "postgres://user:pass@host:5432/db", ":pass@"},
+		{"json apikey", `{"api_key":"sk-abc123def456ghi"}`, "sk-abc123def456ghi"},
+		{"basic auth", "Authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA=="},
+		{"bare token", "use sk-proj-abcdef1234567890 here", "sk-proj-abcdef1234567890"},
+		{"cookie", "Cookie: session=deadbeefcafe1234", "deadbeefcafe1234"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

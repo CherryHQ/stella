@@ -21,23 +21,34 @@ import (
 var (
 	// Credentials embedded in URLs: scheme://user:pass@host.
 	reURLCreds = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@]+):[^\s:/@]+@`)
-	// "Bearer <token>" (covers Authorization: Bearer ...).
-	reBearer = regexp.MustCompile(`(?i)bearer\s+\S+`)
-	// key/token/secret/password assignments, e.g. api_key=x, token: x.
-	reSecretAssign = regexp.MustCompile(`(?i)([a-z0-9_-]*(?:api[_-]?key|secret|token|password|passwd|pwd))(\s*[:=]\s*)\S+`)
+	// HTTP auth schemes: "Bearer <token>", "Basic <b64>".
+	reAuthScheme = regexp.MustCompile(`(?i)\b(bearer|basic)\s+\S+`)
+	// Cookie/Set-Cookie header values (whole value is sensitive).
+	reCookie = regexp.MustCompile(`(?i)(set-)?cookie(["']?\s*[:=]\s*)["']?[^\r\n"']+`)
+	// key/token/secret/password assignments, e.g. api_key=x, "token":"x".
+	// The separator tolerates surrounding quotes so JSON like {"api_key":"x"}
+	// is also matched, not just shell-style key=value.
+	reSecretAssign = regexp.MustCompile(`(?i)([a-z0-9_-]*(?:api[_-]?key|secret|token|password|passwd|pwd))(["']?\s*[:=]\s*["']?)\S+`)
+	// Bare provider tokens with a recognizable prefix, e.g. sk-..., ghp_...,
+	// xoxb-..., that may appear without an enclosing key.
+	reBareToken = regexp.MustCompile(`(?i)\b(sk|pk|rk|ghp|gho|ghs|xox[bpas])[-_][A-Za-z0-9_-]{12,}`)
 )
 
-// redactSecrets masks credential-like substrings. It runs before truncation so
-// a secret near the 200-char boundary is still masked on the retained prefix.
+// redactSecrets masks credential-like substrings. Best-effort regex blacklist:
+// it shrinks the leak surface but is not a guarantee — structured or novel
+// secret shapes can still slip through (see CR-004). It runs before truncation
+// so a secret near the 200-char boundary is still masked on the retained prefix.
 func redactSecrets(s string) string {
 	s = reURLCreds.ReplaceAllString(s, "$1:[REDACTED]@")
-	s = reBearer.ReplaceAllString(s, "Bearer [REDACTED]")
+	s = reCookie.ReplaceAllString(s, "${1}cookie$2[REDACTED]")
+	s = reAuthScheme.ReplaceAllString(s, "$1 [REDACTED]")
 	s = reSecretAssign.ReplaceAllString(s, "$1$2[REDACTED]")
+	s = reBareToken.ReplaceAllString(s, "[REDACTED]")
 	return s
 }
 
 func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
-	input := summarizeArgs(hctx.ToolName, hctx.Arguments)
+	input := redactSecrets(summarizeArgs(hctx.ToolName, hctx.Arguments))
 	h.log.Info("pre_tool_call",
 		"tool", hctx.ToolName,
 		"call_id", hctx.ToolCallID,
@@ -67,7 +78,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 					attribute.String("user_id", hctx.UserID),
 					attribute.String("agent_id", hctx.AgentID),
 					attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
-					attribute.String("gen_ai.tool.input", redactSecrets(input)),
+					attribute.String("gen_ai.tool.input", input),
 				),
 			)
 
@@ -82,7 +93,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 }
 
 func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext) {
-	resultSnippet := hctx.Result
+	resultSnippet := redactSecrets(hctx.Result)
 	if len(resultSnippet) > 200 {
 		resultSnippet = resultSnippet[:200] + "..."
 	}
@@ -120,13 +131,9 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 		return
 	}
 
-	spanResult := redactSecrets(hctx.Result)
-	if len(spanResult) > 200 {
-		spanResult = spanResult[:200] + "..."
-	}
 	span.SetAttributes(
 		attribute.Int("gen_ai.tool.result_len", len(hctx.Result)),
-		attribute.String("gen_ai.tool.result", spanResult),
+		attribute.String("gen_ai.tool.result", resultSnippet),
 		attribute.Float64("gen_ai.tool.duration_s", hctx.Duration.Seconds()),
 	)
 	if hctx.IsError {

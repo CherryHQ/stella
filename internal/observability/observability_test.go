@@ -88,6 +88,23 @@ func TestInitEnabledInstallsAndShutsDown(t *testing.T) {
 	}
 }
 
+func TestTemplatePath(t *testing.T) {
+	cases := map[string]string{
+		"/api/projects/123":                                "/api/projects/:id",
+		"/api/projects/123/tasks/456":                      "/api/projects/:id/tasks/:id",
+		"/api/agents/9f8b7c6d-1234-5678-9abc-def012345678": "/api/agents/:id",
+		"/api/users/me":                                    "/api/users/me",
+		"/health":                                          "/health",
+		"":                                                 "/",
+		"/api/sessions/01HZX9K3M7Q2N5P8R1T4V6W8YB": "/api/sessions/:id",
+	}
+	for in, want := range cases {
+		if got := templatePath(in); got != want {
+			t.Errorf("templatePath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestShutdownNilProvider(t *testing.T) {
 	var p *Provider
 	if err := p.Shutdown(context.Background()); err != nil {

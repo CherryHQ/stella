@@ -187,16 +187,16 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, err
 	}
 
+	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
+		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
+	}
+
 	// The trace hook is server-level infrastructure, not a user-managed plugin:
 	// it always runs and shares its enabled flag with the global tracer provider
 	// (both derive from observability.LoadConfig) so there is a single source of
-	// truth for whether OTel export is active. It is appended after the
-	// user-configured plugin hooks rather than registered through the plugin host.
-	otelEnabled := observability.LoadConfig().Enabled
-	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		built := phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
-		return append(built, tracehook.New(otelEnabled))
-	}
+	// truth for whether OTel export is active. It is registered as a core hook so
+	// plugin reloads never rebuild or close it out from under in-flight runners.
+	coreHooks := []hooks.HookPlugin{tracehook.New(observability.LoadConfig().Enabled)}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
@@ -230,6 +230,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
+		agent.WithCoreHooks(coreHooks),
 		agent.WithProviderStreamBuilder(providerStreamBuilder),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
 		agent.WithSessionPluginViewBuilder(sessionPluginViewBuilder),
