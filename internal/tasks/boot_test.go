@@ -9,7 +9,7 @@ import (
 )
 
 // seedAgent inserts an extra agent row and returns its id, for tests that need
-// an executor distinct from the task creator.
+// an executor distinct from the task owner.
 func (h *testHarness) seedAgent(t *testing.T, name string) string {
 	t.Helper()
 	id := uuid.NewString()
@@ -22,7 +22,7 @@ func (h *testHarness) seedAgent(t *testing.T, name string) string {
 }
 
 // TestSessionOwnerResolver_ReusesLatestRunExecutor proves the resolver returns
-// the executor of the task's latest worker run — not the task creator — so a
+// the executor of the task's latest worker run — not merely the task owner — so a
 // task first dispatched to another agent via a hint keeps that executor on
 // retry. (CR-002)
 func TestSessionOwnerResolver_ReusesLatestRunExecutor(t *testing.T) {
@@ -30,9 +30,9 @@ func TestSessionOwnerResolver_ReusesLatestRunExecutor(t *testing.T) {
 	h := newHarness(t)
 	execB := h.seedAgent(t, "executor-b")
 
-	id := h.createTask(t, StatusReady) // creator is h.agentID
+	id := h.createTask(t, StatusReady) // owner is h.agentID
 	if _, err := h.svc.Claim(ctx, ClaimParams{
-		TaskID: id, ExecutorAgentID: execB, NewSessionID: "sess-1",
+		TaskID: id, ExecutorAgentID: execB, SessionID: "sess-1",
 	}); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -44,9 +44,9 @@ func TestSessionOwnerResolver_ReusesLatestRunExecutor(t *testing.T) {
 	}
 }
 
-// TestSessionOwnerResolver_NoSessionFalls: a task that has never run carries no
-// session_id, so the resolver declines and the dispatcher falls back to the
-// creator.
+// TestSessionOwnerResolver_NoSessionFalls: a task that has never run has no
+// worker run to derive an executor from, so the resolver declines and the
+// dispatcher falls back to the owner agent.
 func TestSessionOwnerResolver_NoSessionFalls(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
@@ -57,14 +57,14 @@ func TestSessionOwnerResolver_NoSessionFalls(t *testing.T) {
 }
 
 // TestSessionOwnerResolver_NoExecutorOnRunFalls: a session exists but its run
-// recorded no executor (creator-dispatched, executor agent unknown), so the
+// recorded no executor (owner-dispatched, executor agent unknown), so the
 // resolver declines rather than inventing one.
 func TestSessionOwnerResolver_NoExecutorOnRunFalls(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
 	if _, err := h.svc.Claim(ctx, ClaimParams{
-		TaskID: id, ExecutorAgentID: "", NewSessionID: "sess-1",
+		TaskID: id, ExecutorAgentID: "", SessionID: "sess-1",
 	}); err != nil {
 		t.Fatalf("claim: %v", err)
 	}

@@ -11,6 +11,7 @@ components:
         [
           id,
           user_id,
+          agent_id,
           title,
           status,
           priority,
@@ -21,7 +22,12 @@ components:
       properties:
         id: { type: string }
         user_id: { type: string }
-        agent_id: { type: string }
+        agent_id:
+          type: string
+          description: Owner/manager agent context.
+        project_id:
+          type: string
+          description: Optional project/workspace context.
         title: { type: string }
         description: { type: string }
         status:
@@ -69,7 +75,7 @@ components:
 
     CreateGoalRequest:
       type: object
-      required: [title]
+      required: [title, agent_id]
       properties:
         title: { type: string }
         description: { type: string }
@@ -77,6 +83,9 @@ components:
           type: string
           enum: [routine, urgent]
         agent_id: { type: string }
+        project_id:
+          type: string
+          description: Optional project/workspace context. Must belong to the caller and agent.
         review_policy:
           type: string
           enum: [none]

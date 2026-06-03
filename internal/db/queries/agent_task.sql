@@ -5,11 +5,11 @@
 
 -- name: CreateAgentTask :one
 INSERT INTO agent_task (
-    id, user_id, agent_id, goal_id, title, description, status, priority,
+    id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority,
     required, retry_count, max_retries, not_before, deadline_at,
-    session_id, context, output, created_at, updated_at
+    context, output, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentTask :one
@@ -23,6 +23,7 @@ SELECT * FROM agent_task
 WHERE user_id = sqlc.arg('user_id')
   AND (sqlc.narg('agent_id') IS NULL OR agent_id = sqlc.narg('agent_id'))
   AND (sqlc.narg('status') IS NULL OR status = sqlc.narg('status'))
+  AND (sqlc.narg('project_id') IS NULL OR project_id = sqlc.narg('project_id'))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
@@ -53,12 +54,11 @@ UPDATE agent_task
 SET status = ?, updated_at = ?
 WHERE id = ? AND status = ?;
 
--- Atomic claim: ready + no active run  running, set active_run_id and session_id.
+-- Atomic claim: ready + no active run -> running. session_id is required at task creation.
 -- name: ClaimAgentTask :execrows
 UPDATE agent_task
 SET status = 'running',
     active_run_id = ?,
-    session_id = COALESCE(session_id, ?),
     updated_at = ?
 WHERE id = ?
   AND status = 'ready'
@@ -97,11 +97,6 @@ WHERE id = ?;
 -- name: SetAgentTaskCancelled :exec
 UPDATE agent_task
 SET cancelled_at = ?, updated_at = ?
-WHERE id = ?;
-
--- name: ClearAgentTaskSession :exec
-UPDATE agent_task
-SET session_id = NULL, updated_at = ?
 WHERE id = ?;
 
 -- name: DeleteAgentTask :exec

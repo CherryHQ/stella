@@ -66,6 +66,7 @@ func taskListCmd() *ucli.Command {
 		Usage: "List tasks",
 		Flags: append(taskAgentFlags(),
 			&ucli.StringFlag{Name: "status", Usage: "Filter by status"},
+			&ucli.StringFlag{Name: "project-id", Usage: "Filter by project/workspace context"},
 			jsonFlag(),
 		),
 		Action: func(c *ucli.Context) error {
@@ -76,6 +77,9 @@ func taskListCmd() *ucli.Command {
 			params := &apiclient.ListTasksParams{AgentId: &agentID}
 			if s := c.String("status"); s != "" {
 				params.Status = &s
+			}
+			if p := c.String("project-id"); p != "" {
+				params.ProjectId = &p
 			}
 			list, err := apiclient.Call[apitypes.TaskList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListTasks(c.Context, params)
@@ -128,6 +132,7 @@ func taskCreateCmd() *ucli.Command {
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Task title"},
 			&ucli.StringFlag{Name: "description", Usage: "Task description"},
 			&ucli.StringFlag{Name: "goal-id", Usage: "Parent goal ID"},
+			&ucli.StringFlag{Name: "project-id", Usage: "Project/workspace context"},
 			&ucli.StringFlag{Name: "executor", Usage: "Explicit executor agent ID"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency: <task-id>[:kind[:on_failure]]; may be repeated"},
@@ -147,6 +152,9 @@ func taskCreateCmd() *ucli.Command {
 			}
 			if g := c.String("goal-id"); g != "" {
 				body.GoalId = &g
+			}
+			if p := c.String("project-id"); p != "" {
+				body.ProjectId = &p
 			}
 			if e := c.String("executor"); e != "" {
 				body.ExecutorAgentId = &e

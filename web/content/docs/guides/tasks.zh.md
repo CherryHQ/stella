@@ -23,12 +23,12 @@ Task 是当前对话之外的一个可执行工作单元。当工作需要时间
 
 ## 创建任务
 
-如果工作是独立的，就创建 standalone task。如果多个 task 属于同一个大目标，先创建 goal，再把 child tasks 挂到它下面。
+如果工作是独立的，就创建 standalone task。如果多个 task 属于同一个大目标，先创建 goal，再把 child tasks 挂到它下面。每个 task 都属于一个 Agent，并在创建时获得自己的 durable worker session；你也可以把它挂到 goal 或 project。
 
 典型 goal 工作流：
 
 1. 创建 goal。
-2. 用 goal ID 创建子 tasks。
+2. 用 goal ID 创建子 tasks。如果 task 没有传 agent ID，它会继承 goal 的 Agent。
 3. 在有顺序要求时添加任务依赖。
 4. 激活 goal 和 tasks。
 5. 通过 events、blockers、runs 和 reviews 查看进展。

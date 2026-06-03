@@ -285,13 +285,14 @@ Rules:
 ### Task worker session
 
 ```text
-task dispatcher resolves executor agent
-    -> Service.MintTaskSession(userID, executorAgentID)
-    -> run row records session_id and executor_agent_id
-    -> worker runner uses the same executor agent scope
+task creation resolves owner agent and optional project
+    -> Service.MintTaskSession(userID, agentID, projectID)
+    -> task row stores session_id
+    -> run row records the task session_id and executor_agent_id
+    -> worker runner uses the resolved executor agent scope
 ```
 
-The session owner is the resolved executor agent, not necessarily the task creator agent.
+The task's worker session is created under the task owner/manager agent and optional project. A later run may still use a run-level executor override via dispatch hints.
 
 ### Reflect review
 

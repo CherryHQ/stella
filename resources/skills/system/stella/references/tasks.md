@@ -54,12 +54,12 @@ goal ──rolls up from──▶ task ──one attempt──▶ run
 
 - **Goal** — container; status rolls up from child tasks. Managed under `stella task goal`.
 - **Task** — smallest executable unit, with a strict lifecycle status.
-- **Run** — one execution attempt; carries session, heartbeat, and lease.
+- **Run** — one execution attempt; records the task's worker session, heartbeat, and lease.
 - **Dep edge** — DAG link, `hard` or `soft`, with an `on_failure` policy.
 - **Blocker** — why a task is paused; at most one open blocker per task.
 - **Review** — approval gate before `done`; task policy decides who reviews.
 
-Tasks and goals require agent context. Inside Stella sessions, `stella task create` and `stella task goal create` default to `STELLA_AGENT_ID`. Outside Stella, pass `--agent-id` explicitly.
+Tasks and goals require agent context. Inside Stella sessions, `stella task create` and `stella task goal create` default to `STELLA_AGENT_ID`. Outside Stella, pass `--agent-id` explicitly. A task always has a durable worker session minted at creation time. Use `--project-id` when the work should run in a project/workspace context. If `--goal-id` is set and `--agent-id` is omitted, the task inherits the goal's agent.
 
 ## Lifecycle
 
@@ -77,9 +77,9 @@ A task does nothing until activated. `ready` means eligible for readiness checks
 
 All commands are `stella task ...` or `stella task goal ...`.
 
-**Create one background task.** Use `stella task create ... --activate`. Without `--activate`, the task stays `draft` and never runs.
+**Create one background task.** Use `stella task create ... --activate`. Add `--project-id <project-id>` for project-scoped work. Without `--activate`, the task stays `draft` and never runs.
 
-**Build a goal.** Create the goal first, then create child tasks with `stella task create --goal-id <goal-id> ...`. A task created without `--goal-id` is standalone and will not appear under `stella task goal tasks <goal-id>` or the Automations goal detail page.
+**Build a goal.** Create the goal first, optionally with `--project-id`, then create child tasks with `stella task create --goal-id <goal-id> ...`. A task created without `--goal-id` is standalone and will not appear under `stella task goal tasks <goal-id>` or the Automations goal detail page.
 
 **Build a dependency graph.** Create upstream tasks first, note their IDs, then create downstream tasks with `--dep <upstream-id>` or add edges later with `stella task dep add`. Default dependency behavior is `hard` + `block`: downstream waits for upstream success.
 

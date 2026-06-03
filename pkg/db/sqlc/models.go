@@ -29,7 +29,8 @@ type Agent struct {
 type AgentGoal struct {
 	ID             string         `json:"id"`
 	UserID         string         `json:"user_id"`
-	AgentID        sql.NullString `json:"agent_id"`
+	AgentID        string         `json:"agent_id"`
+	ProjectID      sql.NullString `json:"project_id"`
 	Title          string         `json:"title"`
 	Description    string         `json:"description"`
 	Status         string         `json:"status"`
@@ -73,8 +74,10 @@ type AgentReviewItem struct {
 type AgentTask struct {
 	ID              string         `json:"id"`
 	UserID          string         `json:"user_id"`
-	AgentID         sql.NullString `json:"agent_id"`
+	AgentID         string         `json:"agent_id"`
+	SessionID       string         `json:"session_id"`
 	GoalID          sql.NullString `json:"goal_id"`
+	ProjectID       sql.NullString `json:"project_id"`
 	Title           string         `json:"title"`
 	Description     string         `json:"description"`
 	Status          string         `json:"status"`
@@ -86,7 +89,6 @@ type AgentTask struct {
 	MaxRetries      int64          `json:"max_retries"`
 	NotBefore       sql.NullString `json:"not_before"`
 	DeadlineAt      sql.NullString `json:"deadline_at"`
-	SessionID       sql.NullString `json:"session_id"`
 	ActiveRunID     sql.NullString `json:"active_run_id"`
 	ActiveBlockerID sql.NullString `json:"active_blocker_id"`
 	Context         string         `json:"context"`
