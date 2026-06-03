@@ -22,7 +22,12 @@ import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
-import * as simpleIcons from "simple-icons";
+import { siGithub, siX } from "simple-icons";
+
+const SIMPLE_ICON_PATHS: Record<string, string> = {
+  github: siGithub.path,
+  x: siX.path,
+};
 
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   if (!icon) {
@@ -43,9 +48,7 @@ function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
 }
 
 function simpleIconPath(name: string) {
-  const key = `si${name.replace(/(^|[-_. ])([a-z0-9])/g, (_, _sep: string, char: string) => char.toUpperCase())}`;
-  const icon = (simpleIcons as Record<string, { path?: string } | undefined>)[key];
-  return icon?.path;
+  return SIMPLE_ICON_PATHS[name.toLowerCase()];
 }
 
 export function CredentialsPage() {
