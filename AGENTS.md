@@ -108,6 +108,16 @@ Codegen configs live in `api/codegen/{types,server,client}.yaml`.
 
 Use `.agents/skills/release/SKILL.md` for the full release workflow.
 
+## Issue & PR tracking
+
+- When you start a new feature or task, make sure it has a tracked GitHub issue: if one already exists, use it; if not, create one and sync it to the Feishu requirements table (see `.agents/skills/feishu-github-sync/SKILL.md`).
+- Organize every GitHub issue and PR description in four sections:
+  - **What** — the change in one or two sentences.
+  - **Why** — the motivation or problem it solves.
+  - **How** — the approach, plan, and design details, including notable trade-offs. Capture enough specifics (steps, decisions, alternatives considered) to make the work traceable later.
+  - **Refs** — related issues, PRs, docs, or discussions.
+- Keep these descriptions current: when the plan or design changes during the work, update the issue/PR so it always reflects the actual approach.
+
 ## Commit style
 
 Emoji-prefixed Conventional Commits, for example `✨ feat:` and `🐛 fix:`. Do not add `Signed-off-by` unless explicitly requested.
