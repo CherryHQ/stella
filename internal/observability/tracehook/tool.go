@@ -67,7 +67,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 			st.mu.Lock()
 			parentCtx := st.turnCtx
 			if parentCtx == nil {
-				parentCtx = st.chatCtx
+				parentCtx = st.loopCtx
 			}
 
 			toolCtx, span := h.tracer().Start(parentCtx, "gen_ai.execute_tool",

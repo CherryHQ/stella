@@ -55,7 +55,7 @@ func (h *Hook) OnPreMemoryCall(ctx context.Context, hctx *hooks.PreMemoryCallCon
 		h.mu.Unlock()
 		if st != nil {
 			st.mu.Lock()
-			parentCtx = st.chatCtx
+			parentCtx = st.loopCtx
 			if st.turnCtx != nil {
 				parentCtx = st.turnCtx
 			}

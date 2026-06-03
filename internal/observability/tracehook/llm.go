@@ -45,7 +45,7 @@ func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) 
 			st.turnSpan.End()
 		}
 		st.turnNum++
-		st.turnCtx, st.turnSpan = h.tracer().Start(st.chatCtx,
+		st.turnCtx, st.turnSpan = h.tracer().Start(st.loopCtx,
 			fmt.Sprintf("turn %d", st.turnNum),
 			trace.WithAttributes(
 				attribute.Int("stella.turn.number", st.turnNum),

@@ -450,7 +450,13 @@ func (t *tracedProvider) GetProfileAt(ctx context.Context, userID string, agentI
 	if !ok {
 		return "", errCapabilityNotSupported("VersionedProfileStore")
 	}
-	return vp.GetProfileAt(ctx, userID, agentID, version)
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpGetProfileAt}
+	ctx, start := t.begin(ctx, hctx)
+	content, err := vp.GetProfileAt(ctx, userID, agentID, version)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s version=%d len=%d content=%s", userID, agentID, version, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
+	return content, err
 }
 
 func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
@@ -458,7 +464,13 @@ func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID string, agen
 	if !ok {
 		return "", errCapabilityNotSupported("VersionedProfileStore")
 	}
-	return vp.GetAgentSoulAt(ctx, userID, agentID, version)
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpGetAgentSoulAt}
+	ctx, start := t.begin(ctx, hctx)
+	content, err := vp.GetAgentSoulAt(ctx, userID, agentID, version)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s version=%d len=%d content=%s", userID, agentID, version, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
+	return content, err
 }
 
 // ---------------------------------------------------------------------------

@@ -292,6 +292,20 @@ func TestTracedProvider_GetProfile(t *testing.T) {
 	}
 }
 
+func TestTracedProvider_GetProfileAt(t *testing.T) {
+	fake := memorytest.New()
+	traced, col := newTracedWithCollector(fake)
+	col.events = nil
+
+	_, err := traced.(memory.VersionedProfileStore).GetProfileAt(context.Background(), "1", "agent-1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpGetProfileAt {
+		t.Errorf("expected GetProfileAt event, got %v", col.events)
+	}
+}
+
 func TestTracedProvider_SetProfile(t *testing.T) {
 	fake := memorytest.New()
 	traced, col := newTracedWithCollector(fake)
@@ -317,6 +331,20 @@ func TestTracedProvider_GetAgentSoul(t *testing.T) {
 	}
 	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpGetAgentSoul {
 		t.Errorf("expected GetAgentSoul event, got %v", col.events)
+	}
+}
+
+func TestTracedProvider_GetAgentSoulAt(t *testing.T) {
+	fake := memorytest.New()
+	traced, col := newTracedWithCollector(fake)
+	col.events = nil
+
+	_, err := traced.(memory.VersionedProfileStore).GetAgentSoulAt(context.Background(), "1", "agent-1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpGetAgentSoulAt {
+		t.Errorf("expected GetAgentSoulAt event, got %v", col.events)
 	}
 }
 

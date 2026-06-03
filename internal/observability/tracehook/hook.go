@@ -38,8 +38,8 @@ func sessionKey(agentID, sessionID string) string {
 type sessionTrace struct {
 	mu sync.Mutex // protects all fields below
 
-	chatSpan trace.Span
-	chatCtx  context.Context
+	loopSpan trace.Span
+	loopCtx  context.Context
 
 	turnSpan trace.Span
 	turnCtx  context.Context
@@ -99,10 +99,10 @@ func (h *Hook) Close() error {
 	return nil
 }
 
-// getOrCreateSession returns the session trace, creating the chat span if
-// needed. The chat span is parented on parentCtx — the inbound request context
+// getOrCreateSession returns the session trace, creating the agent loop span if
+// needed. The loop span is parented on parentCtx — the inbound request context
 // (HTTP/channel entry) — so the whole agent trace nests under that span instead
-// of starting a disconnected root. Cancellation is stripped because the chat
+// of starting a disconnected root. Cancellation is stripped because the loop
 // outlives the HTTP request: a cancelled parent must not tear down the
 // session's long-lived spans, and span linkage only needs the parent's span
 // context, not its deadline. Caller must hold h.mu.
@@ -112,15 +112,15 @@ func (h *Hook) getOrCreateSession(parentCtx context.Context, agentID, sessionID 
 	if ok {
 		return st
 	}
-	ctx, chatSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "chat",
+	ctx, loopSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "agent.loop",
 		trace.WithAttributes(
 			attribute.String("gen_ai.conversation.id", sessionID),
 			attribute.String("agent_id", agentID),
 		),
 	)
 	st = &sessionTrace{
-		chatSpan:   chatSpan,
-		chatCtx:    ctx,
+		loopSpan:   loopSpan,
+		loopCtx:    ctx,
 		toolSpans:  make(map[string]trace.Span),
 		lastActive: time.Now(),
 	}
@@ -136,11 +136,11 @@ func (h *Hook) endSession(st *sessionTrace) {
 	llmSpan := st.llmSpan
 	toolSpans := st.toolSpans
 	turnSpan := st.turnSpan
-	chatSpan := st.chatSpan
+	loopSpan := st.loopSpan
 	st.llmSpan = nil
 	st.toolSpans = make(map[string]trace.Span)
 	st.turnSpan = nil
-	st.chatSpan = nil
+	st.loopSpan = nil
 	st.mu.Unlock()
 
 	if llmSpan != nil {
@@ -152,8 +152,8 @@ func (h *Hook) endSession(st *sessionTrace) {
 	if turnSpan != nil {
 		turnSpan.End()
 	}
-	if chatSpan != nil {
-		chatSpan.End()
+	if loopSpan != nil {
+		loopSpan.End()
 	}
 }
 
