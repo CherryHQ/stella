@@ -475,6 +475,14 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 	return s.addJobInternal(name, message, sched, sessionMode, agentID, "", JobOwnerSystem, execScope)
 }
 
+// GetJob returns a single job by ID. The bool is false when no job exists.
+func (s *Service) GetJob(id string) (Job, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j, ok := s.jobs[id]
+	return j, ok
+}
+
 // ListJobs returns all jobs.
 func (s *Service) ListJobs() []Job {
 	s.mu.Lock()

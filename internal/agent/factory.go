@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -144,6 +145,15 @@ func NewRunnerFactory(cfg RunnerFactoryConfig) (NewRunnerFunc, error) {
 
 			runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
 			runnerTools = append(runnerTools, params.ExtraTools...)
+			// Skill tools need per-session paths (agent/project/user skill dirs),
+			// so they are built here rather than bound once at construction.
+			var userSkillsDir string
+			if params.UserID != "" {
+				userSkillsDir = filepath.Join(cfg.Snap.Workspace, "users", params.UserID, ".agents", "skills")
+			}
+			runnerTools = append(runnerTools, skillstool.NewSplitTools(
+				cfg.SkillStore, config.StellaHome(), cfg.Snap.Workspace, projectRoot, userSkillsDir,
+			)...)
 
 			return newRunner(ctx, runnerConfig{
 				Provider: providerConfig{

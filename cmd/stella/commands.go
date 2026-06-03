@@ -28,6 +28,8 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/internal/tools"
+	"github.com/CherryHQ/stella/internal/tools/agentsched"
+	"github.com/CherryHQ/stella/internal/tools/agenttask"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -224,6 +226,12 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 			return svc.Runtime.Factory(), true
 		},
 	})
+
+	// Task and scheduler tools are ctx-pure (identity from context, paths not
+	// needed), so they bind once at construction. Skill tools need per-session
+	// paths and are built in the runner factory instead.
+	builtinTools = append(builtinTools, agenttask.NewTools(tasksSvc.Facade)...)
+	builtinTools = append(builtinTools, agentsched.NewTools(schedulerSvc)...)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),

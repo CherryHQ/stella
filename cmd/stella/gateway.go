@@ -280,7 +280,7 @@ func schedulerJobContext(ctx context.Context, agentID string, job scheduler.Job)
 	if agentID != "" {
 		ctx = memory.WithAgentID(ctx, agentID)
 	}
-	ctx = agent.WithExcludedTools(ctx, "scheduler")
+	ctx = agent.WithExcludedTools(ctx, "scheduler_add", "scheduler_list", "scheduler_remove")
 	return ctx
 }
 

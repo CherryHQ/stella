@@ -96,7 +96,7 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")
-	msg := fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=<source from results above>\nOptional: add scope=\"agent\" to install into agent scope.", len(results), out)
+	msg := fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skill_install source=<source from results above>\nOptional: add scope=\"agent\" to install into agent scope.", len(results), out)
 	if len(errs) > 0 {
 		msg += fmt.Sprintf("\n\nNote: some providers failed: %v", errs)
 	}
