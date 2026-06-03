@@ -197,13 +197,27 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 	var totalTokens int64
 	var earliestAt, latestAt string
 
+	messageIDs := make([]string, 0, len(run.items))
+	for _, item := range run.items {
+		if item.MessageID.Valid {
+			messageIDs = append(messageIDs, item.MessageID.String)
+		}
+	}
+	loadedMessages, err := c.q.ListMessagesByIDs(ctx, sqlc.ListMessagesByIDsParams{ConversationID: convID, MessageIds: messageIDs})
+	if err != nil {
+		return fmt.Errorf("list messages: %w", err)
+	}
+	messagesByID := make(map[string]sqlc.CtxMessage, len(loadedMessages))
+	for _, msg := range loadedMessages {
+		messagesByID[msg.ID] = msg
+	}
 	for _, item := range run.items {
 		if !item.MessageID.Valid {
 			continue
 		}
-		msg, err := c.q.GetMessage(ctx, sqlc.GetMessageParams{ID: item.MessageID.String, ConversationID: convID})
-		if err != nil {
-			return fmt.Errorf("get message %s: %w", item.MessageID.String, err)
+		msg, ok := messagesByID[item.MessageID.String]
+		if !ok {
+			return fmt.Errorf("get message %s: %w", item.MessageID.String, sql.ErrNoRows)
 		}
 		messages = append(messages, msg)
 		textParts = append(textParts, formatMessageForSummarizer(msg))
@@ -304,18 +318,13 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 // condensedPass finds eligible same-depth summaries and creates condensed summaries.
 func (c *compactionEngine) condensedPass(ctx context.Context, convID string, items []sqlc.CtxItem, result *memory.CompactionResult) error {
 	// Pre-fetch all summary items so we can group by depth and avoid re-fetching.
-	sumCache := make(map[string]sqlc.CtxSummary)
-	depthOf := make(map[string]int64)
-	for _, item := range items {
-		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
-			continue
-		}
-		sum, err := c.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: item.SummaryID.String, ConversationID: convID})
-		if err != nil {
-			return fmt.Errorf("get summary depth %s: %w", item.SummaryID.String, err)
-		}
-		sumCache[item.SummaryID.String] = sum
-		depthOf[item.SummaryID.String] = sum.Depth
+	sumCache, err := c.loadSummaryCache(ctx, convID, items)
+	if err != nil {
+		return err
+	}
+	depthOf := make(map[string]int64, len(sumCache))
+	for id, sum := range sumCache {
+		depthOf[id] = sum.Depth
 	}
 
 	// Find runs of consecutive summary items at the same depth.
@@ -331,6 +340,39 @@ func (c *compactionEngine) condensedPass(ctx context.Context, convID string, ite
 	}
 
 	return nil
+}
+
+func (c *compactionEngine) loadSummaryCache(ctx context.Context, convID string, items []sqlc.CtxItem) (map[string]sqlc.CtxSummary, error) {
+	summaryIDs := make([]string, 0, len(items))
+	seen := make(map[string]struct{})
+	for _, item := range items {
+		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
+			continue
+		}
+		id := item.SummaryID.String
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		summaryIDs = append(summaryIDs, id)
+	}
+	if len(summaryIDs) == 0 {
+		return map[string]sqlc.CtxSummary{}, nil
+	}
+	summaries, err := c.q.ListSummariesByIDs(ctx, sqlc.ListSummariesByIDsParams{ConversationID: convID, SummaryIds: summaryIDs})
+	if err != nil {
+		return nil, fmt.Errorf("list summaries: %w", err)
+	}
+	out := make(map[string]sqlc.CtxSummary, len(summaries))
+	for _, sum := range summaries {
+		out[sum.ID] = sum
+	}
+	for _, id := range summaryIDs {
+		if _, ok := out[id]; !ok {
+			return nil, fmt.Errorf("get summary depth %s: %w", id, sql.ErrNoRows)
+		}
+	}
+	return out, nil
 }
 
 // summaryRun represents a contiguous sequence of summary context items.

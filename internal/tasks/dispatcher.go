@@ -169,12 +169,13 @@ func (d *Dispatcher) propagateDepFailures(ctx context.Context, now time.Time) {
 		d.cfg.Logger.Warn("dispatcher: list candidates", "err", err)
 		return
 	}
+	depsByTask, err := d.loadDepRowsByTask(ctx, candidates)
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list candidate deps", "err", err)
+		return
+	}
 	for _, task := range candidates {
-		deps, err := d.cfg.Queries.ListAgentTaskDepsWithUpstream(ctx, task.ID)
-		if err != nil {
-			continue
-		}
-		for _, row := range deps {
+		for _, row := range depsByTask[task.ID] {
 			edge := row.AgentTaskDep
 			if edge.DepKind != DepKindHard {
 				continue
@@ -226,6 +227,11 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 		d.cfg.Logger.Warn("dispatcher: list candidates", "err", err)
 		return
 	}
+	depsByTask, err := d.loadDepViewsByTask(ctx, candidates)
+	if err != nil {
+		d.cfg.Logger.Warn("dispatcher: list candidate deps", "err", err)
+		return
+	}
 	for _, task := range candidates {
 		if d.isStopped() {
 			return
@@ -233,11 +239,7 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 		if !d.underCap() {
 			continue
 		}
-		depViews, err := d.loadDepViews(ctx, task.ID)
-		if err != nil {
-			continue
-		}
-		r := Compute(task, depViews, now)
+		r := Compute(task, depsByTask[task.ID], now)
 		if !r.Dispatchable {
 			continue
 		}
@@ -267,20 +269,44 @@ func (d *Dispatcher) scanAndDispatch(ctx context.Context, now time.Time) {
 	}
 }
 
-func (d *Dispatcher) loadDepViews(ctx context.Context, taskID string) ([]DepEdgeView, error) {
-	rows, err := d.cfg.Queries.ListAgentTaskDepsWithUpstream(ctx, taskID)
+func (d *Dispatcher) loadDepRowsByTask(ctx context.Context, tasks []sqlc.AgentTask) (map[string][]sqlc.ListAgentTaskDepsWithUpstreamByTasksRow, error) {
+	out := make(map[string][]sqlc.ListAgentTaskDepsWithUpstreamByTasksRow, len(tasks))
+	ids := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		out[task.ID] = nil
+		ids = append(ids, task.ID)
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := d.cfg.Queries.ListAgentTaskDepsWithUpstreamByTasks(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]DepEdgeView, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, DepEdgeView{
-			DepTaskID:      r.AgentTaskDep.DepTaskID,
-			Kind:           r.AgentTaskDep.DepKind,
-			OnFailure:      r.AgentTaskDep.OnFailure,
-			Waived:         r.AgentTaskDep.WaivedAt.Valid,
-			UpstreamStatus: r.UpstreamStatus,
-		})
+	for _, row := range rows {
+		out[row.AgentTaskDep.TaskID] = append(out[row.AgentTaskDep.TaskID], row)
+	}
+	return out, nil
+}
+
+func (d *Dispatcher) loadDepViewsByTask(ctx context.Context, tasks []sqlc.AgentTask) (map[string][]DepEdgeView, error) {
+	rowsByTask, err := d.loadDepRowsByTask(ctx, tasks)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]DepEdgeView, len(rowsByTask))
+	for taskID, rows := range rowsByTask {
+		views := make([]DepEdgeView, 0, len(rows))
+		for _, r := range rows {
+			views = append(views, DepEdgeView{
+				DepTaskID:      r.AgentTaskDep.DepTaskID,
+				Kind:           r.AgentTaskDep.DepKind,
+				OnFailure:      r.AgentTaskDep.OnFailure,
+				Waived:         r.AgentTaskDep.WaivedAt.Valid,
+				UpstreamStatus: r.UpstreamStatus,
+			})
+		}
+		out[taskID] = views
 	}
 	return out, nil
 }

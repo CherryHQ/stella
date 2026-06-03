@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const createAgentTaskDep = `-- name: CreateAgentTaskDep :one
@@ -159,6 +160,64 @@ func (q *Queries) ListAgentTaskDepsWithUpstream(ctx context.Context, taskID stri
 	items := []ListAgentTaskDepsWithUpstreamRow{}
 	for rows.Next() {
 		var i ListAgentTaskDepsWithUpstreamRow
+		if err := rows.Scan(
+			&i.AgentTaskDep.TaskID,
+			&i.AgentTaskDep.DepTaskID,
+			&i.AgentTaskDep.DepKind,
+			&i.AgentTaskDep.OnFailure,
+			&i.AgentTaskDep.WaivedAt,
+			&i.AgentTaskDep.WaivedByUser,
+			&i.AgentTaskDep.WaiverReason,
+			&i.AgentTaskDep.CreatedAt,
+			&i.UpstreamStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentTaskDepsWithUpstreamByTasks = `-- name: ListAgentTaskDepsWithUpstreamByTasks :many
+SELECT
+    d.task_id, d.dep_task_id, d.dep_kind, d.on_failure, d.waived_at, d.waived_by_user, d.waiver_reason, d.created_at,
+    t.status AS upstream_status
+FROM agent_task_dep d
+JOIN agent_task t ON t.id = d.dep_task_id
+WHERE d.task_id IN (/*SLICE:task_ids*/?)
+ORDER BY d.task_id, d.dep_task_id
+`
+
+type ListAgentTaskDepsWithUpstreamByTasksRow struct {
+	AgentTaskDep   AgentTaskDep `json:"agent_task_dep"`
+	UpstreamStatus string       `json:"upstream_status"`
+}
+
+func (q *Queries) ListAgentTaskDepsWithUpstreamByTasks(ctx context.Context, taskIds []string) ([]ListAgentTaskDepsWithUpstreamByTasksRow, error) {
+	query := listAgentTaskDepsWithUpstreamByTasks
+	var queryParams []interface{}
+	if len(taskIds) > 0 {
+		for _, v := range taskIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", strings.Repeat(",?", len(taskIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentTaskDepsWithUpstreamByTasksRow{}
+	for rows.Next() {
+		var i ListAgentTaskDepsWithUpstreamByTasksRow
 		if err := rows.Scan(
 			&i.AgentTaskDep.TaskID,
 			&i.AgentTaskDep.DepTaskID,

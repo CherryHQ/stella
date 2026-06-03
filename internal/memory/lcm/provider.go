@@ -236,18 +236,44 @@ func (p *Provider) hasCompactableRun(ctx context.Context, items []sqlc.CtxItem) 
 		return true
 	}
 
-	depthOf := make(map[string]int64)
+	depthOf, err := p.summaryDepths(ctx, items)
+	if err != nil {
+		return false
+	}
+	return len(findSummaryRuns(items, 2, depthOf)) > 0
+}
+
+func (p *Provider) summaryDepths(ctx context.Context, items []sqlc.CtxItem) (map[string]int64, error) {
+	byConversation := make(map[string][]string)
+	seen := make(map[string]struct{})
 	for _, item := range items {
 		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
 			continue
 		}
-		sum, err := p.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: item.SummaryID.String, ConversationID: item.ConversationID})
-		if err != nil {
-			return false
+		key := item.ConversationID + "\x00" + item.SummaryID.String
+		if _, ok := seen[key]; ok {
+			continue
 		}
-		depthOf[item.SummaryID.String] = sum.Depth
+		seen[key] = struct{}{}
+		byConversation[item.ConversationID] = append(byConversation[item.ConversationID], item.SummaryID.String)
 	}
-	return len(findSummaryRuns(items, 2, depthOf)) > 0
+
+	depthOf := make(map[string]int64)
+	for convID, ids := range byConversation {
+		summaries, err := p.q.ListSummariesByIDs(ctx, sqlc.ListSummariesByIDsParams{ConversationID: convID, SummaryIds: ids})
+		if err != nil {
+			return nil, err
+		}
+		for _, sum := range summaries {
+			depthOf[sum.ID] = sum.Depth
+		}
+		for _, id := range ids {
+			if _, ok := depthOf[id]; !ok {
+				return nil, sql.ErrNoRows
+			}
+		}
+	}
+	return depthOf, nil
 }
 
 // Compact implements memory.Compactor.

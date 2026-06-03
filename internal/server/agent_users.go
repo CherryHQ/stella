@@ -23,13 +23,21 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 		ID       string `json:"id"`
 		Username string `json:"username"`
 	}
+	rows, err := s.q.ListAuthUsersByIDs(ctx, userIDs)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	byID := make(map[string]string, len(rows))
+	for _, u := range rows {
+		byID[u.ID] = u.Email
+	}
+
 	users := make([]agentUser, 0, len(userIDs))
 	for _, uid := range userIDs {
-		u, err := s.users.GetUser(ctx, uid)
-		if err != nil {
-			continue
+		if email, ok := byID[uid]; ok {
+			users = append(users, agentUser{ID: uid, Username: email})
 		}
-		users = append(users, agentUser{ID: u.ID, Username: u.Email})
 	}
 
 	writeData(w, http.StatusOK, map[string]any{"users": users})

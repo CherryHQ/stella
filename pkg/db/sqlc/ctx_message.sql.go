@@ -341,6 +341,143 @@ func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSincePara
 	return items, nil
 }
 
+const listMessagesByIDs = `-- name: ListMessagesByIDs :many
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE conversation_id = ? AND id IN (/*SLICE:message_ids*/?) ORDER BY seq ASC
+`
+
+type ListMessagesByIDsParams struct {
+	ConversationID string   `json:"conversation_id"`
+	MessageIds     []string `json:"message_ids"`
+}
+
+func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsParams) ([]CtxMessage, error) {
+	query := listMessagesByIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ConversationID)
+	if len(arg.MessageIds) > 0 {
+		for _, v := range arg.MessageIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:message_ids*/?", strings.Repeat(",?", len(arg.MessageIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:message_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxMessage{}
+	for rows.Next() {
+		var i CtxMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMessagesByLogicalPage = `-- name: ListMessagesByLogicalPage :many
+WITH ordered AS (
+    SELECT
+        id, conversation_id, seq, role, event_type, content, token_count, created_at,
+        lag(role) OVER (ORDER BY seq ASC) AS prev_role
+    FROM ctx_message
+    WHERE conversation_id = ?1
+      AND (?2 IS NULL OR created_at >= ?2)
+      AND (?3 IS NULL OR created_at <= ?3)
+), grouped AS (
+    SELECT
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, prev_role,
+        sum(CASE WHEN role = 'assistant' AND prev_role = 'assistant' THEN 0 ELSE 1 END)
+            OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS logical_idx
+    FROM ordered
+), selected_groups AS (
+    SELECT logical_idx
+    FROM grouped
+    GROUP BY logical_idx
+    ORDER BY logical_idx DESC
+    LIMIT ?5 OFFSET ?4
+)
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at
+FROM grouped
+WHERE logical_idx IN (SELECT logical_idx FROM selected_groups)
+ORDER BY seq ASC
+`
+
+type ListMessagesByLogicalPageParams struct {
+	ConversationID string      `json:"conversation_id"`
+	After          interface{} `json:"after"`
+	Before         interface{} `json:"before"`
+	Offset         int64       `json:"offset"`
+	Limit          int64       `json:"limit"`
+}
+
+type ListMessagesByLogicalPageRow struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+	Seq            int64  `json:"seq"`
+	Role           string `json:"role"`
+	EventType      string `json:"event_type"`
+	Content        string `json:"content"`
+	TokenCount     int64  `json:"token_count"`
+	CreatedAt      string `json:"created_at"`
+}
+
+func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessagesByLogicalPageParams) ([]ListMessagesByLogicalPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMessagesByLogicalPage,
+		arg.ConversationID,
+		arg.After,
+		arg.Before,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMessagesByLogicalPageRow{}
+	for rows.Next() {
+		var i ListMessagesByLogicalPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchMessages = `-- name: SearchMessages :many
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message
 WHERE conversation_id = ? AND content LIKE ?
