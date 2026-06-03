@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
@@ -97,6 +98,22 @@ func serverAction(c *ucli.Context) error {
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
+
+	// Initialize global OTel tracing before any component creates spans. The
+	// shutdown defer is registered first so it runs last (LIFO): after g.Wait()
+	// returns and the scheduler/dispatcher defers below have stopped their work,
+	// guaranteeing in-flight spans are flushed rather than dropped mid-request.
+	obs, err := observability.Init(gctx)
+	if err != nil {
+		return fmt.Errorf("init observability: %w", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := obs.Shutdown(shutCtx); err != nil {
+			slog.Warn("otel shutdown failed", "error", err)
+		}
+	}()
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
