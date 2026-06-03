@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-06-03
+
+### ✨ Features
+
+- **CLI**: Full CLI conformance with the cli-design rule — `--json`, stdout/stderr, and command shapes. ([#268](https://github.com/CherryHQ/stella/pull/268))
+- **Tasks**: Make task context first-class and reset the task execution runtime with an explicit Executor boundary. ([#270](https://github.com/CherryHQ/stella/pull/270), [#269](https://github.com/CherryHQ/stella/pull/269))
+- **Agent**: Converge agent session and runtime lifecycle. ([#262](https://github.com/CherryHQ/stella/pull/262))
+- **Auth**: Open local registration with optional email-domain allowlist. ([#271](https://github.com/CherryHQ/stella/pull/271))
+- **Performance**: Add database hot path indexes and allow concurrent SQLite reads instead of a single shared connection. ([#273](https://github.com/CherryHQ/stella/pull/273))
+
+### 🐛 Bug Fixes
+
+- **Config**: Preserve SQLite pool sizing in the config store.
+- **Tasks**: Link created tasks to goals; require agent context for task CLI; default task and goal creation to the session agent.
+- **Sandbox**: Allow mise runtime cache writes in the macOS sandbox.
+
+**Full Changelog**: [v0.39.1...v0.40.0](https://github.com/CherryHQ/stella/compare/v0.39.1...v0.40.0)
+
 ## [0.39.1] - 2026-06-02
 
 ### ✨ Features

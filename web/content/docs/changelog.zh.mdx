@@ -11,6 +11,24 @@ icon: History
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-06-03
+
+### ✨ 功能
+
+- **CLI**：完整遵循 cli-design 规则，包括 `--json` 标志、stdout/stderr 规范以及命令形状统一。([#268](https://github.com/CherryHQ/stella/pull/268))
+- **任务**：将任务上下文提升为一级概念，并通过显式 Executor 边界重置任务执行运行时。([#270](https://github.com/CherryHQ/stella/pull/270), [#269](https://github.com/CherryHQ/stella/pull/269))
+- **Agent**：统一 Agent 会话与运行时生命周期。([#262](https://github.com/CherryHQ/stella/pull/262))
+- **认证**：开放本地注册，支持可选的邮箱域名白名单。([#271](https://github.com/CherryHQ/stella/pull/271))
+- **性能**：添加数据库热路径索引，并将 SQLite 读取从单连接共享模式改为并发读取。([#273](https://github.com/CherryHQ/stella/pull/273))
+
+### 🐛 修复
+
+- **配置**：保留 SQLite 连接池大小配置。
+- **任务**：创建任务时自动关联到目标；在 CLI 中要求 Agent 上下文；默认将任务和目标创建绑定到当前会话的 Agent。
+- **沙盒**：允许 macOS 沙盒中的 mise 运行时缓存写入。
+
+**完整变更日志**：[v0.39.1...v0.40.0](https://github.com/CherryHQ/stella/compare/v0.39.1...v0.40.0)
+
 ## [0.39.1] - 2026-06-02
 
 ### ✨ 功能
