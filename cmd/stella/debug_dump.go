@@ -7,11 +7,9 @@ import (
 	"net/http"
 	httppprof "net/http/pprof"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
-	"syscall"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -19,8 +17,8 @@ import (
 
 // startDiagnostics wires runtime introspection for diagnosing hangs:
 //
-//   - SIGUSR1 writes a full goroutine dump to $STELLA_HOME/dumps/. Zero
-//     overhead, no pre-configuration: when the server wedges, run
+//   - On Unix, SIGUSR1 writes a full goroutine dump to $STELLA_HOME/dumps/.
+//     Zero overhead, no pre-configuration: when the server wedges, run
 //     `kill -USR1 <pid>` and inspect where goroutines are parked (e.g.
 //     database/sql.(*DB).conn means connection-pool exhaustion).
 //   - Setting STELLA_PPROF_ADDR (e.g. 127.0.0.1:6060) starts a localhost
@@ -32,22 +30,6 @@ import (
 func startDiagnostics(ctx context.Context) {
 	installGoroutineDumpHandler(ctx)
 	startPprofServer(ctx)
-}
-
-func installGoroutineDumpHandler(ctx context.Context) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGUSR1)
-	go func() {
-		defer signal.Stop(ch)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ch:
-				dumpGoroutines()
-			}
-		}
-	}()
 }
 
 func dumpGoroutines() {
