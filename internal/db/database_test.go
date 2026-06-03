@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"strings"
@@ -75,4 +76,25 @@ func tableExists(t *testing.T, db *sql.DB, name string) bool {
 		t.Fatalf("query sqlite_master for %s: %v", name, err)
 	}
 	return count > 0
+}
+
+func TestSpanName(t *testing.T) {
+	cases := []struct {
+		query string
+		want  string
+	}{
+		{"SELECT id, name FROM sessions WHERE id = ?", "SELECT sessions"},
+		{"select * from ctx_messages", "SELECT ctx_messages"},
+		{"INSERT INTO schema_migrations (version) VALUES (?)", "INSERT schema_migrations"},
+		{"UPDATE settings_agents SET name = ? WHERE id = ?", "UPDATE settings_agents"},
+		{"DELETE FROM sessions WHERE id = ?", "DELETE sessions"},
+		{"PRAGMA foreign_keys = on", "PRAGMA"},
+		{"BEGIN", "BEGIN"},
+		{"", "sql.conn.query"},
+	}
+	for _, c := range cases {
+		if got := spanName(context.Background(), "sql.conn.query", c.query); got != c.want {
+			t.Errorf("spanName(%q) = %q, want %q", c.query, got, c.want)
+		}
+	}
 }

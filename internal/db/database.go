@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -41,6 +42,10 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	// to keep traces focused on actual queries.
 	db, err := otelsql.Open("sqlite", dataSourceName(dbPath),
 		otelsql.WithAttributes(attribute.String("db.system", "sqlite")),
+		// Name spans "<verb> <table>" (e.g. "SELECT sessions") instead of the
+		// generic "sql.conn.query" so the trace tree shows what each query does
+		// at a glance, without expanding the db.statement attribute.
+		otelsql.WithSpanNameFormatter(spanName),
 		otelsql.WithSpanOptions(otelsql.SpanOptions{
 			OmitConnectorConnect: true,
 			OmitConnResetSession: true,
@@ -84,6 +89,42 @@ func dataSourceName(dbPath string) string {
 	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout.Milliseconds()))
 	q.Add("_pragma", "foreign_keys(ON)")
 	return dbPath + "?" + q.Encode()
+}
+
+// SQL target extractors: pull the table name following the keyword that names
+// it for each statement kind. Identifiers are plain (sqlc emits unquoted table
+// names), so a bare word match is enough.
+var (
+	reFromTarget   = regexp.MustCompile(`(?is)\bfrom\s+(\w+)`)
+	reIntoTarget   = regexp.MustCompile(`(?is)\binto\s+(\w+)`)
+	reUpdateTarget = regexp.MustCompile(`(?is)\bupdate\s+(\w+)`)
+)
+
+// spanName turns a SQL statement into a "<VERB> <table>" span name (e.g.
+// "SELECT sessions"). Statements without a clear table (PRAGMA, BEGIN, COMMIT)
+// fall back to the verb; anything unparseable falls back to the otelsql method
+// label so a span is never left nameless.
+func spanName(_ context.Context, method otelsql.Method, query string) string {
+	fields := strings.Fields(query)
+	if len(fields) == 0 {
+		return string(method)
+	}
+	verb := strings.ToUpper(fields[0])
+	var re *regexp.Regexp
+	switch verb {
+	case "SELECT", "DELETE":
+		re = reFromTarget
+	case "INSERT", "REPLACE":
+		re = reIntoTarget
+	case "UPDATE":
+		re = reUpdateTarget
+	default:
+		return verb
+	}
+	if m := re.FindStringSubmatch(query); m != nil {
+		return verb + " " + m[1]
+	}
+	return verb
 }
 
 func configurePool(db *sql.DB) {
