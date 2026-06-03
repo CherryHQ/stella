@@ -101,22 +101,22 @@ contract above.
 
 ### Required fields
 
-| Field (Feishu name) | Type          | Owner  | Notes                                                 |
-| ------------------- | ------------- | ------ | ----------------------------------------------------- |
-| 标题                | text          | Feishu | issue title                                           |
-| 描述                | text          | Feishu | issue body                                            |
-| 优先级              | single-select | Feishu | e.g. P0–P3                                            |
-| 类型                | single-select | Feishu | Bug/Feature/Task/…                                    |
-| 路线图              | single-select | Feishu | e.g. Q1–Q4/Backlog (optional)                         |
-| 需求状态            | single-select | Feishu | **待评估 / 已接受 / 已拒绝** — 已接受 triggers Pass A |
-| 研发状态            | single-select | GitHub | To Do / In Progress / In Review / Done                |
-| GitHub URL          | text          | sync   | written by Pass A                                     |
-| GitHub Labels       | text          | GitHub | comma-joined                                          |
-| GitHub Milestone    | text          | GitHub |                                                       |
-| GitHub Assignee     | text          | GitHub | comma-joined logins                                   |
-| GitHub Closed State | single-select | GitHub | Open / Closed                                         |
-| Sync Status         | single-select | sync   | 未同步 / 已同步 / 同步失败                            |
-| Last Synced At      | datetime      | sync   |                                                       |
+| Field (Feishu name) | Type          | Owner  | Notes                                                         |
+| ------------------- | ------------- | ------ | ------------------------------------------------------------- |
+| 标题                | text          | Feishu | issue title                                                   |
+| 描述                | text          | Feishu | issue body                                                    |
+| 优先级              | single-select | Feishu | e.g. P0–P3                                                    |
+| 类型                | single-select | Feishu | Bug/Feature/Task/…                                            |
+| 路线图              | single-select | Feishu | e.g. Q1–Q4/Backlog (optional)                                 |
+| 需求状态            | single-select | Feishu | **待评估 / 已接受 / 已拒绝** — 已接受 triggers Pass A         |
+| 研发状态            | single-select | GitHub | To Do / In Progress / In Review / Done                        |
+| GitHub URL          | text          | sync   | written by Pass A                                             |
+| GitHub Labels       | text          | GitHub | comma-joined; includes `release:vX.Y.Z` from release workflow |
+| GitHub Milestone    | text          | GitHub |                                                               |
+| GitHub Assignee     | text          | GitHub | comma-joined logins                                           |
+| GitHub Closed State | single-select | GitHub | Open / Closed                                                 |
+| Sync Status         | single-select | sync   | 未同步 / 已同步 / 同步失败                                    |
+| Last Synced At      | datetime      | sync   |                                                               |
 
 Field names are the script's keys — if you rename a field, update the `F_*`
 constants at the top of `scripts/feishu_github_sync.py` to match.
