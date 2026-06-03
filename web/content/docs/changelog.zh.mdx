@@ -11,6 +11,33 @@ icon: History
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-06-03
+
+### ✨ 功能
+
+- read 工具支持读取图片内容。([#278](https://github.com/CherryHQ/stella/pull/278))
+- 新增 project-tracker 技能，用于项目管理——在飞书多维表格管理需求并同步到 GitHub issue。
+- 将 release 流程与 project-tracker 关联：release 时给 milestone 下的 issue 打 release label，同步回飞书。
+
+### 🔧 基础设施
+
+- 将 OpenTelemetry 追踪提升为服务器级基础设施。([#277](https://github.com/CherryHQ/stella/pull/277))
+
+### 🐛 修复
+
+- 修复 Agent 事件管道在消费者断开连接时卡住的问题。
+
+### ⚡ 性能
+
+- 批量数据库热路径查询。([#274](https://github.com/CherryHQ/stella/pull/274))
+- 为 memory provider 使用独立单连接池。
+
+### 🔧 杂项
+
+- 新增 goroutine dump 和可选的 pprof，用于诊断卡死问题。
+
+**完整变更日志**：[v0.40.0...v0.41.0](https://github.com/CherryHQ/stella/compare/v0.40.0...v0.41.0)
+
 ## [0.40.0] - 2026-06-03
 
 ### ✨ 功能

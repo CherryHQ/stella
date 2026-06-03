@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-06-03
+
+### ✨ Features
+
+- Support reading images with the read tool. ([#278](https://github.com/CherryHQ/stella/pull/278))
+- Add project-tracker skill for project management — manage requirements in a Feishu Bitable and sync to GitHub issues.
+- Link release workflow with project-tracker: tag milestone issues with release labels on release, sync back to Feishu.
+
+### 🔧 Infrastructure
+
+- Promote OpenTelemetry tracing to server-level infrastructure. ([#277](https://github.com/CherryHQ/stella/pull/277))
+
+### 🐛 Bug Fixes
+
+- Stop agent event pipeline from wedging on consumer disconnect.
+
+### ⚡ Performance
+
+- Batch database hot path queries. ([#274](https://github.com/CherryHQ/stella/pull/274))
+- Run memory provider on a dedicated single-connection pool.
+
+### 🔧 Chores
+
+- Add goroutine dump and opt-in pprof for hang diagnosis.
+
+**Full Changelog**: [v0.40.0...v0.41.0](https://github.com/CherryHQ/stella/compare/v0.40.0...v0.41.0)
+
 ## [0.40.0] - 2026-06-03
 
 ### ✨ Features
