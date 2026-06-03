@@ -217,7 +217,7 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 			call := toolCalls[e.ID]
 			call.ID = e.ID
 			if e.Name != "" {
-				call.Name = normalizeGeneratedToolCallName(e.Name, cfg.ToolDefinitions)
+				call.Name = e.Name
 			}
 			if e.Arguments != "" {
 				toolArgs[e.ID] += e.Arguments
