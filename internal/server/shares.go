@@ -2,31 +2,22 @@ package server
 
 import (
 	"bytes"
-	"crypto/rand"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/base64"
-	"encoding/hex"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
-	"mime"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-const maxShareSize = 25 * 1024 * 1024
 
 func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apiserver.ListSharesParams) {
 	info := UserFromContext(r.Context())
@@ -79,45 +70,33 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	title, mediaType, content, err := s.resolveShareContent(w, r, info.UserID, body)
-	if err != nil {
+	content, ok := s.resolveShareContent(w, r, info.UserID, body)
+	if !ok {
 		return
 	}
 
-	token, tokenHash, err := newShareToken()
+	res, err := s.shares.Create(r.Context(), info.UserID, content, shareExpiresIn(body.ExpiresIn))
 	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	expiresAt, err := shareExpiry(body.ExpiresIn)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request")
-		return
-	}
-	share, err := s.q.CreateShare(r.Context(), sqlc.CreateShareParams{
-		ID:        uuid.NewString(),
-		TokenHash: tokenHash,
-		UserID:    info.UserID,
-		Title:     title,
-		MediaType: mediaType,
-		Content:   content,
-		ExpiresAt: expiresAt,
-	})
-	if err != nil {
+		if errors.Is(err, share.ErrInvalidExpiry) {
+			writeError(w, http.StatusBadRequest, "invalid request")
+			return
+		}
 		s.writeInternalError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, apitypes.Share{
-		Id:        share.ID,
-		Url:       shareURL(r, token),
-		Title:     share.Title,
-		MediaType: share.MediaType,
-		ExpiresAt: parseTimePtr(share.ExpiresAt),
-		CreatedAt: parseTime(share.CreatedAt),
+		Id:        res.ID,
+		Url:       shareURL(r, res.Token),
+		Title:     res.Title,
+		MediaType: res.MediaType,
+		ExpiresAt: parseTimePtr(res.ExpiresAt),
+		CreatedAt: parseTime(res.CreatedAt),
 	})
 }
 
-func (s *Server) resolveShareContent(w http.ResponseWriter, r *http.Request, userID string, body apitypes.CreateShareRequest) (title, mediaType string, content []byte, err error) {
+// resolveShareContent builds the shareable content for the request, writing the
+// appropriate HTTP error and returning ok=false on failure.
+func (s *Server) resolveShareContent(w http.ResponseWriter, r *http.Request, userID string, body apitypes.CreateShareRequest) (share.Content, bool) {
 	switch body.Source {
 	case apitypes.CreateShareRequestSourceArtifact:
 		return s.resolveArtifactContent(w, r, body)
@@ -125,80 +104,64 @@ func (s *Server) resolveShareContent(w http.ResponseWriter, r *http.Request, use
 		return s.resolveArticleContent(w, r, userID, body)
 	default:
 		writeError(w, http.StatusBadRequest, "source must be one of: artifact, article")
-		return "", "", nil, errors.New("invalid source")
+		return share.Content{}, false
 	}
 }
 
-func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, body apitypes.CreateShareRequest) (string, string, []byte, error) {
+func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, body apitypes.CreateShareRequest) (share.Content, bool) {
 	sessionID := strDeref(body.SessionId)
 	path := strDeref(body.Path)
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "session_id is required for artifact shares")
-		return "", "", nil, errors.New("missing session_id")
+		return share.Content{}, false
 	}
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "path is required for artifact shares")
-		return "", "", nil, errors.New("missing path")
+		return share.Content{}, false
 	}
-
 	agentID := strDeref(body.AgentId)
 	if agentID == "" {
 		writeError(w, http.StatusBadRequest, "agent_id is required for artifact shares")
-		return "", "", nil, errors.New("missing agent_id")
+		return share.Content{}, false
 	}
 	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)
 	if err != nil {
-		return "", "", nil, err
+		return share.Content{}, false
 	}
-	abs, err := safePath(root, path)
+	content, err := s.shares.ArtifactContent(root, path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request")
-		return "", "", nil, err
+		writeArtifactError(w, err)
+		return share.Content{}, false
 	}
-	fi, err := os.Stat(abs)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
-		return "", "", nil, err
-	}
-	if fi.IsDir() {
-		writeError(w, http.StatusBadRequest, "path is a directory")
-		return "", "", nil, errors.New("directory")
-	}
-	if fi.Size() > maxShareSize {
-		writeError(w, http.StatusBadRequest, "file is too large to share")
-		return "", "", nil, errors.New("too large")
-	}
-	mt := artifactMediaType(path)
-	if mt == "" {
-		writeError(w, http.StatusBadRequest, "unsupported artifact type")
-		return "", "", nil, errors.New("unsupported type")
-	}
-	data, err := os.ReadFile(abs)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return "", "", nil, err
-	}
-	return filepath.Base(path), mt, data, nil
+	return content, true
 }
 
-func (s *Server) resolveArticleContent(w http.ResponseWriter, r *http.Request, userID string, body apitypes.CreateShareRequest) (string, string, []byte, error) {
+func (s *Server) resolveArticleContent(w http.ResponseWriter, r *http.Request, userID string, body apitypes.CreateShareRequest) (share.Content, bool) {
 	articleID := strDeref(body.ArticleId)
 	if articleID == "" {
 		writeError(w, http.StatusBadRequest, "article_id is required for article shares")
-		return "", "", nil, errors.New("missing article_id")
+		return share.Content{}, false
 	}
-	article, err := s.recally.store.GetArticle(r.Context(), userID, articleID)
+	content, err := s.RenderArticle(r.Context(), userID, articleID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "article not found")
-		return "", "", nil, err
+		writeArticleError(w, err)
+		return share.Content{}, false
+	}
+	return content, true
+}
+
+// RenderArticle implements share.ArticleRenderer: it loads the user's article,
+// enforces ownership, and renders it to shareable HTML.
+func (s *Server) RenderArticle(ctx context.Context, userID, articleID string) (share.Content, error) {
+	article, err := s.recally.store.GetArticle(ctx, userID, articleID)
+	if err != nil {
+		return share.Content{}, share.ErrNotFound
 	}
 	if article.UserID != userID {
-		writeError(w, http.StatusForbidden, "not your article")
-		return "", "", nil, errors.New("forbidden")
+		return share.Content{}, share.ErrForbidden
 	}
 	if article.FilePath == "" {
-		writeError(w, http.StatusBadRequest, "article has no content")
-		return "", "", nil, errors.New("no content")
+		return share.Content{}, share.ErrNoContent
 	}
 	filePath := article.FilePath
 	if !filepath.IsAbs(filePath) {
@@ -206,10 +169,8 @@ func (s *Server) resolveArticleContent(w http.ResponseWriter, r *http.Request, u
 	}
 	md, err := s.recally.files.ReadArticle(filePath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read article content")
-		return "", "", nil, err
+		return share.Content{}, fmt.Errorf("read article content: %w", err)
 	}
-
 	rendered, err := renderMarkdownPage(renderMarkdownOpts{
 		Title:     article.Title,
 		Author:    article.Author,
@@ -218,10 +179,41 @@ func (s *Server) resolveArticleContent(w http.ResponseWriter, r *http.Request, u
 		Tags:      article.Tags,
 	}, []byte(md))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to render article")
-		return "", "", nil, err
+		return share.Content{}, fmt.Errorf("render article: %w", err)
 	}
-	return article.Title, "text/html; charset=utf-8", rendered, nil
+	return share.Content{Title: article.Title, MediaType: "text/html; charset=utf-8", Data: rendered}, nil
+}
+
+// writeArtifactError maps share sentinels onto the original artifact HTTP codes.
+func writeArtifactError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, share.ErrInvalidPath):
+		writeError(w, http.StatusBadRequest, "invalid request")
+	case errors.Is(err, share.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, share.ErrIsDir):
+		writeError(w, http.StatusBadRequest, "path is a directory")
+	case errors.Is(err, share.ErrTooLarge):
+		writeError(w, http.StatusBadRequest, "file is too large to share")
+	case errors.Is(err, share.ErrUnsupportedType):
+		writeError(w, http.StatusBadRequest, "unsupported artifact type")
+	default:
+		writeError(w, http.StatusInternalServerError, "internal error")
+	}
+}
+
+// writeArticleError maps share sentinels onto the original article HTTP codes.
+func writeArticleError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, share.ErrNotFound):
+		writeError(w, http.StatusNotFound, "article not found")
+	case errors.Is(err, share.ErrForbidden):
+		writeError(w, http.StatusForbidden, "not your article")
+	case errors.Is(err, share.ErrNoContent):
+		writeError(w, http.StatusBadRequest, "article has no content")
+	default:
+		writeError(w, http.StatusInternalServerError, "failed to render article")
+	}
 }
 
 func (s *Server) RevokeShare(w http.ResponseWriter, r *http.Request, id string) {
@@ -247,33 +239,33 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 		writeError(w, http.StatusNotFound, "share not found")
 		return
 	}
-	share, err := s.q.GetShareByTokenHash(r.Context(), shareTokenHash(token))
+	sh, err := s.q.GetShareByTokenHash(r.Context(), share.TokenHash(token))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "share not found")
 		return
 	}
 
-	content := share.Content
-	mediaType := share.MediaType
+	content := sh.Content
+	mediaType := sh.MediaType
 	if strings.HasPrefix(mediaType, "text/markdown") {
 		expiresAt := ""
-		if share.ExpiresAt.Valid {
-			expiresAt = share.ExpiresAt.String
+		if sh.ExpiresAt.Valid {
+			expiresAt = sh.ExpiresAt.String
 		}
 		rendered, renderErr := renderMarkdownPage(renderMarkdownOpts{
-			Title:     share.Title,
+			Title:     sh.Title,
 			ExpiresAt: expiresAt,
-		}, share.Content)
+		}, sh.Content)
 		if renderErr == nil {
 			content = rendered
 			mediaType = "text/html; charset=utf-8"
 		} else {
-			slog.Warn("failed to render markdown share", "share_id", share.ID, "error", renderErr)
+			slog.Warn("failed to render markdown share", "share_id", sh.ID, "error", renderErr)
 		}
 	}
 
-	setShareContentHeaders(w, share, mediaType)
-	http.ServeContent(w, r, share.Title, time.Time{}, bytes.NewReader(content))
+	setShareContentHeaders(w, sh, mediaType)
+	http.ServeContent(w, r, sh.Title, time.Time{}, bytes.NewReader(content))
 }
 
 func shareURL(r *http.Request, token string) string {
@@ -291,72 +283,25 @@ func shareURL(r *http.Request, token string) string {
 	return fmt.Sprintf("%s://%s/s/%s", scheme, host, token)
 }
 
-func artifactMediaType(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".html", ".htm":
-		return "text/html; charset=utf-8"
-	case ".md", ".mdx", ".markdown":
-		return "text/markdown; charset=utf-8"
-	case ".pdf":
-		return "application/pdf"
-	case ".svg":
-		return "image/svg+xml"
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico":
-		if mt := mime.TypeByExtension(ext); mt != "" {
-			return mt
-		}
-		return "application/octet-stream"
-	default:
+// shareExpiresIn normalizes the optional API preset into the string the share
+// service understands ("" defaults to 7d).
+func shareExpiresIn(preset *apitypes.CreateShareRequestExpiresIn) string {
+	if preset == nil {
 		return ""
 	}
+	return string(*preset)
 }
 
-func shareExpiry(preset *apitypes.CreateShareRequestExpiresIn) (sql.NullString, error) {
-	value := "7d"
-	if preset != nil && *preset != "" {
-		value = string(*preset)
-	}
-	var d time.Duration
-	switch value {
-	case "1h":
-		d = time.Hour
-	case "1d":
-		d = 24 * time.Hour
-	case "7d":
-		d = 7 * 24 * time.Hour
-	case "never":
-		return sql.NullString{}, nil
-	default:
-		return sql.NullString{}, fmt.Errorf("expires_in must be one of 1h, 1d, 7d, never")
-	}
-	return sql.NullString{String: time.Now().UTC().Add(d).Format("2006-01-02 15:04:05"), Valid: true}, nil
-}
-
-func newShareToken() (string, string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", "", err
-	}
-	token := base64.RawURLEncoding.EncodeToString(buf)
-	return token, shareTokenHash(token), nil
-}
-
-func shareTokenHash(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
-
-func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share, effectiveMediaType string) {
+func setShareContentHeaders(w http.ResponseWriter, sh sqlc.Share, effectiveMediaType string) {
 	w.Header().Set("Content-Type", effectiveMediaType)
-	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(share.Title))
+	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(sh.Title))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "private, max-age=300")
-	w.Header().Set("X-Share-Title", share.Title)
-	w.Header().Set("X-Share-Media-Type", share.MediaType)
-	if share.ExpiresAt.Valid {
-		w.Header().Set("X-Share-Expires-At", share.ExpiresAt.String)
+	w.Header().Set("X-Share-Title", sh.Title)
+	w.Header().Set("X-Share-Media-Type", sh.MediaType)
+	if sh.ExpiresAt.Valid {
+		w.Header().Set("X-Share-Expires-At", sh.ExpiresAt.String)
 	}
 	switch {
 	case strings.HasPrefix(effectiveMediaType, "text/html"):

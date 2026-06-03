@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -45,6 +46,7 @@ type Server struct {
 	tokenSvc       *auth.TokenService   // optional; if nil, bearer token auth is disabled
 	credSvc        *credentials.Service // shared credentials service
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
+	shares         *share.Service       // share creation core (shared with native tools)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	tasksSvc       *tasks.Service       // optional; if nil, task endpoints return 503
 	startedAt      time.Time
@@ -143,6 +145,11 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 func (s *Server) SetBaseURL(url string) {
 	s.baseURL = url
 	s.credSvc.SetBaseURL(url)
+}
+
+// SetShareService wires the share-creation core. Call before serving requests.
+func (s *Server) SetShareService(svc *share.Service) {
+	s.shares = svc
 }
 
 // SetLoginIdentityStore wires the OIDC login identity store so the admin API

@@ -28,7 +28,9 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
+	"github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/tools/agentoauth"
+	"github.com/CherryHQ/stella/internal/tools/agentshare"
 	"github.com/CherryHQ/stella/internal/tools/agentvault"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -173,6 +175,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.backgroundTasks.Go(func() { fn(gctx) })
 	}
 	lateTools = append(lateTools, agentoauth.NewTools(credSvc, s.notifier, bgRunner)...)
+
+	// share_* tools and the HTTP share API share one creation core. baseURL is
+	// already set above, so the tool's public URLs are externally correct.
+	shareSvc := share.NewService(sqlc.New(s.db), adminSrv, resolveBaseURL(adminHost, adminPort))
+	adminSrv.SetShareService(shareSvc)
+	lateTools = append(lateTools, agentshare.NewTools(shareSvc)...)
 
 	// Wire vault service if STELLA_VAULT_KEY is set.
 	var coordOpts []channel.CoordinatorOption
