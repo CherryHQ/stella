@@ -28,10 +28,13 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
+	"github.com/CherryHQ/stella/internal/tools/agentoauth"
+	"github.com/CherryHQ/stella/internal/tools/agentvault"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 const defaultAdminPort = 25678
@@ -159,6 +162,18 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
 	}
 
+	// Native tools whose backing services only exist after the pool was built
+	// (setter-time DI). Collected here and injected via AddBuiltinTools, which
+	// rebuilds factories AND resets cached runners so live sessions see them.
+	var lateTools []pkgtools.Tool
+
+	// oauth_* tools run the human-in-the-loop flow on a shutdown-scoped
+	// background goroutine; the request ctx ends with the agent turn.
+	bgRunner := func(fn func(ctx context.Context)) {
+		s.backgroundTasks.Go(func() { fn(gctx) })
+	}
+	lateTools = append(lateTools, agentoauth.NewTools(credSvc, s.notifier, bgRunner)...)
+
 	// Wire vault service if STELLA_VAULT_KEY is set.
 	var coordOpts []channel.CoordinatorOption
 	var tokenSvc *auth.TokenService
@@ -176,7 +191,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			s.poolManager.SetTokenEnsurer(gctx, tokenSvc)
 			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
 			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
+			lateTools = append(lateTools, agentvault.NewTools(vaultSvc)...)
 		}
+	}
+
+	if err := s.poolManager.AddBuiltinTools(gctx, lateTools...); err != nil {
+		return fmt.Errorf("register late builtin tools: %w", err)
 	}
 
 	// Wire authentication (external OIDC/OAuth providers and local password auth).

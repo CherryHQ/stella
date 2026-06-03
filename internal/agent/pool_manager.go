@@ -558,10 +558,15 @@ func (pm *PoolManager) buildFactory_(_ context.Context, snap *config.Snapshot) (
 	})
 }
 
-// AddBuiltinTool appends a tool and rebuilds all service factories.
-func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) error {
+// AddBuiltinTools appends tools and rebuilds all service factories, then resets
+// cached runners so live sessions pick up the new tools immediately. Without the
+// reset, rebuildFactory alone only affects runners created after the call.
+func (pm *PoolManager) AddBuiltinTools(ctx context.Context, ts ...tools.Tool) error {
+	if len(ts) == 0 {
+		return nil
+	}
 	pm.mu.Lock()
-	pm.builtinTools = append(pm.builtinTools, tool)
+	pm.builtinTools = append(pm.builtinTools, ts...)
 	agentIDs := make([]string, 0, len(pm.services))
 	for id := range pm.services {
 		agentIDs = append(agentIDs, id)
@@ -570,7 +575,16 @@ func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) erro
 
 	for _, agentID := range agentIDs {
 		if err := pm.rebuildFactory(ctx, agentID); err != nil {
-			pm.log.Error("failed to rebuild factory after adding builtin tool", "agent_id", agentID, "error", err)
+			pm.log.Error("failed to rebuild factory after adding builtin tools", "agent_id", agentID, "error", err)
+			continue
+		}
+		pm.mu.RLock()
+		svc := pm.services[agentID]
+		pm.mu.RUnlock()
+		if svc != nil {
+			if err := svc.Runtime.ResetRunners(); err != nil {
+				pm.log.Warn("failed to reset runners after adding builtin tools", "agent_id", agentID, "error", err)
+			}
 		}
 	}
 	return nil

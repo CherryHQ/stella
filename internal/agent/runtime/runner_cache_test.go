@@ -132,6 +132,42 @@ func TestRunnerCache_CloseAll(t *testing.T) {
 	_ = created
 }
 
+// TestRunnerCache_ResetUsesNewFactory proves the invariant PoolManager.
+// AddBuiltinTools relies on: after the factory is swapped (a tool was added) and
+// reset() is called, the previously cached runner is closed and the next access
+// is built from the new factory. Without reset, the stale runner is reused.
+func TestRunnerCache_ResetUsesNewFactory(t *testing.T) {
+	runnerA := newFakeRunner()
+	runnerB := newFakeRunner()
+	current := Runner(runnerA)
+	factory := func(_ context.Context, _ RunnerParams) (Runner, error) { return current, nil }
+	cache := newRunnerCache(factory, fakeMemory{}, 10*time.Minute, slog.Default())
+
+	info := validInfo("s1")
+	if _, r, err := cache.getOrCreate(context.Background(), info, ""); err != nil || r != runnerA {
+		t.Fatalf("first getOrCreate: r=%v err=%v", r, err)
+	}
+
+	// Swap the factory output, mimicking SetFactory after rebuildFactory.
+	current = runnerB
+
+	// Before reset the cached runnerA is reused — the gap AddBuiltinTools closes.
+	if _, r, _ := cache.getOrCreate(context.Background(), info, ""); r != runnerA {
+		t.Fatalf("before reset: want cached runnerA, got %v", r)
+	}
+
+	if err := cache.reset(); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if !runnerA.closed {
+		t.Error("reset did not close the previously cached runner")
+	}
+
+	if _, r, err := cache.getOrCreate(context.Background(), info, ""); err != nil || r != runnerB {
+		t.Fatalf("after reset: want runnerB from new factory, got r=%v err=%v", r, err)
+	}
+}
+
 // TestRunnerCache_DeadRunnerReplaced replaces a dead runner on next access.
 func TestRunnerCache_DeadRunnerReplaced(t *testing.T) {
 	cache, created := testCache(nil)
