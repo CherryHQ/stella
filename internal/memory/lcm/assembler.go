@@ -11,6 +11,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+const olderResolveBatchSize = 32
+
 // assembler builds context for the model within a token budget.
 type assembler struct {
 	q   *sqlc.Queries
@@ -38,17 +40,17 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 
 	// Separate fresh tail (last N message items) from older items.
 	tail, older := splitFreshTail(items, freshTail)
-	messages, err := a.loadMessagesByItem(ctx, items)
+	tailMessages, err := a.loadMessagesByItem(ctx, tail)
 	if err != nil {
 		return nil, err
 	}
-	summaries, err := a.loadSummariesByItem(ctx, items)
+	tailSummaries, err := a.loadSummariesByItem(ctx, tail)
 	if err != nil {
 		return nil, err
 	}
 
 	// Resolve fresh tail — these are always included.
-	tailMsgs, err := a.resolveItemsFromCaches(ctx, tail, messages, summaries)
+	tailMsgs, err := a.resolveItemsFromCaches(ctx, tail, tailMessages, tailSummaries)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
@@ -86,21 +88,9 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 	remaining := max(budget-tailTokens, 0)
 
 	// Select older items that fit within remaining budget, newest first.
-	var olderMsgs []ai.Message
-	for i := len(older) - 1; i >= 0; i-- {
-		msgs, err := a.resolveItemsFromCaches(ctx, older[i:i+1], messages, summaries)
-		if err != nil {
-			return nil, fmt.Errorf("resolve item %d: %w", older[i].Ordinal, err)
-		}
-		tokens := 0
-		for _, m := range msgs {
-			tokens += estimateMessageTokens(m)
-		}
-		if tokens > remaining {
-			break // stop including older items
-		}
-		remaining -= tokens
-		olderMsgs = append(olderMsgs, msgs...)
+	olderMsgs, err := a.resolveOlderWithinBudget(ctx, older, remaining)
+	if err != nil {
+		return nil, err
 	}
 
 	// Reverse olderMsgs (they were added newest-first).
@@ -178,6 +168,40 @@ func splitFreshTail(items []sqlc.CtxItem, freshTail int) (tail []sqlc.CtxItem, o
 		}
 	}
 	return items[splitIdx:], items[:splitIdx]
+}
+
+func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.CtxItem, remaining int) ([]ai.Message, error) {
+	var olderMsgs []ai.Message
+	for end := len(older); end > 0; {
+		start := max(end-olderResolveBatchSize, 0)
+		batch := older[start:end]
+		messages, err := a.loadMessagesByItem(ctx, batch)
+		if err != nil {
+			return nil, err
+		}
+		summaries, err := a.loadSummariesByItem(ctx, batch)
+		if err != nil {
+			return nil, err
+		}
+		for i := len(batch) - 1; i >= 0; i-- {
+			item := batch[i]
+			msgs, err := a.resolveItemsFromCaches(ctx, batch[i:i+1], messages, summaries)
+			if err != nil {
+				return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
+			}
+			tokens := 0
+			for _, m := range msgs {
+				tokens += estimateMessageTokens(m)
+			}
+			if tokens > remaining {
+				return olderMsgs, nil
+			}
+			remaining -= tokens
+			olderMsgs = append(olderMsgs, msgs...)
+		}
+		end = start
+	}
+	return olderMsgs, nil
 }
 
 // resolveItemsFromCaches resolves a slice of context items to ai.Messages.
