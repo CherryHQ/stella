@@ -127,8 +127,13 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 // kreuzberg, with a note explaining the substitution. Failures degrade to a
 // text note rather than erroring, so a readable image never aborts the read.
 func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath, resolvedPath string, content []byte, mime string) []ai.ContentBlock {
+	cfg, err := validateImageBudget(content)
+	if err != nil {
+		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it exceeds the safe decode budget: %v", mime, displayPath, err)}}
+	}
+
 	if pkgtools.VisionFromContext(ctx) {
-		data, outMime, err := prepareInlineImage(content, mime)
+		data, outMime, err := prepareInlineImage(content, cfg, mime)
 		if err != nil {
 			return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it could not be processed for inlining: %v", mime, displayPath, err)}}
 		}
@@ -165,20 +170,30 @@ func detectImageMime(data []byte) string {
 	return ""
 }
 
-// prepareInlineImage downsizes an image to fit maxImageDim on its longest edge,
-// re-encoding only when a resize is needed. Images already within bounds are
-// returned untouched. WebP is re-encoded as PNG since imaging cannot encode it.
-func prepareInlineImage(data []byte, mime string) ([]byte, string, error) {
+// validateImageBudget rejects oversized inputs before any full decode allocates a
+// pixel buffer: first by raw byte size, then by the decoded dimensions read from
+// the header alone. It returns the parsed config so callers can reuse it without
+// decoding the header twice. Runs on every image path (vision inline and the
+// kreuzberg text fallback) so a decompression bomb cannot reach either decoder.
+func validateImageBudget(data []byte) (image.Config, error) {
 	if len(data) > maxImageInputBytes {
-		return nil, "", fmt.Errorf("image input too large: %d bytes exceeds %d", len(data), maxImageInputBytes)
+		return image.Config{}, fmt.Errorf("image input too large: %d bytes exceeds %d", len(data), maxImageInputBytes)
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return nil, "", err
+		return image.Config{}, err
 	}
 	if int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
-		return nil, "", fmt.Errorf("image too large to decode: %dx%d exceeds %d pixels", cfg.Width, cfg.Height, maxImagePixels)
+		return image.Config{}, fmt.Errorf("image too large to decode: %dx%d exceeds %d pixels", cfg.Width, cfg.Height, maxImagePixels)
 	}
+	return cfg, nil
+}
+
+// prepareInlineImage downsizes an image to fit maxImageDim on its longest edge,
+// re-encoding only when a resize is needed. Images already within bounds are
+// returned untouched. WebP is re-encoded as PNG since imaging cannot encode it.
+// The caller must pass the config from a prior validateImageBudget check.
+func prepareInlineImage(data []byte, cfg image.Config, mime string) ([]byte, string, error) {
 	if cfg.Width <= maxImageDim && cfg.Height <= maxImageDim && mime != "image/webp" {
 		return data, mime, nil
 	}

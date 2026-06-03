@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -89,15 +91,35 @@ func TestReadImageResizesLargeImage(t *testing.T) {
 	}
 }
 
-func TestPrepareInlineImageRejectsPixelBomb(t *testing.T) {
-	// A header claiming a huge canvas must be rejected before full decode.
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 8000, 8000))); err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	if _, _, err := prepareInlineImage(buf.Bytes(), "image/png"); err == nil {
+func TestValidateImageBudgetRejectsPixelBomb(t *testing.T) {
+	// A header claiming a huge canvas must be rejected from the IHDR alone,
+	// without allocating the full pixel buffer the bomb would expand to.
+	header := pngHeaderWithDims(8000, 8000) // 64MP > maxImagePixels
+	if _, err := validateImageBudget(header); err == nil {
 		t.Fatal("expected oversized image (64MP) to be rejected before decode")
 	}
+}
+
+// pngHeaderWithDims builds a minimal PNG (signature + IHDR chunk only) declaring
+// the given dimensions. image.DecodeConfig reads the size from IHDR without
+// decoding pixels, so this exercises the header-based budget check cheaply.
+func pngHeaderWithDims(w, h uint32) []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], w)
+	binary.BigEndian.PutUint32(ihdr[4:8], h)
+	ihdr[8] = 8 // bit depth
+	ihdr[9] = 6 // color type: RGBA truecolor (DecodeConfig returns after IHDR)
+	length := make([]byte, 4)
+	binary.BigEndian.PutUint32(length, 13)
+	buf.Write(length)
+	chunk := append([]byte("IHDR"), ihdr...)
+	buf.Write(chunk)
+	crc := make([]byte, 4)
+	binary.BigEndian.PutUint32(crc, crc32.ChecksumIEEE(chunk))
+	buf.Write(crc)
+	return buf.Bytes()
 }
 
 func TestReadImageNonVisionFallsBackToText(t *testing.T) {
