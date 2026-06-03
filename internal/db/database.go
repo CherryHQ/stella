@@ -53,6 +53,7 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 func dataSourceName(dbPath string) string {
 	q := url.Values{}
 	q.Add("_pragma", "journal_mode(WAL)")
+	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout.Milliseconds()))
 	q.Add("_pragma", "foreign_keys(ON)")
 	return dbPath + "?" + q.Encode()

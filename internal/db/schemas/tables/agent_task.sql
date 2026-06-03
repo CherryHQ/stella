@@ -33,6 +33,12 @@ CREATE TABLE agent_task (
 CREATE UNIQUE INDEX uniq_agent_task_session ON agent_task(session_id);
 CREATE INDEX idx_agent_task_agent_status_not_before ON agent_task(agent_id, status, not_before);
 CREATE INDEX idx_agent_task_user_agent        ON agent_task(user_id, agent_id);
+CREATE INDEX idx_agent_task_user_created      ON agent_task(user_id, created_at DESC, id DESC);
+CREATE INDEX idx_agent_task_user_agent_status_created ON agent_task(user_id, agent_id, status, created_at DESC, id DESC);
+CREATE INDEX idx_agent_task_user_agent_project_created ON agent_task(user_id, agent_id, project_id, created_at DESC, id DESC);
+CREATE INDEX idx_agent_task_ready_candidates
+    ON agent_task(priority DESC, created_at ASC)
+    WHERE status = 'ready' AND active_run_id IS NULL;
 CREATE INDEX idx_agent_task_session           ON agent_task(session_id);
 CREATE INDEX idx_agent_task_goal              ON agent_task(goal_id);
 CREATE INDEX idx_agent_task_project           ON agent_task(project_id);
