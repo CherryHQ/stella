@@ -70,7 +70,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 				parentCtx = st.chatCtx
 			}
 
-			_, span := h.tracer().Start(parentCtx, "gen_ai.execute_tool",
+			toolCtx, span := h.tracer().Start(parentCtx, "gen_ai.execute_tool",
 				trace.WithAttributes(
 					attribute.String("gen_ai.operation.name", "execute_tool"),
 					attribute.String("gen_ai.tool.name", hctx.ToolName),
@@ -86,6 +86,10 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 			st.lastActive = time.Now()
 			st.mu.Unlock()
 			st.activeOps.Add(1)
+
+			// Hand the span-enriched context back so the tool's DB/memory work
+			// nests under this tool span instead of becoming root spans.
+			return hooks.PreToolCallResult{Context: toolCtx}, nil
 		}
 	}
 

@@ -11,7 +11,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext) {
+func (h *Hook) OnPreAgentCall(ctx context.Context, hctx *hooks.PreAgentCallContext) {
 	h.log.Info("pre_agent_call",
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
@@ -22,7 +22,7 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 
 	if h.otelEnabled() && hctx.SessionID != "" {
 		h.mu.Lock()
-		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
+		st := h.getOrCreateSession(ctx, hctx.AgentID, hctx.SessionID)
 		st.mu.Lock()
 		st.chatSpan.SetAttributes(
 			attribute.String("user_id", hctx.UserID),

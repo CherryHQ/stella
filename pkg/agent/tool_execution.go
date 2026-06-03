@@ -75,7 +75,9 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 		}
 
-		// PreToolCall hooks: may rewrite args or block execution.
+		// PreToolCall hooks: may rewrite args, block execution, or enrich the
+		// context (e.g. with a trace span the tool's DB calls nest under).
+		execCtx := ctx
 		if !hs.Empty() {
 			preCtx := &hooks.PreToolCallContext{
 				HookMeta:   meta,
@@ -84,6 +86,9 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Arguments:  args,
 			}
 			preResult, _ := hs.RunPreToolCall(ctx, preCtx)
+			if preResult.Context != nil {
+				execCtx = preResult.Context
+			}
 			if preResult.Block {
 				blockMsg := preResult.BlockMessage
 				if blockMsg == "" {
@@ -109,7 +114,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		execCall := call
 		execCall.Arguments = args
 		start := time.Now()
-		toolCtx := pkgchannel.WithNotificationAgentID(ctx, meta.AgentID)
+		toolCtx := pkgchannel.WithNotificationAgentID(execCtx, meta.AgentID)
 		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)
 

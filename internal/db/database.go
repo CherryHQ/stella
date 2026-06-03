@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/XSAM/otelsql"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	_ "modernc.org/sqlite"
 )
 
@@ -44,6 +46,15 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 			OmitConnResetSession: true,
 			OmitConnPrepare:      true,
 			OmitRows:             true,
+			// Only emit a query span when the caller already has an active span.
+			// Most DB work runs on background contexts (startup, scheduler,
+			// cache refresh) with no parent — those would become standalone
+			// root spans, one per query, drowning real request traces in noise.
+			// Gating on a valid parent keeps DB spans where they're useful:
+			// nested under an HTTP request or agent tool span.
+			SpanFilter: func(ctx context.Context, _ otelsql.Method, _ string, _ []driver.NamedValue) bool {
+				return trace.SpanContextFromContext(ctx).IsValid()
+			},
 		}),
 	)
 	if err != nil {

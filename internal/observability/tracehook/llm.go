@@ -12,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
+func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
 	tools := make([]string, len(hctx.ToolDefinitions))
 	for i, t := range hctx.ToolDefinitions {
 		tools[i] = t.Name
@@ -30,7 +30,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 
 	if h.otelEnabled() && hctx.SessionID != "" {
 		h.mu.Lock()
-		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
+		st := h.getOrCreateSession(ctx, hctx.AgentID, hctx.SessionID)
 		h.mu.Unlock()
 
 		st.mu.Lock()

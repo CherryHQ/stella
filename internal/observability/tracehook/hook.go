@@ -99,15 +99,20 @@ func (h *Hook) Close() error {
 	return nil
 }
 
-// getOrCreateSession returns the session trace, creating root span if needed.
-// Caller must hold h.mu.
-func (h *Hook) getOrCreateSession(agentID, sessionID string) *sessionTrace {
+// getOrCreateSession returns the session trace, creating the chat span if
+// needed. The chat span is parented on parentCtx — the inbound request context
+// (HTTP/channel entry) — so the whole agent trace nests under that span instead
+// of starting a disconnected root. Cancellation is stripped because the chat
+// outlives the HTTP request: a cancelled parent must not tear down the
+// session's long-lived spans, and span linkage only needs the parent's span
+// context, not its deadline. Caller must hold h.mu.
+func (h *Hook) getOrCreateSession(parentCtx context.Context, agentID, sessionID string) *sessionTrace {
 	key := sessionKey(agentID, sessionID)
 	st, ok := h.sessions[key]
 	if ok {
 		return st
 	}
-	ctx, chatSpan := h.tracer().Start(context.Background(), "chat",
+	ctx, chatSpan := h.tracer().Start(context.WithoutCancel(parentCtx), "chat",
 		trace.WithAttributes(
 			attribute.String("gen_ai.conversation.id", sessionID),
 			attribute.String("agent_id", agentID),

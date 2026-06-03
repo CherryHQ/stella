@@ -111,6 +111,9 @@ func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext)
 			hctx.Arguments = result.Arguments
 			final.Arguments = result.Arguments
 		}
+		if result.Context != nil {
+			final.Context = result.Context
+		}
 		if result.Block {
 			final.Block = true
 			final.BlockMessage = result.BlockMessage
