@@ -22,10 +22,23 @@ This skill orchestrates two already-installed CLIs and adds no third-party deps:
 - `lark-cli` — Feishu Bitable read/write (run `--as user`; see cheatsheet for why)
 - `gh` — GitHub issue create/view
 
+## Known tables
+
+Already-mapped tables — use these coordinates directly, do not re-resolve or guess:
+
+| Wiki link                                                                                                             | Repo              | base-token                    | table-id           |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------------------- | ------------------ |
+| [Stella 项目](https://mcnnox2fhjfq.feishu.cn/wiki/LUdiwZfufikjBuk8Kqucpk6bnnd?table=tblqsbIpSO6Px3qj&view=vewOuD1702) | `CherryHQ/stella` | `J77YbQKKWaUCe4sPL2CcG24EnJe` | `tblqsbIpSO6Px3qj` |
+
+⚠️ The same base contains a decoy table `内部需求整理` (`tbljZ3glEozfhoOG`) with a
+different schema (Stella处理状态/结果/时长) — **not** the sync table. Always confirm
+the `table=` param in the URL; the sync contract table is `数据表` (`tblqsbIpSO6Px3qj`).
+
 ## When you arrive
 
 Figure out where the user is:
 
+- **Table is in "Known tables" above** → use its coordinates, skip resolution.
 - **No table yet, or unsure** → run the setup guide below first.
 - **Table exists and is mapped** → skip to "Running the sync".
 
