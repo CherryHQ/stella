@@ -9,10 +9,12 @@ interface Props {
   messages: Message[];
   messagesLoading: boolean;
   onScroll: () => void;
+  agentId: string;
+  sessionId: string;
 }
 
 export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
-  { messages, messagesLoading, onScroll },
+  { messages, messagesLoading, onScroll, agentId, sessionId },
   ref,
 ) {
   const processed = processMessages(messages);
@@ -39,7 +41,9 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
       <div className="mx-auto max-w-4xl space-y-5">
         {processed.map((msg, idx) => (
           <div key={idx} className={cn(msg.sameRoleAsPrev ? "-mt-1" : "")}>
-            {msg.role === "user" && <UserMessage msg={msg} />}
+            {msg.role === "user" && (
+              <UserMessage msg={msg} agentId={agentId} sessionId={sessionId} />
+            )}
             {msg.role === "assistant" && <AssistantMessage msg={msg} />}
           </div>
         ))}
@@ -48,13 +52,66 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
   );
 });
 
-function UserMessage({ msg }: { msg: ProcessedMessage }) {
+function UserMessage({
+  msg,
+  agentId,
+  sessionId,
+}: {
+  msg: ProcessedMessage;
+  agentId: string;
+  sessionId: string;
+}) {
+  const { files, text } = parseFileRefs(extractUserText(msg));
+  const images = files.filter(isImagePath);
+  const otherFiles = files.filter((f) => !isImagePath(f));
+
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] min-w-0">
-        <div className="rounded-[20px] rounded-tr-[4px] bg-primary/[0.04] dark:bg-primary/[0.08] border border-primary/10 dark:border-primary/20 px-4 py-2.5 text-foreground break-all shadow-2xs">
-          <MarkdownPreview content={extractUserText(msg)} className="[&_*]:text-foreground" />
-        </div>
+      <div className="max-w-[80%] min-w-0 flex flex-col items-end gap-1.5">
+        {images.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {images.map((path, i) => {
+              const url = workspaceFileURL(agentId, sessionId, path);
+              return (
+                <a
+                  key={i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block overflow-hidden rounded-2xl border border-primary/15 dark:border-primary/25 shadow-2xs"
+                >
+                  <img
+                    src={url}
+                    alt={basename(path)}
+                    className="max-h-60 max-w-full object-cover"
+                    loading="lazy"
+                  />
+                </a>
+              );
+            })}
+          </div>
+        )}
+        {otherFiles.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {otherFiles.map((path, i) => (
+              <a
+                key={i}
+                href={workspaceFileURL(agentId, sessionId, path)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[11px] font-mono text-primary max-w-64"
+              >
+                <FileText className="size-3 shrink-0" />
+                <span className="truncate">{basename(path)}</span>
+              </a>
+            ))}
+          </div>
+        )}
+        {text && (
+          <div className="rounded-[20px] rounded-tr-[4px] bg-primary/[0.04] dark:bg-primary/[0.08] border border-primary/10 dark:border-primary/20 px-4 py-2.5 text-foreground break-all shadow-2xs">
+            <MarkdownPreview content={text} className="[&_*]:text-foreground" />
+          </div>
+        )}
         {msg.showTimestamp && (
           <div className="flex items-center justify-end gap-2 text-[10px] font-mono text-muted-foreground/40 mt-1 pr-1">
             <span>{formatTime(msg.timestamp)}</span>
@@ -286,6 +343,37 @@ function toolArgText(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
   return JSON.stringify(value, null, 2);
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+
+function isImagePath(path: string): boolean {
+  return IMAGE_EXT.test(path);
+}
+
+function basename(path: string): string {
+  return path.split("/").pop() || path;
+}
+
+function workspaceFileURL(agentId: string, sessionId: string, path: string): string {
+  return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(
+    sessionId,
+  )}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`;
+}
+
+// parseFileRefs splits a user message into the `[file: path]` attachments the
+// composer injected and the remaining prose, so attachments render as previews
+// instead of raw text.
+function parseFileRefs(input: string): { files: string[]; text: string } {
+  const files: string[] = [];
+  const text = input
+    .replace(/\[file:\s*([^\]]+)\]/g, (_, p: string) => {
+      files.push(p.trim());
+      return "";
+    })
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { files, text };
 }
 
 function extractUserText(msg: { content?: string }): string {
