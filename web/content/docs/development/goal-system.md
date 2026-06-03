@@ -26,22 +26,31 @@ It is not an automatic planning system yet. Stella does not currently split a go
 
 ## Mental model
 
-| Concept                  | Purpose                                                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `agent_goal`             | Container for a related set of tasks. Stores status, priority, review policy, context, output, and active review pointer. |
-| `agent_task.goal_id`     | Optional link from a task to one goal. Standalone tasks have no goal.                                                     |
-| `agent_task_run.goal_id` | Schema support for future goal-targeted planner/synthesizer runs. Dispatcher scan paths are removed in this release.      |
-| `agent_review.goal_id`   | Schema support for future goal-parented reviews. API validation gates this off in this release.                           |
+| Concept                  | Purpose                                                                                                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_goal`             | Container for a related set of tasks. Stores required owner agent, optional project, status, priority, review policy, context, output, and active review pointer. |
+| `agent_task.goal_id`     | Optional link from a task to one goal. Standalone tasks have no goal. Child tasks inherit/validate the goal's agent and project context.                          |
+| `agent_task_run.goal_id` | Schema support for future goal-targeted planner/synthesizer runs. Dispatcher scan paths are removed in this release.                                              |
+| `agent_review.goal_id`   | Schema support for future goal-parented reviews. API validation gates this off in this release.                                                                   |
 
 ## Supported lifecycle
 
 Supported container mode:
 
-```text
-draft --ActivateGoal--> running --all required children done--> done
-                              |--required child failed--------> failed
-                              |--required child blocked-------> blocked --child unblocks--> running
-non-terminal --CancelGoal-------------------------------------> cancelled
+```mermaid
+stateDiagram-v2
+    [*] --> draft
+    draft --> running: ActivateGoal
+    running --> done: all required children done
+    running --> failed: required child failed
+    running --> blocked: required child blocked
+    blocked --> running: child unblocks (UnblockGoal)
+    draft --> cancelled: CancelGoal
+    running --> cancelled: CancelGoal
+    blocked --> cancelled: CancelGoal
+    done --> [*]
+    failed --> [*]
+    cancelled --> [*]
 ```
 
 Activation promotes draft child tasks to ready in the same transaction. The dispatcher then picks up those tasks through the normal task readiness path.

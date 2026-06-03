@@ -5,8 +5,10 @@
 CREATE TABLE agent_task (
     id                  TEXT NOT NULL PRIMARY KEY,
     user_id             TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    agent_id            TEXT REFERENCES agent(id) ON DELETE SET NULL,  -- D12: creator, NOT assignee
+    agent_id            TEXT NOT NULL REFERENCES agent(id) ON DELETE RESTRICT,  -- owner/manager agent context
+    session_id          TEXT NOT NULL REFERENCES ctx_conversation(session_id) ON DELETE RESTRICT, -- durable worker session
     goal_id             TEXT REFERENCES agent_goal(id) ON DELETE CASCADE,        -- Slice 3
+    project_id          TEXT REFERENCES project(id) ON DELETE SET NULL,
     title               TEXT NOT NULL,
     description         TEXT NOT NULL DEFAULT '',
     status              TEXT NOT NULL DEFAULT 'draft',
@@ -18,7 +20,6 @@ CREATE TABLE agent_task (
     max_retries         INTEGER NOT NULL DEFAULT 3,
     not_before          TEXT,
     deadline_at         TEXT,
-    session_id          TEXT,                                                    -- D12: null  next run mints fresh
     active_run_id       TEXT REFERENCES agent_task_run(id) ON DELETE RESTRICT,
     active_blocker_id   TEXT REFERENCES agent_task_blocker(id) ON DELETE RESTRICT,
     context             TEXT NOT NULL DEFAULT '{}',
@@ -29,6 +30,9 @@ CREATE TABLE agent_task (
     cancelled_at        TEXT
 );
 
-CREATE INDEX idx_agent_task_status_not_before ON agent_task(status, not_before);
+CREATE UNIQUE INDEX uniq_agent_task_session ON agent_task(session_id);
+CREATE INDEX idx_agent_task_agent_status_not_before ON agent_task(agent_id, status, not_before);
+CREATE INDEX idx_agent_task_user_agent        ON agent_task(user_id, agent_id);
 CREATE INDEX idx_agent_task_session           ON agent_task(session_id);
 CREATE INDEX idx_agent_task_goal              ON agent_task(goal_id);
+CREATE INDEX idx_agent_task_project           ON agent_task(project_id);

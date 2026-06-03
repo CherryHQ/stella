@@ -30,7 +30,7 @@ func newDispatcherHarness(t *testing.T, exec Executor) (*testHarness, *Dispatche
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return h.agentID, true
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
+		NewSession: func(_ context.Context, _, _, _ string) (string, error) {
 			return "sess-" + uuid.NewString()[:8], nil
 		},
 		TickEvery:  0,
@@ -75,7 +75,17 @@ func TestDispatcher_DraftTaskNotPickedUp(t *testing.T) {
 
 func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	called := atomic.Int32{}
+	// Block the first dispatched run (upstream) so it stays 'running' while the
+	// same-tick scan evaluates downstream. Without this, a fast upstream worker
+	// can reach 'done' mid-tick, satisfying the hard dep and letting downstream
+	// dispatch in the same tick — a real eager cascade, but it makes the
+	// one-level-per-tick assertion below racy under load.
+	firstRun := atomic.Bool{}
+	release := make(chan struct{})
 	exec := executorFunc(func(_ context.Context, _ Request) (Result, error) {
+		if firstRun.CompareAndSwap(false, true) {
+			<-release
+		}
 		called.Add(1)
 		return Result{Action: TerminalSubmit, Output: map[string]any{}}, nil
 	})
@@ -85,8 +95,11 @@ func TestDispatcher_DepGatedTask_WaitsForUpstream(t *testing.T) {
 	if err := h.svc.AddDep(context.Background(), downstream, upstream, DepKindHard, OnFailureBlock); err != nil {
 		t.Fatalf("AddDep: %v", err)
 	}
-	// First tick: only upstream should dispatch.
+	// First tick: only upstream should dispatch. Tick returns once workers are
+	// spawned; upstream is claimed ('running') and parked in its executor, so
+	// the same-tick downstream evaluation sees an unsatisfied hard dep.
 	d.Tick(context.Background())
+	close(release)
 	d.WaitIdle()
 	if called.Load() != 1 {
 		t.Errorf("only upstream should have run; got %d calls", called.Load())
@@ -112,7 +125,7 @@ func TestDispatcher_StaleRunGetsInterrupted(t *testing.T) {
 	h, d := newDispatcherHarness(t, noTerminal)
 	id := h.createTask(t, StatusReady)
 	res, err := h.svc.Claim(context.Background(), ClaimParams{
-		TaskID: id, NewSessionID: "sess", LeaseDuration: time.Second,
+		TaskID: id, SessionID: "sess", LeaseDuration: time.Second,
 	})
 	if err != nil {
 		t.Fatalf("Claim: %v", err)
@@ -153,7 +166,7 @@ func TestDispatcher_RetryReusesSessionNoOrphan(t *testing.T) {
 		Queries:  h.q,
 		Executor: exec,
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) { return h.agentID, true },
-		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
+		NewSession: func(_ context.Context, _, _, _ string) (string, error) {
 			mintCalls.Add(1)
 			return "sess-fixed", nil
 		},
@@ -172,8 +185,8 @@ func TestDispatcher_RetryReusesSessionNoOrphan(t *testing.T) {
 	if got := h.getTask(t, id).Status; got != StatusDone {
 		t.Fatalf("after second tick status=%q want done", got)
 	}
-	if mintCalls.Load() != 1 {
-		t.Errorf("NewSession called %d times, want 1 (no orphan session on retry)", mintCalls.Load())
+	if mintCalls.Load() != 0 {
+		t.Errorf("NewSession called %d times, want 0 (sessions are minted at task creation)", mintCalls.Load())
 	}
 }
 
@@ -227,7 +240,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "resolver-agent", true // should be ignored
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
+		NewSession: func(_ context.Context, _, _, _ string) (string, error) {
 			return "sess", nil
 		},
 	})
@@ -252,7 +265,7 @@ func TestDispatcher_DispatchHintWinsOverResolver(t *testing.T) {
 	}
 }
 
-func TestDispatcher_NoExecutorResolved_EmitsProtocolError(t *testing.T) {
+func TestDispatcher_OwnerAgentFallbackDispatches(t *testing.T) {
 	h := newHarness(t)
 	id := h.createTask(t, StatusReady)
 	d := NewDispatcher(DispatcherConfig{
@@ -260,26 +273,14 @@ func TestDispatcher_NoExecutorResolved_EmitsProtocolError(t *testing.T) {
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
 			return "", false
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
+		NewSession: func(_ context.Context, _, _, _ string) (string, error) {
 			return "sess", nil
 		},
 	})
 	d.Tick(context.Background())
 	d.WaitIdle()
-	// Task is unchanged (still ready); event log records protocol_error.
-	if got := h.getTask(t, id).Status; got != StatusReady {
-		t.Errorf("status=%q want ready (claim refused)", got)
-	}
-	events, _ := h.q.ListAgentTaskEvents(context.Background(), sqlc.ListAgentTaskEventsParams{TaskID: nullable(id), Limit: 1000})
-	found := false
-	for _, e := range events {
-		if e.EventType == "protocol_error" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected protocol_error event on task %s", id)
+	if got := h.getTask(t, id).Status; got != StatusDone {
+		t.Errorf("status=%q want done via owner-agent fallback", got)
 	}
 }
 
@@ -309,9 +310,9 @@ func TestDispatcher_ConcurrencyCapHonored(t *testing.T) {
 	d := NewDispatcher(DispatcherConfig{
 		Service: h.svc, Queries: h.q, Executor: exec,
 		Resolver: func(_ context.Context, _ sqlc.AgentTask) (string, bool) {
-			return "agent", true
+			return h.agentID, true
 		},
-		NewSession: func(_ context.Context, _ sqlc.AgentTask, _ string) (string, error) {
+		NewSession: func(_ context.Context, _, _, _ string) (string, error) {
 			return uuid.NewString(), nil
 		},
 		MaxWorkers: cap,

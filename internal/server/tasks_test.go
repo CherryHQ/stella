@@ -19,11 +19,31 @@ func withTasks(t *testing.T, env *testEnv) {
 	env.srv.SetTasksService(svc)
 }
 
+func taskTestAgentID(t *testing.T, env *testEnv) string {
+	t.Helper()
+	agents, err := env.store.ListAgents(context.Background())
+	if err != nil || len(agents) == 0 {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	return agents[0].ID
+}
+
+func taskCreateBody(t *testing.T, env *testEnv, title string) apitypes.CreateTaskRequest {
+	t.Helper()
+	agentID := taskTestAgentID(t, env)
+	return apitypes.CreateTaskRequest{Title: title, AgentId: &agentID}
+}
+
+func goalCreateBody(t *testing.T, env *testEnv, title string) apitypes.CreateGoalRequest {
+	t.Helper()
+	return apitypes.CreateGoalRequest{Title: title, AgentId: taskTestAgentID(t, env)}
+}
+
 func TestTasks_CreateGetRoundTrip(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
 
-	body := apitypes.CreateTaskRequest{Title: "hello"}
+	body := taskCreateBody(t, env, "hello")
 	rr := doRequest(t, env, http.MethodPost, "/api/tasks", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
@@ -51,7 +71,7 @@ func TestTasks_CreateWithGoalIDLinksGoalChild(t *testing.T) {
 	}
 	agentID := agents[0].ID
 
-	goalBody := apitypes.CreateGoalRequest{Title: "parent", AgentId: &agentID}
+	goalBody := goalCreateBody(t, env, "parent")
 	rr := doRequest(t, env, http.MethodPost, "/api/goals", goalBody)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create goal: status=%d body=%s", rr.Code, rr.Body.String())
@@ -96,7 +116,7 @@ func TestTasks_CreateRejectsGoalIDFromDifferentAgent(t *testing.T) {
 	}
 	agentID := agents[0].ID
 
-	goalBody := apitypes.CreateGoalRequest{Title: "parent", AgentId: &agentID}
+	goalBody := goalCreateBody(t, env, "parent")
 	rr := doRequest(t, env, http.MethodPost, "/api/goals", goalBody)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create goal: status=%d body=%s", rr.Code, rr.Body.String())
@@ -139,10 +159,9 @@ func TestTasks_OtherUserCannotAccessTaskByID(t *testing.T) {
 	_, otherToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "task-other", auth.RoleUser)
 
 	active := true
-	rr := doBearerRequest(t, env.srv, ownerToken, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{
-		Title:            "owned",
-		ActivateOnCreate: &active,
-	})
+	body := taskCreateBody(t, env, "owned")
+	body.ActivateOnCreate = &active
+	rr := doBearerRequest(t, env.srv, ownerToken, http.MethodPost, "/api/tasks", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -181,7 +200,7 @@ func TestTasks_CannotAddDependencyOnOtherUsersTask(t *testing.T) {
 	_, otherToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "dep-other", auth.RoleUser)
 
 	create := func(token, title string) apitypes.Task {
-		rr := doBearerRequest(t, env.srv, token, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{Title: title})
+		rr := doBearerRequest(t, env.srv, token, http.MethodPost, "/api/tasks", taskCreateBody(t, env, title))
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("create %q: status=%d body=%s", title, rr.Code, rr.Body.String())
 		}
@@ -205,7 +224,7 @@ func TestTasks_ListReturnsCreatedTasks(t *testing.T) {
 	withTasks(t, env)
 
 	for _, title := range []string{"one", "two", "three"} {
-		rr := doRequest(t, env, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{Title: title})
+		rr := doRequest(t, env, http.MethodPost, "/api/tasks", taskCreateBody(t, env, title))
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("create %q: status=%d body=%s", title, rr.Code, rr.Body.String())
 		}
@@ -227,7 +246,7 @@ func TestTasks_ReadinessForDraftReportsDraft(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
 
-	rr := doRequest(t, env, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{Title: "x"})
+	rr := doRequest(t, env, http.MethodPost, "/api/tasks", taskCreateBody(t, env, "x"))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -251,7 +270,7 @@ func TestTasks_CancelMovesDraftToCancelled(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
 
-	rr := doRequest(t, env, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{Title: "x"})
+	rr := doRequest(t, env, http.MethodPost, "/api/tasks", taskCreateBody(t, env, "x"))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -274,7 +293,7 @@ func TestTasks_AddDepCycleReturns409(t *testing.T) {
 	withTasks(t, env)
 
 	create := func(title string) string {
-		rr := doRequest(t, env, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{Title: title})
+		rr := doRequest(t, env, http.MethodPost, "/api/tasks", taskCreateBody(t, env, title))
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("create %q: %d %s", title, rr.Code, rr.Body.String())
 		}
@@ -301,7 +320,9 @@ func TestTasks_EventsListReturnsActivateEvent(t *testing.T) {
 	withTasks(t, env)
 
 	tt := true
-	rr := doRequest(t, env, http.MethodPost, "/api/tasks", apitypes.CreateTaskRequest{Title: "x", ActivateOnCreate: &tt})
+	body := taskCreateBody(t, env, "x")
+	body.ActivateOnCreate = &tt
+	rr := doRequest(t, env, http.MethodPost, "/api/tasks", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -330,7 +351,7 @@ func TestGoals_CreateGetRoundTrip(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
 
-	body := apitypes.CreateGoalRequest{Title: "ship it"}
+	body := goalCreateBody(t, env, "ship it")
 	rr := doRequest(t, env, http.MethodPost, "/api/goals", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create: status=%d body=%s", rr.Code, rr.Body.String())
@@ -352,7 +373,7 @@ func TestGoals_CreateGetRoundTrip(t *testing.T) {
 func TestGoals_Activate_DraftToRunning(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
-	rr := doRequest(t, env, http.MethodPost, "/api/goals", apitypes.CreateGoalRequest{Title: "x"})
+	rr := doRequest(t, env, http.MethodPost, "/api/goals", goalCreateBody(t, env, "x"))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
 	}
@@ -382,7 +403,7 @@ func TestGoals_GetUnknown_404(t *testing.T) {
 func TestGoals_CancelRunningCascade(t *testing.T) {
 	env := setupAdmin(t)
 	withTasks(t, env)
-	rr := doRequest(t, env, http.MethodPost, "/api/goals", apitypes.CreateGoalRequest{Title: "x"})
+	rr := doRequest(t, env, http.MethodPost, "/api/goals", goalCreateBody(t, env, "x"))
 	var goal apitypes.Goal
 	_ = json.Unmarshal(rr.Body.Bytes(), &goal)
 	_ = doRequest(t, env, http.MethodPost, "/api/goals/"+goal.Id+"/activate", nil)

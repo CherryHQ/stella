@@ -285,13 +285,14 @@ parent runner executes delegate tool
 ### Task worker session
 
 ```text
-task dispatcher resolves executor agent
-    -> Service.MintTaskSession(userID, executorAgentID)
-    -> run row records session_id and executor_agent_id
-    -> worker runner uses the same executor agent scope
+task creation resolves owner agent and optional project
+    -> Service.MintTaskSession(userID, agentID, projectID)
+    -> task row stores session_id
+    -> run row records the task session_id and executor_agent_id
+    -> worker runner uses the resolved executor agent scope
 ```
 
-Session owner 是 resolved executor agent，不一定是 task creator agent。
+Task worker session 创建在 task owner/manager agent 和可选 project 下。后续 run 仍可通过 dispatch hint 使用 run-level executor override。
 
 ### Reflect review
 

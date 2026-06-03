@@ -8,7 +8,7 @@ import (
 // completeTask helper drives a task to done.
 func completeTask(t *testing.T, h *testHarness, id string) {
 	t.Helper()
-	res, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, NewSessionID: "s-" + id[:6]})
+	res, err := h.svc.Claim(context.Background(), ClaimParams{TaskID: id, SessionID: "s-" + id[:6]})
 	if err != nil {
 		t.Fatalf("Claim: %v", err)
 	}

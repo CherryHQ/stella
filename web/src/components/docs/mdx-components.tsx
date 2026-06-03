@@ -1,5 +1,7 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactElement, ReactNode } from "react";
+import { isValidElement } from "react";
 import { Link } from "@tanstack/react-router";
+import { Mermaid } from "./Mermaid";
 
 function slugify(text: string): string {
   return text
@@ -120,12 +122,24 @@ export const mdxComponents = {
       </code>
     );
   },
-  pre: (props: ComponentPropsWithoutRef<"pre">) => (
-    <pre
-      className="bg-muted rounded-lg p-4 my-4 overflow-x-auto text-sm leading-6 font-mono"
-      {...props}
-    />
-  ),
+  pre: (props: ComponentPropsWithoutRef<"pre">) => {
+    const child = props.children;
+    if (isValidElement(child)) {
+      const codeProps = (child as ReactElement<{ className?: string; children?: ReactNode }>).props;
+      if (
+        codeProps.className?.includes("language-mermaid") &&
+        typeof codeProps.children === "string"
+      ) {
+        return <Mermaid chart={codeProps.children.replace(/\n$/, "")} />;
+      }
+    }
+    return (
+      <pre
+        className="bg-muted rounded-lg p-4 my-4 overflow-x-auto text-sm leading-6 font-mono"
+        {...props}
+      />
+    );
+  },
   table: (props: ComponentPropsWithoutRef<"table">) => (
     <div className="my-4 overflow-x-auto">
       <table className="w-full text-sm border-collapse" {...props} />

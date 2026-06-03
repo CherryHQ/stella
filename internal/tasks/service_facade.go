@@ -21,14 +21,18 @@ import (
 // All mutating methods route through TransitionService so the
 // status-write-only-via-transition invariant holds.
 type ServiceFacade struct {
-	svc *TransitionService
-	q   *sqlc.Queries
-	db  *sql.DB
+	svc        *TransitionService
+	q          *sqlc.Queries
+	db         *sql.DB
+	newSession SessionMinter
 }
 
+// ErrInvalidTaskContext marks invalid task/goal ownership context at the write boundary.
+var ErrInvalidTaskContext = errors.New("tasks: invalid task context")
+
 // NewServiceFacade builds the facade.
-func NewServiceFacade(db *sql.DB, q *sqlc.Queries, svc *TransitionService) *ServiceFacade {
-	return &ServiceFacade{svc: svc, q: q, db: db}
+func NewServiceFacade(db *sql.DB, q *sqlc.Queries, svc *TransitionService, newSession SessionMinter) *ServiceFacade {
+	return &ServiceFacade{svc: svc, q: q, db: db, newSession: newSession}
 }
 
 // CreateTaskInput is the request body for CreateTask. Fields are optional
@@ -38,8 +42,9 @@ type CreateTaskInput struct {
 	Title            string // required
 	Description      string
 	Priority         string // routine | urgent; "" => routine
-	AgentID          string // creator agent (D12); optional
+	AgentID          string // owner/manager agent context; required unless inherited from goal
 	GoalID           string // parent goal; optional
+	ProjectID        string // project/workspace context; optional
 	ExecutorAgentID  string // explicit override (D13); optional, written as dispatch hint
 	Required         *bool  // nil => true (default); explicit false => optional task
 	MaxRetries       int64
@@ -76,6 +81,17 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	if in.Context == "" {
 		in.Context = "{}"
 	}
+	resolvedAgentID, resolvedProjectID, err := f.resolveTaskContext(ctx, in)
+	if err != nil {
+		return sqlc.AgentTask{}, err
+	}
+	if f.newSession == nil {
+		return sqlc.AgentTask{}, fmt.Errorf("%w: task session minter is not configured", ErrInvalidTaskContext)
+	}
+	sessionID, err := f.newSession(ctx, in.UserID, resolvedAgentID, resolvedProjectID)
+	if err != nil {
+		return sqlc.AgentTask{}, fmt.Errorf("mint task session: %w", err)
+	}
 	id := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	required := int64(1)
@@ -84,13 +100,15 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	}
 
 	var task sqlc.AgentTask
-	err := f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
+	err = f.svc.WithTx(ctx, func(q *sqlc.Queries) error {
 		var err error
 		task, err = q.CreateAgentTask(ctx, sqlc.CreateAgentTaskParams{
 			ID:          id,
 			UserID:      in.UserID,
-			AgentID:     nullable(in.AgentID),
+			AgentID:     resolvedAgentID,
+			SessionID:   sessionID,
 			GoalID:      nullable(in.GoalID),
+			ProjectID:   nullable(resolvedProjectID),
 			Title:       in.Title,
 			Description: in.Description,
 			Status:      StatusDraft,
@@ -138,6 +156,54 @@ func (f *ServiceFacade) CreateTask(ctx context.Context, in CreateTaskInput) (sql
 	return task, nil
 }
 
+func (f *ServiceFacade) resolveTaskContext(ctx context.Context, in CreateTaskInput) (string, string, error) {
+	agentID := in.AgentID
+	projectID := in.ProjectID
+	if in.GoalID != "" {
+		goal, err := f.q.GetAgentGoal(ctx, in.GoalID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", "", ErrGoalNotFound
+			}
+			return "", "", err
+		}
+		if goal.UserID != in.UserID {
+			return "", "", ErrGoalNotFound
+		}
+		if goal.AgentID == "" {
+			return "", "", fmt.Errorf("%w: goal has no agent_id", ErrInvalidTaskContext)
+		}
+		if agentID == "" {
+			agentID = goal.AgentID
+		} else if agentID != goal.AgentID {
+			return "", "", fmt.Errorf("%w: goal_id must belong to the same agent_id", ErrInvalidTaskContext)
+		}
+		if goal.ProjectID.Valid {
+			if projectID == "" {
+				projectID = goal.ProjectID.String
+			} else if projectID != goal.ProjectID.String {
+				return "", "", fmt.Errorf("%w: goal_id must belong to the same project_id", ErrInvalidTaskContext)
+			}
+		}
+	}
+	if agentID == "" {
+		return "", "", fmt.Errorf("%w: agent_id is required", ErrInvalidTaskContext)
+	}
+	if projectID != "" {
+		project, err := f.q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: in.UserID})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", "", fmt.Errorf("%w: project_id not found", ErrInvalidTaskContext)
+			}
+			return "", "", err
+		}
+		if project.AgentID != agentID {
+			return "", "", fmt.Errorf("%w: project_id must belong to the same agent_id", ErrInvalidTaskContext)
+		}
+	}
+	return agentID, projectID, nil
+}
+
 // GetTask returns a task by id.
 func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentTask, error) {
 	t, err := f.q.GetAgentTask(ctx, taskID)
@@ -151,17 +217,18 @@ func (f *ServiceFacade) GetTask(ctx context.Context, taskID string) (sqlc.AgentT
 }
 
 // ListTasksByUser returns paginated tasks owned by the given user, optionally
-// filtered by agent and status. Empty filter strings match all rows.
-func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, status string, limit, offset int64) ([]sqlc.AgentTask, error) {
+// filtered by agent, project, and status. Empty filter strings match all rows.
+func (f *ServiceFacade) ListTasksByUser(ctx context.Context, userID, agentID, projectID, status string, limit, offset int64) ([]sqlc.AgentTask, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	return f.q.ListAgentTasksByUser(ctx, sqlc.ListAgentTasksByUserParams{
-		UserID:  userID,
-		AgentID: nilIfEmpty(agentID),
-		Status:  nilIfEmpty(status),
-		Limit:   limit,
-		Offset:  offset,
+		UserID:    userID,
+		AgentID:   nilIfEmpty(agentID),
+		ProjectID: nilIfEmpty(projectID),
+		Status:    nilIfEmpty(status),
+		Limit:     limit,
+		Offset:    offset,
 	})
 }
 
@@ -309,6 +376,7 @@ func (f *ServiceFacade) GetReview(ctx context.Context, reviewID string) (sqlc.Ag
 type CreateGoalInput struct {
 	UserID       string
 	AgentID      string
+	ProjectID    string
 	Title        string
 	Description  string
 	Priority     string
@@ -316,12 +384,14 @@ type CreateGoalInput struct {
 	Context      string
 }
 
-// CreateGoal inserts an agent_goal row in 'draft'. The dispatcher's planner
-// scan will pick it up next tick when status=draft and an executor is
-// resolvable.
+// CreateGoal inserts an agent_goal row in 'draft'. Goal planning/synthesis is
+// not dispatched in this release; callers create child tasks explicitly.
 func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sqlc.AgentGoal, error) {
 	if in.UserID == "" || in.Title == "" {
 		return sqlc.AgentGoal{}, fmt.Errorf("CreateGoal: user_id and title are required")
+	}
+	if in.AgentID == "" {
+		return sqlc.AgentGoal{}, fmt.Errorf("%w: agent_id is required", ErrInvalidTaskContext)
 	}
 	priority := in.Priority
 	if priority == "" {
@@ -345,11 +415,24 @@ func (f *ServiceFacade) CreateGoal(ctx context.Context, in CreateGoalInput) (sql
 	if in.Context == "" {
 		in.Context = "{}"
 	}
+	if in.ProjectID != "" {
+		project, err := f.q.GetProject(ctx, sqlc.GetProjectParams{ID: in.ProjectID, UserID: in.UserID})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return sqlc.AgentGoal{}, fmt.Errorf("%w: project_id not found", ErrInvalidTaskContext)
+			}
+			return sqlc.AgentGoal{}, err
+		}
+		if project.AgentID != in.AgentID {
+			return sqlc.AgentGoal{}, fmt.Errorf("%w: project_id must belong to the same agent_id", ErrInvalidTaskContext)
+		}
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	return f.q.CreateAgentGoal(ctx, sqlc.CreateAgentGoalParams{
 		ID:           uuid.NewString(),
 		UserID:       in.UserID,
-		AgentID:      nullable(in.AgentID),
+		AgentID:      in.AgentID,
+		ProjectID:    nullable(in.ProjectID),
 		Title:        in.Title,
 		Description:  in.Description,
 		Status:       GoalStatusDraft,

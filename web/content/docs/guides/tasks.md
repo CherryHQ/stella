@@ -23,12 +23,12 @@ Every task has a lifecycle:
 
 ## Creating a task
 
-Create a standalone task when the work is independent. Create a goal first when several tasks belong to one larger outcome, then attach child tasks to it.
+Create a standalone task when the work is independent. Create a goal first when several tasks belong to one larger outcome, then attach child tasks to it. Every task belongs to an agent and gets its own durable worker session when it is created; you can optionally attach it to a goal or project.
 
 A typical goal workflow is:
 
 1. Create the goal.
-2. Create child tasks with the goal ID.
+2. Create child tasks with the goal ID. If the task does not pass an agent ID, it inherits the goal's agent.
 3. Add dependencies between tasks when order matters.
 4. Activate the goal and tasks.
 5. Watch task events, blockers, runs, and reviews as work progresses.

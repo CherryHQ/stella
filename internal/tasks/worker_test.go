@@ -13,7 +13,7 @@ func claimedHarness(t *testing.T, exec Executor) (*testHarness, string, string, 
 	h := newHarness(t)
 	taskID := h.createTask(t, StatusReady)
 	res, err := h.svc.Claim(context.Background(), ClaimParams{
-		TaskID: taskID, NewSessionID: "sess", WorkerID: "w-1",
+		TaskID: taskID, SessionID: "sess", WorkerID: "w-1",
 		LeaseDuration: 60 * time.Second,
 	})
 	if err != nil {

@@ -117,7 +117,8 @@ func goalCreateCmd() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Goal title"},
 			&ucli.StringFlag{Name: "description", Usage: "Goal description"},
-			&ucli.StringFlag{Name: "agent-id", Usage: "Creator/manager agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.StringFlag{Name: "agent-id", Usage: "Owner/manager agent ID (defaults to STELLA_AGENT_ID)"},
+			&ucli.StringFlag{Name: "project-id", Usage: "Project/workspace context"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringFlag{Name: "review-policy", Usage: "none (only supported value in this build)"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
@@ -132,9 +133,12 @@ func goalCreateCmd() *ucli.Command {
 				return fmt.Errorf("agent ID is required (pass --agent-id or set STELLA_AGENT_ID)")
 			}
 
-			body := apitypes.CreateGoalRequest{Title: c.String("title"), AgentId: &agentID}
+			body := apitypes.CreateGoalRequest{Title: c.String("title"), AgentId: agentID}
 			if d := c.String("description"); d != "" {
 				body.Description = &d
+			}
+			if p := c.String("project-id"); p != "" {
+				body.ProjectId = &p
 			}
 			if p := c.String("priority"); p != "" {
 				prio := apitypes.CreateGoalRequestPriority(p)
