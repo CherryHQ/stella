@@ -7,7 +7,58 @@ package sqlc
 
 import (
 	"context"
+	"strings"
 )
+
+const listAuthUsersByIDs = `-- name: ListAuthUsersByIDs :many
+SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_user WHERE id IN (/*SLICE:ids*/?) ORDER BY id
+`
+
+func (q *Queries) ListAuthUsersByIDs(ctx context.Context, ids []string) ([]AuthUser, error) {
+	query := listAuthUsersByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuthUser{}
+	for rows.Next() {
+		var i AuthUser
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.Role,
+			&i.IsActive,
+			&i.DefaultAgentID,
+			&i.NotifyIdentityID,
+			&i.AgePublicKey,
+			&i.AgePrivateKey,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const updateUserActive = `-- name: UpdateUserActive :exec
 UPDATE auth_user SET is_active = ?, updated_at = datetime('now') WHERE id = ?

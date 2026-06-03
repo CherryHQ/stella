@@ -2,6 +2,7 @@ package lcm
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+const olderResolveBatchSize = 32
 
 // assembler builds context for the model within a token budget.
 type assembler struct {
@@ -37,9 +40,17 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 
 	// Separate fresh tail (last N message items) from older items.
 	tail, older := splitFreshTail(items, freshTail)
+	tailMessages, err := a.loadMessagesByItem(ctx, tail)
+	if err != nil {
+		return nil, err
+	}
+	tailSummaries, err := a.loadSummariesByItem(ctx, tail)
+	if err != nil {
+		return nil, err
+	}
 
 	// Resolve fresh tail — these are always included.
-	tailMsgs, err := a.resolveItems(ctx, tail)
+	tailMsgs, err := a.resolveItemsFromCaches(ctx, tail, tailMessages, tailSummaries)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
@@ -77,21 +88,9 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 	remaining := max(budget-tailTokens, 0)
 
 	// Select older items that fit within remaining budget, newest first.
-	var olderMsgs []ai.Message
-	for i := len(older) - 1; i >= 0; i-- {
-		msgs, err := a.resolveItem(ctx, older[i])
-		if err != nil {
-			return nil, fmt.Errorf("resolve item %d: %w", older[i].Ordinal, err)
-		}
-		tokens := 0
-		for _, m := range msgs {
-			tokens += estimateMessageTokens(m)
-		}
-		if tokens > remaining {
-			break // stop including older items
-		}
-		remaining -= tokens
-		olderMsgs = append(olderMsgs, msgs...)
+	olderMsgs, err := a.resolveOlderWithinBudget(ctx, older, remaining)
+	if err != nil {
+		return nil, err
 	}
 
 	// Reverse olderMsgs (they were added newest-first).
@@ -171,51 +170,125 @@ func splitFreshTail(items []sqlc.CtxItem, freshTail int) (tail []sqlc.CtxItem, o
 	return items[splitIdx:], items[:splitIdx]
 }
 
-// resolveItems resolves a slice of context items to ai.Messages.
-func (a *assembler) resolveItems(ctx context.Context, items []sqlc.CtxItem) ([]ai.Message, error) {
-	var result []ai.Message
-	for _, item := range items {
-		msgs, err := a.resolveItem(ctx, item)
+func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.CtxItem, remaining int) ([]ai.Message, error) {
+	var olderMsgs []ai.Message
+	for end := len(older); end > 0; {
+		start := max(end-olderResolveBatchSize, 0)
+		batch := older[start:end]
+		messages, err := a.loadMessagesByItem(ctx, batch)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, msgs...)
+		summaries, err := a.loadSummariesByItem(ctx, batch)
+		if err != nil {
+			return nil, err
+		}
+		for i := len(batch) - 1; i >= 0; i-- {
+			item := batch[i]
+			msgs, err := a.resolveItemsFromCaches(ctx, batch[i:i+1], messages, summaries)
+			if err != nil {
+				return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
+			}
+			tokens := 0
+			for _, m := range msgs {
+				tokens += estimateMessageTokens(m)
+			}
+			if tokens > remaining {
+				return olderMsgs, nil
+			}
+			remaining -= tokens
+			olderMsgs = append(olderMsgs, msgs...)
+		}
+		end = start
+	}
+	return olderMsgs, nil
+}
+
+// resolveItemsFromCaches resolves a slice of context items to ai.Messages.
+func (a *assembler) resolveItemsFromCaches(ctx context.Context, items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary) ([]ai.Message, error) {
+	var result []ai.Message
+	for _, item := range items {
+		switch item.ItemType {
+		case itemTypeMessage:
+			if !item.MessageID.Valid {
+				continue
+			}
+			msg, ok := messages[item.MessageID.String]
+			if !ok {
+				return nil, fmt.Errorf("get message %s: %w", item.MessageID.String, sql.ErrNoRows)
+			}
+			// Preserve the pre-existing one-context-item-to-one-message reconstruction.
+			result = append(result, rowsToMessages([]sqlc.CtxMessage{msg})...)
+		case itemTypeSummary:
+			if !item.SummaryID.Valid {
+				continue
+			}
+			sum, ok := summaries[item.SummaryID.String]
+			if !ok {
+				return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, sql.ErrNoRows)
+			}
+			parents, err := a.q.GetSummaryParents(ctx, sum.ID)
+			if err != nil {
+				return nil, fmt.Errorf("get summary parents %s: %w", sum.ID, err)
+			}
+			result = append(result, ai.UserMessage{Content: FormatSummaryXML(sum, parents)})
+		}
 	}
 	return result, nil
 }
 
-// resolveItem converts a single context item to ai.Messages.
-func (a *assembler) resolveItem(ctx context.Context, item sqlc.CtxItem) ([]ai.Message, error) {
-	switch item.ItemType {
-	case itemTypeMessage:
-		if !item.MessageID.Valid {
-			return nil, nil
+func (a *assembler) loadMessagesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxMessage, error) {
+	idsByConversation := make(map[string][]string)
+	seen := make(map[string]struct{})
+	for _, item := range items {
+		if item.ItemType != itemTypeMessage || !item.MessageID.Valid {
+			continue
 		}
-		msg, err := a.q.GetMessage(ctx, sqlc.GetMessageParams{ID: item.MessageID.String, ConversationID: item.ConversationID})
-		if err != nil {
-			return nil, fmt.Errorf("get message %s: %w", item.MessageID.String, err)
+		key := item.ConversationID + "\x00" + item.MessageID.String
+		if _, ok := seen[key]; ok {
+			continue
 		}
-		// Use rowsToMessages for single-row slices to get proper type reconstruction.
-		return rowsToMessages([]sqlc.CtxMessage{msg}), nil
-
-	case itemTypeSummary:
-		if !item.SummaryID.Valid {
-			return nil, nil
-		}
-		sum, err := a.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: item.SummaryID.String, ConversationID: item.ConversationID})
-		if err != nil {
-			return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, err)
-		}
-		parents, err := a.q.GetSummaryParents(ctx, sum.ID)
-		if err != nil {
-			return nil, fmt.Errorf("get summary parents %s: %w", sum.ID, err)
-		}
-		xml := FormatSummaryXML(sum, parents)
-		return []ai.Message{ai.UserMessage{Content: xml}}, nil
-
-	default:
-		return nil, nil
+		seen[key] = struct{}{}
+		idsByConversation[item.ConversationID] = append(idsByConversation[item.ConversationID], item.MessageID.String)
 	}
+	out := make(map[string]sqlc.CtxMessage)
+	for convID, ids := range idsByConversation {
+		rows, err := a.q.ListMessagesByIDs(ctx, sqlc.ListMessagesByIDsParams{ConversationID: convID, MessageIds: ids})
+		if err != nil {
+			return nil, fmt.Errorf("list messages: %w", err)
+		}
+		for _, row := range rows {
+			out[row.ID] = row
+		}
+	}
+	return out, nil
+}
+
+func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxSummary, error) {
+	idsByConversation := make(map[string][]string)
+	seen := make(map[string]struct{})
+	for _, item := range items {
+		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
+			continue
+		}
+		key := item.ConversationID + "\x00" + item.SummaryID.String
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		idsByConversation[item.ConversationID] = append(idsByConversation[item.ConversationID], item.SummaryID.String)
+	}
+	out := make(map[string]sqlc.CtxSummary)
+	for convID, ids := range idsByConversation {
+		rows, err := a.q.ListSummariesByIDs(ctx, sqlc.ListSummariesByIDsParams{ConversationID: convID, SummaryIds: ids})
+		if err != nil {
+			return nil, fmt.Errorf("list summaries: %w", err)
+		}
+		for _, row := range rows {
+			out[row.ID] = row
+		}
+	}
+	return out, nil
 }
 
 // FormatSummaryXML formats a summary as XML for model consumption.

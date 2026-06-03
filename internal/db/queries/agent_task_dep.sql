@@ -24,6 +24,15 @@ FROM agent_task_dep d
 JOIN agent_task t ON t.id = d.dep_task_id
 WHERE d.task_id = ?;
 
+-- name: ListAgentTaskDepsWithUpstreamByTasks :many
+SELECT
+    sqlc.embed(d),
+    t.status AS upstream_status
+FROM agent_task_dep d
+JOIN agent_task t ON t.id = d.dep_task_id
+WHERE d.task_id IN (sqlc.slice('task_ids'))
+ORDER BY d.task_id, d.dep_task_id;
+
 -- name: ListAgentTaskDepsWithUpstreamPaged :many
 SELECT
     sqlc.embed(d),

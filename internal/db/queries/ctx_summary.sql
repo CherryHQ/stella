@@ -5,6 +5,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 -- name: GetSummary :one
 SELECT * FROM ctx_summary WHERE id = ? AND conversation_id = ?;
 
+-- name: ListSummariesByIDs :many
+SELECT * FROM ctx_summary WHERE conversation_id = ? AND id IN (sqlc.slice('summary_ids')) ORDER BY created_at ASC;
+
 -- name: GetSummaryByID :one
 SELECT * FROM ctx_summary WHERE id = ?;
 

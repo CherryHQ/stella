@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const createSummary = `-- name: CreateSummary :exec
@@ -341,6 +342,62 @@ type LinkSummaryToParentParams struct {
 func (q *Queries) LinkSummaryToParent(ctx context.Context, arg LinkSummaryToParentParams) error {
 	_, err := q.db.ExecContext(ctx, linkSummaryToParent, arg.SummaryID, arg.ParentSummaryID, arg.Ordinal)
 	return err
+}
+
+const listSummariesByIDs = `-- name: ListSummariesByIDs :many
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE conversation_id = ? AND id IN (/*SLICE:summary_ids*/?) ORDER BY created_at ASC
+`
+
+type ListSummariesByIDsParams struct {
+	ConversationID string   `json:"conversation_id"`
+	SummaryIds     []string `json:"summary_ids"`
+}
+
+func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDsParams) ([]CtxSummary, error) {
+	query := listSummariesByIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ConversationID)
+	if len(arg.SummaryIds) > 0 {
+		for _, v := range arg.SummaryIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:summary_ids*/?", strings.Repeat(",?", len(arg.SummaryIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:summary_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxSummary{}
+	for rows.Next() {
+		var i CtxSummary
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Kind,
+			&i.Depth,
+			&i.Content,
+			&i.TokenCount,
+			&i.EarliestAt,
+			&i.LatestAt,
+			&i.DescendantCount,
+			&i.DescendantTokenCount,
+			&i.SourceMessageTokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const searchSummaries = `-- name: SearchSummaries :many

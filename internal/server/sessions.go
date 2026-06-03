@@ -577,46 +577,31 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
-	rows, err := s.q.GetMessagesByConversation(r.Context(), conv.ID)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
-	// Filter by time range when after/before are provided (used by automation
-	// run detail to show only messages from a specific run).
-	if params.After != nil || params.Before != nil {
-		filtered := rows[:0]
-		for _, row := range rows {
-			if params.After != nil && row.CreatedAt < *params.After {
-				continue
-			}
-			if params.Before != nil && row.CreatedAt > *params.Before {
-				continue
-			}
-			filtered = append(filtered, row)
-		}
-		rows = filtered
-	}
-
-	// Serialize first so that skip/limit count logical (serialized) messages,
-	// matching what the frontend tracks in sessionMessagesSkip. Without this,
-	// consecutive assistant rows (tool-call turns) collapse into fewer messages
-	// than DB rows, causing the frontend skip cursor to drift and pages to
-	// overlap or go missing.
-	all := serializeDBMessages(rows)
-	total := len(all)
+	var rows []sqlc.CtxMessage
 	if limit > 0 {
-		end := total - skip
-		if end <= 0 {
-			all = nil
-		} else {
-			start := max(end-limit, 0)
-			all = all[start:end]
+		pageRows, err := s.q.ListMessagesByLogicalPage(r.Context(), sqlc.ListMessagesByLogicalPageParams{
+			ConversationID: conv.ID,
+			After:          nilIfStringPtr(params.After),
+			Before:         nilIfStringPtr(params.Before),
+			Limit:          int64(limit),
+			Offset:         int64(skip),
+		})
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
 		}
+		rows = logicalPageRowsToMessages(pageRows)
+	} else {
+		var err error
+		rows, err = s.q.GetMessagesByConversation(r.Context(), conv.ID)
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		rows = filterMessageRowsByTime(rows, params.After, params.Before)
 	}
 
-	writeData(w, http.StatusOK, map[string]any{"messages": all})
+	writeData(w, http.StatusOK, map[string]any{"messages": serializeDBMessages(rows)})
 }
 
 // checkSessionAccess verifies the current user has access to the session.
@@ -1173,8 +1158,42 @@ func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, 
 	writeData(w, http.StatusOK, map[string]string{"system_prompt": systemPrompt})
 }
 
+func nilIfStringPtr(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func logicalPageRowsToMessages(rows []sqlc.ListMessagesByLogicalPageRow) []sqlc.CtxMessage {
+	out := make([]sqlc.CtxMessage, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sqlc.CtxMessage(row))
+	}
+	return out
+}
+
+func filterMessageRowsByTime(rows []sqlc.CtxMessage, after, before *string) []sqlc.CtxMessage {
+	if after == nil && before == nil {
+		return rows
+	}
+	filtered := rows[:0]
+	for _, row := range rows {
+		if after != nil && row.CreatedAt < *after {
+			continue
+		}
+		if before != nil && row.CreatedAt > *before {
+			continue
+		}
+		filtered = append(filtered, row)
+	}
+	return filtered
+}
+
 // serializeDBMessages converts raw DB message rows to JSON-friendly maps,
-// preserving the created_at timestamp from the database.
+// preserving the created_at timestamp from the database. Keep assistant-row
+// grouping in sync with ListMessagesByLogicalPage: the SQL query uses the same
+// logical-message boundary so paginated responses never split a rendered message.
 func serializeDBMessages(rows []sqlc.CtxMessage) []map[string]any {
 	result := make([]map[string]any, 0, len(rows))
 	i := 0
