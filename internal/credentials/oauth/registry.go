@@ -93,9 +93,7 @@ func (r *ProviderRegistry) IDs() []string {
 // refresh failure the existing bundle is returned so callers can decide what
 // to do with a soon-to-expire or already-expired token.
 func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, providerID string, userID string) (*OAuthBundle, error) {
-	r.mu.RLock()
-	cfg, ok := r.entries[providerID]
-	r.mu.RUnlock()
+	cfg, ok := r.providerConfig(providerID)
 	if !ok {
 		return nil, fmt.Errorf("oauth: unknown provider: %s", providerID)
 	}
@@ -103,6 +101,33 @@ func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, provider
 	if err != nil {
 		return nil, fmt.Errorf("oauth: get token for provider %s: %w", providerID, err)
 	}
+	return r.resolveToken(ctx, vs, cfg, providerID, userID, bundle)
+}
+
+// GetTokenFromEnv resolves the provider token from an already-decrypted vault
+// snapshot, avoiding a redundant vault decrypt. Refresh still writes through vs.
+func (r *ProviderRegistry) GetTokenFromEnv(ctx context.Context, vs VaultStore, env map[string]string, providerID string, userID string) (*OAuthBundle, error) {
+	cfg, ok := r.providerConfig(providerID)
+	if !ok {
+		return nil, fmt.Errorf("oauth: unknown provider: %s", providerID)
+	}
+	bundle, err := bundleFromEnv[OAuthBundle](env, cfg.VaultKey)
+	if err != nil {
+		return nil, fmt.Errorf("oauth: get token for provider %s: %w", providerID, err)
+	}
+	return r.resolveToken(ctx, vs, cfg, providerID, userID, bundle)
+}
+
+func (r *ProviderRegistry) providerConfig(providerID string) (ProviderConfig, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	cfg, ok := r.entries[providerID]
+	return cfg, ok
+}
+
+// resolveToken validates a loaded bundle and proactively refreshes it when the
+// access token is near expiry, persisting the refreshed bundle through vs.
+func (r *ProviderRegistry) resolveToken(ctx context.Context, vs VaultStore, cfg ProviderConfig, providerID string, userID string, bundle *OAuthBundle) (*OAuthBundle, error) {
 	if bundle == nil {
 		return nil, fmt.Errorf("oauth: user %s has not connected %s", userID, providerID)
 	}

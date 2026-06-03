@@ -29,6 +29,13 @@ func loadBundle[T any](ctx context.Context, vs VaultStore, userID string, key st
 	if err != nil {
 		return nil, fmt.Errorf("oauth: load bundle %q: %w", key, err)
 	}
+	return bundleFromEnv[T](env, key)
+}
+
+// bundleFromEnv deserializes the bundle stored under key from an already-decrypted
+// vault env snapshot, avoiding a redundant vault decrypt. Returns nil, nil when
+// the key is absent.
+func bundleFromEnv[T any](env map[string]string, key string) (*T, error) {
 	raw, ok := env[key]
 	if !ok {
 		return nil, nil

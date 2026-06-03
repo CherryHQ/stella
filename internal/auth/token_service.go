@@ -62,57 +62,80 @@ func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
 func (s *TokenService) EnsureAutoToken(ctx context.Context, userID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.ensureAutoTokenLocked(ctx, userID)
+	_, err := s.ensureAutoTokenLocked(ctx, userID, nil)
+	return err
 }
 
 // EnsureAutoTokenEnv ensures the auto token and returns the user's vault env
 // under the same lock, so sandbox env injection cannot observe a transient token
 // written by a concurrent loser.
+//
+// The vault is decrypted once up front and reused for both token validation and
+// the returned env; it is reloaded only when ensure actually wrote to the vault
+// (token created or rotated). This collapses the two full-vault decrypts the
+// path used to do per sandbox start into one in the steady state.
 func (s *TokenService) EnsureAutoTokenEnv(ctx context.Context, userID string) (map[string]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensureAutoTokenLocked(ctx, userID); err != nil {
-		return nil, err
-	}
+
 	loader, ok := s.vault.(vaultLoader)
 	if !ok {
+		if _, err := s.ensureAutoTokenLocked(ctx, userID, nil); err != nil {
+			return nil, err
+		}
 		return map[string]string{}, nil
 	}
+
 	env, err := loader.LoadEnv(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("token service: load env after ensure for user %s: %w", userID, err)
+		return nil, fmt.Errorf("token service: load env for user %s: %w", userID, err)
+	}
+	changed, err := s.ensureAutoTokenLocked(ctx, userID, env)
+	if err != nil {
+		return nil, err
+	}
+	if changed {
+		env, err = loader.LoadEnv(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("token service: reload env after ensure for user %s: %w", userID, err)
+		}
 	}
 	return env, nil
 }
 
-func (s *TokenService) ensureAutoTokenLocked(ctx context.Context, userID string) error {
+// ensureAutoTokenLocked guarantees an active auto token whose vault plaintext
+// matches the DB hash. env, when non-nil, is a pre-decrypted vault snapshot used
+// for token validation to avoid a redundant decrypt; pass nil to have validation
+// load on demand. It reports whether the vault was written (token created or
+// rotated) so callers reusing a snapshot know when to reload.
+func (s *TokenService) ensureAutoTokenLocked(ctx context.Context, userID string, env map[string]string) (bool, error) {
 	token, err := s.store.GetActiveAutoUserToken(ctx, userID)
 	if err == nil {
-		if ok, err := s.activeVaultTokenValid(ctx, userID, token); err != nil {
-			return err
+		if ok, err := s.activeVaultTokenValid(ctx, userID, token, env); err != nil {
+			return false, err
 		} else if !ok {
-			return s.rotateAutoToken(ctx, token)
+			return true, s.rotateAutoToken(ctx, token)
 		}
 		if s.now().UTC().Before(token.CreatedAt.Add(autoTokenRotateAfter)) {
-			return nil
+			return false, nil
 		}
-		return s.rotateAutoToken(ctx, token)
+		return true, s.rotateAutoToken(ctx, token)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("token service: get active auto token for user %s: %w", userID, err)
+		return false, fmt.Errorf("token service: get active auto token for user %s: %w", userID, err)
 	}
 
 	plaintext, err := generateToken()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := s.vault.SetReserved(ctx, userID, StellaTokenName, plaintext); err != nil {
-		return fmt.Errorf("token service: write auto token to vault: %w", err)
+		return false, fmt.Errorf("token service: write auto token to vault: %w", err)
 	}
 	if err := s.createAutoTokenRecord(ctx, userID, plaintext); err != nil {
-		return s.recoverFromCreateRace(ctx, userID)
+		return true, s.recoverFromCreateRace(ctx, userID)
 	}
-	return nil
+	return true, nil
 }
 
 // recoverFromCreateRace handles the case where a concurrent EnsureAutoToken
@@ -183,26 +206,32 @@ func (s *TokenService) createAutoTokenRecord(ctx context.Context, userID string,
 
 // activeVaultTokenValid checks whether the active vault token is still valid.
 // Returns (true, nil) when the vault does not implement vaultLoader
-// (e.g. write-only test stubs).
-func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID string, token UserToken) (bool, error) {
+// (e.g. write-only test stubs). env, when non-nil, is a pre-decrypted snapshot
+// reused instead of decrypting the vault again.
+func (s *TokenService) activeVaultTokenValid(ctx context.Context, userID string, token UserToken, env map[string]string) (bool, error) {
 	if _, ok := s.vault.(vaultLoader); !ok {
 		return true, nil
 	}
-	plaintext, ok, err := s.loadVaultToken(ctx, userID)
+	plaintext, ok, err := s.loadVaultToken(ctx, userID, env)
 	if err != nil || !ok {
 		return ok, err
 	}
 	return hashToken(plaintext) == token.TokenHash, nil
 }
 
-func (s *TokenService) loadVaultToken(ctx context.Context, userID string) (string, bool, error) {
-	loader, ok := s.vault.(vaultLoader)
-	if !ok {
-		return "", false, nil
-	}
-	env, err := loader.LoadEnv(ctx, userID)
-	if err != nil {
-		return "", false, fmt.Errorf("token service: load vault token: %w", err)
+// loadVaultToken returns the auto-token plaintext from env when a snapshot is
+// supplied, otherwise it decrypts the vault on demand.
+func (s *TokenService) loadVaultToken(ctx context.Context, userID string, env map[string]string) (string, bool, error) {
+	if env == nil {
+		loader, ok := s.vault.(vaultLoader)
+		if !ok {
+			return "", false, nil
+		}
+		var err error
+		env, err = loader.LoadEnv(ctx, userID)
+		if err != nil {
+			return "", false, fmt.Errorf("token service: load vault token: %w", err)
+		}
 	}
 	plaintext, ok := env[StellaTokenName]
 	return plaintext, ok && plaintext != "", nil

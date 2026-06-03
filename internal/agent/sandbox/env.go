@@ -68,8 +68,13 @@ func skillMountsForSandbox(paths Paths) []string {
 func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]string, error) {
 	env := make(map[string]string)
 
+	// vaultEnv is the full decrypted vault snapshot, retained so OAuth bundle
+	// resolution can read from it instead of decrypting the vault again. env is
+	// the sandbox-facing copy, which has the host-only bundle keys stripped below.
+	var vaultEnv map[string]string
+
 	if envEnsurer, ok := cfg.TokenEnsurer.(tokenEnvEnsurer); ok {
-		vaultEnv, err := envEnsurer.EnsureAutoTokenEnv(ctx, cfg.UserID)
+		ve, err := envEnsurer.EnsureAutoTokenEnv(ctx, cfg.UserID)
 		if err != nil {
 			slog.Warn("vault env injection skipped",
 				"component", "runner_sandbox",
@@ -77,7 +82,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 				"error", err,
 			)
 		} else {
-			maps.Copy(env, vaultEnv)
+			vaultEnv = ve
+			maps.Copy(env, ve)
 		}
 	} else {
 		if cfg.TokenEnsurer != nil {
@@ -91,7 +97,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		}
 
 		if cfg.VaultEnvLoader != nil {
-			vaultEnv, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
+			ve, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
 			if err != nil {
 				slog.Warn("vault env injection skipped",
 					"component", "runner_sandbox",
@@ -99,7 +105,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 					"error", err,
 				)
 			} else {
-				maps.Copy(env, vaultEnv)
+				vaultEnv = ve
+				maps.Copy(env, ve)
 			}
 		}
 	}
@@ -110,7 +117,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
 	delete(env, oauth.VaultKeyFeishu)
-	if err := injectSessionEnv(ctx, cfg, env); err != nil {
+	if err := injectSessionEnv(ctx, cfg, env, vaultEnv); err != nil {
 		return nil, err
 	}
 
@@ -134,7 +141,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	return env, nil
 }
 
-func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) error {
+// injectSessionEnv resolves plugin SessionEnvSpecs into env. vaultEnv is the
+// decrypted vault snapshot used to read OAuth bundles without re-decrypting.
+func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, vaultEnv map[string]string) error {
 	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
 	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	for _, spec := range cfg.SessionEnvSpecs {
@@ -165,7 +174,7 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string) er
 		bundle, ok := oauthBundles[providerID]
 		if !ok {
 			var err error
-			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID)
+			bundle, err = cfg.TokenManager.GetOAuthTokenFromEnv(ctx, vaultEnv, providerID, cfg.UserID)
 			if err != nil {
 				slog.Debug("session env injection skipped",
 					"component", "runner_sandbox",
