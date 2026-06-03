@@ -105,6 +105,51 @@ func TestConvertMessagesToolResult(t *testing.T) {
 	}
 }
 
+func TestConvertMessagesToolResultWithImage(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.ToolResultMessage{
+				ToolCallID: "call_1",
+				Content: []ai.ContentBlock{
+					ai.TextContent{Text: "Read image file [image/png]"},
+					ai.ImageContent{Data: "base64", MimeType: "image/png"},
+				},
+			},
+		},
+	}
+	msgs := convertMessages(ctx)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages (tool + user), got %d", len(msgs))
+	}
+	if msgs[0].OfTool == nil || msgs[0].OfTool.ToolCallID != "call_1" {
+		t.Fatalf("first message must be the tool result for call_1")
+	}
+	if msgs[1].OfUser == nil {
+		t.Fatal("second message must be a user message carrying the image")
+	}
+	if len(msgs[1].OfUser.Content.OfArrayOfContentParts) == 0 {
+		t.Fatal("user message must contain image content parts")
+	}
+}
+
+func TestConvertMessagesToolResultImageNoText(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.ToolResultMessage{
+				ToolCallID: "call_1",
+				Content:    []ai.ContentBlock{ai.ImageContent{Data: "base64", MimeType: "image/png"}},
+			},
+		},
+	}
+	msgs := convertMessages(ctx)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if got := msgs[0].OfTool.Content.OfString.Value; got == "" {
+		t.Error("empty image tool result must get a placeholder string")
+	}
+}
+
 func TestConvertMessagesFullConversation(t *testing.T) {
 	ctx := ai.Context{
 		System: "helper",

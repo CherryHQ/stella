@@ -25,10 +25,37 @@ func convertMessages(ctx ai.Context) []sdk.ChatCompletionMessageParamUnion {
 		case ai.AssistantMessage:
 			messages = append(messages, convertAssistantMessage(m))
 		case ai.ToolResultMessage:
-			messages = append(messages, sdk.ToolMessage(ai.FlattenText(m.Content), m.ToolCallID))
+			messages = append(messages, toolResultMessages(m)...)
 		}
 	}
 	return messages
+}
+
+// toolResultMessages converts a tool result into provider messages. The Chat
+// Completions tool role only accepts string content, so an image result is
+// emitted as a text tool message followed by a user message that carries the
+// image parts inline — the only place the API lets a tool's image reach the model.
+func toolResultMessages(m ai.ToolResultMessage) []sdk.ChatCompletionMessageParamUnion {
+	text := ai.FlattenText(m.Content)
+	if !ai.HasImage(m.Content) {
+		return []sdk.ChatCompletionMessageParamUnion{sdk.ToolMessage(text, m.ToolCallID)}
+	}
+
+	if text == "" {
+		text = "[image returned by tool; see the following message]"
+	}
+	parts := make([]sdk.ChatCompletionContentPartUnionParam, 0, len(m.Content))
+	for _, block := range m.Content {
+		if img, ok := block.(ai.ImageContent); ok {
+			parts = append(parts, sdk.ImageContentPart(sdk.ChatCompletionContentPartImageImageURLParam{
+				URL: img.DataURI(),
+			}))
+		}
+	}
+	return []sdk.ChatCompletionMessageParamUnion{
+		sdk.ToolMessage(text, m.ToolCallID),
+		sdk.UserMessage(parts),
+	}
 }
 
 func convertAssistantMessage(m ai.AssistantMessage) sdk.ChatCompletionMessageParamUnion {

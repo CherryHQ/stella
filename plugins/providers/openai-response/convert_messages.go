@@ -21,15 +21,50 @@ func convertMessages(ctx ai.Context) responses.ResponseInputParam {
 		case ai.AssistantMessage:
 			items = append(items, convertAssistantMessage(m)...)
 		case ai.ToolResultMessage:
-			items = append(items, responses.ResponseInputItemUnionParam{
-				OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-					CallID: m.ToolCallID,
-					Output: ai.FlattenText(m.Content),
+			items = append(items, toolResultItems(m)...)
+		}
+	}
+	return items
+}
+
+// toolResultItems converts a tool result into response input items. A function
+// call output only carries string content, so an image result is emitted as a
+// text output followed by a user message holding the image inline — the only
+// place the API lets a tool's image reach the model.
+func toolResultItems(m ai.ToolResultMessage) responses.ResponseInputParam {
+	text := ai.FlattenText(m.Content)
+	output := responses.ResponseInputItemUnionParam{
+		OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+			CallID: m.ToolCallID,
+			Output: text,
+		},
+	}
+	if !ai.HasImage(m.Content) {
+		return responses.ResponseInputParam{output}
+	}
+
+	if text == "" {
+		output.OfFunctionCallOutput.Output = "[image returned by tool; see the following message]"
+	}
+	parts := make(responses.ResponseInputMessageContentListParam, 0, len(m.Content))
+	for _, block := range m.Content {
+		if img, ok := block.(ai.ImageContent); ok {
+			parts = append(parts, responses.ResponseInputContentUnionParam{
+				OfInputImage: &responses.ResponseInputImageParam{
+					ImageURL: param.NewOpt(img.DataURI()),
 				},
 			})
 		}
 	}
-	return items
+	return responses.ResponseInputParam{
+		output,
+		{OfMessage: &responses.EasyInputMessageParam{
+			Role: responses.EasyInputMessageRoleUser,
+			Content: responses.EasyInputMessageContentUnionParam{
+				OfInputItemContentList: parts,
+			},
+		}},
+	}
 }
 
 func convertAssistantMessage(m ai.AssistantMessage) responses.ResponseInputParam {
