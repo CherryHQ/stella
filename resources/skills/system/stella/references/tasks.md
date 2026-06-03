@@ -2,7 +2,7 @@
 
 Durable, async work that survives restarts. Use this system for work that outlives a single conversation: long research, multi-step builds, work that may pause for input, and work that needs human approval before it counts as done.
 
-This file is about **when to reach for which command and how to chain them**. It does not spell out every flag — run `stella task <subcommand> --help` and `stella task goal <subcommand> --help` before invoking commands.
+This file is about **when to reach for which tool and how to chain them**. The `task_*` and `task_goal_*` tools carry their own parameter schemas — read each tool's description before calling it.
 
 ## Current supported shape
 
@@ -22,13 +22,13 @@ Not supported now:
 - Goal-level review runtime.
 - Agent-performed review (`review_policy=agent`).
 
-Do not promise automatic planning. If a user wants a multi-step goal, create the child tasks explicitly and attach them with `--goal-id`.
+Do not promise automatic planning. If a user wants a multi-step goal, create the child tasks explicitly and attach them with each task's `goal_id`.
 
 ## The two roles you play
 
 You touch this system from two different sides. Know which one you're in.
 
-1. **Manager** — normal conversation. You create and steer work with the `stella task` CLI via `bash`. You queue work, wire dependencies, check status, resolve blockers, and decide reviews.
+1. **Manager** — normal conversation. You create and steer work with the `task_*` and `task_goal_*` tools. You queue work, wire dependencies, and check status.
 2. **Worker** — you were dispatched to execute one task. The task title and description arrive as your prompt, and you get a `task_control` tool.
 
 If you see a `task_control` tool in your toolset, you are a worker. Otherwise you are a manager.
@@ -38,9 +38,9 @@ If you see a `task_control` tool in your toolset, you are a worker. Otherwise yo
 Before creating a task, check you actually need one:
 
 - `delegate` — synchronous focused subtask in a persistent child session, returns inline. Use this first for short research, review, or drafting.
-- `task` — async, durable, survives restarts, can block on input, can require review. Use this when work outlives the current conversation or needs an approval gate.
-- `goal` — container for related tasks. Use it when several tasks serve one objective and you need rollup status.
-- `scheduler` — time trigger, not the work itself. For long or reviewable scheduled work, schedule a prompt that creates a task.
+- task (`task_create`) — async, durable, survives restarts, can block on input, can require review. Use this when work outlives the current conversation or needs an approval gate.
+- goal (`task_goal_create`) — container for related tasks. Use it when several tasks serve one objective and you need rollup status.
+- scheduler (`scheduler_add`) — time trigger, not the work itself. For long or reviewable scheduled work, schedule a prompt that creates a task.
 
 ## Concept model
 
@@ -52,14 +52,14 @@ goal ──rolls up from──▶ task ──one attempt──▶ run
                           └─ review    ──▶ approval gate before done
 ```
 
-- **Goal** — container; status rolls up from child tasks. Managed under `stella task goal`.
+- **Goal** — container; status rolls up from child tasks. Managed with `task_goal_*` tools.
 - **Task** — smallest executable unit, with a strict lifecycle status.
 - **Run** — one execution attempt; records the task's worker session, heartbeat, and lease.
 - **Dep edge** — DAG link, `hard` or `soft`, with an `on_failure` policy.
 - **Blocker** — why a task is paused; at most one open blocker per task.
 - **Review** — approval gate before `done`; task policy decides who reviews.
 
-Tasks and goals require agent context. Inside Stella sessions, `stella task create` and `stella task goal create` default to `STELLA_AGENT_ID`. Outside Stella, pass `--agent-id` explicitly. A task always has a durable worker session minted at creation time. Use `--project-id` when the work should run in a project/workspace context. If `--goal-id` is set and `--agent-id` is omitted, the task inherits the goal's agent.
+Tasks and goals run in the current agent's context: the tools read your agent and user identity automatically, so you never pass identity arguments. A task always has a durable worker session minted at creation time. Pass `project_id` when the work should run in a different project than the current session's.
 
 ## Lifecycle
 
@@ -75,25 +75,29 @@ A task does nothing until activated. `ready` means eligible for readiness checks
 
 ## Manager playbooks
 
-All commands are `stella task ...` or `stella task goal ...`.
+You drive this with the `task_*` and `task_goal_*` tools.
 
-**Create one background task.** Use `stella task create ... --activate`. Add `--project-id <project-id>` for project-scoped work. Without `--activate`, the task stays `draft` and never runs.
+**Create one background task.** Call `task_create` with `activate:true`. Add `project_id` for project-scoped work. Without `activate:true`, the task stays `draft` and never runs.
 
-**Build a goal.** Create the goal first, optionally with `--project-id`, then create child tasks with `stella task create --goal-id <goal-id> ...`. A task created without `--goal-id` is standalone and will not appear under `stella task goal tasks <goal-id>` or the Automations goal detail page.
+**Build a goal.** Call `task_goal_create` first, then create child tasks with `task_create` passing `goal_id`. A task created without `goal_id` is standalone and will not appear under the goal or the Automations goal detail page.
 
-**Build a dependency graph.** Create upstream tasks first, note their IDs, then create downstream tasks with `--dep <upstream-id>` or add edges later with `stella task dep add`. Default dependency behavior is `hard` + `block`: downstream waits for upstream success.
+**Build a dependency graph.** Create upstream tasks first, note their IDs, then create downstream tasks with `deps:[<upstream-id>]`. Default dependency behavior is `hard` + `block`: downstream waits for upstream success.
 
-**Activate after wiring.** For multi-task work, wire the goal/tasks/deps first, then activate. Draft child tasks under an activated goal are promoted to ready.
+**Activate after wiring.** For multi-task work, create the goal and child tasks, wire `deps`, then activate the tasks. Draft child tasks under an activated goal are promoted to ready.
 
-**Check status.** Use `list` to scan, `get <id>` for detail, `events <id>` for audit history, and `runs <id>` for attempts.
+**Check status.** Use `task_list` to scan, `task_get` for detail, `task_events` for audit history, `task_deps` for dependency edges with upstream status, and `task_goal_get` / `task_goal_list` for goals.
 
-**Explain why a task is not running.** Use `readiness <id>`. It distinguishes waiting dependencies, blockers, future `not_before`, throttling, terminal state, and missing executor context.
+## What the user handles in the Web UI
 
-**Answer a blocker.** Use `get <id>` to read the blocker and find `active_blocker`, then resolve it with `blocker resolve`. If the blocker is `dep_failure`, do not use generic resolve; waive the dependency with `dep waive <id> <dep-task-id> --reason "..."`.
+Some lifecycle operations are not yet exposed as agent tools. Direct the user to the Automations area of the Web UI for:
 
-**Review task output.** Supported task review policies are `none`, `auto`, and `human`. Use `reviews <id>` to list review rows and `review approve|reject|request-changes` to decide. Do not use `review_policy=agent`; agent reviewer runtime is not supported.
+- **Readiness diagnosis** — why a task is not running (waiting deps, blockers, future `not_before`, throttling).
+- **Blocker resolution** — answering or waiving a blocker a worker raised.
+- **Reviews** — approving, rejecting, or requesting changes on `human`-policy task output.
+- **Reopen / retry** — bringing a `done` or `failed` task back, optionally cascading downstream.
+- **Goal activation and inspection** beyond `task_goal_get`.
 
-**Retry or undo.** `cancel` stops a task. `reopen` brings a `done` or `failed` task back; use cascade only when you intentionally want to reset downstream work.
+(These long-tail operations are planned to arrive as agent tools in a later release.)
 
 ## Reviews
 
@@ -101,14 +105,14 @@ A worker's `submit` routes on the task's `review_policy`:
 
 - `none` → task becomes `done`, no review row.
 - `auto` → system-approved review row for audit, then `done`.
-- `human` → opens human review; task stays `reviewing` until a human decides.
+- `human` → opens human review; task stays `reviewing` until a human decides via the Web UI.
 
 Unsupported:
 
 - `agent` → do not use. Agent reviewer runtime is not available.
 - Goal-level review → do not use yet. Keep goal `review_policy=none`.
 
-Decision effects:
+Decision effects (decided by a human in the Web UI):
 
 - `approve` — task moves toward `done`.
 - `reject` — task becomes `failed`.
@@ -120,11 +124,11 @@ Use a goal when multiple tasks serve one objective and you want a single rollup.
 
 Supported goal workflow:
 
-1. `stella task goal create --title "..." --review-policy none`
-2. `stella task create --goal-id <goal-id> --title "..." ...`
-3. Add dependencies between child tasks when needed.
-4. Activate the goal/tasks.
-5. Inspect with `goal get` and `goal tasks`.
+1. `task_goal_create` with a title (and `description` / `project_id` as needed).
+2. `task_create` with `goal_id` set to the new goal's ID.
+3. Add dependencies between child tasks via `deps` when needed.
+4. Activate the child tasks.
+5. Inspect with `task_goal_get`.
 
 Goal rollup:
 
@@ -132,7 +136,7 @@ Goal rollup:
 - required child failed → goal failed
 - required child blocked → goal blocked
 - pending child work → goal remains running
-- blocked goal recovers → when the blocking child's blocker is resolved or its failed dependency is waived, the goal returns to running on the next rollup; no separate goal-unblock command is needed
+- blocked goal recovers → when the blocking child's blocker is resolved or its failed dependency is waived, the goal returns to running on the next rollup; no separate goal-unblock action is needed
 
 Caveat: Stella does **not** auto-split a goal into child tasks yet. Planner and synthesizer runtimes are not supported. You create and attach the child tasks explicitly.
 

@@ -33,21 +33,16 @@ Stella 可以把生成的文件变成公开的只读链接。你可以用它把�
 
 ## 让 Stella 分享文件
 
-当你要求 Stella 分享生成的文件时，Stella 可以在 agent 会话中使用命令行：
+直接让 Stella 分享生成的文件或 Recally 文章即可——例如"把这份报告分享出去"或"给这篇文章生成一个有效期一天的公开链接"。Stella 会用其内置的分享能力创建链接，并把公开 URL 回复给你。你可以通过自然语言指定有效期（1 小时、1 天、7 天或永久）。
+
+你也可以在自己的 shell 中用命令行自行创建链接：
 
 ```bash
-stella share artifact assets/report.html
-stella share artifact assets/report.html --expires-in 1d
-stella share artifact assets/report.html --expires-in never
+stella share artifact assets/report.html --agent-id <agent-id> --session-id <session-id>
+stella share article <article-id> --agent-id <agent-id>
 ```
 
-你也可以通过文章 ID 分享 Recally 文章：
-
-```bash
-stella share article <article-id>
-```
-
-命令会输出公开链接。在 Stella 内部运行时，它会自动使用当前 agent 和会话。如果你在自己的 shell 中运行，请传入 `--agent-id` 和 `--session-id`。
+命令会输出公开链接，并支持 `--expires-in 1h|1d|7d|never`。
 
 ## 公开链接安全性
 

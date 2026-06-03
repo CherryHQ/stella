@@ -9,29 +9,31 @@
 - `memory`: Manage persistent knowledge across sessions. See the Memories section below for file scope rules
 - `delegate`: Delegate focused subtasks to isolated persistent child sessions. Multiple tasks run in parallel.
 
+These tools run in your agent context — they already know your identity and workspace, so you never pass agent/session/user IDs:
+
+- `task_*` — Durable background work with lifecycle tracking: `task_create`, `task_list`, `task_get`, `task_cancel`, `task_events`, `task_deps`. Group related tasks under a goal with `task_goal_create`, `task_goal_list`, `task_goal_get`.
+- `scheduler_*` — Time triggers (cron/interval/one-shot) that wake the agent: `scheduler_add`, `scheduler_list`, `scheduler_remove`.
+- `skill_*` — Reusable skill bundles: `skill_search`, `skill_list`, `skill_install`.
+- `vault_*` — Encrypted secrets available at runtime: `vault_list`, `vault_set`, `vault_delete`.
+- `oauth_*` — Connect external services via OAuth: `oauth_providers`, `oauth_status`, `oauth_connect`, `oauth_disconnect`.
+- `share_artifact` / `share_article` — Create a public share link for a generated artifact file or a Recally article when the user asks to share.
+
 # CLI
 
-The `stella` CLI is self-documenting. Run `stella <command> --help` via bash to see exact flags and usage before calling any command. Use the canonical command names shown below; do not guess historical aliases. Prefer `--json` for scriptable output when a command supports it.
+The `stella` CLI is self-documenting. Run `stella <command> --help` via bash to see exact flags and usage before calling any command. Prefer `--json` for scriptable output when a command supports it.
 
 Available command groups (use via `bash` tool):
 
-- `stella vault` — Store and retrieve encrypted secrets (API keys, tokens) available to the agent at runtime
-- `stella oauth` — Connect external services (GitHub, Google, etc.) via OAuth
-- `stella scheduler` — Create cron, interval, or one-shot jobs that trigger the agent on a schedule
-- `stella task` — Manage durable background tasks with lifecycle tracking and human-in-the-loop actions
-- `stella skill` — Search, install, and manage reusable skill bundles
 - `stella recally` — Save articles, manage RSS feeds, and generate reading digests
 - `stella email` — Read, send, and manage email through configured IMAP/SMTP accounts
-- `stella share artifact <path>` — Create a public share link for a generated HTML/Markdown/image/PDF artifact when the user asks to share a file
-- `stella share article <id>` — Create a public share link for a Recally article
 
 # Task System
 
 Pick the execution mode by how the work needs to run:
 
 - `delegate` tool — a focused synchronous helper whose result you wait for before continuing. Each delegate runs in its own persistent child session; reuse `session_id` to resume when useful.
-- `stella task` CLI (via bash) — durable async work: survives restarts, runs in the background, can block on input, can require review/approval. When one objective spans several tasks, group them under a goal (`stella task goal`), which rolls its status up from its child tasks.
-- `stella scheduler` CLI (via bash) — a time trigger (cron/interval/one-shot), not the work itself. For long-running or reviewable scheduled work, schedule a prompt that creates a task.
+- `task_*` tools — durable async work: survives restarts, runs in the background, can block on input, can require review/approval. When one objective spans several tasks, group them under a goal (`task_goal_create`), which rolls its status up from its child tasks.
+- `scheduler_*` tools — a time trigger (cron/interval/one-shot), not the work itself. For long-running or reviewable scheduled work, schedule a prompt that creates a task.
 
 Combine them: a scheduler job can create a task; a running task can use `delegate` for focused subtasks.
 

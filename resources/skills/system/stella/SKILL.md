@@ -49,13 +49,13 @@ Project context (AGENTS.md files) is appended after these layers.
 
 Read the relevant reference file for detailed guidance:
 
-| Topic         | Reference                                                  | When to read                                                                                          |
-| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                   |
-| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                  |
-| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                           |
-| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                            |
-| Tasks & goals | [references/tasks.md](references/tasks.md)                 | Goal/task system: manager CLI vs worker `task_control`, lifecycle, deps, readiness, reviews, blockers |
+| Topic         | Reference                                                  | When to read                                                                                                     |
+| ------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                              |
+| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                             |
+| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                                      |
+| Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                       |
+| Tasks & goals | [references/tasks.md](references/tasks.md)                 | Goal/task system: manager `task_*` tools vs worker `task_control`, lifecycle, deps, readiness, reviews, blockers |
 
 ## In-chat commands
 
@@ -69,24 +69,31 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 | `/agent`   | List or switch agents        |
 | `/whoami`  | Show your user/chat ID       |
 
+## Native tools
+
+Task, goal, scheduler, skill, vault, oauth, and share operations are native agent tools — they run in your context and already know your identity, so you never pass agent/session/user IDs. Call them directly (not via `bash stella ...`):
+
+- `task_*` — `task_create`, `task_list`, `task_get`, `task_cancel`, `task_events`, `task_deps`
+- `task_goal_*` — `task_goal_create`, `task_goal_list`, `task_goal_get`
+- `scheduler_*` — `scheduler_add`, `scheduler_list`, `scheduler_remove`
+- `skill_*` — `skill_search`, `skill_list`, `skill_install`
+- `vault_*` — `vault_list`, `vault_set`, `vault_delete`
+- `oauth_*` — `oauth_providers`, `oauth_status`, `oauth_connect`, `oauth_disconnect`
+- `share_artifact` / `share_article`
+
+For when to use tasks/goals and how to combine the tools, read [references/tasks.md](references/tasks.md).
+
 ## CLI commands
 
-The `stella` CLI is self-documenting. These are the command groups and their subcommands — **always run `stella <command> [<subcommand>] --help` (via bash) for exact flags and usage before invoking one.** Use the canonical command names shown here; do not guess historical aliases. Prefer `--json` for scriptable output when a command supports it.
+The `stella` CLI remains the human/operator surface. Run `stella <command> --help` (via bash) for exact flags. The same task/scheduler/skill/vault/oauth/share operations are also exposed as CLI commands for humans, but inside a session prefer the native tools above.
 
 ```
 stella server                   # Start server (channels + scheduler); web UI at http://localhost:25678
-stella skill      list/search/install/remove
-stella vault      list/get/set/delete
-stella oauth      providers/connect/status/disconnect
-stella share      artifact/article
-stella scheduler  add/list/remove
-stella task       list/get/create/cancel/reopen/readiness/events/runs/deps/dep/blocker/reviews/review
-stella task goal  list/get/create/activate/cancel/tasks/reviews/review
+stella recally    save/feed/digest    # Articles, RSS feeds, reading digests
+stella email      read/send/...        # IMAP/SMTP email
 stella version                  # Print version
 stella upgrade                  # Self-update to latest release
 ```
-
-For when to use tasks/goals and how to combine the subcommands, read [references/tasks.md](references/tasks.md).
 
 ## Delegation
 
@@ -118,7 +125,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 ## Memory, scheduler, notifications
 
-Memory is an agent tool; task, scheduler, skills, vault, oauth, and notifications are managed via the `stella` CLI (use `bash` to call them). Briefly:
+Memory, task, scheduler, skills, vault, and oauth are all native agent tools; notifications go through the `notify` plugin. Briefly:
 
 - **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in SQLite and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (active facts/time-bound context). They are logical layers over the existing memory, profile, and skills tables rather than four separate engines.
@@ -128,8 +135,8 @@ Memory is an agent tool; task, scheduler, skills, vault, oauth, and notification
 - **Knowledge**: The skills table can store `knowledge_type=skill|fact|context`. `fact` and `context` entries have `disable_model_invocation=true`, are not callable skills, and only active entries appear in the `## Knowledge` prompt section. Reflect may draft fact/context entries, but drafts do not affect sessions until activated.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
 - **Memory retrieval**: The `memory` tool provides `search` (search by keyword), `describe` (inspect summary metadata and lineage), and `expand` (drill into compacted summaries to recover original detail) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, `task` for async persistent work that can pause/resume/request review, and `scheduler` for one-time or recurring time triggers. Scheduler jobs can create async tasks for long-running/reviewable work; async tasks can use `delegate` for short focused subtasks.
-- **Scheduler**: `stella scheduler` CLI -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool.
+- **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, `task_*` tools for async persistent work that can pause/resume/request review, and `scheduler_*` tools for one-time or recurring time triggers. Scheduler jobs can create async tasks for long-running/reviewable work; async tasks can use `delegate` for short focused subtasks.
+- **Scheduler**: `scheduler_add` / `scheduler_list` / `scheduler_remove` tools -- scheduled or one-time jobs. Jobs route to the correct agent's pool.
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.

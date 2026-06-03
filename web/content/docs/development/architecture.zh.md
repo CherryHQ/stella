@@ -55,8 +55,8 @@ internal/
   admin/               HTTP API + 嵌入式 React SPA
   auth/                RBAC/ABAC 策略引擎、会话、沙箱
   db/                  SQLite、Atlas 迁移、sqlc 查询
-  scheduler/           gocron 服务、心跳（通过 stella scheduler CLI 提供技能）
-  skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
+  scheduler/           gocron 服务、心跳（agent 使用 scheduler_* 工具；CLI 面向人类）
+  skills/              技能工具（skill_search/skill_list/skill_install；CLI 面向人类）
 pkg/
   memory/              Memory Provider 接口、类型、Summarizer、工具自动生成、测试辅助
   tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、agent）
@@ -213,12 +213,18 @@ Runner 启动在以下情况下失败关闭：
 
 ### 内置共享工具
 
-| 工具        | 条件                  | 描述                                           |
-| ----------- | --------------------- | ---------------------------------------------- |
-| `memory`    | 始终                  | 自动生成的内存工具（操作根据提供商能力自适应） |
-| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除）   |
-| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）                 |
-| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                             |
+| 工具          | 条件                  | 描述                                                         |
+| ------------- | --------------------- | ------------------------------------------------------------ |
+| `memory`      | 始终                  | 自动生成的内存工具（操作根据提供商能力自适应）               |
+| `task_*`      | 始终                  | 持久化任务/目标（创建/列出/查看/取消/事件/依赖）；上下文绑定 |
+| `scheduler_*` | 始终                  | 安排作业（添加/列出/移除）；上下文绑定                       |
+| `skill_*`     | 始终                  | 技能管理（搜索/列出/安装）；上下文绑定                       |
+| `vault_*`     | 已配置 Vault 密钥     | 加密密钥（列出/设置/删除；不提供 get/keygen——绝不暴露）      |
+| `oauth_*`     | 凭据服务可用          | 连接外部服务（提供商/状态/连接/断开）                        |
+| `share_*`     | 已接入分享服务        | 工件/文章公开链接（share_artifact/share_article）            |
+| `notify`      | 网关模式 + 通道已配置 | 通过分发器发送通知                                           |
+
+这些上下文绑定的工具从 Go 上下文读取 agent/会话/用户/项目身份，因此它们的 schema 中不含任何身份参数。对应的 `stella` CLI 命令仍作为人类/运维人员的接口保留。
 
 内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查提供商的能力并生成匹配的工具操作。使用 LCM 提供商时：`status`、`search`、`describe`、`expand`、`profile_get`、`profile_update`。使用 Simple 提供商时：`status`、`profile_get`、`profile_update`。每用户笔记通过 `profile_get`/`profile_update` 管理，并在会话开始时注入系统提示。
 
