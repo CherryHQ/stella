@@ -177,6 +177,30 @@ func TestHook_ToolIORecording(t *testing.T) {
 	})
 }
 
+func TestHook_DuplicatePostLLMCall(t *testing.T) {
+	h, sr := newRecordingHook(t)
+	meta := hooks.HookMeta{SessionID: "dup", AgentID: "agent-1", UserID: "u1"}
+
+	h.OnPreAgentCall(context.Background(), &hooks.PreAgentCallContext{HookMeta: meta})
+	_, _ = h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{HookMeta: meta, Model: "m"})
+	post := &hooks.PostLLMCallContext{HookMeta: meta, Model: "m", Duration: time.Second}
+	// First Post claims and ends the span; the second must be a no-op (the span
+	// was nil'd under the lock) rather than ending it again or underflowing.
+	h.OnPostLLMCall(context.Background(), post)
+	h.OnPostLLMCall(context.Background(), post)
+	h.OnPostAgentCall(context.Background(), &hooks.PostAgentCallContext{HookMeta: meta})
+
+	count := 0
+	for _, s := range endedStubs(sr) {
+		if s.Name == "gen_ai.chat" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("gen_ai.chat ended %d times, want 1", count)
+	}
+}
+
 func TestHook_SpanErrorRedacted(t *testing.T) {
 	h, sr := newRecordingHook(t)
 	secret := "sk-abcdef0123456789xyz"

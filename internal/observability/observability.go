@@ -29,13 +29,20 @@ type Config struct {
 	ServiceName string // OTel service name, defaults to "stella"
 }
 
-// LoadConfig reads OTel settings from the environment. Tracing is enabled only
-// when an OTLP endpoint is configured and OTEL_SDK_DISABLED is not "true" — the
-// latter is the standard kill switch operators can use to silence all telemetry
-// even when an endpoint is present.
+// LoadConfig reads OTel settings from the environment. Tracing is enabled when
+// the auto exporter has something to export to — either an OTLP endpoint (the
+// generic or traces-specific variable) or an explicit OTEL_TRACES_EXPORTER such
+// as "console" — and the operator has not opted out. OTEL_SDK_DISABLED=true and
+// OTEL_TRACES_EXPORTER=none are the standard kill switches; either silences all
+// trace export even when an endpoint is present.
 func LoadConfig() Config {
+	tracesExporter := os.Getenv("OTEL_TRACES_EXPORTER")
+	endpointSet := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != ""
+	disabled := os.Getenv("OTEL_SDK_DISABLED") == "true" || tracesExporter == "none"
+
 	cfg := Config{
-		Enabled:     os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" && os.Getenv("OTEL_SDK_DISABLED") != "true",
+		Enabled:     !disabled && (endpointSet || tracesExporter != ""),
 		ServiceName: "stella",
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {

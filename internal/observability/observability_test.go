@@ -47,6 +47,33 @@ func TestLoadConfigEnabled(t *testing.T) {
 	}
 }
 
+func TestLoadConfigEnabledViaTracesExporter(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_TRACES_EXPORTER", "console")
+
+	if !LoadConfig().Enabled {
+		t.Error("Enabled = false, want true when OTEL_TRACES_EXPORTER is set without an endpoint")
+	}
+}
+
+func TestLoadConfigEnabledViaTracesEndpoint(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4317")
+
+	if !LoadConfig().Enabled {
+		t.Error("Enabled = false, want true when traces-specific endpoint is set")
+	}
+}
+
+func TestLoadConfigDisabledViaExporterNone(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	t.Setenv("OTEL_TRACES_EXPORTER", "none")
+
+	if LoadConfig().Enabled {
+		t.Error("Enabled = true, want false when OTEL_TRACES_EXPORTER=none")
+	}
+}
+
 func TestInitDisabledIsNoOp(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 

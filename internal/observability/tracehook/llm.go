@@ -128,13 +128,19 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		return
 	}
 
+	// Claim the span under the lock (nil it out) before ending it, so a
+	// concurrent endSession (reaper/Close) can never snapshot the same span and
+	// End it twice. Mirrors OnPostToolCall, which deletes from the map first.
 	st.mu.Lock()
 	span := st.llmSpan
-	if span == nil {
-		st.mu.Unlock()
-		return
+	st.llmSpan = nil
+	if span != nil {
+		st.lastActive = time.Now()
 	}
 	st.mu.Unlock()
+	if span == nil {
+		return
+	}
 
 	// Resolve provider name: prefer explicit Provider, fall back to API key.
 	providerName := hctx.Provider
@@ -176,10 +182,5 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		recordSpanError(span, hctx.Error)
 	}
 	span.End()
-
-	st.mu.Lock()
-	st.llmSpan = nil
-	st.lastActive = time.Now()
-	st.mu.Unlock()
 	st.activeOps.Add(-1)
 }
