@@ -26,6 +26,12 @@ const (
 	// maxInlineImageBytes caps the encoded image size sent to the model,
 	// staying under provider inline-image limits (Anthropic allows ~5MB).
 	maxInlineImageBytes = 5 * 1024 * 1024
+	// maxImageInputBytes caps the raw file size we are willing to decode,
+	// rejecting oversized inputs before allocating any pixel buffer.
+	maxImageInputBytes = 30 * 1024 * 1024
+	// maxImagePixels bounds total pixels (width*height) decoded, guarding
+	// against decompression bombs whose header is tiny but expand enormously.
+	maxImagePixels = 50_000_000
 	// kreuzbergTimeout bounds synchronous text extraction for non-vision models.
 	kreuzbergTimeout = 60 * time.Second
 )
@@ -163,8 +169,17 @@ func detectImageMime(data []byte) string {
 // re-encoding only when a resize is needed. Images already within bounds are
 // returned untouched. WebP is re-encoded as PNG since imaging cannot encode it.
 func prepareInlineImage(data []byte, mime string) ([]byte, string, error) {
-	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil &&
-		cfg.Width <= maxImageDim && cfg.Height <= maxImageDim && mime != "image/webp" {
+	if len(data) > maxImageInputBytes {
+		return nil, "", fmt.Errorf("image input too large: %d bytes exceeds %d", len(data), maxImageInputBytes)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
+		return nil, "", fmt.Errorf("image too large to decode: %dx%d exceeds %d pixels", cfg.Width, cfg.Height, maxImagePixels)
+	}
+	if cfg.Width <= maxImageDim && cfg.Height <= maxImageDim && mime != "image/webp" {
 		return data, mime, nil
 	}
 

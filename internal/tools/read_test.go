@@ -89,6 +89,17 @@ func TestReadImageResizesLargeImage(t *testing.T) {
 	}
 }
 
+func TestPrepareInlineImageRejectsPixelBomb(t *testing.T) {
+	// A header claiming a huge canvas must be rejected before full decode.
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 8000, 8000))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, _, err := prepareInlineImage(buf.Bytes(), "image/png"); err == nil {
+		t.Fatal("expected oversized image (64MP) to be rejected before decode")
+	}
+}
+
 func TestReadImageNonVisionFallsBackToText(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "pic.png"), 10, 10)
