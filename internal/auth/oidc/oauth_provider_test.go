@@ -12,56 +12,70 @@ import (
 )
 
 func TestOAuthProviderFeishuLoginAndCallback(t *testing.T) {
-	var tokenPath, userInfoPath string
+	var appTokenPath, profileTokenPath, userInfoPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case tokenPath:
+		case appTokenPath:
 			if r.Method != http.MethodPost {
-				t.Fatalf("token method = %s", r.Method)
+				t.Fatalf("app token method = %s", r.Method)
 			}
 			var body map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode token request: %v", err)
+				t.Fatalf("decode app token request: %v", err)
 			}
-			if body["code"] != "auth-code" || body["code_verifier"] != "verifier" {
-				t.Fatalf("token request = %#v", body)
+			if body["app_id"] != "client-id" || body["app_secret"] != "client-secret" {
+				t.Fatalf("app token request = %#v", body)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "access_token": "user-token", "token_type": "Bearer"})
-		case userInfoPath:
-			if got := r.Header.Get("Authorization"); got != "Bearer user-token" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "app_access_token": "app-token", "expire": 7200})
+		case profileTokenPath:
+			if got := r.Header.Get("Authorization"); got != "Bearer app-token" {
 				t.Fatalf("Authorization = %q", got)
+			}
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode profile token request: %v", err)
+			}
+			if body["grant_type"] != "authorization_code" || body["code"] != "auth-code" {
+				t.Fatalf("profile token request = %#v", body)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 0,
 				"data": map[string]any{
-					"union_id":   "on_union",
-					"open_id":    "ou_open",
-					"tenant_key": "tenant-1",
-					"email":      "user@example.com",
-					"name":       "Feishu User",
+					"access_token": "user-token",
+					"union_id":     "on_union",
+					"open_id":      "ou_open",
+					"tenant_key":   "tenant-1",
+					"email":        "user@example.com",
+					"name":         "Feishu User",
 				},
 			})
+		case userInfoPath:
+			t.Fatal("fast Feishu login should not call user_info")
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
 	}))
 	defer server.Close()
-	tokenPath = "/token"
+	appTokenPath = "/app-token"
+	profileTokenPath = "/profile-token"
 	userInfoPath = "/userinfo"
 
 	cfg := &OAuthConfig{
-		ProviderName:        "feishu",
-		Kind:                "feishu",
-		ClientID:            "client-id",
-		ClientSecret:        "client-secret",
-		RedirectURL:         "https://stella.example/auth/callback/feishu",
-		Scopes:              []string{"contact:user.email:readonly"},
-		AuthURL:             server.URL + "/authorize",
-		TokenURL:            server.URL + tokenPath,
-		TokenRequestStyle:   "json",
-		UserInfoURL:         server.URL + userInfoPath,
-		AllowedTenantKeys:   []string{"tenant-1"},
-		AllowedEmailDomains: []string{"example.com"},
+		ProviderName:              "feishu",
+		Kind:                      "feishu",
+		ClientID:                  "client-id",
+		ClientSecret:              "client-secret",
+		RedirectURL:               "https://stella.example/auth/callback/feishu",
+		Scopes:                    []string{"contact:user.email:readonly"},
+		AuthURL:                   server.URL + "/authorize",
+		TokenURL:                  server.URL + "/legacy-token",
+		TokenRequestStyle:         "json",
+		UserInfoURL:               server.URL + userInfoPath,
+		FeishuProfileTokenEnabled: true,
+		FeishuProfileTokenURL:     server.URL + profileTokenPath,
+		FeishuAppTokenURL:         server.URL + appTokenPath,
+		AllowedTenantKeys:         []string{"tenant-1"},
+		AllowedEmailDomains:       []string{"example.com"},
 	}
 	p, err := NewOAuthProvider(cfg)
 	if err != nil {
@@ -95,12 +109,12 @@ func TestOAuthProviderFeishuLoginAndCallback(t *testing.T) {
 }
 
 func TestOAuthProviderFeishuAllowsMissingEmailWhenTenantAllowed(t *testing.T) {
-	var tokenPath, userInfoPath string
+	var appTokenPath, profileTokenPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case tokenPath:
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "access_token": "user-token"})
-		case userInfoPath:
+		case appTokenPath:
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "app_access_token": "app-token", "expire": 7200})
+		case profileTokenPath:
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 0,
 				"data": map[string]any{
@@ -114,20 +128,23 @@ func TestOAuthProviderFeishuAllowsMissingEmailWhenTenantAllowed(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	tokenPath = "/token"
-	userInfoPath = "/userinfo"
+	appTokenPath = "/app-token"
+	profileTokenPath = "/profile-token"
 
 	cfg := &OAuthConfig{
-		ProviderName:      "feishu",
-		Kind:              "feishu",
-		ClientID:          "client-id",
-		ClientSecret:      "client-secret",
-		RedirectURL:       "https://stella.example/auth/callback/feishu",
-		AuthURL:           server.URL + "/authorize",
-		TokenURL:          server.URL + tokenPath,
-		TokenRequestStyle: "json",
-		UserInfoURL:       server.URL + userInfoPath,
-		AllowedTenantKeys: []string{"tenant-1"},
+		ProviderName:              "feishu",
+		Kind:                      "feishu",
+		ClientID:                  "client-id",
+		ClientSecret:              "client-secret",
+		RedirectURL:               "https://stella.example/auth/callback/feishu",
+		AuthURL:                   server.URL + "/authorize",
+		TokenURL:                  server.URL + "/legacy-token",
+		TokenRequestStyle:         "json",
+		UserInfoURL:               server.URL + "/userinfo",
+		FeishuProfileTokenEnabled: true,
+		FeishuProfileTokenURL:     server.URL + profileTokenPath,
+		FeishuAppTokenURL:         server.URL + appTokenPath,
+		AllowedTenantKeys:         []string{"tenant-1"},
 	}
 	p, err := NewOAuthProvider(cfg)
 	if err != nil {
@@ -144,6 +161,118 @@ func TestOAuthProviderFeishuAllowsMissingEmailWhenTenantAllowed(t *testing.T) {
 	}
 	if identity.Claims["email_synthetic"] != true {
 		t.Fatalf("email_synthetic claim = %#v", identity.Claims["email_synthetic"])
+	}
+}
+
+func TestOAuthProviderFeishuCachesAppToken(t *testing.T) {
+	var appTokenCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/app-token":
+			appTokenCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"app_access_token": "app-token", "expire": 7200}})
+		case "/profile-token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"union_id":   "on_union",
+					"tenant_key": "tenant-1",
+					"email":      "user@example.com",
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName:              "feishu",
+		Kind:                      "feishu",
+		ClientID:                  "client-id",
+		ClientSecret:              "client-secret",
+		RedirectURL:               "https://stella.example/auth/callback/feishu",
+		AuthURL:                   server.URL + "/authorize",
+		TokenURL:                  server.URL + "/legacy-token",
+		TokenRequestStyle:         "json",
+		UserInfoURL:               server.URL + "/userinfo",
+		FeishuProfileTokenEnabled: true,
+		FeishuProfileTokenURL:     server.URL + "/profile-token",
+		FeishuAppTokenURL:         server.URL + "/app-token",
+		AllowedTenantKeys:         []string{"tenant-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodGet, "/callback?code=auth-code&state=state", nil)
+		if _, err := p.HandleCallback(t.Context(), req, auth.AuthState{State: "state", CodeVerifier: "verifier"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if appTokenCalls != 1 {
+		t.Fatalf("appTokenCalls = %d, want 1", appTokenCalls)
+	}
+}
+
+func TestOAuthProviderFeishuCanUseLegacyUserInfoFlow(t *testing.T) {
+	var tokenPath, userInfoPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case tokenPath:
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode token request: %v", err)
+			}
+			if body["code"] != "auth-code" || body["code_verifier"] != "verifier" {
+				t.Fatalf("token request = %#v", body)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "access_token": "user-token", "token_type": "Bearer"})
+		case userInfoPath:
+			if got := r.Header.Get("Authorization"); got != "Bearer user-token" {
+				t.Fatalf("Authorization = %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"union_id":   "on_union",
+					"tenant_key": "tenant-1",
+					"email":      "user@example.com",
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	tokenPath = "/token"
+	userInfoPath = "/userinfo"
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName:              "feishu",
+		Kind:                      "feishu",
+		ClientID:                  "client-id",
+		ClientSecret:              "client-secret",
+		RedirectURL:               "https://stella.example/auth/callback/feishu",
+		AuthURL:                   server.URL + "/authorize",
+		TokenURL:                  server.URL + tokenPath,
+		TokenRequestStyle:         "json",
+		UserInfoURL:               server.URL + userInfoPath,
+		FeishuProfileTokenEnabled: false,
+		AllowedTenantKeys:         []string{"tenant-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/callback?code=auth-code&state=state", nil)
+	identity, err := p.HandleCallback(t.Context(), req, auth.AuthState{State: "state", CodeVerifier: "verifier"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.Subject != "on_union" || identity.Email != "user@example.com" {
+		t.Fatalf("identity = %#v", identity)
 	}
 }
 

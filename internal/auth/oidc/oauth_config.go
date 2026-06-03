@@ -26,6 +26,10 @@ type OAuthConfig struct {
 	UserInfoURL       string
 	UserEmailsURL     string
 
+	FeishuProfileTokenEnabled bool
+	FeishuProfileTokenURL     string
+	FeishuAppTokenURL         string
+
 	AllowedEmailDomains  []string
 	AllowedTenantKeys    []string
 	RequireEmailVerified bool
@@ -93,6 +97,15 @@ func OAuthConfigFromEnv(providerName, baseURL string) (*OAuthConfig, error) {
 	if v := os.Getenv(prefix + "USER_EMAILS_URL"); v != "" {
 		cfg.UserEmailsURL = v
 	}
+	if cfg.Kind == "feishu" {
+		cfg.FeishuProfileTokenEnabled = parseOAuthBool(os.Getenv(prefix+"PROFILE_TOKEN_ENABLED"), cfg.FeishuProfileTokenEnabled)
+		if v := os.Getenv(prefix + "PROFILE_TOKEN_URL"); v != "" {
+			cfg.FeishuProfileTokenURL = v
+		}
+		if v := os.Getenv(prefix + "APP_TOKEN_URL"); v != "" {
+			cfg.FeishuAppTokenURL = v
+		}
+	}
 	if cfg.RedirectURL == "" && baseURL != "" {
 		cfg.RedirectURL = strings.TrimRight(baseURL, "/") + "/auth/callback/" + providerName
 	}
@@ -126,6 +139,9 @@ func defaultOAuthConfig(providerName string) *OAuthConfig {
 		cfg.TokenURL = "https://open.feishu.cn/open-apis/authen/v2/oauth/token"
 		cfg.TokenRequestStyle = "json"
 		cfg.UserInfoURL = "https://open.feishu.cn/open-apis/authen/v1/user_info"
+		cfg.FeishuProfileTokenEnabled = true
+		cfg.FeishuProfileTokenURL = "https://open.feishu.cn/open-apis/authen/v1/access_token"
+		cfg.FeishuAppTokenURL = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal"
 		cfg.Scopes = []string{"contact:user.email:readonly"}
 	}
 	return cfg
@@ -158,6 +174,14 @@ func (c *OAuthConfig) Validate() error {
 	}
 	if c.TokenRequestStyle != "form" && c.TokenRequestStyle != "json" {
 		errs = append(errs, c.envName("TOKEN_REQUEST_STYLE")+" must be form or json")
+	}
+	if c.Kind == "feishu" && c.FeishuProfileTokenEnabled {
+		if c.FeishuProfileTokenURL == "" {
+			errs = append(errs, c.envName("PROFILE_TOKEN_URL")+" is required when Feishu profile token is enabled")
+		}
+		if c.FeishuAppTokenURL == "" {
+			errs = append(errs, c.envName("APP_TOKEN_URL")+" is required when Feishu profile token is enabled")
+		}
 	}
 	switch {
 	case c.Kind == "feishu" && len(c.AllowedTenantKeys) == 0:

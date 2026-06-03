@@ -96,16 +96,19 @@ If `STELLA_BASE_URL` is set, Stella derives callback URLs automatically as `http
 
 ### OAuth environment variables
 
-| Variable                                       | Required | Description                                                             |
-| ---------------------------------------------- | -------- | ----------------------------------------------------------------------- |
-| `AUTH_OAUTH_PROVIDERS`                         | Yes      | Comma-separated provider IDs, for example `google,github,feishu`        |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`              | Yes      | OAuth client ID / app ID                                                |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`          | Yes      | OAuth client secret / app secret                                        |
-| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`           | No       | Callback URL; defaults to `STELLA_BASE_URL/auth/callback/{provider}`    |
-| `AUTH_OAUTH_{PROVIDER}_SCOPES`                 | No       | Space- or comma-separated scopes; built-in providers have safe defaults |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS`  | Yes\*    | Allowed verified email domains; exact domain or subdomain match         |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | Yes\*    | Allowed tenant keys; required for Feishu                                |
-| `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | No       | For generic OAuth providers, require `email_verified`; default: `true`  |
+| Variable                                       | Required | Description                                                                              |
+| ---------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `AUTH_OAUTH_PROVIDERS`                         | Yes      | Comma-separated provider IDs, for example `google,github,feishu`                         |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`              | Yes      | OAuth client ID / app ID                                                                 |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`          | Yes      | OAuth client secret / app secret                                                         |
+| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`           | No       | Callback URL; defaults to `STELLA_BASE_URL/auth/callback/{provider}`                     |
+| `AUTH_OAUTH_{PROVIDER}_SCOPES`                 | No       | Space- or comma-separated scopes; built-in providers have safe defaults                  |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS`  | Yes\*    | Allowed verified email domains; exact domain or subdomain match                          |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | Yes\*    | Allowed tenant keys; required for Feishu                                                 |
+| `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | No       | For generic OAuth providers, require `email_verified`; default: `true`                   |
+| `AUTH_OAUTH_FEISHU_PROFILE_TOKEN_ENABLED`      | No       | Feishu only; use the profile-bearing token exchange to skip `user_info`; default: `true` |
+| `AUTH_OAUTH_FEISHU_PROFILE_TOKEN_URL`          | No       | Feishu only; override the profile token endpoint                                         |
+| `AUTH_OAUTH_FEISHU_APP_TOKEN_URL`              | No       | Feishu only; override the app token endpoint                                             |
 
 `ALLOWED_EMAIL_DOMAINS` or a provider-supported tenant allowlist is required for every OAuth provider. Google and GitHub use `ALLOWED_EMAIL_DOMAINS`; Feishu specifically requires `ALLOWED_TENANT_KEYS`. This prevents accidentally opening your Stella instance to any account from that provider.
 
@@ -128,6 +131,8 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=your_tenant_key
 ```
 
 Stella requests `contact:user.email:readonly` by default so it can fetch the user's email from Feishu. Feishu user email fields are directory data, not a live mailbox verification proof, so `AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS` is required. If Feishu does not return an email, Stella creates the account with a stable internal email like `union_id@tenant_key.feishu.local`. Email-domain allowlisting is useful as an extra filter, but if you enable it, Feishu must return a matching email.
+
+By default, Stella uses Feishu's profile-bearing token exchange and caches the Feishu app token in memory. This avoids a second `user_info` request during login. If your Feishu app still needs the older token-plus-userinfo flow, set `AUTH_OAUTH_FEISHU_PROFILE_TOKEN_ENABLED=false`.
 
 ### Custom OAuth provider
 

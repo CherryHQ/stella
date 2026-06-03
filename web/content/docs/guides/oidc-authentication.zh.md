@@ -96,16 +96,19 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key_from_feishu
 
 ### OAuth 环境变量
 
-| 变量                                           | 是否必填 | 说明                                                             |
-| ---------------------------------------------- | -------- | ---------------------------------------------------------------- |
-| `AUTH_OAUTH_PROVIDERS`                         | 是       | 逗号分隔的 provider ID，例如 `google,github,feishu`              |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`              | 是       | OAuth client ID / app ID                                         |
-| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`          | 是       | OAuth client secret / app secret                                 |
-| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`           | 否       | 回调地址；默认使用 `STELLA_BASE_URL/auth/callback/{provider}`    |
-| `AUTH_OAUTH_{PROVIDER}_SCOPES`                 | 否       | 空格或逗号分隔的 scope；内置提供商已有安全默认值                 |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS`  | 是\*     | 允许登录的已验证邮箱域名；支持精确域名和子域名                   |
-| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | 是\*     | 允许登录的租户 key；飞书登录必填                                 |
-| `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | 否       | 针对 generic OAuth provider，要求 `email_verified`；默认：`true` |
+| 变量                                           | 是否必填 | 说明                                                                   |
+| ---------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| `AUTH_OAUTH_PROVIDERS`                         | 是       | 逗号分隔的 provider ID，例如 `google,github,feishu`                    |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_ID`              | 是       | OAuth client ID / app ID                                               |
+| `AUTH_OAUTH_{PROVIDER}_CLIENT_SECRET`          | 是       | OAuth client secret / app secret                                       |
+| `AUTH_OAUTH_{PROVIDER}_REDIRECT_URL`           | 否       | 回调地址；默认使用 `STELLA_BASE_URL/auth/callback/{provider}`          |
+| `AUTH_OAUTH_{PROVIDER}_SCOPES`                 | 否       | 空格或逗号分隔的 scope；内置提供商已有安全默认值                       |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS`  | 是\*     | 允许登录的已验证邮箱域名；支持精确域名和子域名                         |
+| `AUTH_OAUTH_{PROVIDER}_ALLOWED_TENANT_KEYS`    | 是\*     | 允许登录的租户 key；飞书登录必填                                       |
+| `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED` | 否       | 针对 generic OAuth provider，要求 `email_verified`；默认：`true`       |
+| `AUTH_OAUTH_FEISHU_PROFILE_TOKEN_ENABLED`      | 否       | 仅飞书；使用带用户资料的 token exchange 跳过 `user_info`；默认：`true` |
+| `AUTH_OAUTH_FEISHU_PROFILE_TOKEN_URL`          | 否       | 仅飞书；覆盖 profile token endpoint                                    |
+| `AUTH_OAUTH_FEISHU_APP_TOKEN_URL`              | 否       | 仅飞书；覆盖 app token endpoint                                        |
 
 每个 OAuth provider 必须设置 `ALLOWED_EMAIL_DOMAINS` 或该 provider 明确支持的 tenant allowlist。Google 和 GitHub 使用 `ALLOWED_EMAIL_DOMAINS`；飞书必须设置 `ALLOWED_TENANT_KEYS`。这样可以避免误把 Stella 开放给该 provider 下的所有账号。
 
@@ -128,6 +131,8 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=your_tenant_key
 ```
 
 Stella 默认请求 `contact:user.email:readonly`，用于从飞书获取用户邮箱。飞书用户邮箱字段是通讯录数据，不等同于实时邮箱验证，因此必须设置 `AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS`。如果飞书没有返回邮箱，Stella 会用类似 `union_id@tenant_key.feishu.local` 的稳定内部邮箱创建账号。邮箱域名 allowlist 适合作为额外过滤；一旦启用，飞书就必须返回匹配的邮箱。
+
+默认情况下，Stella 使用飞书带用户资料的 token exchange，并在内存中缓存飞书 app token。这样登录回调时可以少一次 `user_info` 请求。如果你的飞书应用仍需要旧的 token 加 userinfo 流程，可以设置 `AUTH_OAUTH_FEISHU_PROFILE_TOKEN_ENABLED=false`。
 
 ### 自定义 OAuth 提供商
 

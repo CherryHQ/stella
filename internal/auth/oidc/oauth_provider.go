@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -18,9 +20,16 @@ import (
 type OAuthProvider struct {
 	cfg    *OAuthConfig
 	client *http.Client
+
+	mu                      sync.Mutex
+	cachedFeishuAppToken    string
+	feishuAppTokenExpiresAt time.Time
 }
 
-const oauthHTTPTimeout = 10 * time.Second
+const (
+	oauthHTTPTimeout          = 10 * time.Second
+	feishuAppTokenRefreshSkew = 5 * time.Minute
+)
 
 func NewOAuthProvider(cfg *OAuthConfig) (*OAuthProvider, error) {
 	return NewOAuthProviderWithClient(cfg, &http.Client{Timeout: oauthHTTPTimeout})
@@ -69,11 +78,35 @@ func (p *OAuthProvider) HandleCallback(ctx context.Context, r *http.Request, sta
 	if code == "" {
 		return nil, errors.New("oauth login: missing code in callback")
 	}
+	if p.cfg.Kind == "feishu" && p.cfg.FeishuProfileTokenEnabled {
+		started := time.Now()
+		appToken, cached, err := p.feishuAppToken(ctx)
+		logOAuthTiming(p.cfg.ProviderName, "feishu_app_token", started, err, "cached", cached)
+		if err != nil {
+			return nil, err
+		}
+
+		started = time.Now()
+		profile, err := p.exchangeFeishuProfileToken(ctx, code, appToken)
+		logOAuthTiming(p.cfg.ProviderName, "feishu_profile_token", started, err)
+		if err != nil {
+			return nil, err
+		}
+		if err := p.checkAllowed(profile); err != nil {
+			return nil, err
+		}
+		return profile.identity(p.cfg.ProviderName)
+	}
+
+	started := time.Now()
 	token, err := p.exchangeCode(ctx, code, state.CodeVerifier)
+	logOAuthTiming(p.cfg.ProviderName, "exchange_code", started, err)
 	if err != nil {
 		return nil, err
 	}
+	started = time.Now()
 	profile, err := p.fetchProfile(ctx, token.AccessToken)
+	logOAuthTiming(p.cfg.ProviderName, "fetch_profile", started, err)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +223,99 @@ type feishuUserInfoResponse struct {
 	Data map[string]any `json:"data"`
 }
 
+type feishuAppTokenResponse struct {
+	Code           int                   `json:"code"`
+	Msg            string                `json:"msg"`
+	AppAccessToken string                `json:"app_access_token"`
+	Expire         int64                 `json:"expire"`
+	Data           feishuAppTokenPayload `json:"data"`
+}
+
+type feishuAppTokenPayload struct {
+	AppAccessToken string `json:"app_access_token"`
+	Expire         int64  `json:"expire"`
+}
+
+type feishuProfileTokenResponse struct {
+	Code int            `json:"code"`
+	Msg  string         `json:"msg"`
+	Data map[string]any `json:"data"`
+}
+
+func (p *OAuthProvider) feishuAppToken(ctx context.Context) (string, bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	if p.cachedFeishuAppToken != "" && now.Before(p.feishuAppTokenExpiresAt) {
+		return p.cachedFeishuAppToken, true, nil
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(map[string]string{
+		"app_id":     p.cfg.ClientID,
+		"app_secret": p.cfg.ClientSecret,
+	}); err != nil {
+		return "", false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.FeishuAppTokenURL, &buf)
+	if err != nil {
+		return "", false, fmt.Errorf("oauth login: build Feishu app token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Accept", "application/json")
+
+	var out feishuAppTokenResponse
+	if err := p.doJSON(req, &out); err != nil {
+		return "", false, fmt.Errorf("oauth login: fetch Feishu app token: %w", err)
+	}
+	if out.Code != 0 {
+		return "", false, fmt.Errorf("oauth login: Feishu app token error %d: %s", out.Code, out.Msg)
+	}
+	token := out.AppAccessToken
+	expiresIn := out.Expire
+	if token == "" {
+		token = out.Data.AppAccessToken
+		expiresIn = out.Data.Expire
+	}
+	if token == "" {
+		return "", false, errors.New("oauth login: Feishu app token response missing app_access_token")
+	}
+	if expiresIn <= int64(feishuAppTokenRefreshSkew.Seconds()) {
+		expiresIn = int64((time.Hour + feishuAppTokenRefreshSkew).Seconds())
+	}
+
+	p.cachedFeishuAppToken = token
+	p.feishuAppTokenExpiresAt = now.Add(time.Duration(expiresIn)*time.Second - feishuAppTokenRefreshSkew)
+	return token, false, nil
+}
+
+func (p *OAuthProvider) exchangeFeishuProfileToken(ctx context.Context, code, appToken string) (*oauthProfile, error) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(map[string]string{
+		"grant_type": "authorization_code",
+		"code":       code,
+	}); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.FeishuProfileTokenURL, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("oauth login: build Feishu profile token request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+appToken)
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Accept", "application/json")
+
+	var out feishuProfileTokenResponse
+	if err := p.doJSON(req, &out); err != nil {
+		return nil, fmt.Errorf("oauth login: exchange Feishu profile token: %w", err)
+	}
+	if out.Code != 0 {
+		return nil, fmt.Errorf("oauth login: Feishu profile token error %d: %s", out.Code, out.Msg)
+	}
+	return feishuProfileFromClaims(out.Data), nil
+}
+
 func (p *OAuthProvider) fetchFeishuProfile(ctx context.Context, accessToken string) (*oauthProfile, error) {
 	var out feishuUserInfoResponse
 	if err := p.getBearerJSON(ctx, p.cfg.UserInfoURL, accessToken, &out); err != nil {
@@ -198,7 +324,13 @@ func (p *OAuthProvider) fetchFeishuProfile(ctx context.Context, accessToken stri
 	if out.Code != 0 {
 		return nil, fmt.Errorf("oauth login: Feishu user info error %d: %s", out.Code, out.Msg)
 	}
-	claims := out.Data
+	return feishuProfileFromClaims(out.Data), nil
+}
+
+func feishuProfileFromClaims(claims map[string]any) *oauthProfile {
+	if claims == nil {
+		claims = make(map[string]any)
+	}
 	profile := profileFromClaims(claims)
 	profile.Subject = firstClaim(claims, "union_id", "open_id", "user_id")
 	profile.Email = firstClaim(claims, "email", "enterprise_email")
@@ -210,7 +342,7 @@ func (p *OAuthProvider) fetchFeishuProfile(ctx context.Context, accessToken stri
 		profile.Email = syntheticFeishuEmail(profile.Subject, profile.TenantKey)
 		claims["email_synthetic"] = true
 	}
-	return profile, nil
+	return profile
 }
 
 type githubEmail struct {
@@ -280,6 +412,20 @@ func (p *OAuthProvider) doJSON(req *http.Request, out any) error {
 		return err
 	}
 	return nil
+}
+
+func logOAuthTiming(provider, step string, started time.Time, err error, attrs ...any) {
+	fields := append([]any{
+		"provider", provider,
+		"step", step,
+		"dur", time.Since(started),
+	}, attrs...)
+	if err != nil {
+		fields = append(fields, "error", err)
+		slog.Warn("oauth: callback step failed", fields...)
+		return
+	}
+	slog.Info("oauth: callback step completed", fields...)
 }
 
 func (p *OAuthProvider) checkAllowed(profile *oauthProfile) error {

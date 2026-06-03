@@ -28,6 +28,15 @@ func TestOAuthConfigsFromEnvFeishuDefaults(t *testing.T) {
 	if cfg.AuthURL == "" || cfg.TokenURL == "" || cfg.UserInfoURL == "" {
 		t.Fatalf("missing Feishu defaults: %#v", cfg)
 	}
+	if !cfg.FeishuProfileTokenEnabled {
+		t.Fatal("expected Feishu profile token fast path to be enabled")
+	}
+	if cfg.FeishuProfileTokenURL != "https://open.feishu.cn/open-apis/authen/v1/access_token" {
+		t.Fatalf("FeishuProfileTokenURL = %q", cfg.FeishuProfileTokenURL)
+	}
+	if cfg.FeishuAppTokenURL != "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal" {
+		t.Fatalf("FeishuAppTokenURL = %q", cfg.FeishuAppTokenURL)
+	}
 }
 
 func TestOAuthConfigsFromEnvRequiresFeishuTenantAllowlist(t *testing.T) {
