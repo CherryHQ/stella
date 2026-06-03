@@ -291,6 +291,18 @@ const defaultChatTimeout = 30 * time.Minute
 // ErrChatTimeout is returned when the main agent chat exceeds its wall-clock timeout.
 var ErrChatTimeout = agenterr.ErrChatTimeout
 
+// sendEvent forwards evt to out unless ctx is done. It returns false when the
+// consumer has gone away (ctx cancelled), so producers stop emitting instead of
+// blocking forever on a buffered channel nobody is draining.
+func sendEvent(ctx context.Context, out chan<- Event, evt Event) bool {
+	select {
+	case out <- evt:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // Chat runs the Engine agent loop with the provided history and forwards events.
 func (r *runner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
 	out := make(chan Event, 100)
@@ -328,7 +340,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			if len(excludedTools) > 0 {
 				filteredSet, filteredDefs, err := filterRunnerTools(r.tools, excludedTools)
 				if err != nil {
-					out <- Event{Err: fmt.Errorf("runner: %w", err)}
+					sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 					return
 				}
 				toolSet = filteredSet
@@ -336,7 +348,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			}
 			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
 			if err != nil {
-				out <- Event{Err: fmt.Errorf("runner: %w", err)}
+				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return
 			}
 			loopRunner = tempRunner
@@ -383,13 +395,15 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 
 		if _, err := loopRunner.Run(ctx, messages, func(e coreagent.LoopEvent) {
 			for _, evt := range convertLoopEvent(e) {
-				out <- evt
+				if !sendEvent(ctx, out, evt) {
+					return
+				}
 			}
 		}); err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
 				err = fmt.Errorf("%w: %w", ErrChatTimeout, err)
 			}
-			out <- Event{Err: err}
+			sendEvent(ctx, out, Event{Err: err})
 		}
 
 		if r.session != nil {

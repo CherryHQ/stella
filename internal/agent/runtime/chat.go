@@ -202,6 +202,19 @@ func (rt *Runtime) compact_(ctx context.Context, sess memory.Session) (string, e
 		result.TokensBefore, result.TokensAfter), nil
 }
 
+// sendEvent forwards evt to out unless ctx is done. It returns false when the
+// consumer has gone away (ctx cancelled), letting the forwarder stop instead of
+// blocking on a channel nobody drains — which would otherwise wedge the upstream
+// runner goroutine indefinitely.
+func sendEvent(ctx context.Context, out chan<- Event, evt Event) bool {
+	select {
+	case out <- evt:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // streamEvents reads runner events, persists messages, and forwards to the caller.
 func (rt *Runtime) streamEvents(
 	ctx context.Context,
@@ -244,10 +257,10 @@ func (rt *Runtime) streamEvents(
 				if err := rt.mem.Append(persistCtx, memSess, noticeMsg); err != nil {
 					rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
 				}
-				out <- Event{Text: notice}
+				sendEvent(ctx, out, Event{Text: notice})
 				return
 			}
-			out <- evt
+			sendEvent(ctx, out, evt)
 			return
 		}
 
@@ -269,7 +282,9 @@ func (rt *Runtime) streamEvents(
 		}
 
 		if evt.ToolUse != nil {
-			out <- evt
+			if !sendEvent(ctx, out, evt) {
+				break
+			}
 			continue
 		}
 
@@ -279,7 +294,9 @@ func (rt *Runtime) streamEvents(
 		if evt.Text != "" {
 			textBuf.WriteString(evt.Text)
 		}
-		out <- evt
+		if !sendEvent(ctx, out, evt) {
+			break
+		}
 	}
 
 	if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
