@@ -14,20 +14,23 @@ Stella 支持三种登录方式：
 
 未配置外部 OIDC 提供商（未设置 `OIDC_ISSUER_URL`）时，Stella 会启用本地邮箱密码登录。本地登录不再暴露 OIDC issuer 端点；密码提交通过 Stella 的 JSON API 完成，并直接创建 Stella 会话。
 
-第一个注册的用户自动成为管理员。创建 bootstrap 管理员后，本地自助注册默认关闭。只有当你希望后续用户也能自行创建本地账号时，才设置 `LOCAL_OIDC_ALLOW_REGISTRATION=true`。
+第一个注册的用户自动成为管理员。创建 bootstrap 管理员后，本地自助注册默认关闭。只有当你希望后续用户也能自行创建本地账号时，才设置 `LOCAL_PASSWORD_ALLOW_REGISTRATION=true`。
 
-启用自助注册时，如需减少误注册，设置 `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 为逗号分隔的允许邮箱域名列表。只有这些域名（及其子域名）下的邮箱才能注册；不设置则允许任意邮箱。它**不会**验证邮箱所有权——真正的安全边界请使用外部 OIDC/OAuth 提供商。
+启用自助注册时，如需减少误注册，设置 `LOCAL_PASSWORD_ALLOWED_EMAIL_DOMAINS` 为逗号分隔的允许邮箱域名列表。只有这些域名（及其子域名）下的邮箱才能注册；不设置则允许任意邮箱。它**不会**验证邮箱所有权——真正的安全边界请使用外部 OIDC/OAuth 提供商。
 
 ```bash
-LOCAL_OIDC_ALLOW_REGISTRATION=true
-LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
+LOCAL_PASSWORD_ALLOW_REGISTRATION=true
+LOCAL_PASSWORD_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
 ```
+
+旧的 `LOCAL_OIDC_ALLOW_REGISTRATION` 和 `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 仍会兼容读取，但新部署应使用 `LOCAL_PASSWORD_*` 名称。
 
 ### 安全限制
 
 - 本地密码登录只受密码保护。
-- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` 只在注册时检查用户提交的邮箱字符串，不是邮箱验证，也不影响已有用户登录。
+- `LOCAL_PASSWORD_ALLOWED_EMAIL_DOMAINS` 只在注册时检查用户提交的邮箱字符串，不是邮箱验证，也不影响已有用户登录。
 - 生产访问控制优先使用飞书 tenant allowlist、Google/GitHub verified email allowlist，或外部 OIDC 提供商。
+- 如果 Stella 位于反向代理后，并且你希望登录限流使用真实客户端 IP，请将 `STELLA_TRUSTED_PROXIES` 设置为代理 IP 或 CIDR 网段。未设置时，Stella 会在认证限流中忽略 `X-Forwarded-For` 和 `X-Real-IP`。
 
 ## 外部 OIDC 提供商
 

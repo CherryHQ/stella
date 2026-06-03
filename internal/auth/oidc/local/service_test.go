@@ -82,3 +82,22 @@ func TestServiceExplicitRegistrationStaysOpen(t *testing.T) {
 		t.Fatal("expected explicit registration to stay open")
 	}
 }
+
+func TestServiceDisabledUserRequiresValidPassword(t *testing.T) {
+	svc, store := newTestService(t, &Config{AllowRegistration: true, BootstrapRegistration: true})
+	ctx := context.Background()
+	userID := registerTestUser(t, svc, "disabled@example.com")
+	if err := store.UpdateUserActive(ctx, userID, false); err != nil {
+		t.Fatalf("UpdateUserActive: %v", err)
+	}
+
+	_, err := svc.Login(ctx, LoginInput{Email: "disabled@example.com", Password: "wrong-password"})
+	if !errors.Is(err, ErrInvalidLogin) {
+		t.Fatalf("wrong password error = %v, want ErrInvalidLogin", err)
+	}
+
+	_, err = svc.Login(ctx, LoginInput{Email: "disabled@example.com", Password: "password123"})
+	if !errors.Is(err, ErrAccountDisabled) {
+		t.Fatalf("valid password error = %v, want ErrAccountDisabled", err)
+	}
+}

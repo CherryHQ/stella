@@ -43,7 +43,7 @@ func (c *Config) IsEmailAllowed(email string) bool {
 	return false
 }
 
-// AllowRegistrationFromEnv parses LOCAL_OIDC_ALLOW_REGISTRATION. Empty means
+// AllowRegistrationFromEnv parses LOCAL_PASSWORD_ALLOW_REGISTRATION. Empty means
 // ongoing self-registration is closed; first-user bootstrap is handled separately.
 func AllowRegistrationFromEnv(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {

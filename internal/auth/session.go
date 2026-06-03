@@ -81,9 +81,9 @@ func GetSessionCookie(r *http.Request) (string, error) {
 	return c.Value, nil
 }
 
-// --- SessionManager (new OIDC-based token-hash sessions) ---
+// --- SessionManager (token-hash sessions) ---
 
-// SessionManager creates and validates OIDC-based sessions backed by SessionStore.
+// SessionManager creates and validates login sessions backed by SessionStore.
 // Raw tokens are stored in cookies; only SHA-256 hashes are stored in the DB.
 type SessionManager struct {
 	store  SessionStore

@@ -9,8 +9,7 @@ import (
 )
 
 // CredentialService manages local password credentials stored in auth_credential.
-// These credentials are used exclusively by the local OIDC authorize screen;
-// they are not an alternative app-login path.
+// These credentials are used by Stella's local password login flow.
 type CredentialService struct {
 	store CredentialStore
 }

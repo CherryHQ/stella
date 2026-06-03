@@ -14,20 +14,23 @@ When external login is configured, the login page shows provider buttons that re
 
 When no external OIDC provider is configured (`OIDC_ISSUER_URL` is not set), Stella enables local email/password login. No OIDC issuer endpoints are exposed for local login; credential submission happens through Stella's JSON API and creates a Stella session directly.
 
-The first user to register automatically becomes an admin. After that bootstrap account exists, local self-registration is closed by default. Set `LOCAL_OIDC_ALLOW_REGISTRATION=true` only when you want additional users to create their own local accounts.
+The first user to register automatically becomes an admin. After that bootstrap account exists, local self-registration is closed by default. Set `LOCAL_PASSWORD_ALLOW_REGISTRATION=true` only when you want additional users to create their own local accounts.
 
-To reduce accidental self-registration when you enable it, set `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email. This does **not** verify mailbox ownership — use an external OIDC/OAuth provider for a real security boundary.
+To reduce accidental self-registration when you enable it, set `LOCAL_PASSWORD_ALLOWED_EMAIL_DOMAINS` to a comma-separated list of allowed email domains. Only addresses on those domains (or their subdomains) may register; leave it unset to allow any email. This does **not** verify mailbox ownership — use an external OIDC/OAuth provider for a real security boundary.
 
 ```bash
-LOCAL_OIDC_ALLOW_REGISTRATION=true
-LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
+LOCAL_PASSWORD_ALLOW_REGISTRATION=true
+LOCAL_PASSWORD_ALLOWED_EMAIL_DOMAINS=cicc.com.cn,example.com
 ```
+
+The old `LOCAL_OIDC_ALLOW_REGISTRATION` and `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` names still work for compatibility, but new deployments should use the `LOCAL_PASSWORD_*` names.
 
 ### Security limitations
 
 - Local password login is protected by the password only.
-- `LOCAL_OIDC_ALLOWED_EMAIL_DOMAINS` only checks the submitted email string during registration. It is not email verification and does not affect existing-user login.
+- `LOCAL_PASSWORD_ALLOWED_EMAIL_DOMAINS` only checks the submitted email string during registration. It is not email verification and does not affect existing-user login.
 - For production access control, prefer Feishu tenant allowlisting, Google/GitHub verified email allowlisting, or an external OIDC provider.
+- If Stella runs behind a reverse proxy and you want login rate limits to use the original client IP, set `STELLA_TRUSTED_PROXIES` to the proxy IPs or CIDR ranges. Without it, Stella ignores `X-Forwarded-For` and `X-Real-IP` for authentication rate limiting.
 
 ## External OIDC provider
 

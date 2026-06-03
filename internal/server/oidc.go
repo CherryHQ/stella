@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
+	"os"
 	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
@@ -53,14 +55,16 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
-	email := string(body.Email)
+	email := normalizeEmail(string(body.Email))
 	if err := s.rateLimiter.CheckIP(ip); err != nil {
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
-	if err := s.rateLimiter.CheckUsername(email); err != nil {
-		writeError(w, http.StatusTooManyRequests, err.Error())
-		return
+	if email != "" {
+		if err := s.rateLimiter.CheckUsername(email); err != nil {
+			writeError(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
 	}
 
 	userID, err := s.localAuth.Login(r.Context(), local.LoginInput{
@@ -69,7 +73,7 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.rateLimiter.RecordIPAttempt(ip)
-		if errors.Is(err, local.ErrInvalidLogin) {
+		if email != "" && errors.Is(err, local.ErrInvalidLogin) {
 			s.rateLimiter.RecordLoginFailure(email)
 		}
 		s.writeLocalAuthError(w, err)
@@ -82,7 +86,9 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.finalizeLogin(w, r, result)
-	s.rateLimiter.RecordLoginSuccess(email)
+	if email != "" {
+		s.rateLimiter.RecordLoginSuccess(email)
+	}
 	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
 }
 
@@ -99,19 +105,29 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
+	email := normalizeEmail(string(body.Email))
 	if err := s.rateLimiter.CheckIP(ip); err != nil {
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
+	if email != "" {
+		if err := s.rateLimiter.CheckRegistration(email); err != nil {
+			writeError(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
+	}
 
 	userID, err := s.localAuth.Register(r.Context(), local.RegisterInput{
 		Name:            body.Name,
-		Email:           string(body.Email),
+		Email:           email,
 		Password:        body.Password,
 		ConfirmPassword: body.ConfirmPassword,
 	})
 	if err != nil {
 		s.rateLimiter.RecordIPAttempt(ip)
+		if email != "" {
+			s.rateLimiter.RecordRegistrationFailure(email)
+		}
 		s.writeLocalAuthError(w, err)
 		return
 	}
@@ -122,6 +138,9 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.finalizeLogin(w, r, result)
+	if email != "" {
+		s.rateLimiter.RecordRegistrationSuccess(email)
+	}
 	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
 }
 
@@ -135,10 +154,11 @@ func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 			slog.Info("local auth: registration rejected for existing email")
 		}
 		writeError(w, http.StatusBadRequest, "invalid request")
-	case errors.Is(err, local.ErrInvalidLogin):
+	case errors.Is(err, local.ErrInvalidLogin), errors.Is(err, local.ErrAccountDisabled):
+		if errors.Is(err, local.ErrAccountDisabled) {
+			slog.Info("local auth: login rejected for disabled account")
+		}
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
-	case errors.Is(err, local.ErrAccountDisabled):
-		writeError(w, http.StatusUnauthorized, "account is disabled")
 	case errors.Is(err, local.ErrRegistrationDisabled):
 		writeError(w, http.StatusForbidden, "registration is disabled")
 	case errors.Is(err, local.ErrEmailNotAllowed):
@@ -149,20 +169,74 @@ func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
 }
 
 func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return strings.TrimSpace(ip)
+	remote := remoteIP(r)
+	if trustedProxy(remote) {
+		if ip := forwardedClientIP(r); ip != "" {
+			return ip
+		}
+	}
+	return remote
+}
+
+func forwardedClientIP(r *http.Request) string {
+	if ip := validIP(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
 	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if ip, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(ip)
+			return validIP(ip)
 		}
-		return strings.TrimSpace(xff)
+		return validIP(xff)
 	}
+	return ""
+}
+
+func validIP(s string) string {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return ""
+	}
+	return addr.String()
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func trustedProxy(remote string) bool {
+	raw := os.Getenv("STELLA_TRUSTED_PROXIES")
+	if strings.TrimSpace(raw) == "" {
+		return false
+	}
+	addr, err := netip.ParseAddr(remote)
+	if err != nil {
+		return false
+	}
+	for item := range strings.SplitSeq(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if prefix, err := netip.ParsePrefix(item); err == nil {
+			if prefix.Contains(addr) {
+				return true
+			}
+			continue
+		}
+		proxy, err := netip.ParseAddr(item)
+		if err == nil && proxy == addr {
+			return true
+		}
+	}
+	return false
 }
 
 // handleOIDCLogin handles GET /auth/login/{provider}.
@@ -200,6 +274,7 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	payload.ProviderName = providerName
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	if err := s.stateMgr.SetCookie(w, payload, secure); err != nil {
 		slog.Error("oidc: set state cookie", "error", err)
@@ -246,6 +321,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	payload, err := s.stateMgr.ValidateAndClear(w, r, queryState)
 	if err != nil {
 		slog.Warn("oidc: state validation failed", "provider", providerName, "error", err)
+		http.Error(w, "invalid or expired login session", http.StatusBadRequest)
+		return
+	}
+
+	if payload.ProviderName != providerName {
+		slog.Warn("oidc: provider mismatch in state", "provider", providerName, "state_provider", payload.ProviderName)
 		http.Error(w, "invalid or expired login session", http.StatusBadRequest)
 		return
 	}

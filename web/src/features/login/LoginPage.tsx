@@ -50,7 +50,12 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: providersData, isPending: providersLoading } = useQuery({
+  const {
+    data: providersData,
+    error: providersError,
+    isError: providersFailed,
+    isPending: providersLoading,
+  } = useQuery({
     queryKey: ["auth-providers"],
     queryFn: () => listAuthProviders({ throwOnError: true }),
     staleTime: 60_000,
@@ -86,6 +91,10 @@ export function LoginPage() {
         <div className="flex justify-center py-8">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
+      ) : providersFailed ? (
+        <p className="text-center text-sm text-muted-foreground">
+          {authErrorMessage(providersError, t("login.providersUnavailable"))}
+        </p>
       ) : hasLocalProvider ? (
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-1.5">

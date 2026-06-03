@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
 )
@@ -19,8 +20,10 @@ type OAuthProvider struct {
 	client *http.Client
 }
 
+const oauthHTTPTimeout = 10 * time.Second
+
 func NewOAuthProvider(cfg *OAuthConfig) (*OAuthProvider, error) {
-	return NewOAuthProviderWithClient(cfg, http.DefaultClient)
+	return NewOAuthProviderWithClient(cfg, &http.Client{Timeout: oauthHTTPTimeout})
 }
 
 func NewOAuthProviderWithClient(cfg *OAuthConfig, client *http.Client) (*OAuthProvider, error) {
@@ -28,7 +31,7 @@ func NewOAuthProviderWithClient(cfg *OAuthConfig, client *http.Client) (*OAuthPr
 		return nil, err
 	}
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: oauthHTTPTimeout}
 	}
 	return &OAuthProvider{cfg: cfg, client: client}, nil
 }

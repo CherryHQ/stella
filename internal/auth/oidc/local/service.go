@@ -78,13 +78,12 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (string, error) {
 		verifyDummyPassword(in.Password)
 		return "", ErrInvalidLogin
 	}
-	if !user.IsActive {
-		return "", ErrAccountDisabled
-	}
-
 	credSvc := auth.NewCredentialService(s.credentials)
 	if err := credSvc.VerifyPassword(ctx, user.ID, in.Password); err != nil {
 		return "", ErrInvalidLogin
+	}
+	if !user.IsActive {
+		return "", ErrAccountDisabled
 	}
 
 	return user.ID, nil

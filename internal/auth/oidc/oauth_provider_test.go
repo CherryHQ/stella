@@ -213,6 +213,12 @@ func TestOAuthProviderGenericCanTrustProviderEmail(t *testing.T) {
 	}
 }
 
+func TestBoolClaimAcceptsStringTrue(t *testing.T) {
+	if !boolClaim(map[string]any{"email_verified": "true"}, "email_verified") {
+		t.Fatal("expected string true to be accepted")
+	}
+}
+
 func TestOAuthProviderRejectsDisallowedFeishuTenant(t *testing.T) {
 	cfg := &OAuthConfig{
 		ProviderName:      "feishu",
