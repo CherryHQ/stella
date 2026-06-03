@@ -34,6 +34,7 @@ func SPAHandler() http.Handler {
 	dist, err := fs.Sub(staticFS, "static/dist")
 	if err != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = w.Write(indexHTML)
 		})
@@ -43,10 +44,19 @@ func SPAHandler() http.Handler {
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if f, err := dist.Open(p); err == nil {
 			_ = f.Close()
+			w.Header().Set("Cache-Control", cacheControlForSPAPath(p))
 			fileServer.ServeHTTP(w, r)
 			return
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(indexHTML)
 	})
+}
+
+func cacheControlForSPAPath(path string) string {
+	if strings.HasPrefix(path, "assets/") {
+		return "public, max-age=31536000, immutable"
+	}
+	return "no-cache"
 }
