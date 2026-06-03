@@ -19,8 +19,14 @@ func TestLoadConfigDisabled(t *testing.T) {
 	if cfg.ServiceName != "stella" {
 		t.Errorf("ServiceName = %q, want %q", cfg.ServiceName, "stella")
 	}
-	if cfg.SampleRate != 1.0 {
-		t.Errorf("SampleRate = %v, want 1.0", cfg.SampleRate)
+}
+
+func TestLoadConfigDisabledViaKillSwitch(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+
+	if LoadConfig().Enabled {
+		t.Error("Enabled = true, want false when OTEL_SDK_DISABLED=true")
 	}
 }
 

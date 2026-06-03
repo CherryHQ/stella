@@ -20,7 +20,7 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 		"channel", hctx.Channel,
 	)
 
-	if h.otelEnabled() {
+	if h.otelEnabled() && hctx.SessionID != "" {
 		h.mu.Lock()
 		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
 		st.mu.Lock()

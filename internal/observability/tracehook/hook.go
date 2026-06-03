@@ -16,8 +16,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/CherryHQ/stella/internal/observability"
 )
 
 // Hook logs LLM, tool, and memory call details via slog, and records OTel
@@ -57,13 +55,14 @@ type sessionTrace struct {
 	lastActive time.Time
 }
 
-// New builds the core trace hook. Whether OTel spans are recorded is decided
-// once from the global OTel config; span export is handled by the global
-// provider installed during server startup.
-func New() *Hook {
+// New builds the core trace hook. enabled mirrors whether the global tracer
+// provider was installed (see observability.Init); the caller passes it so the
+// hook and the provider share a single source of truth instead of each reading
+// the environment. Span export is handled by that global provider.
+func New(enabled bool) *Hook {
 	h := &Hook{
 		log:      slog.With("hook", "trace"),
-		enabled:  observability.LoadConfig().Enabled,
+		enabled:  enabled,
 		sessions: make(map[string]*sessionTrace),
 		done:     make(chan struct{}),
 	}
@@ -124,18 +123,33 @@ func (h *Hook) getOrCreateSession(agentID, sessionID string) *sessionTrace {
 	return st
 }
 
-// endSession ends all active spans for a session.
+// endSession ends all active spans for a session. It snapshots the span
+// fields under st.mu and clears them so a concurrent reaper/Close and an
+// in-flight callback can never double-End the same span.
 func (h *Hook) endSession(st *sessionTrace) {
-	if st.llmSpan != nil {
-		st.llmSpan.End()
+	st.mu.Lock()
+	llmSpan := st.llmSpan
+	toolSpans := st.toolSpans
+	turnSpan := st.turnSpan
+	chatSpan := st.chatSpan
+	st.llmSpan = nil
+	st.toolSpans = make(map[string]trace.Span)
+	st.turnSpan = nil
+	st.chatSpan = nil
+	st.mu.Unlock()
+
+	if llmSpan != nil {
+		llmSpan.End()
 	}
-	for _, span := range st.toolSpans {
+	for _, span := range toolSpans {
 		span.End()
 	}
-	if st.turnSpan != nil {
-		st.turnSpan.End()
+	if turnSpan != nil {
+		turnSpan.End()
 	}
-	st.chatSpan.End()
+	if chatSpan != nil {
+		chatSpan.End()
+	}
 }
 
 // reaper periodically cleans up idle sessions.

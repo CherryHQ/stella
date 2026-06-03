@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -12,6 +13,28 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
+
+// Credential shapes scrubbed out of tool input/result before they become span
+// attributes. Tracing is always-on infra (gated only by the OTLP endpoint), so
+// raw bash commands and tool results would otherwise leak tokens to a
+// third-party backend. Best-effort, not a guarantee — see CR-004.
+var (
+	// Credentials embedded in URLs: scheme://user:pass@host.
+	reURLCreds = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@]+):[^\s:/@]+@`)
+	// "Bearer <token>" (covers Authorization: Bearer ...).
+	reBearer = regexp.MustCompile(`(?i)bearer\s+\S+`)
+	// key/token/secret/password assignments, e.g. api_key=x, token: x.
+	reSecretAssign = regexp.MustCompile(`(?i)([a-z0-9_-]*(?:api[_-]?key|secret|token|password|passwd|pwd))(\s*[:=]\s*)\S+`)
+)
+
+// redactSecrets masks credential-like substrings. It runs before truncation so
+// a secret near the 200-char boundary is still masked on the retained prefix.
+func redactSecrets(s string) string {
+	s = reURLCreds.ReplaceAllString(s, "$1:[REDACTED]@")
+	s = reBearer.ReplaceAllString(s, "Bearer [REDACTED]")
+	s = reSecretAssign.ReplaceAllString(s, "$1$2[REDACTED]")
+	return s
+}
 
 func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
 	input := summarizeArgs(hctx.ToolName, hctx.Arguments)
@@ -24,7 +47,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 		"user_id", hctx.UserID,
 	)
 
-	if h.otelEnabled() {
+	if h.otelEnabled() && hctx.SessionID != "" {
 		key := sessionKey(hctx.AgentID, hctx.SessionID)
 		h.mu.Lock()
 		st := h.sessions[key]
@@ -44,7 +67,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 					attribute.String("user_id", hctx.UserID),
 					attribute.String("agent_id", hctx.AgentID),
 					attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
-					attribute.String("gen_ai.tool.input", input),
+					attribute.String("gen_ai.tool.input", redactSecrets(input)),
 				),
 			)
 
@@ -97,7 +120,7 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 		return
 	}
 
-	spanResult := hctx.Result
+	spanResult := redactSecrets(hctx.Result)
 	if len(spanResult) > 200 {
 		spanResult = spanResult[:200] + "..."
 	}

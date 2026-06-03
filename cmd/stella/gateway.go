@@ -82,6 +82,27 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		return err
 	}
+
+	// Initialize global OTel tracing before any component creates spans. Its
+	// shutdown defer is registered first so it runs LAST (LIFO): only after
+	// poolManager.Close() → tracehook.Close() → endSession() has ended every
+	// in-flight session span do we flush and stop the provider. Registering it
+	// here (not inside runServer) is load-bearing — runServer returns before
+	// this defer fires, so a shutdown registered there would stop the provider
+	// while those end-of-session spans are still being recorded, dropping them.
+	obs, err := observability.Init(ctx)
+	if err != nil {
+		cancel()
+		return fmt.Errorf("init observability: %w", err)
+	}
+	defer func() {
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutCancel()
+		if err := obs.Shutdown(shutCtx); err != nil {
+			slog.Warn("otel shutdown failed", "error", err)
+		}
+	}()
+
 	defer func() {
 		cancel()
 		s.waitBackgroundTasks()
@@ -98,22 +119,6 @@ func serverAction(c *ucli.Context) error {
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
-
-	// Initialize global OTel tracing before any component creates spans. The
-	// shutdown defer is registered first so it runs last (LIFO): after g.Wait()
-	// returns and the scheduler/dispatcher defers below have stopped their work,
-	// guaranteeing in-flight spans are flushed rather than dropped mid-request.
-	obs, err := observability.Init(gctx)
-	if err != nil {
-		return fmt.Errorf("init observability: %w", err)
-	}
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := obs.Shutdown(shutCtx); err != nil {
-			slog.Warn("otel shutdown failed", "error", err)
-		}
-	}()
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {

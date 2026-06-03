@@ -28,12 +28,19 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		"user_id", hctx.UserID,
 	)
 
-	if h.otelEnabled() {
+	if h.otelEnabled() && hctx.SessionID != "" {
 		h.mu.Lock()
 		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
 		h.mu.Unlock()
 
 		st.mu.Lock()
+		// End a prior LLM span that never saw its OnPostLLMCall (e.g. a dropped
+		// or interleaved call) so it can't leak or pin activeOps forever.
+		if st.llmSpan != nil {
+			st.llmSpan.End()
+			st.llmSpan = nil
+			st.activeOps.Add(-1)
+		}
 		if st.turnSpan != nil {
 			st.turnSpan.End()
 		}

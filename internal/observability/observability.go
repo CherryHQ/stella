@@ -2,10 +2,10 @@
 // It is initialized once during server startup and shut down once at exit, so
 // tracing is server-level infrastructure rather than a toggleable plugin.
 //
-// When OTEL_EXPORTER_OTLP_ENDPOINT is unset, Init is a no-op: the global
-// provider stays the SDK default (no-op), and Shutdown does nothing. Exporter
-// transport details (protocol, headers, TLS) are owned by the OTel SDK via its
-// standard environment variables.
+// When OTEL_EXPORTER_OTLP_ENDPOINT is unset (or OTEL_SDK_DISABLED=true), Init is
+// a no-op: the global provider stays the SDK default (no-op), and Shutdown does
+// nothing. Exporter transport details (protocol, headers, TLS) and sampling are
+// owned by the OTel SDK via its standard environment variables.
 package observability
 
 import (
@@ -22,20 +22,22 @@ import (
 )
 
 // Config holds tracer settings derived from standard OTel environment
-// variables. Exporter-level vars (endpoint, protocol, headers, TLS) are
-// consumed natively by the exporter SDK and are not duplicated here.
+// variables. Exporter-level vars (endpoint, protocol, headers, TLS) and the
+// sampler (OTEL_TRACES_SAMPLER) are consumed natively by the SDK and are not
+// duplicated here.
 type Config struct {
-	Enabled     bool    // true when OTEL_EXPORTER_OTLP_ENDPOINT is set
-	ServiceName string  // OTel service name, defaults to "stella"
-	SampleRate  float64 // trace sampling rate in [0.0, 1.0]
+	Enabled     bool   // true when an endpoint is set and the SDK is not disabled
+	ServiceName string // OTel service name, defaults to "stella"
 }
 
-// LoadConfig reads OTel settings from the environment.
+// LoadConfig reads OTel settings from the environment. Tracing is enabled only
+// when an OTLP endpoint is configured and OTEL_SDK_DISABLED is not "true" — the
+// latter is the standard kill switch operators can use to silence all telemetry
+// even when an endpoint is present.
 func LoadConfig() Config {
 	cfg := Config{
-		Enabled:     os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "",
+		Enabled:     os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" && os.Getenv("OTEL_SDK_DISABLED") != "true",
 		ServiceName: "stella",
-		SampleRate:  1.0,
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
 		cfg.ServiceName = v
@@ -68,6 +70,9 @@ func Init(ctx context.Context) (*Provider, error) {
 	slog.Info("otel tracing enabled",
 		"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		"service", cfg.ServiceName)
+	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
+		slog.Warn("otel exporter transport is insecure; spans (including tool commands and results) are sent without TLS")
+	}
 	return &Provider{tp: tp}, nil
 }
 
@@ -86,20 +91,11 @@ func newTracerProvider(ctx context.Context, cfg Config) (*sdktrace.TracerProvide
 		return nil, fmt.Errorf("otel: create resource: %w", err)
 	}
 
-	var sampler sdktrace.Sampler
-	switch {
-	case cfg.SampleRate >= 1.0:
-		sampler = sdktrace.AlwaysSample()
-	case cfg.SampleRate <= 0.0:
-		sampler = sdktrace.NeverSample()
-	default:
-		sampler = sdktrace.TraceIDRatioBased(cfg.SampleRate)
-	}
-
+	// No WithSampler: the SDK default is ParentBased(AlwaysSample) and honors
+	// the standard OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG env vars.
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sampler),
 	), nil
 }
 
