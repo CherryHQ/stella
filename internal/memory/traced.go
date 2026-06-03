@@ -58,12 +58,33 @@ func (t *tracedProvider) hooks() *hooks.HookSet {
 	return t.hooksFn()
 }
 
+func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallContext) (context.Context, time.Time) {
+	hs := t.hooks()
+	if hs == nil || hs.Empty() {
+		return ctx, time.Now()
+	}
+	preResult, _ := hs.RunPreMemoryCall(ctx, &hooks.PreMemoryCallContext{
+		HookMeta:  hctx.HookMeta,
+		Op:        hctx.Op,
+		SessionID: hctx.SessionID,
+	})
+	if preResult.Context != nil {
+		ctx = preResult.Context
+	}
+	return ctx, time.Now()
+}
+
 func (t *tracedProvider) emit(ctx context.Context, hctx *hooks.PostMemoryCallContext) {
 	hs := t.hooks()
 	if hs == nil || hs.Empty() {
 		return
 	}
 	hs.RunPostMemoryCall(ctx, hctx)
+}
+
+func (t *tracedProvider) finish(ctx context.Context, start time.Time, hctx *hooks.PostMemoryCallContext) {
+	hctx.Duration = time.Since(start)
+	t.emit(ctx, hctx)
 }
 
 // metaFromSession populates HookMeta from a memory Session.
@@ -82,65 +103,49 @@ func metaFromSession(s Session) hooks.HookMeta {
 func (t *tracedProvider) Name() string { return t.inner.Name() }
 
 func (t *tracedProvider) Bootstrap(ctx context.Context, session Session) error {
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpBootstrap, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	err := t.inner.Bootstrap(ctx, session)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:  metaFromSession(session),
-		Op:        hooks.MemoryOpBootstrap,
-		SessionID: session.ID,
-		Duration:  time.Since(start),
-		Error:     err,
-	})
+	hctx.Error = err
+	t.finish(ctx, start, hctx)
 	return err
 }
 
 func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai.Message) error {
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	err := t.inner.Append(ctx, session, msgs...)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:     metaFromSession(session),
-		Op:           hooks.MemoryOpAppend,
-		SessionID:    session.ID,
-		Duration:     time.Since(start),
-		Error:        err,
-		MessageCount: len(msgs),
-		Detail:       formatMessages("appended", msgs),
-	})
+	hctx.Error = err
+	hctx.MessageCount = len(msgs)
+	hctx.Detail = formatMessages("appended", msgs)
+	t.finish(ctx, start, hctx)
 	return err
 }
 
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAssemble, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	msgs, err := t.inner.Assemble(ctx, session, budget, freshTail)
 	var tokens int
 	for _, m := range msgs {
 		tokens += EstimateTokens(MessageText(m))
 	}
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:     metaFromSession(session),
-		Op:           hooks.MemoryOpAssemble,
-		SessionID:    session.ID,
-		Duration:     time.Since(start),
-		Error:        err,
-		MessageCount: len(msgs),
-		TokenCount:   tokens,
-		Detail:       formatMessages(fmt.Sprintf("assembled (budget=%d, freshTail=%d)", budget, freshTail), msgs),
-	})
+	hctx.Error = err
+	hctx.MessageCount = len(msgs)
+	hctx.TokenCount = tokens
+	hctx.Detail = formatMessages(fmt.Sprintf("assembled (budget=%d, freshTail=%d)", budget, freshTail), msgs)
+	t.finish(ctx, start, hctx)
 	return msgs, err
 }
 
 func (t *tracedProvider) Stats(ctx context.Context, session Session) (SessionStats, error) {
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpStats, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	stats, err := t.inner.Stats(ctx, session)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:     metaFromSession(session),
-		Op:           hooks.MemoryOpStats,
-		SessionID:    session.ID,
-		Duration:     time.Since(start),
-		Error:        err,
-		TokenCount:   stats.TokenCount,
-		SummaryCount: stats.SummaryCount,
-	})
+	hctx.Error = err
+	hctx.TokenCount = stats.TokenCount
+	hctx.SummaryCount = stats.SummaryCount
+	t.finish(ctx, start, hctx)
 	return stats, err
 }
 
@@ -155,15 +160,11 @@ func (t *tracedProvider) NeedsCompaction(ctx context.Context, session Session, t
 	if !ok {
 		return false
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpNeedsCompaction, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	needs := c.NeedsCompaction(ctx, session, threshold)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:  metaFromSession(session),
-		Op:        hooks.MemoryOpNeedsCompaction,
-		SessionID: session.ID,
-		Duration:  time.Since(start),
-		Detail:    fmt.Sprintf("threshold=%.2f result=%v", threshold, needs),
-	})
+	hctx.Detail = fmt.Sprintf("threshold=%.2f result=%v", threshold, needs)
+	t.finish(ctx, start, hctx)
 	return needs
 }
 
@@ -172,15 +173,10 @@ func (t *tracedProvider) Compact(ctx context.Context, session Session, mode Comp
 	if !ok {
 		return nil, errCapabilityNotSupported("Compactor")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpCompact, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	result, err := c.Compact(ctx, session, mode)
-	hctx := &hooks.PostMemoryCallContext{
-		HookMeta:  metaFromSession(session),
-		Op:        hooks.MemoryOpCompact,
-		SessionID: session.ID,
-		Duration:  time.Since(start),
-		Error:     err,
-	}
+	hctx.Error = err
 	if result != nil {
 		hctx.SummaryCount = result.LeafSummariesCreated + result.CondensedSummariesCreated
 		hctx.TokenCount = result.TokensAfter
@@ -190,7 +186,7 @@ func (t *tracedProvider) Compact(ctx context.Context, session Session, mode Comp
 			result.MessagesCompacted, result.TokensBefore, result.TokensAfter,
 			result.TokensAfter-result.TokensBefore, result.Duration.Round(time.Millisecond))
 	}
-	t.emit(ctx, hctx)
+	t.finish(ctx, start, hctx)
 	return result, err
 }
 
@@ -203,17 +199,13 @@ func (t *tracedProvider) Search(ctx context.Context, session Session, query Sear
 	if !ok {
 		return nil, errCapabilityNotSupported("Searcher")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpSearch, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	results, err := s.Search(ctx, session, query)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:    metaFromSession(session),
-		Op:          hooks.MemoryOpSearch,
-		SessionID:   session.ID,
-		Duration:    time.Since(start),
-		Error:       err,
-		ResultCount: len(results),
-		Detail:      formatSearchResults(query, results),
-	})
+	hctx.Error = err
+	hctx.ResultCount = len(results)
+	hctx.Detail = formatSearchResults(query, results)
+	t.finish(ctx, start, hctx)
 	return results, err
 }
 
@@ -226,19 +218,16 @@ func (t *tracedProvider) Describe(ctx context.Context, summaryID string) (*Descr
 	if !ok {
 		return nil, errCapabilityNotSupported("Explorer")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpDescribe}
+	ctx, start := t.begin(ctx, hctx)
 	result, err := e.Describe(ctx, summaryID)
-	hctx := &hooks.PostMemoryCallContext{
-		Op:       hooks.MemoryOpDescribe,
-		Duration: time.Since(start),
-		Error:    err,
-	}
+	hctx.Error = err
 	if result != nil {
 		hctx.Detail = fmt.Sprintf("summary=%s kind=%s depth=%d descendants=%d content=%s",
 			result.SummaryID, result.Kind, result.Depth, result.DescendantCount,
 			truncateStr(result.Content, 200))
 	}
-	t.emit(ctx, hctx)
+	t.finish(ctx, start, hctx)
 	return result, err
 }
 
@@ -247,13 +236,10 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 	if !ok {
 		return nil, errCapabilityNotSupported("Explorer")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{Op: hooks.MemoryOpExpand}
+	ctx, start := t.begin(ctx, hctx)
 	result, err := e.Expand(ctx, summaryID, tokenCap)
-	hctx := &hooks.PostMemoryCallContext{
-		Op:       hooks.MemoryOpExpand,
-		Duration: time.Since(start),
-		Error:    err,
-	}
+	hctx.Error = err
 	if result != nil {
 		var b strings.Builder
 		fmt.Fprintf(&b, "summary=%s", result.SummaryID)
@@ -279,7 +265,7 @@ func (t *tracedProvider) Expand(ctx context.Context, summaryID string, tokenCap 
 		}
 		hctx.Detail = b.String()
 	}
-	t.emit(ctx, hctx)
+	t.finish(ctx, start, hctx)
 	return result, err
 }
 
@@ -292,16 +278,12 @@ func (t *tracedProvider) GetProfile(ctx context.Context, userID string, agentID 
 	if !ok {
 		return "", errCapabilityNotSupported("ProfileStore")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpGetProfile}
+	ctx, start := t.begin(ctx, hctx)
 	content, err := ps.GetProfile(ctx, userID, agentID)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
-		Op:       hooks.MemoryOpGetProfile,
-		Duration: time.Since(start),
-		Error:    err,
-		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
-			userID, agentID, len(content), truncateStr(content, 300)),
-	})
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s len=%d content=%s", userID, agentID, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
 	return content, err
 }
 
@@ -310,16 +292,12 @@ func (t *tracedProvider) SetProfile(ctx context.Context, userID string, agentID 
 	if !ok {
 		return errCapabilityNotSupported("ProfileStore")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpSetProfile}
+	ctx, start := t.begin(ctx, hctx)
 	err := ps.SetProfile(ctx, userID, agentID, content)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
-		Op:       hooks.MemoryOpSetProfile,
-		Duration: time.Since(start),
-		Error:    err,
-		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
-			userID, agentID, len(content), truncateStr(content, 300)),
-	})
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s len=%d content=%s", userID, agentID, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
 	return err
 }
 
@@ -328,16 +306,12 @@ func (t *tracedProvider) GetAgentSoul(ctx context.Context, userID string, agentI
 	if !ok {
 		return "", errCapabilityNotSupported("ProfileStore")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpGetAgentSoul}
+	ctx, start := t.begin(ctx, hctx)
 	content, err := ps.GetAgentSoul(ctx, userID, agentID)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
-		Op:       hooks.MemoryOpGetAgentSoul,
-		Duration: time.Since(start),
-		Error:    err,
-		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
-			userID, agentID, len(content), truncateStr(content, 300)),
-	})
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s len=%d content=%s", userID, agentID, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
 	return content, err
 }
 
@@ -346,16 +320,12 @@ func (t *tracedProvider) SetAgentSoul(ctx context.Context, userID string, agentI
 	if !ok {
 		return errCapabilityNotSupported("ProfileStore")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpSetAgentSoul}
+	ctx, start := t.begin(ctx, hctx)
 	err := ps.SetAgentSoul(ctx, userID, agentID, content)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
-		Op:       hooks.MemoryOpSetAgentSoul,
-		Duration: time.Since(start),
-		Error:    err,
-		Detail: fmt.Sprintf("user=%s agent=%s len=%d content=%s",
-			userID, agentID, len(content), truncateStr(content, 300)),
-	})
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s len=%d content=%s", userID, agentID, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
 	return err
 }
 
@@ -416,16 +386,12 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	if !ok {
 		return errCapabilityNotSupported("SessionManager")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID}, Op: hooks.MemoryOpSaveInfo, SessionID: info.ID}
+	ctx, start := t.begin(ctx, hctx)
 	err := sm.SaveInfo(ctx, info)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:  hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID},
-		Op:        hooks.MemoryOpSaveInfo,
-		SessionID: info.ID,
-		Duration:  time.Since(start),
-		Error:     err,
-		Detail:    fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel),
-	})
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel)
+	t.finish(ctx, start, hctx)
 	return err
 }
 
@@ -434,16 +400,14 @@ func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (Sessio
 	if !ok {
 		return SessionInfo{}, errCapabilityNotSupported("SessionManager")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: sessionID}, Op: hooks.MemoryOpLoadInfo, SessionID: sessionID}
+	ctx, start := t.begin(ctx, hctx)
 	info, err := sm.LoadInfo(ctx, sessionID)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:  hooks.HookMeta{SessionID: sessionID, UserID: info.UserID, AgentID: info.AgentID},
-		Op:        hooks.MemoryOpLoadInfo,
-		SessionID: sessionID,
-		Duration:  time.Since(start),
-		Error:     err,
-		Detail:    fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel),
-	})
+	hctx.UserID = info.UserID
+	hctx.AgentID = info.AgentID
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel)
+	t.finish(ctx, start, hctx)
 	return info, err
 }
 
@@ -452,15 +416,13 @@ func (t *tracedProvider) ListInfo(ctx context.Context, opts ListOptions) ([]Sess
 	if !ok {
 		return nil, errCapabilityNotSupported("SessionManager")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: opts.UserID, AgentID: opts.AgentID}, Op: hooks.MemoryOpListInfo}
+	ctx, start := t.begin(ctx, hctx)
 	infos, err := sm.ListInfo(ctx, opts)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		Op:          hooks.MemoryOpListInfo,
-		Duration:    time.Since(start),
-		Error:       err,
-		ResultCount: len(infos),
-		Detail:      fmt.Sprintf("agent=%s user=%s archived=%v limit=%d → %d results", opts.AgentID, opts.UserID, opts.IncludeArchived, opts.Limit, len(infos)),
-	})
+	hctx.Error = err
+	hctx.ResultCount = len(infos)
+	hctx.Detail = fmt.Sprintf("agent=%s user=%s archived=%v limit=%d → %d results", opts.AgentID, opts.UserID, opts.IncludeArchived, opts.Limit, len(infos))
+	t.finish(ctx, start, hctx)
 	return infos, err
 }
 
@@ -469,16 +431,13 @@ func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]a
 	if !ok {
 		return nil, errCapabilityNotSupported("SessionManager")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: sessionID}, Op: hooks.MemoryOpLoadHistory, SessionID: sessionID}
+	ctx, start := t.begin(ctx, hctx)
 	msgs, err := sm.LoadHistory(ctx, sessionID)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		Op:           hooks.MemoryOpLoadHistory,
-		SessionID:    sessionID,
-		Duration:     time.Since(start),
-		Error:        err,
-		MessageCount: len(msgs),
-		Detail:       formatMessages("loaded history", msgs),
-	})
+	hctx.Error = err
+	hctx.MessageCount = len(msgs)
+	hctx.Detail = formatMessages("loaded history", msgs)
+	t.finish(ctx, start, hctx)
 	return msgs, err
 }
 
@@ -491,7 +450,13 @@ func (t *tracedProvider) GetProfileAt(ctx context.Context, userID string, agentI
 	if !ok {
 		return "", errCapabilityNotSupported("VersionedProfileStore")
 	}
-	return vp.GetProfileAt(ctx, userID, agentID, version)
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpGetProfileAt}
+	ctx, start := t.begin(ctx, hctx)
+	content, err := vp.GetProfileAt(ctx, userID, agentID, version)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s version=%d len=%d content=%s", userID, agentID, version, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
+	return content, err
 }
 
 func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
@@ -499,7 +464,13 @@ func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID string, agen
 	if !ok {
 		return "", errCapabilityNotSupported("VersionedProfileStore")
 	}
-	return vp.GetAgentSoulAt(ctx, userID, agentID, version)
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpGetAgentSoulAt}
+	ctx, start := t.begin(ctx, hctx)
+	content, err := vp.GetAgentSoulAt(ctx, userID, agentID, version)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("user=%s agent=%s version=%d len=%d content=%s", userID, agentID, version, len(content), truncateStr(content, 300))
+	t.finish(ctx, start, hctx)
+	return content, err
 }
 
 // ---------------------------------------------------------------------------
@@ -523,7 +494,15 @@ func (t *tracedProvider) GetOrCreateSessionSnapshot(ctx context.Context, session
 	if !ok {
 		return SessionSnapshot{}, errCapabilityNotSupported("SessionSnapshotStore")
 	}
-	return sss.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: sessionID, UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpGetOrCreateSessionSnapshot, SessionID: sessionID}
+	ctx, start := t.begin(ctx, hctx)
+	snap, err := sss.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
+	hctx.Error = err
+	if snap.Version > 0 {
+		hctx.Detail = fmt.Sprintf("version=%d updated_at=%s", snap.Version, snap.UpdatedAt.Format(time.RFC3339))
+	}
+	t.finish(ctx, start, hctx)
+	return snap, err
 }
 
 func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID string, agentID string) error {
@@ -531,7 +510,12 @@ func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID s
 	if !ok {
 		return errCapabilityNotSupported("SessionSnapshotStore")
 	}
-	return sss.AdvanceSessionSnapshot(ctx, sessionID, userID, agentID)
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: sessionID, UserID: userID, AgentID: agentID}, Op: hooks.MemoryOpAdvanceSessionSnapshot, SessionID: sessionID}
+	ctx, start := t.begin(ctx, hctx)
+	err := sss.AdvanceSessionSnapshot(ctx, sessionID, userID, agentID)
+	hctx.Error = err
+	t.finish(ctx, start, hctx)
+	return err
 }
 
 // ---------------------------------------------------------------------------
@@ -543,17 +527,13 @@ func (t *tracedProvider) BuildReviewContext(ctx context.Context, session Session
 	if !ok {
 		return "", errCapabilityNotSupported("Reviewer")
 	}
-	start := time.Now()
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpBuildReview, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
 	text, err := rv.BuildReviewContext(ctx, session, since)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:   metaFromSession(session),
-		Op:         hooks.MemoryOpBuildReview,
-		SessionID:  session.ID,
-		Duration:   time.Since(start),
-		Error:      err,
-		TokenCount: EstimateTokens(text),
-		Detail:     fmt.Sprintf("since=%s len=%d", since.Format(time.RFC3339), len(text)),
-	})
+	hctx.Error = err
+	hctx.TokenCount = EstimateTokens(text)
+	hctx.Detail = fmt.Sprintf("since=%s len=%d", since.Format(time.RFC3339), len(text))
+	t.finish(ctx, start, hctx)
 	return text, err
 }
 

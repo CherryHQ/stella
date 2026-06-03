@@ -1,0 +1,244 @@
+---
+title: 可观测性
+---
+
+## 概述
+
+可观测性让你看清 stella 在底层做了什么。每一次 LLM 调用、工具执行和记忆操作都会记录耗时、token 用量和错误详情。Web UI 与 API 的入站 HTTP 请求也会被追踪。
+
+追踪是内置在服务里的——不需要在插件页面启用任何东西。它有两种模式：
+
+- **日志模式**（始终开启）——通过 Go 的 `slog` 输出结构化日志行，可在 stderr 中查看。无需任何配置。
+- **OpenTelemetry 模式**（可选）——通过标准 OTLP 环境变量导出分布式追踪。支持 OTLP/gRPC 和 OTLP/HTTP，包括需要认证的后端。设置 OTLP 端点即可启用。
+
+## 配置
+
+### 日志模式
+
+日志模式始终生效。通过 `LOG_LEVEL` 控制详细程度：
+
+| 级别           | 你会看到                                                                         |
+| -------------- | -------------------------------------------------------------------------------- |
+| `INFO`（默认） | 每次 LLM 调用（模型、token、耗时、TTFT）、工具调用（名称、耗时、错误）和记忆操作 |
+| `DEBUG`        | 与 INFO 相同，外加内部引擎事件                                                   |
+| `TRACE`        | 与 DEBUG 相同，外加完整的记忆操作详情（消息内容、搜索结果、画像文本）            |
+
+```bash
+# 默认 —— LLM/工具/记忆事件以 INFO 级别输出
+stella server
+
+# 详细 —— 包含记忆细节字段
+LOG_LEVEL=TRACE stella server
+```
+
+日志输出示例：
+
+```
+level=INFO msg=post_llm_call hook=trace provider=anthropic model=claude-sonnet-4-20250514 stop_reason=tool_use duration=3.2s ttft=450ms input_tokens=12500 output_tokens=350 cache_read=8000
+level=INFO msg=post_tool_call hook=trace tool=bash call_id=call_01 is_error=false duration=1.5s result_len=256
+level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count=8000 token_delta=-4500
+```
+
+### OpenTelemetry 模式
+
+设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 即可启用。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
+
+| 环境变量                            | 默认值              | 说明                                                                                                                                                             |
+| ----------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`       | _(空 —— OTel 关闭)_ | OTLP 基础端点。OTLP/HTTP 使用完整 URL，如 `https://collector.example.com/api/default`；OTLP/gRPC 使用带 scheme 的 URL，如 `https://collector.example.com:4317`。 |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`       | SDK 默认            | 导出协议。常见值：`grpc` 或 `http/protobuf`。                                                                                                                    |
+| `OTEL_EXPORTER_OTLP_HEADERS`        | _(空)_              | 应用于所有 OTLP 信号的逗号分隔请求头，例如 `authorization=Bearer <token>`。                                                                                      |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(空)_              | 仅应用于 traces 的逗号分隔请求头。会覆盖针对 traces 的通用 OTLP 请求头。                                                                                         |
+| `OTEL_SERVICE_NAME`                 | `stella`            | 在追踪后端显示的服务名。                                                                                                                                         |
+| `OTEL_EXPORTER_OTLP_INSECURE`       | SDK 默认            | 设为 `false` 以要求 TLS。HTTPS 或安全 gRPC 端点请使用 `false`。                                                                                                  |
+| `OTEL_STELLA_RECORD_TOOL_IO`        | `false`             | 设为 `true` 才会把工具输入(如 bash 命令)和结果文本记录到 span。默认关闭,因此这些内容永不导出;span 始终携带工具名、参数数量与结果长度。                           |
+
+启用 OTel 后，两种模式会同时运行——你既能看到日志行，也能导出追踪。
+
+### 常见陷阱
+
+- **`OTEL_EXPORTER_OTLP_ENDPOINT` 必须带 scheme。** 用 `https://collector.example.com:4317`，而不是 `collector.example.com:4317`。省略 scheme 可能产生畸形的导出 URL，如 `http:///v1/traces`。
+- **为后端选用正确的协议。** OTLP/HTTP 通常需要 `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`；OTLP/gRPC 通常用 `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`。
+- **OTLP/HTTP 请设置基础路径，而非 `/v1/traces`。** 导出器会自动追加 `/v1/traces`。
+- **TLS 端点不要设 `OTEL_EXPORTER_OTLP_INSECURE=true`。** 安全的采集器应使用 `OTEL_EXPORTER_OTLP_INSECURE=false`。
+- **请求头是逗号分隔的 `key=value` 对，值内不要加 shell 引号。** 例如：`authorization=Basic abc123,organization=default`。
+- **工具输入/结果默认不导出，需显式开启。** 仅在你信任采集器时才设 `OTEL_STELLA_RECORD_TOOL_IO=true`——它会把 bash 命令和工具输出送出本机,且尽力而为的密钥脱敏并非保证。
+
+## 配合 Jaeger 使用
+
+[Jaeger](https://www.jaegertracing.io/) 是可视化 stella 追踪最简单的方式。它原生接受 OTLP，单容器即可运行。
+
+```bash
+# 启动 Jaeger
+docker run -d --name jaeger \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  jaegertracing/jaeger:latest
+
+# 通过 OTLP/gRPC 启动带追踪的 stella
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+stella server
+```
+
+打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。
+
+### 配合其他后端使用
+
+任何兼容 OTLP 的后端都可使用。示例：
+
+```bash
+# Grafana Tempo（OTLP/gRPC）
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.internal:4317 \
+stella server
+
+# SigNoz（OTLP/gRPC）
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz.internal:4317 \
+stella server
+
+# OTel Collector（OTLP/gRPC）
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
+stella server
+
+# 云端 OTLP/gRPC，带 TLS 和认证头
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com:443 \
+OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Bearer <token>" \
+OTEL_EXPORTER_OTLP_INSECURE=false \
+stella server
+
+# 云端 OTLP/HTTP，带 TLS 和认证头
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com/api/default \
+OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Basic <base64>,organization=default,stream-name=default" \
+OTEL_EXPORTER_OTLP_INSECURE=false \
+stella server
+```
+
+如果你的服务商给的是 OTLP/HTTP 端点，如 `https://collector.example.com/api/default`，请直接使用该基础 URL，让导出器自动追加 `/v1/traces`。
+
+## 追踪了哪些内容
+
+### LLM 调用
+
+每次对 LLM 服务商的调用都会记录为 `gen_ai.chat` span：
+
+- 模型名（请求的与实际的）
+- 服务商（anthropic、openai 等）
+- token 用量：输入、输出、缓存读取、缓存写入
+- 首 token 时间（TTFT）
+- 总耗时
+- 停止原因（end_turn、tool_use、max_tokens 等）
+- 错误
+
+### 工具执行
+
+每次工具调用都会记录为 `gen_ai.execute_tool` span：
+
+- 工具名（bash、read、write、edit、webfetch、agent 等）
+- 调用 ID
+- 耗时
+- 成功或失败
+
+### 记忆操作
+
+记忆操作（append、assemble、compact、search 等）会记录为 `memory.*` span：
+
+- 操作类型
+- 耗时
+- token 与消息数
+- token delta（压缩时）
+- 错误
+
+### 沙箱生命周期
+
+沙箱启动会记录为 `sandbox.*` span，这样沙箱失败可以追溯到最终的 broken-pipe 现象之前：
+
+- 运行器中的会话创建
+- 后端启动及 overlay/会话目录设置
+- 沙箱客户端进程启动
+- JSON-RPC 握手
+- 会话关闭或失活原因
+
+这些 span 包含 Stella 特定属性，如沙箱后端、源/目标根目录、工作目录、网络模式、只读绑定数量和捕获的错误类型。
+
+### HTTP 请求
+
+Web UI 与 API 的入站请求会记录为 `http.server` span，让你可以端到端追踪面向用户的延迟。
+
+### 追踪结构
+
+Span 按每个对话会话组织成层级结构：
+
+```
+chat
+  └── turn 1
+       ├── gen_ai.chat                 3.2s
+       ├── gen_ai.execute_tool (bash)  1.5s
+       ├── gen_ai.execute_tool (read)  0.1s
+       └── memory.append               0.02s
+  └── turn 2
+       ├── gen_ai.chat                 2.8s
+       └── memory.compact              0.2s
+```
+
+每次 stella 调用 LLM 都会开始一个新的 **turn**。**chat** 根 span 覆盖整个对话，在 2 分钟无活动后关闭。
+
+## Span 属性参考
+
+LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)：
+
+| 属性                                       | Span         | 说明                     |
+| ------------------------------------------ | ------------ | ------------------------ |
+| `gen_ai.operation.name`                    | 全部         | `chat` 或 `execute_tool` |
+| `gen_ai.provider.name`                     | chat         | 服务商标识               |
+| `gen_ai.request.model`                     | chat         | 请求的模型               |
+| `gen_ai.response.model`                    | chat         | 实际使用的模型           |
+| `gen_ai.response.finish_reasons`           | chat         | 生成停止的原因           |
+| `gen_ai.conversation.id`                   | 全部         | 会话 ID                  |
+| `gen_ai.usage.input_tokens`                | chat         | 输入 token               |
+| `gen_ai.usage.output_tokens`               | chat         | 输出 token               |
+| `gen_ai.usage.cache_read.input_tokens`     | chat         | 缓存命中的输入 token     |
+| `gen_ai.usage.cache_creation.input_tokens` | chat         | 写入缓存的 token         |
+| `gen_ai.server.time_to_first_token`        | chat         | TTFT（秒）               |
+| `gen_ai.tool.name`                         | execute_tool | 工具名                   |
+| `gen_ai.tool.call.id`                      | execute_tool | 工具调用 ID              |
+| `error.type`                               | 全部         | 失败时的错误类型         |
+
+记忆 span 使用 stella 特定属性：
+
+| 属性                          | 说明                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `stella.memory.op`            | 操作（bootstrap、append、assemble、compact、search、describe、expand 等） |
+| `stella.memory.session_id`    | 记忆会话 ID                                                               |
+| `stella.memory.token_count`   | token 数                                                                  |
+| `stella.memory.token_delta`   | 压缩节省的 token（负值表示减少）                                          |
+| `stella.memory.message_count` | 消息数                                                                    |
+
+沙箱生命周期 span 使用以下 Stella 特定属性：
+
+| 属性                                | 说明                                    |
+| ----------------------------------- | --------------------------------------- |
+| `stella.sandbox.backend`            | 沙箱后端名（`local`、`docker`、`none`） |
+| `stella.sandbox.agent_root`         | 运行器配置中的 agent 工作区根目录       |
+| `stella.sandbox.user_root`          | 请求的沙箱用户根目录                    |
+| `stella.sandbox.resolved_user_root` | 用于构建策略的解析后绝对用户根目录      |
+| `stella.sandbox.project_root`       | 存在时的项目根目录                      |
+| `stella.sandbox.work_dir`           | 请求的或解析后的工作目录                |
+| `stella.sandbox.src`                | 写时复制源根目录                        |
+| `stella.sandbox.dst`                | overlay/会话目标根目录                  |
+| `stella.sandbox.cwd`                | 会话内重映射的工作目录                  |
+| `stella.sandbox.network.mode`       | 生效的网络模式                          |
+| `stella.sandbox.network.allowlist`  | 配置时的网络白名单                      |
+| `stella.sandbox.readonly_dir_count` | 只读绑定目录数量                        |
+| `stella.sandbox.close_reason`       | 会话 span 结束的原因                    |
+| `stella.sandbox.server.name`        | 握手返回的沙箱服务名                    |
+| `stella.sandbox.server.version`     | 握手返回的沙箱服务版本                  |
+| `stella.sandbox.protocol_version`   | 沙箱返回的 RPC 协议版本                 |
+
+## 如何关闭
+
+没有可禁用的插件。日志模式跟随 `LOG_LEVEL`，设为 `WARN` 或 `ERROR` 即可静默每次调用的 INFO 行。除非设置了 `OTEL_EXPORTER_OTLP_ENDPOINT`，否则 OTel 导出默认关闭，因此留空该变量即可完全停用分布式追踪。

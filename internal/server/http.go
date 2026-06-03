@@ -1,6 +1,10 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/CherryHQ/stella/internal/observability"
+)
 
 // redirectRoot sends unauthenticated users to /login, admins to /providers,
 // and regular users to /agents.
@@ -17,9 +21,11 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/agents", http.StatusFound)
 }
 
-// Handler returns the HTTP handler with CORS, JSON, and auth middleware applied.
+// Handler returns the HTTP handler with OTel instrumentation wrapping the
+// CORS, JSON, and auth middleware chain. The OTel wrap is unconditional: it is
+// a no-op when tracing is disabled.
 func (s *Server) Handler() http.Handler {
-	return s.corsMiddleware(s.authMiddleware(s.jsonMiddleware(s.mux)))
+	return observability.Handler(s.corsMiddleware(s.authMiddleware(s.jsonMiddleware(s.mux))))
 }
 
 // corsMiddleware handles CORS headers. Origin is read from settings at startup.

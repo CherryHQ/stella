@@ -15,6 +15,7 @@ type HookSet struct {
 	postToolCall   []PostToolCallHook
 	preLLMCall     []PreLLMCallHook
 	postLLMCall    []PostLLMCallHook
+	preMemoryCall  []PreMemoryCallHook
 	postMemoryCall []PostMemoryCallHook
 }
 
@@ -51,6 +52,9 @@ func NewHookSet(plugins []HookPlugin) *HookSet {
 		if h, ok := p.(PostLLMCallHook); ok {
 			hs.postLLMCall = append(hs.postLLMCall, h)
 		}
+		if h, ok := p.(PreMemoryCallHook); ok {
+			hs.preMemoryCall = append(hs.preMemoryCall, h)
+		}
 		if h, ok := p.(PostMemoryCallHook); ok {
 			hs.postMemoryCall = append(hs.postMemoryCall, h)
 		}
@@ -64,7 +68,7 @@ func (hs *HookSet) Empty() bool {
 		(len(hs.preAgentCall) == 0 && len(hs.postAgentCall) == 0 &&
 			len(hs.preToolCall) == 0 && len(hs.postToolCall) == 0 &&
 			len(hs.preLLMCall) == 0 && len(hs.postLLMCall) == 0 &&
-			len(hs.postMemoryCall) == 0)
+			len(hs.preMemoryCall) == 0 && len(hs.postMemoryCall) == 0)
 }
 
 // RunPreAgentCall executes all PreAgentCall hooks in priority order.
@@ -110,6 +114,10 @@ func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext)
 		if result.Arguments != nil {
 			hctx.Arguments = result.Arguments
 			final.Arguments = result.Arguments
+		}
+		if result.Context != nil {
+			ctx = result.Context
+			final.Context = result.Context
 		}
 		if result.Block {
 			final.Block = true
@@ -159,6 +167,7 @@ func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) (
 			final.Model = result.Model
 		}
 		if result.Context != nil {
+			ctx = result.Context
 			final.Context = result.Context
 		}
 	}
@@ -174,6 +183,29 @@ func (hs *HookSet) RunPostLLMCall(ctx context.Context, hctx *PostLLMCallContext)
 	for _, h := range hs.postLLMCall {
 		h.OnPostLLMCall(ctx, hctx)
 	}
+}
+
+// RunPreMemoryCall executes all PreMemoryCall hooks in priority order.
+// Mutations from each hook are applied before the next hook runs.
+//
+// Error policy: same as RunPreToolCall — log and skip.
+func (hs *HookSet) RunPreMemoryCall(ctx context.Context, hctx *PreMemoryCallContext) (PreMemoryCallResult, error) {
+	if hs == nil {
+		return PreMemoryCallResult{}, nil
+	}
+	var final PreMemoryCallResult
+	for _, h := range hs.preMemoryCall {
+		result, err := h.OnPreMemoryCall(ctx, hctx)
+		if err != nil {
+			slog.Warn("pre_memory_call hook error", "hook", h.Name(), "error", err)
+			continue
+		}
+		if result.Context != nil {
+			ctx = result.Context
+			final.Context = result.Context
+		}
+	}
+	return final, nil
 }
 
 // RunPostMemoryCall executes all PostMemoryCall hooks in priority order.

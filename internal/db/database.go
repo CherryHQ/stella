@@ -3,16 +3,21 @@ package db
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/XSAM/otelsql"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	_ "modernc.org/sqlite"
 )
 
@@ -29,7 +34,13 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: create dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dataSourceName(dbPath))
+	// otelsql wraps the driver so every query/exec emits a span on the global
+	// tracer provider. When tracing is disabled the provider is a no-op, so this
+	// adds negligible overhead — same always-on pattern as the HTTP handler.
+	// Only statements are recorded (SQL text, no bound args), and the noisy
+	// connection-lifecycle spans (connect, prepare, reset, per-row) are omitted
+	// to keep traces focused on actual queries.
+	db, err := openTracedSQLite(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
@@ -59,6 +70,113 @@ func dataSourceName(dbPath string) string {
 	return dbPath + "?" + q.Encode()
 }
 
+// reSQLCName extracts the query name from the sqlc annotation that prefixes
+// every generated statement, e.g. "-- name: GetUserByID :one".
+var reSQLCName = regexp.MustCompile(`(?m)^\s*--\s*name:\s*(\w+)`)
+
+// SQL target extractors: pull the table name following the keyword that names
+// it for each statement kind. Identifiers are plain (sqlc emits unquoted table
+// names), so a bare word match is enough.
+var (
+	reFromTarget   = regexp.MustCompile(`(?is)\bfrom\s+(\w+)`)
+	reIntoTarget   = regexp.MustCompile(`(?is)\binto\s+(\w+)`)
+	reUpdateTarget = regexp.MustCompile(`(?is)\bupdate\s+(\w+)`)
+)
+
+// spanName builds a readable span name for a SQL statement. sqlc keeps its
+// "-- name: X" annotation as the first line of every generated query, so when
+// present it names the span "X (VERB table)" (e.g.
+// "GetUserByID (SELECT auth_user)") — the query name says intent, the verb and
+// table say what it touches. Ad-hoc statements with no annotation get just
+// "VERB table"; statements without a clear table (PRAGMA, BEGIN) get the verb;
+// anything unparseable falls back to the otelsql method so a span is never
+// left nameless.
+func spanName(_ context.Context, method otelsql.Method, query string) string {
+	name := ""
+	if m := reSQLCName.FindStringSubmatch(query); m != nil {
+		name = m[1]
+	}
+
+	detail := sqlVerbTarget(stripLeadingComments(query))
+	if detail == "" {
+		detail = string(method)
+	}
+	if name != "" {
+		return name + " (" + detail + ")"
+	}
+	return detail
+}
+
+// sqlVerbTarget returns "VERB table" (or just "VERB" when no table is clear)
+// for a statement whose leading comments have been stripped. Empty string if
+// the statement has no leading keyword to read.
+func sqlVerbTarget(stmt string) string {
+	fields := strings.Fields(stmt)
+	if len(fields) == 0 {
+		return ""
+	}
+	verb := strings.ToUpper(fields[0])
+	var re *regexp.Regexp
+	switch verb {
+	case "SELECT", "DELETE":
+		re = reFromTarget
+	case "INSERT", "REPLACE":
+		re = reIntoTarget
+	case "UPDATE":
+		re = reUpdateTarget
+	default:
+		return verb
+	}
+	if m := re.FindStringSubmatch(stmt); m != nil {
+		return verb + " " + m[1]
+	}
+	return verb
+}
+
+// stripLeadingComments drops leading blank and "--" comment lines so the first
+// remaining token is the SQL verb. Needed because sqlc prefixes each query with
+// its "-- name:" annotation.
+func stripLeadingComments(q string) string {
+	lines := strings.Split(q, "\n")
+	for i, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if t == "" || strings.HasPrefix(t, "--") {
+			continue
+		}
+		return strings.Join(lines[i:], "\n")
+	}
+	return ""
+}
+
+func openTracedSQLite(dbPath string) (*sql.DB, error) {
+	return otelsql.Open("sqlite", dataSourceName(dbPath), sqliteTraceOptions()...)
+}
+
+func sqliteTraceOptions() []otelsql.Option {
+	return []otelsql.Option{
+		otelsql.WithAttributes(attribute.String("db.system", "sqlite")),
+		// Name spans "<verb> <table>" (e.g. "SELECT sessions") instead of the
+		// generic "sql.conn.query" so the trace tree shows what each query does
+		// at a glance, without expanding the db.statement attribute.
+		otelsql.WithSpanNameFormatter(spanName),
+		otelsql.WithSpanOptions(otelsql.SpanOptions{
+			OmitConnectorConnect: true,
+			OmitConnResetSession: true,
+			OmitConnPrepare:      true,
+			OmitRows:             true,
+			// Only emit a query span when the caller already has an active span.
+			// Most DB work runs on background contexts (startup, scheduler,
+			// cache refresh) with no parent — those would become standalone
+			// root spans, one per query, drowning real request traces in noise.
+			// Gating on a valid parent keeps DB spans where they're useful:
+			// nested under an HTTP request or agent tool span.
+			SpanFilter: func(ctx context.Context, _ otelsql.Method, _ string, _ []driver.NamedValue) bool {
+				return trace.SpanContextFromContext(ctx).IsValid()
+			},
+		}),
+	}
+}
+
 func configurePool(db *sql.DB) {
 	if db == nil {
 		return
@@ -83,7 +201,7 @@ func configurePool(db *sql.DB) {
 // migrate. The DSN carries the same pragmas (WAL, busy_timeout, foreign keys),
 // and WAL lets this writer run concurrently with readers on the main pool.
 func OpenSerialConn(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dataSourceName(dbPath))
+	db, err := openTracedSQLite(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("db: open serial conn: %w", err)
 	}

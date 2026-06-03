@@ -184,6 +184,71 @@ func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 	}
 }
 
+func TestToolExecutionRunsPostHookWhenPreHookBlocks(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}}}
+	postCalled := false
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(_ context.Context, _ *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			return hooks.PreToolCallResult{Block: true, BlockMessage: "nope"}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) {
+			postCalled = true
+			if !hctx.IsError {
+				t.Fatal("blocked tool should be reported as an error to post hooks")
+			}
+			if hctx.Result != "nope" {
+				t.Fatalf("post hook result = %q, want nope", hctx.Result)
+			}
+		},
+	}})
+
+	results, err := executeToolCalls(context.Background(), calls, ToolSet{"bash": func(context.Context, ai.ToolCall) (ai.TextContent, error) {
+		t.Fatal("blocked tool should not execute")
+		return ai.TextContent{}, nil
+	}}, toolCallbacks{}, hs, hooks.HookMeta{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !postCalled {
+		t.Fatal("post hook was not called")
+	}
+	if got := results[0].Content[0].(ai.TextContent).Text; got != "nope" {
+		t.Fatalf("result = %q, want nope", got)
+	}
+}
+
+func TestToolExecutionRunsPostHookWhenLifecycleAfterFails(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "echo"}}
+	postCalled := false
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			return hooks.PreToolCallResult{}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) {
+			postCalled = true
+			if !hctx.IsError {
+				t.Fatal("lifecycle failure should be reported as an error to post hooks")
+			}
+			if hctx.Result != "after failed" {
+				t.Fatalf("post hook result = %q, want after failed", hctx.Result)
+			}
+		},
+	}})
+	lifecycle := &ToolLifecycle{AfterCall: func(context.Context, ToolResultContext) (ToolResultMutation, error) {
+		return ToolResultMutation{}, errors.New("after failed")
+	}}
+
+	_, err := executeToolCalls(context.Background(), calls, ToolSet{"echo": func(context.Context, ai.ToolCall) (ai.TextContent, error) {
+		return ai.TextContent{Text: "raw"}, nil
+	}}, toolCallbacks{}, hs, hooks.HookMeta{}, lifecycle)
+	if err == nil {
+		t.Fatal("expected lifecycle error")
+	}
+	if !postCalled {
+		t.Fatal("post hook was not called")
+	}
+}
+
 type toolExecutionHook struct {
 	pre  func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error)
 	post func(context.Context, *hooks.PostToolCallContext)

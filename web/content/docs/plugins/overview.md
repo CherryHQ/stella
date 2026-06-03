@@ -60,7 +60,7 @@ Examples:
 - `tool/notify`
 - `tool/webfetch`
 - `channel/telegram`
-- `hook/trace`
+- `hook/rtk`
 - `provider/openai`
 - `reflect`
 

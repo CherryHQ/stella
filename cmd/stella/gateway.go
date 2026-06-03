@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
@@ -81,11 +82,33 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		return err
 	}
+
+	// Both cleanup defers are registered before observability.Init so a failed
+	// Init still drains setup's resources (pools, background tasks). obs is a
+	// nil-safe Provider until assigned, so its Shutdown is a no-op if Init never
+	// ran. The shutdown defer is registered FIRST so it runs LAST (LIFO): only
+	// after poolManager.Close() → tracehook.Close() → endSession() has ended
+	// every in-flight session span do we flush and stop the provider, otherwise
+	// those end-of-session spans land on a stopped provider and get dropped.
+	var obs *observability.Provider
+	defer func() {
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutCancel()
+		if err := obs.Shutdown(shutCtx); err != nil {
+			slog.Warn("otel shutdown failed", "error", err)
+		}
+	}()
 	defer func() {
 		cancel()
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
 	}()
+
+	// Initialize global OTel tracing before any component creates spans.
+	obs, err = observability.Init(ctx)
+	if err != nil {
+		return fmt.Errorf("init observability: %w", err)
+	}
 
 	listFn := func() []pkgchannel.ModelOption {
 		return collectModelsFromStore(s.ctx, s.store)

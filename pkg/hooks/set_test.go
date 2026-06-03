@@ -60,6 +60,32 @@ func (p *preLLMCallPlugin) OnPreLLMCall(_ context.Context, _ *PreLLMCallContext)
 	return PreLLMCallResult{System: p.newSystem}, nil
 }
 
+type preToolContextPlugin struct {
+	mockPlugin
+	ctx   context.Context
+	check func(context.Context)
+}
+
+func (p *preToolContextPlugin) OnPreToolCall(ctx context.Context, _ *PreToolCallContext) (PreToolCallResult, error) {
+	if p.check != nil {
+		p.check(ctx)
+	}
+	return PreToolCallResult{Context: p.ctx}, nil
+}
+
+type preLLMContextPlugin struct {
+	mockPlugin
+	ctx   context.Context
+	check func(context.Context)
+}
+
+func (p *preLLMContextPlugin) OnPreLLMCall(ctx context.Context, _ *PreLLMCallContext) (PreLLMCallResult, error) {
+	if p.check != nil {
+		p.check(ctx)
+	}
+	return PreLLMCallResult{Context: p.ctx}, nil
+}
+
 // postLLMCallPlugin records usage.
 type postLLMCallPlugin struct {
 	mockPlugin
@@ -146,6 +172,32 @@ func TestRunPreToolCall_RewriteChaining(t *testing.T) {
 	}
 }
 
+type contextKey string
+
+func TestRunPreToolCall_ContextChaining(t *testing.T) {
+	key := contextKey("trace")
+	first := &preToolContextPlugin{
+		mockPlugin: mockPlugin{name: "first", priority: 1},
+		ctx:        context.WithValue(context.Background(), key, "parent"),
+	}
+	second := &preToolContextPlugin{
+		mockPlugin: mockPlugin{name: "second", priority: 2},
+		check: func(ctx context.Context) {
+			if got := ctx.Value(key); got != "parent" {
+				t.Fatalf("second hook saw context value %#v, want parent", got)
+			}
+		},
+	}
+
+	result, err := NewHookSet([]HookPlugin{first, second}).RunPreToolCall(context.Background(), &PreToolCallContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Context == nil || result.Context.Value(key) != "parent" {
+		t.Fatalf("result context did not preserve chained value")
+	}
+}
+
 func TestRunPreToolCall_BlockShortCircuits(t *testing.T) {
 	h1 := &preToolCallPlugin{
 		mockPlugin: mockPlugin{name: "blocker", priority: 1},
@@ -191,6 +243,30 @@ func TestRunPostToolCall_AlwaysRunsAll(t *testing.T) {
 	}
 	if h1.toolName != "read" {
 		t.Errorf("expected tool name 'read', got %q", h1.toolName)
+	}
+}
+
+func TestRunPreLLMCall_ContextChaining(t *testing.T) {
+	key := contextKey("llm")
+	first := &preLLMContextPlugin{
+		mockPlugin: mockPlugin{name: "first", priority: 1},
+		ctx:        context.WithValue(context.Background(), key, "span"),
+	}
+	second := &preLLMContextPlugin{
+		mockPlugin: mockPlugin{name: "second", priority: 2},
+		check: func(ctx context.Context) {
+			if got := ctx.Value(key); got != "span" {
+				t.Fatalf("second hook saw context value %#v, want span", got)
+			}
+		},
+	}
+
+	result, err := NewHookSet([]HookPlugin{first, second}).RunPreLLMCall(context.Background(), &PreLLMCallContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Context == nil || result.Context.Value(key) != "span" {
+		t.Fatalf("result context did not preserve chained value")
 	}
 }
 
@@ -297,6 +373,19 @@ func (p *postAgentPlugin) OnPostAgentCall(_ context.Context, hctx *PostAgentCall
 	p.dur = hctx.Duration
 }
 
+type preMemoryPlugin struct {
+	mockPlugin
+	called bool
+	op     MemoryOp
+	ctx    context.Context
+}
+
+func (p *preMemoryPlugin) OnPreMemoryCall(_ context.Context, hctx *PreMemoryCallContext) (PreMemoryCallResult, error) {
+	p.called = true
+	p.op = hctx.Op
+	return PreMemoryCallResult{Context: p.ctx}, nil
+}
+
 type postMemoryPlugin struct {
 	mockPlugin
 	called bool
@@ -347,6 +436,37 @@ func TestRunPostAgentCall(t *testing.T) {
 func TestRunPostAgentCall_Nil(t *testing.T) {
 	var hs *HookSet
 	hs.RunPostAgentCall(context.Background(), &PostAgentCallContext{})
+}
+
+func TestRunPreMemoryCall(t *testing.T) {
+	key := contextKey("memory")
+	h := &preMemoryPlugin{
+		mockPlugin: mockPlugin{name: "memory-pre", priority: 1},
+		ctx:        context.WithValue(context.Background(), key, "span"),
+	}
+	hs := NewHookSet([]HookPlugin{h})
+
+	result, err := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{Op: MemoryOpAppend})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.called {
+		t.Error("expected hook to be called")
+	}
+	if h.op != MemoryOpAppend {
+		t.Errorf("expected op MemoryOpAppend, got %q", h.op)
+	}
+	if result.Context == nil || result.Context.Value(key) != "span" {
+		t.Fatal("expected enriched context")
+	}
+}
+
+func TestRunPreMemoryCall_Nil(t *testing.T) {
+	var hs *HookSet
+	result, err := hs.RunPreMemoryCall(context.Background(), &PreMemoryCallContext{})
+	if err != nil || result.Context != nil {
+		t.Fatal("nil hook set should be no-op")
+	}
 }
 
 func TestRunPostMemoryCall(t *testing.T) {

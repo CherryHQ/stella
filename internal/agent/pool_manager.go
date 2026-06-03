@@ -61,6 +61,14 @@ func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
 	return func(pm *PoolManager) { pm.pluginHooksBuilder = b }
 }
 
+// WithCoreHooks registers server-level hooks (e.g. the OTel trace hook) that
+// live for the whole PoolManager lifetime. Unlike plugin hooks they are never
+// rebuilt or closed on reload, so in-flight runners can keep calling them; they
+// are closed exactly once in Close.
+func WithCoreHooks(h []hooks.HookPlugin) PoolManagerOption {
+	return func(pm *PoolManager) { pm.coreHooks = h }
+}
+
 func WithPromptSectionsBuilder(b prompt.SectionsBuilder) PoolManagerOption {
 	return func(pm *PoolManager) { pm.promptSectionsBuilder = b }
 }
@@ -114,6 +122,7 @@ type PoolManager struct {
 	builtinTools             []tools.Tool
 	pluginToolsBuilder       PluginToolsBuilder
 	hookPlugins              []hooks.HookPlugin
+	coreHooks                []hooks.HookPlugin
 	pluginHooksBuilder       PluginHooksBuilder
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
@@ -189,12 +198,15 @@ func (pm *PoolManager) SetTokenEnsurer(ctx context.Context, te sandbox.TokenEnsu
 	}
 }
 
-// HookPlugins returns a snapshot copy of the current enabled hook plugins.
+// HookPlugins returns a snapshot of the active hook plugins: the reloadable
+// user plugins plus the stable core hooks. Ordering is irrelevant — NewHookSet
+// sorts by Priority — so core hooks are simply appended.
 func (pm *PoolManager) HookPlugins() []hooks.HookPlugin {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	out := make([]hooks.HookPlugin, len(pm.hookPlugins))
-	copy(out, pm.hookPlugins)
+	out := make([]hooks.HookPlugin, 0, len(pm.hookPlugins)+len(pm.coreHooks))
+	out = append(out, pm.hookPlugins...)
+	out = append(out, pm.coreHooks...)
 	return out
 }
 
@@ -588,6 +600,8 @@ func (pm *PoolManager) Close() error {
 	pm.services = make(map[string]*Service)
 	hookPlugins := pm.hookPlugins
 	pm.hookPlugins = nil
+	coreHooks := pm.coreHooks
+	pm.coreHooks = nil
 	pm.mu.Unlock()
 
 	var lastErr error
@@ -599,6 +613,9 @@ func (pm *PoolManager) Close() error {
 		}
 	}
 	pluginhooks.CloseHookPlugins(hookPlugins)
+	// Core hooks (trace) are closed last so their end-of-session spans flush
+	// after every runtime has stopped producing new ones.
+	pluginhooks.CloseHookPlugins(coreHooks)
 	if pm.mem != nil {
 		if err := pm.mem.Close(); err != nil {
 			lastErr = err

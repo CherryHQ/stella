@@ -75,7 +75,25 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 		}
 
-		// PreToolCall hooks: may rewrite args or block execution.
+		// PreToolCall hooks: may rewrite args, block execution, or enrich the
+		// context (e.g. with a trace span the tool's DB calls nest under).
+		execCtx := ctx
+		runPostToolCall := func(postCtx context.Context, postArgs map[string]any, resultText string, isError bool, duration time.Duration) {
+			if hs.Empty() {
+				return
+			}
+			// Only the first TextContent block is passed — sufficient for telemetry;
+			// hooks needing full output should extend PostToolCallContext.
+			hs.RunPostToolCall(postCtx, &hooks.PostToolCallContext{
+				HookMeta:   meta,
+				ToolName:   call.Name,
+				ToolCallID: call.ID,
+				Arguments:  postArgs,
+				Result:     resultText,
+				IsError:    isError,
+				Duration:   duration,
+			})
+		}
 		if !hs.Empty() {
 			preCtx := &hooks.PreToolCallContext{
 				HookMeta:   meta,
@@ -84,11 +102,18 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Arguments:  args,
 			}
 			preResult, _ := hs.RunPreToolCall(ctx, preCtx)
+			if preResult.Context != nil {
+				execCtx = preResult.Context
+			}
+			if preResult.Arguments != nil {
+				args = preResult.Arguments
+			}
 			if preResult.Block {
 				blockMsg := preResult.BlockMessage
 				if blockMsg == "" {
 					blockMsg = "tool call blocked by hook"
 				}
+				runPostToolCall(execCtx, args, blockMsg, true, 0)
 				result := ai.ToolResultMessage{
 					ToolCallID: call.ID,
 					ToolName:   call.Name,
@@ -100,16 +125,13 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				}
 				continue
 			}
-			if preResult.Arguments != nil {
-				args = preResult.Arguments
-			}
 		}
 
 		// Execute tool with (possibly rewritten) args.
 		execCall := call
 		execCall.Arguments = args
 		start := time.Now()
-		toolCtx := pkgchannel.WithNotificationAgentID(ctx, meta.AgentID)
+		toolCtx := pkgchannel.WithNotificationAgentID(execCtx, meta.AgentID)
 		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)
 
@@ -145,6 +167,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Duration:   duration,
 			})
 			if err != nil {
+				runPostToolCall(execCtx, args, err.Error(), true, duration)
 				return nil, err
 			}
 			if mutation.Result != nil {
@@ -156,21 +179,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 		}
 
-		// PostToolCall hooks: observe results.
-		// Only the first TextContent block is passed — sufficient for telemetry;
-		// hooks needing full output should extend PostToolCallContext.
-		if !hs.Empty() {
-			postCtx := &hooks.PostToolCallContext{
-				HookMeta:   meta,
-				ToolName:   call.Name,
-				ToolCallID: call.ID,
-				Arguments:  args,
-				Result:     resultText,
-				IsError:    result.IsError,
-				Duration:   duration,
-			}
-			hs.RunPostToolCall(ctx, postCtx)
-		}
+		runPostToolCall(execCtx, args, resultText, result.IsError, duration)
 
 		results = append(results, result)
 		if cb.onFinish != nil {

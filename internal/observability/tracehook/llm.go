@@ -1,4 +1,4 @@
-package trace
+package tracehook
 
 import (
 	"context"
@@ -6,13 +6,12 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
+func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
 	tools := make([]string, len(hctx.ToolDefinitions))
 	for i, t := range hctx.ToolDefinitions {
 		tools[i] = t.Name
@@ -28,17 +27,24 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		"user_id", hctx.UserID,
 	)
 
-	if h.otelEnabled() {
+	if h.otelEnabled() && hctx.SessionID != "" {
 		h.mu.Lock()
-		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
+		st := h.getOrCreateSession(ctx, hctx.AgentID, hctx.SessionID)
 		h.mu.Unlock()
 
 		st.mu.Lock()
+		// End a prior LLM span that never saw its OnPostLLMCall (e.g. a dropped
+		// or interleaved call) so it can't leak or pin activeOps forever.
+		if st.llmSpan != nil {
+			st.llmSpan.End()
+			st.llmSpan = nil
+			st.activeOps.Add(-1)
+		}
 		if st.turnSpan != nil {
 			st.turnSpan.End()
 		}
 		st.turnNum++
-		st.turnCtx, st.turnSpan = h.tracer.Start(st.chatCtx,
+		st.turnCtx, st.turnSpan = h.tracer().Start(st.loopCtx,
 			fmt.Sprintf("turn %d", st.turnNum),
 			trace.WithAttributes(
 				attribute.Int("stella.turn.number", st.turnNum),
@@ -73,7 +79,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		}
 
 		var llmCtx context.Context
-		llmCtx, st.llmSpan = h.tracer.Start(st.turnCtx, "gen_ai.chat",
+		llmCtx, st.llmSpan = h.tracer().Start(st.turnCtx, "gen_ai.chat",
 			trace.WithAttributes(attrs...),
 		)
 		st.activeOps.Add(1)
@@ -122,13 +128,19 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		return
 	}
 
+	// Claim the span under the lock (nil it out) before ending it, so a
+	// concurrent endSession (reaper/Close) can never snapshot the same span and
+	// End it twice. Mirrors OnPostToolCall, which deletes from the map first.
 	st.mu.Lock()
 	span := st.llmSpan
-	if span == nil {
-		st.mu.Unlock()
-		return
+	st.llmSpan = nil
+	if span != nil {
+		st.lastActive = time.Now()
 	}
 	st.mu.Unlock()
+	if span == nil {
+		return
+	}
 
 	// Resolve provider name: prefer explicit Provider, fall back to API key.
 	providerName := hctx.Provider
@@ -167,15 +179,8 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		span.SetAttributes(attribute.Float64("gen_ai.usage.cost_usd", hctx.Usage.Cost.Total))
 	}
 	if hctx.Error != nil {
-		span.RecordError(hctx.Error)
-		span.SetStatus(codes.Error, hctx.Error.Error())
-		span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", hctx.Error)))
+		recordSpanError(span, hctx.Error)
 	}
 	span.End()
-
-	st.mu.Lock()
-	st.llmSpan = nil
-	st.lastActive = time.Now()
-	st.mu.Unlock()
 	st.activeOps.Add(-1)
 }
