@@ -65,9 +65,9 @@ func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.Provi
 	}
 }
 
-func setupMemoryProvider(_ context.Context, db *sql.DB, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
+func setupMemoryProvider(_ context.Context, memDB *sql.DB, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) (memory.Provider, error) {
 	summarizer := buildMemorySummarizer(store, providerStreamBuilder)
-	mem, err := memorylcm.New(db, summarizer, nil)
+	mem, err := memorylcm.New(memDB, summarizer, nil)
 	if err != nil {
 		return nil, fmt.Errorf("init lcm memory: %w", err)
 	}

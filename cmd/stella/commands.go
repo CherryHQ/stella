@@ -111,6 +111,14 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
+	// Dedicated single-connection handle for the write-heavy memory provider,
+	// so its per-turn writes queue in Go rather than contending on SQLite's
+	// write lock and starving the shared read pool.
+	memDB, err := appdb.OpenSerialConn(config.DBPath())
+	if err != nil {
+		return nil, fmt.Errorf("open memory database: %w", err)
+	}
+
 	store := cfgstore.NewDBStore(db)
 
 	if err := ensureEmbeddedAssets(); err != nil {
@@ -145,7 +153,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		})
 	}
 
-	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder)
+	memProvider, err := setupMemoryProvider(parent, memDB, store, providerStreamBuilder)
 	if err != nil {
 		return nil, fmt.Errorf("memory provider: %w", err)
 	}

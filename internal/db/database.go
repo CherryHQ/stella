@@ -66,11 +66,32 @@ func configurePool(db *sql.DB) {
 	// WAL mode allows many concurrent readers alongside one writer, so the pool
 	// is sized for read parallelism. Writes still serialize inside SQLite and
 	// wait out contention via busy_timeout rather than failing.
-	maxConns := max(runtime.NumCPU(), 4)
+	maxConns := max(runtime.NumCPU()*4, 8)
 	db.SetMaxOpenConns(maxConns)
 	db.SetMaxIdleConns(maxConns)
 	db.SetConnMaxLifetime(0)
 	db.SetConnMaxIdleTime(0)
+}
+
+// OpenSerialConn opens a second handle to an already-migrated SQLite database
+// capped at a single connection. Write-heavy subsystems (the memory provider)
+// run on this handle so their writes queue in Go as a fast FIFO instead of
+// fighting over SQLite's single write lock across many pooled connections —
+// which otherwise burns the busy_timeout and starves the shared read pool.
+//
+// The caller must have run OpenDB on the same path first; this handle does not
+// migrate. The DSN carries the same pragmas (WAL, busy_timeout, foreign keys),
+// and WAL lets this writer run concurrently with readers on the main pool.
+func OpenSerialConn(dbPath string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dataSourceName(dbPath))
+	if err != nil {
+		return nil, fmt.Errorf("db: open serial conn: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+	db.SetConnMaxIdleTime(0)
+	return db, nil
 }
 
 // migrate applies pending SQL migration files from the embedded migrations
