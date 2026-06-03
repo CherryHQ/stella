@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/CherryHQ/stella/internal/auth"
 )
 
@@ -24,6 +26,7 @@ type OAuthProvider struct {
 	mu                      sync.Mutex
 	cachedFeishuAppToken    string
 	feishuAppTokenExpiresAt time.Time
+	feishuAppTokenGroup     singleflight.Group
 }
 
 const (
@@ -88,6 +91,15 @@ func (p *OAuthProvider) HandleCallback(ctx context.Context, r *http.Request, sta
 
 		started = time.Now()
 		profile, err := p.exchangeFeishuProfileToken(ctx, code, appToken)
+		if isFeishuInvalidAppTokenError(err) {
+			p.clearFeishuAppToken(appToken)
+			appToken, _, tokenErr := p.feishuAppToken(ctx)
+			if tokenErr != nil {
+				err = tokenErr
+			} else {
+				profile, err = p.exchangeFeishuProfileToken(ctx, code, appToken)
+			}
+		}
 		logOAuthTiming(p.cfg.ProviderName, "feishu_profile_token", started, err)
 		if err != nil {
 			return nil, err
@@ -242,56 +254,126 @@ type feishuProfileTokenResponse struct {
 	Data map[string]any `json:"data"`
 }
 
-func (p *OAuthProvider) feishuAppToken(ctx context.Context) (string, bool, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+type feishuAPIError struct {
+	Code int
+	Msg  string
+}
 
-	now := time.Now()
-	if p.cachedFeishuAppToken != "" && now.Before(p.feishuAppTokenExpiresAt) {
-		return p.cachedFeishuAppToken, true, nil
+func (e *feishuAPIError) Error() string {
+	return fmt.Sprintf("Feishu API error %d: %s", e.Code, e.Msg)
+}
+
+func (p *OAuthProvider) feishuAppToken(ctx context.Context) (string, bool, error) {
+	if token := p.cachedValidFeishuAppToken(); token != "" {
+		return token, true, nil
 	}
 
+	value, err, shared := p.feishuAppTokenGroup.Do("app-token", func() (any, error) {
+		if token := p.cachedValidFeishuAppToken(); token != "" {
+			return token, nil
+		}
+		fetchCtx, cancel := context.WithTimeout(context.Background(), oauthHTTPTimeout)
+		defer cancel()
+		token, expiresAt, err := p.fetchFeishuAppToken(fetchCtx)
+		if err != nil {
+			return "", err
+		}
+		p.mu.Lock()
+		p.cachedFeishuAppToken = token
+		p.feishuAppTokenExpiresAt = expiresAt
+		p.mu.Unlock()
+		return token, nil
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return value.(string), shared, nil
+}
+
+func (p *OAuthProvider) cachedValidFeishuAppToken() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cachedFeishuAppToken != "" && time.Now().Before(p.feishuAppTokenExpiresAt) {
+		return p.cachedFeishuAppToken
+	}
+	return ""
+}
+
+func (p *OAuthProvider) clearFeishuAppToken(token string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if token == "" || p.cachedFeishuAppToken == token {
+		p.cachedFeishuAppToken = ""
+		p.feishuAppTokenExpiresAt = time.Time{}
+	}
+}
+
+func feishuAppTokenExpiresAt(now time.Time, expiresIn int64) time.Time {
+	if expiresIn <= 0 {
+		expiresIn = int64((time.Hour + feishuAppTokenRefreshSkew).Seconds())
+	}
+	expiresInDuration := time.Duration(expiresIn) * time.Second
+	if expiresInDuration <= feishuAppTokenRefreshSkew {
+		return now.Add(expiresInDuration / 2)
+	}
+	return now.Add(expiresInDuration - feishuAppTokenRefreshSkew)
+}
+
+func isFeishuInvalidAppTokenError(err error) bool {
+	var apiErr *feishuAPIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	switch apiErr.Code {
+	case 99991663, 99991668:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *OAuthProvider) fetchFeishuAppToken(ctx context.Context) (string, time.Time, error) {
+	now := time.Now()
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(map[string]string{
 		"app_id":     p.cfg.ClientID,
 		"app_secret": p.cfg.ClientSecret,
 	}); err != nil {
-		return "", false, err
+		return "", time.Time{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.FeishuAppTokenURL, &buf)
 	if err != nil {
-		return "", false, fmt.Errorf("oauth login: build Feishu app token request: %w", err)
+		return "", time.Time{}, fmt.Errorf("oauth login: build Feishu app token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Accept", "application/json")
 
 	var out feishuAppTokenResponse
 	if err := p.doJSON(req, &out); err != nil {
-		return "", false, fmt.Errorf("oauth login: fetch Feishu app token: %w", err)
+		return "", time.Time{}, fmt.Errorf("oauth login: fetch Feishu app token: %w", err)
 	}
 	if out.Code != 0 {
-		return "", false, fmt.Errorf("oauth login: Feishu app token error %d: %s", out.Code, out.Msg)
+		return "", time.Time{}, fmt.Errorf("oauth login: Feishu app token error %d: %s", out.Code, out.Msg)
 	}
 	token := out.AppAccessToken
-	expiresIn := out.Expire
 	if token == "" {
 		token = out.Data.AppAccessToken
-		expiresIn = out.Data.Expire
 	}
 	if token == "" {
-		return "", false, errors.New("oauth login: Feishu app token response missing app_access_token")
+		return "", time.Time{}, errors.New("oauth login: Feishu app token response missing app_access_token")
 	}
-	if expiresIn <= int64(feishuAppTokenRefreshSkew.Seconds()) {
-		expiresIn = int64((time.Hour + feishuAppTokenRefreshSkew).Seconds())
+	expiresIn := out.Expire
+	if expiresIn == 0 {
+		expiresIn = out.Data.Expire
 	}
-
-	p.cachedFeishuAppToken = token
-	p.feishuAppTokenExpiresAt = now.Add(time.Duration(expiresIn)*time.Second - feishuAppTokenRefreshSkew)
-	return token, false, nil
+	return token, feishuAppTokenExpiresAt(now, expiresIn), nil
 }
 
 func (p *OAuthProvider) exchangeFeishuProfileToken(ctx context.Context, code, appToken string) (*oauthProfile, error) {
 	var buf bytes.Buffer
+	// Feishu's v1 profile-bearing token endpoint is app-token authenticated
+	// and does not define a code_verifier field in its public schema. The
+	// callback state check above remains the CSRF boundary for this flow.
 	if err := json.NewEncoder(&buf).Encode(map[string]string{
 		"grant_type": "authorization_code",
 		"code":       code,
@@ -311,7 +393,7 @@ func (p *OAuthProvider) exchangeFeishuProfileToken(ctx context.Context, code, ap
 		return nil, fmt.Errorf("oauth login: exchange Feishu profile token: %w", err)
 	}
 	if out.Code != 0 {
-		return nil, fmt.Errorf("oauth login: Feishu profile token error %d: %s", out.Code, out.Msg)
+		return nil, fmt.Errorf("oauth login: Feishu profile token: %w", &feishuAPIError{Code: out.Code, Msg: out.Msg})
 	}
 	return feishuProfileFromClaims(out.Data), nil
 }
@@ -406,7 +488,7 @@ func (p *OAuthProvider) doJSON(req *http.Request, out any) error {
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(data)))
+		return fmt.Errorf("%s", resp.Status)
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return err

@@ -99,6 +99,8 @@ func OAuthConfigFromEnv(providerName, baseURL string) (*OAuthConfig, error) {
 	}
 	if cfg.Kind == "feishu" {
 		cfg.FeishuProfileTokenEnabled = parseOAuthBool(os.Getenv(prefix+"PROFILE_TOKEN_ENABLED"), cfg.FeishuProfileTokenEnabled)
+		// Feishu and Lark deployments may need region-specific Open Platform
+		// domains; keep these overrides scoped to the Feishu preset.
 		if v := os.Getenv(prefix + "PROFILE_TOKEN_URL"); v != "" {
 			cfg.FeishuProfileTokenURL = v
 		}

@@ -2,11 +2,13 @@ package oidc
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
 )
@@ -213,6 +215,165 @@ func TestOAuthProviderFeishuCachesAppToken(t *testing.T) {
 	}
 	if appTokenCalls != 1 {
 		t.Fatalf("appTokenCalls = %d, want 1", appTokenCalls)
+	}
+}
+
+func TestOAuthProviderFeishuRefreshesExpiredAppToken(t *testing.T) {
+	var appTokenCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/app-token":
+			appTokenCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "app_access_token": "app-token", "expire": 7200})
+		case "/profile-token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"union_id":   "on_union",
+					"tenant_key": "tenant-1",
+					"email":      "user@example.com",
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName:              "feishu",
+		Kind:                      "feishu",
+		ClientID:                  "client-id",
+		ClientSecret:              "client-secret",
+		RedirectURL:               "https://stella.example/auth/callback/feishu",
+		AuthURL:                   server.URL + "/authorize",
+		TokenURL:                  server.URL + "/legacy-token",
+		TokenRequestStyle:         "json",
+		UserInfoURL:               server.URL + "/userinfo",
+		FeishuProfileTokenEnabled: true,
+		FeishuProfileTokenURL:     server.URL + "/profile-token",
+		FeishuAppTokenURL:         server.URL + "/app-token",
+		AllowedTenantKeys:         []string{"tenant-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/callback?code=auth-code&state=state", nil)
+	if _, err := p.HandleCallback(t.Context(), req, auth.AuthState{State: "state", CodeVerifier: "verifier"}); err != nil {
+		t.Fatal(err)
+	}
+	p.feishuAppTokenExpiresAt = time.Now().Add(-time.Second)
+	req = httptest.NewRequest(http.MethodGet, "/callback?code=auth-code&state=state", nil)
+	if _, err := p.HandleCallback(t.Context(), req, auth.AuthState{State: "state", CodeVerifier: "verifier"}); err != nil {
+		t.Fatal(err)
+	}
+	if appTokenCalls != 2 {
+		t.Fatalf("appTokenCalls = %d, want 2", appTokenCalls)
+	}
+}
+
+func TestOAuthProviderFeishuInvalidAppTokenRetriesOnce(t *testing.T) {
+	var appTokenCalls, profileTokenCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/app-token":
+			appTokenCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "app_access_token": "app-token-" + fmt.Sprint(appTokenCalls), "expire": 7200})
+		case "/profile-token":
+			profileTokenCalls++
+			if got := r.Header.Get("Authorization"); profileTokenCalls == 1 && got != "Bearer app-token-1" {
+				t.Fatalf("first Authorization = %q", got)
+			} else if profileTokenCalls == 2 && got != "Bearer app-token-2" {
+				t.Fatalf("second Authorization = %q", got)
+			}
+			if profileTokenCalls == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 99991663, "msg": "invalid app access token"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"union_id":   "on_union",
+					"tenant_key": "tenant-1",
+					"email":      "user@example.com",
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName:              "feishu",
+		Kind:                      "feishu",
+		ClientID:                  "client-id",
+		ClientSecret:              "client-secret",
+		RedirectURL:               "https://stella.example/auth/callback/feishu",
+		AuthURL:                   server.URL + "/authorize",
+		TokenURL:                  server.URL + "/legacy-token",
+		TokenRequestStyle:         "json",
+		UserInfoURL:               server.URL + "/userinfo",
+		FeishuProfileTokenEnabled: true,
+		FeishuProfileTokenURL:     server.URL + "/profile-token",
+		FeishuAppTokenURL:         server.URL + "/app-token",
+		AllowedTenantKeys:         []string{"tenant-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/callback?code=auth-code&state=state", nil)
+	if _, err := p.HandleCallback(t.Context(), req, auth.AuthState{State: "state", CodeVerifier: "verifier"}); err != nil {
+		t.Fatal(err)
+	}
+	if appTokenCalls != 2 || profileTokenCalls != 2 {
+		t.Fatalf("appTokenCalls=%d profileTokenCalls=%d, want 2/2", appTokenCalls, profileTokenCalls)
+	}
+}
+
+func TestFeishuAppTokenExpiresAtHonorsShortTTL(t *testing.T) {
+	now := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
+	if got, want := feishuAppTokenExpiresAt(now, 200), now.Add(100*time.Second); !got.Equal(want) {
+		t.Fatalf("short TTL expiresAt = %s, want %s", got, want)
+	}
+	if got, want := feishuAppTokenExpiresAt(now, 7200), now.Add(6900*time.Second); !got.Equal(want) {
+		t.Fatalf("normal TTL expiresAt = %s, want %s", got, want)
+	}
+	if got := feishuAppTokenExpiresAt(now, 0); !got.Equal(now.Add(time.Hour)) {
+		t.Fatalf("default expiresAt = %s, want %s", got, now.Add(time.Hour))
+	}
+}
+
+func TestOAuthProviderDoJSONOmitsHTTPErrorBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"access_token":"secret-token"}`))
+	}))
+	defer server.Close()
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName:        "acme",
+		Kind:                "generic",
+		ClientID:            "client-id",
+		ClientSecret:        "client-secret",
+		RedirectURL:         "https://stella.example/auth/callback/acme",
+		AuthURL:             server.URL + "/authorize",
+		TokenURL:            server.URL + "/token",
+		UserInfoURL:         server.URL + "/userinfo",
+		TokenRequestStyle:   "form",
+		AllowedEmailDomains: []string{"example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.doJSON(req, &map[string]any{}); err == nil || strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("doJSON error = %v", err)
 	}
 }
 
