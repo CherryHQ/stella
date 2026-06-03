@@ -91,6 +91,10 @@ func TestSpanName(t *testing.T) {
 		{"PRAGMA foreign_keys = on", "PRAGMA"},
 		{"BEGIN", "BEGIN"},
 		{"", "sql.conn.query"},
+		// sqlc keeps its "-- name:" annotation as the first line.
+		{"-- name: GetActiveAutoAuthUserTokenByUser :one\nSELECT id, user_id FROM auth_user_token\nWHERE user_id = ?", "GetActiveAutoAuthUserTokenByUser (SELECT auth_user_token)"},
+		{"-- name: CreateSession :exec\nINSERT INTO sessions (id) VALUES (?)", "CreateSession (INSERT sessions)"},
+		{"-- name: PingDB :one\nPRAGMA foreign_keys", "PingDB (PRAGMA)"},
 	}
 	for _, c := range cases {
 		if got := spanName(context.Background(), "sql.conn.query", c.query); got != c.want {

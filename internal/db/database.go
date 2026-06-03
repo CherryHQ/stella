@@ -91,6 +91,10 @@ func dataSourceName(dbPath string) string {
 	return dbPath + "?" + q.Encode()
 }
 
+// reSQLCName extracts the query name from the sqlc annotation that prefixes
+// every generated statement, e.g. "-- name: GetUserByID :one".
+var reSQLCName = regexp.MustCompile(`(?m)^\s*--\s*name:\s*(\w+)`)
+
 // SQL target extractors: pull the table name following the keyword that names
 // it for each statement kind. Identifiers are plain (sqlc emits unquoted table
 // names), so a bare word match is enough.
@@ -100,14 +104,37 @@ var (
 	reUpdateTarget = regexp.MustCompile(`(?is)\bupdate\s+(\w+)`)
 )
 
-// spanName turns a SQL statement into a "<VERB> <table>" span name (e.g.
-// "SELECT sessions"). Statements without a clear table (PRAGMA, BEGIN, COMMIT)
-// fall back to the verb; anything unparseable falls back to the otelsql method
-// label so a span is never left nameless.
+// spanName builds a readable span name for a SQL statement. sqlc keeps its
+// "-- name: X" annotation as the first line of every generated query, so when
+// present it names the span "X (VERB table)" (e.g.
+// "GetUserByID (SELECT auth_user)") — the query name says intent, the verb and
+// table say what it touches. Ad-hoc statements with no annotation get just
+// "VERB table"; statements without a clear table (PRAGMA, BEGIN) get the verb;
+// anything unparseable falls back to the otelsql method so a span is never
+// left nameless.
 func spanName(_ context.Context, method otelsql.Method, query string) string {
-	fields := strings.Fields(query)
+	name := ""
+	if m := reSQLCName.FindStringSubmatch(query); m != nil {
+		name = m[1]
+	}
+
+	detail := sqlVerbTarget(stripLeadingComments(query))
+	if detail == "" {
+		detail = string(method)
+	}
+	if name != "" {
+		return name + " (" + detail + ")"
+	}
+	return detail
+}
+
+// sqlVerbTarget returns "VERB table" (or just "VERB" when no table is clear)
+// for a statement whose leading comments have been stripped. Empty string if
+// the statement has no leading keyword to read.
+func sqlVerbTarget(stmt string) string {
+	fields := strings.Fields(stmt)
 	if len(fields) == 0 {
-		return string(method)
+		return ""
 	}
 	verb := strings.ToUpper(fields[0])
 	var re *regexp.Regexp
@@ -121,10 +148,25 @@ func spanName(_ context.Context, method otelsql.Method, query string) string {
 	default:
 		return verb
 	}
-	if m := re.FindStringSubmatch(query); m != nil {
+	if m := re.FindStringSubmatch(stmt); m != nil {
 		return verb + " " + m[1]
 	}
 	return verb
+}
+
+// stripLeadingComments drops leading blank and "--" comment lines so the first
+// remaining token is the SQL verb. Needed because sqlc prefixes each query with
+// its "-- name:" annotation.
+func stripLeadingComments(q string) string {
+	lines := strings.Split(q, "\n")
+	for i, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if t == "" || strings.HasPrefix(t, "--") {
+			continue
+		}
+		return strings.Join(lines[i:], "\n")
+	}
+	return ""
 }
 
 func configurePool(db *sql.DB) {
