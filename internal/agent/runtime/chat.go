@@ -7,6 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -28,7 +33,7 @@ type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory
 
 // chat is the goroutine body for Runtime.Chat.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
-	cs, r, err := rt.cache.getOrCreate(ctx, info, co.model)
+	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model)
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
 		close(out)
@@ -80,7 +85,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		} else {
 			cancel()
 			rt.log.Info("auto-compaction succeeded", "session_id", info.ID, "summary_len", len(summary))
-			cs, r, err = rt.cache.getOrCreate(ctx, info, co.model)
+			cs, r, err = rt.getOrCreateRunner(ctx, info, co.model)
 			if err != nil {
 				out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
 				close(out)
@@ -159,6 +164,37 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	stream := r.Chat(ctx, history, userMsg)
 	rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart)
+}
+
+func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string) (*cachedSession, Runner, error) {
+	attrs := []attribute.KeyValue{
+		attribute.String("gen_ai.conversation.id", info.ID),
+		attribute.String("user_id", info.UserID),
+		attribute.String("agent_id", info.AgentID),
+	}
+	if info.ProjectID != "" {
+		attrs = append(attrs, attribute.String("project_id", info.ProjectID))
+	}
+	if info.Channel != "" {
+		attrs = append(attrs, attribute.String("stella.chat.channel", info.Channel))
+	}
+	if model != "" {
+		attrs = append(attrs, attribute.String("gen_ai.request.model", model))
+	}
+
+	spanCtx, span := otel.Tracer("stella").Start(ctx, "agent.runner_get_or_create", trace.WithAttributes(attrs...))
+	defer span.End()
+
+	cs, r, err := rt.cache.getOrCreate(spanCtx, info, model)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, nil, err
+	}
+	if cs != nil && cs.model != "" {
+		span.SetAttributes(attribute.String("gen_ai.response.model", cs.model))
+	}
+	return cs, r, nil
 }
 
 func (rt *Runtime) hookPlugins() []hooks.HookPlugin {

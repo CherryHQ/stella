@@ -112,6 +112,7 @@ func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext)
 			final.Arguments = result.Arguments
 		}
 		if result.Context != nil {
+			ctx = result.Context
 			final.Context = result.Context
 		}
 		if result.Block {
@@ -162,6 +163,7 @@ func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) (
 			final.Model = result.Model
 		}
 		if result.Context != nil {
+			ctx = result.Context
 			final.Context = result.Context
 		}
 	}

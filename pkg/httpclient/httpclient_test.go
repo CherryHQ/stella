@@ -44,8 +44,17 @@ func TestOtelEnabled_DefaultFalse(t *testing.T) {
 
 func TestOtelEnabled_True(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	t.Setenv("OTEL_SDK_DISABLED", "")
 	if !otelEnabled() {
 		t.Error("expected otelEnabled=true when env is set")
+	}
+}
+
+func TestOtelEnabled_DisabledByKillSwitch(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+	if otelEnabled() {
+		t.Error("expected otelEnabled=false when OTEL_SDK_DISABLED=true")
 	}
 }
 
@@ -59,6 +68,7 @@ func TestTransport_NoOtel(t *testing.T) {
 
 func TestTransport_WithOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	t.Setenv("OTEL_SDK_DISABLED", "")
 	tr := transport()
 	if tr == http.DefaultTransport {
 		t.Error("expected wrapped transport when OTel is enabled")

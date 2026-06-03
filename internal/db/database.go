@@ -40,28 +40,7 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	// Only statements are recorded (SQL text, no bound args), and the noisy
 	// connection-lifecycle spans (connect, prepare, reset, per-row) are omitted
 	// to keep traces focused on actual queries.
-	db, err := otelsql.Open("sqlite", dataSourceName(dbPath),
-		otelsql.WithAttributes(attribute.String("db.system", "sqlite")),
-		// Name spans "<verb> <table>" (e.g. "SELECT sessions") instead of the
-		// generic "sql.conn.query" so the trace tree shows what each query does
-		// at a glance, without expanding the db.statement attribute.
-		otelsql.WithSpanNameFormatter(spanName),
-		otelsql.WithSpanOptions(otelsql.SpanOptions{
-			OmitConnectorConnect: true,
-			OmitConnResetSession: true,
-			OmitConnPrepare:      true,
-			OmitRows:             true,
-			// Only emit a query span when the caller already has an active span.
-			// Most DB work runs on background contexts (startup, scheduler,
-			// cache refresh) with no parent — those would become standalone
-			// root spans, one per query, drowning real request traces in noise.
-			// Gating on a valid parent keeps DB spans where they're useful:
-			// nested under an HTTP request or agent tool span.
-			SpanFilter: func(ctx context.Context, _ otelsql.Method, _ string, _ []driver.NamedValue) bool {
-				return trace.SpanContextFromContext(ctx).IsValid()
-			},
-		}),
-	)
+	db, err := openTracedSQLite(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
@@ -169,6 +148,35 @@ func stripLeadingComments(q string) string {
 	return ""
 }
 
+func openTracedSQLite(dbPath string) (*sql.DB, error) {
+	return otelsql.Open("sqlite", dataSourceName(dbPath), sqliteTraceOptions()...)
+}
+
+func sqliteTraceOptions() []otelsql.Option {
+	return []otelsql.Option{
+		otelsql.WithAttributes(attribute.String("db.system", "sqlite")),
+		// Name spans "<verb> <table>" (e.g. "SELECT sessions") instead of the
+		// generic "sql.conn.query" so the trace tree shows what each query does
+		// at a glance, without expanding the db.statement attribute.
+		otelsql.WithSpanNameFormatter(spanName),
+		otelsql.WithSpanOptions(otelsql.SpanOptions{
+			OmitConnectorConnect: true,
+			OmitConnResetSession: true,
+			OmitConnPrepare:      true,
+			OmitRows:             true,
+			// Only emit a query span when the caller already has an active span.
+			// Most DB work runs on background contexts (startup, scheduler,
+			// cache refresh) with no parent — those would become standalone
+			// root spans, one per query, drowning real request traces in noise.
+			// Gating on a valid parent keeps DB spans where they're useful:
+			// nested under an HTTP request or agent tool span.
+			SpanFilter: func(ctx context.Context, _ otelsql.Method, _ string, _ []driver.NamedValue) bool {
+				return trace.SpanContextFromContext(ctx).IsValid()
+			},
+		}),
+	}
+}
+
 func configurePool(db *sql.DB) {
 	if db == nil {
 		return
@@ -193,7 +201,7 @@ func configurePool(db *sql.DB) {
 // migrate. The DSN carries the same pragmas (WAL, busy_timeout, foreign keys),
 // and WAL lets this writer run concurrently with readers on the main pool.
 func OpenSerialConn(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dataSourceName(dbPath))
+	db, err := openTracedSQLite(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("db: open serial conn: %w", err)
 	}

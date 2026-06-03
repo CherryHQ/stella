@@ -4,8 +4,8 @@
 //
 // When OTEL_EXPORTER_OTLP_ENDPOINT is unset (or OTEL_SDK_DISABLED=true), Init is
 // a no-op: the global provider stays the SDK default (no-op), and Shutdown does
-// nothing. Exporter transport details (protocol, headers, TLS) and sampling are
-// owned by the OTel SDK via its standard environment variables.
+// nothing. Exporter transport details (protocol, headers, TLS) are resolved
+// by the OTel exporter from its standard environment variables.
 package observability
 
 import (
@@ -22,9 +22,8 @@ import (
 )
 
 // Config holds tracer settings derived from standard OTel environment
-// variables. Exporter-level vars (endpoint, protocol, headers, TLS) and the
-// sampler (OTEL_TRACES_SAMPLER) are consumed natively by the SDK and are not
-// duplicated here.
+// variables. Exporter-level vars (endpoint, protocol, headers, TLS) are
+// consumed by the auto exporter and are not duplicated here.
 type Config struct {
 	Enabled     bool   // true when an endpoint is set and the SDK is not disabled
 	ServiceName string // OTel service name, defaults to "stella"
@@ -91,8 +90,7 @@ func newTracerProvider(ctx context.Context, cfg Config) (*sdktrace.TracerProvide
 		return nil, fmt.Errorf("otel: create resource: %w", err)
 	}
 
-	// No WithSampler: the SDK default is ParentBased(AlwaysSample) and honors
-	// the standard OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG env vars.
+	// No WithSampler: Stella uses the SDK default ParentBased(AlwaysSample).
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),

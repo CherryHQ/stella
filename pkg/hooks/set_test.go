@@ -60,6 +60,32 @@ func (p *preLLMCallPlugin) OnPreLLMCall(_ context.Context, _ *PreLLMCallContext)
 	return PreLLMCallResult{System: p.newSystem}, nil
 }
 
+type preToolContextPlugin struct {
+	mockPlugin
+	ctx   context.Context
+	check func(context.Context)
+}
+
+func (p *preToolContextPlugin) OnPreToolCall(ctx context.Context, _ *PreToolCallContext) (PreToolCallResult, error) {
+	if p.check != nil {
+		p.check(ctx)
+	}
+	return PreToolCallResult{Context: p.ctx}, nil
+}
+
+type preLLMContextPlugin struct {
+	mockPlugin
+	ctx   context.Context
+	check func(context.Context)
+}
+
+func (p *preLLMContextPlugin) OnPreLLMCall(ctx context.Context, _ *PreLLMCallContext) (PreLLMCallResult, error) {
+	if p.check != nil {
+		p.check(ctx)
+	}
+	return PreLLMCallResult{Context: p.ctx}, nil
+}
+
 // postLLMCallPlugin records usage.
 type postLLMCallPlugin struct {
 	mockPlugin
@@ -146,6 +172,32 @@ func TestRunPreToolCall_RewriteChaining(t *testing.T) {
 	}
 }
 
+type contextKey string
+
+func TestRunPreToolCall_ContextChaining(t *testing.T) {
+	key := contextKey("trace")
+	first := &preToolContextPlugin{
+		mockPlugin: mockPlugin{name: "first", priority: 1},
+		ctx:        context.WithValue(context.Background(), key, "parent"),
+	}
+	second := &preToolContextPlugin{
+		mockPlugin: mockPlugin{name: "second", priority: 2},
+		check: func(ctx context.Context) {
+			if got := ctx.Value(key); got != "parent" {
+				t.Fatalf("second hook saw context value %#v, want parent", got)
+			}
+		},
+	}
+
+	result, err := NewHookSet([]HookPlugin{first, second}).RunPreToolCall(context.Background(), &PreToolCallContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Context == nil || result.Context.Value(key) != "parent" {
+		t.Fatalf("result context did not preserve chained value")
+	}
+}
+
 func TestRunPreToolCall_BlockShortCircuits(t *testing.T) {
 	h1 := &preToolCallPlugin{
 		mockPlugin: mockPlugin{name: "blocker", priority: 1},
@@ -191,6 +243,30 @@ func TestRunPostToolCall_AlwaysRunsAll(t *testing.T) {
 	}
 	if h1.toolName != "read" {
 		t.Errorf("expected tool name 'read', got %q", h1.toolName)
+	}
+}
+
+func TestRunPreLLMCall_ContextChaining(t *testing.T) {
+	key := contextKey("llm")
+	first := &preLLMContextPlugin{
+		mockPlugin: mockPlugin{name: "first", priority: 1},
+		ctx:        context.WithValue(context.Background(), key, "span"),
+	}
+	second := &preLLMContextPlugin{
+		mockPlugin: mockPlugin{name: "second", priority: 2},
+		check: func(ctx context.Context) {
+			if got := ctx.Value(key); got != "span" {
+				t.Fatalf("second hook saw context value %#v, want span", got)
+			}
+		},
+	}
+
+	result, err := NewHookSet([]HookPlugin{first, second}).RunPreLLMCall(context.Background(), &PreLLMCallContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Context == nil || result.Context.Value(key) != "span" {
+		t.Fatalf("result context did not preserve chained value")
 	}
 }
 

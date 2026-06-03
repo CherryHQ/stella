@@ -1,7 +1,7 @@
 // Package httpclient provides a shared resty HTTP client factory with
 // optional OpenTelemetry tracing. OTel transport instrumentation activates
-// only when OTEL_EXPORTER_OTLP_ENDPOINT is set, aligned with the global
-// tracer provider in package observability.
+// only when OTEL_EXPORTER_OTLP_ENDPOINT is set and OTEL_SDK_DISABLED is not
+// true, aligned with the global tracer provider in package observability.
 package httpclient
 
 import (
@@ -15,9 +15,9 @@ import (
 
 const defaultTimeout = 30 * time.Second
 
-// otelEnabled reports whether the OTel exporter endpoint is configured.
+// otelEnabled reports whether tracing should install HTTP transport spans.
 func otelEnabled() bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != ""
+	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" && os.Getenv("OTEL_SDK_DISABLED") != "true"
 }
 
 // transport returns an http.RoundTripper, wrapping http.DefaultTransport
@@ -48,13 +48,13 @@ func NewWithTimeout(timeout time.Duration) *resty.Client {
 	})
 }
 
-// StdHTTPClient returns a standard *http.Client with OTel transport
+// StdHTTPClient returns a standard *http.Client with optional OTel transport
 // instrumentation. No timeout is set because this client is used for
 // SSE/streaming requests where the context deadline controls cancellation.
-// otelhttp resolves the TracerProvider from the request context at call
-// time (not construction time), so it works regardless of init order.
+// When enabled, otelhttp resolves the TracerProvider from the request context
+// at call time (not construction time), so it works regardless of init order.
 func StdHTTPClient() *http.Client {
 	return &http.Client{
-		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Transport: transport(),
 	}
 }

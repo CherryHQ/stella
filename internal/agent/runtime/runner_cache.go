@@ -7,6 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
@@ -144,9 +149,20 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		UserID:  info.UserID,
 		Channel: info.Channel,
 	}
-	if err := c.mem.Bootstrap(ctx, memSess); err != nil {
+	bootstrapCtx, bootstrapSpan := otel.Tracer("stella").Start(ctx, "memory.bootstrap",
+		trace.WithAttributes(
+			attribute.String("stella.memory.op", "bootstrap"),
+			attribute.String("stella.memory.session_id", info.ID),
+			attribute.String("user_id", info.UserID),
+			attribute.String("agent_id", info.AgentID),
+		),
+	)
+	if err := c.mem.Bootstrap(bootstrapCtx, memSess); err != nil {
+		bootstrapSpan.RecordError(err)
+		bootstrapSpan.SetStatus(codes.Error, err.Error())
 		c.log.Warn("memory bootstrap failed", "session_id", info.ID, "error", err)
 	}
+	bootstrapSpan.End()
 
 	c.log.Info("created runner", "session_id", info.ID, "model", effectiveModel)
 	return cs, r, nil
