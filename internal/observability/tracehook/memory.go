@@ -1,4 +1,4 @@
-package trace
+package tracehook
 
 import (
 	"context"
@@ -94,7 +94,7 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 		spanAttrs = append(spanAttrs, attribute.Int("stella.memory.result_count", hctx.ResultCount))
 	}
 
-	_, span := h.tracer.Start(parentCtx, fmt.Sprintf("memory.%s", hctx.Op),
+	_, span := h.tracer().Start(parentCtx, fmt.Sprintf("memory.%s", hctx.Op),
 		trace.WithAttributes(spanAttrs...),
 	)
 	if hctx.Error != nil {

@@ -1,4 +1,4 @@
-package trace
+package tracehook
 
 import (
 	"context"
@@ -8,37 +8,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
-
-func TestLoadConfig_Defaults(t *testing.T) {
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("OTEL_SERVICE_NAME", "")
-	cfg := loadConfig()
-	if cfg.Enabled {
-		t.Error("expected Enabled=false when no endpoint set")
-	}
-	if cfg.ServiceName != "stella" {
-		t.Errorf("expected default service name 'stella', got %q", cfg.ServiceName)
-	}
-	if cfg.SampleRate != 1.0 {
-		t.Errorf("expected SampleRate=1.0, got %f", cfg.SampleRate)
-	}
-}
-
-func TestLoadConfig_WithEndpoint(t *testing.T) {
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-	cfg := loadConfig()
-	if !cfg.Enabled {
-		t.Error("expected Enabled=true when endpoint is set")
-	}
-}
-
-func TestLoadConfig_CustomServiceName(t *testing.T) {
-	t.Setenv("OTEL_SERVICE_NAME", "my-service")
-	cfg := loadConfig()
-	if cfg.ServiceName != "my-service" {
-		t.Errorf("expected service name 'my-service', got %q", cfg.ServiceName)
-	}
-}
 
 func TestSessionKey(t *testing.T) {
 	got := sessionKey("agent-1", "sess-1")
@@ -79,12 +48,9 @@ func TestSummarizeArgs_Unknown(t *testing.T) {
 	}
 }
 
-func TestNewHook_NoOtel(t *testing.T) {
+func TestNew_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, err := newHook()
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := New()
 	if h == nil {
 		t.Fatal("expected non-nil hook")
 	}
@@ -95,7 +61,7 @@ func TestNewHook_NoOtel(t *testing.T) {
 
 func TestHook_NameAndPriority(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	if h.Name() != "trace" {
 		t.Errorf("expected name 'trace', got %q", h.Name())
 	}
@@ -106,7 +72,7 @@ func TestHook_NameAndPriority(t *testing.T) {
 
 func TestHook_Close_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	if err := h.Close(); err != nil {
 		t.Fatalf("unexpected error on close: %v", err)
 	}
@@ -114,7 +80,7 @@ func TestHook_Close_NoOtel(t *testing.T) {
 
 func TestHook_OnPreAgentCall_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	// Should not panic.
 	h.OnPreAgentCall(context.Background(), &hooks.PreAgentCallContext{
 		HookMeta: hooks.HookMeta{SessionID: "s1", AgentID: "a1", UserID: "1"},
@@ -124,7 +90,7 @@ func TestHook_OnPreAgentCall_NoOtel(t *testing.T) {
 
 func TestHook_OnPostAgentCall_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	h.OnPostAgentCall(context.Background(), &hooks.PostAgentCallContext{
 		HookMeta: hooks.HookMeta{SessionID: "s1"},
 		Duration: time.Second,
@@ -133,7 +99,7 @@ func TestHook_OnPostAgentCall_NoOtel(t *testing.T) {
 
 func TestHook_OnPreToolCall_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	result, err := h.OnPreToolCall(context.Background(), &hooks.PreToolCallContext{
 		HookMeta:  hooks.HookMeta{SessionID: "s1"},
 		ToolName:  "bash",
@@ -149,7 +115,7 @@ func TestHook_OnPreToolCall_NoOtel(t *testing.T) {
 
 func TestHook_OnPostToolCall_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	h.OnPostToolCall(context.Background(), &hooks.PostToolCallContext{
 		HookMeta: hooks.HookMeta{SessionID: "s1"},
 		ToolName: "bash",
@@ -160,7 +126,7 @@ func TestHook_OnPostToolCall_NoOtel(t *testing.T) {
 
 func TestHook_OnPreLLMCall_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	result, err := h.OnPreLLMCall(context.Background(), &hooks.PreLLMCallContext{
 		HookMeta: hooks.HookMeta{SessionID: "s1"},
 		Model:    "claude-3",
@@ -175,7 +141,7 @@ func TestHook_OnPreLLMCall_NoOtel(t *testing.T) {
 
 func TestHook_OnPostLLMCall_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{
 		HookMeta: hooks.HookMeta{SessionID: "s1"},
 		Model:    "claude-3",
@@ -186,7 +152,7 @@ func TestHook_OnPostLLMCall_NoOtel(t *testing.T) {
 
 func TestHook_OnPostMemoryCall_NoOtel(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	h, _ := newHook()
+	h := New()
 	h.OnPostMemoryCall(context.Background(), &hooks.PostMemoryCallContext{
 		Op:       hooks.MemoryOpAppend,
 		Duration: 5 * time.Millisecond,

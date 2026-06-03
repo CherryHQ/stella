@@ -1,4 +1,4 @@
-package trace
+package tracehook
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 				parentCtx = st.chatCtx
 			}
 
-			_, span := h.tracer.Start(parentCtx, "gen_ai.execute_tool",
+			_, span := h.tracer().Start(parentCtx, "gen_ai.execute_tool",
 				trace.WithAttributes(
 					attribute.String("gen_ai.operation.name", "execute_tool"),
 					attribute.String("gen_ai.tool.name", hctx.ToolName),

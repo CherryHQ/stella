@@ -1,4 +1,4 @@
-package trace
+package tracehook
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 			st.turnSpan.End()
 		}
 		st.turnNum++
-		st.turnCtx, st.turnSpan = h.tracer.Start(st.chatCtx,
+		st.turnCtx, st.turnSpan = h.tracer().Start(st.chatCtx,
 			fmt.Sprintf("turn %d", st.turnNum),
 			trace.WithAttributes(
 				attribute.Int("stella.turn.number", st.turnNum),
@@ -73,7 +73,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		}
 
 		var llmCtx context.Context
-		llmCtx, st.llmSpan = h.tracer.Start(st.turnCtx, "gen_ai.chat",
+		llmCtx, st.llmSpan = h.tracer().Start(st.turnCtx, "gen_ai.chat",
 			trace.WithAttributes(attrs...),
 		)
 		st.activeOps.Add(1)

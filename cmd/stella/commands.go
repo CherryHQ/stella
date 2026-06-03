@@ -20,6 +20,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
+	"github.com/CherryHQ/stella/internal/observability/tracehook"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -186,7 +187,8 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 	}
 
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
+		built := phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.StellaHome())})
+		return append(built, tracehook.New())
 	}
 
 	toolLifecycle := buildToolLifecycle(phost)

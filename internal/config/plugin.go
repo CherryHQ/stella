@@ -45,7 +45,7 @@ var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web", "webfetch"}
 var BuiltinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
 
 // BuiltinHookNames lists the built-in hook plugins.
-var BuiltinHookNames = []string{"rtk", "trace"}
+var BuiltinHookNames = []string{"rtk"}
 
 // BuiltinProviderNames lists the built-in provider types.
 var BuiltinProviderNames = []string{"anthropic", "openai", "openai-response"}

@@ -682,6 +682,10 @@ func (s *DBStore) Seed(ctx context.Context) error {
 	if err := s.seedProviders(ctx); err != nil {
 		return err
 	}
+	// The trace hook is no longer a plugin; drop any stale row from prior versions.
+	if err := s.DeletePlugin(ctx, "hook/trace"); err != nil {
+		return fmt.Errorf("seed: delete stale trace plugin: %w", err)
+	}
 
 	agents, err := s.q.ListAgents(ctx)
 	if err != nil {
