@@ -1,20 +1,21 @@
 ---
-name: feishu-github-sync
+name: project-tracker
 description: >-
-  Build and operate a Feishu (Lark) Bitable that mirrors GitHub Issues for
-  lightweight project management — a product/requirements table in Feishu that
-  spawns GitHub issues on demand and pulls engineering status back. Use this
-  skill whenever the user wants to sync a 飞书多维表格 / Feishu Bitable with GitHub
-  issues, set up a requirements-tracking or project-management table backed by
-  GitHub, or asks to "同步 github issue", "把需求同步到 GitHub", or "建一个项目管理表格".
+  Lightweight project management in a Feishu (Lark) Bitable. Track requirements,
+  priorities, roadmap, and dev status; mirror accepted items to GitHub issues
+  and pull engineering status back on demand. Use this skill whenever the user
+  wants to "manage project requirements", "track dev status", "sync github issues",
+  "set up a project management table", "build a requirements tracker in Feishu",
+  or asks to "同步需求", "把需求同步到 GitHub", "建一个项目管理表格".
   Covers both the one-time table setup (建表向导) and the recurring on-demand sync.
 ---
 
-# Feishu ↔ GitHub Issue Sync
+# Project Tracker (Feishu Bitable + GitHub)
 
-Mirror a Feishu Bitable of product requirements onto GitHub Issues. Feishu owns
-intent (what to build, priority, type, roadmap); GitHub owns execution (labels,
-assignee, milestone, open/closed). The sync is **on-demand** — a Python script
+Manage product requirements and development status in a Feishu Bitable. Feishu
+owns the product layer: **what to build, priority, type, roadmap, and
+requirement acceptance**. GitHub owns the execution layer: **labels, assignee,
+milestone, and open/closed state**. The sync is **on-demand** — a Python script
 the user runs when they want, not a daemon.
 
 This skill orchestrates two already-installed CLIs and adds no third-party deps:
@@ -32,7 +33,7 @@ Already-mapped tables — use these coordinates directly, do not re-resolve or g
 
 ⚠️ The same base contains a decoy table `内部需求整理` (`tbljZ3glEozfhoOG`) with a
 different schema (Stella处理状态/结果/时长) — **not** the sync table. Always confirm
-the `table=` param in the URL; the sync contract table is `数据表` (`tblqsbIpSO6Px3qj`).
+the `table=` param in the URL; the project table is `数据表` (`tblqsbIpSO6Px3qj`).
 
 ## When you arrive
 

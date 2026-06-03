@@ -110,7 +110,7 @@ Use `.agents/skills/release/SKILL.md` for the full release workflow.
 
 ## Issue & PR tracking
 
-- When you start a new feature or task, make sure it has a tracked GitHub issue: if one already exists, use it; if not, create one and sync it to the Feishu requirements table (see `.agents/skills/feishu-github-sync/SKILL.md`).
+- When you start a new feature or task, make sure it has a tracked GitHub issue: if one already exists, use it; if not, create one and sync it to the Feishu requirements table (see `.agents/skills/project-tracker/SKILL.md`).
 - Organize every GitHub issue and PR description in four sections:
   - **What** — the change in one or two sentences.
   - **Why** — the motivation or problem it solves.
