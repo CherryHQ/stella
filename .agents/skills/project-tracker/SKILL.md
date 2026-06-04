@@ -1,162 +1,221 @@
 ---
 name: project-tracker
 description: >-
-  Lightweight project management in a Feishu (Lark) Bitable. Track requirements,
-  priorities, roadmap, and dev status; mirror accepted items to GitHub issues
-  and pull engineering status back on demand. Use this skill whenever the user
-  wants to "manage project requirements", "track dev status", "sync github issues",
-  "set up a project management table", "build a requirements tracker in Feishu",
-  or asks to "同步需求", "把需求同步到 GitHub", "建一个项目管理表格".
-  Covers both the one-time table setup (建表向导) and the recurring on-demand sync.
+  GitHub-native project management using GitHub Projects (v2) and Issues.
+  Track requirements, priorities, status, and roadmap entirely in GitHub.
+  Use this skill when the user wants to "manage project", "track issues",
+  "view project board", "create issues", "update project status",
+  "查看项目状态", "创建 issue", "整理需求", or any project/issue management task.
 ---
 
-# Project Tracker (Feishu Bitable + GitHub)
+# Project Tracker (GitHub Projects + Issues)
 
-Manage product requirements and development status in a Feishu Bitable. Feishu
-owns the product layer: **what to build, priority, type, roadmap, and
-requirement acceptance**. GitHub owns the execution layer: **labels, assignee,
-milestone, and open/closed state**. The sync is **on-demand** — a Python script
-the user runs when they want, not a daemon.
+Manage requirements and development status entirely in GitHub. **GitHub Projects**
+owns the product layer (status, priority, roadmap views). **GitHub Issues** are
+the execution artifacts (description, labels, assignee, milestone, linked PRs).
 
-This skill orchestrates two already-installed CLIs and adds no third-party deps:
+Only tool needed: `gh` CLI.
 
-- `lark-cli` — Feishu Bitable read/write (run `--as user`; see cheatsheet for why)
-- `gh` — GitHub issue create/view
+## Known projects
 
-## Known tables
+Use these coordinates directly — do not re-resolve or guess:
 
-Already-mapped tables — use these coordinates directly, do not re-resolve or guess:
+| Project                                                        | Repo              | Number | Node ID                |
+| -------------------------------------------------------------- | ----------------- | ------ | ---------------------- |
+| [Stella](https://github.com/orgs/CherryHQ/projects/14/views/1) | `CherryHQ/stella` | 14     | `PVT_kwDOCzFCf84BXEej` |
 
-| Wiki link                                                                                                             | Repo              | base-token                    | table-id           |
-| --------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------------------- | ------------------ |
-| [Stella 项目](https://mcnnox2fhjfq.feishu.cn/wiki/LUdiwZfufikjBuk8Kqucpk6bnnd?table=tblqsbIpSO6Px3qj&view=vewOuD1702) | `CherryHQ/stella` | `J77YbQKKWaUCe4sPL2CcG24EnJe` | `tblqsbIpSO6Px3qj` |
+### Project fields (Stella #14)
 
-⚠️ The same base contains a decoy table `内部需求整理` (`tbljZ3glEozfhoOG`) with a
-different schema (Stella处理状态/结果/时长) — **not** the sync table. Always confirm
-the `table=` param in the URL; the project table is `数据表` (`tblqsbIpSO6Px3qj`).
+| Field      | ID                               | Type          | Options                                                                               |
+| ---------- | -------------------------------- | ------------- | ------------------------------------------------------------------------------------- |
+| Title      | `PVTF_lADOCzFCf84BXEejzhST8rM`   | text          | —                                                                                     |
+| Assignees  | `PVTF_lADOCzFCf84BXEejzhST8rQ`   | text          | —                                                                                     |
+| **Status** | `PVTSSF_lADOCzFCf84BXEejzhST8rU` | single-select | Backlog (`d98918fd`), Todo (`f75ad846`), In Progress (`47fc9ee4`), Done (`98236657`)  |
+| **Week**   | `PVTIF_lADOCzFCf84BXEejzhUocBE`  | iteration     | 7-day cycles starting Monday. Current: W23 (`2fba2474`). Use `--iteration-id` to set. |
+| Labels     | `PVTF_lADOCzFCf84BXEejzhST8rY`   | text          | —                                                                                     |
+| Linked PRs | `PVTF_lADOCzFCf84BXEejzhST8rc`   | text          | —                                                                                     |
+| Milestone  | `PVTF_lADOCzFCf84BXEejzhST8rg`   | text          | —                                                                                     |
+| Repository | `PVTF_lADOCzFCf84BXEejzhST8rk`   | text          | —                                                                                     |
 
-## When you arrive
+## Status workflow
 
-Figure out where the user is:
-
-- **Table is in "Known tables" above** → use its coordinates, skip resolution.
-- **No table yet, or unsure** → run the setup guide below first.
-- **Table exists and is mapped** → skip to "Running the sync".
-
-Don't assume. Ask which repo and which Feishu table/wiki link before touching
-anything.
-
-## The sync contract
-
-These eight rules define the source of truth. They are the spec — preserve them
-through any change:
-
-1. Once a GitHub issue exists, **研发状态 (dev status) follows GitHub**, never Feishu.
-2. Feishu can hold a requirement **without** immediately creating a GitHub issue.
-3. A GitHub issue is created **only when 需求状态 = 已接受** (accepted) and there is
-   no GitHub URL yet.
-4. **Priority / Type / Roadmap / 需求状态 stay in Feishu** — the sync never overwrites them.
-5. **Labels / Assignee / Milestone / Closed State follow GitHub** — pulled back into Feishu.
-6. Comments are **not** synced, either direction.
-7. Every record either has a GitHub URL or is plainly in an un-synced state.
-8. Every automated sync writes **Last Synced At** and **Sync Status**.
-
-### Two passes
-
-- **Pass A (Feishu → GitHub):** records with 需求状态=已接受 and no URL → `gh issue create`
-  → write back GitHub URL, 研发状态=To Do, Sync Status=已同步, Last Synced At.
-- **Pass B (GitHub → Feishu):** records with a URL → `gh issue view` → write back
-  Labels / Assignee / Milestone / Closed State, recompute 研发状态, Sync Status, Last Synced At.
-
-Either pass failing on a record sets that record's Sync Status=同步失败 + Last Synced At.
-
-### 研发状态 (dev status) mapping
-
-Computed in Pass B from GitHub state, never set by hand:
-
-- issue **closed** → `Done`
-- label `status:in-review` → `In Review`
-- label `status:in-progress` → `In Progress`
-- label `status:todo` → `To Do`
-- otherwise → `To Do`
-
-First match wins, in the order above. Change `LABEL_TO_DEV_STATUS` in the script
-to adjust.
-
-## Setup guide (建表向导)
-
-Run this once per table. Goal: a Bitable whose fields map cleanly onto the
-contract above.
-
-1. **Resolve the table.** The user gives a wiki link like
-   `https://…/wiki/<node>?table=<table_id>`. The `table=` query param is the
-   `table_id`. The base token (`app_token`) comes from resolving the wiki node —
-   see the cheatsheet for the resolution call. You need both `base-token` and
-   `table-id`.
-2. **Verify identity & scopes.** Confirm `lark-cli` is authed `--as user` with
-   base read+write. If a call returns code `99991672` the token is expired or
-   missing scope → have the user run `lark-cli auth login --domain all`.
-3. **Check existing fields** (`+field-list`). Map to the required set below.
-   Only create what's missing — never blow away a field that's close.
-
-### Required fields
-
-| Field (Feishu name) | Type          | Owner  | Notes                                                         |
-| ------------------- | ------------- | ------ | ------------------------------------------------------------- |
-| 标题                | text          | Feishu | issue title                                                   |
-| 描述                | text          | Feishu | issue body                                                    |
-| 优先级              | single-select | Feishu | e.g. P0–P3                                                    |
-| 类型                | single-select | Feishu | Bug/Feature/Task/…                                            |
-| 路线图              | single-select | Feishu | e.g. Q1–Q4/Backlog (optional)                                 |
-| 需求状态            | single-select | Feishu | **待评估 / 已接受 / 已拒绝** — 已接受 triggers Pass A         |
-| 研发状态            | single-select | GitHub | To Do / In Progress / In Review / Done                        |
-| GitHub URL          | text          | sync   | written by Pass A                                             |
-| GitHub Labels       | text          | GitHub | comma-joined; includes `release:vX.Y.Z` from release workflow |
-| GitHub Milestone    | text          | GitHub |                                                               |
-| GitHub Assignee     | text          | GitHub | comma-joined logins                                           |
-| GitHub Closed State | single-select | GitHub | Open / Closed                                                 |
-| Sync Status         | single-select | sync   | 未同步 / 已同步 / 同步失败                                    |
-| Last Synced At      | datetime      | sync   |                                                               |
-
-Field names are the script's keys — if you rename a field, update the `F_*`
-constants at the top of `scripts/feishu_github_sync.py` to match.
-
-The lark-cli quirks for every step here (wiki resolution, write scopes, the
-`--yes` flag on field updates, cell value read/write shapes, the columnar
-record-list format, URL auto-linkify) are documented in
-`references/lark-base-cheatsheet.md`. Read it before doing any field/record
-operation — these gotchas are not guessable.
-
-## Running the sync
-
-`scripts/feishu_github_sync.py` takes config via flags or env vars and errors
-loudly if base-token/table-id/repo are missing.
-
-```bash
-# dry run first — prints intended changes, writes nothing
-python3 scripts/feishu_github_sync.py \
-  --base-token <app_token> --table-id <table_id> --repo owner/name --dry-run
-
-# real run, both passes
-python3 scripts/feishu_github_sync.py \
-  --base-token <app_token> --table-id <table_id> --repo owner/name
-
-# only one direction
-python3 scripts/feishu_github_sync.py … --pass a   # Feishu → GitHub
-python3 scripts/feishu_github_sync.py … --pass b   # GitHub → Feishu
+```
+Backlog → Todo → In Progress → Done
 ```
 
-Env equivalents: `FEISHU_BASE_TOKEN`, `FEISHU_TABLE_ID`, `GH_REPO` (plus
-`LARK_CLI`, `GH_CLI`, `LARK_IDENTITY` to override binaries/identity).
+- **Backlog** — acknowledged but not yet committed to.
+- **Todo** — accepted and scheduled; ready to pick up.
+- **In Progress** — actively being worked on.
+- **Done** — issue closed (automatically moves here if project auto-close is enabled).
 
-**Always dry-run first** on a table you haven't synced before — it shows exactly
-which records would create issues and which would be pulled, with no writes.
+## Common operations
+
+All operations use the `gh` CLI. Owner is `CherryHQ`, project number is `14`.
+
+### View the board
+
+```bash
+# all items
+gh project item-list 14 --owner CherryHQ --format json
+
+# filter by status (use jq)
+gh project item-list 14 --owner CherryHQ --format json \
+  | jq '[.items[] | select(.status == "In Progress")]'
+
+# quick summary
+gh project item-list 14 --owner CherryHQ
+```
+
+### Create an issue and add to project
+
+```bash
+# 1. create the issue. Use a heredoc for the body — a "\n" inside a
+#    double-quoted --body is written literally, not as a newline.
+gh issue create --repo CherryHQ/stella \
+  --title "feat: ..." \
+  --milestone "v0.42.0" \
+  --body "$(cat <<'EOF'
+## What
+...
+## Why
+...
+## How
+...
+## Refs
+...
+EOF
+)"
+
+# 2. add it to the project. The "Auto-add to project" workflow already adds new
+#    issues automatically, so this is usually redundant (it's idempotent — adding
+#    an already-present issue just returns the existing item). Run it to capture
+#    the item ID for the next step:
+ITEM_ID=$(gh project item-add 14 --owner CherryHQ --url <issue-url> --format json --jq '.id')
+
+# 3. set initial status
+gh project item-edit \
+  --project-id PVT_kwDOCzFCf84BXEej \
+  --id "$ITEM_ID" \
+  --field-id PVTSSF_lADOCzFCf84BXEejzhST8rU \
+  --single-select-option-id f75ad846   # Todo
+```
+
+### Move an item to a different status
+
+```bash
+gh project item-edit \
+  --project-id PVT_kwDOCzFCf84BXEej \
+  --id <item-id> \
+  --field-id PVTSSF_lADOCzFCf84BXEejzhST8rU \
+  --single-select-option-id <option-id>
+```
+
+Status option IDs:
+
+- Backlog: `d98918fd`
+- Todo: `f75ad846`
+- In Progress: `47fc9ee4`
+- Done: `98236657`
+
+### Set week on an item
+
+```bash
+# query current iteration IDs
+gh api graphql -f query='{
+  node(id: "PVT_kwDOCzFCf84BXEej") {
+    ... on ProjectV2 {
+      field(name: "Week") {
+        ... on ProjectV2IterationField {
+          configuration {
+            iterations { id title startDate }
+          }
+        }
+      }
+    }
+  }
+}'
+
+# set an item to a specific week
+gh project item-edit \
+  --project-id PVT_kwDOCzFCf84BXEej \
+  --id <item-id> \
+  --field-id PVTIF_lADOCzFCf84BXEejzhUocBE \
+  --iteration-id <iteration-id>
+```
+
+### View a specific issue
+
+```bash
+gh issue view <number> --repo CherryHQ/stella
+gh issue view <number> --repo CherryHQ/stella --json state,labels,assignees,milestone,projectItems
+```
+
+### List open issues
+
+```bash
+gh issue list --repo CherryHQ/stella
+gh issue list --repo CherryHQ/stella --label "bug" --assignee "@me"
+```
+
+### Update an issue
+
+```bash
+gh issue edit <number> --repo CherryHQ/stella --add-label "priority:p0"
+gh issue edit <number> --repo CherryHQ/stella --add-assignee vaayne
+gh issue close <number> --repo CherryHQ/stella
+```
+
+## Issue conventions
+
+Follow the repo's issue/PR template (from CLAUDE.md):
+
+- **What** — the change in one or two sentences.
+- **Why** — the motivation or problem it solves.
+- **How** — the approach, plan, and design details.
+- **Refs** — related issues, PRs, docs, or discussions.
+
+### Labels
+
+Use labels for categorization. Common patterns:
+
+- `bug`, `feature`, `enhancement`, `docs`
+- `priority:p0` through `priority:p3`
+- `status:in-review` — PR is open and awaiting review
+
+### Milestones & releases
+
+Every release maps to a GitHub Milestone (e.g., `v0.42.0`). Use milestones to
+scope what ships in a release:
+
+```
+Plan:    gh issue edit #123 --milestone v0.42.0
+Track:   gh issue list --repo CherryHQ/stella --milestone v0.42.0
+Release: /release → tag + changelog → close milestone
+```
+
+The `/release` skill builds the changelog from `git log` + merged PRs, and tags
+every issue in the matching milestone with `release:vX.Y.Z` so the board can be
+filtered by release.
+
+## Creating issues — interaction flow
+
+When creating an issue, **always ask the user** for:
+
+1. **Title and description** — draft from context if available, confirm before creating.
+2. **Milestone** — list open milestones (`gh api repos/CherryHQ/stella/milestones --jq '.[].title'`)
+   and ask which one to assign. If the list is empty or none fit, ask whether to
+   create one (`gh api repos/CherryHQ/stella/milestones -f title=vX.Y.Z`) or skip
+   (allow "none" for un-scoped work).
+3. **Status** — default Backlog; ask if it should be Todo or In Progress.
+4. **Week** — ask if it should be tagged to the current week.
+
+Then execute: create issue → add to project → set Status / Week / Milestone.
 
 ## Guardrails
 
-- Never commit the script into a target repo unless the user asks — it's an
-  operator tool, not project code.
-- Never create a GitHub issue for a record whose 需求状态 ≠ 已接受 (rule 3).
-- Never overwrite a Feishu-owned field (优先级/类型/路线图/需求状态) from GitHub (rule 4).
-- If issue deletion is needed, prefer **closing** — `gh issue delete` usually
-  lacks permission.
+- Prefer **closing** over deleting issues — `gh issue delete` usually lacks permission.
+- Don't bulk-create issues without confirmation — ask the user first.
+- When creating issues from a list of requirements, create them one at a time and
+  confirm each title/body before proceeding.
+- Always add new issues to the project board after creation.
+- Always ask for milestone assignment when creating issues.

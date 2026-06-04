@@ -37,17 +37,17 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    git tag vX.Y.Z
    test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)"
    ```
-7. Tag release issues with the release label so they are traceable in the project tracker:
+7. Tag release issues with the release label so they are traceable on the GitHub Project board:
    ```bash
-   python3 scripts/tag_release_issues.py --repo CherryHQ/stella --tag vX.Y.Z
+   # warn about any issue still open in the milestone before tagging
+   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
+
+   # label every issue in the milestone with release:vX.Y.Z (--add-label is idempotent)
+   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all \
+     --json number --jq '.[].number' \
+   | xargs -I{} gh issue edit {} --repo CherryHQ/stella --add-label "release:vX.Y.Z"
    ```
-   This labels all issues in the milestone with `release:vX.Y.Z`. If any issues
-   are still open, the script warns but still tags them. Then run the project-tracker
-   sync (Pass B) to pull the new label back into Feishu:
-   ```bash
-   python3 .agents/skills/project-tracker/scripts/feishu_github_sync.py \
-     --repo CherryHQ/stella --pass b
-   ```
+   Filter the project board by the `release:vX.Y.Z` label to confirm the release scope.
 8. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
 9. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
 
