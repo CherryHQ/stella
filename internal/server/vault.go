@@ -114,7 +114,7 @@ func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 	if name == "EMAIL_CONFIG" {
 		var cfg email.Config
 		if err := json.Unmarshal([]byte(body.Value), &cfg); err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid EMAIL_CONFIG JSON: %v", err))
+			writeError(w, http.StatusBadRequest, "invalid EMAIL_CONFIG: malformed JSON")
 			return
 		}
 		if err := cfg.Validate(); err != nil {

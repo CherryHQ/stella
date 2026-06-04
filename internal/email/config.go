@@ -38,7 +38,7 @@ func ValidateAccountName(name string) error {
 
 func (c *Config) Validate() error {
 	if c.Default != "" {
-		if _, ok := c.Accounts[c.Default]; !ok && len(c.Accounts) > 0 {
+		if _, ok := c.Accounts[c.Default]; !ok {
 			return fmt.Errorf("default account %q not found in accounts", c.Default)
 		}
 	}

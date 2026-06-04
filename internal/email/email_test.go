@@ -387,6 +387,16 @@ func TestConfigValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("default set with empty accounts", func(t *testing.T) {
+		cfg := &email.Config{
+			Default:  "ghost",
+			Accounts: map[string]email.EmailAccount{},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected validation to fail when default references nonexistent account in empty map")
+		}
+	})
+
 	t.Run("missing required fields", func(t *testing.T) {
 		cfg := &email.Config{
 			Accounts: map[string]email.EmailAccount{

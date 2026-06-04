@@ -52,40 +52,53 @@ function simpleIconPath(name: string) {
   return SIMPLE_ICON_PATHS[name.toLowerCase()];
 }
 
+interface EmailAccount {
+  imap_host: string;
+  imap_port: number;
+  imap_tls: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_tls: string;
+  username: string;
+  password?: string;
+  from: string;
+}
+
+interface EmailConfig {
+  default: string;
+  accounts: Record<string, EmailAccount>;
+}
+
+interface EmailFormValues {
+  name: string;
+  imapHost: string;
+  imapPort: string;
+  imapTls: string;
+  smtpHost: string;
+  smtpPort: string;
+  smtpTls: string;
+  username: string;
+  from: string;
+  password: string;
+}
+
+const INITIAL_EMAIL_FORM: EmailFormValues = {
+  name: "",
+  imapHost: "",
+  imapPort: "993",
+  imapTls: "ssl",
+  smtpHost: "",
+  smtpPort: "587",
+  smtpTls: "starttls",
+  username: "",
+  from: "",
+  password: "",
+};
+
 export function CredentialsPage() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
-
-  interface EmailAccount {
-    imap_host: string;
-    imap_port: number;
-    imap_tls: string;
-    smtp_host: string;
-    smtp_port: number;
-    smtp_tls: string;
-    username: string;
-    password?: string;
-    from: string;
-  }
-
-  interface EmailConfig {
-    default: string;
-    accounts: Record<string, EmailAccount>;
-  }
-
-  interface EmailFormValues {
-    name: string;
-    imapHost: string;
-    imapPort: string;
-    imapTls: string;
-    smtpHost: string;
-    smtpPort: string;
-    smtpTls: string;
-    username: string;
-    from: string;
-    password: string;
-  }
 
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
@@ -99,20 +112,7 @@ export function CredentialsPage() {
   const [isEmailFormOpen, setIsEmailFormOpen] = useState(false);
   const [editingAccountName, setEditingAccountName] = useState<string | null>(null);
 
-  const initialFormValues: EmailFormValues = {
-    name: "",
-    imapHost: "",
-    imapPort: "993",
-    imapTls: "ssl",
-    smtpHost: "",
-    smtpPort: "587",
-    smtpTls: "starttls",
-    username: "",
-    from: "",
-    password: "",
-  };
-
-  const [emailFormValues, setEmailFormValues] = useState<EmailFormValues>(initialFormValues);
+  const [emailFormValues, setEmailFormValues] = useState<EmailFormValues>(INITIAL_EMAIL_FORM);
   const [emailFormErrors, setEmailFormErrors] = useState<Record<string, string>>({});
 
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
@@ -254,7 +254,6 @@ export function CredentialsPage() {
       });
       showToast("Default account updated");
       await loadEmailConfig();
-      await loadVaultEntries();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to update default account", "error");
     } finally {
@@ -293,7 +292,6 @@ export function CredentialsPage() {
         await loadEmailConfig();
       }
       showToast("Email account deleted");
-      await loadVaultEntries();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to delete account", "error");
     } finally {
@@ -323,7 +321,7 @@ export function CredentialsPage() {
   };
 
   const handleAddEmail = () => {
-    setEmailFormValues(initialFormValues);
+    setEmailFormValues(INITIAL_EMAIL_FORM);
     setEditingAccountName(null);
     setIsEmailFormOpen(true);
     setEmailFormErrors({});
@@ -380,7 +378,10 @@ export function CredentialsPage() {
         smtp_tls: emailFormValues.smtpTls,
         username: emailFormValues.username,
         from: emailFormValues.from,
-        password: emailFormValues.password || existingAcct?.password || "",
+        password:
+          emailFormValues.password !== ""
+            ? emailFormValues.password
+            : (existingAcct?.password ?? ""),
       };
 
       const updatedAccounts = {
@@ -407,7 +408,6 @@ export function CredentialsPage() {
       showToast(editingAccountName ? "Email account updated" : "Email account added");
       setIsEmailFormOpen(false);
       await loadEmailConfig();
-      await loadVaultEntries();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to save account", "error");
     } finally {
