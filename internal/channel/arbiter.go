@@ -74,6 +74,12 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 
 	// Explicit @mention always responds — skip debounce entirely.
 	if len(responding) == 0 {
+		// No fallback agent → nothing to debounce or dispatch (CR-012).
+		if channelAgentID == "" {
+			log.Debug("no mention and no channel default agent, skipping")
+			return ArbiterDecision{}
+		}
+
 		// Fallback path: apply debounce only for non-mention responses.
 		if a.cfg.DebounceWindow > 0 {
 			a.mu.Lock()
@@ -89,9 +95,7 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 			a.mu.Unlock()
 		}
 
-		if channelAgentID != "" {
-			responding = append(responding, channelAgentID)
-		}
+		responding = append(responding, channelAgentID)
 	}
 
 	if len(responding) > a.cfg.MaxRepliesPerTrigger {

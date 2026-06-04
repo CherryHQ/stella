@@ -65,6 +65,11 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 	// Determine the channel's default agent for fallback.
 	channelAgentID := c.resolveChannelAgentID(ctx, msg)
 
+	observerChannelID := msg.ChannelID
+	if observerChannelID == "" {
+		observerChannelID = msg.Platform
+	}
+
 	if c.arbiter != nil {
 		decision := c.arbiter.Decide(ctx, result.GroupID, msg.Mentions, members, channelAgentID)
 		if decision.Debounced {
@@ -75,21 +80,34 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 			agentID := decision.RespondingAgents[0]
 			replyChannelID := findMemberReplyChannel(members, agentID)
 			log.Debug("arbiter selected agent", "agent_id", agentID, "reply_channel_id", replyChannelID)
-			rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, agentID, replyChannelID)
-			if err != nil {
-				log.Warn("failed to resolve arbiter-selected agent, falling back", "agent_id", agentID, "error", err)
+			// CR-009: only dispatch through observer when reply channels match.
+			// Cross-adapter publishing is deferred; mismatched agents fall through
+			// to channel default so the observer bot doesn't impersonate another.
+			if replyChannelID != "" && replyChannelID != observerChannelID {
+				log.Warn("selected agent's reply channel differs from observer, falling back to channel default",
+					"agent_id", agentID, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
 			} else {
-				return c.handleGroupResolved(ctx, rc, msg, command, args)
+				rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, agentID, replyChannelID)
+				if err != nil {
+					log.Warn("failed to resolve arbiter-selected agent, falling back", "agent_id", agentID, "error", err)
+				} else {
+					return c.handleGroupResolved(ctx, rc, msg, command, args)
+				}
 			}
 		}
 	} else if mentionedAgent := firstMentionedAgent(msg.Mentions); mentionedAgent != "" {
 		replyChannelID := findMemberReplyChannel(members, mentionedAgent)
 		log.Debug("routing to @mentioned agent (no arbiter)", "agent_id", mentionedAgent, "reply_channel_id", replyChannelID)
-		rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, mentionedAgent, replyChannelID)
-		if err != nil {
-			log.Warn("failed to resolve @mentioned agent, falling back", "agent_id", mentionedAgent, "error", err)
+		if replyChannelID != "" && replyChannelID != observerChannelID {
+			log.Warn("mentioned agent's reply channel differs from observer, falling back to channel default",
+				"agent_id", mentionedAgent, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
 		} else {
-			return c.handleGroupResolved(ctx, rc, msg, command, args)
+			rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, mentionedAgent, replyChannelID)
+			if err != nil {
+				log.Warn("failed to resolve @mentioned agent, falling back", "agent_id", mentionedAgent, "error", err)
+			} else {
+				return c.handleGroupResolved(ctx, rc, msg, command, args)
+			}
 		}
 	}
 
@@ -197,11 +215,6 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 	channelCtx := "group:" + msg.ChatID
 	if channelID != "" && channelID != msg.Platform {
 		channelCtx = "channel:" + channelID + ":" + channelCtx
-	}
-
-	if replyChannelID != "" && replyChannelID != msg.ChannelID {
-		slog.Warn("group dispatch: selected agent's reply channel differs from observer — response sent via observer adapter",
-			"agent_id", agentID, "reply_channel_id", replyChannelID, "observer_channel_id", msg.ChannelID)
 	}
 
 	return &ResolvedChat{
