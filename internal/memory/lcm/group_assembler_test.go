@@ -446,6 +446,38 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	assertRole(t, msgs2[1], "assistant")
 }
 
+func TestGroupAssemble_TriggerSeqZero(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g0", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "hello", PlatformMessageID: "z1",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	gid := res1.GroupID
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", gid)
+
+	// triggerSeq=0: no GroupSeq on context. Should still assemble without error,
+	// just skip event log injection entirely.
+	assembleCtx := groupCtx(0)
+	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble with triggerSeq=0 should not error: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages with triggerSeq=0, got %d", len(msgs))
+	}
+}
+
 func assertRole(t *testing.T, msg ai.Message, expected string) {
 	t.Helper()
 	role := memory.MessageRole(msg)

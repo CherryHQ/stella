@@ -12,10 +12,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-const (
-	defaultGroupFetchLimit = 200
-	groupCursorPipeline    = "lcm"
-)
+func groupCursorPipeline(agentID string) string { return "lcm:" + agentID }
 
 // assembleGroup builds a hybrid context window for group sessions.
 //
@@ -27,7 +24,7 @@ const (
 //  2. Event log messages from other participants between the last watermark and
 //     the current triggering message's seq
 //
-// The watermark (stored in ctx_group_ingest_cursor, pipeline="lcm") tracks which
+// The watermark (stored in ctx_group_ingest_cursor, pipeline="lcm:<agentID>") tracks which
 // event log seq this agent has already incorporated. The triggering message's seq
 // comes from the context (set by group_dispatch) so it can be excluded from
 // injection — it enters via the normal Append + live userMsg path in chat.go.
@@ -35,6 +32,7 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 	groupID := session.GroupID
 	agentID := session.AgentID
 	triggerSeq := memory.GroupSeqFromContext(ctx)
+	pipeline := groupCursorPipeline(agentID)
 
 	// 1. Standard LCM assembly: agent's own conversation with tool use.
 	convID, err := p.getOrCreateConversation(ctx, session)
@@ -47,7 +45,7 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 	}
 
 	// 2. Read watermark: last event log seq this agent incorporated.
-	watermark := p.getGroupCursor(ctx, groupID)
+	watermark := p.getGroupCursor(ctx, groupID, pipeline)
 
 	// 3. Read between-turn messages from event log.
 	var injected []ai.Message
@@ -65,11 +63,13 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 
 	// 4. Update watermark to triggering seq.
 	if triggerSeq > watermark {
-		_ = p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+		if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
 			GroupID:  groupID,
-			Pipeline: groupCursorPipeline,
+			Pipeline: pipeline,
 			LastSeq:  triggerSeq,
-		})
+		}); err != nil {
+			p.log.Warn("failed to update group cursor", "group_id", groupID, "agent_id", agentID, "error", err)
+		}
 	}
 
 	// 5. Merge: agent history first, then injected between-turn messages.
@@ -92,10 +92,10 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 }
 
 // getGroupCursor returns the last-seen event log seq for this agent, or 0.
-func (p *Provider) getGroupCursor(ctx context.Context, groupID string) int64 {
+func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) int64 {
 	cursor, err := p.q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
 		GroupID:  groupID,
-		Pipeline: groupCursorPipeline,
+		Pipeline: pipeline,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0
