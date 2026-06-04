@@ -121,7 +121,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		return nil, err
 	}
 
-	if cfg.TokenEnsurer != nil && cfg.UserID != "" && cfg.AgentID != "" {
+	if shouldInjectScopedToken(cfg) {
 		tok, err := cfg.TokenEnsurer.CreateScopedToken(ctx, cfg.UserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
 		if err != nil {
 			return nil, err
@@ -142,6 +142,10 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	}
 
 	return env, nil
+}
+
+func shouldInjectScopedToken(cfg Config) bool {
+	return cfg.TokenEnsurer != nil && cfg.UserID != "" && cfg.AgentID != ""
 }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env. vaultEnv is the
