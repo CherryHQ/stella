@@ -16,33 +16,38 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
   const { assignedUsers, addUserId } = state;
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
+    <div className="space-y-6">
+      <p className="text-[11px] text-muted-foreground">
         Manage user access for restricted-scope agents.
       </p>
-      <div className="divide-y divide-border">
+      <div className="divide-y divide-border/60 border-t border-b border-border/40">
         {assignedUsers.map((u) => (
-          <div key={u.id} className="flex items-center justify-between py-2">
-            <span className="text-sm font-mono">{u.name || u.email}</span>
+          <div
+            key={u.id}
+            className="flex items-center justify-between py-2.5 px-1 hover:bg-muted/10 transition-colors duration-120"
+          >
+            <span className="text-xs font-mono text-foreground/80">{u.name || u.email}</span>
             <Button
               onClick={() => onRemoveUser(u.id)}
               variant="ghost"
               size="xs"
-              className="text-destructive"
+              className="text-destructive hover:bg-destructive/10 cursor-pointer"
             >
               {t("common.remove")}
             </Button>
           </div>
         ))}
         {assignedUsers.length === 0 && (
-          <div className="text-xs text-muted-foreground py-2">{t("agents.users.noUsers")}</div>
+          <div className="text-xs text-muted-foreground py-4 text-center">
+            {t("agents.users.noUsers")}
+          </div>
         )}
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2.5 items-center">
         <select
           value={addUserId}
           onChange={(e) => onSetState({ addUserId: e.target.value })}
-          className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer text-foreground/80 font-medium"
         >
           <option value="">Select user...</option>
           {availableUsers.map((u) => (
@@ -51,7 +56,7 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
             </option>
           ))}
         </select>
-        <Button onClick={onAddUser} disabled={!addUserId} size="sm">
+        <Button onClick={onAddUser} disabled={!addUserId} size="sm" className="cursor-pointer">
           {t("common.add")}
         </Button>
       </div>

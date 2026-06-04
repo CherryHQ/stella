@@ -39,12 +39,17 @@ function ModelComboField({
 
   return (
     <div className="relative">
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-sm font-mono" htmlFor={`model-field-${field}`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <label
+          className="text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+          htmlFor={`model-field-${field}`}
+        >
           {label}
         </label>
         {optional && (
-          <span className="text-xs text-muted-foreground">({t("common.optional")})</span>
+          <span className="text-[10px] font-mono text-muted-foreground/50">
+            ({t("common.optional")})
+          </span>
         )}
       </div>
       <Input
@@ -63,12 +68,12 @@ function ModelComboField({
         }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder={placeholder}
-        className="text-sm font-mono"
+        className="text-sm font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
         autoComplete="off"
         id={`model-field-${field}`}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-lg py-1">
+        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-none py-1">
           {filtered.map((m) => (
             <button
               key={m.value}
@@ -77,8 +82,8 @@ function ModelComboField({
                 setOpen(false);
               }}
               type="button"
-              className={`w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-muted cursor-pointer ${
-                value === m.value ? "text-primary" : "text-muted-foreground"
+              className={`w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
+                value === m.value ? "text-primary font-semibold" : "text-muted-foreground"
               }`}
             >
               {m.label}
@@ -119,11 +124,15 @@ function ChannelSelector({
 
   return (
     <div>
-      <label className="block text-sm font-mono mb-1">Dedicated channels</label>
-      <p className="text-xs text-muted-foreground mb-2">Bind channel instances to this agent.</p>
+      <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+        Dedicated channels
+      </label>
+      <p className="text-[11px] text-muted-foreground mb-2">
+        Bind channel instances to this agent.
+      </p>
       <div ref={containerRef} className="relative">
         <div
-          className="min-h-9 w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm cursor-pointer flex flex-wrap gap-1.5 items-center"
+          className="min-h-9 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm cursor-pointer flex flex-wrap gap-1.5 items-center transition-all duration-120 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
           onClick={() => setOpen((v) => !v)}
           onKeyDown={(e) => e.key === "Enter" && setOpen((v) => !v)}
           role="combobox"
@@ -134,7 +143,7 @@ function ChannelSelector({
           {selected.map((ch) => (
             <span
               key={ch.id}
-              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-mono"
+              className="inline-flex items-center gap-1 rounded-md bg-muted border border-border px-2 py-0.5 text-xs font-mono text-foreground/80"
             >
               {channelDisplayName(ch)}
               <button
@@ -143,7 +152,7 @@ function ChannelSelector({
                   e.stopPropagation();
                   onRemove(ch.id);
                 }}
-                className="text-muted-foreground hover:text-foreground ml-0.5"
+                className="text-muted-foreground hover:text-foreground ml-0.5 cursor-pointer font-semibold"
               >
                 ×
               </button>
@@ -153,7 +162,7 @@ function ChannelSelector({
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-lg py-1">
+            <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-none py-1">
               {unselected.length === 0 && (
                 <div className="px-3 py-2 text-xs text-muted-foreground">
                   No more channels available.
@@ -166,11 +175,15 @@ function ChannelSelector({
                   onMouseDown={() => {
                     onToggle(ch.id);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-muted cursor-pointer flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-muted/80 cursor-pointer flex items-center justify-between transition-colors duration-120"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm truncate">{channelDisplayName(ch)}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{ch.type}</p>
+                    <p className="text-sm font-medium text-foreground/90 truncate">
+                      {channelDisplayName(ch)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/50 font-mono truncate">
+                      {ch.type}
+                    </p>
                   </div>
                 </button>
               ))}
@@ -204,25 +217,27 @@ export function ConfigTab({ state, onSetState }: Props) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
-        <label className="block text-sm font-mono mb-1">{t("common.name")}</label>
+        <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+          {t("common.name")}
+        </label>
         <Input
           nativeInput
           value={form.name}
           onChange={(e) => setForm({ name: (e.target as HTMLInputElement).value })}
           placeholder="My Agent"
-          className="text-sm"
+          className="text-sm transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
         />
       </div>
       <div>
-        <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          Models{" "}
-          <span className="normal-case tracking-normal text-muted-foreground/50">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1">
+          <span>Models</span>
+          <span className="normal-case tracking-normal text-muted-foreground/50 font-normal">
             — provider/model
           </span>
         </p>
-        <div className="space-y-3">
+        <div className="space-y-4">
           <ModelComboField
             label="Default"
             field="model"
@@ -231,7 +246,7 @@ export function ConfigTab({ state, onSetState }: Props) {
             cachedModels={cachedModels}
             onChange={(v) => setForm({ model: v })}
           />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ModelComboField
               label="Strong"
               field="model_strong"
@@ -255,11 +270,13 @@ export function ConfigTab({ state, onSetState }: Props) {
       </div>
       {isAdmin && (
         <div>
-          <label className="block text-sm font-mono mb-1">Scope</label>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+            Scope
+          </label>
           <select
             value={form.scope}
             onChange={(e) => setForm({ scope: e.target.value as "system" | "restricted" })}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer"
           >
             <option value="system">system — all users can access</option>
             <option value="restricted">restricted — only assigned users</option>
@@ -274,13 +291,13 @@ export function ConfigTab({ state, onSetState }: Props) {
           onRemove={removeChannel}
         />
       )}
-      <div className="pt-2 border-t border-border">
+      <div className="pt-4 border-t border-border">
         <label className="flex items-center gap-3 cursor-pointer">
           <Switch
             checked={form.enabled}
             onCheckedChange={(checked) => setForm({ enabled: checked })}
           />
-          <span className="text-sm">Enabled</span>
+          <span className="text-sm font-medium text-foreground/80">Enabled</span>
         </label>
       </div>
     </div>

@@ -30,10 +30,10 @@ export function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
           <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={onCancel}>
+          <Button variant="ghost" size="sm" onClick={onCancel} className="cursor-pointer">
             {t("common.cancel")}
           </Button>
-          <Button variant="destructive" size="sm" onClick={onConfirm}>
+          <Button variant="destructive" size="sm" onClick={onConfirm} className="cursor-pointer">
             {t("common.delete")}
           </Button>
         </DialogFooter>

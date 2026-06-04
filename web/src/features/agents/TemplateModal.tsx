@@ -32,26 +32,40 @@ export function TemplateModal({ templates, onPick, onPickBlank, onClose }: Props
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {templates.map((tmpl) => (
               <button
                 key={tmpl.id}
                 onClick={() => onPick(tmpl)}
                 type="button"
-                className="text-left border border-border hover:border-primary rounded-xl p-4 transition-colors"
+                className="text-left border border-border bg-card hover:border-foreground/20 hover:bg-muted/10 rounded-xl p-4 transition-all duration-120 cursor-pointer shadow-none flex flex-col justify-between"
               >
-                <p className="font-medium text-sm">{tmpl.name}</p>
-                <p className="text-xs text-muted-foreground font-mono mt-0.5">{tmpl.id}</p>
-                <p className="text-xs text-muted-foreground mt-2">{tmpl.description}</p>
+                <div>
+                  <p className="font-semibold text-sm text-foreground/90">{tmpl.name}</p>
+                  <p className="text-[10px] text-muted-foreground/50 font-mono mt-1 flex items-center gap-1">
+                    <span className="uppercase tracking-wider">Template:</span>
+                    <span>{tmpl.id}</span>
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground/80 leading-relaxed mt-3">
+                  {tmpl.description}
+                </p>
               </button>
             ))}
             <button
               onClick={onPickBlank}
               type="button"
-              className="text-left border border-dashed border-border hover:border-primary rounded-xl p-4 transition-colors"
+              className="text-left border border-dashed border-border bg-transparent hover:border-foreground/20 hover:bg-muted/10 rounded-xl p-4 transition-all duration-120 cursor-pointer flex flex-col justify-between"
             >
-              <p className="font-medium text-sm">Blank</p>
-              <p className="text-xs text-muted-foreground mt-2">Configure everything yourself.</p>
+              <div>
+                <p className="font-semibold text-sm text-foreground/90">Blank</p>
+                <p className="text-[10px] text-muted-foreground/50 font-mono mt-1 uppercase tracking-wider">
+                  Empty Slate
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground/80 leading-relaxed mt-3">
+                Configure everything yourself from scratch.
+              </p>
             </button>
           </div>
         </DialogPanel>

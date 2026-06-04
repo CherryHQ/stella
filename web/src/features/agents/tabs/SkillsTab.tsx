@@ -145,9 +145,9 @@ export function SkillsTab({
   ];
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-4 min-w-0">
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] gap-6 min-w-0">
       {/* Skill list */}
-      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-background/70">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card shadow-none">
         <div className="p-4 border-b border-border space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <Input
@@ -157,34 +157,38 @@ export function SkillsTab({
               type="text"
               placeholder="Search skills..."
               size="sm"
-              className="w-full lg:max-w-sm"
+              className="w-full lg:max-w-sm transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
             />
             <div className="flex items-center gap-2 flex-wrap">
-              <Button onClick={() => onOpenSkillInstallModal()} size="sm">
+              <Button
+                onClick={() => onOpenSkillInstallModal()}
+                size="sm"
+                className="cursor-pointer duration-120"
+              >
                 + Install skill
               </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {viewFilters.map((f) => (
               <Badge
                 key={f.id}
                 render={<button type="button" />}
                 variant={skillViewFilter === f.id ? "default" : "outline"}
-                size="sm"
+                className="cursor-pointer text-[10px] font-sans px-2.5 py-0.5 rounded-full transition-all duration-120 hover:border-foreground/20"
                 onClick={() => onSetState({ skillViewFilter: f.id })}
               >
                 {f.label}
               </Badge>
             ))}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {scopeFilters.map((f) => (
               <Badge
                 key={f.id}
                 render={<button type="button" />}
                 variant={skillScopeFilter === f.id ? "secondary" : "outline"}
-                size="sm"
+                className="cursor-pointer text-[10px] font-sans px-2.5 py-0.5 rounded-full transition-all duration-120 hover:border-foreground/20"
                 onClick={() => onSetState({ skillScopeFilter: f.id })}
               >
                 {f.label}
@@ -192,7 +196,7 @@ export function SkillsTab({
             ))}
           </div>
           {!editingId && (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-[11px] text-muted-foreground/70">
               Save the agent first if you want to add or customize agent-specific skills.
             </div>
           )}
@@ -209,8 +213,10 @@ export function SkillsTab({
                 key={skillKey(sk)}
                 onClick={() => onSelectSkill(sk)}
                 type="button"
-                className={`w-full text-left rounded-xl border border-border px-3 py-3 transition-colors hover:bg-muted/50 overflow-hidden ${
-                  selectedSkillKey === skillKey(sk) ? "border-primary bg-primary/5" : ""
+                className={`w-full text-left rounded-lg border px-3 py-3 transition-all duration-120 hover:bg-muted/30 hover:border-foreground/15 overflow-hidden cursor-pointer ${
+                  selectedSkillKey === skillKey(sk)
+                    ? "border-primary bg-primary/5 text-foreground"
+                    : "border-border text-foreground/80"
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -226,17 +232,26 @@ export function SkillsTab({
                       title={sk.status === "active" ? "Disable skill" : "Enable skill"}
                     />
                   ) : (
-                    <Badge variant="outline" size="sm" className="shrink-0">
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] tracking-wide uppercase font-mono px-1 rounded-[4px] shrink-0"
+                    >
                       read only
                     </Badge>
                   )}
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      <p className="text-sm font-mono truncate min-w-0">{sk.name}</p>
-                      <Badge variant={skillScopeBadgeVariant(sk.scope)} size="sm">
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <p className="text-sm font-mono truncate min-w-0 font-medium">{sk.name}</p>
+                      <Badge
+                        variant={skillScopeBadgeVariant(sk.scope)}
+                        className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
+                      >
                         {skillScopeLabel(sk.scope)}
                       </Badge>
-                      <Badge variant={skillStatusBadgeVariant(sk.status)} size="sm">
+                      <Badge
+                        variant={skillStatusBadgeVariant(sk.status)}
+                        className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
+                      >
                         {sk.status === "active" ? "Enabled" : sk.status}
                       </Badge>
                     </div>
@@ -256,7 +271,7 @@ export function SkillsTab({
       </div>
 
       {/* Skill detail */}
-      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-background/70">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card shadow-none">
         {!selectedSkill && !selectedSkillLoading && (
           <div className="p-8 text-center text-sm text-muted-foreground">
             Select a skill to inspect or edit.
@@ -269,21 +284,29 @@ export function SkillsTab({
         )}
         {selectedSkill && !selectedSkillLoading && (
           <div className="min-w-0">
-            <div className="flex min-w-0 flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-start lg:justify-between bg-muted/5">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-medium text-base min-w-0 truncate">{selectedSkill.name}</h3>
-                  <Badge variant={skillScopeBadgeVariant(selectedSkill.scope)} size="sm">
+                  <h3 className="font-semibold text-base min-w-0 truncate text-foreground/90">
+                    {selectedSkill.name}
+                  </h3>
+                  <Badge
+                    variant={skillScopeBadgeVariant(selectedSkill.scope)}
+                    className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
+                  >
                     {skillScopeLabel(selectedSkill.scope)}
                   </Badge>
-                  <Badge variant={skillStatusBadgeVariant(selectedSkill.status)} size="sm">
+                  <Badge
+                    variant={skillStatusBadgeVariant(selectedSkill.status)}
+                    className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
+                  >
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
                   </Badge>
                 </div>
-                <p className="text-sm text-muted-foreground mt-2 break-words">
+                <p className="text-xs text-muted-foreground mt-2 break-words leading-relaxed">
                   {selectedSkill.description || "No description yet."}
                 </p>
-                <p className="text-xs text-muted-foreground mt-2">
+                <p className="text-[10px] text-muted-foreground/60 mt-1.5">
                   {selectedSkill.scope === "system"
                     ? "System skill. Read-only here."
                     : selectedSkill.scope === "user"
@@ -297,6 +320,7 @@ export function SkillsTab({
                     onClick={() => onSetState({ selectedSkillEditMode: true })}
                     variant="ghost"
                     size="xs"
+                    className="cursor-pointer"
                   >
                     {t("common.edit")}
                   </Button>
@@ -306,7 +330,7 @@ export function SkillsTab({
                     onClick={() => onDeleteSkill(selectedSkill)}
                     variant="ghost"
                     size="xs"
-                    className="text-destructive"
+                    className="text-destructive hover:bg-destructive/10 cursor-pointer"
                   >
                     {t("common.delete")}
                   </Button>
@@ -318,6 +342,7 @@ export function SkillsTab({
                       disabled={selectedSkillSaving || !selectedSkillDirty}
                       loading={selectedSkillSaving}
                       size="xs"
+                      className="cursor-pointer"
                     >
                       {t("common.save")}
                     </Button>
@@ -328,6 +353,7 @@ export function SkillsTab({
                       }}
                       variant="ghost"
                       size="xs"
+                      className="cursor-pointer"
                     >
                       {t("common.cancel")}
                     </Button>
@@ -336,13 +362,13 @@ export function SkillsTab({
               </div>
             </div>
 
-            <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+            <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/5">
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                   Status
                 </p>
                 {!selectedSkillEditMode ? (
-                  <div className="text-sm">
+                  <div className="text-xs font-mono font-medium text-foreground/80">
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
                   </div>
                 ) : (
@@ -358,7 +384,7 @@ export function SkillsTab({
                       });
                     }}
                     disabled={!canEdit}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer font-mono"
                   >
                     <option value="active">active</option>
                     <option value="draft">draft</option>
@@ -366,11 +392,13 @@ export function SkillsTab({
                   </select>
                 )}
               </div>
-              <div className="space-y-2">
-                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                   Scope
                 </p>
-                <div className="text-sm">{skillScopeLabel(selectedSkill.scope)}</div>
+                <div className="text-xs font-mono font-medium text-foreground/80">
+                  {skillScopeLabel(selectedSkill.scope)}
+                </div>
                 {selectedSkillEditMode && (
                   <label className="flex items-center gap-2 cursor-pointer pt-1">
                     <Switch
@@ -383,16 +411,20 @@ export function SkillsTab({
                       }}
                       disabled={!canEdit}
                     />
-                    <span className="text-xs">Disable model invocation</span>
+                    <span className="text-xs text-muted-foreground font-medium">
+                      Disable model invocation
+                    </span>
                   </label>
                 )}
               </div>
             </div>
 
             {selectedSkillEditMode && (
-              <div className="p-4 border-b border-border space-y-3">
+              <div className="p-4 border-b border-border space-y-3 bg-card">
                 <div>
-                  <label className="block text-xs font-medium mb-1">Description</label>
+                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                    Description
+                  </label>
                   <Input
                     nativeInput
                     value={selectedSkill.description}
@@ -408,35 +440,36 @@ export function SkillsTab({
                     disabled={!canEdit}
                     type="text"
                     size="sm"
+                    className="text-xs transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                   />
                 </div>
               </div>
             )}
 
-            <div className="p-4 border-b border-border">
+            <div className="p-4 border-b border-border bg-muted/5">
               <Button
                 onClick={() =>
                   onSetState({ selectedSkillShowAdvanced: !selectedSkillShowAdvanced })
                 }
                 variant="ghost"
                 size="sm"
-                className="px-0"
+                className="px-0 text-primary cursor-pointer hover:bg-transparent"
               >
                 {selectedSkillShowAdvanced ? "Hide advanced" : "Show advanced"}
               </Button>
-              <p className="text-xs text-muted-foreground mt-2">
+              <p className="text-[11px] text-muted-foreground mt-1">
                 Files and source editing live here so the main view stays focused on behavior.
               </p>
             </div>
 
             {selectedSkillShowAdvanced && (
               <div className="min-w-0">
-                <div className="p-4 border-b border-border space-y-2">
+                <div className="p-4 border-b border-border space-y-2 bg-card">
                   <div className="flex items-center gap-2 flex-wrap">
                     <select
                       value={selectedSkillActiveFile}
                       onChange={(e) => onSelectSkillFile(e.target.value)}
-                      className="min-w-0 max-w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-ring sm:max-w-sm"
+                      className="min-w-0 max-w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer sm:max-w-sm"
                     >
                       {skillFiles.map((f) => (
                         <option key={f} value={f}>
@@ -449,7 +482,7 @@ export function SkillsTab({
                         onClick={onDeleteSkillFile}
                         variant="ghost"
                         size="xs"
-                        className="text-destructive"
+                        className="text-destructive hover:bg-destructive/10 cursor-pointer"
                       >
                         Delete file
                       </Button>
@@ -464,13 +497,14 @@ export function SkillsTab({
                         }
                         variant="ghost"
                         size="xs"
+                        className="cursor-pointer"
                       >
                         + Add file
                       </Button>
                     )}
                   </div>
                   {selectedSkillAddingFile && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 pt-1">
                       <Input
                         nativeInput
                         value={selectedSkillNewFileName}
@@ -489,23 +523,24 @@ export function SkillsTab({
                         type="text"
                         placeholder="reference.md"
                         size="sm"
-                        className="flex-1 font-mono"
+                        className="flex-1 font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                         autoFocus
                       />
-                      <Button onClick={commitAddSkillFile} size="xs">
+                      <Button onClick={commitAddSkillFile} size="xs" className="cursor-pointer">
                         {t("common.add")}
                       </Button>
                       <Button
                         onClick={() => onSetState({ selectedSkillAddingFile: false })}
                         variant="ghost"
                         size="xs"
+                        className="cursor-pointer"
                       >
                         {t("common.cancel")}
                       </Button>
                     </div>
                   )}
                 </div>
-                <div className="min-w-0 p-4">
+                <div className="min-w-0 p-4 bg-muted/5">
                   {selectedSkillFileLoading ? (
                     <div className="py-8 flex justify-center">
                       <Spinner className="size-5" />
@@ -521,7 +556,7 @@ export function SkillsTab({
                       }
                       disabled={!canEdit}
                       rows={18}
-                      className="text-xs font-mono"
+                      className="text-xs font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20 bg-card leading-relaxed"
                       spellCheck={false}
                     />
                   ) : (

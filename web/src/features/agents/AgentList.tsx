@@ -3,6 +3,7 @@ import type { AgentsPageState, ModelOption } from "./AgentsPage";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
+import { Trash2 } from "lucide-react";
 
 interface Props {
   state: AgentsPageState;
@@ -44,8 +45,8 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
           <div
             key={a.id}
             onClick={() => canEdit && onEdit(a)}
-            className={`group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 transition-all hover:border-border/80 hover:shadow-sm ${
-              canEdit ? "cursor-pointer" : "cursor-default opacity-85"
+            className={`group relative flex flex-col justify-between rounded-xl border border-border bg-card p-5 transition-all duration-120 hover:border-foreground/20 hover:bg-muted/10 shadow-none ${
+              canEdit ? "cursor-pointer" : "cursor-default opacity-80"
             }`}
           >
             <div className="space-y-3">
@@ -53,34 +54,42 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
                 <div className="flex items-center gap-2 min-w-0">
                   <span
                     className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                      a.enabled ? "bg-green-500" : "bg-muted-foreground/40"
+                      a.enabled ? "bg-success" : "bg-muted-foreground/30"
                     }`}
                   />
-                  <h3 className="text-sm font-semibold text-foreground/90 truncate">{a.name}</h3>
+                  <h3 className="text-sm font-medium text-foreground/90 truncate">{a.name}</h3>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {a.scope === RestrictedScope(a) && (
                     <Badge
                       variant="warning"
-                      className="text-[9px] tracking-wide uppercase font-semibold"
+                      className="text-[9px] tracking-widest uppercase font-mono px-1.5 py-0 h-4.5 rounded-[4px]"
                     >
                       restricted
                     </Badge>
                   )}
                   <Badge
                     variant={a.enabled ? "success" : "outline"}
-                    className="text-[9px] tracking-wide uppercase font-semibold"
+                    className="text-[9px] tracking-widest uppercase font-mono px-1.5 py-0 h-4.5 rounded-[4px]"
                   >
                     {a.enabled ? "active" : "disabled"}
                   </Badge>
                 </div>
               </div>
-              <p className="font-mono text-[10px] text-muted-foreground truncate max-w-full">
-                Model: {a.model ? modelLabel(a.model, cachedModels) : "—"}
+              <p className="font-mono text-[10px] text-muted-foreground truncate max-w-full flex items-center gap-1">
+                <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wider">
+                  Model:
+                </span>
+                <span className="text-foreground/75 font-medium">
+                  {a.model ? modelLabel(a.model, cachedModels) : "—"}
+                </span>
               </p>
             </div>
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground font-mono">ID: {a.id}</span>
+            <div className="mt-5 flex items-center justify-between pt-2 border-t border-border/10">
+              <span className="text-[10px] text-muted-foreground/50 font-mono flex items-center gap-1">
+                <span className="uppercase tracking-wider">ID:</span>
+                <span className="text-foreground/70">{a.id}</span>
+              </span>
               <div className="flex items-center gap-2">
                 {canEdit && (
                   <Button
@@ -90,14 +99,14 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
                     }}
                     variant="ghost"
                     size="icon-xs"
-                    className="text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="text-destructive hover:bg-destructive/10 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-120 cursor-pointer"
                     title="Delete agent"
                   >
-                    ✕
+                    <Trash2 className="size-3.5" />
                   </Button>
                 )}
                 {canEdit && (
-                  <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-all duration-120 transform translate-x-1 group-hover:translate-x-0">
                     Configure →
                   </span>
                 )}

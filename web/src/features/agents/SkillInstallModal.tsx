@@ -91,43 +91,51 @@ export function SkillInstallModal({
               Install from the catalog or upload your own skill bundle.
             </DialogDescription>
           </div>
-          <Button onClick={onClose} variant="ghost" size="icon-sm">
+          <Button onClick={onClose} variant="ghost" size="icon-sm" className="cursor-pointer">
             ✕
           </Button>
         </div>
-        <div className="px-6 py-4 border-b border-border space-y-2 bg-muted/30">
-          <label className="text-xs font-medium text-muted-foreground block uppercase tracking-wide">
+        <div className="px-6 py-4 border-b border-border space-y-2.5 bg-muted/10">
+          <label className="text-[10px] font-semibold text-muted-foreground block uppercase tracking-wider">
             Install target
           </label>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center bg-muted/30 border border-border p-0.5 rounded-lg w-fit">
             {canInstallAgentSkills && (
-              <Button
+              <button
+                type="button"
                 onClick={() => onSetScope("agent")}
-                variant={skillInstallScope === "agent" ? "default" : "ghost"}
-                size="sm"
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                  skillInstallScope === "agent"
+                    ? "bg-card text-foreground shadow-none border border-border/10"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
                 Only this agent
-              </Button>
+              </button>
             )}
-            <Button
+            <button
+              type="button"
               onClick={() => onSetScope("user")}
-              variant={skillInstallScope === "user" ? "default" : "ghost"}
-              size="sm"
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                skillInstallScope === "user"
+                  ? "bg-card text-foreground shadow-none border border-border/10"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
               My profile
-            </Button>
+            </button>
           </div>
           {!canInstallAgentSkills && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground/60">
               Agent-only install is available after the agent is saved, and only for admins.
             </p>
           )}
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] gap-0">
-          <section className="p-6 min-w-0 xl:border-r border-border space-y-4">
+          <section className="p-6 min-w-0 xl:border-r border-border space-y-5">
             <div className="space-y-1">
-              <h4 className="font-medium text-base">Browse catalog</h4>
-              <p className="text-sm text-muted-foreground">
+              <h4 className="font-semibold text-sm text-foreground/90">Browse catalog</h4>
+              <p className="text-xs text-muted-foreground">
                 Search public skills and install in one click.
               </p>
             </div>
@@ -142,6 +150,7 @@ export function SkillInstallModal({
               }}
               type="text"
               placeholder="Search skills..."
+              className="transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
               autoFocus
             />
             {searching && (
@@ -154,19 +163,19 @@ export function SkillInstallModal({
                 {searchResults.map((s) => (
                   <div
                     key={s.id}
-                    className="rounded-xl border border-border bg-background px-4 py-4 space-y-3"
+                    className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-none transition-colors duration-120 hover:border-foreground/10"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-mono text-sm font-medium truncate">
+                          <p className="font-mono text-sm font-medium truncate text-foreground/90">
                             {s.name || s.skillId}
                           </p>
                           <span className="text-xs text-muted-foreground">
                             {s.installs} installs
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground font-mono truncate mt-1">
+                        <p className="text-[10px] text-muted-foreground/60 font-mono truncate mt-1">
                           {s.source}@{s.skillId}
                         </p>
                       </div>
@@ -175,29 +184,34 @@ export function SkillInstallModal({
                         disabled={installing}
                         loading={installing && installSource === `${s.source}@${s.skillId}`}
                         size="sm"
+                        className="cursor-pointer"
                       >
                         {t("agents.skills.install")}
                       </Button>
                     </div>
                     {s.description && (
-                      <p className="text-sm text-muted-foreground">{s.description}</p>
+                      <p className="text-xs text-muted-foreground/80 leading-relaxed">
+                        {s.description}
+                      </p>
                     )}
                   </div>
                 ))}
               </div>
             )}
             {!searching && searchResults.length === 0 && searchQuery && (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
                 No skills found for that search.
               </div>
             )}
             {!searching && !searchQuery && (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-xl border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
                 Start typing to search the catalog.
               </div>
             )}
-            <div className="space-y-1">
-              <h4 className="font-medium text-sm">Or install from source</h4>
+            <div className="space-y-2 pt-2 border-t border-border/10">
+              <h4 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">
+                Or install from source
+              </h4>
               <div className="flex gap-2">
                 <Input
                   nativeInput
@@ -206,47 +220,48 @@ export function SkillInstallModal({
                   type="text"
                   placeholder="source@skill-id"
                   size="sm"
-                  className="flex-1 font-mono"
+                  className="flex-1 font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                 />
                 <Button
                   onClick={() => handleInstall(installSource)}
                   disabled={installing || !installSource}
                   loading={installing}
                   size="sm"
+                  className="cursor-pointer"
                 >
                   {t("agents.skills.install")}
                 </Button>
               </div>
             </div>
           </section>
-          <section className="p-6 space-y-4 bg-muted/20">
+          <section className="p-6 space-y-5 bg-muted/5">
             <div className="space-y-1">
-              <h4 className="font-medium text-base">Upload zip</h4>
-              <p className="text-sm text-muted-foreground">
+              <h4 className="font-semibold text-sm text-foreground/90">Upload zip</h4>
+              <p className="text-xs text-muted-foreground">
                 Import a skill you already have on disk.
               </p>
             </div>
-            <label className="block rounded-xl border-2 border-dashed border-border bg-background px-5 py-8 text-center cursor-pointer hover:border-primary transition-colors">
+            <label className="block rounded-xl border border-dashed border-border bg-card/50 px-5 py-8 text-center cursor-pointer hover:border-foreground/20 hover:bg-muted/10 transition-all duration-120">
               <input
                 onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
                 type="file"
                 accept=".zip,application/zip"
                 className="hidden"
               />
-              <div className="space-y-2">
-                <div className="text-sm font-medium">
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-foreground/80">
                   {uploadFile ? uploadFile.name : "Choose a .zip file"}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground/75 leading-relaxed">
                   Must contain exactly one skill folder with{" "}
                   <span className="font-mono">SKILL.md</span>.
                 </p>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" className="pointer-events-none">
                   Browse files
                 </Button>
               </div>
             </label>
-            <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+            <ul className="text-[11px] text-muted-foreground/70 space-y-1.5 list-disc pl-4">
               <li>
                 <span className="font-mono">.zip</span> only
               </li>
@@ -259,7 +274,7 @@ export function SkillInstallModal({
               onClick={handleUpload}
               disabled={uploading || !uploadFile}
               loading={uploading}
-              className="w-full"
+              className="w-full cursor-pointer"
             >
               Upload skill
             </Button>

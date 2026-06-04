@@ -55,81 +55,92 @@ export function AgentForm({
   );
 
   return (
-    <main className="px-6 py-6 min-w-0 block">
-      <div className="rounded-xl border border-border">
-        <div className="border-b border-border px-4 py-3 bg-muted/30 rounded-t-xl">
-          <span className="font-medium text-sm">
-            {editingId ? `Edit: ${form.name}` : "New agent"}
-          </span>
-        </div>
-        <Tabs
-          value={activeTab}
-          onValueChange={(tab) => {
-            onSetState({ activeTab: tab as string });
-            if (editingId) {
-              void navigate({
-                to: "/settings/agents/$agentId/$tab",
-                params: { agentId: editingId, tab: tab as string },
-              });
-            }
-            if (tab === "users" && editingId) onLoadAssignedUsers(editingId);
-          }}
-        >
-          <TabsList
-            variant="underline"
-            className="w-full justify-start px-2 border-b border-border rounded-none bg-muted/20 gap-0"
-          >
-            <TabsTrigger value="config">{t("agents.tabs.config")}</TabsTrigger>
-            <TabsTrigger value="prompt">{t("agents.tabs.prompt")}</TabsTrigger>
-            <TabsTrigger value="skills">{t("agents.tabs.skills")}</TabsTrigger>
-            <TabsTrigger value="advanced">{t("agents.tabs.advanced")}</TabsTrigger>
-            {isAdmin && <TabsTrigger value="users">{t("agents.tabs.users")}</TabsTrigger>}
-          </TabsList>
-          <div className="p-4 space-y-4">
-            <TabsContent value="config">
-              <ConfigTab state={state} onSetState={onSetState} />
-            </TabsContent>
-            <TabsContent value="prompt">
-              <PromptTab state={state} onSetState={onSetState} onApplySoul={onApplySoul} />
-            </TabsContent>
-            <TabsContent value="skills">
-              <SkillsTab
-                state={state}
-                onSetState={onSetState}
-                onSelectSkill={onSelectSkill}
-                onToggleSkillStatus={onToggleSkillStatus}
-                onSaveSelectedSkill={onSaveSelectedSkill}
-                onDeleteSkill={onDeleteSkill}
-                onSelectSkillFile={onSelectSkillFile}
-                onDeleteSkillFile={onDeleteSkillFile}
-                onOpenSkillInstallModal={onOpenSkillInstallModal}
-              />
-            </TabsContent>
-            <TabsContent value="advanced">
-              <AdvancedTab state={state} onSetState={onSetState} />
-            </TabsContent>
-            <TabsContent value="users">
-              <UsersTab
-                state={state}
-                availableUsers={availableUsers}
-                onSetState={onSetState}
-                onAddUser={onAddUser}
-                onRemoveUser={onRemoveUser}
-              />
-            </TabsContent>
-          </div>
-        </Tabs>
-        <div className="border-t border-border px-4 py-3 flex items-center justify-end gap-2 bg-muted/20 rounded-b-xl">
-          <Button onClick={onCancel} variant="ghost" size="sm">
-            {t("common.cancel")}
-          </Button>
-          {canEdit && (
-            <Button onClick={onSave} size="sm">
-              {editingId ? t("common.update") : t("common.create")}
-            </Button>
-          )}
-        </div>
+    <div className="min-w-0 flex flex-col bg-card">
+      <div className="border-b border-border px-6 py-4 bg-muted/10">
+        <span className="font-medium text-sm text-foreground/90">
+          {editingId ? `Edit: ${form.name}` : "New agent"}
+        </span>
       </div>
-    </main>
+      <Tabs
+        value={activeTab}
+        onValueChange={(tab) => {
+          onSetState({ activeTab: tab as string });
+          if (editingId) {
+            void navigate({
+              to: "/settings/agents/$agentId/$tab",
+              params: { agentId: editingId, tab: tab as string },
+            });
+          }
+          if (tab === "users" && editingId) onLoadAssignedUsers(editingId);
+        }}
+        className="flex-1 flex flex-col min-h-0"
+      >
+        <TabsList
+          variant="underline"
+          className="w-full justify-start px-6 border-b border-border rounded-none bg-transparent gap-2 h-11"
+        >
+          <TabsTrigger value="config" className="cursor-pointer text-xs">
+            {t("agents.tabs.config")}
+          </TabsTrigger>
+          <TabsTrigger value="prompt" className="cursor-pointer text-xs">
+            {t("agents.tabs.prompt")}
+          </TabsTrigger>
+          <TabsTrigger value="skills" className="cursor-pointer text-xs">
+            {t("agents.tabs.skills")}
+          </TabsTrigger>
+          <TabsTrigger value="advanced" className="cursor-pointer text-xs">
+            {t("agents.tabs.advanced")}
+          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="users" className="cursor-pointer text-xs">
+              {t("agents.tabs.users")}
+            </TabsTrigger>
+          )}
+        </TabsList>
+        <div className="p-6 space-y-6">
+          <TabsContent value="config">
+            <ConfigTab state={state} onSetState={onSetState} />
+          </TabsContent>
+          <TabsContent value="prompt">
+            <PromptTab state={state} onSetState={onSetState} onApplySoul={onApplySoul} />
+          </TabsContent>
+          <TabsContent value="skills">
+            <SkillsTab
+              state={state}
+              onSetState={onSetState}
+              onSelectSkill={onSelectSkill}
+              onToggleSkillStatus={onToggleSkillStatus}
+              onSaveSelectedSkill={onSaveSelectedSkill}
+              onDeleteSkill={onDeleteSkill}
+              onSelectSkillFile={onSelectSkillFile}
+              onDeleteSkillFile={onDeleteSkillFile}
+              onOpenSkillInstallModal={onOpenSkillInstallModal}
+            />
+          </TabsContent>
+          <TabsContent value="advanced">
+            <AdvancedTab state={state} onSetState={onSetState} />
+          </TabsContent>
+          <TabsContent value="users">
+            <UsersTab
+              state={state}
+              availableUsers={availableUsers}
+              onSetState={onSetState}
+              onAddUser={onAddUser}
+              onRemoveUser={onRemoveUser}
+            />
+          </TabsContent>
+        </div>
+      </Tabs>
+      <div className="border-t border-border px-6 py-4 flex items-center justify-end gap-2 bg-muted/10">
+        <Button onClick={onCancel} variant="ghost" size="sm" className="cursor-pointer">
+          {t("common.cancel")}
+        </Button>
+        {canEdit && (
+          <Button onClick={onSave} size="sm" className="cursor-pointer">
+            {editingId ? t("common.update") : t("common.create")}
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
