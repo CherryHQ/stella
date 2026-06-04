@@ -73,7 +73,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		if info.Scoped != nil && !scopedTokenAllowsRequest(info.Scoped, r) {
-			writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+			writeError(w, http.StatusForbidden, "permission denied")
 			return
 		}
 

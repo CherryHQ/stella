@@ -18,3 +18,25 @@ func scopedTokenClaimsFromEnv() (auth.ScopedTokenClaims, error) {
 	}
 	return claims, nil
 }
+
+func scopedAgentIDFromEnv() (string, error) {
+	claims, err := scopedTokenClaimsFromEnv()
+	if err != nil {
+		return "", err
+	}
+	if claims.AgentID == "" {
+		return "", fmt.Errorf("permission denied")
+	}
+	return claims.AgentID, nil
+}
+
+func scopedArtifactContextFromEnv() (string, string, error) {
+	claims, err := scopedTokenClaimsFromEnv()
+	if err != nil {
+		return "", "", err
+	}
+	if claims.AgentID == "" || claims.SessionID == "" {
+		return "", "", fmt.Errorf("permission denied")
+	}
+	return claims.AgentID, claims.SessionID, nil
+}

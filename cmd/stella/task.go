@@ -12,14 +12,7 @@ import (
 )
 
 func taskAgentID(_ *ucli.Context) (string, error) {
-	claims, err := scopedTokenClaimsFromEnv()
-	if err != nil {
-		return "", err
-	}
-	if claims.AgentID == "" {
-		return "", fmt.Errorf("agent ID is required in STELLA_TOKEN")
-	}
-	return claims.AgentID, nil
+	return scopedAgentIDFromEnv()
 }
 
 func taskAgentFlags() []ucli.Flag {

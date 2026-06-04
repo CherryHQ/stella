@@ -30,13 +30,9 @@ skills, and manage the ones already installed.`,
 }
 
 func skillAgentContext() (string, *apiclient.ListAgentSkillsParams, error) {
-	claims, err := scopedTokenClaimsFromEnv()
+	agentID, err := scopedAgentIDFromEnv()
 	if err != nil {
 		return "", nil, err
-	}
-	agentID := claims.AgentID
-	if agentID == "" {
-		return "", nil, fmt.Errorf("agent ID is required in STELLA_TOKEN")
 	}
 	return agentID, &apiclient.ListAgentSkillsParams{}, nil
 }

@@ -37,17 +37,9 @@ func shareArtifactCommand() *ucli.Command {
 			if path == "" {
 				return fmt.Errorf("path is required")
 			}
-			claims, err := scopedTokenClaimsFromEnv()
+			agentID, sessionID, err := scopedArtifactContextFromEnv()
 			if err != nil {
 				return err
-			}
-			agentID := claims.AgentID
-			if agentID == "" {
-				return fmt.Errorf("agent ID is required in STELLA_TOKEN")
-			}
-			sessionID := claims.SessionID
-			if sessionID == "" {
-				return fmt.Errorf("session ID is required in STELLA_TOKEN")
 			}
 			expiresIn := apitypes.CreateShareRequestExpiresIn(c.String("expires-in"))
 			source := apitypes.CreateShareRequestSourceArtifact
