@@ -53,7 +53,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	memUserID := info.UserID
 	if info.GroupID != "" {
-		memUserID = ""
+		memUserID = info.GroupID
 	}
 	memSess := memory.Session{
 		ID:      info.ID,

@@ -123,6 +123,56 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 	return items, nil
 }
 
+const listGroupMessagesBetweenSeqs = `-- name: ListGroupMessagesBetweenSeqs :many
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+WHERE group_id = ?1
+  AND seq > ?2
+  AND seq < ?3
+ORDER BY seq ASC
+`
+
+type ListGroupMessagesBetweenSeqsParams struct {
+	GroupID   string `json:"group_id"`
+	AfterSeq  int64  `json:"after_seq"`
+	BeforeSeq int64  `json:"before_seq"`
+}
+
+func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGroupMessagesBetweenSeqsParams) ([]CtxGroupMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listGroupMessagesBetweenSeqs, arg.GroupID, arg.AfterSeq, arg.BeforeSeq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupMessage{}
+	for rows.Next() {
+		var i CtxGroupMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.SourceChannelID,
+			&i.ActorType,
+			&i.ActorID,
+			&i.PlatformMessageID,
+			&i.ReplyTo,
+			&i.PlatformTimestamp,
+			&i.IdempotencyKey,
+			&i.Content,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGroupsWithPendingIngest = `-- name: ListGroupsWithPendingIngest :many
 SELECT gs.id as group_id,
        COALESCE(c.last_seq, 0) as cursor_seq,

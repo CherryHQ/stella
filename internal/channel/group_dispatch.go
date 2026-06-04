@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -40,6 +41,8 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 
 	log = log.With("group_id", result.GroupID, "seq", result.Seq)
 	log.Debug("group message appended")
+
+	ctx = memory.WithGroupSeq(ctx, result.Seq)
 
 	c.resolveMentionAgents(ctx, result.GroupID, msg.Platform, msg.Mentions)
 

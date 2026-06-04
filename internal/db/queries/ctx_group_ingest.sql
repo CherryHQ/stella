@@ -24,6 +24,13 @@ WHERE group_id = sqlc.arg(group_id) AND seq > sqlc.arg(min_seq)
 ORDER BY seq ASC
 LIMIT sqlc.arg(batch_limit);
 
+-- name: ListGroupMessagesBetweenSeqs :many
+SELECT * FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq > sqlc.arg(after_seq)
+  AND seq < sqlc.arg(before_seq)
+ORDER BY seq ASC;
+
 -- name: ListGroupsWithPendingIngest :many
 SELECT gs.id as group_id,
        COALESCE(c.last_seq, 0) as cursor_seq,

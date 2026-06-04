@@ -15,6 +15,7 @@ const (
 	userIDKey    contextKey = "memory_user_id"
 	agentIDKey   contextKey = "memory_agent_id"
 	projectIDKey contextKey = "memory_project_id"
+	groupSeqKey  contextKey = "memory_group_seq"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -58,6 +59,17 @@ func WithProjectID(ctx context.Context, projectID string) context.Context {
 // ProjectIDFromContext extracts the project ID from context.
 func ProjectIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(projectIDKey).(string)
+	return s
+}
+
+// WithGroupSeq attaches the triggering event-log seq to the context.
+func WithGroupSeq(ctx context.Context, seq int64) context.Context {
+	return context.WithValue(ctx, groupSeqKey, seq)
+}
+
+// GroupSeqFromContext extracts the triggering event-log seq from context.
+func GroupSeqFromContext(ctx context.Context) int64 {
+	s, _ := ctx.Value(groupSeqKey).(int64)
 	return s
 }
 

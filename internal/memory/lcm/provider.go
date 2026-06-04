@@ -85,9 +85,6 @@ func (p *Provider) Name() string { return "lcm" }
 
 // Bootstrap implements memory.Provider.
 func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error {
-	if session.GroupID != "" {
-		return nil
-	}
 	_, err := p.getOrCreateConversation(ctx, session)
 	return err
 }
@@ -95,9 +92,6 @@ func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error 
 // Append implements memory.Provider.
 func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	if len(msgs) == 0 {
-		return nil
-	}
-	if session.GroupID != "" {
 		return nil
 	}
 	return p.withSessionLock(session.ID, func() error {
@@ -160,7 +154,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 // Assemble implements memory.Provider.
 func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
 	if session.GroupID != "" {
-		return p.assembleGroup(ctx, session.GroupID, session.AgentID, budget)
+		return p.assembleGroup(ctx, session, budget, freshTail)
 	}
 	convID, err := p.getOrCreateConversation(ctx, session)
 	if err != nil {
