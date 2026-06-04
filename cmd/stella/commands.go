@@ -40,14 +40,14 @@ import (
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
-func inSandbox() bool {
+func hasScopedSandboxToken() bool {
 	return auth.IsScopedToken(os.Getenv("STELLA_TOKEN"))
 }
 
 func denyInSandbox(cmd *ucli.Command) *ucli.Command {
 	prev := cmd.Before
 	cmd.Before = func(c *ucli.Context) error {
-		if inSandbox() {
+		if hasScopedSandboxToken() {
 			return fmt.Errorf("%q is a system command and cannot be run inside an agent sandbox", cmd.Name)
 		}
 		if prev != nil {
