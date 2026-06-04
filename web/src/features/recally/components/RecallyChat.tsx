@@ -179,7 +179,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
 
   if (articleQuery.isLoading || sessionLoading || !article || !activeSessionId || historyLoading) {
     return (
-      <div className="flex h-full w-[340px] flex-col border-l border-border bg-card/65 backdrop-blur-xl items-center justify-center gap-2 text-xs text-muted-foreground/60 font-mono">
+      <div className="flex h-full w-[340px] flex-col border-l border-border bg-card items-center justify-center gap-2 text-xs text-muted-foreground/60 font-mono">
         <Loader2 className="size-4 animate-spin text-primary" />
         <span>Resolving AI Session...</span>
       </div>
@@ -187,11 +187,11 @@ export function RecallyChat({ articleId, onClose }: Props) {
   }
 
   return (
-    <div className="flex h-full w-[340px] flex-col border-l border-border bg-card/65 backdrop-blur-xl">
+    <div className="flex h-full w-[340px] flex-col border-l border-border bg-card shadow-none">
       {/* Header */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5">
         <div className="flex items-center gap-1.5">
-          <Sparkles className="size-3.5 text-primary animate-pulse" />
+          <Sparkles className="size-3.5 text-primary" />
           <span className="text-xs font-semibold text-foreground">
             {t("AI 边读边问" as any) || "AI Discussion"}
           </span>
@@ -245,32 +245,32 @@ export function RecallyChat({ articleId, onClose }: Props) {
             return (
               <div
                 key={idx}
-                className={cn("flex flex-col max-w-full", isUser ? "items-end" : "items-start")}
+                className={cn(
+                  "flex flex-col max-w-full gap-2",
+                  isUser
+                    ? "pt-4 border-t border-border/40 mt-4 first:pt-0 first:border-0 first:mt-0"
+                    : "pb-2",
+                )}
               >
-                <div
-                  className={cn(
-                    "rounded-2xl px-3 py-2 text-xs leading-relaxed max-w-[90%] break-all shadow-2xs border",
-                    isUser
-                      ? "bg-primary/[0.04] text-foreground border-primary/10 rounded-tr-xs"
-                      : "bg-muted/10 text-foreground border-border/40 rounded-tl-xs",
-                  )}
-                >
-                  {isUser ? (
-                    <p className="whitespace-pre-wrap">{text}</p>
-                  ) : (
+                {isUser ? (
+                  <h3 className="text-xs font-semibold tracking-tight text-foreground/90 leading-tight">
+                    {text}
+                  </h3>
+                ) : (
+                  <div className="text-xs leading-relaxed text-foreground/90 font-sans">
                     <MarkdownPreview
                       content={text}
-                      className="prose-headings:text-foreground [&_code]:text-[10px] [&_pre]:bg-muted/40 [&_pre]:p-1.5"
+                      className="prose-headings:text-foreground [&_code]:text-[10px] [&_pre]:bg-muted/40 [&_pre]:p-1.5 leading-relaxed text-xs"
                     />
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             );
           })
         )}
 
         {isStreaming && (
-          <div className="flex items-center gap-1.5 text-[10px] font-mono text-primary/60 animate-pulse pl-1">
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-primary/80 animate-pulse pl-1">
             <Loader2 className="size-3 animate-spin text-primary" />
             <span>Stella is typing…</span>
           </div>
@@ -279,8 +279,8 @@ export function RecallyChat({ articleId, onClose }: Props) {
       </div>
 
       {/* Input Form */}
-      <div className="shrink-0 border-t border-border/60 bg-card/45 p-2.5">
-        <div className="relative flex items-center bg-muted/20 border border-border/50 rounded-xl px-2.5 py-1 focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/5 transition-all">
+      <div className="shrink-0 border-t border-border bg-card p-3">
+        <div className="relative flex items-center bg-card border border-border rounded-xl px-2.5 py-1 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all shadow-none">
           <textarea
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
@@ -291,7 +291,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
               }
             }}
             placeholder="Ask follow up..."
-            className="flex-1 resize-none bg-transparent py-1.5 text-xs text-foreground focus:outline-none placeholder:text-muted-foreground/40 max-h-20 min-h-7 leading-relaxed font-sans"
+            className="flex-1 resize-none bg-transparent py-1.5 text-xs text-foreground focus:outline-none placeholder:text-muted-foreground/45 max-h-20 min-h-7 leading-relaxed font-sans"
             rows={1}
             disabled={isStreaming}
           />
@@ -300,10 +300,10 @@ export function RecallyChat({ articleId, onClose }: Props) {
             onClick={sendMessage}
             disabled={!userInput.trim() || isStreaming}
             className={cn(
-              "p-1.5 rounded-lg shrink-0 flex items-center justify-center transition-all cursor-pointer",
+              "p-1.5 rounded-lg shrink-0 flex items-center justify-center transition-colors cursor-pointer",
               !userInput.trim() || isStreaming
-                ? "text-muted-foreground/35 cursor-not-allowed"
-                : "bg-primary text-primary-foreground hover:scale-105 active:scale-95",
+                ? "text-muted-foreground/30 cursor-not-allowed"
+                : "bg-primary text-primary-foreground hover:bg-primary-hover",
             )}
           >
             <ArrowUp className="size-3.5 stroke-[2.5]" />

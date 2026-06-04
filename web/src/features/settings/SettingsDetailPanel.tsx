@@ -30,18 +30,18 @@ export function DetailPanel({
     <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-6">{children}</div>
       {footer ? (
-        <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-muted/10">
+        <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-card">
           {footer}
         </div>
       ) : onSave || onCancel || onDelete ? (
-        <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-muted/10">
+        <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-card">
           <div>
             {onDelete && (
               <Button
                 onClick={onDelete}
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground hover:text-destructive cursor-pointer duration-120"
               >
                 {deleteLabel || "Delete"}
               </Button>
@@ -49,7 +49,12 @@ export function DetailPanel({
           </div>
           <div className="flex items-center gap-2">
             {onCancel && (
-              <Button onClick={onCancel} variant="ghost" size="sm">
+              <Button
+                onClick={onCancel}
+                variant="ghost"
+                size="sm"
+                className="cursor-pointer duration-120"
+              >
                 {cancelLabel || "Cancel"}
               </Button>
             )}
@@ -60,6 +65,7 @@ export function DetailPanel({
                 disabled={!canSave}
                 variant="default"
                 size="sm"
+                className="cursor-pointer duration-120"
               >
                 {isSaving ? isSavingLabel || "Saving..." : saveLabel || "Save"}
               </Button>
@@ -83,7 +89,7 @@ export function DetailPanelHeader({
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="space-y-1">
-        <h2 className="text-[1.25rem] font-semibold tracking-tight leading-snug text-foreground/90">
+        <h2 className="text-lg font-bold tracking-tight leading-snug text-foreground/90 font-sans">
           {title}
         </h2>
         {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
@@ -95,6 +101,8 @@ export function DetailPanelHeader({
 
 export function FormSectionTitle({ children }: { children: ReactNode }) {
   return (
-    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{children}</p>
+    <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
+      {children}
+    </p>
   );
 }

@@ -25,7 +25,7 @@ export function SettingsDetailLayout({
     <div className="flex h-full min-h-0 overflow-hidden bg-background">
       {/* Left list panel — full width on mobile when mobileView=list, hidden otherwise */}
       <div
-        className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-y-auto border-r border-border bg-card/70 md:flex md:w-[240px]`}
+        className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-y-auto border-r border-border bg-card md:flex md:w-[240px]`}
       >
         <div className="shrink-0">{listHeader}</div>
         <div className="flex-1 overflow-y-auto">{list}</div>
@@ -38,7 +38,7 @@ export function SettingsDetailLayout({
         {/* Mobile back button */}
         <button
           onClick={() => setMobileView("list")}
-          className="flex shrink-0 items-center gap-1 border-b border-border bg-card/85 px-4 py-2 text-sm text-muted-foreground hover:text-foreground md:hidden"
+          className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-4 py-2 text-sm text-muted-foreground transition-colors duration-120 hover:bg-muted hover:text-foreground md:hidden cursor-pointer"
         >
           <svg
             viewBox="0 0 24 24"
@@ -52,7 +52,7 @@ export function SettingsDetailLayout({
           Back
         </button>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 flex flex-col">
           {detail ??
             (emptyState ? (
               <div className="flex h-full items-center justify-center">{emptyState}</div>

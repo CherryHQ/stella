@@ -145,10 +145,10 @@ export function RecallyReader({
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-background">
       {!selectedId ? (
-        <div className="flex h-full items-center justify-center px-8 py-12 text-center bg-gradient-to-b from-card/30 to-card">
-          <div className="max-w-md w-full border border-border/50 rounded-2xl p-8 bg-card/45 backdrop-blur-md shadow-2xs">
+        <div className="flex h-full items-center justify-center px-8 py-12 text-center bg-background">
+          <div className="max-w-md w-full border border-border rounded-xl p-8 bg-card shadow-none">
             <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <BookOpen className="size-6 animate-pulse" />
+              <BookOpen className="size-6" />
             </div>
             <h3 className="text-base font-semibold text-foreground/90">
               {t("recally.reader.empty")}
@@ -169,15 +169,15 @@ export function RecallyReader({
           {t("common.error")}
         </div>
       ) : selectedArticle ? (
-        <div className="mx-auto max-w-[760px] px-6 py-6 md:px-8 md:py-8">
+        <div className="mx-auto max-w-3xl px-6 py-6 md:px-8 md:py-8">
           {/* Header Toolbar */}
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-4">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
             <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-muted-foreground">
               <StatusBadge status={selectedArticle.status} t={t} />
-              <span className="rounded bg-muted/40 border border-border/30 px-2 py-0.5">
+              <span className="rounded bg-muted/40 border border-border px-2 py-0.5">
                 {t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}
               </span>
-              <span className="rounded bg-muted/40 border border-border/30 px-2 py-0.5">
+              <span className="rounded bg-muted/40 border border-border px-2 py-0.5">
                 {formatSavedAt(selectedArticle.saved_at, t)}
               </span>
             </div>
@@ -188,10 +188,10 @@ export function RecallyReader({
                 <button
                   onClick={onToggleChat}
                   className={cn(
-                    "inline-flex items-center justify-center p-2 rounded-lg border transition-all duration-200 cursor-pointer gap-1.5 text-xs font-medium",
+                    "inline-flex items-center justify-center p-2 rounded-lg border transition-colors duration-120 cursor-pointer gap-1.5 text-xs font-medium shadow-none",
                     chatOpen
-                      ? "bg-primary/10 text-primary border-primary/25 shadow-2xs"
-                      : "bg-card border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                      ? "bg-primary/10 text-primary border-primary/25"
+                      : "bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
                   title="Discuss with AI"
                 >
@@ -210,7 +210,7 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                   title={t("recally.action.markRead")}
                 >
                   <Check className="size-4" />
@@ -224,7 +224,7 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                   title={t("recally.action.markUnread")}
                 >
                   <EyeOff className="size-4" />
@@ -240,7 +240,7 @@ export function RecallyReader({
                     })
                   }
                   disabled={updateArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                   title={t("recally.action.archive")}
                 >
                   <Archive className="size-4" />
@@ -256,7 +256,7 @@ export function RecallyReader({
                   })
                 }
                 disabled={updateArticleMut.isPending}
-                className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                 title={
                   selectedArticle.starred ? t("recally.action.unstar") : t("recally.action.star")
                 }
@@ -273,7 +273,7 @@ export function RecallyReader({
               {shareUrl ? (
                 <button
                   onClick={() => navigator.clipboard?.writeText(shareUrl)}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border border-primary/20 bg-primary/10 transition-colors text-primary hover:bg-primary/20 cursor-pointer"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border border-primary/20 bg-primary/10 transition-colors text-primary hover:bg-primary/20 cursor-pointer duration-120"
                   title="Copy share link"
                 >
                   <Link className="size-4" />
@@ -282,7 +282,7 @@ export function RecallyReader({
                 <button
                   onClick={() => createArticleShare(selectedArticle.id)}
                   disabled={sharing}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border/60 transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border bg-card border-border transition-colors text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer duration-120"
                   title={t("recally.action.share")}
                 >
                   {sharing ? (
@@ -321,7 +321,7 @@ export function RecallyReader({
                 <button
                   onClick={() => setConfirmingDeleteId(selectedArticle.id)}
                   disabled={deleteArticleMut.isPending}
-                  className="inline-flex items-center justify-center p-2 rounded-lg border border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center justify-center p-2 rounded-lg border border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 cursor-pointer duration-120"
                   title={t("common.delete")}
                 >
                   <Trash2 className="size-4" />
@@ -331,7 +331,7 @@ export function RecallyReader({
           </div>
 
           <article className="w-full">
-            <h2 className="mb-2 text-2xl font-bold leading-tight tracking-tight text-foreground/90">
+            <h2 className="mb-2 text-2xl font-bold leading-tight tracking-tight text-foreground/90 font-sans">
               {selectedArticle.title}
             </h2>
             {selectedArticle.author && (
@@ -342,7 +342,7 @@ export function RecallyReader({
 
             {/* Gorgeous Metadata Card */}
             {parsed.metadata && (parsed.metadata.url || parsed.metadata.publishedTime) && (
-              <div className="mb-5 rounded-[18px] border border-border/40 bg-muted/20 p-4.5 text-xs text-muted-foreground/90 font-mono space-y-3.5 shadow-2xs">
+              <div className="mb-5 rounded-xl border border-border bg-card p-4.5 text-xs text-muted-foreground/90 font-mono space-y-3.5 shadow-none">
                 {parsed.metadata.url && (
                   <div className="flex items-start gap-2.5">
                     <Link className="size-4 text-primary/75 shrink-0 mt-0.5" />
@@ -379,19 +379,19 @@ export function RecallyReader({
 
             {/* AI Summary card */}
             {selectedArticle.summary && (
-              <div className="mb-6 rounded-[18px] border border-primary/15 bg-primary/[0.02] backdrop-blur-md p-4.5 shadow-2xs">
+              <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4.5 shadow-none">
                 <button
                   type="button"
                   onClick={() => setSummaryExpanded(!summaryExpanded)}
                   className="flex w-full items-center gap-1.5 focus:outline-none"
                 >
-                  <Sparkles className="size-4 text-primary animate-pulse" />
+                  <Sparkles className="size-4 text-primary" />
                   <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
                     {t("recally.summary.label")}
                   </span>
                   <ChevronDown
                     className={cn(
-                      "ml-auto size-3.5 text-primary/75 transition-transform duration-200",
+                      "ml-auto size-3.5 text-primary/75 transition-transform duration-120",
                       summaryExpanded && "rotate-180",
                     )}
                   />
@@ -409,10 +409,10 @@ export function RecallyReader({
             {parsed.body ? (
               <MarkdownPreview
                 content={parsed.body}
-                className="prose-neutral text-foreground/90 leading-relaxed md:prose-base md:leading-loose prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline"
+                className="prose-neutral text-foreground/90 leading-relaxed md:prose-base prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline font-sans text-[15px]"
               />
             ) : (
-              <div className="rounded-[18px] border border-border/50 bg-muted/10 p-6 text-center space-y-3">
+              <div className="rounded-xl border border-border bg-card p-6 text-center space-y-3 shadow-none">
                 <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">
                   <BookOpen className="size-5" />
                 </div>

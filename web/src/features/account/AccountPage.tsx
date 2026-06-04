@@ -18,10 +18,10 @@ function ToastAlert({ toast }: { toast: Toast }) {
   if (!toast) return null;
   return (
     <div
-      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-lg border px-4 py-3 text-sm shadow-md ${
+      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-xl border px-4 py-3 text-sm shadow-none ${
         toast.type === "error"
-          ? "border-destructive/36 bg-destructive/8 text-destructive-foreground"
-          : "border-success/36 bg-success/8 text-success-foreground"
+          ? "border-destructive/20 bg-destructive/10 text-destructive-foreground"
+          : "border-success/20 bg-success/10 text-success-foreground"
       }`}
     >
       {toast.message}
@@ -106,16 +106,16 @@ export function AccountPage() {
           <h2 className="text-base font-semibold text-foreground/90 mb-3">
             {t("account.profile")}
           </h2>
-          <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-none">
             <div className="flex items-start gap-5">
               {me?.avatar_url ? (
                 <img
                   src={me.avatar_url}
                   alt=""
-                  className="h-16 w-16 rounded-full border border-border/60 object-cover shadow-2xs"
+                  className="h-16 w-16 rounded-full border border-border object-cover shadow-none"
                 />
               ) : (
-                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted/60 text-xl font-medium text-muted-foreground">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted text-xl font-medium text-muted-foreground">
                   {(me?.name || me?.username || "?").charAt(0).toUpperCase()}
                 </div>
               )}
@@ -143,7 +143,7 @@ export function AccountPage() {
             <h2 className="text-base font-semibold text-foreground/90 mb-3">
               {t("account.changePassword")}
             </h2>
-            <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs space-y-4">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-none space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-muted-foreground">
@@ -200,7 +200,7 @@ export function AccountPage() {
           <h2 className="text-base font-semibold text-foreground/90 mb-3">
             {t("account.sessions")}
           </h2>
-          <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-none">
             {!sessions?.length ? (
               <p className="text-sm text-muted-foreground py-4 text-center">
                 {t("account.noSessions")}
@@ -210,7 +210,7 @@ export function AccountPage() {
                 {sessions.map((sess) => (
                   <div
                     key={sess.id}
-                    className="flex items-center justify-between rounded-xl border border-border/30 bg-background/50 px-4 py-3 shadow-2xs"
+                    className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3 shadow-none"
                   >
                     <div className="flex flex-col gap-1 min-w-0">
                       <span className="text-sm font-mono text-foreground font-medium truncate">
@@ -226,7 +226,7 @@ export function AccountPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive hover:bg-destructive/10 shrink-0"
+                      className="text-destructive hover:bg-destructive/10 shrink-0 cursor-pointer duration-120"
                       loading={revokeSession.isPending}
                       onClick={() => revokeSession.mutate(sess.id)}
                     >

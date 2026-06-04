@@ -427,10 +427,10 @@ export function PluginsPage() {
         />
         {/* Tools */}
         <section className="space-y-4">
-          <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-2">
+          <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
             <div className="flex items-center gap-2">
               <Wrench className="size-4 shrink-0 text-muted-foreground/80" />
-              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 {t("plugins.tab.tools")}
               </h4>
               <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -441,13 +441,13 @@ export function PluginsPage() {
               onClick={() => setShowAddManifestTool(!showAddManifestTool)}
               variant={showAddManifestTool ? "outline" : "premium-outline"}
               size="xs"
-              className="group h-7 flex items-center gap-1"
+              className="group h-7 flex items-center gap-1 cursor-pointer duration-120"
             >
               {showAddManifestTool ? (
                 "Cancel"
               ) : (
                 <>
-                  <Plus className="size-3.5 group-hover:rotate-90 transition-transform duration-300" />
+                  <Plus className="size-3.5 group-hover:rotate-90 transition-transform duration-120" />
                   Add Tool
                 </>
               )}
@@ -459,10 +459,10 @@ export function PluginsPage() {
           </p>
 
           {showAddManifestTool && (
-            <div className="rounded-2xl border border-border/40 bg-card p-5 mb-6 space-y-5 shadow-xs">
-              <div className="flex items-center justify-between gap-3 border-b border-border/30 pb-3">
+            <div className="rounded-xl border border-border bg-card p-5 mb-6 space-y-5 shadow-none">
+              <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
                 <div>
-                  <p className="text-sm font-semibold">Add Tool</p>
+                  <p className="text-sm font-semibold font-sans tracking-tight">Add Tool</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Declare a GitHub release binary. Stella writes it to{" "}
                     <code className="font-mono">$STELLA_HOME/plugins.yaml</code> and syncs
@@ -485,7 +485,7 @@ export function PluginsPage() {
                   }
                   variant="ghost"
                   size="xs"
-                  className="rounded-lg h-7.5"
+                  className="rounded-lg h-7.5 cursor-pointer duration-120"
                 >
                   Reset
                 </Button>
@@ -646,12 +646,12 @@ export function PluginsPage() {
                   />
                 </div>
               </div>
-              <div className="flex justify-end pt-2 border-t border-border/30">
+              <div className="flex justify-end pt-2 border-t border-border">
                 <Button
                   onClick={createManifestTool}
                   variant="default"
                   size="sm"
-                  className="rounded-xl"
+                  className="rounded-lg cursor-pointer duration-120"
                 >
                   Save and sync
                 </Button>
@@ -669,9 +669,9 @@ export function PluginsPage() {
 
         {/* Hooks */}
         <section className="space-y-4">
-          <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+          <div className="flex items-center gap-2 border-b border-border pb-2">
             <Webhook className="size-4 shrink-0 text-muted-foreground/80" />
-            <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+            <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
               {t("plugins.tab.hooks")}
             </h4>
             <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -689,9 +689,9 @@ export function PluginsPage() {
         {/* Others */}
         {standalonePlugins.length > 0 && (
           <section className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+            <div className="flex items-center gap-2 border-b border-border pb-2">
               <Blocks className="size-4 shrink-0 text-muted-foreground/80" />
-              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 {t("plugins.tab.others")}
               </h4>
               <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -772,8 +772,8 @@ function PluginList({
         return (
           <div
             key={p.id}
-            className={`flex flex-col rounded-2xl border bg-card transition-all ${
-              p.enabled ? "border-primary/45 shadow-xs" : "border-border/40 shadow-2xs"
+            className={`flex flex-col rounded-xl border bg-card transition-colors duration-120 ${
+              p.enabled ? "border-primary/40 bg-primary/[0.02]" : "border-border"
             } overflow-hidden ${isOpen ? "sm:col-span-2" : ""}`}
           >
             <div className="flex items-center justify-between gap-4 px-5 py-4">
@@ -813,7 +813,7 @@ function PluginList({
                     onClick={() => onToggleConfigEditor(p)}
                     variant={isConfigOpen ? "default" : "ghost"}
                     size="xs"
-                    className="rounded-lg h-7.5"
+                    className="rounded-lg h-7.5 cursor-pointer duration-120"
                   >
                     {isConfigOpen ? "Hide config" : "Configure"}
                   </Button>
@@ -823,7 +823,7 @@ function PluginList({
                     onClick={() => onToggleManifestEditor(p)}
                     variant={isManifestOpen ? "default" : "ghost"}
                     size="xs"
-                    className="rounded-lg h-7.5"
+                    className="rounded-lg h-7.5 cursor-pointer duration-120"
                   >
                     {isManifestOpen ? "Hide definition" : "Edit definition"}
                   </Button>
@@ -858,7 +858,7 @@ function PluginList({
         );
       })}
       {plugins.length === 0 && (
-        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border/40 rounded-2xl bg-card/45 sm:col-span-2">
+        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2 shadow-none">
           {emptyMessage}
         </div>
       )}

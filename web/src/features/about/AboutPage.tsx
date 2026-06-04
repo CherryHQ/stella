@@ -53,8 +53,8 @@ export function AboutPage() {
           <h2 className="text-base font-semibold text-foreground/90 mb-3">
             {t("about.versionInfo")}
           </h2>
-          <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
-            <dl className="divide-y divide-border/30">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-none">
+            <dl className="divide-y divide-border">
               <InfoRow
                 label={t("about.status")}
                 value={isLoading ? t("common.loading") : status?.status}
@@ -75,8 +75,8 @@ export function AboutPage() {
             <h2 className="text-base font-semibold text-foreground/90 mb-3">
               {t("about.adminInfo")}
             </h2>
-            <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs">
-              <dl className="divide-y divide-border/30">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-none">
+              <dl className="divide-y divide-border">
                 {status.database && (
                   <InfoRow
                     label={t("about.database")}

@@ -28,10 +28,10 @@ export function SettingsListItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
+        "w-full rounded-lg px-3 py-2.5 text-left transition-colors duration-120 cursor-pointer",
         active
-          ? "bg-accent text-accent-foreground"
-          : "text-foreground/85 hover:bg-foreground/[0.045] hover:text-foreground",
+          ? "bg-accent text-accent-foreground font-semibold"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground",
         className,
       )}
     >

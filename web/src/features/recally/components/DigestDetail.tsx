@@ -12,12 +12,14 @@ export function DigestDetail({
   onSelectArticle: (id: string) => void;
 }) {
   return (
-    <div className="flex-1 overflow-auto p-4">
+    <div className="flex-1 overflow-auto p-4 bg-background">
       <div className="space-y-5">
-        <h2 className="font-mono text-base font-semibold text-foreground">{digest.date}</h2>
+        <h2 className="font-mono text-base font-semibold text-foreground tracking-tight">
+          {digest.date}
+        </h2>
 
         {digest.narrative && (
-          <div className="rounded-md border border-border bg-card p-3 text-sm leading-relaxed text-foreground whitespace-pre-line">
+          <div className="rounded-xl border border-border bg-card p-4 text-sm leading-relaxed text-foreground/90 whitespace-pre-line shadow-none">
             {digest.narrative}
           </div>
         )}
@@ -45,9 +47,9 @@ export function DigestDetail({
               {digest.top_tags.map(({ tag, count }) => (
                 <span
                   key={tag}
-                  className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium"
+                  className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-mono text-muted-foreground/90 font-medium"
                 >
-                  {tag} <span className="text-muted-foreground">{count}</span>
+                  {tag} <span className="text-muted-foreground/60">{count}</span>
                 </span>
               ))}
             </div>
@@ -60,7 +62,7 @@ export function DigestDetail({
 
 function SectionLabel({ title }: { title: string }) {
   return (
-    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60">
       {title}
     </div>
   );
@@ -78,18 +80,18 @@ function ArticleGroup({
   return (
     <div>
       <SectionLabel title={title} />
-      <ul className="mt-2 space-y-0.5">
+      <ul className="mt-2 space-y-1">
         {articles.map((a) => (
           <li key={a.id}>
             <button
               type="button"
               onClick={() => onSelectArticle(a.id)}
-              className="group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/40"
+              className="group flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors duration-120 hover:bg-muted cursor-pointer"
             >
               {a.starred && (
                 <Star className="mt-0.5 size-3 shrink-0 fill-amber-500 text-amber-500" />
               )}
-              <span className="line-clamp-2 text-sm leading-snug text-foreground group-hover:underline">
+              <span className="line-clamp-2 text-sm leading-snug text-foreground/90">
                 {a.title}
               </span>
             </button>

@@ -238,7 +238,7 @@ export function EmailAccountsPanel({
             return (
               <div
                 key={name}
-                className="min-w-0 rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-5 shadow-2xs flex flex-col justify-between"
+                className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-none flex flex-col justify-between"
               >
                 <div>
                   <div className="flex min-w-0 items-start justify-between gap-3">
@@ -276,24 +276,30 @@ export function EmailAccountsPanel({
                   </div>
                 </div>
 
-                <div className="mt-5 flex items-center justify-end gap-2 border-t border-border/20 pt-3">
+                <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-3">
                   {!isDefault && (
                     <Button
                       size="xs"
                       variant="ghost"
+                      className="cursor-pointer duration-120"
                       onClick={() => handleSetDefault(name)}
                       loading={saving}
                     >
                       Set Default
                     </Button>
                   )}
-                  <Button size="xs" variant="outline" onClick={() => handleEdit(name)}>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="cursor-pointer duration-120"
+                    onClick={() => handleEdit(name)}
+                  >
                     Edit
                   </Button>
                   <Button
                     size="xs"
                     variant="destructive-outline"
-                    className="text-destructive hover:bg-destructive/10"
+                    className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
                     onClick={() => handleDelete(name)}
                     loading={saving}
                   >
@@ -314,17 +320,22 @@ export function EmailAccountsPanel({
 
       {!formOpen ? (
         <div className="flex justify-end">
-          <Button size="sm" onClick={handleAdd}>
+          <Button size="sm" onClick={handleAdd} className="cursor-pointer duration-120">
             Add Email Account
           </Button>
         </div>
       ) : (
-        <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs space-y-6">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-none space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground/90">
+            <h3 className="text-sm font-semibold text-foreground/95 font-sans">
               {editingName ? `Edit Email Account: ${editingName}` : "Add Email Account"}
             </h3>
-            <Button size="xs" variant="ghost" onClick={() => setFormOpen(false)}>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="cursor-pointer duration-120"
+              onClick={() => setFormOpen(false)}
+            >
               Cancel
             </Button>
           </div>
@@ -346,8 +357,8 @@ export function EmailAccountsPanel({
             )}
 
             {/* IMAP Config */}
-            <div className="space-y-4 rounded-xl border border-border/25 bg-muted/10 p-4">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 IMAP (Incoming)
               </h4>
 
@@ -394,8 +405,8 @@ export function EmailAccountsPanel({
             </div>
 
             {/* SMTP Config */}
-            <div className="space-y-4 rounded-xl border border-border/25 bg-muted/10 p-4">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 SMTP (Outgoing)
               </h4>
 
@@ -442,8 +453,8 @@ export function EmailAccountsPanel({
             </div>
 
             {/* Credentials / Auth */}
-            <div className="space-y-4 rounded-xl border border-border/25 bg-muted/10 p-4 md:col-span-2">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-4 md:col-span-2">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 Account Credentials
               </h4>
 
@@ -493,10 +504,20 @@ export function EmailAccountsPanel({
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <Button size="sm" variant="ghost" onClick={() => setFormOpen(false)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="cursor-pointer duration-120"
+              onClick={() => setFormOpen(false)}
+            >
               Cancel
             </Button>
-            <Button size="sm" loading={saving} onClick={handleSave}>
+            <Button
+              size="sm"
+              loading={saving}
+              onClick={handleSave}
+              className="cursor-pointer duration-120"
+            >
               Save Account
             </Button>
           </div>

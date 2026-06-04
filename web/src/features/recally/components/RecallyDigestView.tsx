@@ -18,7 +18,7 @@ export function RecallyDigestView({
   onSelectDigest: (date: string) => void;
 }) {
   return (
-    <section
+    <div
       className={cn(
         "flex min-h-0 flex-col overflow-hidden border-r border-border bg-background",
         className,
@@ -43,8 +43,8 @@ export function RecallyDigestView({
             type="button"
             onClick={() => onSelectDigest(d.date)}
             className={cn(
-              "w-full border-b border-border px-4 py-3 text-left transition-colors hover:bg-accent/40",
-              selectedDigestDate === d.date && "bg-accent/70",
+              "w-full border-b border-border px-4 py-3 text-left transition-colors duration-120 hover:bg-muted cursor-pointer",
+              selectedDigestDate === d.date && "bg-accent text-accent-foreground",
             )}
           >
             <div className="font-mono text-sm font-medium text-foreground">{d.date}</div>
@@ -55,6 +55,6 @@ export function RecallyDigestView({
           </button>
         ))}
       </div>
-    </section>
+    </div>
   );
 }

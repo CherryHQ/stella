@@ -334,14 +334,14 @@ export function CredentialsPage() {
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
 
   const vaultDetail = (
-    <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs space-y-6">
+    <div className="rounded-xl border border-border bg-card p-6 shadow-none space-y-6">
       {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
       {filteredVaultEntries.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border/30">
+              <tr className="border-b border-border">
                 <th className="pb-2 text-left font-mono text-xs text-muted-foreground font-semibold">
                   Name
                 </th>
@@ -354,7 +354,7 @@ export function CredentialsPage() {
                 <th></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/30">
+            <tbody className="divide-y divide-border">
               {filteredVaultEntries.map((entry) => (
                 <tr key={entry.name}>
                   <td className="py-2.5 font-mono text-foreground font-medium">{entry.name}</td>
@@ -368,7 +368,7 @@ export function CredentialsPage() {
                     <Button
                       size="xs"
                       variant="destructive-outline"
-                      className="text-destructive hover:bg-destructive/10"
+                      className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
                       onClick={() => deleteVaultEntry(entry.name)}
                     >
                       {t("common.delete")}
@@ -385,8 +385,8 @@ export function CredentialsPage() {
         <p className="text-sm text-muted-foreground py-4 text-center">No secrets stored yet.</p>
       )}
 
-      <div className="border-t border-border/30 pt-5 space-y-4">
-        <h3 className="text-sm font-semibold text-foreground/90">Add Secret</h3>
+      <div className="border-t border-border pt-5 space-y-4">
+        <h3 className="text-sm font-semibold text-foreground/90 font-sans">Add Secret</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Name</label>
@@ -412,7 +412,12 @@ export function CredentialsPage() {
           </div>
         </div>
         <div className="flex justify-end pt-2">
-          <Button size="sm" loading={vaultSaving} onClick={addVaultEntry}>
+          <Button
+            size="sm"
+            loading={vaultSaving}
+            onClick={addVaultEntry}
+            className="cursor-pointer duration-120"
+          >
             Save Secret
           </Button>
         </div>
@@ -452,7 +457,7 @@ export function CredentialsPage() {
         return (
           <div
             key={p.provider}
-            className="min-w-0 rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-5 shadow-2xs flex flex-col justify-between"
+            className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-none flex flex-col justify-between"
           >
             <div>
               <div className="flex min-w-0 items-start justify-between gap-3">
@@ -478,6 +483,7 @@ export function CredentialsPage() {
                     size="sm"
                     loading={oauthFlowActive[p.provider]}
                     onClick={() => connectOAuth(p.provider)}
+                    className="cursor-pointer duration-120"
                   >
                     Connect
                   </Button>
@@ -485,7 +491,7 @@ export function CredentialsPage() {
                   <Button
                     size="sm"
                     variant="destructive-outline"
-                    className="text-destructive hover:bg-destructive/10"
+                    className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
                     onClick={() => disconnectOAuth(p.provider)}
                   >
                     Disconnect
@@ -495,6 +501,7 @@ export function CredentialsPage() {
                   <Button
                     size="sm"
                     variant={needsSetup ? "default" : "outline"}
+                    className="cursor-pointer duration-120"
                     onClick={() =>
                       setConfigOpen((prev) => ({ ...prev, [p.provider]: !prev[p.provider] }))
                     }
@@ -506,7 +513,7 @@ export function CredentialsPage() {
             </div>
 
             {configOpen[p.provider] && (
-              <div className="mt-4 border-t border-border/30 pt-4 space-y-3">
+              <div className="mt-4 border-t border-border pt-4 space-y-3">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">
@@ -559,7 +566,7 @@ export function CredentialsPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive hover:bg-destructive/10"
+                      className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
                       onClick={() => deleteProviderConfig(p.provider)}
                     >
                       Reset
@@ -569,6 +576,7 @@ export function CredentialsPage() {
                     size="sm"
                     loading={configSaving[p.provider]}
                     onClick={() => saveProviderConfig(p.provider)}
+                    className="cursor-pointer duration-120"
                   >
                     Save
                   </Button>
@@ -615,7 +623,7 @@ export function CredentialsPage() {
         <div className="space-y-8">
           {/* OAuth Providers Section */}
           <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+            <div className="flex items-center gap-2 border-b border-border pb-2">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -629,7 +637,7 @@ export function CredentialsPage() {
                   d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
                 />
               </svg>
-              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 OAuth Providers
               </h4>
             </div>
@@ -638,7 +646,7 @@ export function CredentialsPage() {
 
           {/* Email Accounts Section */}
           <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+            <div className="flex items-center gap-2 border-b border-border pb-2">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -652,7 +660,7 @@ export function CredentialsPage() {
                   d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
                 />
               </svg>
-              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 Email Accounts
               </h4>
             </div>
@@ -661,7 +669,7 @@ export function CredentialsPage() {
 
           {/* Vault Secrets Section */}
           <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+            <div className="flex items-center gap-2 border-b border-border pb-2">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -675,7 +683,7 @@ export function CredentialsPage() {
                   d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
                 />
               </svg>
-              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
                 Vault Secrets
               </h4>
             </div>

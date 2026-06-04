@@ -236,13 +236,13 @@ function SettingsNavContent({ isAdmin }: { isAdmin: boolean }) {
   };
 
   return (
-    <div className="px-3 pb-2">
+    <div className="px-3 pb-2 bg-sidebar">
       {settingsNav.map((group) => {
         const visibleItems = group.items.filter((item) => !item.adminOnly || isAdmin);
         if (visibleItems.length === 0) return null;
         return (
           <div key={group.section}>
-            <div className="px-2 pb-1.5 pt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
+            <div className="px-2 pb-1.5 pt-4 font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
               {group.section}
             </div>
             {visibleItems.map((item) => (
@@ -251,10 +251,10 @@ function SettingsNavContent({ isAdmin }: { isAdmin: boolean }) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 to={item.href as any}
                 onClick={handleItemClick}
-                className="group/item flex min-h-9 items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-medium tracking-[-0.01em] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground"
+                className="group/item flex min-h-9 items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-120 hover:bg-muted hover:text-foreground cursor-pointer"
                 activeProps={{
                   className:
-                    "group/item active flex min-h-9 items-center gap-2 rounded-xl bg-accent px-2.5 py-2 text-sm font-medium tracking-[-0.01em] text-primary transition-colors",
+                    "group/item active flex min-h-9 items-center gap-2 rounded-lg bg-accent px-2.5 py-2 text-sm font-semibold tracking-[-0.01em] text-accent-foreground transition-colors duration-120",
                 }}
               >
                 {item.icon}
@@ -283,10 +283,8 @@ export function SettingsLayout() {
       sidebar={<SettingsNavContent isAdmin={isAdmin} />}
       title={<span className="text-sm font-semibold">{activeLabel}</span>}
     >
-      <div className="flex-1 overflow-y-auto">
-        <div className="h-full">
-          <Outlet />
-        </div>
+      <div className="flex-1 min-h-0 flex flex-col bg-background overflow-hidden">
+        <Outlet />
       </div>
     </AppShell>
   );

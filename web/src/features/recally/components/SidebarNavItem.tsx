@@ -12,10 +12,10 @@ export function SidebarNavItem({
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center justify-between mx-1 rounded-lg px-2.5 py-1.5 text-[12px] transition-all duration-150 ${
+      className={`flex w-full items-center justify-between mx-1 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors duration-120 cursor-pointer ${
         active
-          ? "bg-primary/[0.08] text-primary font-semibold"
-          : "text-foreground/80 hover:bg-muted/50"
+          ? "bg-accent text-accent-foreground font-semibold"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
       }`}
     >
       <span>{label}</span>

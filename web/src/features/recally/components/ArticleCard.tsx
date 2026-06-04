@@ -18,10 +18,10 @@ export function ArticleCard({
   return (
     <button
       onClick={onClick}
-      className={`w-full rounded-xl border p-3.5 text-left transition-all duration-200 ${
+      className={`w-full rounded-xl border p-3.5 text-left transition-colors duration-120 cursor-pointer ${
         selected
-          ? "border-primary/20 bg-primary/[0.03] text-foreground shadow-xs ring-1 ring-primary/10"
-          : "border-border/40 bg-card/45 hover:border-border/80 hover:bg-card/75 hover:scale-[1.01] hover:shadow-2xs"
+          ? "border-primary/30 bg-primary/5 text-foreground ring-1 ring-primary/20"
+          : "border-border bg-card hover:border-border/80 hover:bg-muted"
       }`}
     >
       <div className="flex items-start justify-between gap-2.5">
@@ -40,14 +40,14 @@ export function ArticleCard({
       )}
       <div className="mt-3 flex flex-wrap items-center gap-1.5 font-mono text-[9px]">
         <StatusBadge status={article.status} t={t} />
-        <span className="text-muted-foreground/50 border border-border/20 rounded bg-muted/20 px-1 py-0.5">
+        <span className="text-muted-foreground/50 border border-border rounded bg-muted/20 px-1 py-0.5">
           {t(SOURCE_LABEL_KEYS[article.source_type])}
         </span>
         <span className="text-muted-foreground/55">{formatSavedAt(article.saved_at, t)}</span>
         {article.tags?.map((tag) => (
           <span
             key={tag}
-            className="rounded-full bg-muted/30 border border-border/30 px-1.5 py-0.5 text-muted-foreground/70 hover:text-primary hover:border-primary/20 hover:bg-primary/5 transition-all"
+            className="rounded-full bg-muted/30 border border-border px-1.5 py-0.5 text-muted-foreground/70 hover:text-primary hover:border-primary/20 hover:bg-primary/5 transition-colors duration-120"
           >
             {tag}
           </span>

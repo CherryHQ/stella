@@ -217,24 +217,21 @@ export function RecallyArticleList({
   };
 
   return (
-    <section className="flex min-h-0 w-full flex-col overflow-hidden">
+    <div className="flex min-h-0 w-full flex-col overflow-hidden">
       {/* Source Selector + Search + Filters Toolbar */}
-      <div className="shrink-0 border-b border-border bg-card/65 px-3 py-2 backdrop-blur-xl">
+      <div className="shrink-0 border-b border-border bg-card px-3 py-2">
         <div className="flex items-center gap-2">
           <Popover open={explorerOpen} onOpenChange={setExplorerOpen}>
             <PopoverTrigger
               className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer text-xs font-semibold shadow-2xs select-none outline-none",
+                "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-colors duration-120 cursor-pointer text-xs font-semibold shadow-none select-none outline-none",
                 explorerOpen
-                  ? "bg-primary/5 text-primary border-primary/20"
-                  : "bg-muted/30 border-border/40 hover:bg-muted/50 hover:border-border/80 text-foreground",
+                  ? "bg-primary/10 text-primary border-primary/25"
+                  : "bg-card border-border text-foreground hover:bg-muted",
               )}
             >
               <ActiveSourceIcon
-                className={cn(
-                  "size-3.5",
-                  explorerOpen ? "text-primary animate-pulse" : "text-muted-foreground",
-                )}
+                className={cn("size-3.5", explorerOpen ? "text-primary" : "text-muted-foreground")}
               />
               <span className="truncate max-w-[120px] font-mono tracking-tight">
                 {activeSourceName}
@@ -244,7 +241,7 @@ export function RecallyArticleList({
               </span>
               <ChevronDown
                 className={cn(
-                  "size-3 text-muted-foreground/60 transition-transform duration-200 ml-0.5",
+                  "size-3 text-muted-foreground/60 transition-transform duration-120 ml-0.5",
                   explorerOpen && "rotate-180 text-primary",
                 )}
               />
@@ -253,7 +250,7 @@ export function RecallyArticleList({
             <PopoverContent
               align="start"
               sideOffset={8}
-              className="w-[calc(100vw-2rem)] max-w-[560px] p-4 bg-popover/95 border border-border rounded-xl shadow-lg backdrop-blur-md"
+              className="w-[calc(100vw-2rem)] max-w-[560px] p-4 bg-popover border border-border rounded-xl shadow-none"
             >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border/30">
                 {/* Library / Folders */}
@@ -464,7 +461,7 @@ export function RecallyArticleList({
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder={t("recally.searchPlaceholder")}
-                className="w-full pl-8 pr-3 py-1.5 text-[11px] font-mono rounded-xl bg-muted/20 border border-border/40 hover:border-border/75 focus:border-primary/40 focus:ring-2 focus:ring-primary/5 focus:outline-none transition-all duration-150 text-foreground placeholder:text-muted-foreground/40 shadow-2xs"
+                className="w-full pl-8 pr-3 py-1.5 text-[11px] font-mono rounded-xl bg-muted/20 border border-border focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors duration-120 text-foreground placeholder:text-muted-foreground/45 shadow-none"
               />
             </div>
           )}
@@ -474,10 +471,10 @@ export function RecallyArticleList({
             <button
               onClick={() => setRefinementsOpen(!refinementsOpen)}
               className={cn(
-                "relative p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-center shrink-0",
+                "relative p-2 rounded-xl border transition-colors duration-120 cursor-pointer flex items-center justify-center shrink-0 shadow-none",
                 refinementsOpen || activeFiltersCount > 0
-                  ? "bg-primary/5 text-primary border-primary/25 shadow-2xs"
-                  : "bg-muted/15 border-border/40 hover:border-border/80 text-muted-foreground hover:text-foreground",
+                  ? "bg-primary/10 text-primary border-primary/25"
+                  : "bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted",
               )}
               title="Filter refinements"
             >
@@ -565,10 +562,10 @@ export function RecallyArticleList({
                 type="button"
                 onClick={() => handleDigestSelect(d.date)}
                 className={cn(
-                  "w-full rounded-xl border p-3.5 text-left transition-all duration-200 cursor-pointer",
+                  "w-full rounded-xl border p-3.5 text-left transition-colors duration-120 cursor-pointer",
                   selectedDigestDate === d.date
-                    ? "border-primary/20 bg-primary/[0.03] text-foreground shadow-xs ring-1 ring-primary/10"
-                    : "border-border/40 bg-card/45 hover:border-border/80 hover:bg-card/75 hover:scale-[1.01] hover:shadow-2xs",
+                    ? "border-primary/30 bg-primary/5 text-foreground ring-1 ring-primary/20"
+                    : "border-border bg-card hover:border-border/80 hover:bg-muted",
                 )}
               >
                 <div className="font-mono text-sm font-semibold text-foreground">{d.date}</div>
@@ -613,6 +610,6 @@ export function RecallyArticleList({
           </>
         )}
       </div>
-    </section>
+    </div>
   );
 }
