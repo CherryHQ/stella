@@ -17,10 +17,7 @@ type candidate struct {
 }
 
 func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, agentID string) ([]candidate, error) {
-	sessions, err := sm.ListInfo(ctx, memory.ListOptions{
-		AgentID:         agentID,
-		IncludeArchived: false,
-	})
+	sessions, err := listSessionInfoForReview(ctx, sm, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +61,17 @@ func (s *Service) listUnreviewedFromRegistry(ctx context.Context, reg *session.R
 		candidates = candidates[:s.batch]
 	}
 	return candidates, nil
+}
+
+func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, agentID string) ([]memory.SessionInfo, error) {
+	opts := memory.ListOptions{AgentID: agentID, IncludeArchived: false}
+	if lister, ok := sm.(interface {
+		ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)
+	}); ok {
+		return lister.ListInfoForReview(ctx, opts)
+	}
+	ctx = memory.WithAgentID(ctx, agentID)
+	return sm.ListInfo(ctx, opts)
 }
 
 func (s *Service) unreviewedCandidateFromRegistry(ctx context.Context, reg *session.Registry, info session.Info) (candidate, bool) {

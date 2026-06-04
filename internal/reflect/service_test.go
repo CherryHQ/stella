@@ -35,6 +35,23 @@ func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) 
 	return nil
 }
 
+type reviewListOnlyFake struct {
+	*memorytest.Fake
+	reviewCalled bool
+}
+
+func (f *reviewListOnlyFake) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
+	if memory.UserIDFromContext(ctx) == "" && opts.UserID == "" {
+		return nil, fmt.Errorf("missing user context")
+	}
+	return f.Fake.ListInfo(ctx, opts)
+}
+
+func (f *reviewListOnlyFake) ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
+	f.reviewCalled = true
+	return f.Fake.ListInfo(ctx, opts)
+}
+
 func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, userID string, lastActive time.Time) {
 	t.Helper()
 	ctx := context.Background()
@@ -72,6 +89,23 @@ func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 	}
 	if candidates[0].session.ID != "s2" {
 		t.Errorf("expected session s2, got %s", candidates[0].session.ID)
+	}
+}
+
+func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
+	fake := &reviewListOnlyFake{Fake: memorytest.New()}
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+
+	seedFakeSession(t, fake.Fake, "s1", "a", "1", time.Now().UTC())
+	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fake.reviewCalled {
+		t.Fatal("expected ListInfoForReview to be used")
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(candidates))
 	}
 }
 
