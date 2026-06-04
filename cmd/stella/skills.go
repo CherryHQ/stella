@@ -25,18 +25,11 @@ skills, and manage the ones already installed.`,
 			skillsListCommand(),
 			skillsRemoveCommand(),
 		},
-		Flags:  skillAgentFlags(),
 		Action: skillsListAction,
 	}
 }
 
-func skillAgentFlags() []ucli.Flag {
-	return []ucli.Flag{
-		&ucli.StringFlag{Name: "session-id", Usage: "Session ID for project skills (defaults to STELLA_TOKEN session claim)"},
-	}
-}
-
-func skillAgentContext(c *ucli.Context) (string, *apiclient.ListAgentSkillsParams, error) {
+func skillAgentContext() (string, *apiclient.ListAgentSkillsParams, error) {
 	claims, err := scopedTokenClaimsFromEnv()
 	if err != nil {
 		return "", nil, err
@@ -45,15 +38,7 @@ func skillAgentContext(c *ucli.Context) (string, *apiclient.ListAgentSkillsParam
 	if agentID == "" {
 		return "", nil, fmt.Errorf("agent ID is required in STELLA_TOKEN")
 	}
-	sessionID := c.String("session-id")
-	if sessionID == "" {
-		sessionID = claims.SessionID
-	}
-	params := &apiclient.ListAgentSkillsParams{}
-	if sessionID != "" {
-		params.SessionId = &sessionID
-	}
-	return agentID, params, nil
+	return agentID, &apiclient.ListAgentSkillsParams{}, nil
 }
 
 func skillsSearchCommand() *ucli.Command {
@@ -112,14 +97,14 @@ func skillsInstallCommand() *ucli.Command {
 		Name:      "install",
 		Usage:     "Install a skill (e.g. owner/repo@skill-name, GitHub/GitLab URL, or local path)",
 		ArgsUsage: "<source>",
-		Flags:     append([]ucli.Flag{jsonFlag()}, skillAgentFlags()...),
+		Flags:     []ucli.Flag{jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			source := c.Args().First()
 			if source == "" {
 				return fmt.Errorf("usage: stella skill install <owner/repo@skill-name>")
 			}
 
-			agentID, _, err := skillAgentContext(c)
+			agentID, _, err := skillAgentContext()
 			if err != nil {
 				return err
 			}
@@ -151,7 +136,7 @@ func skillsListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:   "list",
 		Usage:  "List installed skills",
-		Flags:  append([]ucli.Flag{jsonFlag()}, skillAgentFlags()...),
+		Flags:  []ucli.Flag{jsonFlag()},
 		Action: skillsListAction,
 	}
 }
@@ -164,7 +149,7 @@ func derefSkillScope(s *apitypes.SkillScope) string {
 }
 
 func skillsListAction(c *ucli.Context) error {
-	agentID, params, err := skillAgentContext(c)
+	agentID, params, err := skillAgentContext()
 	if err != nil {
 		return err
 	}
@@ -216,14 +201,14 @@ func skillsRemoveCommand() *ucli.Command {
 		Name:      "remove",
 		Usage:     "Remove an installed skill (e.g. stella skill remove my-skill)",
 		ArgsUsage: "<name>",
-		Flags:     append([]ucli.Flag{jsonFlag()}, skillAgentFlags()...),
+		Flags:     []ucli.Flag{jsonFlag()},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
 				return fmt.Errorf("usage: stella skill remove <name>")
 			}
 
-			agentID, params, err := skillAgentContext(c)
+			agentID, params, err := skillAgentContext()
 			if err != nil {
 				return err
 			}
@@ -247,7 +232,7 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteAgentSkill(c.Context, agentID, derefStr(skill.Name), &apiclient.DeleteAgentSkillParams{SessionId: params.SessionId})
+				return api.DeleteAgentSkill(c.Context, agentID, derefStr(skill.Name), &apiclient.DeleteAgentSkillParams{})
 			}); err != nil {
 				return err
 			}
