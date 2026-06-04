@@ -74,7 +74,7 @@ export function AppShell({
               <div className="flex items-center gap-1 shrink-0">{displayActions}</div>
             )}
           </header>
-          <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
         </SidebarInset>
       </SidebarProvider>
     </AppShellContext.Provider>

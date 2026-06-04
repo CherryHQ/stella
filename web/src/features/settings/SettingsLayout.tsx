@@ -283,7 +283,7 @@ export function SettingsLayout() {
       sidebar={<SettingsNavContent isAdmin={isAdmin} />}
       title={<span className="text-sm font-semibold">{activeLabel}</span>}
     >
-      <div className="flex-1 min-h-0 flex flex-col bg-background overflow-hidden">
+      <div className="h-full flex flex-col bg-background overflow-hidden">
         <Outlet />
       </div>
     </AppShell>
