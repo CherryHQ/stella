@@ -102,6 +102,13 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 		responding = responding[:a.cfg.MaxRepliesPerTrigger]
 	}
 
+	// Evict expired debounce entries on all paths (not just fallback).
+	if a.cfg.DebounceWindow > 0 {
+		a.mu.Lock()
+		a.evictExpired(time.Now())
+		a.mu.Unlock()
+	}
+
 	log.Debug("decision", "responding", responding, "mentioned", mentioned)
 	return ArbiterDecision{RespondingAgents: responding}
 }

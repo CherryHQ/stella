@@ -115,6 +115,16 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 	if err != nil {
 		return "", false, nil, err
 	}
+	// Guard: if resolve() picked the same agent that was rejected by the
+	// cross-adapter check, don't respond — otherwise the guard is bypassed.
+	if rc.AgentID == channelAgentID && channelAgentID != "" {
+		replyChannelID := findMemberReplyChannel(members, channelAgentID)
+		if replyChannelID != "" && replyChannelID != observerChannelID {
+			log.Warn("fallback agent also rejected by cross-adapter guard, not responding",
+				"agent_id", channelAgentID, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
+			return "", false, nil, nil
+		}
+	}
 	return c.handleGroupResolved(ctx, rc, msg, command, args)
 }
 
