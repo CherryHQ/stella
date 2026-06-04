@@ -9,6 +9,7 @@
     "cli-as-client",
     "sandbox",
     "memory-internals",
+    "group-chat-multi-agent",
     "session-compaction",
     "plugin-system",
     "task-system",
