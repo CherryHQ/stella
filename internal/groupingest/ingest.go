@@ -240,12 +240,17 @@ func (ing *Ingester) processGroup(ctx context.Context, groupID string, _ int64) 
 	}
 
 	if ing.userWriter != nil {
+		var userWriteErr error
 		for actorID, facts := range result.UserFacts {
 			for _, fact := range facts {
 				if err := ing.userWriter(ctx, actorID, fact); err != nil {
 					ing.log.Warn("write user fact failed", "actor_id", actorID, "error", err)
+					userWriteErr = err
 				}
 			}
+		}
+		if userWriteErr != nil {
+			return fmt.Errorf("user fact write failed, cursor not advanced: %w", userWriteErr)
 		}
 	}
 

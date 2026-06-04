@@ -57,21 +57,8 @@ type ArbiterDecision struct {
 func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchannel.Mention, groupMembers []GroupMember, channelAgentID string) ArbiterDecision {
 	log := slog.With("component", "arbiter", "group_id", groupID)
 
-	if a.cfg.DebounceWindow > 0 {
-		a.mu.Lock()
-		last := a.lastTrigger[groupID]
-		now := time.Now()
-		if !last.IsZero() && now.Sub(last) < a.cfg.DebounceWindow {
-			a.mu.Unlock()
-			log.Debug("debounced", "since_last", now.Sub(last))
-			return ArbiterDecision{Debounced: true}
-		}
-		a.lastTrigger[groupID] = now
-		a.mu.Unlock()
-	}
-
+	// Resolve mentions FIRST so explicit @mentions bypass debounce (CR-010).
 	var responding []string
-
 	mentioned := mentionedAgentIDs(mentions)
 	if len(mentioned) > 0 {
 		memberSet := make(map[string]struct{}, len(groupMembers))
@@ -85,8 +72,26 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 		}
 	}
 
-	if len(responding) == 0 && channelAgentID != "" {
-		responding = append(responding, channelAgentID)
+	// Explicit @mention always responds — skip debounce entirely.
+	if len(responding) == 0 {
+		// Fallback path: apply debounce only for non-mention responses.
+		if a.cfg.DebounceWindow > 0 {
+			a.mu.Lock()
+			last := a.lastTrigger[groupID]
+			now := time.Now()
+			if !last.IsZero() && now.Sub(last) < a.cfg.DebounceWindow {
+				a.mu.Unlock()
+				log.Debug("debounced", "since_last", now.Sub(last))
+				return ArbiterDecision{Debounced: true}
+			}
+			a.lastTrigger[groupID] = now
+			a.evictExpired(now)
+			a.mu.Unlock()
+		}
+
+		if channelAgentID != "" {
+			responding = append(responding, channelAgentID)
+		}
 	}
 
 	if len(responding) > a.cfg.MaxRepliesPerTrigger {
@@ -95,6 +100,17 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 
 	log.Debug("decision", "responding", responding, "mentioned", mentioned)
 	return ArbiterDecision{RespondingAgents: responding}
+}
+
+// evictExpired removes debounce entries older than 2x the window.
+// Must be called with a.mu held.
+func (a *Arbiter) evictExpired(now time.Time) {
+	cutoff := now.Add(-2 * a.cfg.DebounceWindow)
+	for k, t := range a.lastTrigger {
+		if t.Before(cutoff) {
+			delete(a.lastTrigger, k)
+		}
+	}
 }
 
 func mentionedAgentIDs(mentions []pkgchannel.Mention) []string {

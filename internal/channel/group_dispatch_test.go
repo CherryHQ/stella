@@ -156,28 +156,31 @@ func TestResolveMentionAgents(t *testing.T) {
 	reg := NewBotIdentityRegistry()
 	reg.Register("telegram", "bot1_username", "ch-bot1")
 
+	// Helper to fetch members from DB.
+	fetchMembers := func(t *testing.T, gid string) []GroupMember {
+		t.Helper()
+		rows, err := q.ListGroupMembers(ctx, gid)
+		if err != nil {
+			t.Fatalf("list group members: %v", err)
+		}
+		members := make([]GroupMember, len(rows))
+		for i, r := range rows {
+			members[i] = GroupMember{AgentID: r.AgentID, ReplyChannelID: r.ReplyChannelID}
+		}
+		return members
+	}
+
 	// Set up the coordinator with enough deps for mention resolution.
 	coord := &Coordinator{
 		store:       ts.store,
 		botRegistry: reg,
-		memberLister: FuncGroupMemberLister(func(ctx context.Context, gid string) ([]GroupMember, error) {
-			rows, err := q.ListGroupMembers(ctx, gid)
-			if err != nil {
-				return nil, err
-			}
-			members := make([]GroupMember, len(rows))
-			for i, r := range rows {
-				members[i] = GroupMember{AgentID: r.AgentID, ReplyChannelID: r.ReplyChannelID}
-			}
-			return members, nil
-		}),
 	}
 
 	t.Run("known bot resolves to agent", func(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot1_username", PlatformID: "bot1_username"},
 		}
-		coord.resolveMentionAgents(ctx, groupID, "telegram", mentions)
+		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
 		if mentions[0].AgentID != agentID {
 			t.Errorf("expected AgentID=%q, got %q", agentID, mentions[0].AgentID)
 		}
@@ -187,7 +190,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@unknown_bot", PlatformID: "unknown_bot"},
 		}
-		coord.resolveMentionAgents(ctx, groupID, "telegram", mentions)
+		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
 		if mentions[0].AgentID != "" {
 			t.Errorf("expected empty AgentID for unknown bot, got %q", mentions[0].AgentID)
 		}
@@ -210,7 +213,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot2_username", PlatformID: "bot2_username"},
 		}
-		coord.resolveMentionAgents(ctx, groupID, "telegram", mentions)
+		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
 		if mentions[0].AgentID != "" {
 			t.Errorf("expected empty AgentID for non-member bot, got %q", mentions[0].AgentID)
 		}
@@ -220,7 +223,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot1_username", PlatformID: "bot1_username", AgentID: "pre-set"},
 		}
-		coord.resolveMentionAgents(ctx, groupID, "telegram", mentions)
+		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
 		if mentions[0].AgentID != "pre-set" {
 			t.Errorf("expected pre-set AgentID to be preserved, got %q", mentions[0].AgentID)
 		}

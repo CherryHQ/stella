@@ -84,6 +84,29 @@ func TestArbiterDebounce(t *testing.T) {
 	}
 }
 
+func TestArbiterMentionBypassesDebounce(t *testing.T) {
+	a := NewArbiter(ArbiterConfig{DebounceWindow: 500 * time.Millisecond})
+	ctx := context.Background()
+
+	members := []GroupMember{{AgentID: "agent-1"}}
+
+	// First call: no mention, triggers default.
+	d1 := a.Decide(ctx, "g1", nil, members, "agent-1")
+	if d1.Debounced {
+		t.Fatal("first call should not be debounced")
+	}
+
+	// Second call within window WITH @mention: must NOT be debounced.
+	mentions := []pkgchannel.Mention{{PlatformID: "bot1", AgentID: "agent-1"}}
+	d2 := a.Decide(ctx, "g1", mentions, members, "agent-1")
+	if d2.Debounced {
+		t.Fatal("explicit @mention within debounce window should NOT be debounced")
+	}
+	if len(d2.RespondingAgents) != 1 || d2.RespondingAgents[0] != "agent-1" {
+		t.Fatalf("expected [agent-1], got %v", d2.RespondingAgents)
+	}
+}
+
 func TestArbiterMentionedNonMemberIgnored(t *testing.T) {
 	a := NewArbiter(ArbiterConfig{})
 	ctx := context.Background()
