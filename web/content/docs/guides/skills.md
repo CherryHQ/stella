@@ -51,8 +51,8 @@ If you hit rate limits on clawhub.ai, you can set a free API token:
 # Search for skills
 stella skill search "git"
 
-# Install from clawhub.ai for an agent
-stella skill install --agent-id <agent-id> "clawhub:git-helper"
+# Install from clawhub.ai for the current agent
+stella skill install "clawhub:git-helper"
 
 # Install a specific version
 stella skill install "clawhub:git-helper@1.2.0"
@@ -75,17 +75,17 @@ stella skill install "/path/to/skill"
 ### From the CLI
 
 ```bash
-# List skills visible to an agent
-stella skill list --agent-id <agent-id>
+# List skills visible to the current agent
+stella skill list
 
-# Include project skills from a project session
-stella skill list --agent-id <agent-id> --session-id <session-id>
+# Include project skills from the current project session
+stella skill list
 
-# Remove a user skill from an agent
-stella skill remove --agent-id <agent-id> "git-helper"
+# Remove a user skill from the current agent
+stella skill remove "git-helper"
 ```
 
-To install a skill for a specific agent instead of your user account, add `scope=agent` when asking Stella, or use the appropriate flag in the CLI.
+Skill commands use the scoped `STELLA_TOKEN` injected into Stella agent sessions. The token carries the current agent and session context, and the server verifies that scope on every request.
 
 ## Creating Your Own Skills
 

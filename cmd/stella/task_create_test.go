@@ -12,8 +12,7 @@ import (
 )
 
 func TestTaskCreateUsesAgentIDFromEnv(t *testing.T) {
-	t.Setenv("STELLA_TOKEN", "test-token")
-	t.Setenv("STELLA_AGENT_ID", "agent-1")
+	setTestScopedToken(t, "agent-1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/tasks" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -54,8 +53,7 @@ func TestTaskCreateRequiresAgentID(t *testing.T) {
 }
 
 func TestTaskListUsesAgentIDFromEnv(t *testing.T) {
-	t.Setenv("STELLA_TOKEN", "test-token")
-	t.Setenv("STELLA_AGENT_ID", "agent-1")
+	setTestScopedToken(t, "agent-1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/tasks" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)

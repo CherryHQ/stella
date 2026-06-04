@@ -26,6 +26,7 @@ type AuthInfo struct {
 	Email     string `json:"email,omitempty"`
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
+	Scoped    *auth.ScopedTokenClaims
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -71,6 +72,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		if info.Scoped != nil && !scopedTokenAllowsRequest(info.Scoped, r) {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))
 	})
 }
@@ -106,6 +112,28 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(rawToken) == "" {
 		return nil
 	}
+	if auth.IsScopedToken(rawToken) {
+		user, claims, err := s.tokenSvc.AuthenticateScoped(ctx, rawToken)
+		if err != nil {
+			s.log.Warn("scoped bearer token auth failed", "error", err)
+			return nil
+		}
+		if !user.IsActive {
+			s.log.Warn("scoped bearer auth rejected: user deactivated", "user_id", user.ID)
+			return nil
+		}
+		return &AuthInfo{
+			UserID:    user.ID,
+			Username:  user.Email,
+			Email:     user.Email,
+			Name:      user.Name,
+			AvatarURL: user.AvatarURL,
+			Role:      user.Role,
+			IsAdmin:   false,
+			Scoped:    &claims,
+		}
+	}
+
 	user, err := s.tokenSvc.Authenticate(ctx, rawToken)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {

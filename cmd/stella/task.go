@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	ucli "github.com/urfave/cli/v2"
@@ -12,22 +11,12 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 )
 
-// taskAgentID still serves scheduler subcommands (cmd/stella/scheduler.go).
-// The task CLI itself no longer takes an agent id positional.
-func taskAgentID(c *ucli.Context) (string, error) {
-	if a := c.String("agent-id"); a != "" {
-		return a, nil
-	}
-	if a := os.Getenv("STELLA_AGENT_ID"); a != "" {
-		return a, nil
-	}
-	return "", fmt.Errorf("agent ID is required (pass --agent-id or set STELLA_AGENT_ID)")
+func taskAgentID(_ *ucli.Context) (string, error) {
+	return scopedAgentIDFromEnv()
 }
 
 func taskAgentFlags() []ucli.Flag {
-	return []ucli.Flag{
-		&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-	}
+	return nil
 }
 
 func requireTaskAgent(c *ucli.Context) error {

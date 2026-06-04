@@ -37,7 +37,6 @@ func schedulerAddCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "every", Usage: "Go duration, e.g. '30m' or '2h' (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "at", Usage: "RFC3339 timestamp for a one-time job (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "session-mode", Usage: "Session behavior: reuse (default) or new", Value: "reuse"},
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
@@ -113,7 +112,6 @@ func schedulerListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List scheduled jobs",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
@@ -162,7 +160,6 @@ func schedulerRemoveCommand() *ucli.Command {
 		Usage:     "Remove a scheduled job",
 		ArgsUsage: "<job-id>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
 			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {

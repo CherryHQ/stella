@@ -13,8 +13,8 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
-// resolveAgentID runs a throwaway command so taskAgentID gets a real context
-// with the --agent-id flag wired up, then returns its result.
+// resolveAgentID runs a throwaway command so taskAgentID gets a real context,
+// then returns its result.
 func resolveAgentID(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var got string
@@ -22,8 +22,7 @@ func resolveAgentID(t *testing.T, args ...string) (string, error) {
 	app := ucli.NewApp()
 	app.Writer = &bytes.Buffer{}
 	app.Commands = []*ucli.Command{{
-		Name:  "probe",
-		Flags: []ucli.Flag{&ucli.StringFlag{Name: "agent-id"}},
+		Name: "probe",
 		Action: func(c *ucli.Context) error {
 			got, gotErr = taskAgentID(c)
 			return nil
@@ -35,25 +34,19 @@ func resolveAgentID(t *testing.T, args ...string) (string, error) {
 	return got, gotErr
 }
 
-func TestTaskAgentIDPrecedence(t *testing.T) {
-	t.Setenv("STELLA_AGENT_ID", "from-env")
+func TestTaskAgentIDFromScopedToken(t *testing.T) {
+	setTestScopedToken(t, "from-token")
+	if got, err := resolveAgentID(t); err != nil || got != "from-token" {
+		t.Fatalf("token should provide agent id: got %q err %v", got, err)
+	}
 
-	// Flag wins over env.
-	if got, err := resolveAgentID(t, "--agent-id", "from-flag"); err != nil || got != "from-flag" {
-		t.Fatalf("flag should win: got %q err %v", got, err)
-	}
-	// Env fills when flag absent.
-	if got, err := resolveAgentID(t); err != nil || got != "from-env" {
-		t.Fatalf("env should fill: got %q err %v", got, err)
-	}
-	// Neither set errors clearly.
-	t.Setenv("STELLA_AGENT_ID", "")
+	t.Setenv("STELLA_TOKEN", "")
 	got, err := resolveAgentID(t)
 	if err == nil {
-		t.Fatalf("expected error when neither flag nor env set, got %q", got)
+		t.Fatalf("expected error when token unset, got %q", got)
 	}
-	if !strings.Contains(err.Error(), "--agent-id") || !strings.Contains(err.Error(), "STELLA_AGENT_ID") {
-		t.Fatalf("error should name both sources, got %q", err)
+	if !strings.Contains(err.Error(), "STELLA_TOKEN") {
+		t.Fatalf("error should name STELLA_TOKEN, got %q", err)
 	}
 }
 

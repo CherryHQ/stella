@@ -47,7 +47,7 @@ stella share artifact assets/report.html --expires-in never
 stella share article <article-id>
 ```
 
-命令会输出公开链接。在 Stella 内部运行时，它会自动使用当前 agent 和会话。如果你在自己的 shell 中运行，请传入 `--agent-id` 和 `--session-id`。
+命令会输出公开链接。它使用 Stella 注入到 agent 会话中的 scoped `STELLA_TOKEN`，因此会自动使用当前 agent 和会话。
 
 ## 公开链接安全性
 

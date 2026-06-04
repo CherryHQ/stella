@@ -86,6 +86,10 @@ func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID str
 		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentTask{}, false
 	}
+	if info.Scoped != nil && t.AgentID != info.Scoped.AgentID {
+		writeError(w, http.StatusForbidden, "permission denied")
+		return sqlc.AgentTask{}, false
+	}
 	return t, true
 }
 
@@ -114,6 +118,13 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 	agentID := ""
 	if params.AgentId != nil {
 		agentID = *params.AgentId
+	}
+	if info.Scoped != nil {
+		if agentID != "" && agentID != info.Scoped.AgentID {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		agentID = info.Scoped.AgentID
 	}
 	projectID := ""
 	if params.ProjectId != nil {
@@ -164,6 +175,14 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := strPtr(req.AgentId)
+	if info.Scoped != nil {
+		if agentID != "" && agentID != info.Scoped.AgentID {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		agentID = info.Scoped.AgentID
+		req.AgentId = &agentID
+	}
 	goalID := strPtr(req.GoalId)
 	in := tasks.CreateTaskInput{
 		UserID:          info.UserID,

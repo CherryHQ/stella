@@ -62,7 +62,7 @@ stella share artifact <path>
 flags 用于修饰项、可选上下文、过滤和输出控制：
 
 ```text
-stella task list --status open --agent-id stella --json
+stella task list --status open --json
 ```
 
 规则：
@@ -70,8 +70,8 @@ stella task list --status open --agent-id stella --json
 - 必填位置参数必须写进 `ArgsUsage`。
 - 只有没有自然的位置参数形式时，才使用必填 flag。
 - 布尔 flag 应使用正向语义：`--follow`、`--json`、`--force`。除非功能就是关闭默认行为，否则避免 `--no-cache` 这类反向 flag。
-- 跨命令复用 flag 名：`--agent-id`、`--session-id`、`--server-url`、`--json`、`--force`、`--limit`。
-- 如果环境变量提供默认值，在 flag usage 里写清楚：`Agent ID (defaults to STELLA_AGENT_ID)`。
+- 跨命令复用 flag 名：`--server-url`、`--json`、`--force`、`--limit`。
+- 不要在面向 sandbox 的命令上暴露 `--agent-id` 这类安全作用域覆盖；作用域应从 scoped `STELLA_TOKEN` 派生。
 
 ## 帮助文本
 
@@ -149,7 +149,7 @@ abc123    open      Fix scheduler retry
 错误要简短、具体、可行动：
 
 ```text
-agent ID is required (pass --agent-id or set STELLA_AGENT_ID)
+agent ID is required in STELLA_TOKEN
 ```
 
 差的错误会泄漏实现细节或让用户猜：
@@ -212,13 +212,11 @@ flag > environment variable > persisted config > default
 
 环境变量影响行为时，要在帮助文本里说明。常见变量：
 
-| 变量                | 用途                                |
-| ------------------- | ----------------------------------- |
-| `STELLA_SERVER_URL` | CLI-as-client 命令的服务端 base URL |
-| `STELLA_TOKEN`      | API 调用的 Bearer token             |
-| `STELLA_AGENT_ID`   | 默认 agent 上下文                   |
-| `STELLA_SESSION_ID` | 默认 session/project 上下文         |
-| `LOG_LEVEL`         | CLI 日志级别                        |
+| 变量                | 用途                                                        |
+| ------------------- | ----------------------------------------------------------- |
+| `STELLA_SERVER_URL` | CLI-as-client 命令的服务端 base URL                         |
+| `STELLA_TOKEN`      | Bearer token；scoped sandbox token 也携带 CLI 上下文 claims |
+| `LOG_LEVEL`         | CLI 日志级别                                                |
 
 永远不要打印 secret。命令必须展示 secret 存在时，只展示元数据或脱敏值。
 

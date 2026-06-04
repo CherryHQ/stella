@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	ucli "github.com/urfave/cli/v2"
@@ -12,8 +13,8 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
-func TestShareArtifactRequiresSessionID(t *testing.T) {
-	t.Setenv("STELLA_AGENT_ID", "agent-1")
+func TestShareArtifactRequiresScopedToken(t *testing.T) {
+	t.Setenv("STELLA_TOKEN", "")
 	app := ucli.NewApp()
 	app.Commands = []*ucli.Command{shareCommand()}
 	var out bytes.Buffer
@@ -25,14 +26,12 @@ func TestShareArtifactRequiresSessionID(t *testing.T) {
 }
 
 func TestShareArtifactPrintsURL(t *testing.T) {
-	t.Setenv("STELLA_TOKEN", "test-token")
-	t.Setenv("STELLA_AGENT_ID", "agent-1")
-	t.Setenv("STELLA_SESSION_ID", "session-1")
+	setTestScopedToken(t, "agent-1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/shares" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+		if got, want := r.Header.Get("Authorization"), "Bearer "+os.Getenv("STELLA_TOKEN"); got != want {
 			t.Fatalf("Authorization = %q", got)
 		}
 		var body struct {

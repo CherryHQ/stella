@@ -51,8 +51,8 @@ Stella 可以从多个来源安装技能：
 # 搜索技能
 stella skill search "git"
 
-# 为某个代理从 clawhub.ai 安装
-stella skill install --agent-id <agent-id> "clawhub:git-helper"
+# 为当前代理从 clawhub.ai 安装
+stella skill install "clawhub:git-helper"
 
 # 安装特定版本
 stella skill install "clawhub:git-helper@1.2.0"
@@ -75,17 +75,17 @@ stella skill install "/path/to/skill"
 ### 从 CLI 管理
 
 ```bash
-# 列出某个代理可见的技能
-stella skill list --agent-id <agent-id>
+# 列出当前代理可见的技能
+stella skill list
 
-# 包含项目会话中的项目技能
-stella skill list --agent-id <agent-id> --session-id <session-id>
+# 包含当前项目会话中的项目技能
+stella skill list
 
-# 从代理下移除一个用户技能
-stella skill remove --agent-id <agent-id> "git-helper"
+# 从当前代理下移除一个用户技能
+stella skill remove "git-helper"
 ```
 
-要为特定代理（而非你的用户账户）安装技能，在对话中指定 `scope=agent`，或在 CLI 中使用相应的标志。
+技能命令使用 Stella 注入到代理会话中的 scoped `STELLA_TOKEN`。该 token 携带当前代理和会话上下文，服务端会在每次请求时校验这个作用域。
 
 ## 创建自定义技能
 

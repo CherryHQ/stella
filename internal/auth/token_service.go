@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ const (
 	autoTokenTTL         = 90 * 24 * time.Hour
 	autoTokenRotateAfter = 60 * 24 * time.Hour
 	tokenPrefixLength    = 15
+	scopedTokenSecretEnv = "STELLA_SCOPED_TOKEN_SECRET"
 )
 
 type tokenStore interface {
@@ -45,15 +47,16 @@ type vaultLoader interface {
 
 // TokenService owns API token lifecycle and authentication.
 type TokenService struct {
-	store tokenStore
-	vault VaultWriter
-	now   func() time.Time
-	mu    sync.Mutex
+	store        tokenStore
+	vault        VaultWriter
+	now          func() time.Time
+	scopedSecret []byte
+	mu           sync.Mutex
 }
 
 // NewTokenService creates a token service backed by auth persistence and vault writes.
 func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
-	return &TokenService{store: store, vault: vault, now: time.Now}
+	return &TokenService{store: store, vault: vault, now: time.Now, scopedSecret: scopedTokenSecret()}
 }
 
 // EnsureAutoToken ensures userID has one active auto-generated token whose
@@ -149,6 +152,36 @@ func (s *TokenService) recoverFromCreateRace(ctx context.Context, userID string)
 	return s.rotateAutoToken(ctx, winner)
 }
 
+// CreateScopedToken signs a short-lived sandbox token bound to one user-agent session.
+func (s *TokenService) CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error) {
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("token service: get user %s: %w", userID, err)
+	}
+	if !user.IsActive {
+		return "", fmt.Errorf("token service: user %s is inactive", userID)
+	}
+	return SignScopedToken(s.scopedSecret, ScopedTokenClaims{
+		UserID:    userID,
+		AgentID:   agentID,
+		SessionID: sessionID,
+		ProjectID: projectID,
+	}, s.now())
+}
+
+// AuthenticateScoped returns the active user and scoped claims identified by rawToken.
+func (s *TokenService) AuthenticateScoped(ctx context.Context, rawToken string) (User, ScopedTokenClaims, error) {
+	claims, err := VerifyScopedToken(s.scopedSecret, rawToken, s.now())
+	if err != nil {
+		return User{}, ScopedTokenClaims{}, err
+	}
+	user, err := s.store.GetUser(ctx, claims.UserID)
+	if err != nil {
+		return User{}, ScopedTokenClaims{}, fmt.Errorf("token service: get user %s: %w", claims.UserID, err)
+	}
+	return user, claims, nil
+}
+
 // Authenticate returns the active user identified by rawToken.
 func (s *TokenService) Authenticate(ctx context.Context, rawToken string) (User, error) {
 	rawToken = strings.TrimSpace(rawToken)
@@ -235,6 +268,17 @@ func (s *TokenService) loadVaultToken(ctx context.Context, userID string, env ma
 	}
 	plaintext, ok := env[StellaTokenName]
 	return plaintext, ok && plaintext != "", nil
+}
+
+func scopedTokenSecret() []byte {
+	if raw := strings.TrimSpace(os.Getenv(scopedTokenSecretEnv)); raw != "" {
+		return []byte(raw)
+	}
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		panic(fmt.Sprintf("generate scoped token secret: %v", err))
+	}
+	return secret
 }
 
 func generateToken() (string, error) {

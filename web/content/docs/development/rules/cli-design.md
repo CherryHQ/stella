@@ -76,7 +76,7 @@ stella share artifact <path>
 Use flags for modifiers, optional context, filters, and output controls:
 
 ```text
-stella task list --status open --agent-id stella --json
+stella task list --status open --json
 ```
 
 Rules:
@@ -85,10 +85,8 @@ Rules:
 - Required flags are allowed only when there is no natural positional form.
 - Boolean flags should be positive (`--follow`, `--json`, `--force`). Avoid
   negative flags like `--no-cache` unless disabling a default is the feature.
-- Reuse flag names across commands: `--agent-id`, `--session-id`,
-  `--server-url`, `--json`, `--force`, `--limit`.
-- If an environment variable provides a default, say so in the flag usage:
-  `Agent ID (defaults to STELLA_AGENT_ID)`.
+- Reuse flag names across commands: `--server-url`, `--json`, `--force`, `--limit`.
+- Do not expose security scope overrides such as `--agent-id` on sandbox-facing commands; derive scope from the scoped `STELLA_TOKEN`.
 
 ## Help Text
 
@@ -176,7 +174,7 @@ abc123    open      Fix scheduler retry
 Errors should be brief, specific, and actionable:
 
 ```text
-agent ID is required (pass --agent-id or set STELLA_AGENT_ID)
+agent ID is required in STELLA_TOKEN
 ```
 
 Bad errors leak implementation or force guesswork:
@@ -250,13 +248,11 @@ flag > environment variable > persisted config > default
 Document environment variables in help text when they affect behavior. Common
 variables include:
 
-| Variable            | Purpose                                    |
-| ------------------- | ------------------------------------------ |
-| `STELLA_SERVER_URL` | Server base URL for CLI-as-client commands |
-| `STELLA_TOKEN`      | Bearer token for API calls                 |
-| `STELLA_AGENT_ID`   | Default agent context                      |
-| `STELLA_SESSION_ID` | Default session/project context            |
-| `LOG_LEVEL`         | CLI logging verbosity                      |
+| Variable            | Purpose                                                           |
+| ------------------- | ----------------------------------------------------------------- |
+| `STELLA_SERVER_URL` | Server base URL for CLI-as-client commands                        |
+| `STELLA_TOKEN`      | Bearer token; scoped sandbox tokens also carry CLI context claims |
+| `LOG_LEVEL`         | CLI logging verbosity                                             |
 
 Never print secrets. If a command must show that a secret exists, show metadata
 or a redacted value.

@@ -28,6 +28,10 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, go
 		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentGoal{}, false
 	}
+	if info := UserFromContext(ctx); info != nil && info.Scoped != nil && g.AgentID != info.Scoped.AgentID {
+		writeError(w, http.StatusForbidden, "permission denied")
+		return sqlc.AgentGoal{}, false
+	}
 	return g, true
 }
 
@@ -46,7 +50,12 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
+	var rows []sqlc.AgentGoal
+	if info.Scoped != nil {
+		rows, err = s.tasksSvc.Facade.ListGoalsByAgent(r.Context(), info.UserID, info.Scoped.AgentID, int64(limit+1), int64(offset))
+	} else {
+		rows, err = s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
+	}
 	if err != nil {
 		s.taskError(w, err)
 		return
@@ -85,11 +94,19 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title_required")
 		return
 	}
+	agentID := req.AgentId
+	if info.Scoped != nil {
+		if agentID != "" && agentID != info.Scoped.AgentID {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		agentID = info.Scoped.AgentID
+	}
 	in := tasks.CreateGoalInput{
 		UserID:      info.UserID,
 		Title:       req.Title,
 		Description: strPtr(req.Description),
-		AgentID:     req.AgentId,
+		AgentID:     agentID,
 		ProjectID:   strPtr(req.ProjectId),
 		Context:     marshalContext(req.Context),
 	}

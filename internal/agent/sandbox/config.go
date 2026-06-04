@@ -13,10 +13,11 @@ type VaultEnvLoader interface {
 	LoadEnv(ctx context.Context, userID string) (map[string]string, error)
 }
 
-// TokenEnsurer ensures a per-user API token exists in the vault before sandbox
-// env loading. Implementations must be idempotent.
+// TokenEnsurer ensures API tokens needed by sandbox sessions. Implementations
+// must be idempotent.
 type TokenEnsurer interface {
 	EnsureAutoToken(ctx context.Context, userID string) error
+	CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error)
 }
 
 type tokenEnvEnsurer interface {
@@ -32,6 +33,7 @@ type Config struct {
 	UserID           string
 	AgentID          string
 	SessionID        string
+	ProjectID        string
 	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	VaultEnvLoader   VaultEnvLoader
 	TokenEnsurer     TokenEnsurer
