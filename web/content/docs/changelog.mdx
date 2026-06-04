@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.3] - 2026-06-04
+
+### ✨ Features
+
+- Scope sandbox CLI tokens to limit token permissions. ([#287](https://github.com/CherryHQ/stella/pull/287))
+
+### 🔐 Security
+
+- Make OAuth CLI connect fire-and-forget: print authorization URL/code and exit instead of polling.
+
+### 🐛 Bug Fixes
+
+- Keep OAuth CLI authorization headless.
+- Forward `ListInfoForReview` through tracedProvider.
+- Skip SPA asset cache test when frontend not built.
+
+### ♻️ Refactoring
+
+- Drop runner type dispatch and rename factory to runner builder.
+- Replace `disintegration/imaging` with stdlib `image` + `x/image/draw`.
+
+**Full Changelog**: [v0.41.2...v0.41.3](https://github.com/CherryHQ/stella/compare/v0.41.2...v0.41.3)
+
 ## [0.41.2] - 2026-06-03
 
 ### ⚡ Performance

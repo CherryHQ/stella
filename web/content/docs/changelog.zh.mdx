@@ -11,6 +11,29 @@ icon: History
 
 ## [Unreleased]
 
+## [0.41.3] - 2026-06-04
+
+### ✨ 功能
+
+- 限定沙盒 CLI token 的权限范围。([#287](https://github.com/CherryHQ/stella/pull/287))
+
+### 🔐 安全
+
+- OAuth CLI connect 改为即发即忘模式：打印授权 URL/代码后立即退出，不再轮询。
+
+### 🐛 修复
+
+- 保持 OAuth CLI 授权为无界面模式。
+- 通过 tracedProvider 转发 `ListInfoForReview`。
+- 前端未构建时跳过 SPA 资源缓存测试。
+
+### ♻️ 重构
+
+- 移除 runner type dispatch，将 factory 重命名为 runner builder。
+- 用标准库 `image` + `x/image/draw` 替换 `disintegration/imaging`。
+
+**完整变更日志**：[v0.41.2...v0.41.3](https://github.com/CherryHQ/stella/compare/v0.41.2...v0.41.3)
+
 ## [0.41.2] - 2026-06-03
 
 ### ⚡ 性能
