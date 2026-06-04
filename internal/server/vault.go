@@ -2,9 +2,13 @@ package server
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/email"
 )
 
 // vaultEntryResponse is the JSON shape returned by ListVaultEntries.
@@ -105,6 +109,18 @@ func (s *Server) SetVaultEntry(w http.ResponseWriter, r *http.Request, name stri
 	if body.Value == "" {
 		writeError(w, http.StatusBadRequest, "value is required")
 		return
+	}
+
+	if name == "EMAIL_CONFIG" {
+		var cfg email.Config
+		if err := json.Unmarshal([]byte(body.Value), &cfg); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid EMAIL_CONFIG JSON: %v", err))
+			return
+		}
+		if err := cfg.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid email config: %v", err))
+			return
+		}
 	}
 
 	if err := s.vaultSvc.Set(r.Context(), info.UserID, name, body.Value); err != nil {
