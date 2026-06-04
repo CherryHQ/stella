@@ -25,6 +25,7 @@ oauth_providers:
       - base:app:create
       - base:app:read
       - base:app:update
+      - bitable:app
       - base:dashboard:create
       - base:dashboard:delete
       - base:dashboard:read
@@ -209,6 +210,7 @@ oauth_providers:
       - base:app:create
       - base:app:read
       - base:app:update
+      - bitable:app
       - base:dashboard:create
       - base:dashboard:delete
       - base:dashboard:read
