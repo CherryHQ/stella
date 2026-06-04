@@ -903,11 +903,11 @@ export function CredentialsPage() {
                     </div>
                     <div>
                       <span className="text-foreground font-medium">IMAP:</span> {acct.imap_host}:
-                      {acct.imap_port} ({acct.imap_tls})
+                      {acct.imap_port || 993} ({acct.imap_tls})
                     </div>
                     <div>
                       <span className="text-foreground font-medium">SMTP:</span> {acct.smtp_host}:
-                      {acct.smtp_port} ({acct.smtp_tls})
+                      {acct.smtp_port || 587} ({acct.smtp_tls})
                     </div>
                   </div>
                 </div>

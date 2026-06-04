@@ -58,6 +58,12 @@ func (c *Config) Validate() error {
 		if acct.From == "" {
 			return fmt.Errorf("account %q: from is required", name)
 		}
+		if acct.IMAPPort != 0 && (acct.IMAPPort < 1 || acct.IMAPPort > 65535) {
+			return fmt.Errorf("account %q: imap_port must be between 1 and 65535", name)
+		}
+		if acct.SMTPPort != 0 && (acct.SMTPPort < 1 || acct.SMTPPort > 65535) {
+			return fmt.Errorf("account %q: smtp_port must be between 1 and 65535", name)
+		}
 	}
 	return nil
 }

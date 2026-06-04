@@ -411,4 +411,40 @@ func TestConfigValidate(t *testing.T) {
 			t.Error("expected validation to fail for missing IMAP host")
 		}
 	})
+
+	t.Run("invalid port range", func(t *testing.T) {
+		cfg := &email.Config{
+			Accounts: map[string]email.EmailAccount{
+				"work": {
+					IMAPHost: "imap.example.com",
+					IMAPPort: 99999,
+					SMTPHost: "smtp.example.com",
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected validation to fail for out-of-range IMAP port")
+		}
+	})
+
+	t.Run("zero port allowed as default sentinel", func(t *testing.T) {
+		cfg := &email.Config{
+			Default: "work",
+			Accounts: map[string]email.EmailAccount{
+				"work": {
+					IMAPHost: "imap.example.com",
+					IMAPPort: 0,
+					SMTPHost: "smtp.example.com",
+					SMTPPort: 0,
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected validation to pass with zero ports, got: %v", err)
+		}
+	})
 }
