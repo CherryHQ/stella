@@ -190,6 +190,35 @@ func TestVaultSetInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestVaultEmailConfigValidation(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	t.Run("rejects malformed JSON", func(t *testing.T) {
+		rr := doRequest(t, env, "PUT", "/api/users/me/vault/EMAIL_CONFIG", map[string]string{"value": "not-json"})
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+		}
+	})
+
+	t.Run("rejects invalid config", func(t *testing.T) {
+		rr := doRequest(t, env, "PUT", "/api/users/me/vault/EMAIL_CONFIG", map[string]string{
+			"value": `{"default":"missing","accounts":{}}`,
+		})
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+		}
+	})
+
+	t.Run("accepts valid config", func(t *testing.T) {
+		rr := doRequest(t, env, "PUT", "/api/users/me/vault/EMAIL_CONFIG", map[string]string{
+			"value": `{"default":"work","accounts":{"work":{"imap_host":"imap.example.com","smtp_host":"smtp.example.com","username":"u","from":"u@example.com"}}}`,
+		})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+		}
+	})
+}
+
 func TestVaultUpdateExisting(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 

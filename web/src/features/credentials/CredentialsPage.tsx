@@ -22,6 +22,7 @@ import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
 import { siGithub, siX } from "simple-icons";
 
 const SIMPLE_ICON_PATHS: Record<string, string> = {
@@ -330,11 +331,13 @@ export function CredentialsPage() {
     [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected],
   );
 
+  const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
+
   const vaultDetail = (
     <div className="rounded-2xl border border-border/40 bg-card/45 backdrop-blur-md p-6 shadow-2xs space-y-6">
       {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-      {vaultEntries.length > 0 && (
+      {filteredVaultEntries.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -352,7 +355,7 @@ export function CredentialsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
-              {vaultEntries.map((entry) => (
+              {filteredVaultEntries.map((entry) => (
                 <tr key={entry.name}>
                   <td className="py-2.5 font-mono text-foreground font-medium">{entry.name}</td>
                   <td className="py-2.5 text-xs text-muted-foreground">
@@ -378,7 +381,7 @@ export function CredentialsPage() {
         </div>
       )}
 
-      {vaultEntries.length === 0 && !vaultLoading && (
+      {filteredVaultEntries.length === 0 && !vaultLoading && (
         <p className="text-sm text-muted-foreground py-4 text-center">No secrets stored yet.</p>
       )}
 
@@ -631,6 +634,29 @@ export function CredentialsPage() {
               </h4>
             </div>
             <div className="space-y-4">{oauthDetail}</div>
+          </div>
+
+          {/* Email Accounts Section */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="size-4 shrink-0 text-muted-foreground/80"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
+                />
+              </svg>
+              <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                Email Accounts
+              </h4>
+            </div>
+            <EmailAccountsPanel showToast={showToast} />
           </div>
 
           {/* Vault Secrets Section */}

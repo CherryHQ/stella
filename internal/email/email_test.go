@@ -335,3 +335,116 @@ func TestLoadFromEnv(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigValidate(t *testing.T) {
+	t.Run("valid configuration", func(t *testing.T) {
+		cfg := &email.Config{
+			Default: "work",
+			Accounts: map[string]email.EmailAccount{
+				"work": {
+					IMAPHost: "imap.example.com",
+					SMTPHost: "smtp.example.com",
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected validation to pass, got: %v", err)
+		}
+	})
+
+	t.Run("invalid default account name", func(t *testing.T) {
+		cfg := &email.Config{
+			Default: "nonexistent",
+			Accounts: map[string]email.EmailAccount{
+				"work": {
+					IMAPHost: "imap.example.com",
+					SMTPHost: "smtp.example.com",
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected validation to fail for invalid default account name")
+		}
+	})
+
+	t.Run("invalid account name key format", func(t *testing.T) {
+		cfg := &email.Config{
+			Accounts: map[string]email.EmailAccount{
+				"invalid-name": {
+					IMAPHost: "imap.example.com",
+					SMTPHost: "smtp.example.com",
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected validation to fail for invalid account name format")
+		}
+	})
+
+	t.Run("default set with empty accounts", func(t *testing.T) {
+		cfg := &email.Config{
+			Default:  "ghost",
+			Accounts: map[string]email.EmailAccount{},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected validation to fail when default references nonexistent account in empty map")
+		}
+	})
+
+	t.Run("missing required fields", func(t *testing.T) {
+		cfg := &email.Config{
+			Accounts: map[string]email.EmailAccount{
+				"work": {
+					SMTPHost: "smtp.example.com",
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected validation to fail for missing IMAP host")
+		}
+	})
+
+	t.Run("invalid port range", func(t *testing.T) {
+		cfg := &email.Config{
+			Accounts: map[string]email.EmailAccount{
+				"work": {
+					IMAPHost: "imap.example.com",
+					IMAPPort: 99999,
+					SMTPHost: "smtp.example.com",
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected validation to fail for out-of-range IMAP port")
+		}
+	})
+
+	t.Run("zero port allowed as default sentinel", func(t *testing.T) {
+		cfg := &email.Config{
+			Default: "work",
+			Accounts: map[string]email.EmailAccount{
+				"work": {
+					IMAPHost: "imap.example.com",
+					IMAPPort: 0,
+					SMTPHost: "smtp.example.com",
+					SMTPPort: 0,
+					Username: "user@example.com",
+					From:     "user@example.com",
+				},
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected validation to pass with zero ports, got: %v", err)
+		}
+	})
+}

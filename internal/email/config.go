@@ -36,6 +36,38 @@ func ValidateAccountName(name string) error {
 	return nil
 }
 
+func (c *Config) Validate() error {
+	if c.Default != "" {
+		if _, ok := c.Accounts[c.Default]; !ok {
+			return fmt.Errorf("default account %q not found in accounts", c.Default)
+		}
+	}
+	for name, acct := range c.Accounts {
+		if err := ValidateAccountName(name); err != nil {
+			return err
+		}
+		if acct.IMAPHost == "" {
+			return fmt.Errorf("account %q: imap_host is required", name)
+		}
+		if acct.SMTPHost == "" {
+			return fmt.Errorf("account %q: smtp_host is required", name)
+		}
+		if acct.Username == "" {
+			return fmt.Errorf("account %q: username is required", name)
+		}
+		if acct.From == "" {
+			return fmt.Errorf("account %q: from is required", name)
+		}
+		if acct.IMAPPort != 0 && (acct.IMAPPort < 1 || acct.IMAPPort > 65535) {
+			return fmt.Errorf("account %q: imap_port must be between 1 and 65535", name)
+		}
+		if acct.SMTPPort != 0 && (acct.SMTPPort < 1 || acct.SMTPPort > 65535) {
+			return fmt.Errorf("account %q: smtp_port must be between 1 and 65535", name)
+		}
+	}
+	return nil
+}
+
 func LoadFromEnv() (*Config, error) {
 	val, ok := os.LookupEnv("EMAIL_CONFIG")
 	if !ok {
