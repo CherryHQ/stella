@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -89,7 +91,7 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 
 // incomingMsg builds a channel.IncomingMessage from a weixin message context.
 func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.IncomingMessage {
-	return channel.IncomingMessage{
+	im := channel.IncomingMessage{
 		Platform:   channel.PlatformWeixin,
 		ChannelID:  b.Name(),
 		SenderID:   msg.FromUserID,
@@ -98,6 +100,13 @@ func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.
 		IsGroup:    false, // DM only for v1
 		Content:    content,
 	}
+	if msg.MessageID != 0 {
+		im.MessageID = strconv.FormatInt(msg.MessageID, 10)
+	}
+	if msg.CreateTimeMS != 0 {
+		im.Timestamp = time.UnixMilli(msg.CreateTimeMS).UTC()
+	}
+	return im
 }
 
 // handleText processes incoming text messages.

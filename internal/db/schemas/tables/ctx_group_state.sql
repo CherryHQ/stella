@@ -1,0 +1,23 @@
+-- ctx_group_state is the registry of physical group conversations Stella has
+-- observed, one row per (platform, group, thread). A Telegram forum topic counts
+-- as its own group (distinct thread id). It also allocates each group's ordering
+-- sequence, so the row doubles as the per-group write lock.
+CREATE TABLE ctx_group_state (
+    -- internal stable handle; every group-scoped table references this id.
+    id                 TEXT PRIMARY KEY,
+    -- messaging platform: 'telegram' | 'feishu' | 'qq' | ...
+    platform           TEXT NOT NULL,
+    -- native group/chat id as the platform reports it.
+    platform_group_id  TEXT NOT NULL,
+    -- platform sub-thread/topic id (e.g. Telegram forum topic). Empty string (not
+    -- NULL) when the group has no thread, so the UNIQUE below actually holds —
+    -- SQLite treats NULLs as distinct in a unique index.
+    platform_thread_id TEXT NOT NULL DEFAULT '',
+    -- per-group monotonic ordering allocator. Bumped under this row's write lock:
+    -- UPDATE ... SET next_seq = next_seq + 1 RETURNING next_seq (first message = 1).
+    next_seq           INTEGER NOT NULL DEFAULT 0,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    -- one registry row per physical group/thread, stable across all observing bots.
+    UNIQUE (platform, platform_group_id, platform_thread_id)
+);

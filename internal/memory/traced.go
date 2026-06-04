@@ -540,6 +540,32 @@ func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID s
 }
 
 // ---------------------------------------------------------------------------
+// ProfileEntryStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetProfileEntries(ctx context.Context, userID string, agentID string) ([]ProfileEntry, error) {
+	pes, ok := t.inner.(ProfileEntryStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("ProfileEntryStore")
+	}
+	entries, err := pes.GetProfileEntries(ctx, userID, agentID)
+	return entries, err
+}
+
+// ---------------------------------------------------------------------------
+// GroupMemoryStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetGroupMemory(ctx context.Context, groupID string) (string, error) {
+	gms, ok := t.inner.(GroupMemoryStore)
+	if !ok {
+		return "", errCapabilityNotSupported("GroupMemoryStore")
+	}
+	content, err := gms.GetGroupMemory(ctx, groupID)
+	return content, err
+}
+
+// ---------------------------------------------------------------------------
 // Reviewer
 // ---------------------------------------------------------------------------
 

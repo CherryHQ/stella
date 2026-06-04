@@ -153,13 +153,18 @@ func (s *TokenService) recoverFromCreateRace(ctx context.Context, userID string)
 }
 
 // CreateScopedToken signs a short-lived sandbox token bound to one user-agent session.
+// For group sessions, userID is a group principal ("group:{group_id}") and the
+// token is signed without an auth user lookup — the group principal is not a
+// human user, so GetUser would fail.
 func (s *TokenService) CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error) {
-	user, err := s.store.GetUser(ctx, userID)
-	if err != nil {
-		return "", fmt.Errorf("token service: get user %s: %w", userID, err)
-	}
-	if !user.IsActive {
-		return "", fmt.Errorf("token service: user %s is inactive", userID)
+	if !strings.HasPrefix(userID, "group:") {
+		user, err := s.store.GetUser(ctx, userID)
+		if err != nil {
+			return "", fmt.Errorf("token service: get user %s: %w", userID, err)
+		}
+		if !user.IsActive {
+			return "", fmt.Errorf("token service: user %s is inactive", userID)
+		}
 	}
 	return SignScopedToken(s.scopedSecret, ScopedTokenClaims{
 		UserID:    userID,

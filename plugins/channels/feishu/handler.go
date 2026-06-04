@@ -179,6 +179,10 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	}
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
+	incoming.MessageID = messageID
+	incoming.ReplyTo = derefStr(msg.ParentId)
+	incoming.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
+	incoming.Mentions = feishuMentions(mentions)
 
 	// Handle plugin-local commands first.
 	if text != "" {

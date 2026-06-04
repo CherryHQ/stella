@@ -6,6 +6,7 @@ package channel
 
 import (
 	"context"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -84,7 +85,23 @@ type IncomingMessage struct {
 	SenderName string   // display name
 	ChatID     string   // group/channel ID (empty for DMs)
 	IsGroup    bool
+	ThreadID   string // platform sub-thread/topic id within ChatID (e.g. Telegram forum topic); empty if none
 	Content    []ai.ContentBlock
+
+	// Group-chat metadata (D3). Adapters fill what they can; empty/zero is allowed.
+	MessageID string    // platform-native message ID (stable delivery/update id), empty if unavailable
+	Timestamp time.Time // platform-reported send time, zero if unavailable
+	ReplyTo   string    // platform message ID this message replies to, empty if none
+	Mentions  []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
+}
+
+// Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the
+// dispatcher resolves AgentID by looking up group membership. @-routing honors
+// only mentions whose AgentID is non-empty.
+type Mention struct {
+	Raw        string // raw @ text (@username / <at open_id> ...), for audit/fallback
+	PlatformID string // platform-side mentioned id (username / open_id / qq number)
+	AgentID    string // resolved Stella agent; empty if unresolved
 }
 
 // ChatStream holds the event channel and session metadata returned by HandleMessage.
@@ -157,4 +174,12 @@ type Provisioner interface {
 // writable root path (e.g. to store uploaded files) before calling HandleIncoming.
 type UserRootResolver interface {
 	ResolveUserRoot(ctx context.Context, msg IncomingMessage) (string, error)
+}
+
+// BotRegistrar is an optional capability that a Handler may implement.
+// Channel adapters call RegisterBotIdentity at startup to record their
+// bot's platform identity (e.g., Telegram username), enabling the group
+// dispatcher to resolve @mentions to Stella agents.
+type BotRegistrar interface {
+	RegisterBotIdentity(platform, platformBotID, channelID string)
 }

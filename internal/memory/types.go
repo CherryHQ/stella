@@ -15,6 +15,7 @@ const (
 	userIDKey    contextKey = "memory_user_id"
 	agentIDKey   contextKey = "memory_agent_id"
 	projectIDKey contextKey = "memory_project_id"
+	groupSeqKey  contextKey = "memory_group_seq"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -61,6 +62,17 @@ func ProjectIDFromContext(ctx context.Context) string {
 	return s
 }
 
+// WithGroupSeq attaches the triggering event-log seq to the context.
+func WithGroupSeq(ctx context.Context, seq int64) context.Context {
+	return context.WithValue(ctx, groupSeqKey, seq)
+}
+
+// GroupSeqFromContext extracts the triggering event-log seq from context.
+func GroupSeqFromContext(ctx context.Context) int64 {
+	s, _ := ctx.Value(groupSeqKey).(int64)
+	return s
+}
+
 // Session identifies the context of a single conversation.
 // It is created by the runtime and passed to all Provider methods.
 type Session struct {
@@ -68,6 +80,7 @@ type Session struct {
 	AgentID string // agent this session belongs to (e.g. "default")
 	UserID  string // internal user ID (empty for anonymous/legacy)
 	Channel string // originating channel (e.g. "cli", "telegram")
+	GroupID string // non-empty for group sessions; assembles history from event log instead of ctx_message
 }
 
 // SessionInfo holds metadata about a session.
@@ -75,6 +88,7 @@ type SessionInfo struct {
 	ID         string
 	AgentID    string
 	UserID     string
+	GroupID    string // non-empty for group sessions; runtime uses this to isolate identity surfaces
 	Channel    string
 	Kind       string // session kind: main, chat, scheduler, task
 	ProjectID  string // set for project-scoped sessions

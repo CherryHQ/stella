@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -48,6 +49,11 @@ type Coordinator struct {
 	switchFn         func(provider, model string) error
 	queue            *sessionQueue
 	intentClassifier IntentClassifier
+	groupResolver    GroupResolver
+	eventLog         *eventlog.Store
+	memberLister     GroupMemberLister
+	botRegistry      *BotIdentityRegistry
+	arbiter          *Arbiter
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -110,6 +116,51 @@ func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
 	}
 }
 
+// WithGroupResolver enables group session identity resolution (D0/D9).
+func WithGroupResolver(gr GroupResolver) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.groupResolver = gr
+	}
+}
+
+// WithEventLog enables group event log append (dedup + canonical ordering).
+func WithEventLog(el *eventlog.Store) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.eventLog = el
+		c.groupResolver = el
+	}
+}
+
+// WithGroupMemberLister enables group membership queries for mention resolution.
+func WithGroupMemberLister(lister GroupMemberLister) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.memberLister = lister
+	}
+}
+
+// WithBotRegistry enables bot identity resolution for @mention → agent routing.
+func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.botRegistry = reg
+	}
+}
+
+// WithArbiter configures the group arbiter for deciding which agents respond.
+func WithArbiter(a *Arbiter) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.arbiter = a
+	}
+}
+
+// RegisterBotIdentity records a bot's platform identity for mention resolution.
+// Implements pkgchannel.BotRegistrar.
+func (c *Coordinator) RegisterBotIdentity(platform, platformBotID, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.Register(platform, platformBotID, channelID)
+}
+
 // resolve performs the full user -> agent -> pool -> session key resolution.
 func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
 	channelID := msg.ChannelID
@@ -117,7 +168,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 		channelID = msg.Platform
 	}
 
-	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.engine, c.groupResolver, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -133,6 +184,10 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		if resp, ok := TryLinkCodeWithCandidates(ctx, c.auth, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
 			return resp, true, nil, nil
 		}
+	}
+
+	if msg.IsGroup && c.eventLog != nil {
+		return c.handleGroupIncoming(ctx, msg, command, args)
 	}
 
 	rc, err := c.resolve(ctx, msg)
@@ -369,10 +424,18 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 // ResolveUserRoot resolves the per-user writable root for the sender in msg.
 // It performs the same user+agent resolution as HandleIncoming but stops before
 // starting a session, so it is cheap and safe to call before file downloads.
+// For group sessions, returns the group workspace instead of a per-user one.
 func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error) {
 	rc, err := c.resolve(ctx, msg)
 	if err != nil {
 		return "", fmt.Errorf("resolve user root: %w", err)
+	}
+	if rc.GroupID != "" {
+		dir, err := agent.SetupGroupWorkspace(rc.AgentID, config.StellaHome(), rc.GroupID)
+		if err != nil {
+			return "", fmt.Errorf("setup group workspace: %w", err)
+		}
+		return dir, nil
 	}
 	userDir, err := agent.SetupUserWorkspace(rc.AgentID, config.StellaHome(), rc.User.ID)
 	if err != nil {
@@ -386,4 +449,5 @@ var (
 	_ pkgchannel.Handler          = (*Coordinator)(nil)
 	_ pkgchannel.Provisioner      = (*Coordinator)(nil)
 	_ pkgchannel.UserRootResolver = (*Coordinator)(nil)
+	_ pkgchannel.BotRegistrar     = (*Coordinator)(nil)
 )

@@ -288,6 +288,14 @@ type ChannelAgent struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type ChannelGroupMember struct {
+	GroupID        string `json:"group_id"`
+	AgentID        string `json:"agent_id"`
+	ReplyChannelID string `json:"reply_channel_id"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
 type ChannelIdentity struct {
 	ID         string `json:"id"`
 	UserID     string `json:"user_id"`
@@ -299,14 +307,15 @@ type ChannelIdentity struct {
 }
 
 type CtxAgentMemory struct {
-	UserID      string `json:"user_id"`
-	AgentID     string `json:"agent_id"`
-	Content     string `json:"content"`
-	Soul        string `json:"soul"`
-	Version     int64  `json:"version"`
-	Constraints string `json:"constraints"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	UserID         string `json:"user_id"`
+	AgentID        string `json:"agent_id"`
+	Content        string `json:"content"`
+	Soul           string `json:"soul"`
+	Version        int64  `json:"version"`
+	Constraints    string `json:"constraints"`
+	ProfileEntries string `json:"profile_entries"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type CtxAgentMemoryChangelog struct {
@@ -349,6 +358,55 @@ type CtxConversation struct {
 	UserID         sql.NullString `json:"user_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
+}
+
+type CtxGroupIngestCursor struct {
+	GroupID   string `json:"group_id"`
+	Pipeline  string `json:"pipeline"`
+	LastSeq   int64  `json:"last_seq"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type CtxGroupIngestError struct {
+	ID        string `json:"id"`
+	GroupID   string `json:"group_id"`
+	Pipeline  string `json:"pipeline"`
+	Seq       int64  `json:"seq"`
+	Reason    string `json:"reason"`
+	CreatedAt string `json:"created_at"`
+}
+
+type CtxGroupMemory struct {
+	GroupID   string `json:"group_id"`
+	Content   string `json:"content"`
+	Version   int64  `json:"version"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type CtxGroupMessage struct {
+	ID                string         `json:"id"`
+	GroupID           string         `json:"group_id"`
+	Seq               int64          `json:"seq"`
+	SourceChannelID   sql.NullString `json:"source_channel_id"`
+	ActorType         string         `json:"actor_type"`
+	ActorID           string         `json:"actor_id"`
+	PlatformMessageID sql.NullString `json:"platform_message_id"`
+	ReplyTo           sql.NullString `json:"reply_to"`
+	PlatformTimestamp sql.NullString `json:"platform_timestamp"`
+	IdempotencyKey    sql.NullString `json:"idempotency_key"`
+	Content           string         `json:"content"`
+	CreatedAt         string         `json:"created_at"`
+}
+
+type CtxGroupState struct {
+	ID               string `json:"id"`
+	Platform         string `json:"platform"`
+	PlatformGroupID  string `json:"platform_group_id"`
+	PlatformThreadID string `json:"platform_thread_id"`
+	NextSeq          int64  `json:"next_seq"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 type CtxItem struct {

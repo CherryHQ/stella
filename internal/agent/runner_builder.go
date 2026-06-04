@@ -65,9 +65,12 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			userDir string
 			err     error
 		)
-		if params.UserID != "" {
+		switch {
+		case params.GroupID != "":
+			userDir, err = SetupGroupWorkspace(cfg.Snap.AgentID, config.StellaHome(), params.GroupID)
+		case params.UserID != "":
 			userDir, err = SetupUserWorkspace(cfg.Snap.AgentID, config.StellaHome(), params.UserID)
-		} else {
+		default:
 			userDir, err = SetupSystemWorkspace(cfg.Snap.AgentID, config.StellaHome())
 		}
 		if err != nil {
@@ -122,12 +125,19 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 
 		// Build the full system prompt per-session with profile from memory provider.
+		// Group sessions skip private profile injection (D9 isolation); group memory
+		// is Phase 3 concern.
+		promptUserID := params.UserID
+		if params.GroupID != "" {
+			promptUserID = ""
+		}
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 			SystemPrompt: cfg.Snap.SystemPrompt,
 			AgentSoul:    cfg.Snap.Soul,
 			Memory:       memProvider,
-			UserID:       params.UserID,
+			UserID:       promptUserID,
 			AgentID:      params.AgentID,
+			GroupID:      params.GroupID,
 			StellaHome:   config.StellaHome(),
 			AgentRoot:    cfg.Snap.Workspace,
 			UserRoot:     userRoot,
@@ -161,6 +171,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 					ProjectRoot: projectRoot,
 				},
 				UserID:          params.UserID,
+				GroupID:         params.GroupID,
 				AgentID:         params.AgentID,
 				SessionID:       params.SessionID,
 				ProjectID:       params.ProjectID,

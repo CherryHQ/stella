@@ -153,6 +153,9 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 
 // Assemble implements memory.Provider.
 func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
+	if session.GroupID != "" {
+		return p.assembleGroup(ctx, session, budget, freshTail)
+	}
 	convID, err := p.getOrCreateConversation(ctx, session)
 	if err != nil {
 		return nil, err
@@ -211,6 +214,9 @@ func (p *Provider) Close() error {
 
 // NeedsCompaction implements memory.Compactor.
 func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, threshold float64) bool {
+	if session.GroupID != "" {
+		return false
+	}
 	session, err := requireMemorySessionScope(ctx, session)
 	if err != nil {
 		return false

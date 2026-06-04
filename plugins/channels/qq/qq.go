@@ -197,3 +197,35 @@ func incomingMsgForChannel(channelID, authorID, groupID string, content []ai.Con
 		Content:    content,
 	}
 }
+
+// fillQQMeta populates the group-chat metadata fields (D3) on incoming from the
+// raw QQ message. Fields are left zero when the platform omits the data.
+func fillQQMeta(incoming *channel.IncomingMessage, msg *dto.Message) {
+	incoming.MessageID = msg.ID
+	incoming.Timestamp = qqEventTime(msg.Timestamp)
+	if msg.MessageReference != nil {
+		incoming.ReplyTo = msg.MessageReference.MessageID
+	}
+	incoming.Mentions = qqMentions(msg.Mentions)
+}
+
+// qqEventTime converts a QQ RFC3339 timestamp to UTC, or zero if unparseable.
+func qqEventTime(ts dto.Timestamp) time.Time {
+	t, err := ts.Time()
+	if err != nil {
+		return time.Time{}
+	}
+	return t.UTC()
+}
+
+// qqMentions normalizes QQ @-mentions. AgentID is resolved later by the dispatcher.
+func qqMentions(users []*dto.User) []channel.Mention {
+	var out []channel.Mention
+	for _, u := range users {
+		if u == nil {
+			continue
+		}
+		out = append(out, channel.Mention{Raw: u.Username, PlatformID: u.ID})
+	}
+	return out
+}

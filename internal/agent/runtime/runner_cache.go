@@ -110,6 +110,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		Model:          effectiveModel,
 		Memory:         c.mem,
 		UserID:         info.UserID,
+		GroupID:        info.GroupID,
 		SessionID:      info.ID,
 		AgentID:        info.AgentID,
 		ProjectID:      info.ProjectID,
@@ -138,11 +139,16 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	c.mu.Unlock()
 
 	// Bootstrap memory for this session.
+	memUserID := info.UserID
+	if info.GroupID != "" {
+		memUserID = info.GroupID
+	}
 	memSess := memory.Session{
 		ID:      info.ID,
 		AgentID: info.AgentID,
-		UserID:  info.UserID,
+		UserID:  memUserID,
 		Channel: info.Channel,
+		GroupID: info.GroupID,
 	}
 	if err := c.mem.Bootstrap(ctx, memSess); err != nil {
 		c.log.Warn("memory bootstrap failed", "session_id", info.ID, "error", err)

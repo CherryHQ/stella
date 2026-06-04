@@ -57,6 +57,8 @@ type promptData struct {
 	SystemPrompt   string // agent's base system prompt from DB
 	AgentSoul      string // per-user agent soul from ProfileStore
 	UserProfile    string // per-user profile from ProfileStore
+	ProfileEntries []memory.ProfileEntry
+	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
 	Constraints    []memory.ConstraintEntry
 	Knowledge      []pkgplugins.KnowledgeEntry // active fact/context knowledge entries
 	PluginPrompts  []pkgplugins.SystemPromptSection
@@ -72,6 +74,8 @@ type DBPromptParams struct {
 	KnowledgeStore    pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
 	UserID            string                    // auth user ID for profile lookup
 	AgentID           string                    // agent ID for profile lookup
+	GroupID           string                    // group ID for group memory lookup (D4); mutually exclusive with UserID
+	GroupMemory       string                    // pre-loaded group memory content; injected when non-empty
 	StellaHome        string
 	AgentRoot         string
 	ProjectRoot       string // optional project root for local/project-attached runs
@@ -143,6 +147,21 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 				if constraints, err := cs.GetConstraints(ctx, p.UserID, p.AgentID); err == nil {
 					data.Constraints = constraints
 				}
+			}
+		}
+		// Profile entries: auto-generated dated entries from D6 ingest.
+		if pes, ok := p.Memory.(memory.ProfileEntryStore); ok {
+			if entries, err := pes.GetProfileEntries(ctx, p.UserID, p.AgentID); err == nil {
+				data.ProfileEntries = entries
+			}
+		}
+	}
+
+	// Group memory: inject shared group knowledge for group sessions (D4).
+	if p.GroupID != "" && p.Memory != nil {
+		if gms, ok := p.Memory.(memory.GroupMemoryStore); ok {
+			if content, err := gms.GetGroupMemory(ctx, p.GroupID); err == nil && content != "" {
+				data.GroupMemory = strings.TrimRight(content, "\n")
 			}
 		}
 	}

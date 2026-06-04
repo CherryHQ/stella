@@ -72,6 +72,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b.registerHandlers()
+
+	if registrar, ok := handler.(channel.BotRegistrar); ok && bot.Me.Username != "" {
+		registrar.RegisterBotIdentity(channel.PlatformTelegram, bot.Me.Username, cfg.InstanceID)
+	}
+
 	return b, nil
 }
 
@@ -222,7 +227,7 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 			senderName = sender.Username
 		}
 	}
-	return channel.IncomingMessage{
+	im := channel.IncomingMessage{
 		Platform:   channel.PlatformTelegram,
 		ChannelID:  b.Name(),
 		SenderID:   senderID,
@@ -231,4 +236,40 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 		IsGroup:    isGroup(c),
 		Content:    content,
 	}
+	if m := c.Message(); m != nil {
+		im.MessageID = fmt.Sprintf("%d", m.ID)
+		im.Timestamp = m.Time()
+		if m.ThreadID != 0 {
+			im.ThreadID = strconv.Itoa(m.ThreadID)
+		}
+		if m.ReplyTo != nil {
+			im.ReplyTo = fmt.Sprintf("%d", m.ReplyTo.ID)
+		}
+		im.Mentions = telegramMentions(m)
+	}
+	return im
+}
+
+// telegramMentions extracts normalized @-mentions from a message's entities.
+// AgentID is left empty — the dispatcher resolves it from group membership.
+func telegramMentions(m *tele.Message) []channel.Mention {
+	var mentions []channel.Mention
+	for _, e := range m.Entities {
+		switch e.Type {
+		case tele.EntityMention: // @username
+			raw := m.EntityText(e)
+			mentions = append(mentions, channel.Mention{
+				Raw:        raw,
+				PlatformID: strings.TrimPrefix(raw, "@"),
+			})
+		case tele.EntityTMention: // text_mention carrying a User
+			if e.User != nil {
+				mentions = append(mentions, channel.Mention{
+					Raw:        m.EntityText(e),
+					PlatformID: fmt.Sprintf("%d", e.User.ID),
+				})
+			}
+		}
+	}
+	return mentions
 }

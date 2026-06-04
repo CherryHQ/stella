@@ -49,6 +49,28 @@ func SetupUserWorkspace(agentID, basePath string, userID string) (string, error)
 	return userDir, nil
 }
 
+// SetupGroupWorkspace ensures per-group directories exist within an agent workspace.
+// Returns the path basePath/workspaces/{agentID}/groups/{groupID}/.
+func SetupGroupWorkspace(agentID, basePath, groupID string) (string, error) {
+	if agentID == "" {
+		return "", fmt.Errorf("agent ID must not be empty")
+	}
+	if groupID == "" {
+		return "", fmt.Errorf("group ID must not be empty")
+	}
+	dir := filepath.Join(basePath, "workspaces", agentID, "groups", groupID)
+	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755); err != nil {
+		return "", fmt.Errorf("create group workspace for agent %q group %s: %w", agentID, groupID, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		return "", fmt.Errorf("create group data dir for agent %q group %s: %w", agentID, groupID, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
+		return "", fmt.Errorf("create group assets dir for agent %q group %s: %w", agentID, groupID, err)
+	}
+	return dir, nil
+}
+
 // SetupSystemWorkspace creates the shared system workspace for agent jobs that
 // run without a user context (e.g. builtin scheduled jobs).
 // Returns the path basePath/workspaces/{agentID}/system/.

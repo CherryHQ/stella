@@ -1,0 +1,8 @@
+CREATE TABLE channel_group_member (
+    group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
+    agent_id         TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+    reply_channel_id TEXT NOT NULL REFERENCES channel(id) ON DELETE CASCADE,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY(group_id, agent_id)
+);

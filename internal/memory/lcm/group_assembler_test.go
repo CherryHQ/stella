@@ -1,0 +1,498 @@
+package lcm
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"path/filepath"
+	"testing"
+
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
+)
+
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func groupSess(agentID, groupID string) memory.Session {
+	return memory.Session{
+		ID:      agentID + ":group:" + groupID,
+		AgentID: agentID,
+		UserID:  groupID,
+		GroupID: groupID,
+	}
+}
+
+func groupCtx(triggerSeq int64) context.Context {
+	ctx := context.Background()
+	ctx = memory.WithAgentID(ctx, "agent-a")
+	if triggerSeq > 0 {
+		ctx = memory.WithGroupSeq(ctx, triggerSeq)
+	}
+	return ctx
+}
+
+func TestGroupAssemble_HybridFlow(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	// Seed: user1 says "hello" (seq=1), user2 says "hey" (seq=2).
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g1", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "hello", PlatformMessageID: "m1",
+	})
+	if err != nil {
+		t.Fatalf("seed m1: %v", err)
+	}
+	gid := res1.GroupID
+
+	res2, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g1", ActorType: eventlog.ActorHuman,
+		ActorID: "user2", Content: "hey", PlatformMessageID: "m2",
+	})
+	if err != nil {
+		t.Fatalf("seed m2: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	sess := groupSess("agent-a", gid)
+
+	// Turn 1: triggered by user2's message (seq=2).
+	// Between-turn injection: seq > 0 (watermark) AND seq < 2 → seq=1 (user1's "hello").
+	assembleCtx := groupCtx(res2.Seq)
+	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+
+	// Should inject user1's "hello" (seq=1). user2's "hey" (seq=2=triggerSeq) is excluded.
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 injected message, got %d", len(msgs))
+	}
+	assertRole(t, msgs[0], "user")
+	text := flattenUserMessage(msgs[0].(ai.UserMessage))
+	if text != "[user1]: hello" {
+		t.Fatalf("injected text = %q, want [user1]: hello", text)
+	}
+
+	// Simulate agent processing: append user msg + assistant response to ctx_message.
+	if err := p.Append(assembleCtx, sess,
+		ai.UserMessage{Content: "hey"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "Hi there!"}}},
+	); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	// Agent response written back to event log (seq=3).
+	_, err = el.AppendToGroup(ctx, gid, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "agent-a", Content: "Hi there!",
+	})
+	if err != nil {
+		t.Fatalf("writeback: %v", err)
+	}
+
+	// Between turns: user1 sends "what's up?" (seq=4).
+	res4, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g1", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "what's up?", PlatformMessageID: "m4",
+	})
+	if err != nil {
+		t.Fatalf("seed m4: %v", err)
+	}
+
+	// Turn 2: triggered by seq=4.
+	// Between-turn injection: seq > 2 (watermark) AND seq < 4 → seq=3 (agent-a, skipped as self).
+	assembleCtx2 := groupCtx(res4.Seq)
+	msgs2, err := p.Assemble(assembleCtx2, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble turn 2: %v", err)
+	}
+
+	// Should have: ctx_message history [user: "hey", assistant: "Hi there!"] + no injection (seq=3 is self).
+	if len(msgs2) != 2 {
+		t.Fatalf("expected 2 messages (agent history), got %d", len(msgs2))
+	}
+	assertRole(t, msgs2[0], "user")
+	assertRole(t, msgs2[1], "assistant")
+}
+
+func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	// user1 says hello (seq=1).
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g2", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "hello", PlatformMessageID: "m1",
+	})
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	gid := res1.GroupID
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", gid)
+
+	// Turn 1: trigger = seq=1. No between-turn messages.
+	assembleCtx := groupCtx(res1.Seq)
+	if err := p.Bootstrap(assembleCtx, sess); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages on first trigger, got %d", len(msgs))
+	}
+
+	// Simulate turn 1 processing.
+	if err := p.Append(assembleCtx, sess,
+		ai.UserMessage{Content: "hello"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "hi"}}},
+	); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	// Agent-a response → event log seq=2.
+	_, err = el.AppendToGroup(ctx, gid, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "agent-a", Content: "hi",
+	})
+	if err != nil {
+		t.Fatalf("writeback a: %v", err)
+	}
+
+	// Agent-b responds → event log seq=3.
+	_, err = el.AppendToGroup(ctx, gid, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "agent-b", Content: "I'm agent B",
+	})
+	if err != nil {
+		t.Fatalf("writeback b: %v", err)
+	}
+
+	// User sends again → event log seq=4.
+	res4, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g2", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "thanks", PlatformMessageID: "m4",
+	})
+	if err != nil {
+		t.Fatalf("seed m4: %v", err)
+	}
+
+	// Turn 2: trigger = seq=4.
+	// Between-turn: seq 2 (agent-a, skip), seq 3 (agent-b, inject).
+	assembleCtx2 := groupCtx(res4.Seq)
+	msgs2, err := p.Assemble(assembleCtx2, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble turn 2: %v", err)
+	}
+
+	// Should have: agent history [user:"hello", assistant:"hi"] + injected [agent-b].
+	if len(msgs2) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(msgs2))
+	}
+	assertRole(t, msgs2[0], "user")      // agent history: user "hello"
+	assertRole(t, msgs2[1], "assistant") // agent history: assistant "hi"
+	assertRole(t, msgs2[2], "user")      // injected: agent-b
+
+	text := flattenUserMessage(msgs2[2].(ai.UserMessage))
+	if text != "[agent:agent-b]: I'm agent B" {
+		t.Fatalf("injected text = %q", text)
+	}
+}
+
+func TestGroupAssemble_TokenBudget(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	// Seed several messages.
+	res, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g3", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "a]a long message that consumes tokens", PlatformMessageID: "m1",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	gid := res.GroupID
+	for i := 2; i <= 5; i++ {
+		if _, err := el.AppendGroupMessage(ctx, eventlog.Message{
+			Platform: "test", PlatformGroupID: "g3", ActorType: eventlog.ActorHuman,
+			ActorID: "user1", Content: "another message with some content",
+			PlatformMessageID: fmt.Sprintf("m%d", i),
+		}); err != nil {
+			t.Fatalf("seed m%d: %v", i, err)
+		}
+	}
+
+	// Trigger is seq=6 (a new message after the 5 seeded).
+	res6, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g3", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "trigger", PlatformMessageID: "m6",
+	})
+	if err != nil {
+		t.Fatalf("seed trigger: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", gid)
+
+	// Very small budget.
+	assembleCtx := groupCtx(res6.Seq)
+	msgs, err := p.Assemble(assembleCtx, sess, 20, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) >= 5 {
+		t.Fatalf("expected fewer than 5 messages with tight budget, got %d", len(msgs))
+	}
+}
+
+func TestGroupAssemble_EmptyGroup(t *testing.T) {
+	db := openTestDB(t)
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	sess := groupSess("agent-a", "nonexistent")
+	assembleCtx := groupCtx(1)
+	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages for empty group, got %d", len(msgs))
+	}
+}
+
+func TestGroupAppend_StoresMessages(t *testing.T) {
+	db := openTestDB(t)
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	el := eventlog.NewStore(db)
+	gid, err := el.ResolveGroupID(context.Background(), "test", "g1", "")
+	if err != nil {
+		t.Fatalf("resolve group: %v", err)
+	}
+
+	sess := groupSess("agent-a", gid)
+	ctx := groupCtx(0)
+
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	err = p.Append(ctx, sess,
+		ai.UserMessage{Content: "test user message"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "test reply"}}},
+	)
+	if err != nil {
+		t.Fatalf("group append should store messages, got: %v", err)
+	}
+
+	// Verify messages are in ctx_message by assembling (standard path).
+	msgs, err := p.Assemble(ctx, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages from ctx_message, got %d", len(msgs))
+	}
+	assertRole(t, msgs[0], "user")
+	assertRole(t, msgs[1], "assistant")
+}
+
+func TestGroupBootstrap_CreatesConversation(t *testing.T) {
+	db := openTestDB(t)
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	el := eventlog.NewStore(db)
+	gid, err := el.ResolveGroupID(context.Background(), "test", "g1", "")
+	if err != nil {
+		t.Fatalf("resolve group: %v", err)
+	}
+
+	sess := groupSess("agent-a", gid)
+	ctx := groupCtx(0)
+
+	err = p.Bootstrap(ctx, sess)
+	if err != nil {
+		t.Fatalf("group bootstrap should create conversation, got: %v", err)
+	}
+
+	// Bootstrap again should be idempotent.
+	err = p.Bootstrap(ctx, sess)
+	if err != nil {
+		t.Fatalf("second bootstrap: %v", err)
+	}
+}
+
+func TestGroupNeedsCompaction_AlwaysFalse(t *testing.T) {
+	db := openTestDB(t)
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	el := eventlog.NewStore(db)
+	gid, err := el.ResolveGroupID(context.Background(), "test", "g1", "")
+	if err != nil {
+		t.Fatalf("resolve group: %v", err)
+	}
+
+	sess := groupSess("agent-a", gid)
+	if p.NeedsCompaction(context.Background(), sess, 1.0) {
+		t.Fatal("group sessions should never need compaction")
+	}
+}
+
+func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	// user1 says "a" (seq=1), user2 says "b" (seq=2), user1 says "c" (seq=3).
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gw", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "a", PlatformMessageID: "w1",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	gid := res1.GroupID
+	if _, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gw", ActorType: eventlog.ActorHuman,
+		ActorID: "user2", Content: "b", PlatformMessageID: "w2",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res3, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gw", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "c", PlatformMessageID: "w3",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", gid)
+
+	// Turn 1: trigger=seq3. Between-turn: seq1, seq2.
+	msgs, err := p.Assemble(groupCtx(res3.Seq), sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble turn 1: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("turn 1: expected 2 injected, got %d", len(msgs))
+	}
+
+	// Simulate turn processing.
+	if err := p.Append(groupCtx(res3.Seq), sess,
+		ai.UserMessage{Content: "c"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "reply"}}},
+	); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	// New message: user2 says "d" (seq=4).
+	res4, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gw", ActorType: eventlog.ActorHuman,
+		ActorID: "user2", Content: "d", PlatformMessageID: "w4",
+	})
+	if err != nil {
+		t.Fatalf("seed d: %v", err)
+	}
+
+	// Turn 2: trigger=seq4. Between-turn: seq > 3 AND seq < 4 → nothing.
+	msgs2, err := p.Assemble(groupCtx(res4.Seq), sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble turn 2: %v", err)
+	}
+	// Should have agent history from turn 1 only (user "c" + assistant "reply").
+	if len(msgs2) != 2 {
+		t.Fatalf("turn 2: expected 2 (agent history), got %d", len(msgs2))
+	}
+	assertRole(t, msgs2[0], "user")
+	assertRole(t, msgs2[1], "assistant")
+}
+
+func TestGroupAssemble_TriggerSeqZero(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "g0", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "hello", PlatformMessageID: "z1",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	gid := res1.GroupID
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", gid)
+
+	// triggerSeq=0: no GroupSeq on context. Should still assemble without error,
+	// just skip event log injection entirely.
+	assembleCtx := groupCtx(0)
+	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble with triggerSeq=0 should not error: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages with triggerSeq=0, got %d", len(msgs))
+	}
+}
+
+func assertRole(t *testing.T, msg ai.Message, expected string) {
+	t.Helper()
+	role := memory.MessageRole(msg)
+	if role != expected {
+		t.Fatalf("expected role %q, got %q", expected, role)
+	}
+}
+
+func flattenUserMessage(um ai.UserMessage) string {
+	switch c := um.Content.(type) {
+	case []ai.ContentBlock:
+		return ai.FlattenText(c)
+	case string:
+		return c
+	default:
+		return ""
+	}
+}

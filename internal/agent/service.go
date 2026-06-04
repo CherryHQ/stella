@@ -35,6 +35,7 @@ type ChatRequest struct {
 	// Kind overrides the default session kind (KindChat). Used by non-chat
 	// callers such as the scheduler (KindScheduler).
 	Kind    session.Kind
+	GroupID string // non-empty for group sessions; overlaid onto session.Info after Ensure
 	Message MessageContent
 	Model   string
 	// RuntimeOpts are forwarded verbatim to Runtime.Chat.
@@ -103,6 +104,9 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 		out <- Event{Err: fmt.Errorf("resolve session: %w", err)}
 		close(out)
 		return out
+	}
+	if req.GroupID != "" {
+		info.GroupID = req.GroupID
 	}
 
 	opts := req.RuntimeOpts
