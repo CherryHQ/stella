@@ -1,4 +1,4 @@
-h1:R8eDH/bgEgCfw6AkJC47YBsVpZNx/PS3hjJBrfP4DSs=
+h1:iZLvoL/FyKWxy9mD/9oj5uOKnutSu0jNNiyernMwDc0=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
@@ -7,3 +7,4 @@ h1:R8eDH/bgEgCfw6AkJC47YBsVpZNx/PS3hjJBrfP4DSs=
 20260603011945_add_hot_path_indexes.sql h1:GJ+e4PxFRlbOWi1BZrDhgzp47cZGB0CWMqDYQ0fc17c=
 20260604080227_group_chat_event_log.sql h1:vTxHaXzRG2yCm2i090qiLV5L5/q1gMp+3DHZinP+SGk=
 20260604091531_group_memory.sql h1:DH0MPQd9gFi0awAeTLPff3619aBQcbyosBudUWJ8N6Y=
+20260604094241_group_ingest.sql h1:yNSEfntVnFqz7VHcH2dwuDjBSgI+QGT8l2OT7H+kBeo=

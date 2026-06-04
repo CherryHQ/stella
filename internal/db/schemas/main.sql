@@ -17,6 +17,8 @@
 -- atlas:import tables/ctx_group_state.sql
 -- atlas:import tables/ctx_group_message.sql
 -- atlas:import tables/ctx_group_memory.sql
+-- atlas:import tables/ctx_group_ingest_cursor.sql
+-- atlas:import tables/ctx_group_ingest_error.sql
 -- atlas:import tables/sched_job.sql
 -- atlas:import tables/sched_job_run.sql
 -- atlas:import tables/auth_policy.sql

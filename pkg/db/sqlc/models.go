@@ -352,6 +352,22 @@ type CtxConversation struct {
 	UpdatedAt      string         `json:"updated_at"`
 }
 
+type CtxGroupIngestCursor struct {
+	GroupID   string `json:"group_id"`
+	Pipeline  string `json:"pipeline"`
+	LastSeq   int64  `json:"last_seq"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type CtxGroupIngestError struct {
+	ID        string `json:"id"`
+	GroupID   string `json:"group_id"`
+	Pipeline  string `json:"pipeline"`
+	Seq       int64  `json:"seq"`
+	Reason    string `json:"reason"`
+	CreatedAt string `json:"created_at"`
+}
+
 type CtxGroupMemory struct {
 	GroupID   string `json:"group_id"`
 	Content   string `json:"content"`
