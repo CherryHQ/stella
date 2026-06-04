@@ -29,7 +29,7 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, go
 		return sqlc.AgentGoal{}, false
 	}
 	if info := UserFromContext(ctx); info != nil && info.Scoped != nil && g.AgentID != info.Scoped.AgentID {
-		writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+		writeError(w, http.StatusForbidden, "permission denied")
 		return sqlc.AgentGoal{}, false
 	}
 	return g, true
@@ -97,7 +97,7 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	agentID := req.AgentId
 	if info.Scoped != nil {
 		if agentID != "" && agentID != info.Scoped.AgentID {
-			writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+			writeError(w, http.StatusForbidden, "permission denied")
 			return
 		}
 		agentID = info.Scoped.AgentID

@@ -148,8 +148,8 @@ func (s *Server) resolveArtifactContent(w http.ResponseWriter, r *http.Request, 
 	}
 	if info := UserFromContext(r.Context()); info != nil && info.Scoped != nil {
 		if agentID != info.Scoped.AgentID || sessionID != info.Scoped.SessionID {
-			writeError(w, http.StatusForbidden, "scoped token does not allow this share context")
-			return "", "", nil, errors.New("scoped share context denied")
+			writeError(w, http.StatusForbidden, "permission denied")
+			return "", "", nil, errors.New("permission denied")
 		}
 	}
 	root, err := s.sessionWorkspaceRoot(w, r, agentID, sessionID)

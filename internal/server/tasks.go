@@ -87,7 +87,7 @@ func (s *Server) loadTask(ctx context.Context, w http.ResponseWriter, taskID str
 		return sqlc.AgentTask{}, false
 	}
 	if info.Scoped != nil && t.AgentID != info.Scoped.AgentID {
-		writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+		writeError(w, http.StatusForbidden, "permission denied")
 		return sqlc.AgentTask{}, false
 	}
 	return t, true
@@ -121,7 +121,7 @@ func (s *Server) ListTasks(w http.ResponseWriter, r *http.Request, params apiser
 	}
 	if info.Scoped != nil {
 		if agentID != "" && agentID != info.Scoped.AgentID {
-			writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+			writeError(w, http.StatusForbidden, "permission denied")
 			return
 		}
 		agentID = info.Scoped.AgentID
@@ -177,7 +177,7 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 	agentID := strPtr(req.AgentId)
 	if info.Scoped != nil {
 		if agentID != "" && agentID != info.Scoped.AgentID {
-			writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+			writeError(w, http.StatusForbidden, "permission denied")
 			return
 		}
 		agentID = info.Scoped.AgentID
