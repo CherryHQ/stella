@@ -288,6 +288,14 @@ type ChannelAgent struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type ChannelGroupMember struct {
+	GroupID        string `json:"group_id"`
+	AgentID        string `json:"agent_id"`
+	ReplyChannelID string `json:"reply_channel_id"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
 type ChannelIdentity struct {
 	ID         string `json:"id"`
 	UserID     string `json:"user_id"`

@@ -112,6 +112,10 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	if err := b.fetchBotOpenID(b.ctx); err != nil {
 		logger().Warn("failed to fetch bot open_id, self-message filtering disabled", "error", err)
+	} else if registrar, ok := b.handler.(channel.BotRegistrar); ok {
+		if botID, _ := b.botOpenID.Load().(string); botID != "" {
+			registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
+		}
 	}
 
 	if b.cfg.AutoProvision && b.cfg.TenantKey == "" {

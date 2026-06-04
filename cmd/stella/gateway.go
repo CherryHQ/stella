@@ -201,7 +201,23 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
-	coordOpts = append(coordOpts, channel.WithGroupResolver(eventlog.NewStore(s.db)))
+	elStore := eventlog.NewStore(s.db)
+	botRegistry := channel.NewBotIdentityRegistry()
+	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
+	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
+	coordOpts = append(coordOpts, channel.WithGroupMemberLister(
+		channel.FuncGroupMemberLister(func(ctx context.Context, groupID string) ([]channel.GroupMember, error) {
+			rows, err := sqlc.New(s.db).ListGroupMembers(ctx, groupID)
+			if err != nil {
+				return nil, err
+			}
+			members := make([]channel.GroupMember, len(rows))
+			for i, r := range rows {
+				members[i] = channel.GroupMember{AgentID: r.AgentID, ReplyChannelID: r.ReplyChannelID}
+			}
+			return members, nil
+		}),
+	))
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(

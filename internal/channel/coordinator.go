@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -49,6 +50,9 @@ type Coordinator struct {
 	queue            *sessionQueue
 	intentClassifier IntentClassifier
 	groupResolver    GroupResolver
+	eventLog         *eventlog.Store
+	memberLister     GroupMemberLister
+	botRegistry      *BotIdentityRegistry
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -118,6 +122,37 @@ func WithGroupResolver(gr GroupResolver) CoordinatorOption {
 	}
 }
 
+// WithEventLog enables group event log append (dedup + canonical ordering).
+func WithEventLog(el *eventlog.Store) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.eventLog = el
+		c.groupResolver = el
+	}
+}
+
+// WithGroupMemberLister enables group membership queries for mention resolution.
+func WithGroupMemberLister(lister GroupMemberLister) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.memberLister = lister
+	}
+}
+
+// WithBotRegistry enables bot identity resolution for @mention → agent routing.
+func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.botRegistry = reg
+	}
+}
+
+// RegisterBotIdentity records a bot's platform identity for mention resolution.
+// Implements pkgchannel.BotRegistrar.
+func (c *Coordinator) RegisterBotIdentity(platform, platformBotID, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.Register(platform, platformBotID, channelID)
+}
+
 // resolve performs the full user -> agent -> pool -> session key resolution.
 func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
 	channelID := msg.ChannelID
@@ -141,6 +176,10 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		if resp, ok := TryLinkCodeWithCandidates(ctx, c.auth, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
 			return resp, true, nil, nil
 		}
+	}
+
+	if msg.IsGroup && c.eventLog != nil {
+		return c.handleGroupIncoming(ctx, msg, command, args)
 	}
 
 	rc, err := c.resolve(ctx, msg)
@@ -402,4 +441,5 @@ var (
 	_ pkgchannel.Handler          = (*Coordinator)(nil)
 	_ pkgchannel.Provisioner      = (*Coordinator)(nil)
 	_ pkgchannel.UserRootResolver = (*Coordinator)(nil)
+	_ pkgchannel.BotRegistrar     = (*Coordinator)(nil)
 )

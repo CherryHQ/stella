@@ -72,6 +72,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b.registerHandlers()
+
+	if registrar, ok := handler.(channel.BotRegistrar); ok && bot.Me.Username != "" {
+		registrar.RegisterBotIdentity(channel.PlatformTelegram, bot.Me.Username, cfg.InstanceID)
+	}
+
 	return b, nil
 }
 

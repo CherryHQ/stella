@@ -175,3 +175,11 @@ type Provisioner interface {
 type UserRootResolver interface {
 	ResolveUserRoot(ctx context.Context, msg IncomingMessage) (string, error)
 }
+
+// BotRegistrar is an optional capability that a Handler may implement.
+// Channel adapters call RegisterBotIdentity at startup to record their
+// bot's platform identity (e.g., Telegram username), enabling the group
+// dispatcher to resolve @mentions to Stella agents.
+type BotRegistrar interface {
+	RegisterBotIdentity(platform, platformBotID, channelID string)
+}
