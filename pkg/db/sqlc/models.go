@@ -351,6 +351,31 @@ type CtxConversation struct {
 	UpdatedAt      string         `json:"updated_at"`
 }
 
+type CtxGroupMessage struct {
+	ID                string         `json:"id"`
+	GroupID           string         `json:"group_id"`
+	Seq               int64          `json:"seq"`
+	SourceChannelID   sql.NullString `json:"source_channel_id"`
+	ActorType         string         `json:"actor_type"`
+	ActorID           string         `json:"actor_id"`
+	PlatformMessageID sql.NullString `json:"platform_message_id"`
+	ReplyTo           sql.NullString `json:"reply_to"`
+	PlatformTimestamp sql.NullString `json:"platform_timestamp"`
+	IdempotencyKey    sql.NullString `json:"idempotency_key"`
+	Content           string         `json:"content"`
+	CreatedAt         string         `json:"created_at"`
+}
+
+type CtxGroupState struct {
+	ID               string `json:"id"`
+	Platform         string `json:"platform"`
+	PlatformGroupID  string `json:"platform_group_id"`
+	PlatformThreadID string `json:"platform_thread_id"`
+	NextSeq          int64  `json:"next_seq"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
+}
+
 type CtxItem struct {
 	ConversationID string         `json:"conversation_id"`
 	Ordinal        int64          `json:"ordinal"`

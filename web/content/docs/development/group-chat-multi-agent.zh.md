@@ -14,7 +14,7 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 | 维度                           | 取值                                                      | 用途                                          | 绝不用于                               |
 | ------------------------------ | --------------------------------------------------------- | --------------------------------------------- | -------------------------------------- |
-| **session scope**              | `group_id`(= `platform:chat_id`)                          | LCM 查找键、conversation 历史、群记忆抽屉键   | 运行时身份(vault/token/workspace)      |
+| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | LCM 查找键、conversation 历史、群记忆抽屉键   | 运行时身份(vault/token/workspace)      |
 | **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、scoped token、workspace 路径 | 冒充任何成员;读任何 human 的私有 vault |
 | **per-turn actor**             | 真实发言 human 的 `auth_user`                             | @寻址、写发言人**自己**的私有记忆、访问控制   | session 查找键、运行时执行身份         |
 
@@ -22,13 +22,15 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 ## Canonical 群身份(D0)
 
-全系统用一个 canonical 键:`group_id = platform + ":" + chat_id`。它是一个物理群聊的唯一键,**跨所有观察它的 bot 稳定不变**。
+一个物理群聊在 `ctx_group_state` 注册一次,铸出一个**代理 `id`**(app uuid/ulid)作主键。所有群作用域表都引用这个 `id`——绝不重新拼字符串。映射到某个 `id` 的物理身份是三元组 `(platform, platform_group_id, platform_thread_id)`,由 `UNIQUE` 索引保证;任何 bot 观察到同一物理群/线程时,对三元组做 get-or-create,落到同一个 `id`。
 
-为什么不用 `channel_id`?在每 agent 一个 bot 的架构下,每个 agent 是独立 bot = 独立 `channel_id`,所以**同一个物理群被 N 个 channel_id 观察到**。平台的 `chat_id` 是群全局的(不随哪个 bot 收到而变),所以 `(platform, chat_id)` 才是稳定群身份;`channel_id` 只回答「哪个 bot 看到的」。
+为什么用代理 id 而非拼出来的 `platform:chat_id` 串?代理 id 不透明且稳定,扛得住平台侧 id 改格式,FK join 也便宜;三元组留作查找用的自然键。在每 agent 一个 bot 的架构下,每个 agent 是独立 bot = 独立 `channel_id`,所以**同一个物理群被 N 个 channel_id 观察到**。平台的群 id 是群全局的(不随哪个 bot 收到而变),所以三元组才是稳定群身份;`channel_id` 只回答「哪个 bot 看到的」。
+
+**线程是独立的群。** Telegram 论坛话题(或任意平台子线程)是各自独立的会话,所以每个不同 `platform_thread_id` 拿到自己的注册行——自己的 event log、`seq`、记忆抽屉、arbiter 作用域。`platform_thread_id` 是 `TEXT NOT NULL DEFAULT ''`(空串,非 `NULL`):SQLite 在唯一索引里把 `NULL` 视作互不相等,可空列会破坏三元组 `UNIQUE`。
 
 `source_channel_id`(哪个 bot 观察到入站消息)记录在 event log 行上**仅供审计**。它绝不进入幂等键、`seq`、cursor 或 membership 主键,**也绝不作回复出口**。回复出口永远是发言 agent 自己的 `reply_channel_id`(见 membership)。
 
-所有模块复用这一个值——event log、群记忆、membership、ingest cursor、session key。任何模块不得自造「群」。
+所有模块复用注册表 `id`——event log、群记忆、membership、ingest cursor、session key。任何模块不得自造「群」。
 
 ## agent 如何进群(D1)
 
@@ -46,16 +48,19 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 `ctx_group_message` 是每条群消息的权威、去重副本。关键列:
 
-| 列                         | 说明                                                    |
-| -------------------------- | ------------------------------------------------------- |
-| `id TEXT PRIMARY KEY`      | app 生成 uuid/ulid(schema 规则要求 TEXT 主键)           |
-| `group_id TEXT NOT NULL`   | canonical 身份(D0);所有去重/排序键按它                  |
-| `source_channel_id TEXT`   | 观察 bot——**仅审计**,不进任何唯一键                     |
-| `actor_type TEXT NOT NULL` | `human` / `agent`——schema 级,绝不靠 content 猜          |
-| `actor_id TEXT NOT NULL`   | human → 平台 sender_id;agent → agent_id                 |
-| `source_agent_id TEXT`     | `actor_type=agent` 时哪个 agent(publisher 写回自己消息) |
-| `platform_message_id TEXT` | 平台 id,可空(Phase 1 适配器可能填不出)                  |
-| `seq INTEGER NOT NULL`     | 群内单调 ordering token,从 1 起                         |
+| 列                         | 说明                                                              |
+| -------------------------- | ----------------------------------------------------------------- |
+| `id TEXT PRIMARY KEY`      | app 生成 uuid/ulid(schema 规则要求 TEXT 主键)                     |
+| `group_id TEXT NOT NULL`   | FK → `ctx_group_state(id)`(D0);所有去重/排序键按它                |
+| `seq INTEGER NOT NULL`     | 群内单调 ordering token,从 1 起;`UNIQUE(group_id, seq)`           |
+| `source_channel_id TEXT`   | 观察 bot——**仅审计**,不进任何唯一键                               |
+| `actor_type TEXT NOT NULL` | `human` / `agent`——schema 级,绝不靠 content 猜                    |
+| `actor_id TEXT NOT NULL`   | human → 平台 sender_id;agent → agent_id(不再单设 source_agent_id) |
+| `platform_message_id TEXT` | 平台 id,可空(部分适配器给不出)                                    |
+| `reply_to TEXT`            | 本条回复的平台消息 id;无则空/NULL                                 |
+| `platform_timestamp TEXT`  | 平台上报发送时间(UTC);喂高精度去重兜底                            |
+| `idempotency_key TEXT`     | 兜底去重键,仅在无稳定 `platform_message_id` 时设置                |
+| `content TEXT NOT NULL`    | JSON 序列化的 `[]ai.ContentBlock`                                 |
 
 ### 去重:「宁可重复,不可静默丢」
 
@@ -69,16 +74,20 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 ### seq 分配
 
-`AUTOINCREMENT` 不可用——SQLite 仅允许在 `INTEGER PRIMARY KEY` 上,而本表 PK 是 `TEXT`。app 层 `max+1` 并发会撞。改用 per-group 计数表分配:
+`AUTOINCREMENT` 不可用——SQLite 仅允许在 `INTEGER PRIMARY KEY` 上,而本表 PK 是 `TEXT`。app 层 `max+1` 并发会撞。改由注册行兼任 per-group 计数器与写锁:
 
 ```sql
 CREATE TABLE ctx_group_state (
-  group_id   TEXT PRIMARY KEY,
-  next_seq   INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id                 TEXT PRIMARY KEY,            -- 群代理 id(D0)
+  platform           TEXT NOT NULL,              -- 'telegram' | 'feishu' | 'qq' | ...
+  platform_group_id  TEXT NOT NULL,              -- 平台原生群/chat id
+  platform_thread_id TEXT NOT NULL DEFAULT '',   -- 子线程/话题;无则 ''
+  next_seq           INTEGER NOT NULL DEFAULT 0,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (platform, platform_group_id, platform_thread_id)
 );
--- 分配:UPDATE ... SET next_seq = next_seq + 1 RETURNING next_seq(post-update 值;首条 = 1)
+-- 分配:UPDATE ... SET next_seq = next_seq + 1 WHERE id = ? RETURNING next_seq(post-update 值;首条 = 1)
 ```
 
 ### 唯一写入路径
@@ -91,16 +100,16 @@ AppendGroupMessage(ctx, msg) -> (result{inserted|existing}, seq)
 
 闭合、幂等的算法(SQLite 单写者;`BEGIN IMMEDIATE` 串行化 per-group 写入):
 
-1. `INSERT OR IGNORE INTO ctx_group_state(group_id)` —— 首条消息建 state 行。
-2. **锁内按 unique key 查重**(`platform_message_id` 或 fallback `idempotency_key`)。
-3. **已存在** → 返回「不插入/不 bump/不 dispatch」。
-4. **不存在** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 ... RETURNING next_seq` → `INSERT` 消息行(带该 seq)→ commit 后才 dispatch。
+0. **按三元组 `(platform, platform_group_id, platform_thread_id)` get-or-create 注册行** → 拿到代理 `id`(即 `group_id`)。
+1. **锁内按 unique key 查重**(`platform_message_id` 或 fallback `idempotency_key`)。
+2. **已存在** → 返回「不插入/不 bump/不 dispatch」。
+3. **不存在** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = ? ... RETURNING next_seq` → `INSERT` 消息行(带该 seq)→ commit 后才 dispatch。
 
 由于 bump 与 insert 都只在查重未命中分支、且在同一写锁内,幂等重投既不插行也不消耗 seq。`ON CONFLICT DO NOTHING` 仅作最后兜底,不承担判定职责。
 
 ## IncomingMessage 补字段(D3)
 
-`pkg/channel.IncomingMessage` 加 `MessageID / Timestamp / ReplyTo / Mentions`。`Mentions` 是 normalized 结构,不是平台原始串:
+`pkg/channel.IncomingMessage` 加 `ThreadID / MessageID / Timestamp / ReplyTo / Mentions`。`ThreadID` 是 `ChatID` 内的平台子线程/话题 id(如 Telegram 论坛话题),喂 D0 注册三元组,使线程成为独立的群。`Mentions` 是 normalized 结构,不是平台原始串:
 
 ```go
 type Mention struct {

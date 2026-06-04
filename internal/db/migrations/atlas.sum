@@ -1,7 +1,8 @@
-h1:0JFB82011y+MMMV4GR/QIWi5OOT3GgKCn7u8pnCZ1Bs=
+h1:dLnkr6Ko/li22Hu+eT+TIxWmpz2r+QPP//MdCtm3I98=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
 20260602120907_task_context_model.sql h1:Wn53ucGMFLpk4DAHWHfhF3kwcixyFKBDQEfhk4W3Qjs=
 20260602153709_drop_local_oidc_tables.sql h1:DliooDQgspiVvm0S2zdy9ormXlErapW40epHEeg88ac=
 20260603011945_add_hot_path_indexes.sql h1:GJ+e4PxFRlbOWi1BZrDhgzp47cZGB0CWMqDYQ0fc17c=
+20260604080227_group_chat_event_log.sql h1:vTxHaXzRG2yCm2i090qiLV5L5/q1gMp+3DHZinP+SGk=

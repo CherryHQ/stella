@@ -234,6 +234,9 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 	if m := c.Message(); m != nil {
 		im.MessageID = fmt.Sprintf("%d", m.ID)
 		im.Timestamp = m.Time()
+		if m.ThreadID != 0 {
+			im.ThreadID = strconv.Itoa(m.ThreadID)
+		}
 		if m.ReplyTo != nil {
 			im.ReplyTo = fmt.Sprintf("%d", m.ReplyTo.ID)
 		}

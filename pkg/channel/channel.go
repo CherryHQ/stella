@@ -85,6 +85,7 @@ type IncomingMessage struct {
 	SenderName string   // display name
 	ChatID     string   // group/channel ID (empty for DMs)
 	IsGroup    bool
+	ThreadID   string // platform sub-thread/topic id within ChatID (e.g. Telegram forum topic); empty if none
 	Content    []ai.ContentBlock
 
 	// Group-chat metadata (D3). Adapters fill what they can; empty/zero is allowed.

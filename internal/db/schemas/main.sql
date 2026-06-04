@@ -14,6 +14,8 @@
 -- atlas:import tables/ctx_summary_message.sql
 -- atlas:import tables/ctx_summary_parent.sql
 -- atlas:import tables/ctx_item.sql
+-- atlas:import tables/ctx_group_state.sql
+-- atlas:import tables/ctx_group_message.sql
 -- atlas:import tables/sched_job.sql
 -- atlas:import tables/sched_job_run.sql
 -- atlas:import tables/auth_policy.sql

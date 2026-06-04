@@ -14,7 +14,7 @@ A group has **three identity dimensions that must never borrow each other's name
 
 | Dimension                      | Value                                                              | Used for                                                                 | Never used for                                              |
 | ------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| **Session scope**              | `group_id` (= `platform:chat_id`)                                  | LCM lookup key, conversation history, group-memory drawer key            | Runtime identity (vault/token/workspace)                    |
+| **Session scope**              | `group_id` (surrogate id from the `ctx_group_state` registry)      | LCM lookup key, conversation history, group-memory drawer key            | Runtime identity (vault/token/workspace)                    |
 | **Runtime execution identity** | the agent's own group principal `group:{group_id}` (not any human) | tool execution, vault, scoped token, workspace path                      | impersonating any member; reading any human's private vault |
 | **Per-turn actor**             | the real human speaker's `auth_user`                               | @-addressing, writing the speaker's _own_ private memory, access control | session lookup key, runtime execution identity              |
 
@@ -22,13 +22,15 @@ If you only remember one thing: **a group session never touches any member's pri
 
 ## Canonical group identity (D0)
 
-One canonical key system-wide: `group_id = platform + ":" + chat_id`. It is the unique key of one physical group chat and is **stable across every bot that observes it**.
+A physical group conversation is registered once in `ctx_group_state`, which mints a **surrogate `id`** (app uuid/ulid) as its primary key. Every group-scoped table references that `id` — never a re-derived string. The physical identity that maps to one `id` is the triple `(platform, platform_group_id, platform_thread_id)`, enforced by a `UNIQUE` index; any bot observing the same physical group/thread does a get-or-create on the triple and lands on the same `id`.
 
-Why not `channel_id`? Under the per-bot architecture, each agent is a distinct bot = a distinct `channel_id`, so **one physical group is observed by N channel_ids**. The platform's `chat_id` is group-global (it does not change with which bot received the message), so `(platform, chat_id)` is the stable group identity; `channel_id` only answers "which bot saw it."
+Why a surrogate id and not a derived `platform:chat_id` string? The id is opaque and stable, so it survives platform-side id reformatting and keeps FK joins cheap; the triple stays as the natural key for lookup. Under the per-bot architecture each agent is a distinct bot = a distinct `channel_id`, so **one physical group is observed by N channel_ids**. The platform's group id is group-global (it does not change with which bot received the message), so the triple is the stable group identity; `channel_id` only answers "which bot saw it."
+
+**Threads are separate groups.** A Telegram forum topic (or any platform sub-thread) is its own conversation, so each distinct `platform_thread_id` gets its own registry row — its own event log, `seq`, memory drawer, and arbiter scope. `platform_thread_id` is `TEXT NOT NULL DEFAULT ''` (empty string, not `NULL`): SQLite treats `NULL`s as distinct in a unique index, so a nullable column would break the `UNIQUE` triple.
 
 `source_channel_id` (which bot observed an inbound message) is recorded on the event-log row **for audit only**. It never enters an idempotency key, `seq`, cursor, or membership primary key, and it is **never a reply route**. The reply route is always the speaking agent's own `reply_channel_id` (see membership).
 
-Every module reuses this one value — event log, group memory, membership, ingest cursor, session key. No module invents its own notion of "group."
+Every module reuses the registry `id` — event log, group memory, membership, ingest cursor, session key. No module invents its own notion of "group."
 
 ## How agents join a group (D1)
 
@@ -46,16 +48,19 @@ Rejected alternative: one bot puppeteering multiple virtual agents. The platform
 
 `ctx_group_message` is the authoritative, deduplicated copy of every group message. Key columns:
 
-| Column                     | Notes                                                                        |
-| -------------------------- | ---------------------------------------------------------------------------- |
-| `id TEXT PRIMARY KEY`      | app-generated uuid/ulid (schema rule requires a TEXT PK)                     |
-| `group_id TEXT NOT NULL`   | canonical identity (D0); all dedup/ordering keys off this                    |
-| `source_channel_id TEXT`   | observing bot — **audit only**, not in any unique key                        |
-| `actor_type TEXT NOT NULL` | `human` / `agent` — schema-level, never guessed from content                 |
-| `actor_id TEXT NOT NULL`   | human → platform sender_id; agent → agent_id                                 |
-| `source_agent_id TEXT`     | which agent, when `actor_type=agent` (publisher writes its own message back) |
-| `platform_message_id TEXT` | platform id, nullable (Phase 1 adapters may not fill it)                     |
-| `seq INTEGER NOT NULL`     | per-group monotonic ordering token, starting at 1                            |
+| Column                     | Notes                                                                      |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `id TEXT PRIMARY KEY`      | app-generated uuid/ulid (schema rule requires a TEXT PK)                   |
+| `group_id TEXT NOT NULL`   | FK → `ctx_group_state(id)` (D0); all dedup/ordering keys off this          |
+| `seq INTEGER NOT NULL`     | per-group monotonic ordering token, starting at 1; `UNIQUE(group_id, seq)` |
+| `source_channel_id TEXT`   | observing bot — **audit only**, not in any unique key                      |
+| `actor_type TEXT NOT NULL` | `human` / `agent` — schema-level, never guessed from content               |
+| `actor_id TEXT NOT NULL`   | human → platform sender_id; agent → agent_id (no separate source_agent_id) |
+| `platform_message_id TEXT` | platform id, nullable (some adapters cannot supply it)                     |
+| `reply_to TEXT`            | platform id this message replies to; empty/NULL if none                    |
+| `platform_timestamp TEXT`  | platform-reported send time (UTC); feeds the high-precision dedup fallback |
+| `idempotency_key TEXT`     | fallback dedup key, set only when there is no stable `platform_message_id` |
+| `content TEXT NOT NULL`    | JSON-serialized `[]ai.ContentBlock`                                        |
 
 ### Deduplication: "rather duplicate than silently drop"
 
@@ -69,16 +74,20 @@ Never use the local receive time or a low-precision/default timestamp to build t
 
 ### seq allocation
 
-`AUTOINCREMENT` is unavailable — SQLite only allows it on an `INTEGER PRIMARY KEY`, and this table's PK is `TEXT`. App-level `max+1` races under concurrency. Instead a per-group counter table allocates it:
+`AUTOINCREMENT` is unavailable — SQLite only allows it on an `INTEGER PRIMARY KEY`, and this table's PK is `TEXT`. App-level `max+1` races under concurrency. Instead the registry row doubles as the per-group counter and write lock:
 
 ```sql
 CREATE TABLE ctx_group_state (
-  group_id   TEXT PRIMARY KEY,
-  next_seq   INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id                 TEXT PRIMARY KEY,            -- surrogate group id (D0)
+  platform           TEXT NOT NULL,              -- 'telegram' | 'feishu' | 'qq' | ...
+  platform_group_id  TEXT NOT NULL,              -- native group/chat id
+  platform_thread_id TEXT NOT NULL DEFAULT '',   -- sub-thread/topic; '' when none
+  next_seq           INTEGER NOT NULL DEFAULT 0,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (platform, platform_group_id, platform_thread_id)
 );
--- allocation: UPDATE ... SET next_seq = next_seq + 1 RETURNING next_seq (post-update; first = 1)
+-- allocation: UPDATE ... SET next_seq = next_seq + 1 WHERE id = ? RETURNING next_seq (post-update; first = 1)
 ```
 
 ### The single write path
@@ -91,16 +100,16 @@ AppendGroupMessage(ctx, msg) -> (result{inserted|existing}, seq)
 
 The closed, idempotent algorithm (SQLite is single-writer; `BEGIN IMMEDIATE` serializes per-group writes):
 
-1. `INSERT OR IGNORE INTO ctx_group_state(group_id)` — create the state row on first message.
-2. **Inside the lock, check for an existing row** by unique key (`platform_message_id` or fallback `idempotency_key`).
-3. **Exists** → return "no insert / no bump / no dispatch."
-4. **Not exists** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 ... RETURNING next_seq` → `INSERT` the message row with that seq → dispatch only after commit.
+0. **Get-or-create the registry row** by the `(platform, platform_group_id, platform_thread_id)` triple → obtain its surrogate `id` (= `group_id`).
+1. **Inside the lock, check for an existing message** by unique key (`platform_message_id` or fallback `idempotency_key`).
+2. **Exists** → return "no insert / no bump / no dispatch."
+3. **Not exists** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = ? ... RETURNING next_seq` → `INSERT` the message row with that seq → dispatch only after commit.
 
 Because both the bump and the insert happen only in the cache-miss branch and inside the same write lock, an idempotent redelivery neither inserts a row nor consumes a seq. `ON CONFLICT DO NOTHING` is a last-resort backstop only; it does not carry the dedup decision.
 
 ## IncomingMessage fields (D3)
 
-`pkg/channel.IncomingMessage` gains `MessageID / Timestamp / ReplyTo / Mentions`. `Mentions` is a normalized structure, not the platform's raw string:
+`pkg/channel.IncomingMessage` gains `ThreadID / MessageID / Timestamp / ReplyTo / Mentions`. `ThreadID` is the platform sub-thread/topic id within `ChatID` (e.g. a Telegram forum topic); it feeds the D0 registry triple so a thread becomes its own group. `Mentions` is a normalized structure, not the platform's raw string:
 
 ```go
 type Mention struct {
