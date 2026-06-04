@@ -292,9 +292,8 @@ export function SessionDetail({
       </div>
     );
   }
-
   return (
-    <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-gradient-to-b from-card/80 to-card">
+    <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {/* Transcript */}
@@ -309,7 +308,7 @@ export function SessionDetail({
 
           {/* Message input */}
           {session.user_id === currentUserID && (
-            <div className="flex-shrink-0 bg-gradient-to-b from-card/0 to-card px-4 pt-3 pb-4 sm:px-8">
+            <div className="flex-shrink-0 bg-gradient-to-t from-background via-background to-transparent px-4 pt-4 pb-5 sm:px-8">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -322,10 +321,10 @@ export function SessionDetail({
               />
               <div
                 className={cn(
-                  "mx-auto max-w-4xl rounded-[28px] border bg-card/70 backdrop-blur-lg transition-all duration-200 flex flex-col p-1 shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.18)]",
+                  "mx-auto max-w-3xl rounded-xl border bg-card transition-all duration-120 flex flex-col p-1.5 shadow-none",
                   isStreaming
-                    ? "border-primary/45"
-                    : "border-border/80 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10",
+                    ? "border-primary"
+                    : "border-border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
                 )}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -343,7 +342,7 @@ export function SessionDetail({
                       <span
                         key={i}
                         className={cn(
-                          "inline-flex items-center gap-1.5 text-[11px] font-mono rounded-full px-3 py-1 max-w-48 border",
+                          "inline-flex items-center gap-1.5 text-[11px] font-mono rounded-md px-3 py-1 max-w-48 border",
                           a.uploading
                             ? "bg-muted/50 text-muted-foreground/50 border-border"
                             : "bg-primary/5 text-primary border-primary/20",
@@ -390,31 +389,31 @@ export function SessionDetail({
                   }}
                   placeholder={t("sessions.composer.placeholder")}
                   className={cn(
-                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground/40 text-foreground",
+                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-2 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground/45 text-foreground",
                   )}
                   style={{ minHeight: 44, maxHeight: 160 }}
                   rows={1}
                   disabled={isStreaming}
                 />
-                <div className="flex items-center justify-between px-3 pb-2 pt-1.5 border-t border-border/10">
+                <div className="flex items-center justify-between px-3 pb-1.5 pt-2 border-t border-border/50">
                   <div className="flex items-center gap-1.5">
                     {!isStreaming && (
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="text-muted-foreground/70 hover:text-foreground hover:bg-muted/40 transition-colors p-1.5 rounded-full w-8 h-8 flex items-center justify-center cursor-pointer"
+                        className="text-muted-foreground hover:text-foreground hover:bg-muted transition-colors p-1.5 rounded-lg w-8 h-8 flex items-center justify-center cursor-pointer"
                         title="Attach files"
                       >
                         <Paperclip className="w-4 h-4" />
                       </button>
                     )}
                     {!isStreaming && (
-                      <span className="text-[10px] font-mono text-muted-foreground/35 select-none pl-1">
+                      <span className="text-[10px] font-mono text-muted-foreground/45 select-none pl-1">
                         ↵ send · ⇧↵ new line
                       </span>
                     )}
                     {isStreaming && (
-                      <span className="text-[10px] font-mono text-primary/60 select-none animate-pulse pl-1">
+                      <span className="text-[10px] font-mono text-primary/80 select-none animate-pulse pl-1">
                         generating…
                       </span>
                     )}
@@ -424,9 +423,9 @@ export function SessionDetail({
                       <button
                         type="button"
                         onClick={() => chatStop()}
-                        className="text-destructive hover:bg-destructive/10 bg-destructive/5 border border-destructive/20 font-semibold text-xs rounded-full px-3.5 h-8 transition-colors flex items-center gap-1 cursor-pointer"
+                        className="text-destructive hover:bg-destructive/10 bg-destructive/5 border border-destructive/25 font-semibold text-xs rounded-lg px-3.5 h-8 transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
-                        <div className="w-2.5 h-2.5 bg-destructive rounded-sm" />
+                        <div className="w-2 h-2 bg-destructive rounded-xs" />
                         <span>Stop</span>
                       </button>
                     )}
@@ -439,15 +438,15 @@ export function SessionDetail({
                         }
                         onClick={() => sendMessage().catch(console.error)}
                         className={cn(
-                          "w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer",
+                          "w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer",
                           (!userInput.trim() && attachments.length === 0) ||
                             attachments.some((a) => a.uploading)
                             ? "bg-muted text-muted-foreground/30 cursor-not-allowed"
-                            : "bg-primary text-primary-foreground hover:bg-primary/95 hover:scale-[1.03] active:scale-[0.97]",
+                            : "bg-primary text-primary-foreground hover:bg-primary-hover",
                         )}
                         title="Send message"
                       >
-                        <ArrowUp className="w-4.5 h-4.5 stroke-[2.5]" />
+                        <ArrowUp className="w-4 h-4 stroke-[2.5]" />
                       </button>
                     )}
                   </div>

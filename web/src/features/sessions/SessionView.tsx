@@ -175,7 +175,7 @@ export function SessionView() {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative flex h-full min-w-0 overflow-hidden bg-card/70">
+    <div ref={containerRef} className="relative flex h-full min-w-0 overflow-hidden bg-background">
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <SessionDetail
           session={sessionDetail}
@@ -191,9 +191,9 @@ export function SessionView() {
 
       <div
         className={cn(
-          "stella-right-panel relative hidden flex-shrink-0 bg-sidebar/70 transition-[width,min-width,opacity] duration-200 ease-out md:block",
+          "stella-right-panel relative hidden flex-shrink-0 bg-card transition-[width,min-width,opacity] duration-200 ease-out md:block",
           showWorkspace
-            ? "border-l border-border/70"
+            ? "border-l border-border"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
         )}
         style={showWorkspace ? { width: rightWidth, minWidth: RIGHT_MIN } : undefined}
@@ -201,7 +201,7 @@ export function SessionView() {
         {showWorkspace && (
           <div
             onMouseDown={onResizeStart}
-            className="absolute top-4 bottom-4 left-0 z-10 w-2 -translate-x-1 cursor-col-resize rounded-full transition-colors hover:bg-primary/10 active:bg-primary/20"
+            className="absolute top-0 bottom-0 left-0 z-10 w-1.5 -translate-x-[3px] cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/35"
           />
         )}
         <InspectorPanel
@@ -216,7 +216,11 @@ export function SessionView() {
       </div>
 
       <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-        <SheetPopup side="right" showCloseButton={false} className="w-[85%] max-w-sm md:hidden">
+        <SheetPopup
+          side="right"
+          showCloseButton={false}
+          className="w-[85%] max-w-sm md:hidden bg-card border-l border-border"
+        >
           <SheetTitle className="sr-only">Inspector</SheetTitle>
           <SheetDescription className="sr-only">
             Session workspace, work queue, and context
