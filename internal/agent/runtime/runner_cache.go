@@ -24,7 +24,7 @@ type cachedSession struct {
 // It is an implementation detail of Runtime.
 type runnerCache struct {
 	sessions       map[string]*cachedSession
-	factory        NewRunnerFunc
+	newRunner      NewRunnerFunc
 	hooksFn        func() []hooks.HookPlugin
 	defaultModel   string
 	delegateRunner delegatetool.SessionRunner
@@ -35,14 +35,14 @@ type runnerCache struct {
 }
 
 func newRunnerCache(
-	factory NewRunnerFunc,
+	newRunner NewRunnerFunc,
 	mem memory.Provider,
 	idleTimeout time.Duration,
 	log *slog.Logger,
 ) *runnerCache {
 	return &runnerCache{
 		sessions:    make(map[string]*cachedSession),
-		factory:     factory,
+		newRunner:   newRunner,
 		mem:         mem,
 		idleTimeout: idleTimeout,
 		log:         log,
@@ -87,7 +87,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		}
 	}
 
-	factory := c.factory
+	newRunner := c.newRunner
 	hooksFn := c.hooksFn
 	defaultModel := c.defaultModel
 	delegateRunner := c.delegateRunner
@@ -106,7 +106,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		effectiveModel = defaultModel
 	}
 
-	r, err := factory(ctx, RunnerParams{
+	r, err := newRunner(ctx, RunnerParams{
 		Model:          effectiveModel,
 		Memory:         c.mem,
 		UserID:         info.UserID,

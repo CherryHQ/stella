@@ -46,7 +46,7 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 
 // Config holds all dependencies for a Runtime instance.
 type Config struct {
-	Factory        NewRunnerFunc
+	NewRunner      NewRunnerFunc
 	Memory         memory.Provider
 	IdleTimeout    time.Duration
 	Compaction     CompactionConfig
@@ -59,8 +59,8 @@ type Config struct {
 
 // New creates a Runtime from the given config.
 func New(cfg Config) (*Runtime, error) {
-	if cfg.Factory == nil {
-		return nil, fmt.Errorf("runtime.Config.Factory is required")
+	if cfg.NewRunner == nil {
+		return nil, fmt.Errorf("runtime.Config.NewRunner is required")
 	}
 	if cfg.Memory == nil {
 		return nil, fmt.Errorf("runtime.Config.Memory is required")
@@ -70,7 +70,7 @@ func New(cfg Config) (*Runtime, error) {
 		idleTimeout = 10 * time.Minute
 	}
 	log := slog.With("component", "runtime")
-	cache := newRunnerCache(cfg.Factory, cfg.Memory, idleTimeout, log)
+	cache := newRunnerCache(cfg.NewRunner, cfg.Memory, idleTimeout, log)
 	cache.defaultModel = cfg.DefaultModel
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
@@ -83,11 +83,11 @@ func New(cfg Config) (*Runtime, error) {
 	}, nil
 }
 
-// SetFactory replaces the runner factory. Existing runners are not affected
+// SetNewRunner replaces the runner builder. Existing runners are not affected
 // until their session is next reused.
-func (rt *Runtime) SetFactory(f NewRunnerFunc) {
+func (rt *Runtime) SetNewRunner(f NewRunnerFunc) {
 	rt.cache.mu.Lock()
-	rt.cache.factory = f
+	rt.cache.newRunner = f
 	rt.cache.mu.Unlock()
 }
 
@@ -158,11 +158,11 @@ func (rt *Runtime) ResetRunnersForUser(userID string) error {
 	return lastErr
 }
 
-// Factory returns the current runner factory. Used by the task system to create
-// standalone runners with custom tools.
-func (rt *Runtime) Factory() NewRunnerFunc {
+// NewRunnerFunc returns the current runner builder. Used by the task system to
+// create standalone runners with custom tools.
+func (rt *Runtime) NewRunnerFunc() NewRunnerFunc {
 	rt.cache.mu.Lock()
-	f := rt.cache.factory
+	f := rt.cache.newRunner
 	rt.cache.mu.Unlock()
 	return f
 }

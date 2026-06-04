@@ -31,7 +31,7 @@ func (r *blockingRunner) Close() error            { return nil }
 func newTestRuntime(gate chan struct{}) *Runtime {
 	mem := &recordingMemory{}
 	rt, _ := New(Config{
-		Factory: func(_ context.Context, _ RunnerParams) (Runner, error) {
+		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return &blockingRunner{gate: gate}, nil
 		},
 		Memory: mem,

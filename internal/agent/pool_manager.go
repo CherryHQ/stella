@@ -176,7 +176,7 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 	pm.mu.Unlock()
 
 	for agentID := range services {
-		if err := pm.rebuildFactory(ctx, agentID); err != nil {
+		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
 		}
 	}
@@ -192,7 +192,7 @@ func (pm *PoolManager) SetTokenEnsurer(ctx context.Context, te sandbox.TokenEnsu
 	pm.mu.Unlock()
 
 	for agentID := range services {
-		if err := pm.rebuildFactory(ctx, agentID); err != nil {
+		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after token ensurer set", "agent_id", agentID, "error", err)
 		}
 	}
@@ -252,10 +252,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		return err
 	}
 
-	factory, err := pm.buildFactory_(ctx, snap)
-	if err != nil {
-		return err
-	}
+	factory := pm.buildRunnerFunc(ctx, snap)
 
 	svc, err := pm.buildService(ctx, ag.ID, factory, snap)
 	if err != nil {
@@ -277,7 +274,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	}
 
 	cfg := agentruntime.Config{
-		Factory:        factory,
+		NewRunner:      factory,
 		Memory:         pm.mem,
 		IdleTimeout:    pm.idleTimeout,
 		DefaultModel:   snap.ResolveModelID(config.ModelTierStrong),
@@ -403,7 +400,7 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	pm.mu.RUnlock()
 
 	for _, agentID := range agentIDs {
-		if err := pm.rebuildFactory(ctx, agentID); err != nil {
+		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after plugin reload", "agent_id", agentID, "error", err)
 		}
 	}
@@ -446,7 +443,7 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 	pm.mu.RUnlock()
 
 	for _, agentID := range agentIDs {
-		if err := pm.rebuildFactory(ctx, agentID); err != nil {
+		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after provider reload", "agent_id", agentID, "error", err)
 		}
 	}
@@ -455,22 +452,19 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 	return nil
 }
 
-// rebuildFactory rebuilds and replaces the runner factory for a single agent's service.
-func (pm *PoolManager) rebuildFactory(ctx context.Context, agentID string) error {
+// rebuildRunnerFunc rebuilds and replaces the runner builder for a single agent's service.
+func (pm *PoolManager) rebuildRunnerFunc(ctx context.Context, agentID string) error {
 	snap, _, err := pm.loadAgentSnapshot(ctx, agentID)
 	if err != nil {
 		return err
 	}
-	factory, err := pm.buildFactory_(ctx, snap)
-	if err != nil {
-		return err
-	}
+	factory := pm.buildRunnerFunc(ctx, snap)
 
 	pm.mu.RLock()
 	svc := pm.services[agentID]
 	pm.mu.RUnlock()
 	if svc != nil {
-		svc.Runtime.SetFactory(factory)
+		svc.Runtime.SetNewRunner(factory)
 		svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong))
 		svc.Runtime.SetHooks(pm.HookPlugins)
 	}
@@ -496,7 +490,7 @@ func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
 	if svc == nil {
 		return pm.startAgent(ctx, ag)
 	}
-	if err := pm.rebuildFactory(ctx, agentID); err != nil {
+	if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 		return err
 	}
 	if err := svc.Runtime.ResetRunners(); err != nil {
@@ -531,8 +525,8 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 	return snap, workspace, nil
 }
 
-// buildFactory_ creates a runner factory with builtin tools and external plugin tools.
-func (pm *PoolManager) buildFactory_(_ context.Context, snap *config.Snapshot) (NewRunnerFunc, error) {
+// buildRunnerFunc assembles a NewRunnerFunc with builtin tools and external plugin tools.
+func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot) NewRunnerFunc {
 	pm.mu.RLock()
 	builtinTools := append([]tools.Tool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
@@ -541,7 +535,7 @@ func (pm *PoolManager) buildFactory_(_ context.Context, snap *config.Snapshot) (
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(RunnerFactoryConfig{
+	return newRunnerFunc(runnerBuilderConfig{
 		Snap:                     snap,
 		BuiltinTools:             builtinTools,
 		PluginToolsBuilder:       pm.pluginToolsBuilder,
@@ -569,7 +563,7 @@ func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) erro
 	pm.mu.Unlock()
 
 	for _, agentID := range agentIDs {
-		if err := pm.rebuildFactory(ctx, agentID); err != nil {
+		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
 			pm.log.Error("failed to rebuild factory after adding builtin tool", "agent_id", agentID, "error", err)
 		}
 	}

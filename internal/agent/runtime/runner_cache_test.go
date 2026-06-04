@@ -217,7 +217,7 @@ func TestRuntimeChat_BeforeRunOverride(t *testing.T) {
 	runner := newFakeRunner()
 	runner.system = "base"
 	rt, err := New(Config{
-		Factory: func(_ context.Context, _ RunnerParams) (Runner, error) {
+		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return runner, nil
 		},
 		Memory: fakeMemory{},

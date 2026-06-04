@@ -7,7 +7,6 @@ import (
 
 // RunnerConfig configures the agent runner.
 type RunnerConfig struct {
-	Type            string           `json:"type"`
 	System          string           `json:"system"`
 	IdleTimeout     int              `json:"idle_timeout"`
 	DelegateTimeout int              `json:"delegate_timeout"` // minutes; 0 = use default (15m)

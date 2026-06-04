@@ -5,10 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -28,10 +26,6 @@ func (commandTestProvider) Stream(context.Context, ai.Model, ai.Context, ai.Stre
 
 func (commandTestProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("not implemented")
-}
-
-func testProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFunc, error) {
-	return providers.AdapterStreamFunc(commandTestProvider{}), nil
 }
 
 func TestIntentClassifierStreamFuncBuilderUsesProvidedProviderType(t *testing.T) {
@@ -147,52 +141,6 @@ func setupCommandTestStellaHome(t *testing.T) string {
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 	return stellaHome
-}
-
-func TestNewRunnerFactoryGo(t *testing.T) {
-	setupCommandTestStellaHome(t)
-	snap := &config.Snapshot{
-		AgentID:  "test-agent",
-		Provider: "anthropic",
-		Model:    "test-model",
-		APIKey:   "test-key",
-		Runner:   config.RunnerConfig{Type: "go"},
-	}
-	snap.Workspace = t.TempDir()
-
-	factory, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-		Snap:                  snap,
-		ProviderStreamBuilder: testProviderStreamBuilder,
-	})
-	if err != nil {
-		t.Fatalf("NewRunnerFactory: %v", err)
-	}
-
-	r, err := factory(context.Background(), agent.RunnerParams{UserID: "1"})
-	if err != nil {
-		t.Skipf("factory: docker not available: %v", err)
-	}
-
-	if r == nil {
-		t.Fatal("expected non-nil runner")
-	}
-}
-
-func TestNewRunnerFactoryUnknown(t *testing.T) {
-	snap := &config.Snapshot{
-		Runner: config.RunnerConfig{Type: "invalid"},
-	}
-
-	_, err := agent.NewRunnerFactory(agent.RunnerFactoryConfig{
-		Snap:                  snap,
-		ProviderStreamBuilder: testProviderStreamBuilder,
-	})
-	if err == nil {
-		t.Fatal("expected error for unknown runner type")
-	}
-	if !strings.Contains(err.Error(), "unknown runner type") {
-		t.Errorf("error = %q, want contains 'unknown runner type'", err.Error())
-	}
 }
 
 func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {

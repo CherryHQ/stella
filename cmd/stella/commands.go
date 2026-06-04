@@ -221,7 +221,7 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 			if svc == nil {
 				return nil, false
 			}
-			return svc.Runtime.Factory(), true
+			return svc.Runtime.NewRunnerFunc(), true
 		},
 	})
 

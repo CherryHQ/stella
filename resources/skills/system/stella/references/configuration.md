@@ -80,12 +80,12 @@ Built-in OAuth provider IDs: `google`, `github`, `feishu`. Google uses OIDC disc
 
 Global settings are stored in the `settings` table as JSON values:
 
-| Key         | Purpose                                          |
-| ----------- | ------------------------------------------------ |
-| `runner`    | Runner type, idle timeout, compaction config     |
-| `scheduler` | Scheduler enabled flag, data directory           |
-| `heartbeat` | Heartbeat enabled, interval, file path           |
-| `plugins`   | Array of plugin configs (path + optional config) |
+| Key         | Purpose                                           |
+| ----------- | ------------------------------------------------- |
+| `runner`    | Idle timeout, delegate timeout, compaction config |
+| `scheduler` | Scheduler enabled flag, data directory            |
+| `heartbeat` | Heartbeat enabled, interval, file path            |
+| `plugins`   | Array of plugin configs (path + optional config)  |
 
 ## Directory layout
 

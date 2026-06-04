@@ -42,8 +42,8 @@ func newTestService(t *testing.T, events []agentruntime.Event) (*agent.Service, 
 		return &fakeRunnerSvc{events: events}, nil
 	}
 	rt, err := agentruntime.New(agentruntime.Config{
-		Factory: factory,
-		Memory:  mem,
+		NewRunner: factory,
+		Memory:    mem,
 	})
 	if err != nil {
 		t.Fatalf("agentruntime.New: %v", err)

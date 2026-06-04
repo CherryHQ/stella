@@ -499,9 +499,6 @@ func TestSnapshot(t *testing.T) {
 	if snap.SystemPrompt != "You are Stella." {
 		t.Errorf("SystemPrompt = %q", snap.SystemPrompt)
 	}
-	if snap.Runner.Type != "go" {
-		t.Errorf("Runner.Type = %q", snap.Runner.Type)
-	}
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
 	}
@@ -564,9 +561,6 @@ func TestSnapshotDefaults(t *testing.T) {
 	snap, err := s.Snapshot(ctx, "a")
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
-	}
-	if snap.Runner.Type != "go" {
-		t.Errorf("default Runner.Type = %q, want go", snap.Runner.Type)
 	}
 	if snap.Runner.IdleTimeout != 10 {
 		t.Errorf("default Runner.IdleTimeout = %d, want 10", snap.Runner.IdleTimeout)

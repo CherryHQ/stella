@@ -612,9 +612,6 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	if val, err := s.GetSetting(ctx, "scheduler"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Scheduler)
 	}
-	if snap.Runner.Type == "" {
-		snap.Runner.Type = "go"
-	}
 	if snap.Runner.IdleTimeout == 0 {
 		snap.Runner.IdleTimeout = 10
 	}
