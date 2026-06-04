@@ -205,6 +205,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	botRegistry := channel.NewBotIdentityRegistry()
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
+	coordOpts = append(coordOpts, channel.WithArbiter(channel.NewArbiter(channel.ArbiterConfig{
+		MaxRepliesPerTrigger: 1,
+	})))
 	coordOpts = append(coordOpts, channel.WithGroupMemberLister(
 		channel.FuncGroupMemberLister(func(ctx context.Context, groupID string) ([]channel.GroupMember, error) {
 			rows, err := sqlc.New(s.db).ListGroupMembers(ctx, groupID)

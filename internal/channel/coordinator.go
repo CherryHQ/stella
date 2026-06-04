@@ -53,6 +53,7 @@ type Coordinator struct {
 	eventLog         *eventlog.Store
 	memberLister     GroupMemberLister
 	botRegistry      *BotIdentityRegistry
+	arbiter          *Arbiter
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -141,6 +142,13 @@ func WithGroupMemberLister(lister GroupMemberLister) CoordinatorOption {
 func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.botRegistry = reg
+	}
+}
+
+// WithArbiter configures the group arbiter for deciding which agents respond.
+func WithArbiter(a *Arbiter) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.arbiter = a
 	}
 }
 

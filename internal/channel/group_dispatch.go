@@ -25,7 +25,7 @@ type GroupMemberLister interface {
 }
 
 // handleGroupIncoming processes a group message: append to event log (dedup),
-// resolve @mentions, pick the responding agent, and forward to the chat flow.
+// resolve @mentions, run arbiter, and dispatch to the selected agent.
 func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	log := slog.With("component", "group_dispatch", "platform", msg.Platform, "chat_id", msg.ChatID)
 
@@ -43,8 +43,33 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 
 	c.resolveMentionAgents(ctx, result.GroupID, msg.Platform, msg.Mentions)
 
-	if mentionedAgent := firstMentionedAgent(msg.Mentions); mentionedAgent != "" {
-		log.Debug("routing to @mentioned agent", "agent_id", mentionedAgent)
+	// Determine the channel's default agent for fallback.
+	channelAgentID := c.resolveChannelAgentID(ctx, msg)
+
+	// Use arbiter to decide which agents respond.
+	var members []GroupMember
+	if c.memberLister != nil {
+		members, _ = c.memberLister.ListGroupMembers(ctx, result.GroupID)
+	}
+
+	if c.arbiter != nil {
+		decision := c.arbiter.Decide(ctx, result.GroupID, msg.Mentions, members, channelAgentID)
+		if decision.Debounced {
+			log.Debug("arbiter debounced")
+			return "", false, nil, nil
+		}
+		if len(decision.RespondingAgents) > 0 {
+			agentID := decision.RespondingAgents[0]
+			log.Debug("arbiter selected agent", "agent_id", agentID)
+			rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, agentID)
+			if err != nil {
+				log.Warn("failed to resolve arbiter-selected agent, falling back", "agent_id", agentID, "error", err)
+			} else {
+				return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+			}
+		}
+	} else if mentionedAgent := firstMentionedAgent(msg.Mentions); mentionedAgent != "" {
+		log.Debug("routing to @mentioned agent (no arbiter)", "agent_id", mentionedAgent)
 		rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, mentionedAgent)
 		if err != nil {
 			log.Warn("failed to resolve @mentioned agent, falling back", "agent_id", mentionedAgent, "error", err)
@@ -58,6 +83,20 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 		return "", false, nil, err
 	}
 	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+}
+
+// resolveChannelAgentID returns the channel's default agent for the message,
+// used as fallback when no @mention is present.
+func (c *Coordinator) resolveChannelAgentID(ctx context.Context, msg pkgchannel.IncomingMessage) string {
+	channelID := msg.ChannelID
+	if channelID == "" {
+		channelID = msg.Platform
+	}
+	ch, err := c.store.GetChannel(ctx, channelID)
+	if err != nil || ch.AgentID == "" {
+		return ""
+	}
+	return ch.AgentID
 }
 
 // appendGroupMessage writes the incoming message to the event log.
