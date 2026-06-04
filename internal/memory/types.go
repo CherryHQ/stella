@@ -75,6 +75,7 @@ type SessionInfo struct {
 	ID         string
 	AgentID    string
 	UserID     string
+	GroupID    string // non-empty for group sessions; runtime uses this to isolate identity surfaces
 	Channel    string
 	Kind       string // session kind: main, chat, scheduler, task
 	ProjectID  string // set for project-scoped sessions

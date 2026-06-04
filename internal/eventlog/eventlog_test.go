@@ -196,6 +196,64 @@ func TestConcurrentAppendsHaveContiguousUniqueSeqs(t *testing.T) {
 	}
 }
 
+func TestResolveGroupIDIdempotent(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	id1, err := s.ResolveGroupID(ctx, "telegram", "g1", "")
+	if err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+	if id1 == "" {
+		t.Fatal("expected non-empty group_id")
+	}
+
+	id2, err := s.ResolveGroupID(ctx, "telegram", "g1", "")
+	if err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	if id2 != id1 {
+		t.Fatalf("resolve not idempotent: %q vs %q", id1, id2)
+	}
+}
+
+func TestResolveGroupIDThreadsAreDistinct(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	idNoThread, err := s.ResolveGroupID(ctx, "telegram", "g1", "")
+	if err != nil {
+		t.Fatalf("resolve no thread: %v", err)
+	}
+	idThread1, err := s.ResolveGroupID(ctx, "telegram", "g1", "t1")
+	if err != nil {
+		t.Fatalf("resolve thread1: %v", err)
+	}
+	if idThread1 == idNoThread {
+		t.Fatal("thread should produce a different group_id than no-thread")
+	}
+}
+
+func TestResolveGroupIDConsistentWithAppend(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	resolvedID, err := s.ResolveGroupID(ctx, "telegram", "g1", "")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	msg := humanMsg()
+	msg.PlatformMessageID = "m1"
+	res, err := s.AppendGroupMessage(ctx, msg)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if res.GroupID != resolvedID {
+		t.Fatalf("append returned group_id %q, resolve returned %q", res.GroupID, resolvedID)
+	}
+}
+
 func TestValidation(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

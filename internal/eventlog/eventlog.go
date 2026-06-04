@@ -102,7 +102,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message) (AppendResu
 
 	q := sqlc.New(conn)
 
-	groupID, err := resolveGroupID(ctx, q, msg)
+	groupID, err := resolveGroupID(ctx, q, msg.Platform, msg.PlatformGroupID, msg.PlatformThreadID)
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -160,13 +160,49 @@ func validate(msg Message) error {
 	return nil
 }
 
+// ResolveGroupID performs a get-or-create on the group registry for the given
+// physical (platform, group, thread) triple and returns the surrogate group_id.
+// It runs under BEGIN IMMEDIATE so the upsert is atomic.
+func (s *Store) ResolveGroupID(ctx context.Context, platform, platformGroupID, platformThreadID string) (string, error) {
+	if platform == "" || platformGroupID == "" {
+		return "", errors.New("eventlog: platform and platform_group_id are required")
+	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return "", fmt.Errorf("eventlog: acquire conn: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return "", fmt.Errorf("eventlog: begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
+
+	q := sqlc.New(conn)
+	id, err := resolveGroupID(ctx, q, platform, platformGroupID, platformThreadID)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return "", fmt.Errorf("eventlog: commit: %w", err)
+	}
+	committed = true
+	return id, nil
+}
+
 // resolveGroupID is step 0: get-or-create the registry row for the physical
 // (platform, group, thread) triple and return its surrogate id.
-func resolveGroupID(ctx context.Context, q *sqlc.Queries, msg Message) (string, error) {
+func resolveGroupID(ctx context.Context, q *sqlc.Queries, platform, platformGroupID, platformThreadID string) (string, error) {
 	state, err := q.GetGroupStateByTriple(ctx, sqlc.GetGroupStateByTripleParams{
-		Platform:         msg.Platform,
-		PlatformGroupID:  msg.PlatformGroupID,
-		PlatformThreadID: msg.PlatformThreadID,
+		Platform:         platform,
+		PlatformGroupID:  platformGroupID,
+		PlatformThreadID: platformThreadID,
 	})
 	if err == nil {
 		return state.ID, nil
@@ -176,9 +212,9 @@ func resolveGroupID(ctx context.Context, q *sqlc.Queries, msg Message) (string, 
 	}
 	created, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
 		ID:               uuid.NewString(),
-		Platform:         msg.Platform,
-		PlatformGroupID:  msg.PlatformGroupID,
-		PlatformThreadID: msg.PlatformThreadID,
+		Platform:         platform,
+		PlatformGroupID:  platformGroupID,
+		PlatformThreadID: platformThreadID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("eventlog: create group state: %w", err)

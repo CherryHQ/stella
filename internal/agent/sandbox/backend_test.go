@@ -178,7 +178,7 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 // any same-named vault entry.
 func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
 	paths := Paths{UserRoot: "/workspace/users/42", WorkDir: "/workspace/users/42"}
-	policy := runnerFilesystemPolicy(paths, "42")
+	policy := runnerFilesystemPolicy(paths, Config{UserID: "42"})
 	base := os.TempDir()
 	if resolved, err := filepath.EvalSymlinks(base); err == nil {
 		base = resolved
@@ -188,7 +188,7 @@ func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
 		t.Fatalf("TempDirHost = %q, want %q", policy.TempDirHost, want)
 	}
 	for _, unsafeID := range []string{"../42", ".", "..", "a/b", `a\\b`} {
-		if got := runnerFilesystemPolicy(paths, unsafeID).TempDirHost; got != "" {
+		if got := runnerFilesystemPolicy(paths, Config{UserID: unsafeID}).TempDirHost; got != "" {
 			t.Fatalf("unsafe user id %q should not produce temp dir, got %q", unsafeID, got)
 		}
 	}

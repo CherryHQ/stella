@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -199,6 +200,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
+
+	coordOpts = append(coordOpts, channel.WithGroupResolver(eventlog.NewStore(s.db)))
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(

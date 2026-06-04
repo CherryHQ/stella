@@ -11,6 +11,11 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
+// GroupResolver resolves the canonical group_id for a physical group identity.
+type GroupResolver interface {
+	ResolveGroupID(ctx context.Context, platform, platformGroupID, platformThreadID string) (string, error)
+}
+
 type ResolvedChat struct {
 	Service    *agent.Service
 	User       auth.User
@@ -18,15 +23,33 @@ type ResolvedChat struct {
 	SessionKey string
 	Channel    session.Channel
 	ChatCtx    ChatContext
+	GroupID    string // non-empty for group sessions; used as session scope (D9)
 }
 
 func (rc *ResolvedChat) UserID() string { return rc.User.ID }
+
+// sessionUserID returns the user_id to use for session operations.
+// For group sessions this is the group_id (session scope, D9);
+// for DM sessions this is the auth user ID.
+func (rc *ResolvedChat) sessionUserID() string {
+	if rc.GroupID != "" {
+		return rc.GroupID
+	}
+	return rc.User.ID
+}
 
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (agent.SessionInfo, error) {
 	if rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:") {
 		return rc.Service.ResolveMainSession(ctx, rc.User.ID, rc.AgentID)
 	}
-	return rc.Service.ResolveChannelSession(ctx, rc.SessionKey, rc.User.ID, rc.AgentID, rc.Channel)
+	info, err := rc.Service.ResolveChannelSession(ctx, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
+	if err != nil {
+		return info, err
+	}
+	if rc.GroupID != "" {
+		info.GroupID = rc.GroupID
+	}
+	return info, nil
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
@@ -38,7 +61,7 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
-	if rc.User.ID == "" {
+	if rc.User.ID == "" && rc.GroupID == "" {
 		return nil, "", fmt.Errorf("missing user context")
 	}
 	if rc.AgentID == "" {
@@ -50,7 +73,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 	}
 	stream := rc.Service.Chat(ctx, agent.ChatRequest{
 		SessionID: info.ID,
-		UserID:    rc.User.ID,
+		UserID:    rc.sessionUserID(),
 		AgentID:   rc.AgentID,
 		Kind:      session.Kind(info.Kind),
 		Channel:   rc.Channel,
@@ -60,10 +83,10 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 }
 
 func Resolve(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
-	return ResolveWithChannel(ctx, sm, store, authStore, engine, platform, platform, senderID, nil, senderName, chatID, isGroup)
+	return ResolveWithChannel(ctx, sm, store, authStore, engine, nil, platform, platform, senderID, nil, senderName, chatID, "", isGroup)
 }
 
-func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, platform, channelID, senderID string, senderIDs []string, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, engine *auth.PolicyEngine, groupResolver GroupResolver, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool) (*ResolvedChat, error) {
 	if channelID == "" {
 		channelID = platform
 	}
@@ -99,11 +122,26 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		channelCtx = "channel:" + channelID + ":" + channelCtx
 	}
 
-	var sessionKey string
-	if resolved.User.ID != "" && !isGroup {
+	var (
+		sessionKey string
+		groupID    string
+	)
+	switch {
+	case isGroup && chatID != "" && groupResolver != nil:
+		groupID, err = groupResolver.ResolveGroupID(ctx, platform, chatID, threadID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve group id: %w", err)
+		}
+		sessionKey = agent.BuildGroupSessionKey(agentID, groupID)
+	case resolved.User.ID != "" && !isGroup:
 		sessionKey = agent.BuildUserSessionKey(agentID, resolved.User.ID, channelCtx)
-	} else {
+	default:
 		sessionKey = agent.BuildSessionKey(agentID, platform, senderID, channelCtx)
+	}
+
+	ch := session.Channel(sessionKey)
+	if groupID != "" {
+		ch = session.Channel(channelCtx)
 	}
 
 	return &ResolvedChat{
@@ -111,7 +149,8 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		User:       resolved.User,
 		AgentID:    agentID,
 		SessionKey: sessionKey,
-		Channel:    session.Channel(sessionKey),
+		Channel:    ch,
 		ChatCtx:    chatCtx,
+		GroupID:    groupID,
 	}, nil
 }

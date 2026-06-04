@@ -40,7 +40,9 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		return
 	}
 
-	ctx = memory.WithUserID(ctx, info.UserID)
+	if info.GroupID == "" {
+		ctx = memory.WithUserID(ctx, info.UserID)
+	}
 	ctx = memory.WithAgentID(ctx, info.AgentID)
 	if info.ProjectID != "" {
 		ctx = memory.WithProjectID(ctx, info.ProjectID)
@@ -49,10 +51,14 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		ctx = withChannel(ctx, info.Channel)
 	}
 
+	memUserID := info.UserID
+	if info.GroupID != "" {
+		memUserID = ""
+	}
 	memSess := memory.Session{
 		ID:      info.ID,
 		AgentID: info.AgentID,
-		UserID:  info.UserID,
+		UserID:  memUserID,
 		Channel: info.Channel,
 	}
 

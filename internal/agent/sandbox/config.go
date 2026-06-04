@@ -31,6 +31,7 @@ type Config struct {
 	SandboxBackendFn func(ctx context.Context) string
 	Paths            Paths
 	UserID           string
+	GroupID          string // non-empty for group sessions; vault/token use group principal
 	AgentID          string
 	SessionID        string
 	ProjectID        string

@@ -110,6 +110,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		Model:          effectiveModel,
 		Memory:         c.mem,
 		UserID:         info.UserID,
+		GroupID:        info.GroupID,
 		SessionID:      info.ID,
 		AgentID:        info.AgentID,
 		ProjectID:      info.ProjectID,

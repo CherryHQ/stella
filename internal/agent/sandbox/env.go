@@ -17,12 +17,16 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-func runnerFilesystemPolicy(paths Paths, userID string) pkgsandbox.FilesystemPolicy {
+func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
+	tempID := cfg.UserID
+	if cfg.GroupID != "" {
+		tempID = "group-" + cfg.GroupID
+	}
 	return pkgsandbox.FilesystemPolicy{
 		WorkspaceRoot:       paths.UserRoot,
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
-		TempDirHost:         userTempDir(userID),
+		TempDirHost:         userTempDir(tempID),
 	}
 }
 
@@ -68,36 +72,14 @@ func skillMountsForSandbox(paths Paths) []string {
 func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]string, error) {
 	env := make(map[string]string)
 
-	// vaultEnv is the full decrypted vault snapshot, retained so OAuth bundle
-	// resolution can read from it instead of decrypting the vault again. env is
-	// the sandbox-facing copy, which has the host-only bundle keys stripped below.
+	// Group sessions never load human vault secrets (D9 isolation).
 	var vaultEnv map[string]string
-
-	if envEnsurer, ok := cfg.TokenEnsurer.(tokenEnvEnsurer); ok {
-		ve, err := envEnsurer.EnsureAutoTokenEnv(ctx, cfg.UserID)
-		if err != nil {
-			slog.Warn("vault env injection skipped",
-				"component", "runner_sandbox",
-				"user_id", cfg.UserID,
-				"error", err,
-			)
-		} else {
-			vaultEnv = ve
-			maps.Copy(env, ve)
-		}
-	} else {
-		if cfg.TokenEnsurer != nil {
-			if err := cfg.TokenEnsurer.EnsureAutoToken(ctx, cfg.UserID); err != nil {
-				slog.Warn("ensure auto token failed",
-					"component", "runner_sandbox",
-					"user_id", cfg.UserID,
-					"error", err,
-				)
-			}
-		}
-
-		if cfg.VaultEnvLoader != nil {
-			ve, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
+	if cfg.GroupID == "" {
+		// vaultEnv is the full decrypted vault snapshot, retained so OAuth bundle
+		// resolution can read from it instead of decrypting the vault again. env is
+		// the sandbox-facing copy, which has the host-only bundle keys stripped below.
+		if envEnsurer, ok := cfg.TokenEnsurer.(tokenEnvEnsurer); ok {
+			ve, err := envEnsurer.EnsureAutoTokenEnv(ctx, cfg.UserID)
 			if err != nil {
 				slog.Warn("vault env injection skipped",
 					"component", "runner_sandbox",
@@ -108,6 +90,30 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 				vaultEnv = ve
 				maps.Copy(env, ve)
 			}
+		} else {
+			if cfg.TokenEnsurer != nil {
+				if err := cfg.TokenEnsurer.EnsureAutoToken(ctx, cfg.UserID); err != nil {
+					slog.Warn("ensure auto token failed",
+						"component", "runner_sandbox",
+						"user_id", cfg.UserID,
+						"error", err,
+					)
+				}
+			}
+
+			if cfg.VaultEnvLoader != nil {
+				ve, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
+				if err != nil {
+					slog.Warn("vault env injection skipped",
+						"component", "runner_sandbox",
+						"user_id", cfg.UserID,
+						"error", err,
+					)
+				} else {
+					vaultEnv = ve
+					maps.Copy(env, ve)
+				}
+			}
 		}
 	}
 
@@ -117,12 +123,18 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
 	delete(env, oauth.VaultKeyFeishu)
-	if err := injectSessionEnv(ctx, cfg, env, vaultEnv); err != nil {
-		return nil, err
+	if cfg.GroupID == "" {
+		if err := injectSessionEnv(ctx, cfg, env, vaultEnv); err != nil {
+			return nil, err
+		}
 	}
 
 	if shouldInjectScopedToken(cfg) {
-		tok, err := cfg.TokenEnsurer.CreateScopedToken(ctx, cfg.UserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
+		tokenUserID := cfg.UserID
+		if cfg.GroupID != "" {
+			tokenUserID = "group:" + cfg.GroupID
+		}
+		tok, err := cfg.TokenEnsurer.CreateScopedToken(ctx, tokenUserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +157,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 }
 
 func shouldInjectScopedToken(cfg Config) bool {
-	return cfg.TokenEnsurer != nil && cfg.UserID != "" && cfg.AgentID != ""
+	hasIdentity := cfg.UserID != "" || cfg.GroupID != ""
+	return cfg.TokenEnsurer != nil && hasIdentity && cfg.AgentID != ""
 }
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env. vaultEnv is the
