@@ -131,10 +131,10 @@ function InspectorTabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "pb-2 px-1 font-medium transition-colors border-b-2 outline-none cursor-pointer",
+        "pb-2 px-1 font-medium transition-colors border-b-2 outline-none cursor-pointer text-xs",
         active
-          ? "border-primary text-foreground"
-          : "border-transparent text-muted-foreground/75 hover:text-foreground",
+          ? "border-primary text-foreground font-semibold"
+          : "border-transparent text-muted-foreground/70 hover:text-foreground",
       )}
     >
       {children}
@@ -464,9 +464,11 @@ function ContextSummary({
   skills: number;
 }) {
   return (
-    <section className="rounded-xl border border-border/70 bg-background/35 p-3">
-      <div className="mb-2 text-[11px] font-medium text-muted-foreground">Runtime context</div>
-      <div className="grid grid-cols-4 gap-1">
+    <section className="rounded-xl border border-border bg-card p-4 shadow-none">
+      <div className="mb-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        Runtime context
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
         <ContextMetric label="Msgs" value={messagesLoading ? "..." : messages.length} />
         <ContextMetric
           label="Tokens"
@@ -487,9 +489,11 @@ function ContextSummary({
 
 function ContextMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg bg-muted/35 px-2 py-1.5">
-      <div className="truncate text-sm font-semibold leading-none text-foreground">{value}</div>
-      <div className="mt-1 truncate text-[10px] text-muted-foreground">{label}</div>
+    <div className="rounded-lg bg-muted/40 border border-border/10 px-2 py-2 text-center">
+      <div className="truncate text-sm font-semibold font-mono text-foreground">{value}</div>
+      <div className="mt-0.5 truncate text-[10px] text-muted-foreground/70 uppercase tracking-wider">
+        {label}
+      </div>
     </div>
   );
 }
@@ -514,25 +518,25 @@ function ContextSectionCard({
   onAction?: () => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-border/70 bg-background/35">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center transition-colors hover:bg-muted/35">
+    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-none">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center transition-all duration-120 hover:bg-muted/30">
         <button
           type="button"
           onClick={onToggle}
-          className="grid min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_1rem] items-center gap-2 px-3 py-2.5 text-left"
+          className="grid min-w-0 grid-cols-[2rem_minmax(0,1fr)_1rem] items-center gap-2.5 px-4 py-3 text-left cursor-pointer"
         >
-          <span className="grid size-7 place-items-center rounded-lg bg-muted text-muted-foreground">
+          <span className="grid size-8 place-items-center rounded-lg bg-muted border border-border/10 text-muted-foreground/80 shrink-0">
             {icon}
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{title}</span>
-            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+            <span className="block truncate text-sm font-semibold text-foreground/90">{title}</span>
+            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/60 leading-none">
               {detail}
             </span>
           </span>
           <ChevronDown
             className={cn(
-              "size-4 text-muted-foreground transition-transform",
+              "size-3.5 text-muted-foreground/50 transition-transform duration-200",
               open && "rotate-180",
             )}
           />
@@ -544,13 +548,13 @@ function ContextSectionCard({
               e.stopPropagation();
               onAction();
             }}
-            className="mr-2 rounded-md px-1.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            className="mr-3 rounded-md px-2.5 py-1.5 text-[10px] font-semibold text-primary transition-all duration-120 hover:bg-primary/10 cursor-pointer uppercase tracking-wider"
           >
             {actionLabel}
           </button>
         )}
       </div>
-      {open && <div className="border-t border-border/70 p-2">{children}</div>}
+      {open && <div className="border-t border-border p-4 bg-muted/5">{children}</div>}
     </section>
   );
 }
@@ -571,42 +575,59 @@ function SessionContextCard({
   const agentName = (session as Session & { agent_name?: string }).agent_name || session.agent_id;
 
   return (
-    <section className="rounded-xl border border-border/70 bg-background/35 p-3">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">Session</span>
+    <div className="space-y-3.5">
+      <dl className="grid grid-cols-[5.2rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
+        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
+          Channel
+        </dt>
+        <dd className="truncate text-foreground/80 font-medium">
+          {channelLabel(session.channel) || "chat"}
+        </dd>
+        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
+          Agent
+        </dt>
+        <dd className="truncate text-foreground/80 font-medium">{agentName || "unknown"}</dd>
+        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
+          Kind
+        </dt>
+        <dd className="truncate capitalize text-foreground/80 font-medium">{session.kind}</dd>
+        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
+          Active
+        </dt>
+        <dd className="truncate text-foreground/80 font-medium">
+          {formatTime(session.last_active)}
+        </dd>
+        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
+          Messages
+        </dt>
+        <dd className="truncate text-foreground/80 font-medium">
+          {messagesLoading ? "Loading..." : messages.length.toLocaleString()}
+        </dd>
+        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
+          Tokens
+        </dt>
+        <dd className="truncate text-foreground/80 font-medium">
+          {messagesLoading
+            ? "Loading..."
+            : typeof sessionTotalTokens === "number"
+              ? sessionTotalTokens.toLocaleString()
+              : sessionTotalTokens || "-"}
+        </dd>
+        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
+          Session ID
+        </dt>
+        <dd className="truncate font-mono text-[10px] text-foreground/70">{session.id}</dd>
+      </dl>
+      <div className="flex justify-end border-t border-border/10 pt-2.5">
         <button
           type="button"
           onClick={copyID}
-          className="rounded-lg px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+          className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground transition-all duration-120 hover:bg-muted hover:text-foreground cursor-pointer uppercase tracking-wider border border-border/60 bg-transparent"
         >
-          Copy ID
+          Copy Session ID
         </button>
       </div>
-      <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
-        <dt className="font-mono text-muted-foreground/45">Channel</dt>
-        <dd className="truncate">{channelLabel(session.channel) || "chat"}</dd>
-        <dt className="font-mono text-muted-foreground/45">Agent</dt>
-        <dd className="truncate">{agentName || "unknown"}</dd>
-        <dt className="font-mono text-muted-foreground/45">Kind</dt>
-        <dd className="truncate capitalize">{session.kind}</dd>
-        <dt className="font-mono text-muted-foreground/45">Active</dt>
-        <dd className="truncate">{formatTime(session.last_active)}</dd>
-        <dt className="font-mono text-muted-foreground/45">Messages</dt>
-        <dd className="truncate">
-          {messagesLoading ? "Loading..." : messages.length.toLocaleString()}
-        </dd>
-        <dt className="font-mono text-muted-foreground/45">Tokens</dt>
-        <dd className="truncate">
-          {messagesLoading
-            ? "Loading..."
-            : sessionTotalTokens > 0
-              ? sessionTotalTokens.toLocaleString()
-              : "-"}
-        </dd>
-        <dt className="font-mono text-muted-foreground/45">ID</dt>
-        <dd className="truncate font-mono text-[11px] text-muted-foreground">{session.id}</dd>
-      </dl>
-    </section>
+    </div>
   );
 }
 
@@ -627,27 +648,29 @@ function ToolContextRow({ tool }: { tool: Tool }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background/35">
+    <div className="rounded-xl border border-border bg-card shadow-none">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="grid w-full grid-cols-[1rem_minmax(0,1fr)] gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/35"
+        className="grid w-full grid-cols-[1rem_minmax(0,1fr)] gap-2 px-3 py-2.5 text-left transition-all duration-120 hover:bg-muted/30 cursor-pointer"
       >
-        <span className="pt-0.5 text-[10px] text-muted-foreground">{expanded ? "v" : ">"}</span>
+        <span className="pt-0.5 text-[10px] text-muted-foreground/60">{expanded ? "▼" : "▶"}</span>
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-mono text-xs font-medium">{tool.name}</span>
+            <span className="truncate font-mono text-xs font-semibold text-foreground/80">
+              {tool.name}
+            </span>
             <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
               {tool.category}
             </span>
           </span>
-          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+          <span className="mt-1 block text-[11px] text-muted-foreground/80 leading-normal">
             {tool.description}
           </span>
         </span>
       </button>
       {expanded && (
-        <pre className="mx-3 mb-3 overflow-x-auto rounded-lg bg-muted/45 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+        <pre className="mx-3 mb-3 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/10 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
           {JSON.stringify(tool.input_schema, null, 2)}
         </pre>
       )}
@@ -664,19 +687,19 @@ function PromptContext({ systemPrompt, loading }: { systemPrompt: string; loadin
 
   return (
     <div className="grid gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] text-muted-foreground/55">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="font-mono text-[10px] text-muted-foreground/60">
           ~{Math.round(systemPrompt.length / 4)} tokens
         </span>
         <button
           type="button"
           onClick={copyPrompt}
-          className="rounded-lg px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+          className="rounded-lg px-2 py-1 font-semibold text-[10px] text-muted-foreground transition-all duration-120 hover:bg-muted hover:text-foreground cursor-pointer uppercase tracking-wider border border-border/50"
         >
           Copy
         </button>
       </div>
-      <pre className="whitespace-pre-wrap rounded-xl border border-border/70 bg-background/35 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+      <pre className="whitespace-pre-wrap rounded-xl border border-border bg-card p-3.5 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
         {systemPrompt || "No system prompt available."}
       </pre>
     </div>
@@ -699,8 +722,8 @@ function SkillsContext({ skills, loading }: { skills: Skill[]; loading: boolean 
 
 function MemoryContext({ memories }: { memories: unknown[] }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-background/35 px-3 py-2">
-      <p className="text-xs text-muted-foreground">
+    <div className="rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-none">
+      <p className="text-xs text-muted-foreground/80 leading-relaxed">
         {memories.length > 0
           ? `${memories.length} memories are available for this agent.`
           : "No profile memories yet."}
@@ -711,15 +734,17 @@ function MemoryContext({ memories }: { memories: unknown[] }) {
 
 function SkillContextRow({ skill }: { skill: Skill }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-background/35 px-3 py-2">
+    <div className="rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-none">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-mono text-xs font-medium">{skill.name || skill.id}</span>
+        <span className="truncate font-mono text-xs font-semibold text-foreground/80">
+          {skill.name || skill.id}
+        </span>
         <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
           {skill.scope}
         </span>
         <span
           className={cn(
-            "shrink-0 rounded-full px-1.5 py-0.5 text-[9px]",
+            "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium",
             skill.status === "active"
               ? "bg-primary/10 text-primary"
               : "bg-muted text-muted-foreground",
@@ -729,12 +754,12 @@ function SkillContextRow({ skill }: { skill: Skill }) {
         </span>
       </div>
       {skill.description && (
-        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">
           {skill.description}
         </p>
       )}
       {skill.files && skill.files.length > 0 && (
-        <p className="mt-1 font-mono text-[10px] text-muted-foreground/55">
+        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground/50">
           {skill.files.length} files
         </p>
       )}

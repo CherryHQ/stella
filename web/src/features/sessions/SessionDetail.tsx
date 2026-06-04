@@ -323,8 +323,8 @@ export function SessionDetail({
                 className={cn(
                   "mx-auto max-w-3xl rounded-xl border bg-card transition-all duration-120 flex flex-col p-1.5 shadow-none",
                   isStreaming
-                    ? "border-primary"
-                    : "border-border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
+                    ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
+                    : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
                 )}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -389,13 +389,13 @@ export function SessionDetail({
                   }}
                   placeholder={t("sessions.composer.placeholder")}
                   className={cn(
-                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-2 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground/45 text-foreground",
+                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-2 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground/60 text-foreground",
                   )}
                   style={{ minHeight: 44, maxHeight: 160 }}
                   rows={1}
                   disabled={isStreaming}
                 />
-                <div className="flex items-center justify-between px-3 pb-1.5 pt-2 border-t border-border/50">
+                <div className="flex items-center justify-between px-3 pb-1.5 pt-2.5 border-t border-border/10 bg-muted/5 rounded-b-[10px]">
                   <div className="flex items-center gap-1.5">
                     {!isStreaming && (
                       <button

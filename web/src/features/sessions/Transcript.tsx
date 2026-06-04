@@ -122,10 +122,10 @@ function UserMessage({
         )}
 
         {msg.showTimestamp && (
-          <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/35 mt-1">
+          <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/60 mt-1">
             <span>{formatTime(msg.timestamp)}</span>
             {(msg.token_count ?? 0) > 0 && (
-              <span className="text-primary/45">{msg.token_count!.toLocaleString()} tok</span>
+              <span className="text-primary/70">{msg.token_count!.toLocaleString()} tok</span>
             )}
           </div>
         )}
@@ -174,11 +174,15 @@ function AssistantMessage({ msg }: { msg: ProcessedMessage }) {
         }
       })}
       {msg.showTimestamp && (
-        <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/30 mt-2 pl-0.5">
-          {msg.model && <span>{msg.model}</span>}
+        <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/60 mt-2 pl-0.5">
+          {msg.model && (
+            <span className="bg-muted border border-border/10 px-1.5 py-0.5 rounded text-foreground/75 font-medium">
+              {msg.model}
+            </span>
+          )}
           <span>{formatTime(msg.timestamp)}</span>
           {(msg.token_count ?? 0) > 0 && (
-            <span className="text-primary/40">{msg.token_count!.toLocaleString()} tok</span>
+            <span className="text-primary/70">{msg.token_count!.toLocaleString()} tok</span>
           )}
         </div>
       )}
@@ -215,29 +219,29 @@ function StepsGroup({ blocks }: { blocks: ContentBlock[] }) {
     return (
       <button
         onClick={() => setExpanded(true)}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted transition-colors font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer w-fit shadow-none"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-muted/40 hover:bg-muted/70 hover:border-foreground/10 transition-all duration-120 font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer w-fit shadow-none"
       >
-        <Brain className="size-3.5 text-primary/80 shrink-0" />
+        <Brain className="size-3.5 text-primary shrink-0" />
         <span>{labelText}</span>
-        <ChevronDown className="size-3.5 text-muted-foreground/50 shrink-0 ml-0.5" />
+        <ChevronDown className="size-3.5 text-muted-foreground/60 shrink-0 ml-0.5" />
       </button>
     );
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card/45 px-4 py-3.5 transition-all duration-120 space-y-3 max-w-3xl w-full shadow-none">
+    <div className="rounded-xl border border-border bg-card px-4 py-3.5 transition-all duration-120 space-y-3.5 max-w-3xl w-full shadow-none">
       <div className="flex items-center">
         <button
           onClick={() => setExpanded(false)}
           className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer font-semibold"
         >
-          <Brain className="size-3.5 text-primary/80 shrink-0" />
+          <Brain className="size-3.5 text-primary shrink-0" />
           <span>{labelText}</span>
           <ChevronDown className="size-3.5 transition-transform duration-120 text-muted-foreground/50 rotate-180" />
         </button>
       </div>
 
-      <div className="space-y-3 pt-2 border-t border-border/50">
+      <div className="space-y-3 pt-3 border-t border-border/60">
         {blocks.map((block, idx) => {
           if (block.type === "thinking" && block.thinking) {
             return (
