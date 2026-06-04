@@ -164,7 +164,6 @@ func (s *TokenService) CreateScopedToken(ctx context.Context, userID, agentID, s
 		AgentID:   agentID,
 		SessionID: sessionID,
 		ProjectID: projectID,
-		Scopes:    []string{"sandbox"},
 	}, s.now())
 }
 

@@ -16,6 +16,19 @@ const (
 	scopedTokenTTL    = 6 * time.Hour
 )
 
+var DefaultSandboxScopes = []string{
+	"agent:read",
+	"tasks:*",
+	"goals:*",
+	"scheduler:*",
+	"skills:*",
+	"shares:*",
+	"recally:*",
+	"email:*",
+	"oauth:*",
+	"vault:*",
+}
+
 type ScopedTokenClaims struct {
 	Subject   string   `json:"sub"`
 	UserID    string   `json:"user_id"`
@@ -32,6 +45,19 @@ func (c ScopedTokenClaims) expired(now time.Time) bool {
 	return c.ExpiresAt <= now.UTC().Unix()
 }
 
+func (c ScopedTokenClaims) HasScope(required string) bool {
+	for _, scope := range c.Scopes {
+		if scope == required {
+			return true
+		}
+		prefix, _, ok := strings.Cut(scope, ":")
+		if ok && scope == prefix+":*" && strings.HasPrefix(required, prefix+":") {
+			return true
+		}
+	}
+	return false
+}
+
 func SignScopedToken(secret []byte, claims ScopedTokenClaims, now time.Time) (string, error) {
 	if len(secret) == 0 {
 		return "", fmt.Errorf("scoped token secret is required")
@@ -44,6 +70,9 @@ func SignScopedToken(secret []byte, claims ScopedTokenClaims, now time.Time) (st
 	}
 	if claims.Subject == "" {
 		claims.Subject = claims.UserID
+	}
+	if len(claims.Scopes) == 0 {
+		claims.Scopes = append([]string(nil), DefaultSandboxScopes...)
 	}
 	if claims.IssuedAt == 0 {
 		claims.IssuedAt = now.UTC().Unix()

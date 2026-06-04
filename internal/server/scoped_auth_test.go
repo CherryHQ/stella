@@ -8,7 +8,7 @@ import (
 )
 
 func TestScopedTokenAllowsOnlyMatchingAgentPath(t *testing.T) {
-	claims := &auth.ScopedTokenClaims{AgentID: "agent-1"}
+	claims := &auth.ScopedTokenClaims{AgentID: "agent-1", Scopes: auth.DefaultSandboxScopes}
 	if !scopedTokenAllowsRequest(claims, httptest.NewRequest("GET", "/api/agents/agent-1/skills", nil)) {
 		t.Fatal("matching agent path should be allowed")
 	}
@@ -18,7 +18,20 @@ func TestScopedTokenAllowsOnlyMatchingAgentPath(t *testing.T) {
 	if !scopedTokenAllowsRequest(claims, httptest.NewRequest("GET", "/api/status", nil)) {
 		t.Fatal("status should be allowed")
 	}
+	if !scopedTokenAllowsRequest(claims, httptest.NewRequest("GET", "/api/vault/EMAIL_CONFIG", nil)) {
+		t.Fatal("vault read should be allowed by the default sandbox scopes")
+	}
+}
+
+func TestScopedTokenRequiresMappedScope(t *testing.T) {
+	claims := &auth.ScopedTokenClaims{AgentID: "agent-1", Scopes: []string{"tasks:read"}}
+	if !scopedTokenAllowsRequest(claims, httptest.NewRequest("GET", "/api/tasks", nil)) {
+		t.Fatal("tasks read should be allowed")
+	}
+	if scopedTokenAllowsRequest(claims, httptest.NewRequest("POST", "/api/tasks", nil)) {
+		t.Fatal("tasks write should be denied without tasks:write")
+	}
 	if scopedTokenAllowsRequest(claims, httptest.NewRequest("GET", "/api/vault/EMAIL_CONFIG", nil)) {
-		t.Fatal("user-wide vault path should be denied")
+		t.Fatal("vault read should be denied without vault:read")
 	}
 }

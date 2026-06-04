@@ -21,12 +21,64 @@ func scopedTokenAllowsRequest(claims *auth.ScopedTokenClaims, r *http.Request) b
 		return false
 	}
 	if len(parts) >= 3 && parts[1] == "agents" {
-		return parts[2] == claims.AgentID
+		if parts[2] != claims.AgentID {
+			return false
+		}
+		return claims.HasScope(agentPathScope(r.Method, parts[3:]))
 	}
-	switch parts[1] {
-	case "tasks", "goals", "shares", "status":
-		return true
+	if scope := topLevelPathScope(r.Method, parts[1:]); scope != "" {
+		return claims.HasScope(scope)
+	}
+	return false
+}
+
+func agentPathScope(method string, rest []string) string {
+	if len(rest) == 0 {
+		return readWriteScope("agent", method)
+	}
+	switch rest[0] {
+	case "scheduler":
+		return readWriteScope("scheduler", method)
+	case "skills":
+		return readWriteScope("skills", method)
+	case "tasks":
+		return readWriteScope("tasks", method)
+	case "sessions":
+		return readWriteScope("agent", method)
 	default:
-		return false
+		return readWriteScope("agent", method)
+	}
+}
+
+func topLevelPathScope(method string, rest []string) string {
+	if len(rest) == 0 {
+		return ""
+	}
+	switch rest[0] {
+	case "status":
+		return "agent:read"
+	case "tasks":
+		return readWriteScope("tasks", method)
+	case "goals":
+		return readWriteScope("goals", method)
+	case "shares":
+		return readWriteScope("shares", method)
+	case "articles", "feeds", "digests", "recally":
+		return readWriteScope("recally", method)
+	case "oauth":
+		return readWriteScope("oauth", method)
+	case "vault":
+		return readWriteScope("vault", method)
+	default:
+		return ""
+	}
+}
+
+func readWriteScope(resource string, method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return resource + ":read"
+	default:
+		return resource + ":write"
 	}
 }
