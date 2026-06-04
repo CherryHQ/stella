@@ -395,7 +395,7 @@ export function SessionDetail({
                   rows={1}
                   disabled={isStreaming}
                 />
-                <div className="flex items-center justify-between px-3 pb-1.5 pt-2.5 border-t border-border/10 bg-muted/5 rounded-b-[10px]">
+                <div className="flex items-center justify-between px-3 pb-1.5 pt-2.5 border-t border-border/30 bg-muted/15 rounded-b-[10px]">
                   <div className="flex items-center gap-1.5">
                     {!isStreaming && (
                       <button

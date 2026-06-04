@@ -271,7 +271,7 @@ export function WorkspacePanel({
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
       {/* Header */}
-      <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 border-b border-border/70 py-1.5 pl-8 pr-3">
+      <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 border-b border-border/70 py-1.5 px-4">
         <div className="min-w-0 flex-1 pl-1">
           <span
             className="block truncate font-mono text-[10px] font-medium text-muted-foreground"

@@ -393,10 +393,10 @@ function NavItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-[34px] w-full cursor-pointer items-center gap-2.5 rounded-[10px] px-2.5 text-[13px] transition-all duration-150",
+        "flex h-[34px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-all duration-150 border",
         active
-          ? "bg-primary/10 font-semibold text-primary"
-          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+          ? "bg-muted font-semibold text-foreground border-border/60 shadow-none"
+          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
       )}
     >
       <span className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground/70")}>
@@ -541,14 +541,14 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                   }
                 }}
                 className={cn(
-                  "group grid min-h-[46px] cursor-pointer grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] px-[7px] py-1.5 text-left transition-all duration-150",
+                  "group grid min-h-[46px] cursor-pointer grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-all duration-150 border",
                   isCur
-                    ? "bg-card text-foreground shadow-[0_0_0_0.5px_var(--border),0_6px_18px_rgba(29,29,31,0.04)]"
-                    : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                    ? "bg-card text-foreground border-border shadow-none"
+                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
                 )}
               >
                 <span
-                  className="grid size-8 place-items-center rounded-[10px] text-[13px] font-bold text-white shadow-[0_6px_14px_rgba(0,0,0,0.14)]"
+                  className="grid size-8 place-items-center rounded-lg text-[13px] font-bold text-white shadow-none"
                   style={{ background: agentGradient(ag.id, idx) }}
                 >
                   {ag.name[0]?.toUpperCase()}
@@ -623,10 +623,10 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                       type="button"
                       onClick={() => void openProject(p.id)}
                       className={cn(
-                        "grid min-h-[32px] w-full grid-cols-[21px_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl px-[7px] text-left text-[13px] font-medium tracking-[-0.016em] transition-colors",
+                        "grid min-h-[32px] w-full grid-cols-[21px_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl px-[7px] text-left text-[13px] font-medium tracking-[-0.016em] transition-colors border",
                         isActiveProject
-                          ? "bg-foreground/[0.045] text-foreground shadow-[inset_0_0_0_0.5px_rgba(29,29,31,0.035)]"
-                          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                          ? "bg-muted text-foreground border-border shadow-none"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
                       )}
                     >
                       <span className={cn("opacity-90", isActiveProject && "text-foreground")}>
@@ -705,10 +705,10 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                     });
                   }}
                   className={cn(
-                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-[10px] px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors",
+                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors border",
                     activeSessionId === s.id
-                      ? "bg-foreground/[0.045] text-primary"
-                      : "text-foreground hover:bg-foreground/[0.045]",
+                      ? "bg-muted text-primary border-border/50 shadow-none"
+                      : "text-foreground hover:bg-muted/40 border-transparent",
                   )}
                 >
                   <span className="truncate">{sessionTitle(s)}</span>

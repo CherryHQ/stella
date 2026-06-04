@@ -35,7 +35,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
       )}
       {messages.length === 0 && !messagesLoading && (
         <div className="text-center py-20">
-          <p className="text-xs text-muted-foreground/50 font-mono">Empty session.</p>
+          <p className="text-xs text-muted-foreground/60 font-mono">Empty session.</p>
         </div>
       )}
       <div className="mx-auto max-w-3xl space-y-8">
@@ -75,9 +75,9 @@ function UserMessage({
     <div className="flex justify-start">
       <div className="w-full min-w-0 flex flex-col items-start gap-3">
         {text && (
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground/90 leading-tight">
+          <div className="text-lg sm:text-xl font-medium tracking-tight text-foreground/90 leading-normal whitespace-pre-wrap">
             {text}
-          </h1>
+          </div>
         )}
 
         {images.length > 0 && (
@@ -306,7 +306,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
           {n}
         </span>
         <span className="truncate text-foreground/90 font-medium">{cmdPreview}</span>
-        <span className="text-[9px] text-muted-foreground/45 shrink-0 ml-0.5">
+        <span className="text-[9px] text-muted-foreground/65 shrink-0 ml-0.5">
           {open ? "▾" : "▸"}
         </span>
       </button>

@@ -648,11 +648,11 @@ function ToolContextRow({ tool }: { tool: Tool }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-xl border border-border bg-card shadow-none">
+    <div className="border-b border-border/40 last:border-b-0 py-2 first:pt-0 last:pb-0">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="grid w-full grid-cols-[1rem_minmax(0,1fr)] gap-2 px-3 py-2.5 text-left transition-all duration-120 hover:bg-muted/30 cursor-pointer"
+        className="grid w-full grid-cols-[1rem_minmax(0,1fr)] gap-2 text-left transition-all duration-120 hover:bg-muted/20 p-1.5 rounded-lg cursor-pointer"
       >
         <span className="pt-0.5 text-[10px] text-muted-foreground/60">{expanded ? "▼" : "▶"}</span>
         <span className="min-w-0">
@@ -670,7 +670,7 @@ function ToolContextRow({ tool }: { tool: Tool }) {
         </span>
       </button>
       {expanded && (
-        <pre className="mx-3 mb-3 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/10 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
           {JSON.stringify(tool.input_schema, null, 2)}
         </pre>
       )}
@@ -699,7 +699,7 @@ function PromptContext({ systemPrompt, loading }: { systemPrompt: string; loadin
           Copy
         </button>
       </div>
-      <pre className="whitespace-pre-wrap rounded-xl border border-border bg-card p-3.5 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
+      <pre className="whitespace-pre-wrap rounded-xl border border-border/60 bg-muted/40 p-3.5 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
         {systemPrompt || "No system prompt available."}
       </pre>
     </div>
@@ -722,7 +722,7 @@ function SkillsContext({ skills, loading }: { skills: Skill[]; loading: boolean 
 
 function MemoryContext({ memories }: { memories: unknown[] }) {
   return (
-    <div className="rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-none">
+    <div className="py-1">
       <p className="text-xs text-muted-foreground/80 leading-relaxed">
         {memories.length > 0
           ? `${memories.length} memories are available for this agent.`
@@ -734,7 +734,7 @@ function MemoryContext({ memories }: { memories: unknown[] }) {
 
 function SkillContextRow({ skill }: { skill: Skill }) {
   return (
-    <div className="rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-none">
+    <div className="border-b border-border/40 last:border-b-0 py-2.5 first:pt-0 last:pb-0">
       <div className="flex min-w-0 items-center gap-2">
         <span className="truncate font-mono text-xs font-semibold text-foreground/80">
           {skill.name || skill.id}
