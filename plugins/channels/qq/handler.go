@@ -30,6 +30,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 
 		replyFn := func(reply string) { b.replyC2C(b.ctx, authorID, msg.ID, reply) }
 		incoming := b.incomingMsg(authorID, "", content)
+		fillQQMeta(&incoming, msg)
 
 		text := strings.TrimSpace(msg.Content)
 		if handled := b.handleLocalCommand(incoming, text, replyFn); handled {
@@ -61,6 +62,7 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 
 		replyFn := func(reply string) { b.replyGroup(b.ctx, groupID, msg.ID, reply) }
 		incoming := b.incomingMsg(authorID, groupID, content)
+		fillQQMeta(&incoming, msg)
 
 		text := strings.TrimSpace(msg.Content)
 		if handled := b.handleLocalCommand(incoming, text, replyFn); handled {

@@ -6,6 +6,7 @@ package channel
 
 import (
 	"context"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -85,6 +86,21 @@ type IncomingMessage struct {
 	ChatID     string   // group/channel ID (empty for DMs)
 	IsGroup    bool
 	Content    []ai.ContentBlock
+
+	// Group-chat metadata (D3). Adapters fill what they can; empty/zero is allowed.
+	MessageID string    // platform-native message ID (stable delivery/update id), empty if unavailable
+	Timestamp time.Time // platform-reported send time, zero if unavailable
+	ReplyTo   string    // platform message ID this message replies to, empty if none
+	Mentions  []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
+}
+
+// Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the
+// dispatcher resolves AgentID by looking up group membership. @-routing honors
+// only mentions whose AgentID is non-empty.
+type Mention struct {
+	Raw        string // raw @ text (@username / <at open_id> ...), for audit/fallback
+	PlatformID string // platform-side mentioned id (username / open_id / qq number)
+	AgentID    string // resolved Stella agent; empty if unresolved
 }
 
 // ChatStream holds the event channel and session metadata returned by HandleMessage.

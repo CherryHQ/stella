@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -291,6 +292,40 @@ func (b *Bot) incomingMsg(senderIDs []string, chatID string, chatType string, co
 		IsGroup:   chatType == "group",
 		Content:   content,
 	}
+}
+
+// feishuEventTime parses Feishu's millisecond-epoch string into a time.Time.
+// Returns the zero time if the input is empty or unparseable.
+func feishuEventTime(ms string) time.Time {
+	if ms == "" {
+		return time.Time{}
+	}
+	n, err := strconv.ParseInt(ms, 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.UnixMilli(n).UTC()
+}
+
+// feishuMentions normalizes Feishu mention events. AgentID is left empty — the
+// dispatcher resolves it from group membership.
+func feishuMentions(mentions []*larkim.MentionEvent) []channel.Mention {
+	var out []channel.Mention
+	for _, m := range mentions {
+		if m == nil {
+			continue
+		}
+		raw := derefStr(m.Name)
+		if raw == "" {
+			raw = derefStr(m.Key)
+		}
+		platformID := ""
+		if m.Id != nil {
+			platformID = derefStr(m.Id.OpenId)
+		}
+		out = append(out, channel.Mention{Raw: raw, PlatformID: platformID})
+	}
+	return out
 }
 
 func feishuSenderIDs(ids ...string) []string {
