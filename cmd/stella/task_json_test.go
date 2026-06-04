@@ -20,8 +20,7 @@ const goalJSON = `{"id":"goal-1","user_id":"user-1","agent_id":"agent-1","title"
 // the CLI's config at itself.
 func jsonAPIServer(t *testing.T, body string) *httptest.Server {
 	t.Helper()
-	t.Setenv("STELLA_TOKEN", "test-token")
-	t.Setenv("STELLA_AGENT_ID", "agent-1")
+	setTestScopedToken(t, "agent-1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(body))

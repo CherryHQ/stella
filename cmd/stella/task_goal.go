@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os"
 
 	ucli "github.com/urfave/cli/v2"
 
@@ -117,7 +116,6 @@ func goalCreateCmd() *ucli.Command {
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "title", Required: true, Usage: "Goal title"},
 			&ucli.StringFlag{Name: "description", Usage: "Goal description"},
-			&ucli.StringFlag{Name: "agent-id", Usage: "Owner/manager agent ID (defaults to STELLA_AGENT_ID)"},
 			&ucli.StringFlag{Name: "project-id", Usage: "Project/workspace context"},
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringFlag{Name: "review-policy", Usage: "none (only supported value in this build)"},
@@ -125,12 +123,9 @@ func goalCreateCmd() *ucli.Command {
 			jsonFlag(),
 		},
 		Action: func(c *ucli.Context) error {
-			agentID := c.String("agent-id")
-			if agentID == "" {
-				agentID = os.Getenv("STELLA_AGENT_ID")
-			}
-			if agentID == "" {
-				return fmt.Errorf("agent ID is required (pass --agent-id or set STELLA_AGENT_ID)")
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
 			}
 
 			body := apitypes.CreateGoalRequest{Title: c.String("title"), AgentId: agentID}

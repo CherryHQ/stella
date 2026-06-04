@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	ucli "github.com/urfave/cli/v2"
@@ -33,22 +32,22 @@ skills, and manage the ones already installed.`,
 
 func skillAgentFlags() []ucli.Flag {
 	return []ucli.Flag{
-		&ucli.StringFlag{Name: "agent-id", Usage: "Agent ID (defaults to STELLA_AGENT_ID)"},
-		&ucli.StringFlag{Name: "session-id", Usage: "Session ID for project skills (defaults to STELLA_SESSION_ID)"},
+		&ucli.StringFlag{Name: "session-id", Usage: "Session ID for project skills (defaults to STELLA_TOKEN session claim)"},
 	}
 }
 
 func skillAgentContext(c *ucli.Context) (string, *apiclient.ListAgentSkillsParams, error) {
-	agentID := c.String("agent-id")
-	if agentID == "" {
-		agentID = os.Getenv("STELLA_AGENT_ID")
+	claims, err := scopedTokenClaimsFromEnv()
+	if err != nil {
+		return "", nil, err
 	}
+	agentID := claims.AgentID
 	if agentID == "" {
-		return "", nil, fmt.Errorf("agent ID is required (pass --agent-id or run inside an agent session with STELLA_AGENT_ID)")
+		return "", nil, fmt.Errorf("agent ID is required in STELLA_TOKEN")
 	}
 	sessionID := c.String("session-id")
 	if sessionID == "" {
-		sessionID = os.Getenv("STELLA_SESSION_ID")
+		sessionID = claims.SessionID
 	}
 	params := &apiclient.ListAgentSkillsParams{}
 	if sessionID != "" {

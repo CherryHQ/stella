@@ -45,15 +45,20 @@ type vaultLoader interface {
 
 // TokenService owns API token lifecycle and authentication.
 type TokenService struct {
-	store tokenStore
-	vault VaultWriter
-	now   func() time.Time
-	mu    sync.Mutex
+	store        tokenStore
+	vault        VaultWriter
+	now          func() time.Time
+	scopedSecret []byte
+	mu           sync.Mutex
 }
 
 // NewTokenService creates a token service backed by auth persistence and vault writes.
 func NewTokenService(store tokenStore, vault VaultWriter) *TokenService {
-	return &TokenService{store: store, vault: vault, now: time.Now}
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		panic(fmt.Sprintf("generate scoped token secret: %v", err))
+	}
+	return &TokenService{store: store, vault: vault, now: time.Now, scopedSecret: secret}
 }
 
 // EnsureAutoToken ensures userID has one active auto-generated token whose
@@ -147,6 +152,33 @@ func (s *TokenService) recoverFromCreateRace(ctx context.Context, userID string)
 		return fmt.Errorf("token service: recover from race for user %s: %w", userID, err)
 	}
 	return s.rotateAutoToken(ctx, winner)
+}
+
+// CreateScopedToken signs a short-lived sandbox token bound to one user-agent session.
+func (s *TokenService) CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error) {
+	if _, err := s.store.GetUser(ctx, userID); err != nil {
+		return "", fmt.Errorf("token service: get user %s: %w", userID, err)
+	}
+	return SignScopedToken(s.scopedSecret, ScopedTokenClaims{
+		UserID:    userID,
+		AgentID:   agentID,
+		SessionID: sessionID,
+		ProjectID: projectID,
+		Scopes:    []string{"sandbox"},
+	}, s.now())
+}
+
+// AuthenticateScoped returns the active user and scoped claims identified by rawToken.
+func (s *TokenService) AuthenticateScoped(ctx context.Context, rawToken string) (User, ScopedTokenClaims, error) {
+	claims, err := VerifyScopedToken(s.scopedSecret, rawToken, s.now())
+	if err != nil {
+		return User{}, ScopedTokenClaims{}, err
+	}
+	user, err := s.store.GetUser(ctx, claims.UserID)
+	if err != nil {
+		return User{}, ScopedTokenClaims{}, fmt.Errorf("token service: get user %s: %w", claims.UserID, err)
+	}
+	return user, claims, nil
 }
 
 // Authenticate returns the active user identified by rawToken.

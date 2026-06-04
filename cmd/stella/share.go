@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 
 	ucli "github.com/urfave/cli/v2"
 
@@ -30,8 +29,6 @@ func shareArtifactCommand() *ucli.Command {
 		Usage:     "Create a public share link for a workspace artifact",
 		ArgsUsage: "<path>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "agent-id", Usage: "Stella agent ID (defaults to STELLA_AGENT_ID)"},
-			&ucli.StringFlag{Name: "session-id", Usage: "Stella session ID (defaults to STELLA_SESSION_ID)"},
 			&ucli.StringFlag{Name: "expires-in", Usage: "Expiration: 1h, 1d, 7d, never", Value: "7d"},
 			jsonFlag(),
 		},
@@ -40,19 +37,17 @@ func shareArtifactCommand() *ucli.Command {
 			if path == "" {
 				return fmt.Errorf("path is required")
 			}
-			agentID := c.String("agent-id")
+			claims, err := scopedTokenClaimsFromEnv()
+			if err != nil {
+				return err
+			}
+			agentID := claims.AgentID
 			if agentID == "" {
-				agentID = os.Getenv("STELLA_AGENT_ID")
+				return fmt.Errorf("agent ID is required in STELLA_TOKEN")
 			}
-			if agentID == "" {
-				return fmt.Errorf("agent ID is required (pass --agent-id or run inside an agent session with STELLA_AGENT_ID)")
-			}
-			sessionID := c.String("session-id")
+			sessionID := claims.SessionID
 			if sessionID == "" {
-				sessionID = os.Getenv("STELLA_SESSION_ID")
-			}
-			if sessionID == "" {
-				return fmt.Errorf("session ID is required (pass --session-id or run inside an agent session with STELLA_SESSION_ID)")
+				return fmt.Errorf("session ID is required in STELLA_TOKEN")
 			}
 			expiresIn := apitypes.CreateShareRequestExpiresIn(c.String("expires-in"))
 			source := apitypes.CreateShareRequestSourceArtifact

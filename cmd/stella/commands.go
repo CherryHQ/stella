@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/auth"
 
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
@@ -39,9 +40,8 @@ import (
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
-// TODO: STELLA_SESSION_ID is not a robust sandbox indicator — add a dedicated STELLA_SANDBOX env var.
 func inSandbox() bool {
-	return os.Getenv("STELLA_SESSION_ID") != ""
+	return auth.IsScopedToken(os.Getenv("STELLA_TOKEN"))
 }
 
 func denyInSandbox(cmd *ucli.Command) *ucli.Command {

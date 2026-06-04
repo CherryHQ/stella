@@ -121,11 +121,14 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		return nil, err
 	}
 
-	if cfg.AgentID != "" {
-		env["STELLA_AGENT_ID"] = cfg.AgentID
-	}
-	if cfg.SessionID != "" {
-		env["STELLA_SESSION_ID"] = cfg.SessionID
+	if issuer, ok := cfg.TokenEnsurer.(scopedTokenIssuer); ok && cfg.UserID != "" && cfg.AgentID != "" {
+		tok, err := issuer.CreateScopedToken(ctx, cfg.UserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		env["STELLA_TOKEN"] = tok
+	} else {
+		delete(env, "STELLA_TOKEN")
 	}
 
 	// Runner-set vars overlay vault entries so they always take precedence.

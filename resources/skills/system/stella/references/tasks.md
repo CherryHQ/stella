@@ -59,7 +59,7 @@ goal ──rolls up from──▶ task ──one attempt──▶ run
 - **Blocker** — why a task is paused; at most one open blocker per task.
 - **Review** — approval gate before `done`; task policy decides who reviews.
 
-Tasks and goals require agent context. Inside Stella sessions, `stella task create` and `stella task goal create` default to `STELLA_AGENT_ID`. Outside Stella, pass `--agent-id` explicitly. A task always has a durable worker session minted at creation time. Use `--project-id` when the work should run in a project/workspace context. If `--goal-id` is set and `--agent-id` is omitted, the task inherits the goal's agent.
+Tasks and goals require the scoped sandbox `STELLA_TOKEN` that Stella injects inside agent sessions. Do not pass or invent an agent ID; the CLI reads the token claims and the server verifies them. A task always has a durable worker session minted at creation time. Use `--project-id` only when the command exposes it as a work-context field.
 
 ## Lifecycle
 

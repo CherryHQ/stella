@@ -28,6 +28,10 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, go
 		writeError(w, http.StatusNotFound, "not_found")
 		return sqlc.AgentGoal{}, false
 	}
+	if info := UserFromContext(ctx); info != nil && info.Scoped != nil && g.AgentID != info.Scoped.AgentID {
+		writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+		return sqlc.AgentGoal{}, false
+	}
 	return g, true
 }
 
@@ -54,6 +58,9 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Goal, 0, len(rows))
 	for _, g := range rows {
+		if info.Scoped != nil && g.AgentID != info.Scoped.AgentID {
+			continue
+		}
 		out = append(out, goalToAPI(g))
 	}
 	list := apitypes.GoalList{Goals: out}
@@ -85,11 +92,19 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title_required")
 		return
 	}
+	agentID := req.AgentId
+	if info.Scoped != nil {
+		if agentID != "" && agentID != info.Scoped.AgentID {
+			writeError(w, http.StatusForbidden, "scoped token does not allow this agent context")
+			return
+		}
+		agentID = info.Scoped.AgentID
+	}
 	in := tasks.CreateGoalInput{
 		UserID:      info.UserID,
 		Title:       req.Title,
 		Description: strPtr(req.Description),
-		AgentID:     req.AgentId,
+		AgentID:     agentID,
 		ProjectID:   strPtr(req.ProjectId),
 		Context:     marshalContext(req.Context),
 	}

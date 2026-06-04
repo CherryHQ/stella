@@ -163,6 +163,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				UserID:          params.UserID,
 				AgentID:         params.AgentID,
 				SessionID:       params.SessionID,
+				ProjectID:       params.ProjectID,
 				SessionEnvSpecs: append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
 				VaultEnvLoader:  cfg.VaultEnvLoader,
 				TokenEnsurer:    cfg.TokenEnsurer,

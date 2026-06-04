@@ -23,6 +23,10 @@ type tokenEnvEnsurer interface {
 	EnsureAutoTokenEnv(ctx context.Context, userID string) (map[string]string, error)
 }
 
+type scopedTokenIssuer interface {
+	CreateScopedToken(ctx context.Context, userID, agentID, sessionID, projectID string) (string, error)
+}
+
 // Config is passed to sandbox operations.
 // It is constructed from the runner config in the parent agent package.
 type Config struct {
@@ -32,6 +36,7 @@ type Config struct {
 	UserID           string
 	AgentID          string
 	SessionID        string
+	ProjectID        string
 	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	VaultEnvLoader   VaultEnvLoader
 	TokenEnsurer     TokenEnsurer
