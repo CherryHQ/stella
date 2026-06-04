@@ -68,7 +68,7 @@ func oauthProvidersCommand() *ucli.Command {
 func oauthConnectCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "connect",
-		Usage:     "Start OAuth flow to connect a provider",
+		Usage:     "Print OAuth authorization URL and wait for connection",
 		ArgsUsage: "<provider>",
 		Flags: []ucli.Flag{
 			jsonFlag(),
@@ -85,12 +85,13 @@ func oauthConnectCommand() *ucli.Command {
 				return err
 			}
 
-			e := stderr(c)
-			e.printf("Open this URL to authorize:\n  %s\n", flow.VerificationUri)
-			if flow.UserCode != nil {
-				e.printf("Enter code: %s\n", *flow.UserCode)
+			if !isJSON(c) {
+				o := stdout(c)
+				o.println(flow.VerificationUri)
+				if err := o.Err(); err != nil {
+					return err
+				}
 			}
-			e.println("\nWaiting for authorization...")
 
 			ticker := time.NewTicker(3 * time.Second)
 			defer ticker.Stop()
@@ -111,9 +112,7 @@ func oauthConnectCommand() *ucli.Command {
 						if isJSON(c) {
 							return printJSON(c, status)
 						}
-						o := stdout(c)
-						o.printf("Connected to %s.\n", provider)
-						return o.Err()
+						return nil
 					case "failed":
 						return fmt.Errorf("OAuth flow failed for %s", provider)
 					case "expired":
