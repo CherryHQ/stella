@@ -50,7 +50,12 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	rows, err := s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
+	var rows []sqlc.AgentGoal
+	if info.Scoped != nil {
+		rows, err = s.tasksSvc.Facade.ListGoalsByAgent(r.Context(), info.UserID, info.Scoped.AgentID, int64(limit+1), int64(offset))
+	} else {
+		rows, err = s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
+	}
 	if err != nil {
 		s.taskError(w, err)
 		return
@@ -58,9 +63,6 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	rows, nextToken := nextPageTokenForRows(rows, limit, offset)
 	out := make([]apitypes.Goal, 0, len(rows))
 	for _, g := range rows {
-		if info.Scoped != nil && g.AgentID != info.Scoped.AgentID {
-			continue
-		}
 		out = append(out, goalToAPI(g))
 	}
 	list := apitypes.GoalList{Goals: out}

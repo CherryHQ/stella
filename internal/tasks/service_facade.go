@@ -465,6 +465,14 @@ func (f *ServiceFacade) ListGoals(ctx context.Context, userID string, limit, off
 	return f.q.ListAgentGoalsByUser(ctx, sqlc.ListAgentGoalsByUserParams{UserID: userID, Limit: limit, Offset: offset})
 }
 
+// ListGoalsByAgent returns goals owned by the given user and agent, newest first.
+func (f *ServiceFacade) ListGoalsByAgent(ctx context.Context, userID string, agentID string, limit, offset int64) ([]sqlc.AgentGoal, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	return f.q.ListAgentGoalsByUserAndAgent(ctx, sqlc.ListAgentGoalsByUserAndAgentParams{UserID: userID, AgentID: agentID, Limit: limit, Offset: offset})
+}
+
 // ActivateGoal / CancelGoal are thin shims over TransitionService.
 func (f *ServiceFacade) ActivateGoal(ctx context.Context, goalID string, actor Actor) error {
 	return f.svc.ActivateGoal(ctx, goalID, actor)

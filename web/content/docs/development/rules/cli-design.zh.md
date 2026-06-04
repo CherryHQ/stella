@@ -212,12 +212,11 @@ flag > environment variable > persisted config > default
 
 环境变量影响行为时，要在帮助文本里说明。常见变量：
 
-| 变量                | 用途                                      |
-| ------------------- | ----------------------------------------- |
-| `STELLA_SERVER_URL` | CLI-as-client 命令的服务端 base URL       |
-| `STELLA_TOKEN`      | API 调用的 Bearer token                   |
-| `STELLA_TOKEN`      | scoped sandbox bearer token 和 CLI 上下文 |
-| `LOG_LEVEL`         | CLI 日志级别                              |
+| 变量                | 用途                                                        |
+| ------------------- | ----------------------------------------------------------- |
+| `STELLA_SERVER_URL` | CLI-as-client 命令的服务端 base URL                         |
+| `STELLA_TOKEN`      | Bearer token；scoped sandbox token 也携带 CLI 上下文 claims |
+| `LOG_LEVEL`         | CLI 日志级别                                                |
 
 永远不要打印 secret。命令必须展示 secret 存在时，只展示元数据或脱敏值。
 

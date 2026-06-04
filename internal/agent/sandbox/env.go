@@ -121,8 +121,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		return nil, err
 	}
 
-	if issuer, ok := cfg.TokenEnsurer.(scopedTokenIssuer); ok && cfg.UserID != "" && cfg.AgentID != "" {
-		tok, err := issuer.CreateScopedToken(ctx, cfg.UserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
+	if cfg.TokenEnsurer != nil && cfg.UserID != "" && cfg.AgentID != "" {
+		tok, err := cfg.TokenEnsurer.CreateScopedToken(ctx, cfg.UserID, cfg.AgentID, cfg.SessionID, cfg.ProjectID)
 		if err != nil {
 			return nil, err
 		}

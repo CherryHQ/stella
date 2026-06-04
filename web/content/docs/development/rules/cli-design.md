@@ -248,12 +248,11 @@ flag > environment variable > persisted config > default
 Document environment variables in help text when they affect behavior. Common
 variables include:
 
-| Variable            | Purpose                                     |
-| ------------------- | ------------------------------------------- |
-| `STELLA_SERVER_URL` | Server base URL for CLI-as-client commands  |
-| `STELLA_TOKEN`      | Bearer token for API calls                  |
-| `STELLA_TOKEN`      | Scoped sandbox bearer token and CLI context |
-| `LOG_LEVEL`         | CLI logging verbosity                       |
+| Variable            | Purpose                                                           |
+| ------------------- | ----------------------------------------------------------------- |
+| `STELLA_SERVER_URL` | Server base URL for CLI-as-client commands                        |
+| `STELLA_TOKEN`      | Bearer token; scoped sandbox tokens also carry CLI context claims |
+| `LOG_LEVEL`         | CLI logging verbosity                                             |
 
 Never print secrets. If a command must show that a secret exists, show metadata
 or a redacted value.

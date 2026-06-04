@@ -17,6 +17,9 @@ SELECT * FROM agent_goal ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 -- name: ListAgentGoalsByUser :many
 SELECT * FROM agent_goal WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
+-- name: ListAgentGoalsByUserAndAgent :many
+SELECT * FROM agent_goal WHERE user_id = ? AND agent_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
+
 -- name: TransitionAgentGoalStatus :execrows
 UPDATE agent_goal
 SET status = ?, updated_at = ?

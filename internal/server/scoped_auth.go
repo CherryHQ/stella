@@ -63,8 +63,20 @@ func topLevelPathScope(method string, rest []string) string {
 		return readWriteScope("goals", method)
 	case "shares":
 		return readWriteScope("shares", method)
-	case "articles", "feeds", "digests", "recally":
+	case "recally":
 		return readWriteScope("recally", method)
+	case "users":
+		return usersMePathScope(method, rest[1:])
+	default:
+		return ""
+	}
+}
+
+func usersMePathScope(method string, rest []string) string {
+	if len(rest) < 2 || rest[0] != "me" {
+		return ""
+	}
+	switch rest[1] {
 	case "oauth":
 		return readWriteScope("oauth", method)
 	case "vault":

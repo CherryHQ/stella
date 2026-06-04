@@ -150,6 +150,35 @@ func TestTokenHelpers(t *testing.T) {
 	}
 }
 
+func TestTokenServiceCreateScopedTokenRequiresActiveUser(t *testing.T) {
+	now := time.Now()
+	store := newFakeTokenStore(func() time.Time { return now })
+	svc := NewTokenService(store, newFakeVault())
+	if _, err := svc.CreateScopedToken(context.Background(), "1", "agent-1", "session-1", ""); err == nil {
+		t.Fatal("expected inactive user to be rejected")
+	}
+
+	store.users["1"] = User{ID: "1", Email: "alice@example.com", IsActive: true}
+	tok, err := svc.CreateScopedToken(context.Background(), "1", "agent-1", "session-1", "")
+	if err != nil {
+		t.Fatalf("CreateScopedToken: %v", err)
+	}
+	user, claims, err := svc.AuthenticateScoped(context.Background(), tok)
+	if err != nil {
+		t.Fatalf("AuthenticateScoped: %v", err)
+	}
+	if user.ID != "1" || claims.AgentID != "agent-1" || claims.SessionID != "session-1" {
+		t.Fatalf("user=%+v claims=%+v", user, claims)
+	}
+}
+
+func TestScopedTokenSecretFromEnv(t *testing.T) {
+	t.Setenv(scopedTokenSecretEnv, "stable-secret")
+	if got := string(NewTokenService(newFakeTokenStore(time.Now), nil).scopedSecret); got != "stable-secret" {
+		t.Fatalf("scoped secret = %q", got)
+	}
+}
+
 func TestTokenServiceEnsureAutoTokenCreatesAndReuses(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 30, 8, 0, 0, 0, time.UTC)

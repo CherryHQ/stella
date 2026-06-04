@@ -630,6 +630,10 @@ func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, http.StatusNotFound, "session not found")
 		return fmt.Errorf("session not found")
 	}
+	if info.Scoped != nil && info.Scoped.SessionID != "" && sessionID != info.Scoped.SessionID {
+		writeError(w, http.StatusForbidden, "scoped token does not allow this session context")
+		return fmt.Errorf("scoped session context denied")
+	}
 	return nil
 }
 
