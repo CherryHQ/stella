@@ -68,6 +68,7 @@ type Session struct {
 	AgentID string // agent this session belongs to (e.g. "default")
 	UserID  string // internal user ID (empty for anonymous/legacy)
 	Channel string // originating channel (e.g. "cli", "telegram")
+	GroupID string // non-empty for group sessions; assembles history from event log instead of ctx_message
 }
 
 // SessionInfo holds metadata about a session.

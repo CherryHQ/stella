@@ -254,6 +254,67 @@ func TestResolveGroupIDConsistentWithAppend(t *testing.T) {
 	}
 }
 
+func TestAppendToGroup(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	// First create a group via normal append.
+	msg := humanMsg()
+	msg.PlatformMessageID = "m1"
+	res, err := s.AppendGroupMessage(ctx, msg)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Append agent response via AppendToGroup.
+	agentRes, err := s.AppendToGroup(ctx, res.GroupID, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent,
+		ActorID:   "agent-1",
+		Content:   "Hello from agent!",
+	})
+	if err != nil {
+		t.Fatalf("append to group: %v", err)
+	}
+	if !agentRes.Inserted {
+		t.Fatal("agent response should be inserted")
+	}
+	if agentRes.Seq != 2 {
+		t.Fatalf("agent response seq = %d, want 2", agentRes.Seq)
+	}
+	if agentRes.Message.ActorType != "agent" {
+		t.Fatalf("actor_type = %q, want agent", agentRes.Message.ActorType)
+	}
+	if agentRes.Message.Content != "Hello from agent!" {
+		t.Fatalf("content = %q, want %q", agentRes.Message.Content, "Hello from agent!")
+	}
+}
+
+func TestAppendToGroupValidation(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	// Empty group ID.
+	if _, err := s.AppendToGroup(ctx, "", eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "a1", Content: "hi",
+	}); err == nil {
+		t.Fatal("expected error for empty group_id")
+	}
+
+	// Empty actor ID.
+	if _, err := s.AppendToGroup(ctx, "g1", eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "", Content: "hi",
+	}); err == nil {
+		t.Fatal("expected error for empty actor_id")
+	}
+
+	// Bad actor type.
+	if _, err := s.AppendToGroup(ctx, "g1", eventlog.GroupMessage{
+		ActorType: "bot", ActorID: "a1", Content: "hi",
+	}); err == nil {
+		t.Fatal("expected error for invalid actor_type")
+	}
+}
+
 func TestValidation(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

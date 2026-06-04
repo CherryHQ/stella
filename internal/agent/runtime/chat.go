@@ -60,6 +60,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		AgentID: info.AgentID,
 		UserID:  memUserID,
 		Channel: info.Channel,
+		GroupID: info.GroupID,
 	}
 
 	msgText := MessageText(msg)

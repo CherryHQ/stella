@@ -65,7 +65,7 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 			if err != nil {
 				log.Warn("failed to resolve arbiter-selected agent, falling back", "agent_id", agentID, "error", err)
 			} else {
-				return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+				return c.handleGroupResolved(ctx, rc, msg, command, args)
 			}
 		}
 	} else if mentionedAgent := firstMentionedAgent(msg.Mentions); mentionedAgent != "" {
@@ -74,7 +74,7 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 		if err != nil {
 			log.Warn("failed to resolve @mentioned agent, falling back", "agent_id", mentionedAgent, "error", err)
 		} else {
-			return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+			return c.handleGroupResolved(ctx, rc, msg, command, args)
 		}
 	}
 
@@ -82,7 +82,7 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 	if err != nil {
 		return "", false, nil, err
 	}
-	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+	return c.handleGroupResolved(ctx, rc, msg, command, args)
 }
 
 // resolveChannelAgentID returns the channel's default agent for the message,
@@ -192,6 +192,50 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 		ChatCtx:    ChatContext{Platform: msg.Platform, ChannelID: channelID, ChatID: msg.ChatID, IsGroup: true},
 		GroupID:    groupID,
 	}, nil
+}
+
+// handleGroupResolved wraps handleResolvedIncoming with agent response writeback
+// to the event log, so other agents can see this agent's responses.
+func (c *Coordinator) handleGroupResolved(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	text, handled, stream, err := c.handleResolvedIncoming(ctx, rc, msg, command, args)
+	if stream != nil && c.eventLog != nil && rc.GroupID != "" {
+		stream = c.wrapGroupResponseStream(ctx, rc.GroupID, rc.AgentID, stream)
+	}
+	return text, handled, stream, err
+}
+
+// wrapGroupResponseStream intercepts a ChatStream to collect the agent's text
+// response and write it back to the event log as actor_type=agent after the
+// stream completes.
+func (c *Coordinator) wrapGroupResponseStream(ctx context.Context, groupID, agentID string, stream *pkgchannel.ChatStream) *pkgchannel.ChatStream {
+	out := make(chan pkgchannel.Event, 100)
+	go func() {
+		defer close(out)
+		var textBuf strings.Builder
+		for evt := range stream.Events {
+			if evt.Text != "" {
+				textBuf.WriteString(evt.Text)
+			}
+			select {
+			case out <- evt:
+			case <-ctx.Done():
+			}
+		}
+		if textBuf.Len() > 0 {
+			if _, err := c.eventLog.AppendToGroup(ctx, groupID, eventlog.GroupMessage{
+				ActorType: eventlog.ActorAgent,
+				ActorID:   agentID,
+				Content:   textBuf.String(),
+			}); err != nil {
+				slog.Warn("group dispatch: failed to write agent response to event log",
+					"group_id", groupID, "agent_id", agentID, "error", err)
+			}
+		}
+	}()
+	return &pkgchannel.ChatStream{
+		Events:    out,
+		SessionID: stream.SessionID,
+	}
 }
 
 // firstMentionedAgent returns the AgentID of the first resolved @mention,

@@ -147,6 +147,68 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message) (AppendResu
 	return AppendResult{GroupID: groupID, Seq: seq, Inserted: true, Message: row}, nil
 }
 
+// AppendToGroup appends a message directly to a pre-resolved group (bypassing
+// triple-based group resolution). Used for agent response writeback where the
+// groupID is already known from the dispatch flow.
+func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMessage) (AppendResult, error) {
+	if groupID == "" {
+		return AppendResult{}, errors.New("eventlog: group_id is required")
+	}
+	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
+		return AppendResult{}, fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
+	}
+	if msg.ActorID == "" {
+		return AppendResult{}, errors.New("eventlog: actor_id is required")
+	}
+
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return AppendResult{}, fmt.Errorf("eventlog: acquire conn: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return AppendResult{}, fmt.Errorf("eventlog: begin immediate: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
+
+	q := sqlc.New(conn)
+	seq, err := q.BumpGroupSeq(ctx, groupID)
+	if err != nil {
+		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
+	}
+
+	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
+		ID:        uuid.NewString(),
+		GroupID:   groupID,
+		Seq:       seq,
+		ActorType: string(msg.ActorType),
+		ActorID:   msg.ActorID,
+		Content:   msg.Content,
+	})
+	if err != nil {
+		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
+	}
+	committed = true
+	return AppendResult{GroupID: groupID, Seq: seq, Inserted: true, Message: row}, nil
+}
+
+// GroupMessage is a simplified message for direct group append (pre-resolved groupID).
+type GroupMessage struct {
+	ActorType ActorType
+	ActorID   string
+	Content   string
+}
+
 func validate(msg Message) error {
 	if msg.Platform == "" || msg.PlatformGroupID == "" {
 		return errors.New("eventlog: platform and platform_group_id are required")

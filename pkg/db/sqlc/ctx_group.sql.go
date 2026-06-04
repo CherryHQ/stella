@@ -195,3 +195,51 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 	)
 	return i, err
 }
+
+const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+WHERE group_id = ?1
+ORDER BY seq DESC
+LIMIT ?2
+`
+
+type ListRecentGroupMessagesParams struct {
+	GroupID  string `json:"group_id"`
+	MaxCount int64  `json:"max_count"`
+}
+
+func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGroupMessagesParams) ([]CtxGroupMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentGroupMessages, arg.GroupID, arg.MaxCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupMessage{}
+	for rows.Next() {
+		var i CtxGroupMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.SourceChannelID,
+			&i.ActorType,
+			&i.ActorID,
+			&i.PlatformMessageID,
+			&i.ReplyTo,
+			&i.PlatformTimestamp,
+			&i.IdempotencyKey,
+			&i.Content,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

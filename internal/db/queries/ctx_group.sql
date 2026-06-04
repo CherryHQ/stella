@@ -24,6 +24,12 @@ WHERE group_id = sqlc.arg(group_id)
 SELECT * FROM ctx_group_message
 WHERE idempotency_key = sqlc.arg(idempotency_key);
 
+-- name: ListRecentGroupMessages :many
+SELECT * FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+ORDER BY seq DESC
+LIMIT sqlc.arg(max_count);
+
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
