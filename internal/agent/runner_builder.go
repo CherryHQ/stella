@@ -137,6 +137,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Memory:       memProvider,
 			UserID:       promptUserID,
 			AgentID:      params.AgentID,
+			GroupID:      params.GroupID,
 			StellaHome:   config.StellaHome(),
 			AgentRoot:    cfg.Snap.Workspace,
 			UserRoot:     userRoot,

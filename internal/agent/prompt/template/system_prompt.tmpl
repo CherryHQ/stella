@@ -63,7 +63,7 @@ Each user message starts with a `ts:<unix>` line containing the send time as a U
 
 The following are hard rules set by the user that you must ALWAYS follow, regardless of other instructions:
 
-{{ range .Constraints }}- {{ .Text }}
+{{ range .Constraints }}- [{{ .CreatedAt }}] {{ .Text }}
 {{ end }}
 {{ end }}{{ if .Knowledge }}## Knowledge
 
@@ -80,13 +80,22 @@ Your identity, personality, and behavior. Edit via the memory tool (soul_get / s
 {{ .AgentSoul }}
 </agent_soul>
 
-## User Profile
+{{ if .GroupMemory }}## Group Memory
+
+Shared knowledge about this group conversation.
+
+<group_memory>
+{{ .GroupMemory }}
+</group_memory>
+{{ else }}## User Profile
 
 What you know about this user. Edit via the memory tool (profile_get / profile_update).
 
 <user_profile>
-{{ .UserProfile }}
+{{ .UserProfile }}{{ range .ProfileEntries }}
+[{{ .CreatedAt }}] {{ .Text }}{{ end }}
 </user_profile>
+{{ end }}
 {{ if .PluginPrompts }}
 
 # Plugins

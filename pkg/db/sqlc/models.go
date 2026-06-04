@@ -299,14 +299,15 @@ type ChannelIdentity struct {
 }
 
 type CtxAgentMemory struct {
-	UserID      string `json:"user_id"`
-	AgentID     string `json:"agent_id"`
-	Content     string `json:"content"`
-	Soul        string `json:"soul"`
-	Version     int64  `json:"version"`
-	Constraints string `json:"constraints"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	UserID         string `json:"user_id"`
+	AgentID        string `json:"agent_id"`
+	Content        string `json:"content"`
+	Soul           string `json:"soul"`
+	Version        int64  `json:"version"`
+	Constraints    string `json:"constraints"`
+	ProfileEntries string `json:"profile_entries"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type CtxAgentMemoryChangelog struct {
@@ -349,6 +350,14 @@ type CtxConversation struct {
 	UserID         sql.NullString `json:"user_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
+}
+
+type CtxGroupMemory struct {
+	GroupID   string `json:"group_id"`
+	Content   string `json:"content"`
+	Version   int64  `json:"version"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type CtxGroupMessage struct {

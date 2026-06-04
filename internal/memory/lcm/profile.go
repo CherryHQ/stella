@@ -19,6 +19,8 @@ var (
 	_ memory.VersionedProfileStore    = (*Provider)(nil)
 	_ memory.VersionedConstraintStore = (*Provider)(nil)
 	_ memory.SessionSnapshotStore     = (*Provider)(nil)
+	_ memory.ProfileEntryStore        = (*Provider)(nil)
+	_ memory.GroupMemoryStore         = (*Provider)(nil)
 )
 
 // getMemoryRow fetches the ctx_agent_memory row, returning nil for non-existent rows.
@@ -296,6 +298,16 @@ func changelogRowToEntry(r sqlc.CtxAgentMemoryChangelog) memory.ChangeEntry {
 		e.AfterText = r.AfterText.String
 	}
 	return e
+}
+
+// GetProfileEntries implements memory.ProfileEntryStore.
+func (p *Provider) GetProfileEntries(ctx context.Context, userID string, agentID string) ([]memory.ProfileEntry, error) {
+	return memorywrite.GetProfileEntries(ctx, p.q, userID, agentID)
+}
+
+// GetGroupMemory implements memory.GroupMemoryStore.
+func (p *Provider) GetGroupMemory(ctx context.Context, groupID string) (string, error) {
+	return memorywrite.GetGroupMemory(ctx, p.q, groupID)
 }
 
 func parseUTCTime(s string) time.Time {

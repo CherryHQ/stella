@@ -48,6 +48,10 @@ type Fake struct {
 	souls map[string]string
 	// constraints maps "userID:agentID" -> []ConstraintEntry.
 	constraints map[string][]memory.ConstraintEntry
+	// profileEntries maps "userID:agentID" -> []ProfileEntry.
+	profileEntries map[string][]memory.ProfileEntry
+	// groupMemory maps groupID -> content.
+	groupMemory map[string]string
 	// summaries maps summary ID -> FakeSummary.
 	summaries map[string]FakeSummary
 	// sessionInfos maps session ID -> fakeSessionInfo.
@@ -65,14 +69,16 @@ type Fake struct {
 // New creates a new Fake provider ready for use.
 func New() *Fake {
 	return &Fake{
-		sessions:     make(map[string][]ai.Message),
-		profiles:     make(map[string]string),
-		souls:        make(map[string]string),
-		constraints:  make(map[string][]memory.ConstraintEntry),
-		summaries:    make(map[string]FakeSummary),
-		sessionInfos: make(map[string]fakeSessionInfo),
-		bootstrapped: make(map[string]bool),
-		snapshots:    make(map[string]memory.SessionSnapshot),
+		sessions:       make(map[string][]ai.Message),
+		profiles:       make(map[string]string),
+		souls:          make(map[string]string),
+		constraints:    make(map[string][]memory.ConstraintEntry),
+		profileEntries: make(map[string][]memory.ProfileEntry),
+		groupMemory:    make(map[string]string),
+		summaries:      make(map[string]FakeSummary),
+		sessionInfos:   make(map[string]fakeSessionInfo),
+		bootstrapped:   make(map[string]bool),
+		snapshots:      make(map[string]memory.SessionSnapshot),
 	}
 }
 
@@ -91,6 +97,8 @@ var (
 	_ memory.VersionedProfileStore    = (*Fake)(nil)
 	_ memory.VersionedConstraintStore = (*Fake)(nil)
 	_ memory.SessionSnapshotStore     = (*Fake)(nil)
+	_ memory.ProfileEntryStore        = (*Fake)(nil)
+	_ memory.GroupMemoryStore         = (*Fake)(nil)
 )
 
 // ---------------------------------------------------------------------------
@@ -609,6 +617,49 @@ func (f *Fake) Snapshots() map[string]memory.SessionSnapshot {
 	out := make(map[string]memory.SessionSnapshot, len(f.snapshots))
 	maps.Copy(out, f.snapshots)
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// ProfileEntryStore
+// ---------------------------------------------------------------------------
+
+// GetProfileEntries implements memory.ProfileEntryStore.
+func (f *Fake) GetProfileEntries(_ context.Context, userID string, agentID string) ([]memory.ProfileEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := profileKey(userID, agentID)
+	if entries, ok := f.profileEntries[key]; ok {
+		out := make([]memory.ProfileEntry, len(entries))
+		copy(out, entries)
+		return out, nil
+	}
+	return []memory.ProfileEntry{}, nil
+}
+
+// AddProfileEntry is a test helper to populate profile entries.
+func (f *Fake) AddProfileEntry(userID, agentID string, entry memory.ProfileEntry) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := profileKey(userID, agentID)
+	f.profileEntries[key] = append(f.profileEntries[key], entry)
+}
+
+// ---------------------------------------------------------------------------
+// GroupMemoryStore
+// ---------------------------------------------------------------------------
+
+// GetGroupMemory implements memory.GroupMemoryStore.
+func (f *Fake) GetGroupMemory(_ context.Context, groupID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.groupMemory[groupID], nil
+}
+
+// SetGroupMemory is a test helper to populate group memory.
+func (f *Fake) SetGroupMemory(groupID, content string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupMemory[groupID] = content
 }
 
 // ---------------------------------------------------------------------------
