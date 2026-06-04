@@ -22,12 +22,18 @@ type FlowBroker interface {
 type DeviceCodeBroker struct {
 	cfg   *oauth2.Config
 	store *FlowStore
+	// onAuthorized persists the token once the user authorizes. It runs before
+	// the flow is marked authorized so any observer (CLI status, Web UI poll)
+	// sees a fully persisted connection. A nil callback skips persistence.
+	onAuthorized func(flowID string, tok *oauth2.Token) error
 }
 
-// NewDeviceCodeBroker creates a DeviceCodeBroker backed by store.
+// NewDeviceCodeBroker creates a DeviceCodeBroker backed by store. onAuthorized
+// is invoked from the background goroutine to persist the token when the user
+// authorizes; pass nil to skip persistence.
 // cfg.Endpoint must have DeviceAuthEndpoint set.
-func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore) *DeviceCodeBroker {
-	return &DeviceCodeBroker{cfg: cfg, store: store}
+func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore, onAuthorized func(flowID string, tok *oauth2.Token) error) *DeviceCodeBroker {
+	return &DeviceCodeBroker{cfg: cfg, store: store, onAuthorized: onAuthorized}
 }
 
 // StartFlow requests a device code, stores pending state, and returns the
@@ -69,11 +75,19 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 	go func() {
 		defer cancel()
 		tok, err := b.cfg.DeviceAccessToken(bgCtx, da)
-		if err == nil {
-			b.store.Update(flowID, FlowStateAuthorized, func(fs *FlowStatus) { fs.Token = tok })
-		} else {
+		if err != nil {
 			b.store.Update(flowID, FlowStateFailed, nil)
+			return
 		}
+		// Persist before marking authorized so the token is in the vault the
+		// moment any observer sees the flow complete.
+		if b.onAuthorized != nil {
+			if err := b.onAuthorized(flowID, tok); err != nil {
+				b.store.Update(flowID, FlowStateFailed, nil)
+				return
+			}
+		}
+		b.store.Update(flowID, FlowStateAuthorized, func(fs *FlowStatus) { fs.Token = tok })
 	}()
 
 	return status, nil

@@ -146,7 +146,7 @@ func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, fl
 			Scopes:       providerCfg.Scopes,
 			Endpoint:     endpoint,
 		}
-		return oauth.NewDeviceCodeBroker(cfg, s.flowStore), nil
+		return oauth.NewDeviceCodeBroker(cfg, s.flowStore, s.persistDeviceToken), nil
 	default:
 		return nil, fmt.Errorf("provider %s: unknown flow type %q", providerID, flow.Type)
 	}
@@ -485,20 +485,29 @@ func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID 
 	}
 
 	if status.State == oauth.FlowStateAuthorized {
-		if status.FlowType == "device_code" {
-			if status.Token == nil {
-				return FlowStatus{}, false, fmt.Errorf("device flow %s authorized but token missing", provider)
-			}
-			if err := s.saveToken(ctx, provider, userID, status.Token); err != nil {
-				return FlowStatus{}, false, fmt.Errorf("save %s token: %w", provider, err)
-			}
-		}
+		// Device-code tokens are persisted by persistDeviceToken before the flow
+		// is marked authorized; auth-code tokens by the callback handler. Here we
+		// only report completion and clean up.
 		s.flowStore.Delete(flowID)
-		_ = s.InvalidateUser(userID)
 		return toFlowStatus(status), true, nil
 	}
 
 	return toFlowStatus(status), false, nil
+}
+
+// persistDeviceToken saves a device-code token to the vault and refreshes live
+// runners. It runs from the broker's background goroutine the moment the user
+// authorizes, so the connection is finalized without the client polling.
+func (s *Service) persistDeviceToken(flowID string, tok *oauth2.Token) error {
+	flow, ok := s.flowStore.Get(flowID)
+	if !ok {
+		return fmt.Errorf("unknown or expired flow")
+	}
+	if err := s.saveToken(context.Background(), string(flow.Provider), flow.UserID, tok); err != nil {
+		return fmt.Errorf("save %s token: %w", flow.Provider, err)
+	}
+	_ = s.InvalidateUser(flow.UserID)
+	return nil
 }
 
 // CompleteAuthCodeFlow finalizes an authorization-code OAuth callback flow.

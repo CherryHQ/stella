@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	ucli "github.com/urfave/cli/v2"
 
@@ -68,7 +67,7 @@ func oauthProvidersCommand() *ucli.Command {
 func oauthConnectCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "connect",
-		Usage:     "Print OAuth authorization URL and wait for connection",
+		Usage:     "Print OAuth authorization URL and code to authorize a provider",
 		ArgsUsage: "<provider>",
 		Flags: []ucli.Flag{
 			jsonFlag(),
@@ -85,41 +84,16 @@ func oauthConnectCommand() *ucli.Command {
 				return err
 			}
 
-			if !isJSON(c) {
-				o := stdout(c)
-				o.println(flow.VerificationUri)
-				if err := o.Err(); err != nil {
-					return err
-				}
+			if isJSON(c) {
+				return printJSON(c, flow)
 			}
 
-			ticker := time.NewTicker(3 * time.Second)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-c.Done():
-					return c.Err()
-				case <-ticker.C:
-					status, err := apiclient.Call[apiclient.OAuthFlowStatus](func(api *apiclient.Client) (*http.Response, error) {
-						return api.PollOAuthFlow(c.Context, provider, flow.FlowId)
-					})
-					if err != nil {
-						return err
-					}
-					switch status.State {
-					case "completed":
-						if isJSON(c) {
-							return printJSON(c, status)
-						}
-						return nil
-					case "failed":
-						return fmt.Errorf("OAuth flow failed for %s", provider)
-					case "expired":
-						return fmt.Errorf("OAuth flow expired for %s", provider)
-					}
-				}
+			o := stdout(c)
+			o.printf("To authorize, open this URL and enter the code:\n  URL:  %s\n", flow.VerificationUri)
+			if flow.UserCode != nil {
+				o.printf("  Code: %s\n", *flow.UserCode)
 			}
+			return o.Err()
 		},
 	}
 }
