@@ -13,6 +13,13 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
+// deletedResult mirrors the shape emitted by cli.PrintDeleted for test JSON
+// unmarshalling.
+type deletedResult struct {
+	ID      string `json:"id"`
+	Deleted bool   `json:"deleted"`
+}
+
 func runApp(t *testing.T, cmd *ucli.Command, args ...string) (string, string) {
 	t.Helper()
 	out := &bytes.Buffer{}

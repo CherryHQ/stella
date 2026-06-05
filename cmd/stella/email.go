@@ -16,6 +16,7 @@ import (
 	"golang.org/x/term"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/email"
 )
 
@@ -151,7 +152,7 @@ func emailConfigAddCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "username", Usage: "Account username"},
 			&ucli.StringFlag{Name: "from", Usage: "From address"},
 			&ucli.BoolFlag{Name: "password-stdin", Usage: "Read password from stdin"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			name, err := configAccountName(c)
@@ -201,10 +202,10 @@ func emailConfigAddCommand() *ucli.Command {
 					return fmt.Errorf("read password from stdin: %w", err)
 				}
 			} else if term.IsTerminal(int(os.Stdin.Fd())) {
-				e := stderr(c)
-				e.printf("Password (leave blank to keep existing): ")
+				e := cli.Stderr(c)
+				e.Printf("Password (leave blank to keep existing): ")
 				pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-				e.println()
+				e.Println()
 				if err != nil {
 					return fmt.Errorf("read password: %w", err)
 				}
@@ -232,11 +233,11 @@ func emailConfigAddCommand() *ucli.Command {
 			if err := saveVaultEmailConfig(c.Context, api, cfg); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, map[string]any{"name": name, "saved": true})
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{"name": name, "saved": true})
 			}
-			o := stdout(c)
-			o.printf("Account %q saved.\n", name)
+			o := cli.Stdout(c)
+			o.Printf("Account %q saved.\n", name)
 			return o.Err()
 		},
 	}
@@ -247,7 +248,7 @@ func emailConfigRemoveCommand() *ucli.Command {
 		Name:      "remove",
 		Usage:     "Remove an email account",
 		ArgsUsage: "[name]",
-		Flags:     []ucli.Flag{configNameFlag, jsonFlag()},
+		Flags:     []ucli.Flag{configNameFlag, cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			name, err := configAccountName(c)
 			if err != nil {
@@ -270,11 +271,11 @@ func emailConfigRemoveCommand() *ucli.Command {
 			if err := saveVaultEmailConfig(c.Context, api, cfg); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printDeleted(c, name)
+			if cli.IsJSON(c) {
+				return cli.PrintDeleted(c, name)
 			}
-			o := stdout(c)
-			o.printf("Account %q removed.\n", name)
+			o := cli.Stdout(c)
+			o.Printf("Account %q removed.\n", name)
 			return o.Err()
 		},
 	}
@@ -285,7 +286,7 @@ func emailConfigListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List configured email accounts",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			api, err := apiclient.NewAPIClient()
@@ -298,10 +299,10 @@ func emailConfigListCommand() *ucli.Command {
 				return err
 			}
 
-			if isJSON(c) {
+			if cli.IsJSON(c) {
 				// Mask passwords before printing.
 				masked := maskConfigPasswords(cfg)
-				return printJSON(c, masked)
+				return cli.PrintJSON(c, masked)
 			}
 
 			w := tabwriter.NewWriter(c.App.Writer, 0, 0, 2, ' ', 0)
@@ -327,7 +328,7 @@ func emailConfigGetCommand() *ucli.Command {
 		ArgsUsage: "[name]",
 		Flags: []ucli.Flag{
 			configNameFlag,
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			name, err := configAccountName(c)
@@ -351,22 +352,22 @@ func emailConfigGetCommand() *ucli.Command {
 			}
 			acct.Password = "****"
 
-			if isJSON(c) {
-				return printJSON(c, acct)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, acct)
 			}
 
-			o := stdout(c)
-			o.printf("Name:      %s\n", name)
-			o.printf("IMAP Host: %s\n", acct.IMAPHost)
-			o.printf("IMAP Port: %d\n", acct.IMAPPort)
-			o.printf("IMAP TLS:  %s\n", acct.IMAPTLS)
-			o.printf("SMTP Host: %s\n", acct.SMTPHost)
-			o.printf("SMTP Port: %d\n", acct.SMTPPort)
-			o.printf("SMTP TLS:  %s\n", acct.SMTPTLS)
-			o.printf("Username:  %s\n", acct.Username)
-			o.printf("From:      %s\n", acct.From)
-			o.printf("Password:  %s\n", acct.Password)
-			o.printf("Default:   %v\n", cfg.Default == name)
+			o := cli.Stdout(c)
+			o.Printf("Name:      %s\n", name)
+			o.Printf("IMAP Host: %s\n", acct.IMAPHost)
+			o.Printf("IMAP Port: %d\n", acct.IMAPPort)
+			o.Printf("IMAP TLS:  %s\n", acct.IMAPTLS)
+			o.Printf("SMTP Host: %s\n", acct.SMTPHost)
+			o.Printf("SMTP Port: %d\n", acct.SMTPPort)
+			o.Printf("SMTP TLS:  %s\n", acct.SMTPTLS)
+			o.Printf("Username:  %s\n", acct.Username)
+			o.Printf("From:      %s\n", acct.From)
+			o.Printf("Password:  %s\n", acct.Password)
+			o.Printf("Default:   %v\n", cfg.Default == name)
 			return o.Err()
 		},
 	}
@@ -377,7 +378,7 @@ func emailConfigDefaultCommand() *ucli.Command {
 		Name:      "default",
 		Usage:     "Set the default email account",
 		ArgsUsage: "[name]",
-		Flags:     []ucli.Flag{configNameFlag, jsonFlag()},
+		Flags:     []ucli.Flag{configNameFlag, cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			name, err := configAccountName(c)
 			if err != nil {
@@ -400,11 +401,11 @@ func emailConfigDefaultCommand() *ucli.Command {
 			if err := saveVaultEmailConfig(c.Context, api, cfg); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, map[string]any{"name": name, "default": true})
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{"name": name, "default": true})
 			}
-			o := stdout(c)
-			o.printf("Default account set to %q.\n", name)
+			o := cli.Stdout(c)
+			o.Printf("Default account set to %q.\n", name)
 			return o.Err()
 		},
 	}
@@ -434,7 +435,7 @@ func emailFoldersCommand() *ucli.Command {
 			}
 
 			if c.Bool("json") {
-				return printJSON(c, folders)
+				return cli.PrintJSON(c, folders)
 			}
 			for _, f := range folders {
 				fmt.Println(f)
@@ -498,7 +499,7 @@ func emailListCommand() *ucli.Command {
 			}
 
 			if c.Bool("json") {
-				return printJSON(c, msgs)
+				return cli.PrintJSON(c, msgs)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -571,7 +572,7 @@ func emailReadCommand() *ucli.Command {
 			}
 
 			if c.Bool("json") {
-				return printJSON(c, msg)
+				return cli.PrintJSON(c, msg)
 			}
 
 			if c.Bool("raw") {
@@ -624,7 +625,7 @@ func emailSendCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "reply-to", Usage: "Reply-To address"},
 			&ucli.StringFlag{Name: "in-reply-to", Usage: "Message-ID of the message being replied to (sets In-Reply-To header)"},
 			&ucli.BoolFlag{Name: "dry-run", Usage: "Print composed message without sending"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			cfg, err := loadEmailConfig(c.Context)
@@ -672,8 +673,8 @@ func emailSendCommand() *ucli.Command {
 			}
 
 			if c.Bool("dry-run") {
-				if isJSON(c) {
-					return printJSON(c, map[string]any{
+				if cli.IsJSON(c) {
+					return cli.PrintJSON(c, map[string]any{
 						"dry_run": true,
 						"to":      opts.To,
 						"cc":      opts.Cc,
@@ -681,19 +682,19 @@ func emailSendCommand() *ucli.Command {
 						"subject": opts.Subject,
 					})
 				}
-				o := stdout(c)
-				o.println(email.FormatDryRun(acct, opts))
+				o := cli.Stdout(c)
+				o.Println(email.FormatDryRun(acct, opts))
 				return o.Err()
 			}
 
 			if err := email.Send(acct, opts); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, map[string]any{"sent": true, "to": opts.To, "subject": opts.Subject})
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{"sent": true, "to": opts.To, "subject": opts.Subject})
 			}
-			o := stdout(c)
-			o.println("Email sent successfully.")
+			o := cli.Stdout(c)
+			o.Println("Email sent successfully.")
 			return o.Err()
 		},
 	}
@@ -709,7 +710,7 @@ func emailMarkCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "folder", Usage: "Folder name", Value: "INBOX"},
 			&ucli.BoolFlag{Name: "seen", Usage: "Mark message as read"},
 			&ucli.BoolFlag{Name: "unseen", Usage: "Mark message as unread"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			uidStr := c.Args().First()
@@ -736,14 +737,14 @@ func emailMarkCommand() *ucli.Command {
 			if err := email.MarkSeen(acct, c.String("folder"), uid, c.Bool("seen")); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, map[string]any{"uid": uid, "seen": c.Bool("seen")})
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{"uid": uid, "seen": c.Bool("seen")})
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if c.Bool("seen") {
-				o.printf("Message %d marked as read.\n", uid)
+				o.Printf("Message %d marked as read.\n", uid)
 			} else {
-				o.printf("Message %d marked as unread.\n", uid)
+				o.Printf("Message %d marked as unread.\n", uid)
 			}
 			return o.Err()
 		},

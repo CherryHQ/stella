@@ -13,7 +13,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/auth"
 
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
@@ -30,6 +29,7 @@ import (
 	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/internal/tools"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	pkgauth "github.com/CherryHQ/stella/pkg/auth"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -41,7 +41,7 @@ import (
 )
 
 func hasScopedSandboxToken() bool {
-	return auth.IsScopedToken(os.Getenv("STELLA_TOKEN"))
+	return pkgauth.IsScopedToken(os.Getenv("STELLA_TOKEN"))
 }
 
 func denyInSandbox(cmd *ucli.Command) *ucli.Command {

@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -9,8 +9,6 @@ import (
 	ucli "github.com/urfave/cli/v2"
 )
 
-// runWithAction builds a single-command app wired to capture stdout/stderr and
-// runs it with the given args, returning the captured streams and run error.
 func runWithAction(args []string, flags []ucli.Flag, action ucli.ActionFunc) (stdout, stderr *bytes.Buffer, err error) {
 	stdout = &bytes.Buffer{}
 	stderr = &bytes.Buffer{}
@@ -28,7 +26,7 @@ func runWithAction(args []string, flags []ucli.Flag, action ucli.ActionFunc) (st
 
 func TestPrintJSONWritesValidJSONToStdout(t *testing.T) {
 	stdout, stderr, err := runWithAction(nil, nil, func(c *ucli.Context) error {
-		return printJSON(c, map[string]any{"id": "abc", "n": 1})
+		return PrintJSON(c, map[string]any{"id": "abc", "n": 1})
 	})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -47,7 +45,7 @@ func TestPrintJSONWritesValidJSONToStdout(t *testing.T) {
 
 func TestPrintDeletedShape(t *testing.T) {
 	stdout, _, err := runWithAction(nil, nil, func(c *ucli.Context) error {
-		return printDeleted(c, "task-123")
+		return PrintDeleted(c, "task-123")
 	})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -62,9 +60,9 @@ func TestPrintDeletedShape(t *testing.T) {
 }
 
 func TestIsJSONSelectedByFlag(t *testing.T) {
-	stdout, _, err := runWithAction([]string{"--json"}, []ucli.Flag{jsonFlag()}, func(c *ucli.Context) error {
-		if !isJSON(c) {
-			t.Error("isJSON = false with --json set")
+	stdout, _, err := runWithAction([]string{"--json"}, []ucli.Flag{JSONFlag()}, func(c *ucli.Context) error {
+		if !IsJSON(c) {
+			t.Error("IsJSON = false with --json set")
 		}
 		return nil
 	})
@@ -73,9 +71,9 @@ func TestIsJSONSelectedByFlag(t *testing.T) {
 	}
 	_ = stdout
 
-	_, _, err = runWithAction(nil, []ucli.Flag{jsonFlag()}, func(c *ucli.Context) error {
-		if isJSON(c) {
-			t.Error("isJSON = true without --json")
+	_, _, err = runWithAction(nil, []ucli.Flag{JSONFlag()}, func(c *ucli.Context) error {
+		if IsJSON(c) {
+			t.Error("IsJSON = true without --json")
 		}
 		return nil
 	})
@@ -84,8 +82,6 @@ func TestIsJSONSelectedByFlag(t *testing.T) {
 	}
 }
 
-// Mirrors main(): a command Action error must propagate out of app.Run (which
-// main routes to stderr + exit 1) and must not leak anything to stdout.
 func TestCommandErrorKeepsStdoutClean(t *testing.T) {
 	stdout, _, err := runWithAction(nil, nil, func(c *ucli.Context) error {
 		return errors.New("boom")

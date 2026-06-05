@@ -7,6 +7,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func recallyDigestCommand() *ucli.Command {
@@ -21,7 +22,7 @@ func recallyDigestCommand() *ucli.Command {
 
 Running "digest" with no subcommand generates today's digest. Use
 "digest save" to persist a snapshot with a narrative.`,
-		Flags: []ucli.Flag{jsonFlag()},
+		Flags: []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			digest, err := apiclient.Call[apiclient.Digest](func(api *apiclient.Client) (*http.Response, error) {
 				return api.GetDigest(c.Context)
@@ -29,18 +30,18 @@ Running "digest" with no subcommand generates today's digest. Use
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, digest)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, digest)
 			}
-			o := stdout(c)
-			o.printf("digest:    %s\n", digest.Date.Format("2006-01-02"))
-			o.printf("total:     %d\n", digest.TotalArticles)
-			o.printf("unread:    %d\n", digest.UnreadCount)
-			o.printf("read:      %d\n", digest.ReadCount)
-			o.printf("archived:  %d\n", digest.ArchivedCount)
-			o.printf("starred:   %d\n", digest.StarredCount)
-			o.printf("yesterday: %d\n", digest.SavedYesterdayCount)
-			o.printf("revisit:   %d\n", digest.WorthRevisitingCount)
+			o := cli.Stdout(c)
+			o.Printf("digest:    %s\n", digest.Date.Format("2006-01-02"))
+			o.Printf("total:     %d\n", digest.TotalArticles)
+			o.Printf("unread:    %d\n", digest.UnreadCount)
+			o.Printf("read:      %d\n", digest.ReadCount)
+			o.Printf("archived:  %d\n", digest.ArchivedCount)
+			o.Printf("starred:   %d\n", digest.StarredCount)
+			o.Printf("yesterday: %d\n", digest.SavedYesterdayCount)
+			o.Printf("revisit:   %d\n", digest.WorthRevisitingCount)
 			return o.Err()
 		},
 		Subcommands: []*ucli.Command{
@@ -64,7 +65,7 @@ func recallyDigestSaveCommand() *ucli.Command {
 				Name:  "date",
 				Usage: "Digest date (YYYY-MM-DD); defaults to today",
 			},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			narrative := c.String("narrative")
@@ -78,11 +79,11 @@ func recallyDigestSaveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, stored)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, stored)
 			}
-			o := stdout(c)
-			o.printf("saved digest %s (%s)\n", shortID(stored.Id), stored.Date)
+			o := cli.Stdout(c)
+			o.Printf("saved digest %s (%s)\n", cli.ShortID(stored.Id), stored.Date)
 			return o.Err()
 		},
 	}

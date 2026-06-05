@@ -9,6 +9,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func taskAgentID(_ *ucli.Context) (string, error) {
@@ -56,7 +57,7 @@ func taskListCmd() *ucli.Command {
 		Flags: append(taskAgentFlags(),
 			&ucli.StringFlag{Name: "status", Usage: "Filter by status"},
 			&ucli.StringFlag{Name: "project-id", Usage: "Filter by project/workspace context"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		),
 		Action: func(c *ucli.Context) error {
 			agentID, err := taskAgentID(c)
@@ -76,12 +77,12 @@ func taskListCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("list tasks: %w", err)
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			for _, t := range list.Tasks {
-				o.printf("%-36s  %-10s  %-8s  %s\n", t.Id, t.Status, t.Priority, t.Title)
+				o.Printf("%-36s  %-10s  %-8s  %s\n", t.Id, t.Status, t.Priority, t.Title)
 			}
 			return o.Err()
 		},
@@ -93,7 +94,7 @@ func taskGetCmd() *ucli.Command {
 		Name:      "get",
 		Usage:     "Show a task",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), jsonFlag()),
+		Flags:     append(taskAgentFlags(), cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -126,7 +127,7 @@ func taskCreateCmd() *ucli.Command {
 			&ucli.StringFlag{Name: "priority", Value: "routine", Usage: "routine | urgent"},
 			&ucli.StringSliceFlag{Name: "dep", Usage: "Dependency: <task-id>[:kind[:on_failure]]; may be repeated"},
 			&ucli.BoolFlag{Name: "activate", Usage: "Activate (draft -> ready) immediately"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		),
 		Action: func(c *ucli.Context) error {
 			agentID, err := taskAgentID(c)
@@ -183,7 +184,7 @@ func taskCancelCmd() *ucli.Command {
 		Name:      "cancel",
 		Usage:     "Cancel a task",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Cancellation reason"}, jsonFlag()),
+		Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Cancellation reason"}, cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -212,7 +213,7 @@ func taskReopenCmd() *ucli.Command {
 		Name:      "reopen",
 		Usage:     "Reopen a done/failed task",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), &ucli.BoolFlag{Name: "cascade", Usage: "Cascade-reset downstream tasks"}, jsonFlag()),
+		Flags:     append(taskAgentFlags(), &ucli.BoolFlag{Name: "cascade", Usage: "Cascade-reset downstream tasks"}, cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -242,7 +243,7 @@ func taskReadinessCmd() *ucli.Command {
 		Name:      "readiness",
 		Usage:     "Show task readiness",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), jsonFlag()),
+		Flags:     append(taskAgentFlags(), cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -257,22 +258,22 @@ func taskReadinessCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("readiness: %w", err)
 			}
-			if isJSON(c) {
-				return printJSON(c, rd)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, rd)
 			}
-			o := stdout(c)
-			o.printf("state:        %s\n", rd.State)
-			o.printf("dispatchable: %t\n", rd.Dispatchable)
+			o := cli.Stdout(c)
+			o.Printf("state:        %s\n", rd.State)
+			o.Printf("dispatchable: %t\n", rd.Dispatchable)
 			if rd.Reasons != nil {
 				for _, r := range *rd.Reasons {
-					o.printf("  - %s", r.Type)
+					o.Printf("  - %s", r.Type)
 					if r.UpstreamId != nil {
-						o.printf(" upstream=%s", *r.UpstreamId)
+						o.Printf(" upstream=%s", *r.UpstreamId)
 					}
 					if r.Detail != nil {
-						o.printf(" detail=%s", *r.Detail)
+						o.Printf(" detail=%s", *r.Detail)
 					}
-					o.println()
+					o.Println()
 				}
 			}
 			return o.Err()
@@ -285,7 +286,7 @@ func taskEventsCmd() *ucli.Command {
 		Name:      "events",
 		Usage:     "List task events",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), jsonFlag()),
+		Flags:     append(taskAgentFlags(), cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -300,10 +301,10 @@ func taskEventsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("events: %w", err)
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			for _, e := range list.Events {
 				from := ""
 				if e.FromStatus != nil {
@@ -313,7 +314,7 @@ func taskEventsCmd() *ucli.Command {
 				if e.ToStatus != nil {
 					to = *e.ToStatus
 				}
-				o.printf("%-19s  %-18s  %s -> %s\n",
+				o.Printf("%-19s  %-18s  %s -> %s\n",
 					e.CreatedAt.Format("2006-01-02 15:04:05"), e.EventType, from, to)
 			}
 			return o.Err()
@@ -326,7 +327,7 @@ func taskDepsCmd() *ucli.Command {
 		Name:      "deps",
 		Usage:     "List dependency edges",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), jsonFlag()),
+		Flags:     append(taskAgentFlags(), cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -341,16 +342,16 @@ func taskDepsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("deps: %w", err)
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			for _, d := range list.Deps {
 				up := ""
 				if d.UpstreamStatus != nil {
 					up = *d.UpstreamStatus
 				}
-				o.printf("%-36s  %-6s  %-7s  upstream=%s\n", d.DepTaskId, d.DepKind, d.OnFailure, up)
+				o.Printf("%-36s  %-6s  %-7s  upstream=%s\n", d.DepTaskId, d.DepKind, d.OnFailure, up)
 			}
 			return o.Err()
 		},
@@ -375,7 +376,7 @@ func taskReviewEscalateCmd() *ucli.Command {
 		Name:      "escalate",
 		Usage:     "Escalate an agent review to a human",
 		ArgsUsage: "<task-id> <review-id>",
-		Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Escalation reason"}, jsonFlag()),
+		Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Escalation reason"}, cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			if c.NArg() < 2 {
 				return fmt.Errorf("usage: stella task review escalate <task-id> <review-id>")
@@ -395,11 +396,11 @@ func taskReviewEscalateCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("review escalate: %w", err)
 			}
-			if isJSON(c) {
-				return printJSON(c, rev)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, rev)
 			}
-			o := stdout(c)
-			o.printf("review %s -> %s\n", rev.Id, rev.Status)
+			o := cli.Stdout(c)
+			o.Printf("review %s -> %s\n", rev.Id, rev.Status)
 			return o.Err()
 		},
 	}
@@ -410,7 +411,7 @@ func taskReviewsCmd() *ucli.Command {
 		Name:      "reviews",
 		Usage:     "List task reviews",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), jsonFlag()),
+		Flags:     append(taskAgentFlags(), cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -425,8 +426,8 @@ func taskReviewsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("reviews: %w", err)
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
 			return printReviewList(c, list.Reviews)
 		},
@@ -438,7 +439,7 @@ func taskRunsCmd() *ucli.Command {
 		Name:      "runs",
 		Usage:     "List task run attempts",
 		ArgsUsage: "<task-id>",
-		Flags:     append(taskAgentFlags(), jsonFlag()),
+		Flags:     append(taskAgentFlags(), cli.JSONFlag()),
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
 			if id == "" {
@@ -453,16 +454,16 @@ func taskRunsCmd() *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("runs: %w", err)
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			for _, r := range list.Runs {
 				errStr := ""
 				if r.Error != nil {
 					errStr = *r.Error
 				}
-				o.printf("%-36s  %-9s  %-11s  #%d  %s\n", r.Id, r.Kind, r.Status, r.AttemptNo, errStr)
+				o.Printf("%-36s  %-9s  %-11s  #%d  %s\n", r.Id, r.Kind, r.Status, r.AttemptNo, errStr)
 			}
 			return o.Err()
 		},
@@ -480,7 +481,7 @@ func taskDepCmd() *ucli.Command {
 				ArgsUsage: "<task-id> <dep-spec>",
 				Description: "dep-spec is <dep-task-id>[:kind[:on_failure]] " +
 					"(kind: hard|soft, on_failure: block|fail|ignore).",
-				Flags: append(taskAgentFlags(), jsonFlag()),
+				Flags: append(taskAgentFlags(), cli.JSONFlag()),
 				Action: func(c *ucli.Context) error {
 					if c.NArg() < 2 {
 						return fmt.Errorf("usage: stella task dep add <task-id> <dep-spec>")
@@ -507,11 +508,11 @@ func taskDepCmd() *ucli.Command {
 					}); err != nil {
 						return fmt.Errorf("add dep: %w", err)
 					}
-					if isJSON(c) {
-						return printJSON(c, depResult{TaskID: taskID, DepTaskID: spec.DepTaskId, Action: "added"})
+					if cli.IsJSON(c) {
+						return cli.PrintJSON(c, depResult{TaskID: taskID, DepTaskID: spec.DepTaskId, Action: "added"})
 					}
-					o := stdout(c)
-					o.printf("added dep %s -> %s\n", taskID, spec.DepTaskId)
+					o := cli.Stdout(c)
+					o.Printf("added dep %s -> %s\n", taskID, spec.DepTaskId)
 					return o.Err()
 				},
 			},
@@ -519,7 +520,7 @@ func taskDepCmd() *ucli.Command {
 				Name:      "waive",
 				Usage:     "Waive a failed hard dependency",
 				ArgsUsage: "<task-id> <dep-task-id>",
-				Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Waiver reason"}, jsonFlag()),
+				Flags:     append(taskAgentFlags(), &ucli.StringFlag{Name: "reason", Usage: "Waiver reason"}, cli.JSONFlag()),
 				Action: func(c *ucli.Context) error {
 					if c.NArg() < 2 {
 						return fmt.Errorf("usage: stella task dep waive <task-id> <dep-task-id>")
@@ -538,11 +539,11 @@ func taskDepCmd() *ucli.Command {
 					}); err != nil {
 						return fmt.Errorf("waive dep: %w", err)
 					}
-					if isJSON(c) {
-						return printJSON(c, depResult{TaskID: taskID, DepTaskID: depTaskID, Action: "waived"})
+					if cli.IsJSON(c) {
+						return cli.PrintJSON(c, depResult{TaskID: taskID, DepTaskID: depTaskID, Action: "waived"})
 					}
-					o := stdout(c)
-					o.printf("waived dep %s -> %s\n", taskID, depTaskID)
+					o := cli.Stdout(c)
+					o.Printf("waived dep %s -> %s\n", taskID, depTaskID)
 					return o.Err()
 				},
 			},
@@ -561,7 +562,7 @@ func taskBlockerCmd() *ucli.Command {
 				ArgsUsage: "<task-id> <blocker-id>",
 				Description: "Get the blocker id from `stella task get` (active_blocker). " +
 					"dep_failure blockers must be cleared with `stella task dep waive` instead.",
-				Flags: append(taskAgentFlags(), &ucli.StringFlag{Name: "resolution", Usage: "Resolution note / answer"}, jsonFlag()),
+				Flags: append(taskAgentFlags(), &ucli.StringFlag{Name: "resolution", Usage: "Resolution note / answer"}, cli.JSONFlag()),
 				Action: func(c *ucli.Context) error {
 					if c.NArg() < 2 {
 						return fmt.Errorf("usage: stella task blocker resolve <task-id> <blocker-id>")
@@ -597,9 +598,9 @@ type depResult struct {
 }
 
 func printReviewList(c *ucli.Context, items []apitypes.Review) error {
-	o := stdout(c)
+	o := cli.Stdout(c)
 	for _, r := range items {
-		o.printf("%-36s  %-12s  %-8s  %s\n", r.Id, r.Status, r.ReviewerType, r.Feedback)
+		o.Printf("%-36s  %-12s  %-8s  %s\n", r.Id, r.Status, r.ReviewerType, r.Feedback)
 	}
 	return o.Err()
 }
@@ -612,7 +613,7 @@ func reviewDecisionCmd(verb, usage string) *ucli.Command {
 		Flags: append(taskAgentFlags(),
 			&ucli.StringFlag{Name: "summary", Usage: "Decision summary"},
 			&ucli.StringFlag{Name: "feedback", Usage: "Feedback to the worker (reject / request-changes)"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		),
 		Action: func(c *ucli.Context) error {
 			if c.NArg() < 2 {
@@ -644,11 +645,11 @@ func reviewDecisionCmd(verb, usage string) *ucli.Command {
 			if err != nil {
 				return fmt.Errorf("review %s: %w", verb, err)
 			}
-			if isJSON(c) {
-				return printJSON(c, rev)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, rev)
 			}
-			o := stdout(c)
-			o.printf("review %s -> %s\n", rev.Id, rev.Status)
+			o := cli.Stdout(c)
+			o.Printf("review %s -> %s\n", rev.Id, rev.Status)
 			return o.Err()
 		},
 	}
@@ -670,24 +671,24 @@ func parseDepSpec(spec string) (apitypes.DepInput, error) {
 }
 
 func printTask(c *ucli.Context, t apitypes.Task) error {
-	if isJSON(c) {
-		return printJSON(c, t)
+	if cli.IsJSON(c) {
+		return cli.PrintJSON(c, t)
 	}
-	o := stdout(c)
-	o.printf("id:       %s\n", t.Id)
-	o.printf("title:    %s\n", t.Title)
-	o.printf("status:   %s\n", t.Status)
-	o.printf("priority: %s\n", t.Priority)
-	o.printf("review:   %s\n", t.ReviewPolicy)
+	o := cli.Stdout(c)
+	o.Printf("id:       %s\n", t.Id)
+	o.Printf("title:    %s\n", t.Title)
+	o.Printf("status:   %s\n", t.Status)
+	o.Printf("priority: %s\n", t.Priority)
+	o.Printf("review:   %s\n", t.ReviewPolicy)
 	if t.ActiveBlockerId != nil {
-		o.printf("active_blocker: %s\n", *t.ActiveBlockerId)
+		o.Printf("active_blocker: %s\n", *t.ActiveBlockerId)
 	}
 	if t.ActiveReviewId != nil {
-		o.printf("active_review:  %s\n", *t.ActiveReviewId)
+		o.Printf("active_review:  %s\n", *t.ActiveReviewId)
 	}
 	if t.ActiveRunId != nil {
-		o.printf("active_run:     %s\n", *t.ActiveRunId)
+		o.Printf("active_run:     %s\n", *t.ActiveRunId)
 	}
-	o.printf("created:  %s\n", t.CreatedAt.Format("2006-01-02 15:04:05"))
+	o.Printf("created:  %s\n", t.CreatedAt.Format("2006-01-02 15:04:05"))
 	return o.Err()
 }

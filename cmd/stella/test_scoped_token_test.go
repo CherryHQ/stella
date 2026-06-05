@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/auth"
+	pkgauth "github.com/CherryHQ/stella/pkg/auth"
 )
 
 func setTestScopedToken(t *testing.T, agentID string) {
 	t.Helper()
-	tok, err := auth.SignScopedToken([]byte("test-secret"), auth.ScopedTokenClaims{
+	tok, err := pkgauth.SignScopedToken([]byte("test-secret"), pkgauth.ScopedTokenClaims{
 		UserID:    "user-1",
 		AgentID:   agentID,
 		SessionID: "session-1",

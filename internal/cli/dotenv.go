@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bufio"
@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// loadDotEnv reads $STELLA_HOME/.env and sets any key that is not already
+// LoadDotEnv reads $STELLA_HOME/.env and sets any key that is not already
 // present in the environment. Existing OS/service-injected variables win.
 // Missing file is silently ignored; parse errors are skipped per line.
-func loadDotEnv() {
+func LoadDotEnv() {
 	stellaHome := os.Getenv("STELLA_HOME")
 	if stellaHome == "" {
 		home, err := os.UserHomeDir()
@@ -44,11 +44,9 @@ func loadDotEnv() {
 		if k == "" {
 			continue
 		}
-		// Strip matching surrounding quotes.
 		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
 			v = v[1 : len(v)-1]
 		}
-		// Only set if not already present.
 		if os.Getenv(k) == "" {
 			_ = os.Setenv(k, v)
 		}

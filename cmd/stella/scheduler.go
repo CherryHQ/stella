@@ -8,6 +8,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func schedulerCommand() *ucli.Command {
@@ -37,7 +38,7 @@ func schedulerAddCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "every", Usage: "Go duration, e.g. '30m' or '2h' (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "at", Usage: "RFC3339 timestamp for a one-time job (use one of cron, every, or at)"},
 			&ucli.StringFlag{Name: "session-mode", Usage: "Session behavior: reuse (default) or new", Value: "reuse"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			cron := c.String("cron")
@@ -90,18 +91,18 @@ func schedulerAddCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, job)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, job)
 			}
-			sched := derefStr(job.Cron)
+			sched := cli.DerefStr(job.Cron)
 			if sched == "" {
-				sched = derefStr(job.Every)
+				sched = cli.DerefStr(job.Every)
 			}
 			if sched == "" {
-				sched = derefStr(job.At)
+				sched = cli.DerefStr(job.At)
 			}
-			o := stdout(c)
-			o.printf("Job %s created (%s, %s).\n", shortID(job.Id), job.Name, sched)
+			o := cli.Stdout(c)
+			o.Printf("Job %s created (%s, %s).\n", cli.ShortID(job.Id), job.Name, sched)
 			return o.Err()
 		},
 	}
@@ -112,7 +113,7 @@ func schedulerListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List scheduled jobs",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			agentID, err := taskAgentID(c)
@@ -125,29 +126,29 @@ func schedulerListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if len(list.Jobs) == 0 {
-				o.println("No scheduled jobs.")
+				o.Println("No scheduled jobs.")
 				return o.Err()
 			}
-			o.printf("%-10s  %-20s  %-20s  %-8s  %s\n", "ID", "NAME", "SCHEDULE", "MODE", "LAST RUN")
+			o.Printf("%-10s  %-20s  %-20s  %-8s  %s\n", "ID", "NAME", "SCHEDULE", "MODE", "LAST RUN")
 			for _, j := range list.Jobs {
-				sched := derefStr(j.Cron)
+				sched := cli.DerefStr(j.Cron)
 				if sched == "" {
-					sched = derefStr(j.Every)
+					sched = cli.DerefStr(j.Every)
 				}
 				if sched == "" {
-					sched = derefStr(j.At)
+					sched = cli.DerefStr(j.At)
 				}
 				lastRun := "never"
 				if j.LastRunAt != nil {
 					lastRun = j.LastRunAt.Format(time.DateTime)
 				}
-				o.printf("%-10s  %-20s  %-20s  %-8s  %s\n",
-					shortID(j.Id), truncate(j.Name, 20), truncate(sched, 20), j.SessionMode, lastRun)
+				o.Printf("%-10s  %-20s  %-20s  %-8s  %s\n",
+					cli.ShortID(j.Id), cli.Truncate(j.Name, 20), cli.Truncate(sched, 20), j.SessionMode, lastRun)
 			}
 			return o.Err()
 		},
@@ -160,7 +161,7 @@ func schedulerRemoveCommand() *ucli.Command {
 		Usage:     "Remove a scheduled job",
 		ArgsUsage: "<job-id>",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			id := c.Args().First()
@@ -176,28 +177,12 @@ func schedulerRemoveCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printDeleted(c, id)
+			if cli.IsJSON(c) {
+				return cli.PrintDeleted(c, id)
 			}
-			o := stdout(c)
-			o.printf("Job %q removed.\n", id)
+			o := cli.Stdout(c)
+			o.Printf("Job %q removed.\n", id)
 			return o.Err()
 		},
 	}
-}
-
-// truncate shortens s to max chars, appending "…" when trimmed.
-func truncate(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max-1]) + "…"
-}
-
-func derefStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
 }

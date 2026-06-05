@@ -10,6 +10,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -51,7 +52,7 @@ func vaultListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List vault entries",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			list, err := apiclient.Call[apitypes.VaultEntryList](func(api *apiclient.Client) (*http.Response, error) {
@@ -60,19 +61,19 @@ func vaultListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
 			entries := list.Entries
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if len(entries) == 0 {
-				o.println("No vault entries.")
+				o.Println("No vault entries.")
 				return o.Err()
 			}
-			o.printf("%-30s  %-20s  %-20s\n", "NAME", "CREATED", "UPDATED")
+			o.Printf("%-30s  %-20s  %-20s\n", "NAME", "CREATED", "UPDATED")
 			for _, e := range entries {
-				o.printf("%-30s  %-20s  %-20s\n",
-					truncate(e.Name, 30), e.CreatedAt.Format("2006-01-02 15:04:05"), e.UpdatedAt.Format("2006-01-02 15:04:05"))
+				o.Printf("%-30s  %-20s  %-20s\n",
+					cli.Truncate(e.Name, 30), e.CreatedAt.Format("2006-01-02 15:04:05"), e.UpdatedAt.Format("2006-01-02 15:04:05"))
 			}
 			return o.Err()
 		},
@@ -85,7 +86,7 @@ func vaultGetCommand() *ucli.Command {
 		Usage:     "Get a vault entry value",
 		ArgsUsage: "<name>",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
@@ -98,13 +99,13 @@ func vaultGetCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, entry)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, entry)
 			}
 			// Deliberate exception to the no-secrets rule: `vault get <name>` is
 			// the explicit single-resource retrieval used for scripting.
-			o := stdout(c)
-			o.println(entry.Value)
+			o := cli.Stdout(c)
+			o.Println(entry.Value)
 			return o.Err()
 		},
 	}
@@ -116,7 +117,7 @@ func vaultSetCommand() *ucli.Command {
 		Usage:     "Set a vault entry (use '-' as value to read from stdin)",
 		ArgsUsage: "<name> <value>",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().Get(0)
@@ -139,11 +140,11 @@ func vaultSetCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, map[string]any{"name": name, "set": true})
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{"name": name, "set": true})
 			}
-			o := stdout(c)
-			o.printf("Vault entry %q set.\n", name)
+			o := cli.Stdout(c)
+			o.Printf("Vault entry %q set.\n", name)
 			return o.Err()
 		},
 	}
@@ -155,7 +156,7 @@ func vaultDeleteCommand() *ucli.Command {
 		Usage:     "Delete a vault entry",
 		ArgsUsage: "<name>",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
@@ -167,11 +168,11 @@ func vaultDeleteCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printDeleted(c, name)
+			if cli.IsJSON(c) {
+				return cli.PrintDeleted(c, name)
 			}
-			o := stdout(c)
-			o.printf("Vault entry %q deleted.\n", name)
+			o := cli.Stdout(c)
+			o.Printf("Vault entry %q deleted.\n", name)
 			return o.Err()
 		},
 	}

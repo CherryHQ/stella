@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 // parseLogLevel maps LOG_LEVEL env var to slog.Level.
@@ -28,7 +30,7 @@ func parseLogLevel() slog.Level {
 }
 
 func main() {
-	loadDotEnv()
+	cli.LoadDotEnv()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: parseLogLevel(),

@@ -9,6 +9,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func shareCommand() *ucli.Command {
@@ -30,7 +31,7 @@ func shareArtifactCommand() *ucli.Command {
 		ArgsUsage: "<path>",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "expires-in", Usage: "Expiration: 1h, 1d, 7d, never", Value: "7d"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			path := c.Args().First()
@@ -53,11 +54,11 @@ func shareArtifactCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, share)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, share)
 			}
-			o := stdout(c)
-			o.println(share.Url)
+			o := cli.Stdout(c)
+			o.Println(share.Url)
 			return o.Err()
 		},
 	}
@@ -70,7 +71,7 @@ func shareArticleCommand() *ucli.Command {
 		ArgsUsage: "<article-id>",
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "expires-in", Usage: "Expiration: 1h, 1d, 7d, never", Value: "7d"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			articleID := c.Args().First()
@@ -87,11 +88,11 @@ func shareArticleCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, share)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, share)
 			}
-			o := stdout(c)
-			o.println(share.Url)
+			o := cli.Stdout(c)
+			o.Println(share.Url)
 			return o.Err()
 		},
 	}
