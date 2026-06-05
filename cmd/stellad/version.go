@@ -403,7 +403,8 @@ func verifyChecksum(ctx context.Context, release *githubRelease, archiveName, ar
 		return err
 	}
 
-	if actual != expected {
+	// Hex digests are case-insensitive; some tooling emits uppercase.
+	if !strings.EqualFold(actual, expected) {
 		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", archiveName, expected, actual)
 	}
 	return nil

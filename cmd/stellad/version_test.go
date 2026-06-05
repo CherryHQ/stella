@@ -3,15 +3,30 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// infiniteZeroReader yields an endless stream of zero bytes without allocating,
+// so size-limit tests can drive past maxArchiveBytes cheaply.
+type infiniteZeroReader struct{}
+
+func (infiniteZeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
+}
 
 func TestResolveUpgradeDirDefaultUsesExecutableDir(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -300,26 +315,47 @@ func TestSha256File(t *testing.T) {
 
 func TestWriteReaderToFileSizeLimit(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "big.bin")
 
-	// Create a reader that produces more than maxArchiveBytes
-	oldMax := maxArchiveBytes
-	// Temporarily set a small limit for testing
-	defer func() { /* maxArchiveBytes is const, we test with a real small file */ }()
-	_ = oldMax
-
-	// Instead, test that a normal file works fine
-	content := strings.NewReader("small content")
-	if err := writeReaderToFile(path, content, 0o755); err != nil {
+	// Happy path: a normal small file is written verbatim.
+	smallPath := filepath.Join(dir, "small.bin")
+	if err := writeReaderToFile(smallPath, strings.NewReader("small content"), 0o755); err != nil {
 		t.Fatalf("writeReaderToFile: %v", err)
 	}
-
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(smallPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != "small content" {
 		t.Fatalf("got %q, want %q", string(data), "small content")
+	}
+
+	if testing.Short() {
+		t.Skip("skipping multi-hundred-MB boundary cases in -short mode")
+	}
+
+	// Boundary: a payload of exactly maxArchiveBytes is accepted (the guard is
+	// inclusive — it must not reject a file at the limit).
+	atLimitPath := filepath.Join(dir, "at_limit.bin")
+	if err := writeReaderToFile(atLimitPath, io.LimitReader(infiniteZeroReader{}, maxArchiveBytes), 0o755); err != nil {
+		t.Fatalf("writeReaderToFile at limit: %v", err)
+	}
+	if fi, err := os.Stat(atLimitPath); err != nil {
+		t.Fatal(err)
+	} else if fi.Size() != maxArchiveBytes {
+		t.Fatalf("at-limit size = %d, want %d", fi.Size(), maxArchiveBytes)
+	}
+
+	// Over limit: one byte past the cap is rejected and the partial file removed.
+	overPath := filepath.Join(dir, "over.bin")
+	err = writeReaderToFile(overPath, io.LimitReader(infiniteZeroReader{}, maxArchiveBytes+1), 0o755)
+	if err == nil {
+		t.Fatal("expected over-limit reader to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %q, want size-limit error", err.Error())
+	}
+	if _, err := os.Stat(overPath); !os.IsNotExist(err) {
+		t.Fatal("expected partial file to be removed after over-limit rejection")
 	}
 }
 
@@ -372,35 +408,63 @@ func TestFindChecksumAsset(t *testing.T) {
 }
 
 func TestVerifyChecksumIntegration(t *testing.T) {
-	dir := t.TempDir()
-	archivePath := filepath.Join(dir, "stella_linux_amd64.tar.gz")
+	const archiveName = "stella_linux_amd64.tar.gz"
 	content := []byte("fake archive content")
-	if err := os.WriteFile(archivePath, content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	h := sha256.Sum256(content)
 	correctHash := hex.EncodeToString(h[:])
-	checksumsTxt := fmt.Sprintf("%s  stella_linux_amd64.tar.gz\n", correctHash)
 
-	// Test correct checksum passes
-	expected, err := parseChecksumForFile(checksumsTxt, "stella_linux_amd64.tar.gz")
-	if err != nil {
-		t.Fatal(err)
-	}
-	actual, err := sha256File(archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if actual != expected {
-		t.Fatalf("checksum mismatch: got %s, want %s", actual, expected)
+	// serveChecksums spins an HTTP server returning the given checksums body and
+	// builds a release whose checksums.txt asset points at it.
+	releaseServing := func(t *testing.T, body string) *githubRelease {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, body)
+		}))
+		t.Cleanup(srv.Close)
+		return &githubRelease{Assets: []githubReleaseAsset{
+			{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL},
+		}}
 	}
 
-	// Test wrong checksum fails
-	badChecksum := "0000000000000000000000000000000000000000000000000000000000000000"
-	if actual == badChecksum {
-		t.Fatal("bad test: bad checksum matches actual")
+	writeArchive := func(t *testing.T) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), archiveName)
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
 	}
+
+	t.Run("matching checksum passes", func(t *testing.T) {
+		rel := releaseServing(t, fmt.Sprintf("%s  %s\n", correctHash, archiveName))
+		if err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t)); err != nil {
+			t.Fatalf("verifyChecksum: %v", err)
+		}
+	})
+
+	t.Run("uppercase digest passes (case-insensitive)", func(t *testing.T) {
+		rel := releaseServing(t, fmt.Sprintf("%s  %s\n", strings.ToUpper(correctHash), archiveName))
+		if err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t)); err != nil {
+			t.Fatalf("verifyChecksum with uppercase digest: %v", err)
+		}
+	})
+
+	t.Run("wrong checksum is rejected", func(t *testing.T) {
+		bad := strings.Repeat("0", 64)
+		rel := releaseServing(t, fmt.Sprintf("%s  %s\n", bad, archiveName))
+		err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t))
+		if err == nil || !strings.Contains(err.Error(), "mismatch") {
+			t.Fatalf("error = %v, want checksum mismatch", err)
+		}
+	})
+
+	t.Run("missing checksums.txt asset skips verification", func(t *testing.T) {
+		rel := &githubRelease{Assets: []githubReleaseAsset{{Name: archiveName, BrowserDownloadURL: "http://unused"}}}
+		if err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t)); err != nil {
+			t.Fatalf("expected missing checksums.txt to skip, got %v", err)
+		}
+	})
 }
 
 func TestWarnStaleUpgradeArtifacts(t *testing.T) {
