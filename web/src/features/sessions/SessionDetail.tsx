@@ -180,29 +180,33 @@ export function SessionDetail({
     }
   }, [loadOlderMessages]);
 
-  const sendMessage = useCallback(async () => {
-    if ((!userInput.trim() && attachments.length === 0) || isStreaming || !session) return;
-    if (attachments.some((a) => a.uploading)) return;
+  const sendMessage = useCallback(
+    async (overrideText?: string) => {
+      const input = overrideText ?? userInput;
+      if ((!input.trim() && attachments.length === 0) || isStreaming || !session) return;
+      if (attachments.some((a) => a.uploading)) return;
 
-    const text = buildMessageText(userInput);
-    setUserInput("");
-    clearAttachments();
-    shouldAutoScrollRef.current = true;
-    setTimeout(() => {
-      if (transcriptRef.current)
-        transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
-    }, 0);
+      const text = buildMessageText(input);
+      setUserInput("");
+      clearAttachments();
+      shouldAutoScrollRef.current = true;
+      setTimeout(() => {
+        if (transcriptRef.current)
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+      }, 0);
 
-    void chatSendMessage({ text });
-  }, [
-    userInput,
-    isStreaming,
-    session,
-    attachments,
-    buildMessageText,
-    clearAttachments,
-    chatSendMessage,
-  ]);
+      void chatSendMessage({ text });
+    },
+    [
+      userInput,
+      isStreaming,
+      session,
+      attachments,
+      buildMessageText,
+      clearAttachments,
+      chatSendMessage,
+    ],
+  );
 
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
@@ -295,7 +299,7 @@ export function SessionDetail({
             <ChatComposer
               value={userInput}
               onChange={setUserInput}
-              onSend={() => void sendMessage()}
+              onSend={(text) => void sendMessage(text)}
               onStop={() => chatStop()}
               isStreaming={isStreaming}
               placeholder={t("sessions.composer.placeholder")}

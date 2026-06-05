@@ -17,7 +17,7 @@ export interface ComposerSkill {
 interface Props {
   value: string;
   onChange: (value: string) => void;
-  onSend: () => void;
+  onSend: (overrideText?: string) => void;
   onStop?: () => void;
   isStreaming: boolean;
   disabled?: boolean;
@@ -62,9 +62,9 @@ export function ChatComposer({
     if (selectedSkills.length > 0) {
       const prefix = selectedSkills.map((s) => `/${s.name}`).join(" ");
       const full = value.trim() ? `${prefix} ${value}` : prefix;
-      onChange(full);
       setSelectedSkills([]);
-      setTimeout(() => onSend(), 0);
+      onChange("");
+      onSend(full);
     } else {
       onSend();
     }
