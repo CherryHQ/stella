@@ -1,11 +1,3 @@
----
-name: web-ui-test
-description: >
-  Automate Stella web UI testing with tap-web browser automation. Use when the user
-  asks to "test the UI", "check the web page", "verify the frontend", "run UI tests",
-  "browser test", or wants to interact with stella.localhost in a browser.
----
-
 # Web UI Test
 
 Automate Stella web UI verification using `tap` browser commands.

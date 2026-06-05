@@ -1,12 +1,3 @@
----
-name: release
-description: >
-  Release workflow for stella Go CLI project. Create releases with semantic versioned
-  tags, update changelog, and trigger automated CI/CD builds. Use when the user
-  asks to "release", "create a release", "tag a version", "update changelog",
-  "prepare release", "cut a release", or discusses versioning and release artifacts.
----
-
 # Release
 
 ## Tag Format
@@ -38,6 +29,7 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)"
    ```
 7. Tag release issues with the release label so they are traceable on the GitHub Project board:
+
    ```bash
    # warn about any issue still open in the milestone before tagging
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
@@ -47,7 +39,9 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
      --json number --jq '.[].number' \
    | xargs -I{} gh issue edit {} --repo CherryHQ/stella --add-label "release:vX.Y.Z"
    ```
+
    Filter the project board by the `release:vX.Y.Z` label to confirm the release scope.
+
 8. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
 9. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
 

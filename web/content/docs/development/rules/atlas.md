@@ -1,11 +1,3 @@
----
-name: atlas
-description: >
-  Atlas database migration tool best practices and usage. Use when creating migrations,
-  modifying database schemas, troubleshooting migration errors, or answering questions
-  about Atlas workflow (diff, apply, lint, hash, versioned migrations).
----
-
 # Atlas Migrations
 
 Atlas is a declarative database schema management tool. You declare the desired schema state, Atlas generates the migration SQL to get there.

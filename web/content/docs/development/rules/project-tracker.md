@@ -1,13 +1,3 @@
----
-name: project-tracker
-description: >-
-  GitHub-native project management using GitHub Projects (v2) and Issues.
-  Track requirements, priorities, status, and roadmap entirely in GitHub.
-  Use this skill when the user wants to "manage project", "track issues",
-  "view project board", "create issues", "update project status",
-  "查看项目状态", "创建 issue", "整理需求", or any project/issue management task.
----
-
 # Project Tracker (GitHub Projects + Issues)
 
 Manage requirements and development status entirely in GitHub. **GitHub Projects**

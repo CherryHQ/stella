@@ -1,11 +1,3 @@
----
-name: sqlc
-description: >
-  sqlc best practices and usage guide. Use when writing SQL queries for sqlc,
-  reviewing query files, debugging generated code, or answering questions about
-  sqlc patterns (naming, annotations, transactions, slices, nullable handling).
----
-
 # sqlc Best Practices
 
 sqlc generates type-safe Go code from SQL queries. You write SQL, sqlc generates the Go.
