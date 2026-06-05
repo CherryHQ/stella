@@ -9,7 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
-const maxFallbackMessages = 200
+const maxFallbackReviewTokens = 100_000
 
 // buildReviewContext formats conversation history for the reviewer.
 // Prefers the memory plugin's Reviewer.BuildReviewContext if available.
@@ -35,11 +35,12 @@ func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, s
 		return "", nil
 	}
 
-	// Split into prior context and fresh content.
-	// When timestamps are zero (provider doesn't track them), treat messages
-	// as fresh to avoid classifying everything as prior and returning empty.
+	// Split into prior context and fresh content, skipping tool results.
 	var prior, fresh []string
 	for _, m := range msgs {
+		if memory.MessageRole(m) == "tool" {
+			continue
+		}
 		line := fmt.Sprintf("[%s] %s", memory.MessageRole(m), memory.MessageText(m))
 		ts := memory.MessageTimestamp(m)
 		if !since.IsZero() && !ts.IsZero() && !ts.After(since) {
@@ -55,18 +56,16 @@ func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, s
 
 	var b strings.Builder
 
-	// Include truncated prior context.
 	if len(prior) > 0 {
 		b.WriteString("<prior_context>\n")
-		for _, line := range tailLines(prior, maxFallbackMessages) {
+		for _, line := range tailByBudget(prior, maxFallbackReviewTokens/4) {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
 		b.WriteString("</prior_context>\n\n")
 	}
 
-	// Write fresh messages verbatim.
-	for _, line := range tailLines(fresh, maxFallbackMessages) {
+	for _, line := range tailByBudget(fresh, maxFallbackReviewTokens) {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
@@ -74,9 +73,17 @@ func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, s
 	return b.String(), nil
 }
 
-func tailLines(lines []string, max int) []string {
-	if len(lines) <= max {
-		return lines
+// tailByBudget returns the longest suffix of lines that fits within the token budget.
+func tailByBudget(lines []string, budget int) []string {
+	remaining := budget
+	start := len(lines)
+	for i := len(lines) - 1; i >= 0; i-- {
+		cost := memory.EstimateTokens(lines[i])
+		if remaining-cost < 0 {
+			break
+		}
+		remaining -= cost
+		start = i
 	}
-	return lines[len(lines)-max:]
+	return lines[start:]
 }

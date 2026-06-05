@@ -12,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-const maxReviewMessages = 200
+const maxReviewTokens = 100_000
 
 // BuildReviewContext implements memory.Reviewer.
 func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Session, since time.Time) (string, error) {
@@ -31,7 +31,6 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 	var b strings.Builder
 
 	if !since.IsZero() {
-		// Include summaries as prior context.
 		summaries, err := p.q.GetSummariesByConversation(ctx, conv.ID)
 		if err == nil && len(summaries) > 0 {
 			b.WriteString("<prior_context>\n")
@@ -42,7 +41,6 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 			b.WriteString("</prior_context>\n\n")
 		}
 
-		// Only include messages since the watermark.
 		msgs, err := p.q.GetMessagesSince(ctx, sqlc.GetMessagesSinceParams{
 			ConversationID: conv.ID,
 			CreatedAt:      since.UTC().Format("2006-01-02 15:04:05"),
@@ -52,7 +50,6 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 		}
 		appendReviewMessages(&b, msgs)
 	} else {
-		// Include all messages.
 		msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
 		if err != nil {
 			return "", fmt.Errorf("get messages: %w", err)
@@ -64,13 +61,30 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 }
 
 func appendReviewMessages(b *strings.Builder, msgs []sqlc.CtxMessage) {
-	if len(msgs) == 0 {
+	// Filter out tool results — they're large and useless for the reviewer.
+	filtered := make([]sqlc.CtxMessage, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role != roleTool {
+			filtered = append(filtered, m)
+		}
+	}
+	if len(filtered) == 0 {
 		return
 	}
-	if len(msgs) > maxReviewMessages {
-		msgs = msgs[len(msgs)-maxReviewMessages:]
+
+	// Take the tail that fits within the token budget.
+	budget := maxReviewTokens
+	start := len(filtered)
+	for i := len(filtered) - 1; i >= 0; i-- {
+		cost := memory.EstimateTokens(filtered[i].Content) + memory.EstimateTokens(filtered[i].Role) + 4
+		if budget-cost < 0 {
+			break
+		}
+		budget -= cost
+		start = i
 	}
-	for _, m := range msgs {
+
+	for _, m := range filtered[start:] {
 		fmt.Fprintf(b, "[%s] %s\n", m.Role, m.Content)
 	}
 }
