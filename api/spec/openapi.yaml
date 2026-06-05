@@ -30,6 +30,7 @@ servers:
 security:
   - BearerAuth: []
 tags:
+  - name: email
   - name: articles
   - name: feeds
   - name: feed-entries
@@ -243,6 +244,17 @@ paths:
   # ── Admin: OAuth provider config ───────────────────────────────────────────
   /api/admin/oauth-providers/{id}/config:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1admin~1oauth-providers~1{id}~1config"
+  # ── Email ───────────────────────────────────────────────────────────────────
+  /api/email/folders:
+    $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1folders"
+  /api/email/messages:
+    $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1messages"
+  /api/email/messages/{uid}:
+    $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1messages~1{uid}"
+  /api/email/send:
+    $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1send"
+  /api/email/messages/{uid}/mark:
+    $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1messages~1{uid}~1mark"
   # ── Scheduler ──────────────────────────────────────────────────────────────
   /api/agents/{agentId}/scheduler/jobs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentId}~1scheduler~1jobs"
@@ -608,4 +620,28 @@ components:
     }
     ChangelogList: {
       $ref: "./components.yaml#/components/schemas/ChangelogList",
+    }
+    EmailFolderList: {
+      $ref: "./components.yaml#/components/schemas/EmailFolderList",
+    }
+    EmailEnvelope: {
+      $ref: "./components.yaml#/components/schemas/EmailEnvelope",
+    }
+    EmailEnvelopeList: {
+      $ref: "./components.yaml#/components/schemas/EmailEnvelopeList",
+    }
+    EmailMessage: {
+      $ref: "./components.yaml#/components/schemas/EmailMessage",
+    }
+    EmailAttachmentInfo: {
+      $ref: "./components.yaml#/components/schemas/EmailAttachmentInfo",
+    }
+    EmailSendRequest: {
+      $ref: "./components.yaml#/components/schemas/EmailSendRequest",
+    }
+    EmailSendResult: {
+      $ref: "./components.yaml#/components/schemas/EmailSendResult",
+    }
+    EmailMarkRequest: {
+      $ref: "./components.yaml#/components/schemas/EmailMarkRequest",
     }

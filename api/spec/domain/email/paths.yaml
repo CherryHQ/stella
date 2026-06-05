@@ -1,0 +1,180 @@
+paths:
+  /api/email/folders:
+    get:
+      tags: [email]
+      summary: List email folders
+      operationId: listEmailFolders
+      parameters:
+        - name: account
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/EmailFolderList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/email/messages:
+    get:
+      tags: [email]
+      summary: List email messages
+      operationId: listEmailMessages
+      parameters:
+        - {
+            name: account,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - {
+            name: folder,
+            in: query,
+            required: false,
+            schema: { type: string, default: "INBOX" },
+          }
+        - {
+            name: limit,
+            in: query,
+            required: false,
+            schema: { type: integer, default: 20 },
+          }
+        - {
+            name: unread,
+            in: query,
+            required: false,
+            schema: { type: boolean },
+          }
+        - { name: from, in: query, required: false, schema: { type: string } }
+        - {
+            name: subject,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - {
+            name: since,
+            in: query,
+            required: false,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: before,
+            in: query,
+            required: false,
+            schema: { type: string, format: date },
+          }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/EmailEnvelopeList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/email/messages/{uid}:
+    parameters:
+      - { name: uid, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [email]
+      summary: Read an email message
+      operationId: getEmailMessage
+      parameters:
+        - {
+            name: account,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - {
+            name: folder,
+            in: query,
+            required: false,
+            schema: { type: string, default: "INBOX" },
+          }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/EmailMessage",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/email/send:
+    post:
+      tags: [email]
+      summary: Send an email
+      operationId: sendEmail
+      parameters:
+        - {
+            name: account,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/EmailSendRequest",
+            }
+      responses:
+        "200":
+          description: sent
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/EmailSendResult",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+
+  /api/email/messages/{uid}/mark:
+    parameters:
+      - { name: uid, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [email]
+      summary: Mark an email message as read or unread
+      operationId: markEmailMessage
+      parameters:
+        - {
+            name: account,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - {
+            name: folder,
+            in: query,
+            required: false,
+            schema: { type: string, default: "INBOX" },
+          }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/EmailMarkRequest",
+            }
+      responses:
+        "204":
+          description: marked
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }

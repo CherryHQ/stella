@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	ucli "github.com/urfave/cli/v2"
 	"golang.org/x/term"
 
@@ -420,24 +421,18 @@ func emailFoldersCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
-			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
-			}
-
-			folders, err := email.Folders(acct)
+			accountPtr := optStr(c, "account")
+			result, err := apiclient.Call[apiclient.EmailFolderList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListEmailFolders(c.Context, &apiclient.ListEmailFoldersParams{Account: accountPtr})
+			})
 			if err != nil {
 				return err
 			}
 
 			if c.Bool("json") {
-				return cli.PrintJSON(c, folders)
+				return cli.PrintJSON(c, result.Folders)
 			}
-			for _, f := range folders {
+			for _, f := range result.Folders {
 				fmt.Println(f)
 			}
 			return nil
@@ -461,21 +456,18 @@ func emailListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
+			params := &apiclient.ListEmailMessagesParams{
+				Account: optStr(c, "account"),
+				Folder:  optStr(c, "folder"),
+				From:    optStr(c, "from"),
+				Subject: optStr(c, "subject"),
 			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
+			if limit := c.Int("limit"); limit != 0 {
+				params.Limit = &limit
 			}
-
-			opts := email.ListOptions{
-				Folder:  c.String("folder"),
-				Limit:   c.Int("limit"),
-				Unread:  c.Bool("unread"),
-				From:    c.String("from"),
-				Subject: c.String("subject"),
+			if c.Bool("unread") {
+				unread := true
+				params.Unread = &unread
 			}
 
 			if since := c.String("since"); since != "" {
@@ -483,38 +475,44 @@ func emailListCommand() *ucli.Command {
 				if err != nil {
 					return fmt.Errorf("parse --since: %w", err)
 				}
-				opts.Since = &t
+				params.Since = &openapi_types.Date{Time: t}
 			}
 			if before := c.String("before"); before != "" {
 				t, err := time.Parse("2006-01-02", before)
 				if err != nil {
 					return fmt.Errorf("parse --before: %w", err)
 				}
-				opts.Before = &t
+				params.Before = &openapi_types.Date{Time: t}
 			}
 
-			msgs, err := email.List(acct, opts)
+			result, err := apiclient.Call[apiclient.EmailEnvelopeList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListEmailMessages(c.Context, params)
+			})
 			if err != nil {
 				return err
 			}
 
 			if c.Bool("json") {
-				return cli.PrintJSON(c, msgs)
+				return cli.PrintJSON(c, result.Messages)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "UID\tDATE\tFROM\tSUBJECT\tFLAGS")
-			for _, m := range msgs {
+			for _, m := range result.Messages {
 				subject := m.Subject
 				if len(subject) > 80 {
 					subject = subject[:80]
 				}
+				var flags string
+				if m.Flags != nil {
+					flags = strings.Join(*m.Flags, ",")
+				}
 				_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
-					m.UID,
+					m.Uid,
 					m.Date.Format("2006-01-02 15:04"),
 					m.From,
 					subject,
-					strings.Join(m.Flags, ","),
+					flags,
 				)
 			}
 			return w.Flush()
@@ -539,34 +537,21 @@ func emailReadCommand() *ucli.Command {
 			if uidStr == "" {
 				return fmt.Errorf("uid is required")
 			}
-			var uid uint32
+			var uid int
 			if _, err := fmt.Sscan(uidStr, &uid); err != nil {
 				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
 			}
 
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
-			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
+			if c.String("save-attachments") != "" {
+				return fmt.Errorf("--save-attachments is not yet supported via the API")
 			}
 
-			folder := c.String("folder")
-
-			if dir := c.String("save-attachments"); dir != "" {
-				paths, err := email.SaveAttachments(acct, folder, uid, dir)
-				if err != nil {
-					return err
-				}
-				for _, p := range paths {
-					fmt.Println(p)
-				}
-				return nil
-			}
-
-			msg, err := email.Read(acct, folder, uid)
+			msg, err := apiclient.Call[apiclient.EmailMessage](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetEmailMessage(c.Context, uid, &apiclient.GetEmailMessageParams{
+					Account: optStr(c, "account"),
+					Folder:  optStr(c, "folder"),
+				})
+			})
 			if err != nil {
 				return err
 			}
@@ -575,31 +560,36 @@ func emailReadCommand() *ucli.Command {
 				return cli.PrintJSON(c, msg)
 			}
 
+			to := derefStrSlice(msg.To)
+			flags := derefStrSlice(msg.Flags)
+			textBody := derefStr(msg.TextBody)
+			htmlBody := derefStr(msg.HtmlBody)
+
 			if c.Bool("raw") {
-				fmt.Printf("UID:     %d\n", msg.UID)
+				fmt.Printf("UID:     %d\n", msg.Uid)
 				fmt.Printf("From:    %s\n", msg.From)
-				fmt.Printf("To:      %s\n", strings.Join(msg.To, ", "))
+				fmt.Printf("To:      %s\n", strings.Join(to, ", "))
 				fmt.Printf("Date:    %s\n", msg.Date.Format(time.RFC1123Z))
 				fmt.Printf("Subject: %s\n", msg.Subject)
-				fmt.Printf("Flags:   %s\n", strings.Join(msg.Flags, ", "))
+				fmt.Printf("Flags:   %s\n", strings.Join(flags, ", "))
 				fmt.Println("---")
-				fmt.Println(msg.TextBody)
-				if msg.HTMLBody != "" {
+				fmt.Println(textBody)
+				if htmlBody != "" {
 					fmt.Println("--- HTML ---")
-					fmt.Println(msg.HTMLBody)
+					fmt.Println(htmlBody)
 				}
 				return nil
 			}
 
 			// Default formatted output.
 			fmt.Printf("From:    %s\n", msg.From)
-			fmt.Printf("To:      %s\n", strings.Join(msg.To, ", "))
+			fmt.Printf("To:      %s\n", strings.Join(to, ", "))
 			fmt.Printf("Date:    %s\n", msg.Date.Format(time.RFC1123Z))
 			fmt.Printf("Subject: %s\n", msg.Subject)
 			fmt.Println()
-			body := msg.TextBody
+			body := textBody
 			if body == "" {
-				body = msg.HTMLBody
+				body = htmlBody
 			}
 			fmt.Println(body)
 			return nil
@@ -628,13 +618,8 @@ func emailSendCommand() *ucli.Command {
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
-			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
+			if len(c.StringSlice("attach")) > 0 {
+				return fmt.Errorf("--attach is not yet supported via the API")
 			}
 
 			// Resolve body.
@@ -660,16 +645,15 @@ func emailSendCommand() *ucli.Command {
 			}
 
 			opts := email.SendOptions{
-				To:          c.StringSlice("to"),
-				Cc:          c.StringSlice("cc"),
-				Bcc:         c.StringSlice("bcc"),
-				Subject:     c.String("subject"),
-				Body:        body,
-				HTML:        c.Bool("html"),
-				Attachments: c.StringSlice("attach"),
-				From:        c.String("from"),
-				ReplyTo:     c.String("reply-to"),
-				InReplyTo:   c.String("in-reply-to"),
+				To:        c.StringSlice("to"),
+				Cc:        c.StringSlice("cc"),
+				Bcc:       c.StringSlice("bcc"),
+				Subject:   c.String("subject"),
+				Body:      body,
+				HTML:      c.Bool("html"),
+				From:      c.String("from"),
+				ReplyTo:   c.String("reply-to"),
+				InReplyTo: c.String("in-reply-to"),
 			}
 
 			if c.Bool("dry-run") {
@@ -682,12 +666,47 @@ func emailSendCommand() *ucli.Command {
 						"subject": opts.Subject,
 					})
 				}
+				// Dry-run needs account config for the From address; load from vault.
+				cfg, err := loadEmailConfig(c.Context)
+				if err != nil {
+					return err
+				}
+				acct, err := cfg.Resolve(c.String("account"))
+				if err != nil {
+					return err
+				}
 				o := cli.Stdout(c)
 				o.Println(email.FormatDryRun(acct, opts))
 				return o.Err()
 			}
 
-			if err := email.Send(acct, opts); err != nil {
+			reqBody := apiclient.SendEmailJSONRequestBody{
+				To:      opts.To,
+				Subject: opts.Subject,
+				Body:    opts.Body,
+			}
+			if len(opts.Cc) > 0 {
+				reqBody.Cc = &opts.Cc
+			}
+			if len(opts.Bcc) > 0 {
+				reqBody.Bcc = &opts.Bcc
+			}
+			if opts.HTML {
+				reqBody.Html = &opts.HTML
+			}
+			if opts.From != "" {
+				reqBody.From = &opts.From
+			}
+			if opts.ReplyTo != "" {
+				reqBody.ReplyTo = &opts.ReplyTo
+			}
+			if opts.InReplyTo != "" {
+				reqBody.InReplyTo = &opts.InReplyTo
+			}
+
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+				return api.SendEmail(c.Context, &apiclient.SendEmailParams{Account: optStr(c, "account")}, reqBody)
+			}); err != nil {
 				return err
 			}
 			if cli.IsJSON(c) {
@@ -717,7 +736,7 @@ func emailMarkCommand() *ucli.Command {
 			if uidStr == "" {
 				return fmt.Errorf("uid is required")
 			}
-			var uid uint32
+			var uid int
 			if _, err := fmt.Sscan(uidStr, &uid); err != nil {
 				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
 			}
@@ -725,23 +744,20 @@ func emailMarkCommand() *ucli.Command {
 				return fmt.Errorf("exactly one of --seen or --unseen is required")
 			}
 
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
-			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
-			}
-
-			if err := email.MarkSeen(acct, c.String("folder"), uid, c.Bool("seen")); err != nil {
+			seen := c.Bool("seen")
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+				return api.MarkEmailMessage(c.Context, uid, &apiclient.MarkEmailMessageParams{
+					Account: optStr(c, "account"),
+					Folder:  optStr(c, "folder"),
+				}, apiclient.MarkEmailMessageJSONRequestBody{Seen: seen})
+			}); err != nil {
 				return err
 			}
 			if cli.IsJSON(c) {
-				return cli.PrintJSON(c, map[string]any{"uid": uid, "seen": c.Bool("seen")})
+				return cli.PrintJSON(c, map[string]any{"uid": uid, "seen": seen})
 			}
 			o := cli.Stdout(c)
-			if c.Bool("seen") {
+			if seen {
 				o.Printf("Message %d marked as read.\n", uid)
 			} else {
 				o.Printf("Message %d marked as unread.\n", uid)
@@ -749,6 +765,30 @@ func emailMarkCommand() *ucli.Command {
 			return o.Err()
 		},
 	}
+}
+
+// optStr returns a pointer to the CLI flag value if non-empty, else nil.
+func optStr(c *ucli.Context, name string) *string {
+	if v := c.String(name); v != "" {
+		return &v
+	}
+	return nil
+}
+
+// derefStr returns the string pointed to, or "" if nil.
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// derefStrSlice returns the slice pointed to, or nil if the pointer is nil.
+func derefStrSlice(p *[]string) []string {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // maskConfigPasswords returns a copy of cfg with passwords replaced by "****".
