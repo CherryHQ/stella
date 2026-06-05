@@ -89,9 +89,8 @@ func TestCleanStaleUpgradeArtifacts(t *testing.T) {
 	// Create stale files that should be removed.
 	staleFiles := []string{
 		"stella.tmp", "stellad.tmp",
-		"stella.bak", "stellad.bak",
 		"stella.old", "stellad.old",
-		"stella.exe.tmp", "stellad.exe.bak",
+		"stella.exe.tmp",
 	}
 	for _, name := range staleFiles {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
@@ -99,10 +98,13 @@ func TestCleanStaleUpgradeArtifacts(t *testing.T) {
 		}
 	}
 
-	// Create files that should NOT be removed.
+	// Create files that should NOT be removed. The .bak files are kept because
+	// their targets exist: a backup surviving next to its target means a
+	// rollback could not restore it, so it is preserved for manual recovery.
 	keepFiles := []string{
 		"stella", "stellad", "stellad.exe",
 		"unrelated.tmp", "other.bak",
+		"stella.bak", "stellad.bak", "stellad.exe.bak",
 	}
 	for _, name := range keepFiles {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {

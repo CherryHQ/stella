@@ -557,6 +557,9 @@ func extractBinaryFromZip(archivePath, destDir, binaryName string) (outPath stri
 		if filepath.Base(file.Name) != binaryName {
 			continue
 		}
+		if file.UncompressedSize64 > maxArchiveBytes {
+			return "", fmt.Errorf("archive entry %q exceeds %d MB size limit", file.Name, maxArchiveBytes>>20)
+		}
 		rc, err := file.Open()
 		if err != nil {
 			return "", fmt.Errorf("open zip entry: %w", err)
@@ -581,13 +584,16 @@ func writeReaderToFile(path string, reader io.Reader, mode os.FileMode) error {
 		return fmt.Errorf("create extracted binary: %w", err)
 	}
 
-	limited := io.LimitReader(reader, maxArchiveBytes)
+	// Read one byte past the limit so a payload of exactly maxArchiveBytes is
+	// accepted; only a genuine overflow (n > maxArchiveBytes) is rejected. This
+	// matches the inclusive `> maxArchiveBytes` guard on tar entry headers.
+	limited := io.LimitReader(reader, maxArchiveBytes+1)
 	n, err := io.Copy(out, limited)
 	if err != nil {
 		_ = out.Close()
 		return fmt.Errorf("write extracted binary: %w", err)
 	}
-	if n >= maxArchiveBytes {
+	if n > maxArchiveBytes {
 		_ = out.Close()
 		_ = os.Remove(path)
 		return fmt.Errorf("extracted binary exceeds %d MB size limit", maxArchiveBytes>>20)
@@ -675,11 +681,11 @@ func cleanupBackupArtifact(dir, name, path string) {
 		return
 	}
 
-	if err := removeFile(path); err != nil {
-		slog.Warn("cleanStaleUpgradeArtifacts: could not remove stale backup", "path", path, "error", err)
-	} else {
-		slog.Info("cleanStaleUpgradeArtifacts: removed stale backup", "path", path)
-	}
+	// A successful upgrade removes its own .bak (see runUpgrade), so a backup
+	// surviving alongside an existing target means a rollback could not restore
+	// it. Preserve it and warn — deleting it here would destroy the only
+	// recovery artifact the rollback warning told the operator to keep.
+	slog.Warn("cleanStaleUpgradeArtifacts: interrupted upgrade left a backup; target still exists — leaving backup in place for manual recovery", "backup", path, "target", target)
 }
 
 // warnStaleUpgradeArtifacts checks for leftover upgrade artifacts and logs a
