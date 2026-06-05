@@ -7,3 +7,10 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: post-checkout-build
+        name: mise trust and build after branch switch
+        entry: ./scripts/post-checkout.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-checkout]
