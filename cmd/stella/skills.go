@@ -20,6 +20,8 @@ func skillsCommand() *ucli.Command {
 can do. Use this command to search the skill registry, install new
 skills, and manage the ones already installed.`,
 		Subcommands: []*ucli.Command{
+			skillsInspectCommand(),
+			skillsLoadCommand(),
 			skillsSearchCommand(),
 			skillsInstallCommand(),
 			skillsListCommand(),
@@ -35,6 +37,130 @@ func skillAgentContext() (string, *apiclient.ListAgentSkillsParams, error) {
 		return "", nil, err
 	}
 	return agentID, &apiclient.ListAgentSkillsParams{}, nil
+}
+
+func resolveSkill(c *ucli.Context, name string) (string, apitypes.Skill, error) {
+	agentID, params, err := skillAgentContext()
+	if err != nil {
+		return "", apitypes.Skill{}, err
+	}
+	list, err := apiclient.Call[apitypes.SkillList](func(api *apiclient.Client) (*http.Response, error) {
+		return api.ListAgentSkills(c.Context, agentID, params)
+	})
+	if err != nil {
+		return "", apitypes.Skill{}, err
+	}
+	for _, s := range list.Skills {
+		if derefStr(s.Name) == name {
+			return agentID, s, nil
+		}
+	}
+	return "", apitypes.Skill{}, fmt.Errorf("skill %q not found", name)
+}
+
+func fetchSkillContent(c *ucli.Context, agentID, name string, scope apitypes.SkillScope) (string, error) {
+	s := apiclient.GetAgentSkillFileParamsScope(scope)
+	path := "SKILL.md"
+	file, err := apiclient.Call[apitypes.SkillFileResponse](func(api *apiclient.Client) (*http.Response, error) {
+		return api.GetAgentSkillFile(c.Context, agentID, name, &apiclient.GetAgentSkillFileParams{
+			Path:  path,
+			Scope: &s,
+		})
+	})
+	if err != nil {
+		return "", err
+	}
+	return derefStr(file.Content), nil
+}
+
+func skillsInspectCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "inspect",
+		Usage:     "Show skill metadata and SKILL.md content",
+		ArgsUsage: "<name>",
+		Flags:     []ucli.Flag{jsonFlag()},
+		Action: func(c *ucli.Context) error {
+			name := c.Args().First()
+			if name == "" {
+				return fmt.Errorf("usage: stella skill inspect <name>")
+			}
+
+			agentID, skill, err := resolveSkill(c, name)
+			if err != nil {
+				return err
+			}
+
+			content, err := fetchSkillContent(c, agentID, name, derefSkillScopeVal(skill.Scope))
+			if err != nil {
+				return fmt.Errorf("failed to read SKILL.md: %w", err)
+			}
+
+			if isJSON(c) {
+				return printJSON(c, map[string]any{
+					"name":        derefStr(skill.Name),
+					"scope":       derefSkillScope(skill.Scope),
+					"description": derefStr(skill.Description),
+					"status":      derefStr(skill.Status),
+					"content":     content,
+				})
+			}
+
+			o := stdout(c)
+			o.printf("Name:        %s\n", derefStr(skill.Name))
+			o.printf("Scope:       %s\n", derefSkillScope(skill.Scope))
+			o.printf("Description: %s\n", derefStr(skill.Description))
+			if derefStr(skill.Status) != "" {
+				o.printf("Status:      %s\n", derefStr(skill.Status))
+			}
+			o.println()
+			o.println("--- SKILL.md ---")
+			o.println(content)
+			return o.Err()
+		},
+	}
+}
+
+func skillsLoadCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "load",
+		Usage:     "Load skill content for the agent to read and follow",
+		ArgsUsage: "<name>",
+		Flags:     []ucli.Flag{jsonFlag()},
+		Action: func(c *ucli.Context) error {
+			name := c.Args().First()
+			if name == "" {
+				return fmt.Errorf("usage: stella skill load <name>")
+			}
+
+			agentID, skill, err := resolveSkill(c, name)
+			if err != nil {
+				return err
+			}
+
+			content, err := fetchSkillContent(c, agentID, name, derefSkillScopeVal(skill.Scope))
+			if err != nil {
+				return fmt.Errorf("failed to read SKILL.md: %w", err)
+			}
+
+			if isJSON(c) {
+				return printJSON(c, map[string]string{
+					"name":    name,
+					"content": content,
+				})
+			}
+
+			o := stdout(c)
+			o.println(content)
+			return o.Err()
+		},
+	}
+}
+
+func derefSkillScopeVal(s *apitypes.SkillScope) apitypes.SkillScope {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func skillsSearchCommand() *ucli.Command {
@@ -145,6 +271,9 @@ func derefSkillScope(s *apitypes.SkillScope) string {
 }
 
 func skillsListAction(c *ucli.Context) error {
+	if c.Args().Present() {
+		return fmt.Errorf("unknown command %q. Run 'stella skill --help' for usage", c.Args().First())
+	}
 	agentID, params, err := skillAgentContext()
 	if err != nil {
 		return err
