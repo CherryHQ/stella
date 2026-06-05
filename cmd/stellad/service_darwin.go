@@ -78,6 +78,10 @@ func (m *launchdManager) Install() error {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
 
+	if info, statErr := os.Stat(bin); statErr == nil && info.Mode()&0o002 != 0 {
+		fmt.Fprintf(os.Stderr, "WARNING: %s is world-writable — consider installing to a protected path\n", bin)
+	}
+
 	plist := strings.ReplaceAll(plistTemplate, "HOME_DIR", home)
 	plist = strings.ReplaceAll(plist, "STELLAD_BIN", bin)
 

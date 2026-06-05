@@ -8,10 +8,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	ucli "github.com/urfave/cli/v2"
 	"golang.org/x/term"
 
@@ -420,24 +422,18 @@ func emailFoldersCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
-			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
-			}
-
-			folders, err := email.Folders(acct)
+			accountPtr := optStr(c, "account")
+			result, err := apiclient.Call[apiclient.EmailFolderList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListEmailFolders(c.Context, &apiclient.ListEmailFoldersParams{Account: accountPtr})
+			})
 			if err != nil {
 				return err
 			}
 
 			if c.Bool("json") {
-				return cli.PrintJSON(c, folders)
+				return cli.PrintJSON(c, result.Folders)
 			}
-			for _, f := range folders {
+			for _, f := range result.Folders {
 				fmt.Println(f)
 			}
 			return nil
@@ -461,21 +457,18 @@ func emailListCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
+			params := &apiclient.ListEmailMessagesParams{
+				Account: optStr(c, "account"),
+				Folder:  optStr(c, "folder"),
+				From:    optStr(c, "from"),
+				Subject: optStr(c, "subject"),
 			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
+			if limit := c.Int("limit"); limit != 0 {
+				params.Limit = &limit
 			}
-
-			opts := email.ListOptions{
-				Folder:  c.String("folder"),
-				Limit:   c.Int("limit"),
-				Unread:  c.Bool("unread"),
-				From:    c.String("from"),
-				Subject: c.String("subject"),
+			if c.Bool("unread") {
+				unread := true
+				params.Unread = &unread
 			}
 
 			if since := c.String("since"); since != "" {
@@ -483,38 +476,44 @@ func emailListCommand() *ucli.Command {
 				if err != nil {
 					return fmt.Errorf("parse --since: %w", err)
 				}
-				opts.Since = &t
+				params.Since = &openapi_types.Date{Time: t}
 			}
 			if before := c.String("before"); before != "" {
 				t, err := time.Parse("2006-01-02", before)
 				if err != nil {
 					return fmt.Errorf("parse --before: %w", err)
 				}
-				opts.Before = &t
+				params.Before = &openapi_types.Date{Time: t}
 			}
 
-			msgs, err := email.List(acct, opts)
+			result, err := apiclient.Call[apiclient.EmailEnvelopeList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListEmailMessages(c.Context, params)
+			})
 			if err != nil {
 				return err
 			}
 
 			if c.Bool("json") {
-				return cli.PrintJSON(c, msgs)
+				return cli.PrintJSON(c, result.Messages)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "UID\tDATE\tFROM\tSUBJECT\tFLAGS")
-			for _, m := range msgs {
+			for _, m := range result.Messages {
 				subject := m.Subject
 				if len(subject) > 80 {
 					subject = subject[:80]
 				}
+				var flags string
+				if m.Flags != nil {
+					flags = strings.Join(*m.Flags, ",")
+				}
 				_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
-					m.UID,
+					m.Uid,
 					m.Date.Format("2006-01-02 15:04"),
 					m.From,
 					subject,
-					strings.Join(m.Flags, ","),
+					flags,
 				)
 			}
 			return w.Flush()
@@ -531,7 +530,7 @@ func emailReadCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name (uses default if not set)"},
 			&ucli.StringFlag{Name: "folder", Usage: "Folder name", Value: "INBOX"},
 			&ucli.BoolFlag{Name: "raw", Usage: "Print full raw message"},
-			&ucli.StringFlag{Name: "save-attachments", Usage: "Directory to save attachments"},
+			&ucli.StringFlag{Name: "save-attachments", Usage: "Directory to save attachments (connects to IMAP directly from this host, not through the daemon; requires local network access to the mail server)"},
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
@@ -539,24 +538,25 @@ func emailReadCommand() *ucli.Command {
 			if uidStr == "" {
 				return fmt.Errorf("uid is required")
 			}
-			var uid uint32
-			if _, err := fmt.Sscan(uidStr, &uid); err != nil {
-				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
-			}
-
-			cfg, err := loadEmailConfig(c.Context)
+			uid, imapUID, err := parseEmailUID(uidStr)
 			if err != nil {
 				return err
 			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
-			}
-
-			folder := c.String("folder")
 
 			if dir := c.String("save-attachments"); dir != "" {
-				paths, err := email.SaveAttachments(acct, folder, uid, dir)
+				// Attachment download is not exposed over the daemon API yet, so
+				// this path talks IMAP directly. It only works when the CLI host
+				// can reach the mail server; a remote CLI pointed at a remote
+				// daemon will fail here. See the flag help for the caveat.
+				cfg, err := loadEmailConfig(c.Context)
+				if err != nil {
+					return err
+				}
+				acct, err := cfg.Resolve(c.String("account"))
+				if err != nil {
+					return err
+				}
+				paths, err := email.SaveAttachments(acct, c.String("folder"), imapUID, dir)
 				if err != nil {
 					return err
 				}
@@ -566,7 +566,12 @@ func emailReadCommand() *ucli.Command {
 				return nil
 			}
 
-			msg, err := email.Read(acct, folder, uid)
+			msg, err := apiclient.Call[apiclient.EmailMessage](func(api *apiclient.Client) (*http.Response, error) {
+				return api.GetEmailMessage(c.Context, uid, &apiclient.GetEmailMessageParams{
+					Account: optStr(c, "account"),
+					Folder:  optStr(c, "folder"),
+				})
+			})
 			if err != nil {
 				return err
 			}
@@ -575,31 +580,36 @@ func emailReadCommand() *ucli.Command {
 				return cli.PrintJSON(c, msg)
 			}
 
+			to := derefStrSlice(msg.To)
+			flags := derefStrSlice(msg.Flags)
+			textBody := derefStr(msg.TextBody)
+			htmlBody := derefStr(msg.HtmlBody)
+
 			if c.Bool("raw") {
-				fmt.Printf("UID:     %d\n", msg.UID)
+				fmt.Printf("UID:     %d\n", msg.Uid)
 				fmt.Printf("From:    %s\n", msg.From)
-				fmt.Printf("To:      %s\n", strings.Join(msg.To, ", "))
+				fmt.Printf("To:      %s\n", strings.Join(to, ", "))
 				fmt.Printf("Date:    %s\n", msg.Date.Format(time.RFC1123Z))
 				fmt.Printf("Subject: %s\n", msg.Subject)
-				fmt.Printf("Flags:   %s\n", strings.Join(msg.Flags, ", "))
+				fmt.Printf("Flags:   %s\n", strings.Join(flags, ", "))
 				fmt.Println("---")
-				fmt.Println(msg.TextBody)
-				if msg.HTMLBody != "" {
+				fmt.Println(textBody)
+				if htmlBody != "" {
 					fmt.Println("--- HTML ---")
-					fmt.Println(msg.HTMLBody)
+					fmt.Println(htmlBody)
 				}
 				return nil
 			}
 
 			// Default formatted output.
 			fmt.Printf("From:    %s\n", msg.From)
-			fmt.Printf("To:      %s\n", strings.Join(msg.To, ", "))
+			fmt.Printf("To:      %s\n", strings.Join(to, ", "))
 			fmt.Printf("Date:    %s\n", msg.Date.Format(time.RFC1123Z))
 			fmt.Printf("Subject: %s\n", msg.Subject)
 			fmt.Println()
-			body := msg.TextBody
+			body := textBody
 			if body == "" {
-				body = msg.HTMLBody
+				body = htmlBody
 			}
 			fmt.Println(body)
 			return nil
@@ -620,7 +630,7 @@ func emailSendCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "body", Aliases: []string{"b"}, Usage: "Message body"},
 			&ucli.StringFlag{Name: "body-file", Aliases: []string{"f"}, Usage: "File containing message body"},
 			&ucli.BoolFlag{Name: "html", Usage: "Send as HTML"},
-			&ucli.StringSliceFlag{Name: "attach", Usage: "Attachment file path(s)"},
+			&ucli.StringSliceFlag{Name: "attach", Usage: "Attachment file path(s) (sent via direct SMTP from this host, not through the daemon; requires local network access to the mail server)"},
 			&ucli.StringFlag{Name: "from", Usage: "Override From address"},
 			&ucli.StringFlag{Name: "reply-to", Usage: "Reply-To address"},
 			&ucli.StringFlag{Name: "in-reply-to", Usage: "Message-ID of the message being replied to (sets In-Reply-To header)"},
@@ -628,15 +638,6 @@ func emailSendCommand() *ucli.Command {
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
-			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
-			}
-
 			// Resolve body.
 			var body string
 			switch {
@@ -682,12 +683,71 @@ func emailSendCommand() *ucli.Command {
 						"subject": opts.Subject,
 					})
 				}
+				// Dry-run needs account config for the From address; load from vault.
+				cfg, err := loadEmailConfig(c.Context)
+				if err != nil {
+					return err
+				}
+				acct, err := cfg.Resolve(c.String("account"))
+				if err != nil {
+					return err
+				}
 				o := cli.Stdout(c)
 				o.Println(email.FormatDryRun(acct, opts))
 				return o.Err()
 			}
 
-			if err := email.Send(acct, opts); err != nil {
+			reqBody := apiclient.SendEmailJSONRequestBody{
+				To:      opts.To,
+				Subject: opts.Subject,
+				Body:    opts.Body,
+			}
+			if len(opts.Cc) > 0 {
+				reqBody.Cc = &opts.Cc
+			}
+			if len(opts.Bcc) > 0 {
+				reqBody.Bcc = &opts.Bcc
+			}
+			if opts.HTML {
+				reqBody.Html = &opts.HTML
+			}
+			if opts.From != "" {
+				reqBody.From = &opts.From
+			}
+			if opts.ReplyTo != "" {
+				reqBody.ReplyTo = &opts.ReplyTo
+			}
+			if opts.InReplyTo != "" {
+				reqBody.InReplyTo = &opts.InReplyTo
+			}
+
+			if len(opts.Attachments) > 0 {
+				// Attachments are not supported over the daemon API yet, so this
+				// path sends via direct SMTP from the CLI host. It only works
+				// when the CLI can reach the mail server; a remote CLI pointed at
+				// a remote daemon will fail here. See the flag help for the caveat.
+				cfg, err := loadEmailConfig(c.Context)
+				if err != nil {
+					return err
+				}
+				acct, err := cfg.Resolve(c.String("account"))
+				if err != nil {
+					return err
+				}
+				if err := email.Send(acct, opts); err != nil {
+					return err
+				}
+				if cli.IsJSON(c) {
+					return cli.PrintJSON(c, map[string]any{"sent": true, "to": opts.To, "subject": opts.Subject})
+				}
+				o := cli.Stdout(c)
+				o.Println("Email sent successfully.")
+				return o.Err()
+			}
+
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+				return api.SendEmail(c.Context, &apiclient.SendEmailParams{Account: optStr(c, "account")}, reqBody)
+			}); err != nil {
 				return err
 			}
 			if cli.IsJSON(c) {
@@ -717,31 +777,28 @@ func emailMarkCommand() *ucli.Command {
 			if uidStr == "" {
 				return fmt.Errorf("uid is required")
 			}
-			var uid uint32
-			if _, err := fmt.Sscan(uidStr, &uid); err != nil {
-				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
+			uid, _, err := parseEmailUID(uidStr)
+			if err != nil {
+				return err
 			}
 			if c.Bool("seen") == c.Bool("unseen") {
 				return fmt.Errorf("exactly one of --seen or --unseen is required")
 			}
 
-			cfg, err := loadEmailConfig(c.Context)
-			if err != nil {
-				return err
-			}
-			acct, err := cfg.Resolve(c.String("account"))
-			if err != nil {
-				return err
-			}
-
-			if err := email.MarkSeen(acct, c.String("folder"), uid, c.Bool("seen")); err != nil {
+			seen := c.Bool("seen")
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+				return api.MarkEmailMessage(c.Context, uid, &apiclient.MarkEmailMessageParams{
+					Account: optStr(c, "account"),
+					Folder:  optStr(c, "folder"),
+				}, apiclient.MarkEmailMessageJSONRequestBody{Seen: seen})
+			}); err != nil {
 				return err
 			}
 			if cli.IsJSON(c) {
-				return cli.PrintJSON(c, map[string]any{"uid": uid, "seen": c.Bool("seen")})
+				return cli.PrintJSON(c, map[string]any{"uid": uid, "seen": seen})
 			}
 			o := cli.Stdout(c)
-			if c.Bool("seen") {
+			if seen {
 				o.Printf("Message %d marked as read.\n", uid)
 			} else {
 				o.Printf("Message %d marked as unread.\n", uid)
@@ -749,6 +806,42 @@ func emailMarkCommand() *ucli.Command {
 			return o.Err()
 		},
 	}
+}
+
+func parseEmailUID(value string) (int, uint32, error) {
+	uid, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid uid %q: %w", value, err)
+	}
+	const maxIMAPUID = int64(^uint32(0))
+	if uid < 1 || uid > maxIMAPUID {
+		return 0, 0, fmt.Errorf("uid must be between 1 and 4294967295")
+	}
+	return int(uid), uint32(uid), nil
+}
+
+// optStr returns a pointer to the CLI flag value if non-empty, else nil.
+func optStr(c *ucli.Context, name string) *string {
+	if v := c.String(name); v != "" {
+		return &v
+	}
+	return nil
+}
+
+// derefStr returns the string pointed to, or "" if nil.
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// derefStrSlice returns the slice pointed to, or nil if the pointer is nil.
+func derefStrSlice(p *[]string) []string {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // maskConfigPasswords returns a copy of cfg with passwords replaced by "****".

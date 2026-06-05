@@ -1,12 +1,32 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// infiniteZeroReader yields an endless stream of zero bytes without allocating,
+// so size-limit tests can drive past maxArchiveBytes cheaply.
+type infiniteZeroReader struct{}
+
+func (infiniteZeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
+}
 
 func TestResolveUpgradeDirDefaultUsesExecutableDir(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -76,4 +96,391 @@ func TestUpgradeInstallErrorAddsWindowsBusyHint(t *testing.T) {
 	if !strings.Contains(err.Error(), "locked by a running process") {
 		t.Fatalf("error = %q, want busy hint", err.Error())
 	}
+}
+
+func TestCleanStaleUpgradeArtifacts(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create stale files that should be removed.
+	staleFiles := []string{
+		"stella.tmp", "stellad.tmp",
+		"stella.old", "stellad.old",
+		"stella.exe.tmp",
+	}
+	for _, name := range staleFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create files that should NOT be removed. The .bak files are kept because
+	// their targets exist: a backup surviving next to its target means a
+	// rollback could not restore it, so it is preserved for manual recovery.
+	keepFiles := []string{
+		"stella", "stellad", "stellad.exe",
+		"unrelated.tmp", "other.bak",
+		"stella.bak", "stellad.bak", "stellad.exe.bak",
+	}
+	for _, name := range keepFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanStaleUpgradeArtifacts(dir)
+
+	for _, name := range staleFiles {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, but it still exists", name)
+		}
+	}
+	for _, name := range keepFiles {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("expected %s to be kept, but it was removed", name)
+		}
+	}
+}
+
+func TestCleanStaleUpgradeArtifactsRestoresBackupWhenTargetMissing(t *testing.T) {
+	dir := t.TempDir()
+	backup := filepath.Join(dir, "stella.bak")
+	if err := os.WriteFile(backup, []byte("original"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanStaleUpgradeArtifacts(dir)
+
+	restored := filepath.Join(dir, "stella")
+	data, err := os.ReadFile(restored)
+	if err != nil {
+		t.Fatalf("expected backup to be restored: %v", err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("restored content = %q, want original", string(data))
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatal("expected backup path to be gone after restore")
+	}
+}
+
+func TestCleanStaleUpgradeArtifactsNonexistentDir(t *testing.T) {
+	// Should not panic on a nonexistent directory.
+	cleanStaleUpgradeArtifacts(filepath.Join(t.TempDir(), "nope"))
+}
+
+func TestIsStaleUpgradeArtifact(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"stella.tmp", true},
+		{"stellad.bak", true},
+		{"stella.old", true},
+		{"stellad.exe.tmp", true},
+		{"stella.exe.bak", true},
+		{"stellad.exe.old", true},
+		{"stella", false},
+		{"stellad", false},
+		{"unrelated.tmp", false},
+		{"stellar.bak", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isStaleUpgradeArtifact(tt.name); got != tt.want {
+				t.Errorf("isStaleUpgradeArtifact(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRollbackUpgradeRemoveFailureFallsBack(t *testing.T) {
+	dir := t.TempDir()
+
+	committed := filepath.Join(dir, "stella")
+	if err := os.WriteFile(committed, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bakPath := committed + ".bak"
+	if err := os.WriteFile(bakPath, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock removeFile to always fail.
+	oldRemoveFile := removeFile
+	removeFile = func(name string) error { return errors.New("simulated lock") }
+	oldGOOS := currentGOOS
+	currentGOOS = "linux"
+	t.Cleanup(func() {
+		removeFile = oldRemoveFile
+		currentGOOS = oldGOOS
+	})
+
+	rollbackUpgrade([]string{committed}, []string{committed})
+
+	// The committed file should still exist (remove failed).
+	if _, err := os.Stat(committed); err != nil {
+		t.Fatal("committed file should still exist after failed remove")
+	}
+	// The backup should also still exist (rollback skipped restore for this path).
+	if _, err := os.Stat(bakPath); err != nil {
+		t.Fatal("backup should still exist because remove failed")
+	}
+}
+
+func TestRollbackUpgradeWindowsRenamesToOld(t *testing.T) {
+	dir := t.TempDir()
+
+	committed := filepath.Join(dir, "stella.exe")
+	if err := os.WriteFile(committed, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bakPath := committed + ".bak"
+	if err := os.WriteFile(bakPath, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock removeFile to fail (simulating Windows file lock),
+	// but allow renameFile to succeed (renaming to .old).
+	oldRemoveFile := removeFile
+	removeFile = func(name string) error { return errors.New("file locked") }
+	oldGOOS := currentGOOS
+	currentGOOS = "windows"
+	t.Cleanup(func() {
+		removeFile = oldRemoveFile
+		currentGOOS = oldGOOS
+	})
+
+	rollbackUpgrade([]string{committed}, []string{committed})
+
+	// The committed file should have been renamed to .old.
+	oldPath := committed + ".old"
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatal("expected .old file to exist after Windows rollback rename")
+	}
+
+	// Since rename-to-.old succeeded, removeFailed is NOT set, so the backup
+	// restore loop runs renameFile(bakPath, committed) — restoring the original.
+	data, err := os.ReadFile(committed)
+	if err != nil {
+		t.Fatalf("expected backup to be restored at %s: %v", committed, err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("restored file = %q, want %q", string(data), "original")
+	}
+
+	// The .bak file should be gone (renamed back).
+	if _, err := os.Stat(bakPath); !os.IsNotExist(err) {
+		t.Fatal("expected .bak file to be gone after successful restore")
+	}
+}
+
+func TestParseChecksumForFile(t *testing.T) {
+	checksums := "abc123  stella_linux_amd64.tar.gz\ndef456  stella_darwin_arm64.tar.gz\n"
+
+	got, err := parseChecksumForFile(checksums, "stella_linux_amd64.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "abc123" {
+		t.Fatalf("got %q, want %q", got, "abc123")
+	}
+
+	_, err = parseChecksumForFile(checksums, "nonexistent.tar.gz")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestSha256File(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.bin")
+	content := []byte("hello world")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := sha256File(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := sha256.Sum256(content)
+	want := hex.EncodeToString(h[:])
+	if got != want {
+		t.Fatalf("sha256File = %q, want %q", got, want)
+	}
+}
+
+func TestWriteReaderToFileSizeLimit(t *testing.T) {
+	dir := t.TempDir()
+
+	// Happy path: a normal small file is written verbatim.
+	smallPath := filepath.Join(dir, "small.bin")
+	if err := writeReaderToFile(smallPath, strings.NewReader("small content"), 0o755); err != nil {
+		t.Fatalf("writeReaderToFile: %v", err)
+	}
+	data, err := os.ReadFile(smallPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "small content" {
+		t.Fatalf("got %q, want %q", string(data), "small content")
+	}
+
+	if testing.Short() {
+		t.Skip("skipping multi-hundred-MB boundary cases in -short mode")
+	}
+
+	// Boundary: a payload of exactly maxArchiveBytes is accepted (the guard is
+	// inclusive — it must not reject a file at the limit).
+	atLimitPath := filepath.Join(dir, "at_limit.bin")
+	if err := writeReaderToFile(atLimitPath, io.LimitReader(infiniteZeroReader{}, maxArchiveBytes), 0o755); err != nil {
+		t.Fatalf("writeReaderToFile at limit: %v", err)
+	}
+	if fi, err := os.Stat(atLimitPath); err != nil {
+		t.Fatal(err)
+	} else if fi.Size() != maxArchiveBytes {
+		t.Fatalf("at-limit size = %d, want %d", fi.Size(), maxArchiveBytes)
+	}
+
+	// Over limit: one byte past the cap is rejected and the partial file removed.
+	overPath := filepath.Join(dir, "over.bin")
+	err = writeReaderToFile(overPath, io.LimitReader(infiniteZeroReader{}, maxArchiveBytes+1), 0o755)
+	if err == nil {
+		t.Fatal("expected over-limit reader to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %q, want size-limit error", err.Error())
+	}
+	if _, err := os.Stat(overPath); !os.IsNotExist(err) {
+		t.Fatal("expected partial file to be removed after over-limit rejection")
+	}
+}
+
+func TestExtractBinaryFromTarGzRejectsOversizedSkippedEntry(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "stella_linux_amd64.tar.gz")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gz)
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "padding.bin", Mode: 0o644, Size: maxArchiveBytes + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = extractBinaryFromTarGz(archivePath, dir, "stella")
+	if err == nil {
+		t.Fatal("expected oversized skipped entry to fail")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %q, want size-limit error", err.Error())
+	}
+}
+
+func TestFindChecksumAsset(t *testing.T) {
+	assets := []githubReleaseAsset{
+		{Name: "stella_linux_amd64.tar.gz", BrowserDownloadURL: "https://example.com/archive"},
+		{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+	}
+
+	got, ok := findChecksumAsset(assets)
+	if !ok {
+		t.Fatal("expected to find checksums.txt")
+	}
+	if got.Name != "checksums.txt" {
+		t.Fatalf("got %q, want checksums.txt", got.Name)
+	}
+
+	_, ok = findChecksumAsset([]githubReleaseAsset{{Name: "archive.tar.gz"}})
+	if ok {
+		t.Fatal("expected not found when checksums.txt missing")
+	}
+}
+
+func TestVerifyChecksumIntegration(t *testing.T) {
+	const archiveName = "stella_linux_amd64.tar.gz"
+	content := []byte("fake archive content")
+	h := sha256.Sum256(content)
+	correctHash := hex.EncodeToString(h[:])
+
+	// serveChecksums spins an HTTP server returning the given checksums body and
+	// builds a release whose checksums.txt asset points at it.
+	releaseServing := func(t *testing.T, body string) *githubRelease {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, body)
+		}))
+		t.Cleanup(srv.Close)
+		return &githubRelease{Assets: []githubReleaseAsset{
+			{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL},
+		}}
+	}
+
+	writeArchive := func(t *testing.T) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), archiveName)
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	t.Run("matching checksum passes", func(t *testing.T) {
+		rel := releaseServing(t, fmt.Sprintf("%s  %s\n", correctHash, archiveName))
+		if err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t)); err != nil {
+			t.Fatalf("verifyChecksum: %v", err)
+		}
+	})
+
+	t.Run("uppercase digest passes (case-insensitive)", func(t *testing.T) {
+		rel := releaseServing(t, fmt.Sprintf("%s  %s\n", strings.ToUpper(correctHash), archiveName))
+		if err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t)); err != nil {
+			t.Fatalf("verifyChecksum with uppercase digest: %v", err)
+		}
+	})
+
+	t.Run("wrong checksum is rejected", func(t *testing.T) {
+		bad := strings.Repeat("0", 64)
+		rel := releaseServing(t, fmt.Sprintf("%s  %s\n", bad, archiveName))
+		err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t))
+		if err == nil || !strings.Contains(err.Error(), "mismatch") {
+			t.Fatalf("error = %v, want checksum mismatch", err)
+		}
+	})
+
+	t.Run("missing checksums.txt asset skips verification", func(t *testing.T) {
+		rel := &githubRelease{Assets: []githubReleaseAsset{{Name: archiveName, BrowserDownloadURL: "http://unused"}}}
+		if err := verifyChecksum(context.Background(), rel, archiveName, writeArchive(t)); err != nil {
+			t.Fatalf("expected missing checksums.txt to skip, got %v", err)
+		}
+	})
+}
+
+func TestWarnStaleUpgradeArtifacts(t *testing.T) {
+	dir := t.TempDir()
+
+	// No stale files — should not panic.
+	warnStaleUpgradeArtifacts(dir)
+
+	// Add a stale file.
+	if err := os.WriteFile(filepath.Join(dir, "stella.bak"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not panic; we just verify it doesn't error.
+	warnStaleUpgradeArtifacts(dir)
+
+	// Nonexistent dir — should not panic.
+	warnStaleUpgradeArtifacts(filepath.Join(dir, "nope"))
 }

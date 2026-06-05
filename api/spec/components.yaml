@@ -477,6 +477,112 @@ components:
           type: string
         baseurl:
           type: string
+    EmailFolderList:
+      type: object
+      required: [folders]
+      properties:
+        folders:
+          type: array
+          items:
+            type: string
+    EmailEnvelope:
+      type: object
+      required: [uid, from, subject, date]
+      properties:
+        uid:
+          type: integer
+        message_id:
+          type: string
+        from:
+          type: string
+        from_name:
+          type: string
+        from_addr:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        date:
+          type: string
+          format: date-time
+        flags:
+          type: array
+          items:
+            type: string
+        has_attachments:
+          type: boolean
+        size:
+          type: integer
+    EmailEnvelopeList:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailEnvelope"
+    EmailMessage:
+      allOf:
+        - $ref: "#/components/schemas/EmailEnvelope"
+        - type: object
+          properties:
+            text_body: { type: string }
+            html_body: { type: string }
+            attachments:
+              type: array
+              items: { $ref: "#/components/schemas/EmailAttachmentInfo" }
+    EmailAttachmentInfo:
+      type: object
+      properties:
+        filename:
+          type: string
+        size:
+          type: integer
+        mime_type:
+          type: string
+    EmailSendRequest:
+      type: object
+      required: [to, subject, body]
+      properties:
+        to:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+        cc:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        bcc:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        subject:
+          type: string
+          minLength: 1
+        body:
+          type: string
+          minLength: 1
+        html:
+          type: boolean
+        from:
+          type: string
+        reply_to:
+          type: string
+        in_reply_to:
+          type: string
+    EmailMarkRequest:
+      type: object
+      required: [seen]
+      properties:
+        seen:
+          type: boolean
     Goal:
       type: object
       required: [

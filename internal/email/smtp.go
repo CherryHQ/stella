@@ -1,7 +1,10 @@
 package email
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 
 	mail "github.com/wneessen/go-mail"
@@ -93,6 +96,7 @@ func newSMTPClient(acct EmailAccount) (*mail.Client, error) {
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
 		mail.WithUsername(acct.Username),
 		mail.WithPassword(acct.Password),
+		mail.WithDialContextFunc(safeSMTPDialer(acct)),
 	}
 
 	var tlsOpts []mail.Option
@@ -106,6 +110,28 @@ func newSMTPClient(acct EmailAccount) (*mail.Client, error) {
 	}
 
 	return mail.NewClient(acct.SMTPHost, append(baseOpts, tlsOpts...)...)
+}
+
+func safeSMTPDialer(acct EmailAccount) mail.DialContextFunc {
+	return func(ctx context.Context, network, _ string) (net.Conn, error) {
+		if network != "tcp" {
+			return nil, fmt.Errorf("unsupported SMTP network %q", network)
+		}
+		conn, err := DialPublicTCP(ctx, "smtp", acct.SMTPHost, acct.SMTPPort)
+		if err != nil {
+			return nil, err
+		}
+		if acct.SMTPTLS != "ssl" {
+			return conn, nil
+		}
+
+		tlsConn := tls.Client(conn, &tls.Config{ServerName: acct.SMTPHost, MinVersion: tls.VersionTLS12})
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return tlsConn, nil
+	}
 }
 
 // FormatDryRun returns a human-readable representation of the email that would
