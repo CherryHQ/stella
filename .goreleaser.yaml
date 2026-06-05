@@ -21,6 +21,21 @@ builds:
     goarch:
       - amd64
       - arm64
+
+  - id: stellad
+    main: ./cmd/stellad
+    binary: stellad
+    ldflags:
+      - -s -w -X github.com/CherryHQ/stella/internal/version.Version={{ .Version }} -X github.com/CherryHQ/stella/internal/version.Commit={{ .ShortCommit }} -X github.com/CherryHQ/stella/internal/version.BuildDate={{ .Date }}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
     hooks:
       pre:
         - cmd: env -u GOOS -u GOARCH go run gen.go
@@ -28,10 +43,12 @@ builds:
           env:
             - TARGET_GOOS={{ .Os }}
             - TARGET_GOARCH={{ .Arch }}
+
 archives:
   - id: stella
     ids:
       - stella
+      - stellad
 
 brews:
   - name: stella
@@ -48,8 +65,9 @@ brews:
     license: "AGPL-3.0-or-later"
     install: |
       bin.install "stella"
+      bin.install "stellad"
     service: |
-      run [opt_bin/"stella", "server"]
+      run [opt_bin/"stellad", "server"]
       keep_alive crashed: true
       log_path var/"log/stella.log"
       error_log_path var/"log/stella.log"
@@ -58,12 +76,14 @@ brews:
         os: linux
     test: |
       system "#{bin}/stella", "version"
+      system "#{bin}/stellad", "version"
 
 nfpms:
   - id: stella
     package_name: stella
     ids:
       - stella
+      - stellad
     vendor: CherryHQ
     homepage: https://stella.cherryin.com
     description: Self-hosted AI assistant

@@ -52,5 +52,6 @@ RUN apt-get update \
 WORKDIR /home/stella
 USER stella
 COPY --from=builder /go/src/app/dist/bin/stella /usr/local/bin/stella
+COPY --from=builder /go/src/app/dist/bin/stellad /usr/local/bin/stellad
 
-CMD ["stella", "server"]
+CMD ["stellad", "server"]
