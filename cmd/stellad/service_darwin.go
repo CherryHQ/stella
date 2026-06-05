@@ -19,7 +19,7 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 
     <key>ProgramArguments</key>
     <array>
-        <string>STELLA_BIN</string>
+        <string>STELLAD_BIN</string>
         <string>server</string>
     </array>
 
@@ -79,7 +79,7 @@ func (m *launchdManager) Install() error {
 	}
 
 	plist := strings.ReplaceAll(plistTemplate, "HOME_DIR", home)
-	plist = strings.ReplaceAll(plist, "STELLA_BIN", bin)
+	plist = strings.ReplaceAll(plist, "STELLAD_BIN", bin)
 
 	agentDir := filepath.Join(home, launchAgentDir)
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
