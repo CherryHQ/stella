@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: mise-format
         name: mise run format
-        entry: mise run format
+        entry: sh -c 'if [ "$PRE_COMMIT_HOOK_STAGE" = "post-checkout" ]; then exit 0; fi; mise run format'
         language: system
         pass_filenames: false
         always_run: true

@@ -74,6 +74,12 @@ func serverAction(c *ucli.Context) error {
 		)
 	}
 
+	// Clean up stale upgrade artifacts (.tmp/.bak/.old) from interrupted upgrades.
+	if installDir, err := resolveUpgradeDir(""); err == nil {
+		warnStaleUpgradeArtifacts(installDir)
+		cleanStaleUpgradeArtifacts(installDir)
+	}
+
 	ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
 
 	startDiagnostics(ctx)

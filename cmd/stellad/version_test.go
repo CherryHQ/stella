@@ -77,3 +77,175 @@ func TestUpgradeInstallErrorAddsWindowsBusyHint(t *testing.T) {
 		t.Fatalf("error = %q, want busy hint", err.Error())
 	}
 }
+
+func TestCleanStaleUpgradeArtifacts(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create stale files that should be removed.
+	staleFiles := []string{
+		"stella.tmp", "stellad.tmp",
+		"stella.bak", "stellad.bak",
+		"stella.old", "stellad.old",
+		"stella.exe.tmp", "stellad.exe.bak",
+	}
+	for _, name := range staleFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create files that should NOT be removed.
+	keepFiles := []string{
+		"stella", "stellad",
+		"unrelated.tmp", "other.bak",
+	}
+	for _, name := range keepFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanStaleUpgradeArtifacts(dir)
+
+	for _, name := range staleFiles {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, but it still exists", name)
+		}
+	}
+	for _, name := range keepFiles {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("expected %s to be kept, but it was removed", name)
+		}
+	}
+}
+
+func TestCleanStaleUpgradeArtifactsNonexistentDir(t *testing.T) {
+	// Should not panic on a nonexistent directory.
+	cleanStaleUpgradeArtifacts(filepath.Join(t.TempDir(), "nope"))
+}
+
+func TestIsStaleUpgradeArtifact(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"stella.tmp", true},
+		{"stellad.bak", true},
+		{"stella.old", true},
+		{"stellad.exe.tmp", true},
+		{"stella.exe.bak", true},
+		{"stellad.exe.old", true},
+		{"stella", false},
+		{"stellad", false},
+		{"unrelated.tmp", false},
+		{"stellar.bak", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isStaleUpgradeArtifact(tt.name); got != tt.want {
+				t.Errorf("isStaleUpgradeArtifact(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRollbackUpgradeRemoveFailureFallsBack(t *testing.T) {
+	dir := t.TempDir()
+
+	committed := filepath.Join(dir, "stella")
+	if err := os.WriteFile(committed, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bakPath := committed + ".bak"
+	if err := os.WriteFile(bakPath, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock removeFile to always fail.
+	oldRemoveFile := removeFile
+	removeFile = func(name string) error { return errors.New("simulated lock") }
+	oldGOOS := currentGOOS
+	currentGOOS = "linux"
+	t.Cleanup(func() {
+		removeFile = oldRemoveFile
+		currentGOOS = oldGOOS
+	})
+
+	rollbackUpgrade([]string{committed}, []string{committed})
+
+	// The committed file should still exist (remove failed).
+	if _, err := os.Stat(committed); err != nil {
+		t.Fatal("committed file should still exist after failed remove")
+	}
+	// The backup should also still exist (rollback skipped restore for this path).
+	if _, err := os.Stat(bakPath); err != nil {
+		t.Fatal("backup should still exist because remove failed")
+	}
+}
+
+func TestRollbackUpgradeWindowsRenamesToOld(t *testing.T) {
+	dir := t.TempDir()
+
+	committed := filepath.Join(dir, "stella.exe")
+	if err := os.WriteFile(committed, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bakPath := committed + ".bak"
+	if err := os.WriteFile(bakPath, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock removeFile to fail (simulating Windows file lock),
+	// but allow renameFile to succeed (renaming to .old).
+	oldRemoveFile := removeFile
+	removeFile = func(name string) error { return errors.New("file locked") }
+	oldGOOS := currentGOOS
+	currentGOOS = "windows"
+	t.Cleanup(func() {
+		removeFile = oldRemoveFile
+		currentGOOS = oldGOOS
+	})
+
+	rollbackUpgrade([]string{committed}, []string{committed})
+
+	// The committed file should have been renamed to .old.
+	oldPath := committed + ".old"
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatal("expected .old file to exist after Windows rollback rename")
+	}
+
+	// Since rename-to-.old succeeded, removeFailed is NOT set, so the backup
+	// restore loop runs renameFile(bakPath, committed) — restoring the original.
+	data, err := os.ReadFile(committed)
+	if err != nil {
+		t.Fatalf("expected backup to be restored at %s: %v", committed, err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("restored file = %q, want %q", string(data), "original")
+	}
+
+	// The .bak file should be gone (renamed back).
+	if _, err := os.Stat(bakPath); !os.IsNotExist(err) {
+		t.Fatal("expected .bak file to be gone after successful restore")
+	}
+}
+
+func TestWarnStaleUpgradeArtifacts(t *testing.T) {
+	dir := t.TempDir()
+
+	// No stale files — should not panic.
+	warnStaleUpgradeArtifacts(dir)
+
+	// Add a stale file.
+	if err := os.WriteFile(filepath.Join(dir, "stella.bak"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not panic; we just verify it doesn't error.
+	warnStaleUpgradeArtifacts(dir)
+
+	// Nonexistent dir — should not panic.
+	warnStaleUpgradeArtifacts(filepath.Join(dir, "nope"))
+}

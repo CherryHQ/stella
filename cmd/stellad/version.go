@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,6 +34,8 @@ var (
 	errInvalidTarget    = errors.New("existing target is not a replaceable file")
 	executablePath      = os.Executable
 	renameFile          = os.Rename
+	removeFile          = os.Remove
+	currentGOOS         = runtime.GOOS
 )
 
 type githubRelease struct {
@@ -326,13 +329,27 @@ func stageBinary(srcPath, targetPath string, executable bool) (string, error) {
 }
 
 // rollbackUpgrade removes newly committed binaries and restores their backups.
-// On Windows os.Rename cannot overwrite, so the new file must be removed first.
+// On Windows os.Remove can fail because the binary is locked by a running
+// process. In that case we rename the locked file to .old — it will be cleaned
+// up by cleanStaleUpgradeArtifacts on next startup.
 func rollbackUpgrade(committed, backedUp []string) {
 	removeFailed := make(map[string]bool, len(committed))
 	for _, p := range committed {
-		if err := os.Remove(p); err != nil {
+		if err := removeFile(p); err != nil {
+			// On Windows, try renaming the locked binary out of the way.
+			if currentGOOS == "windows" {
+				oldPath := p + ".old"
+				if renameErr := renameFile(p, oldPath); renameErr == nil {
+					_, _ = fmt.Fprintf(os.Stderr, "WARNING: could not remove %s (file locked); renamed to %s — it will be cleaned up on next startup\n", p, oldPath)
+					continue
+				}
+			}
 			removeFailed[p] = true
-			_, _ = fmt.Fprintf(os.Stderr, "WARNING: could not remove %s: %v\n", p, err)
+			if currentGOOS == "windows" {
+				_, _ = fmt.Fprintf(os.Stderr, "WARNING: could not remove %s: %v\nThe file is likely locked by a running process. Stop all stella processes and manually delete %s, then rename %s.bak to %s\n", p, err, p, p, p)
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "WARNING: could not remove %s: %v\n", p, err)
+			}
 		}
 	}
 	for _, p := range backedUp {
@@ -494,4 +511,70 @@ func ensureReplaceableTarget(targetPath string) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", errInvalidTarget, targetPath)
+}
+
+// staleUpgradeExtensions are file suffixes left behind by interrupted upgrades.
+var staleUpgradeExtensions = []string{".tmp", ".bak", ".old"}
+
+// cleanStaleUpgradeArtifacts removes leftover .tmp, .bak, and .old files from
+// previous interrupted upgrades. It is best-effort: failures are logged but
+// never returned.
+func cleanStaleUpgradeArtifacts(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		slog.Debug("cleanStaleUpgradeArtifacts: cannot read dir", "dir", dir, "error", err)
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !isStaleUpgradeArtifact(name) {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if err := removeFile(path); err != nil {
+			slog.Warn("cleanStaleUpgradeArtifacts: could not remove stale file", "path", path, "error", err)
+		} else {
+			slog.Info("cleanStaleUpgradeArtifacts: removed stale upgrade artifact", "path", path)
+		}
+	}
+}
+
+// warnStaleUpgradeArtifacts checks for leftover upgrade artifacts and logs a
+// warning if any are found. Call this early in the server startup path.
+func warnStaleUpgradeArtifacts(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	var stale []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if isStaleUpgradeArtifact(e.Name()) {
+			stale = append(stale, e.Name())
+		}
+	}
+	if len(stale) > 0 {
+		slog.Warn("detected stale upgrade artifacts — a previous upgrade may have been interrupted; cleaning up", "dir", dir, "files", stale)
+	}
+}
+
+// isStaleUpgradeArtifact returns true if the filename looks like a leftover
+// stella/stellad binary from a failed upgrade.
+func isStaleUpgradeArtifact(name string) bool {
+	for _, ext := range staleUpgradeExtensions {
+		if !strings.HasSuffix(name, ext) {
+			continue
+		}
+		base := strings.TrimSuffix(name, ext)
+		// Match stella, stellad, stella.exe, stellad.exe
+		if base == "stella" || base == "stellad" || base == "stella.exe" || base == "stellad.exe" {
+			return true
+		}
+	}
+	return false
 }
