@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -529,7 +530,7 @@ func emailReadCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "account", Aliases: []string{"a"}, Usage: "Account name (uses default if not set)"},
 			&ucli.StringFlag{Name: "folder", Usage: "Folder name", Value: "INBOX"},
 			&ucli.BoolFlag{Name: "raw", Usage: "Print full raw message"},
-			&ucli.StringFlag{Name: "save-attachments", Usage: "Directory to save attachments"},
+			&ucli.StringFlag{Name: "save-attachments", Usage: "Directory to save attachments (connects to IMAP directly from this host, not through the daemon; requires local network access to the mail server)"},
 			&ucli.BoolFlag{Name: "json", Usage: "Output as JSON"},
 		},
 		Action: func(c *ucli.Context) error {
@@ -543,6 +544,10 @@ func emailReadCommand() *ucli.Command {
 			}
 
 			if dir := c.String("save-attachments"); dir != "" {
+				// Attachment download is not exposed over the daemon API yet, so
+				// this path talks IMAP directly. It only works when the CLI host
+				// can reach the mail server; a remote CLI pointed at a remote
+				// daemon will fail here. See the flag help for the caveat.
 				cfg, err := loadEmailConfig(c.Context)
 				if err != nil {
 					return err
@@ -625,7 +630,7 @@ func emailSendCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "body", Aliases: []string{"b"}, Usage: "Message body"},
 			&ucli.StringFlag{Name: "body-file", Aliases: []string{"f"}, Usage: "File containing message body"},
 			&ucli.BoolFlag{Name: "html", Usage: "Send as HTML"},
-			&ucli.StringSliceFlag{Name: "attach", Usage: "Attachment file path(s)"},
+			&ucli.StringSliceFlag{Name: "attach", Usage: "Attachment file path(s) (sent via direct SMTP from this host, not through the daemon; requires local network access to the mail server)"},
 			&ucli.StringFlag{Name: "from", Usage: "Override From address"},
 			&ucli.StringFlag{Name: "reply-to", Usage: "Reply-To address"},
 			&ucli.StringFlag{Name: "in-reply-to", Usage: "Message-ID of the message being replied to (sets In-Reply-To header)"},
@@ -717,6 +722,10 @@ func emailSendCommand() *ucli.Command {
 			}
 
 			if len(opts.Attachments) > 0 {
+				// Attachments are not supported over the daemon API yet, so this
+				// path sends via direct SMTP from the CLI host. It only works
+				// when the CLI can reach the mail server; a remote CLI pointed at
+				// a remote daemon will fail here. See the flag help for the caveat.
 				cfg, err := loadEmailConfig(c.Context)
 				if err != nil {
 					return err
@@ -800,8 +809,8 @@ func emailMarkCommand() *ucli.Command {
 }
 
 func parseEmailUID(value string) (int, uint32, error) {
-	var uid int64
-	if _, err := fmt.Sscan(value, &uid); err != nil {
+	uid, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
 		return 0, 0, fmt.Errorf("invalid uid %q: %w", value, err)
 	}
 	const maxIMAPUID = int64(^uint32(0))
