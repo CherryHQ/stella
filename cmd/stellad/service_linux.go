@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const systemUnitTemplate = `[Unit]
@@ -298,31 +299,74 @@ func checkSystemServiceRuntime(bin string) error {
 	return checkBwrapAsSystemUser()
 }
 
-// checkBinaryPathSecurity rejects binaries in user-writable directories.
-// A system service should not execute binaries that non-root users can replace.
+// checkBinaryPathSecurity rejects binaries outside root-owned, non-user-writable
+// paths. A system service should not execute binaries that non-root users can replace.
 func checkBinaryPathSecurity(bin string) error {
-	for _, path := range []string{bin, filepath.Dir(bin)} {
-		info, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", path, err)
+	resolved, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		return fmt.Errorf("resolve binary path %s: %w", bin, err)
+	}
+
+	seen := map[string]bool{}
+	for _, path := range append(pathChain(bin), pathChain(resolved)...) {
+		if seen[path] {
+			continue
 		}
-		mode := info.Mode()
-		if mode&0o002 != 0 {
-			return fmt.Errorf(
-				"%s is world-writable (mode %s) — a non-root user could replace the binary\n"+
-					"  install stellad to a root-owned directory such as /usr/local/bin:\n"+
-					"  sudo cp %s /usr/local/bin/stellad && sudo chmod 755 /usr/local/bin/stellad",
-				path, mode.String(), bin,
-			)
+		seen[path] = true
+		if err := checkRootOwnedNotWritable(path, bin); err != nil {
+			return err
 		}
-		if mode&0o020 != 0 {
-			return fmt.Errorf(
-				"%s is group-writable (mode %s) — members of the owning group could replace the binary\n"+
-					"  install stellad to a root-owned directory such as /usr/local/bin:\n"+
-					"  sudo cp %s /usr/local/bin/stellad && sudo chmod 755 /usr/local/bin/stellad",
-				path, mode.String(), bin,
-			)
+	}
+	return nil
+}
+
+func pathChain(path string) []string {
+	clean := filepath.Clean(path)
+	paths := []string{clean}
+	for {
+		parent := filepath.Dir(clean)
+		if parent == clean {
+			break
 		}
+		paths = append(paths, parent)
+		clean = parent
+	}
+	return paths
+}
+
+func checkRootOwnedNotWritable(path, bin string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("stat %s: unsupported file info", path)
+	}
+	if stat.Uid != 0 {
+		return fmt.Errorf(
+			"%s is owned by uid %d — a system service must execute a root-owned binary path\n"+
+				"  install stellad to a root-owned directory such as /usr/local/bin:\n"+
+				"  sudo cp %s /usr/local/bin/stellad && sudo chmod 755 /usr/local/bin/stellad",
+			path, stat.Uid, bin,
+		)
+	}
+	mode := info.Mode()
+	if mode&0o002 != 0 {
+		return fmt.Errorf(
+			"%s is world-writable (mode %s) — a non-root user could replace the binary\n"+
+				"  install stellad to a root-owned directory such as /usr/local/bin:\n"+
+				"  sudo cp %s /usr/local/bin/stellad && sudo chmod 755 /usr/local/bin/stellad",
+			path, mode.String(), bin,
+		)
+	}
+	if mode&0o020 != 0 {
+		return fmt.Errorf(
+			"%s is group-writable (mode %s) — members of the owning group could replace the binary\n"+
+				"  install stellad to a root-owned directory such as /usr/local/bin:\n"+
+				"  sudo cp %s /usr/local/bin/stellad && sudo chmod 755 /usr/local/bin/stellad",
+			path, mode.String(), bin,
+		)
 	}
 	return nil
 }

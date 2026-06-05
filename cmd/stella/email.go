@@ -537,13 +537,28 @@ func emailReadCommand() *ucli.Command {
 			if uidStr == "" {
 				return fmt.Errorf("uid is required")
 			}
-			var uid int
-			if _, err := fmt.Sscan(uidStr, &uid); err != nil {
-				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
+			uid, imapUID, err := parseEmailUID(uidStr)
+			if err != nil {
+				return err
 			}
 
-			if c.String("save-attachments") != "" {
-				return fmt.Errorf("--save-attachments is not yet supported via the API")
+			if dir := c.String("save-attachments"); dir != "" {
+				cfg, err := loadEmailConfig(c.Context)
+				if err != nil {
+					return err
+				}
+				acct, err := cfg.Resolve(c.String("account"))
+				if err != nil {
+					return err
+				}
+				paths, err := email.SaveAttachments(acct, c.String("folder"), imapUID, dir)
+				if err != nil {
+					return err
+				}
+				for _, p := range paths {
+					fmt.Println(p)
+				}
+				return nil
 			}
 
 			msg, err := apiclient.Call[apiclient.EmailMessage](func(api *apiclient.Client) (*http.Response, error) {
@@ -618,10 +633,6 @@ func emailSendCommand() *ucli.Command {
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
-			if len(c.StringSlice("attach")) > 0 {
-				return fmt.Errorf("--attach is not yet supported via the API")
-			}
-
 			// Resolve body.
 			var body string
 			switch {
@@ -645,15 +656,16 @@ func emailSendCommand() *ucli.Command {
 			}
 
 			opts := email.SendOptions{
-				To:        c.StringSlice("to"),
-				Cc:        c.StringSlice("cc"),
-				Bcc:       c.StringSlice("bcc"),
-				Subject:   c.String("subject"),
-				Body:      body,
-				HTML:      c.Bool("html"),
-				From:      c.String("from"),
-				ReplyTo:   c.String("reply-to"),
-				InReplyTo: c.String("in-reply-to"),
+				To:          c.StringSlice("to"),
+				Cc:          c.StringSlice("cc"),
+				Bcc:         c.StringSlice("bcc"),
+				Subject:     c.String("subject"),
+				Body:        body,
+				HTML:        c.Bool("html"),
+				Attachments: c.StringSlice("attach"),
+				From:        c.String("from"),
+				ReplyTo:     c.String("reply-to"),
+				InReplyTo:   c.String("in-reply-to"),
 			}
 
 			if c.Bool("dry-run") {
@@ -704,6 +716,26 @@ func emailSendCommand() *ucli.Command {
 				reqBody.InReplyTo = &opts.InReplyTo
 			}
 
+			if len(opts.Attachments) > 0 {
+				cfg, err := loadEmailConfig(c.Context)
+				if err != nil {
+					return err
+				}
+				acct, err := cfg.Resolve(c.String("account"))
+				if err != nil {
+					return err
+				}
+				if err := email.Send(acct, opts); err != nil {
+					return err
+				}
+				if cli.IsJSON(c) {
+					return cli.PrintJSON(c, map[string]any{"sent": true, "to": opts.To, "subject": opts.Subject})
+				}
+				o := cli.Stdout(c)
+				o.Println("Email sent successfully.")
+				return o.Err()
+			}
+
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.SendEmail(c.Context, &apiclient.SendEmailParams{Account: optStr(c, "account")}, reqBody)
 			}); err != nil {
@@ -736,9 +768,9 @@ func emailMarkCommand() *ucli.Command {
 			if uidStr == "" {
 				return fmt.Errorf("uid is required")
 			}
-			var uid int
-			if _, err := fmt.Sscan(uidStr, &uid); err != nil {
-				return fmt.Errorf("invalid uid %q: %w", uidStr, err)
+			uid, _, err := parseEmailUID(uidStr)
+			if err != nil {
+				return err
 			}
 			if c.Bool("seen") == c.Bool("unseen") {
 				return fmt.Errorf("exactly one of --seen or --unseen is required")
@@ -765,6 +797,18 @@ func emailMarkCommand() *ucli.Command {
 			return o.Err()
 		},
 	}
+}
+
+func parseEmailUID(value string) (int, uint32, error) {
+	var uid int64
+	if _, err := fmt.Sscan(value, &uid); err != nil {
+		return 0, 0, fmt.Errorf("invalid uid %q: %w", value, err)
+	}
+	const maxIMAPUID = int64(^uint32(0))
+	if uid < 1 || uid > maxIMAPUID {
+		return 0, 0, fmt.Errorf("uid must be between 1 and 4294967295")
+	}
+	return int(uid), uint32(uid), nil
 }
 
 // optStr returns a pointer to the CLI flag value if non-empty, else nil.

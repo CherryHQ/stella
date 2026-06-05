@@ -497,7 +497,8 @@ func extractBinaryFromTarGz(archivePath, destDir, binaryName string) (outPath st
 		}
 	}()
 
-	tarReader := tar.NewReader(gzReader)
+	counted := &limitReader{reader: gzReader, remaining: maxArchiveBytes}
+	tarReader := tar.NewReader(counted)
 	for {
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
@@ -509,6 +510,9 @@ func extractBinaryFromTarGz(archivePath, destDir, binaryName string) (outPath st
 		if header.Typeflag != tar.TypeReg {
 			continue
 		}
+		if header.Size > maxArchiveBytes {
+			return "", fmt.Errorf("archive entry %q exceeds %d MB size limit", header.Name, maxArchiveBytes>>20)
+		}
 		if filepath.Base(header.Name) != binaryName {
 			continue
 		}
@@ -519,6 +523,23 @@ func extractBinaryFromTarGz(archivePath, destDir, binaryName string) (outPath st
 		return outPath, nil
 	}
 	return "", fmt.Errorf("binary %q not found in archive", binaryName)
+}
+
+type limitReader struct {
+	reader    io.Reader
+	remaining int64
+}
+
+func (r *limitReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, fmt.Errorf("decompressed archive exceeds %d MB size limit", maxArchiveBytes>>20)
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	return n, err
 }
 
 func extractBinaryFromZip(archivePath, destDir, binaryName string) (outPath string, err error) {
@@ -610,9 +631,9 @@ func ensureReplaceableTarget(targetPath string) error {
 // staleUpgradeExtensions are file suffixes left behind by interrupted upgrades.
 var staleUpgradeExtensions = []string{".tmp", ".bak", ".old"}
 
-// cleanStaleUpgradeArtifacts removes leftover .tmp, .bak, and .old files from
-// previous interrupted upgrades. It is best-effort: failures are logged but
-// never returned.
+// cleanStaleUpgradeArtifacts removes leftover .tmp and .old files, and treats
+// .bak files as rollback state: restore them when the target is missing.
+// It is best-effort: failures are logged but never returned.
 func cleanStaleUpgradeArtifacts(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -628,11 +649,36 @@ func cleanStaleUpgradeArtifacts(dir string) {
 			continue
 		}
 		path := filepath.Join(dir, name)
+		if strings.HasSuffix(name, ".bak") {
+			cleanupBackupArtifact(dir, name, path)
+			continue
+		}
 		if err := removeFile(path); err != nil {
 			slog.Warn("cleanStaleUpgradeArtifacts: could not remove stale file", "path", path, "error", err)
 		} else {
 			slog.Info("cleanStaleUpgradeArtifacts: removed stale upgrade artifact", "path", path)
 		}
+	}
+}
+
+func cleanupBackupArtifact(dir, name, path string) {
+	target := filepath.Join(dir, strings.TrimSuffix(name, ".bak"))
+	if _, err := os.Lstat(target); os.IsNotExist(err) {
+		if err := renameFile(path, target); err != nil {
+			slog.Warn("cleanStaleUpgradeArtifacts: could not restore backup", "backup", path, "target", target, "error", err)
+		} else {
+			slog.Warn("cleanStaleUpgradeArtifacts: restored interrupted upgrade backup", "backup", path, "target", target)
+		}
+		return
+	} else if err != nil {
+		slog.Warn("cleanStaleUpgradeArtifacts: cannot stat target for backup", "backup", path, "target", target, "error", err)
+		return
+	}
+
+	if err := removeFile(path); err != nil {
+		slog.Warn("cleanStaleUpgradeArtifacts: could not remove stale backup", "path", path, "error", err)
+	} else {
+		slog.Info("cleanStaleUpgradeArtifacts: removed stale backup", "path", path)
 	}
 }
 

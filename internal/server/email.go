@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -62,6 +63,10 @@ func (s *Server) loadEmailAccount(w http.ResponseWriter, r *http.Request, accoun
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("resolve email account: %v", err))
 		return email.EmailAccount{}, false
 	}
+	if err := email.ValidateAccountEgress(acct); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return email.EmailAccount{}, false
+	}
 	return acct, true
 }
 
@@ -88,12 +93,18 @@ func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, param
 		return
 	}
 
-	opts := email.ListOptions{}
+	limit := 20
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	if limit < 1 || limit > 500 {
+		writeError(w, http.StatusBadRequest, "limit must be between 1 and 500")
+		return
+	}
+
+	opts := email.ListOptions{Limit: limit}
 	if params.Folder != nil {
 		opts.Folder = *params.Folder
-	}
-	if params.Limit != nil {
-		opts.Limit = *params.Limit
 	}
 	if params.Unread != nil {
 		opts.Unread = *params.Unread
@@ -133,14 +144,23 @@ func (s *Server) GetEmailMessage(w http.ResponseWriter, r *http.Request, uid int
 		return
 	}
 
+	imapUID, ok := parseIMAPUID(w, uid)
+	if !ok {
+		return
+	}
+
 	folder := "INBOX"
 	if params.Folder != nil {
 		folder = *params.Folder
 	}
 
-	msg, err := email.Read(acct, folder, uint32(uid))
+	msg, err := email.Read(acct, folder, imapUID)
 	if err != nil {
-		s.writeInternalError(w, err)
+		if errors.Is(err, email.ErrMessageNotFound) {
+			writeError(w, http.StatusNotFound, "message not found")
+		} else {
+			s.writeInternalError(w, err)
+		}
 		return
 	}
 
@@ -157,6 +177,18 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 	var body apitypes.EmailSendRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if len(body.To) == 0 {
+		writeError(w, http.StatusBadRequest, "to must contain at least one recipient")
+		return
+	}
+	if strings.TrimSpace(body.Subject) == "" {
+		writeError(w, http.StatusBadRequest, "subject is required")
+		return
+	}
+	if strings.TrimSpace(body.Body) == "" {
+		writeError(w, http.StatusBadRequest, "body is required")
 		return
 	}
 
@@ -199,9 +231,20 @@ func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid in
 		return
 	}
 
-	var body apitypes.EmailMarkRequest
+	imapUID, ok := parseIMAPUID(w, uid)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Seen *bool `json:"seen"`
+	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Seen == nil {
+		writeError(w, http.StatusBadRequest, "seen is required")
 		return
 	}
 
@@ -210,12 +253,25 @@ func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid in
 		folder = *params.Folder
 	}
 
-	if err := email.MarkSeen(acct, folder, uint32(uid), body.Seen); err != nil {
-		s.writeInternalError(w, err)
+	if err := email.MarkSeen(acct, folder, imapUID, *body.Seen); err != nil {
+		if errors.Is(err, email.ErrMessageNotFound) {
+			writeError(w, http.StatusNotFound, "message not found")
+		} else {
+			s.writeInternalError(w, err)
+		}
 		return
 	}
 
 	writeNoContent(w)
+}
+
+func parseIMAPUID(w http.ResponseWriter, uid int) (uint32, bool) {
+	const maxIMAPUID = int64(^uint32(0))
+	if uid < 1 || int64(uid) > maxIMAPUID {
+		writeError(w, http.StatusBadRequest, "uid must be between 1 and 4294967295")
+		return 0, false
+	}
+	return uint32(uid), true
 }
 
 // --------------- converters ---------------

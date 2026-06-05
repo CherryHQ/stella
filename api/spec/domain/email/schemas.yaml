@@ -57,11 +57,11 @@ components:
       type: object
       required: [to, subject, body]
       properties:
-        to: { type: array, items: { type: string } }
-        cc: { type: array, items: { type: string } }
-        bcc: { type: array, items: { type: string } }
-        subject: { type: string }
-        body: { type: string }
+        to: { type: array, minItems: 1, items: { type: string, minLength: 1 } }
+        cc: { type: array, items: { type: string, minLength: 1 } }
+        bcc: { type: array, items: { type: string, minLength: 1 } }
+        subject: { type: string, minLength: 1 }
+        body: { type: string, minLength: 1 }
         html: { type: boolean }
         from: { type: string }
         reply_to: { type: string }

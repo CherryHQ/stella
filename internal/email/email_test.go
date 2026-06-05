@@ -41,6 +41,25 @@ func TestValidateAccountName(t *testing.T) {
 	}
 }
 
+func TestValidateAccountEgressRejectsPrivateHosts(t *testing.T) {
+	acct := email.EmailAccount{IMAPHost: "127.0.0.1", SMTPHost: "8.8.8.8"}
+	if err := email.ValidateAccountEgress(acct); err == nil {
+		t.Fatal("expected loopback IMAP host to be rejected")
+	}
+
+	acct = email.EmailAccount{IMAPHost: "8.8.8.8", SMTPHost: "10.0.0.1"}
+	if err := email.ValidateAccountEgress(acct); err == nil {
+		t.Fatal("expected private SMTP host to be rejected")
+	}
+}
+
+func TestValidateAccountEgressAllowsPublicLiteralHosts(t *testing.T) {
+	acct := email.EmailAccount{IMAPHost: "8.8.8.8", SMTPHost: "1.1.1.1"}
+	if err := email.ValidateAccountEgress(acct); err != nil {
+		t.Fatalf("expected public literal hosts to pass: %v", err)
+	}
+}
+
 func TestConfigJSONRoundTrip(t *testing.T) {
 	cfg := &email.Config{
 		Default: "work",

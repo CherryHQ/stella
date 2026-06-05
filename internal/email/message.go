@@ -1,6 +1,11 @@
 package email
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrMessageNotFound = errors.New("message not found")
 
 // Envelope holds metadata about an email message.
 type Envelope struct {

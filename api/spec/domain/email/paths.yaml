@@ -43,7 +43,7 @@ paths:
             name: limit,
             in: query,
             required: false,
-            schema: { type: integer, default: 20 },
+            schema: { type: integer, default: 20, minimum: 1, maximum: 500 },
           }
         - {
             name: unread,
@@ -78,13 +78,21 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/EmailEnvelopeList",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
   /api/email/messages/{uid}:
     parameters:
-      - { name: uid, in: path, required: true, schema: { type: integer } }
+      - {
+          name: uid,
+          in: path,
+          required: true,
+          schema: { type: integer, minimum: 1, maximum: 4294967295 },
+        }
     get:
       tags: [email]
       summary: Read an email message
@@ -110,8 +118,14 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/EmailMessage",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": {
+          $ref: "../../components.yaml#/components/responses/NotFound",
         }
 
   /api/email/send:
@@ -141,13 +155,21 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/EmailSendResult",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
 
   /api/email/messages/{uid}/mark:
     parameters:
-      - { name: uid, in: path, required: true, schema: { type: integer } }
+      - {
+          name: uid,
+          in: path,
+          required: true,
+          schema: { type: integer, minimum: 1, maximum: 4294967295 },
+        }
     post:
       tags: [email]
       summary: Mark an email message as read or unread
@@ -175,6 +197,12 @@ paths:
       responses:
         "204":
           description: marked
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": {
+          $ref: "../../components.yaml#/components/responses/NotFound",
         }

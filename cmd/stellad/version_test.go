@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -99,7 +101,7 @@ func TestCleanStaleUpgradeArtifacts(t *testing.T) {
 
 	// Create files that should NOT be removed.
 	keepFiles := []string{
-		"stella", "stellad",
+		"stella", "stellad", "stellad.exe",
 		"unrelated.tmp", "other.bak",
 	}
 	for _, name := range keepFiles {
@@ -119,6 +121,28 @@ func TestCleanStaleUpgradeArtifacts(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("expected %s to be kept, but it was removed", name)
 		}
+	}
+}
+
+func TestCleanStaleUpgradeArtifactsRestoresBackupWhenTargetMissing(t *testing.T) {
+	dir := t.TempDir()
+	backup := filepath.Join(dir, "stella.bak")
+	if err := os.WriteFile(backup, []byte("original"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanStaleUpgradeArtifacts(dir)
+
+	restored := filepath.Join(dir, "stella")
+	data, err := os.ReadFile(restored)
+	if err != nil {
+		t.Fatalf("expected backup to be restored: %v", err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("restored content = %q, want original", string(data))
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatal("expected backup path to be gone after restore")
 	}
 }
 
@@ -294,6 +318,34 @@ func TestWriteReaderToFileSizeLimit(t *testing.T) {
 	}
 	if string(data) != "small content" {
 		t.Fatalf("got %q, want %q", string(data), "small content")
+	}
+}
+
+func TestExtractBinaryFromTarGzRejectsOversizedSkippedEntry(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "stella_linux_amd64.tar.gz")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gz)
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "padding.bin", Mode: 0o644, Size: maxArchiveBytes + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = extractBinaryFromTarGz(archivePath, dir, "stella")
+	if err == nil {
+		t.Fatal("expected oversized skipped entry to fail")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %q, want size-limit error", err.Error())
 	}
 }
 

@@ -3,6 +3,8 @@ package email
 import (
 	"bytes"
 	"cmp"
+	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -24,25 +26,33 @@ const maxAttachmentSize = 50 * 1024 * 1024 // 50 MB
 
 // dialIMAP connects to the IMAP server described by acct and logs in.
 func dialIMAP(acct EmailAccount) (*imapclient.Client, error) {
-	addr := fmt.Sprintf("%s:%d", acct.IMAPHost, acct.IMAPPort)
+	conn, err := DialPublicTCP(context.Background(), "imap", acct.IMAPHost, acct.IMAPPort)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsConfig := &tls.Config{ServerName: acct.IMAPHost, NextProtos: []string{"imap"}}
 	opts := &imapclient.Options{
+		TLSConfig:   tlsConfig,
 		WordDecoder: &mime.WordDecoder{CharsetReader: charset.Reader},
 	}
 
-	var (
-		c   *imapclient.Client
-		err error
-	)
+	var c *imapclient.Client
 	switch acct.IMAPTLS {
 	case "starttls":
-		c, err = imapclient.DialStartTLS(addr, opts)
+		c, err = imapclient.NewStartTLS(conn, opts)
 	case "none":
-		c, err = imapclient.DialInsecure(addr, opts)
+		c = imapclient.New(conn, opts)
 	default: // "ssl" or ""
-		c, err = imapclient.DialTLS(addr, opts)
+		tlsConn := tls.Client(conn, tlsConfig)
+		if err := tlsConn.Handshake(); err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("dial imap %s:%d: %w", acct.IMAPHost, acct.IMAPPort, err)
+		}
+		c = imapclient.New(tlsConn, opts)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("dial imap %s: %w", addr, err)
+		return nil, fmt.Errorf("dial imap %s:%d: %w", acct.IMAPHost, acct.IMAPPort, err)
 	}
 
 	if err := c.Login(acct.Username, acct.Password).Wait(); err != nil {
@@ -180,7 +190,7 @@ func Read(acct EmailAccount, folder string, uid uint32) (*Message, error) {
 		return nil, fmt.Errorf("fetch message uid=%d: %w", uid, err)
 	}
 	if len(msgs) == 0 {
-		return nil, fmt.Errorf("message uid=%d not found", uid)
+		return nil, fmt.Errorf("%w: uid=%d", ErrMessageNotFound, uid)
 	}
 
 	buf := msgs[0]
@@ -271,7 +281,7 @@ func SaveAttachments(acct EmailAccount, folder string, uid uint32, dir string) (
 		return nil, fmt.Errorf("fetch message uid=%d: %w", uid, err)
 	}
 	if len(msgs) == 0 {
-		return nil, fmt.Errorf("message uid=%d not found", uid)
+		return nil, fmt.Errorf("%w: uid=%d", ErrMessageNotFound, uid)
 	}
 
 	rawSection := &imap.FetchItemBodySection{Peek: true}
@@ -382,6 +392,9 @@ func MarkSeen(acct EmailAccount, folder string, uid uint32, seen bool) error {
 	if _, err := c.Select(folder, nil).Wait(); err != nil {
 		return fmt.Errorf("select %q: %w", folder, err)
 	}
+	if err := ensureMessageExists(c, uid); err != nil {
+		return err
+	}
 
 	op := imap.StoreFlagsDel
 	if seen {
@@ -394,6 +407,18 @@ func MarkSeen(acct EmailAccount, folder string, uid uint32, seen bool) error {
 	}
 	if _, err := c.Store(imap.UIDSetNum(imap.UID(uid)), storeFlags, nil).Collect(); err != nil {
 		return fmt.Errorf("store flags uid=%d: %w", uid, err)
+	}
+	return nil
+}
+
+func ensureMessageExists(c *imapclient.Client, uid uint32) error {
+	fetchOpts := &imap.FetchOptions{UID: true}
+	msgs, err := c.Fetch(imap.UIDSetNum(imap.UID(uid)), fetchOpts).Collect()
+	if err != nil {
+		return fmt.Errorf("fetch message uid=%d: %w", uid, err)
+	}
+	if len(msgs) == 0 {
+		return fmt.Errorf("%w: uid=%d", ErrMessageNotFound, uid)
 	}
 	return nil
 }
