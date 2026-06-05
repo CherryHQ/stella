@@ -289,10 +289,42 @@ func dotenvHasKey(data []byte, key string) bool {
 }
 
 func checkSystemServiceRuntime(bin string) error {
+	if err := checkBinaryPathSecurity(bin); err != nil {
+		return err
+	}
 	if err := runAsSystemUser("test", "-x", bin); err != nil {
 		return fmt.Errorf("%s cannot execute %s; install stella somewhere world-executable, such as /usr/local/bin/stella: %w", systemUser, bin, err)
 	}
 	return checkBwrapAsSystemUser()
+}
+
+// checkBinaryPathSecurity rejects binaries in user-writable directories.
+// A system service should not execute binaries that non-root users can replace.
+func checkBinaryPathSecurity(bin string) error {
+	for _, path := range []string{bin, filepath.Dir(bin)} {
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		mode := info.Mode()
+		if mode&0o002 != 0 {
+			return fmt.Errorf(
+				"%s is world-writable (mode %s) — a non-root user could replace the binary\n"+
+					"  install stellad to a root-owned directory such as /usr/local/bin:\n"+
+					"  sudo cp %s /usr/local/bin/stellad && sudo chmod 755 /usr/local/bin/stellad",
+				path, mode.String(), bin,
+			)
+		}
+		if mode&0o020 != 0 {
+			return fmt.Errorf(
+				"%s is group-writable (mode %s) — members of the owning group could replace the binary\n"+
+					"  install stellad to a root-owned directory such as /usr/local/bin:\n"+
+					"  sudo cp %s /usr/local/bin/stellad && sudo chmod 755 /usr/local/bin/stellad",
+				path, mode.String(), bin,
+			)
+		}
+	}
+	return nil
 }
 
 func checkBwrapAsSystemUser() error {
