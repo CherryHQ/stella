@@ -2,46 +2,63 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestResolveUpgradeTargetDefaultUsesExecutablePath(t *testing.T) {
+func TestResolveUpgradeDirDefaultUsesExecutableDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	exePath := filepath.Join(tmpDir, "stellad")
+	if err := os.WriteFile(exePath, []byte("fake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	oldExecutablePath := executablePath
-	exePath := filepath.Join(string(filepath.Separator), "opt", "stella", binaryNameForGOOS("linux"))
 	executablePath = func() (string, error) { return exePath, nil }
 	t.Cleanup(func() { executablePath = oldExecutablePath })
 
-	got, err := resolveUpgradeTarget("", "linux")
+	got, err := resolveUpgradeDir("")
 	if err != nil {
-		t.Fatalf("resolveUpgradeTarget: %v", err)
+		t.Fatalf("resolveUpgradeDir: %v", err)
 	}
-	if got != exePath {
-		t.Fatalf("resolveUpgradeTarget() = %q, want %q", got, exePath)
-	}
-}
-
-func TestResolveUpgradeTargetWithInstallDir(t *testing.T) {
-	dir := filepath.Join(string(filepath.Separator), "usr", "local", "bin")
-	got, err := resolveUpgradeTarget(dir, "linux")
-	if err != nil {
-		t.Fatalf("resolveUpgradeTarget: %v", err)
-	}
-	want := filepath.Join(dir, binaryNameForGOOS("linux"))
+	want, _ := filepath.EvalSymlinks(tmpDir)
 	if got != want {
-		t.Fatalf("resolveUpgradeTarget() = %q, want %q", got, want)
+		t.Fatalf("resolveUpgradeDir() = %q, want %q", got, want)
 	}
 }
 
-func TestResolveUpgradeTargetReportsExecutablePathError(t *testing.T) {
+func TestResolveUpgradeDirWithInstallDir(t *testing.T) {
+	dir := filepath.Join(string(filepath.Separator), "usr", "local", "bin")
+	got, err := resolveUpgradeDir(dir)
+	if err != nil {
+		t.Fatalf("resolveUpgradeDir: %v", err)
+	}
+	if got != dir {
+		t.Fatalf("resolveUpgradeDir() = %q, want %q", got, dir)
+	}
+}
+
+func TestResolveUpgradeDirReportsExecutablePathError(t *testing.T) {
 	oldExecutablePath := executablePath
 	executablePath = func() (string, error) { return "", errors.New("boom") }
 	t.Cleanup(func() { executablePath = oldExecutablePath })
 
-	_, err := resolveUpgradeTarget("", "linux")
+	_, err := resolveUpgradeDir("")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestBinariesToUpgrade(t *testing.T) {
+	got := binariesToUpgrade("linux")
+	if len(got) != 2 || got[0] != "stella" || got[1] != "stellad" {
+		t.Fatalf("linux: got %v, want [stella stellad]", got)
+	}
+	got = binariesToUpgrade("windows")
+	if len(got) != 2 || got[0] != "stella.exe" || got[1] != "stellad.exe" {
+		t.Fatalf("windows: got %v, want [stella.exe stellad.exe]", got)
 	}
 }
 

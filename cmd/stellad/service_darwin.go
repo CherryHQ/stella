@@ -20,6 +20,7 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <key>ProgramArguments</key>
     <array>
         <string>STELLA_BIN</string>
+        <string>server</string>
     </array>
 
     <key>EnvironmentVariables</key>

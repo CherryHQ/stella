@@ -48,7 +48,7 @@ type githubReleaseAsset struct {
 type upgradeResult struct {
 	CurrentVersion string
 	LatestVersion  string
-	TargetPath     string
+	InstallDir     string
 	AlreadyCurrent bool
 }
 
@@ -76,12 +76,12 @@ func upgradeCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
-			targetPath, err := resolveUpgradeTarget(c.String("install-dir"), runtime.GOOS)
+			installDir, err := resolveUpgradeDir(c.String("install-dir"))
 			if err != nil {
 				return err
 			}
 
-			result, err := runUpgrade(c.Context, targetPath, displayVersion(), runtime.GOOS, runtime.GOARCH)
+			result, err := runUpgrade(c.Context, installDir, displayVersion(), runtime.GOOS, runtime.GOARCH)
 			if err != nil {
 				return err
 			}
@@ -91,7 +91,7 @@ func upgradeCommand() *ucli.Command {
 			}
 
 			fmt.Printf("Upgraded stella from %s to %s\n", result.CurrentVersion, result.LatestVersion)
-			fmt.Printf("Installed to %s\n", result.TargetPath)
+			fmt.Printf("Installed to %s\n", installDir)
 			return nil
 		},
 	}
@@ -105,22 +105,33 @@ func displayVersion() string {
 	return normalized
 }
 
-// resolveUpgradeTarget returns the full path to install the upgraded binary.
-// When installDir is empty, it returns the running executable's path so the
-// upgrade replaces the exact binary that's running. When installDir is set,
-// it uses the canonical release binary name within that directory.
-func resolveUpgradeTarget(installDir, goos string) (string, error) {
+// resolveUpgradeDir returns the directory to install upgraded binaries into.
+// When installDir is empty, it uses the running executable's directory.
+func resolveUpgradeDir(installDir string) (string, error) {
 	if installDir != "" {
-		return filepath.Join(installDir, binaryNameForGOOS(goos)), nil
+		return installDir, nil
 	}
 	exePath, err := executablePath()
 	if err != nil {
-		return "", fmt.Errorf("resolve stella executable path: %w", err)
+		return "", fmt.Errorf("resolve executable path: %w", err)
 	}
 	if exePath == "" {
-		return "", errors.New("resolve stella executable path: empty path")
+		return "", errors.New("resolve executable path: empty path")
 	}
-	return exePath, nil
+	resolved, err := filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve executable symlink: %w", err)
+	}
+	return filepath.Dir(resolved), nil
+}
+
+// binariesToUpgrade returns the binary names that must be present in a release
+// archive for a full upgrade (both CLI and daemon).
+func binariesToUpgrade(goos string) []string {
+	if goos == "windows" {
+		return []string{"stella.exe", "stellad.exe"}
+	}
+	return []string{"stella", "stellad"}
 }
 
 func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
@@ -145,7 +156,7 @@ func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
 	return &parsed, nil
 }
 
-func runUpgrade(ctx context.Context, targetPath, currentVersion, goos, goarch string) (*upgradeResult, error) {
+func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch string) (*upgradeResult, error) {
 	release, err := fetchLatestRelease(ctx)
 	if err != nil {
 		return nil, err
@@ -171,10 +182,10 @@ func runUpgrade(ctx context.Context, targetPath, currentVersion, goos, goarch st
 		return nil, err
 	}
 
-	if err := installReleaseAsset(ctx, asset, targetPath, goos); err != nil {
+	if err := installReleaseAsset(ctx, asset, installDir, goos); err != nil {
 		return nil, err
 	}
-	result.TargetPath = targetPath
+	result.InstallDir = installDir
 	return result, nil
 }
 
@@ -195,8 +206,7 @@ func releaseAssetSuffixes(goos, goarch string) []string {
 	return []string{base + ".tar.gz", base + ".zip"}
 }
 
-func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, targetPath, goos string) (err error) {
-	installDir := filepath.Dir(targetPath)
+func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installDir, goos string) (err error) {
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return fmt.Errorf("create install dir: %w", err)
 	}
@@ -216,13 +226,16 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, targetPa
 		return err
 	}
 
-	extractedPath, err := extractBinaryFromArchive(archivePath, tmpDir, binaryNameForGOOS(goos))
-	if err != nil {
-		return err
-	}
+	for _, binName := range binariesToUpgrade(goos) {
+		extractedPath, err := extractBinaryFromArchive(archivePath, tmpDir, binName)
+		if err != nil {
+			return fmt.Errorf("extract %s: %w", binName, err)
+		}
 
-	if err := installBinary(extractedPath, targetPath, goos != "windows"); err != nil {
-		return upgradeInstallError(err, targetPath, goos)
+		targetPath := filepath.Join(installDir, binName)
+		if err := installBinary(extractedPath, targetPath, goos != "windows"); err != nil {
+			return upgradeInstallError(err, targetPath, goos)
+		}
 	}
 	return nil
 }
@@ -453,13 +466,6 @@ func ensureReplaceableTarget(targetPath string) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", errInvalidTarget, targetPath)
-}
-
-func binaryNameForGOOS(goos string) string {
-	if goos == "windows" {
-		return "stella.exe"
-	}
-	return "stella"
 }
 
 func normalizeVersion(v string) string {
