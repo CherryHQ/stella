@@ -984,7 +984,7 @@ interface InstallTab {
 }
 
 const INSTALL_TABS: InstallTab[] = [
-  { id: "brew", name: "Homebrew", code: "brew install CherryHQ/tap/stella\nstella server" },
+  { id: "brew", name: "Homebrew", code: "brew install CherryHQ/tap/stella\nstellad server" },
   {
     id: "docker",
     name: "Docker",
@@ -993,7 +993,7 @@ const INSTALL_TABS: InstallTab[] = [
   {
     id: "go",
     name: "Go Install",
-    code: "go install github.com/CherryHQ/stella/cmd/stella@latest\nstella server",
+    code: "go install github.com/CherryHQ/stella/cmd/stella@latest\ngo install github.com/CherryHQ/stella/cmd/stellad@latest\nstellad server",
   },
 ];
 

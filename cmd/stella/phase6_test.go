@@ -10,6 +10,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 )
 
@@ -82,7 +83,7 @@ func TestDotEnvDoesNotOverrideProcessEnv(t *testing.T) {
 	t.Setenv("DOTENV_EXISTING", "from-process")
 	t.Setenv("DOTENV_ONLY", "")
 
-	loadDotEnv()
+	cli.LoadDotEnv()
 
 	if got := os.Getenv("DOTENV_EXISTING"); got != "from-process" {
 		t.Fatalf("process env must win over .env, got %q", got)

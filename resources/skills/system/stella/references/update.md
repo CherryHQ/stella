@@ -9,18 +9,19 @@ stella version
 ## Self-update (recommended)
 
 ```bash
-stella upgrade
-stella upgrade --install-dir "$HOME/.local/bin"  # custom install path
+stellad upgrade
+stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```
 
-Downloads the latest stable release from GitHub for your platform and replaces the running `stella` binary by default. If the target directory is not writable, rerun with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
+Downloads the latest stable release from GitHub for your platform and replaces the running `stellad` binary by default. If the target directory is not writable, rerun with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
 ## Other methods
 
 ### Go install
 
 ```bash
-go install github.com/CherryHQ/stella@latest
+go install github.com/CherryHQ/stella/cmd/stella@latest
+go install github.com/CherryHQ/stella/cmd/stellad@latest
 ```
 
 ### From source

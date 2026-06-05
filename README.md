@@ -31,7 +31,7 @@ Under the hood, Stella is a multi-tenant, multi-user, multi-agent system. Each a
 brew install CherryHQ/tap/stella
 
 # 2. Start the server
-stella server
+stellad server
 
 # 3. Open the Web UI at http://localhost:25678
 #    Add your provider and API key under Providers
@@ -39,7 +39,7 @@ stella server
 # 4. Open Chat and start talking
 ```
 
-You can also install with `go install github.com/CherryHQ/stella@latest` or download a binary from [Releases](https://github.com/CherryHQ/stella/releases).
+You can also install with `go install github.com/CherryHQ/stella/cmd/stella@latest && go install github.com/CherryHQ/stella/cmd/stellad@latest` or download binaries from [Releases](https://github.com/CherryHQ/stella/releases).
 
 See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps.
 
@@ -79,15 +79,15 @@ stella skill list
 ## CLI reference
 
 ```bash
-stella server                           # Start server; Web UI at http://localhost:25678
-stella server --port 8080               # Custom port
+stellad server                          # Start server; Web UI at http://localhost:25678
+stellad server --port 8080              # Custom port
+stellad upgrade                         # Self-update to latest release
 stella skill search <query>             # Search skills.sh
 stella skill install <name>             # Install a skill for the current agent
 stella skill list                       # List skills visible to the current agent
 stella scheduler list                   # List scheduled jobs
 stella vault list                       # List stored secrets
 stella version                          # Print version
-stella upgrade                          # Self-update to latest release
 ```
 
 ## Development

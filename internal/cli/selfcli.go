@@ -5,24 +5,28 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
-// EnsureStellaCLIInPath copies the currently running stella executable to
+// EnsureStellaCLIInPath installs the stella CLI binary into
 // $STELLA_HOME/bin/stella for sandbox sessions, whose PATH is intentionally
-// restricted to stella-managed and system directories. Do not use a symlink here:
-// sandbox path resolution rejects symlink traversal.
+// restricted to stella-managed and system directories.
+//
+// When the running process is stellad (the daemon), the stella CLI binary is
+// located alongside it in the same directory — goreleaser, Homebrew, and nfpm
+// all install both binaries to the same prefix. If the companion binary is
+// not found, the function returns an error rather than copying the daemon.
+//
+// Do not use a symlink: sandbox path resolution rejects symlink traversal.
 func EnsureStellaCLIInPath(stellaHome string) error {
 	if stellaHome == "" {
 		return fmt.Errorf("stella home is required")
 	}
 
-	source, err := os.Executable()
+	source, err := resolveStellaBinary()
 	if err != nil {
-		return fmt.Errorf("resolve current executable: %w", err)
-	}
-	source, err = filepath.EvalSymlinks(source)
-	if err != nil {
-		return fmt.Errorf("resolve executable symlink: %w", err)
+		return err
 	}
 
 	binDir := filepath.Join(stellaHome, "bin")
@@ -55,8 +59,6 @@ func EnsureStellaCLIInPath(stellaHome string) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	// Remove any existing file or symlink before rename so the destination is
-	// always a plain regular file owned by this process.
 	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove existing binary: %w", err)
 	}
@@ -64,4 +66,48 @@ func EnsureStellaCLIInPath(stellaHome string) error {
 		return fmt.Errorf("install executable: %w", err)
 	}
 	return nil
+}
+
+// stellaCompanionName returns the expected stella CLI binary name for the
+// current OS ("stella" on unix, "stella.exe" on windows).
+func stellaCompanionName() string {
+	if runtime.GOOS == "windows" {
+		return "stella.exe"
+	}
+	return "stella"
+}
+
+// isDaemonBinary reports whether the given base name is a stellad binary.
+func isDaemonBinary(base string) bool {
+	base = strings.ToLower(base)
+	return base == "stellad" || base == "stellad.exe"
+}
+
+// resolveStellaBinary finds the stella CLI binary. If the running process is
+// stellad, it looks for the stella companion in the same directory and errors
+// if not found (never falls back to copying the daemon into sandboxes).
+func resolveStellaBinary() (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve current executable: %w", err)
+	}
+	self, err = filepath.EvalSymlinks(self)
+	if err != nil {
+		return "", fmt.Errorf("resolve executable symlink: %w", err)
+	}
+
+	base := filepath.Base(self)
+	if isDaemonBinary(base) {
+		companion := filepath.Join(filepath.Dir(self), stellaCompanionName())
+		if _, err := os.Stat(companion); err == nil {
+			return companion, nil
+		}
+		return "", fmt.Errorf(
+			"stella CLI binary not found alongside stellad at %s; "+
+				"both binaries must be installed in the same directory",
+			filepath.Dir(self),
+		)
+	}
+
+	return self, nil
 }

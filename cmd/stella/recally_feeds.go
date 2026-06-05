@@ -8,6 +8,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func recallyFeedCommand() *ucli.Command {
@@ -32,7 +33,7 @@ func recallyFeedAddCommand() *ucli.Command {
 		Name:      "add",
 		Usage:     "Subscribe to an RSS feed (server fetches feed metadata)",
 		ArgsUsage: "<feed-url>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			feedURL := c.Args().First()
 			if feedURL == "" {
@@ -44,13 +45,13 @@ func recallyFeedAddCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, feed)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, feed)
 			}
-			o := stdout(c)
-			o.printf("Subscribed to feed: %s\n", feed.Id)
-			o.printf("  Title: %s\n", feed.Title)
-			o.printf("  URL: %s\n", feed.Url)
+			o := cli.Stdout(c)
+			o.Printf("Subscribed to feed: %s\n", feed.Id)
+			o.Printf("  Title: %s\n", feed.Title)
+			o.Printf("  URL: %s\n", feed.Url)
 			return o.Err()
 		},
 	}
@@ -61,7 +62,7 @@ func recallyFeedListCommand() *ucli.Command {
 		Name:  "list",
 		Usage: "List subscribed RSS feeds",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			list, err := apiclient.Call[apiclient.FeedList](func(api *apiclient.Client) (*http.Response, error) {
@@ -70,26 +71,26 @@ func recallyFeedListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if len(list.Feeds) == 0 {
-				o.println("No RSS feeds subscribed.")
+				o.Println("No RSS feeds subscribed.")
 				return o.Err()
 			}
-			o.printf("Subscribed to %d feed(s):\n\n", len(list.Feeds))
+			o.Printf("Subscribed to %d feed(s):\n\n", len(list.Feeds))
 			for _, f := range list.Feeds {
 				enabledMark := "✓"
 				if !f.Enabled {
 					enabledMark = "✗"
 				}
-				o.printf("[%s] %s %s %s\n", shortID(f.Id), enabledMark, f.Title, f.Url)
+				o.Printf("[%s] %s %s %s\n", cli.ShortID(f.Id), enabledMark, f.Title, f.Url)
 				if f.LastCheckedAt != nil {
-					o.printf("    Last checked: %s\n", f.LastCheckedAt.Format("2006-01-02 15:04"))
+					o.Printf("    Last checked: %s\n", f.LastCheckedAt.Format("2006-01-02 15:04"))
 				}
-				o.printf("    Check interval: %s\n", f.CheckInterval)
-				o.println()
+				o.Printf("    Check interval: %s\n", f.CheckInterval)
+				o.Println()
 			}
 			return o.Err()
 		},
@@ -101,7 +102,7 @@ func recallyFeedRemoveCommand() *ucli.Command {
 		Name:      "remove",
 		Usage:     "Unsubscribe from an RSS feed",
 		ArgsUsage: "<feed-id>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			feedID := c.Args().First()
 			if feedID == "" {
@@ -112,11 +113,11 @@ func recallyFeedRemoveCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printDeleted(c, feedID)
+			if cli.IsJSON(c) {
+				return cli.PrintDeleted(c, feedID)
 			}
-			o := stdout(c)
-			o.printf("Feed %s removed.\n", shortID(feedID))
+			o := cli.Stdout(c)
+			o.Printf("Feed %s removed.\n", cli.ShortID(feedID))
 			return o.Err()
 		},
 	}
@@ -129,7 +130,7 @@ func recallyFeedPollCommand() *ucli.Command {
 		ArgsUsage: "[feed-id]",
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum new entries to return per feed", Value: 20},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			api, err := apiclient.NewAPIClient()
@@ -179,16 +180,16 @@ func recallyFeedPollCommand() *ucli.Command {
 				results = append(results, pr)
 			}
 
-			if isJSON(c) {
-				return printJSON(c, map[string]any{"results": results})
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{"results": results})
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			for _, r := range results {
 				if r.Error != nil && *r.Error != "" {
-					o.printf("[%s] Error: %s\n", shortID(r.Feed.Id), *r.Error)
+					o.Printf("[%s] Error: %s\n", cli.ShortID(r.Feed.Id), *r.Error)
 					continue
 				}
-				o.printf("[%s] %s: %d new\n", shortID(r.Feed.Id), r.Feed.Title, len(r.NewEntries))
+				o.Printf("[%s] %s: %d new\n", cli.ShortID(r.Feed.Id), r.Feed.Title, len(r.NewEntries))
 			}
 			return o.Err()
 		},
@@ -204,7 +205,7 @@ func recallyFeedMarkCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "status", Usage: "New status: saved, skipped, error", Required: true},
 			&ucli.StringFlag{Name: "article-id", Usage: "Article ID (required when status=saved)"},
 			&ucli.StringFlag{Name: "error", Usage: "Error message (when status=error)"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			args := c.Args().Slice()
@@ -235,11 +236,11 @@ func recallyFeedMarkCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, entry)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, entry)
 			}
-			o := stdout(c)
-			o.printf("Entry %s marked as %s (attempts: %d)\n", shortID(entryID), status, entry.Attempts)
+			o := cli.Stdout(c)
+			o.Printf("Entry %s marked as %s (attempts: %d)\n", cli.ShortID(entryID), status, entry.Attempts)
 			return o.Err()
 		},
 	}

@@ -9,6 +9,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func skillsCommand() *ucli.Command {
@@ -51,7 +52,7 @@ func resolveSkill(c *ucli.Context, name string) (string, apitypes.Skill, error) 
 		return "", apitypes.Skill{}, err
 	}
 	for _, s := range list.Skills {
-		if derefStr(s.Name) == name {
+		if cli.DerefStr(s.Name) == name {
 			return agentID, s, nil
 		}
 	}
@@ -70,7 +71,7 @@ func fetchSkillContent(c *ucli.Context, agentID, name string, scope apitypes.Ski
 	if err != nil {
 		return "", err
 	}
-	return derefStr(file.Content), nil
+	return cli.DerefStr(file.Content), nil
 }
 
 func skillsInspectCommand() *ucli.Command {
@@ -78,7 +79,7 @@ func skillsInspectCommand() *ucli.Command {
 		Name:      "inspect",
 		Usage:     "Show skill metadata and SKILL.md content",
 		ArgsUsage: "<name>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
@@ -95,26 +96,26 @@ func skillsInspectCommand() *ucli.Command {
 				return fmt.Errorf("failed to read SKILL.md: %w", err)
 			}
 
-			if isJSON(c) {
-				return printJSON(c, map[string]any{
-					"name":        derefStr(skill.Name),
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{
+					"name":        cli.DerefStr(skill.Name),
 					"scope":       derefSkillScope(skill.Scope),
-					"description": derefStr(skill.Description),
-					"status":      derefStr(skill.Status),
+					"description": cli.DerefStr(skill.Description),
+					"status":      cli.DerefStr(skill.Status),
 					"content":     content,
 				})
 			}
 
-			o := stdout(c)
-			o.printf("Name:        %s\n", derefStr(skill.Name))
-			o.printf("Scope:       %s\n", derefSkillScope(skill.Scope))
-			o.printf("Description: %s\n", derefStr(skill.Description))
-			if derefStr(skill.Status) != "" {
-				o.printf("Status:      %s\n", derefStr(skill.Status))
+			o := cli.Stdout(c)
+			o.Printf("Name:        %s\n", cli.DerefStr(skill.Name))
+			o.Printf("Scope:       %s\n", derefSkillScope(skill.Scope))
+			o.Printf("Description: %s\n", cli.DerefStr(skill.Description))
+			if cli.DerefStr(skill.Status) != "" {
+				o.Printf("Status:      %s\n", cli.DerefStr(skill.Status))
 			}
-			o.println()
-			o.println("--- SKILL.md ---")
-			o.println(content)
+			o.Println()
+			o.Println("--- SKILL.md ---")
+			o.Println(content)
 			return o.Err()
 		},
 	}
@@ -125,7 +126,7 @@ func skillsLoadCommand() *ucli.Command {
 		Name:      "load",
 		Usage:     "Load skill content for the agent to read and follow",
 		ArgsUsage: "<name>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
@@ -142,15 +143,15 @@ func skillsLoadCommand() *ucli.Command {
 				return fmt.Errorf("failed to read SKILL.md: %w", err)
 			}
 
-			if isJSON(c) {
-				return printJSON(c, map[string]string{
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]string{
 					"name":    name,
 					"content": content,
 				})
 			}
 
-			o := stdout(c)
-			o.println(content)
+			o := cli.Stdout(c)
+			o.Println(content)
 			return o.Err()
 		},
 	}
@@ -174,7 +175,7 @@ func skillsSearchCommand() *ucli.Command {
 				Usage: "Max results to return",
 				Value: 10,
 			},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			query := c.Args().First()
@@ -192,23 +193,23 @@ func skillsSearchCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
 			results := list.Skills
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if len(results) == 0 {
-				o.println("No skills found.")
+				o.Println("No skills found.")
 				return o.Err()
 			}
 
-			o.printf("Found %d skills:\n\n", len(results))
+			o.Printf("Found %d skills:\n\n", len(results))
 			for _, s := range results {
-				o.printf("  %s@%s\n", derefStr(s.Source), derefStr(s.SkillId))
-				o.printf("    %s (%d installs)\n", derefStr(s.Name), derefInt(s.Installs))
-				o.println()
+				o.Printf("  %s@%s\n", cli.DerefStr(s.Source), cli.DerefStr(s.SkillId))
+				o.Printf("    %s (%d installs)\n", cli.DerefStr(s.Name), cli.DerefInt(s.Installs))
+				o.Println()
 			}
-			o.println("Install with: stella skill install <owner/repo@skill-name>")
+			o.Println("Install with: stella skill install <owner/repo@skill-name>")
 			return o.Err()
 		},
 	}
@@ -219,7 +220,7 @@ func skillsInstallCommand() *ucli.Command {
 		Name:      "install",
 		Usage:     "Install a skill (e.g. owner/repo@skill-name, GitHub/GitLab URL, or local path)",
 		ArgsUsage: "<source>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			source := c.Args().First()
 			if source == "" {
@@ -231,7 +232,7 @@ func skillsInstallCommand() *ucli.Command {
 				return err
 			}
 
-			stderr(c).printf("Installing from %s...\n", source)
+			cli.Stderr(c).Printf("Installing from %s...\n", source)
 
 			scope := apitypes.InstallSkillRequestScope("user")
 			result, err := apiclient.Call[map[string]string](func(api *apiclient.Client) (*http.Response, error) {
@@ -244,11 +245,11 @@ func skillsInstallCommand() *ucli.Command {
 				return err
 			}
 
-			if isJSON(c) {
-				return printJSON(c, result)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, result)
 			}
-			o := stdout(c)
-			o.printf("Skill %q installed.\n", result["name"])
+			o := cli.Stdout(c)
+			o.Printf("Skill %q installed.\n", result["name"])
 			return o.Err()
 		},
 	}
@@ -258,7 +259,7 @@ func skillsListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:   "list",
 		Usage:  "List installed skills",
-		Flags:  []ucli.Flag{jsonFlag()},
+		Flags:  []ucli.Flag{cli.JSONFlag()},
 		Action: skillsListAction,
 	}
 }
@@ -284,13 +285,13 @@ func skillsListAction(c *ucli.Context) error {
 	if err != nil {
 		return err
 	}
-	if isJSON(c) {
-		return printJSON(c, list)
+	if cli.IsJSON(c) {
+		return cli.PrintJSON(c, list)
 	}
 	skills := list.Skills
-	o := stdout(c)
+	o := cli.Stdout(c)
 	if len(skills) == 0 {
-		o.println("No skills installed.")
+		o.Println("No skills installed.")
 		return o.Err()
 	}
 
@@ -307,16 +308,16 @@ func skillsListAction(c *ucli.Context) error {
 	}
 
 	for _, scope := range scopeOrder {
-		o.printf("%s:\n", scope)
+		o.Printf("%s:\n", scope)
 		for _, s := range grouped[scope] {
-			desc := derefStr(s.Description)
+			desc := cli.DerefStr(s.Description)
 			if len(desc) > 80 {
 				desc = desc[:77] + "..."
 			}
 			desc = strings.ReplaceAll(desc, "\n", " ")
-			o.printf("  %-25s %s\n", derefStr(s.Name), desc)
+			o.Printf("  %-25s %s\n", cli.DerefStr(s.Name), desc)
 		}
-		o.println()
+		o.Println()
 	}
 	return o.Err()
 }
@@ -326,7 +327,7 @@ func skillsRemoveCommand() *ucli.Command {
 		Name:      "remove",
 		Usage:     "Remove an installed skill (e.g. stella skill remove my-skill)",
 		ArgsUsage: "<name>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
@@ -347,7 +348,7 @@ func skillsRemoveCommand() *ucli.Command {
 
 			var skill *apitypes.Skill
 			for i := range skills {
-				if derefSkillScope(skills[i].Scope) == "user" && derefStr(skills[i].Name) == name {
+				if derefSkillScope(skills[i].Scope) == "user" && cli.DerefStr(skills[i].Name) == name {
 					skill = &skills[i]
 					break
 				}
@@ -357,24 +358,17 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
-				return api.DeleteAgentSkill(c.Context, agentID, derefStr(skill.Name), &apiclient.DeleteAgentSkillParams{})
+				return api.DeleteAgentSkill(c.Context, agentID, cli.DerefStr(skill.Name), &apiclient.DeleteAgentSkillParams{})
 			}); err != nil {
 				return err
 			}
 
-			if isJSON(c) {
-				return printDeleted(c, name)
+			if cli.IsJSON(c) {
+				return cli.PrintDeleted(c, name)
 			}
-			o := stdout(c)
-			o.printf("Skill %q removed.\n", name)
+			o := cli.Stdout(c)
+			o.Printf("Skill %q removed.\n", name)
 			return o.Err()
 		},
 	}
-}
-
-func derefInt(i *int) int {
-	if i == nil {
-		return 0
-	}
-	return *i
 }

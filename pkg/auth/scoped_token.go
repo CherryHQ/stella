@@ -41,7 +41,7 @@ type ScopedTokenClaims struct {
 	TokenID   string   `json:"jti"`
 }
 
-func (c ScopedTokenClaims) expired(now time.Time) bool {
+func (c ScopedTokenClaims) Expired(now time.Time) bool {
 	return c.ExpiresAt <= now.UTC().Unix()
 }
 
@@ -109,7 +109,7 @@ func VerifyScopedToken(secret []byte, rawToken string, now time.Time) (ScopedTok
 	if !hmac.Equal(sig, scopedSignature(secret, signingInput)) {
 		return ScopedTokenClaims{}, fmt.Errorf("invalid scoped token signature")
 	}
-	if claims.expired(now) {
+	if claims.Expired(now) {
 		return ScopedTokenClaims{}, fmt.Errorf("scoped token expired")
 	}
 	if claims.UserID == "" || claims.AgentID == "" {

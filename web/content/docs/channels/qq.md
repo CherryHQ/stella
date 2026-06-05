@@ -8,7 +8,7 @@ Stella includes a QQ bot that connects via WebSocket -- a persistent connection 
 
 Before you start, make sure you have:
 
-- A running Stella server (`stella server`)
+- A running Stella server (`stellad server`)
 - At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A QQ Bot registered at the [QQ Bot Platform](https://q.qq.com/) with your AppID and AppSecret
 
@@ -18,13 +18,13 @@ Before you start, make sure you have:
 2. Start your Stella server if it is not already running:
 
    ```bash
-   stella server
+   stellad server
    ```
 
 3. Open the Web UI at `http://localhost:25678`.
 4. Go to the **Channels** page and add a new QQ channel instance.
 5. Enter your AppID and AppSecret, then save.
-6. Restart `stella server` to activate the new channel.
+6. Restart `stellad server` to activate the new channel.
 
 All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
 
@@ -106,7 +106,7 @@ All settings below are managed through the Web UI.
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the QQ channel is configured in the Web UI.
+- Make sure `stellad server` is running and the QQ channel is configured in the Web UI.
 - Verify your AppID and AppSecret are correct.
 - If you set up access control, confirm your QQ OpenID is in the `allowed_ids` list. Send `/whoami` to the bot to check.
 
@@ -121,5 +121,5 @@ All settings below are managed through the Web UI.
 
 **Connection issues?**
 
-- The bot uses a persistent WebSocket connection. If it drops, restart `stella server`.
+- The bot uses a persistent WebSocket connection. If it drops, restart `stellad server`.
 - Check your network connectivity and ensure the QQ Bot Platform credentials are valid.

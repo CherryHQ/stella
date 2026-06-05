@@ -2,7 +2,7 @@
 title: Configuration
 ---
 
-All configuration is managed through the Web UI. Start the server with `stella server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in a single SQLite database at `~/.stella/stella.db` — there are no config files to edit.
+All configuration is managed through the Web UI. Start the server with `stellad server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in a single SQLite database at `~/.stella/stella.db` — there are no config files to edit.
 
 The home directory defaults to `~/.stella` and can be changed by setting the `STELLA_HOME` environment variable.
 
@@ -67,7 +67,7 @@ Heartbeat lets Stella watch a file and act when something changes. Configure it 
 - **Interval** — how often to check (e.g. `10m`)
 - **File** — path to the heartbeat file (e.g. `HEARTBEAT.md` in the agent workspace)
 
-Heartbeat only runs in server mode (`stella server`). It uses the fast model to decide whether action is needed, keeping costs low.
+Heartbeat only runs in server mode (`stellad server`). It uses the fast model to decide whether action is needed, keeping costs low.
 
 ## Directory Layout
 

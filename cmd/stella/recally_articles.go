@@ -11,6 +11,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	apiclient "github.com/CherryHQ/stella/api/client"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func recallySaveCommand() *ucli.Command {
@@ -28,7 +29,7 @@ func recallySaveCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "content-file", Usage: "Path to file containing article content (stdin used if not provided)"},
 			&ucli.StringFlag{Name: "metadata", Usage: "JSON metadata string", Value: "{}"},
 			&ucli.StringFlag{Name: "published-at", Usage: "Original publication date (RFC3339)"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			url := c.Args().First()
@@ -90,14 +91,14 @@ func recallySaveCommand() *ucli.Command {
 			if created {
 				message = "Article saved successfully"
 			}
-			if isJSON(c) {
-				return printJSON(c, article)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, article)
 			}
-			o := stdout(c)
-			o.printf("%s\n", message)
-			o.printf("  id:   %s\n", shortID(article.Id))
+			o := cli.Stdout(c)
+			o.Printf("%s\n", message)
+			o.Printf("  id:   %s\n", cli.ShortID(article.Id))
 			if article.FilePath != "" {
-				o.printf("  file: %s\n", article.FilePath)
+				o.Printf("  file: %s\n", article.FilePath)
 			}
 			return o.Err()
 		},
@@ -113,7 +114,7 @@ func recallyListCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "source-type", Usage: "Filter by source type: web, twitter, youtube, github, rss, pdf"},
 			&ucli.BoolFlag{Name: "starred", Usage: "Show only starred articles"},
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of articles to return", Value: 50},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			params := &apiclient.ListArticlesParams{
@@ -136,15 +137,15 @@ func recallyListCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if len(list.Articles) == 0 {
-				o.println("No articles found.")
+				o.Println("No articles found.")
 				return o.Err()
 			}
-			o.printf("Found %d article(s):\n\n", len(list.Articles))
+			o.Printf("Found %d article(s):\n\n", len(list.Articles))
 			for _, a := range list.Articles {
 				printArticleSummary(o, a, 100)
 			}
@@ -160,7 +161,7 @@ func recallySearchCommand() *ucli.Command {
 		ArgsUsage: "<query>",
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of results", Value: 50},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			query := c.Args().First()
@@ -176,15 +177,15 @@ func recallySearchCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if len(list.Articles) == 0 {
-				o.println("No articles found matching your query.")
+				o.Println("No articles found matching your query.")
 				return o.Err()
 			}
-			o.printf("Found %d article(s) matching %q:\n\n", len(list.Articles), query)
+			o.Printf("Found %d article(s) matching %q:\n\n", len(list.Articles), query)
 			for _, a := range list.Articles {
 				printArticleSummary(o, a, 80)
 			}
@@ -232,7 +233,7 @@ func recallyUpdateCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "starred", Usage: "Star or unstar the article"},
 			&ucli.StringFlag{Name: "summary", Usage: "New summary"},
 			&ucli.StringSliceFlag{Name: "tags", Usage: "New tags (replaces existing)"},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			articleID := c.Args().First()
@@ -263,11 +264,11 @@ func recallyUpdateCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, updated)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, updated)
 			}
-			o := stdout(c)
-			o.printf("Article %s updated successfully.\n", shortID(updated.Id))
+			o := cli.Stdout(c)
+			o.Printf("Article %s updated successfully.\n", cli.ShortID(updated.Id))
 			return o.Err()
 		},
 	}
@@ -278,7 +279,7 @@ func recallyDeleteCommand() *ucli.Command {
 		Name:      "delete",
 		Usage:     "Delete an article from library",
 		ArgsUsage: "<article-id>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			articleID := c.Args().First()
 			if articleID == "" {
@@ -289,11 +290,11 @@ func recallyDeleteCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printDeleted(c, articleID)
+			if cli.IsJSON(c) {
+				return cli.PrintDeleted(c, articleID)
 			}
-			o := stdout(c)
-			o.printf("Article %s deleted.\n", shortID(articleID))
+			o := cli.Stdout(c)
+			o.Printf("Article %s deleted.\n", cli.ShortID(articleID))
 			return o.Err()
 		},
 	}
@@ -321,30 +322,22 @@ func readContentArg(contentFile string) (string, error) {
 	return "", nil
 }
 
-func printArticleSummary(o *lineWriter, a apiclient.Article, summaryWidth int) {
+func printArticleSummary(o *cli.LineWriter, a apiclient.Article, summaryWidth int) {
 	starMark := " "
 	if a.Starred {
 		starMark = "★"
 	}
-	o.printf("[%s] %s %s\n", shortID(a.Id), starMark, a.Title)
-	o.printf("    URL: %s\n", a.Url)
+	o.Printf("[%s] %s %s\n", cli.ShortID(a.Id), starMark, a.Title)
+	o.Printf("    URL: %s\n", a.Url)
 	if a.Summary != nil && *a.Summary != "" {
 		summary := *a.Summary
 		if len(summary) > summaryWidth {
 			summary = summary[:summaryWidth-3] + "..."
 		}
-		o.printf("    %s\n", summary)
+		o.Printf("    %s\n", summary)
 	}
-	o.printf("    Status: %s | Source: %s | Saved: %s\n", a.Status, a.SourceType, a.SavedAt.Format("2006-01-02"))
-	o.println()
-}
-
-// shortID returns the first 8 chars of an ID for display.
-func shortID(id string) string {
-	if len(id) <= 8 {
-		return id
-	}
-	return id[:8]
+	o.Printf("    Status: %s | Source: %s | Saved: %s\n", a.Status, a.SourceType, a.SavedAt.Format("2006-01-02"))
+	o.Println()
 }
 
 func optionalString(v string) *string {

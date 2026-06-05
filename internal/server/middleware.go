@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	pkgauth "github.com/CherryHQ/stella/pkg/auth"
 )
 
 // contextKey is used for storing auth info in request context.
@@ -26,7 +27,7 @@ type AuthInfo struct {
 	Email     string `json:"email,omitempty"`
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
-	Scoped    *auth.ScopedTokenClaims
+	Scoped    *pkgauth.ScopedTokenClaims
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -112,7 +113,7 @@ func (s *Server) authInfoFromBearer(ctx context.Context, header string) *AuthInf
 	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(rawToken) == "" {
 		return nil
 	}
-	if auth.IsScopedToken(rawToken) {
+	if pkgauth.IsScopedToken(rawToken) {
 		user, claims, err := s.tokenSvc.AuthenticateScoped(ctx, rawToken)
 		if err != nil {
 			s.log.Warn("scoped bearer token auth failed", "error", err)

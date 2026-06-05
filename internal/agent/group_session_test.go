@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/pkg/auth"
 )
 
 func TestBuildGroupSessionKey(t *testing.T) {

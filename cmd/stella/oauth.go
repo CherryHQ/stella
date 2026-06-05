@@ -8,6 +8,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func oauthCommand() *ucli.Command {
@@ -32,7 +33,7 @@ func oauthProvidersCommand() *ucli.Command {
 		Name:  "providers",
 		Usage: "List available OAuth providers",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			list, err := apiclient.Call[apitypes.OAuthProviderStatusList](func(api *apiclient.Client) (*http.Response, error) {
@@ -41,23 +42,23 @@ func oauthProvidersCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, list)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
 			}
 			providers := list.Providers
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if len(providers) == 0 {
-				o.println("No OAuth providers configured.")
+				o.Println("No OAuth providers configured.")
 				return o.Err()
 			}
-			o.printf("%-20s  %-12s  %-12s  %s\n", "PROVIDER", "CONFIGURED", "CONNECTED", "USERNAME")
+			o.Printf("%-20s  %-12s  %-12s  %s\n", "PROVIDER", "CONFIGURED", "CONNECTED", "USERNAME")
 			for _, p := range providers {
 				username := ""
 				if p.Username != nil {
 					username = *p.Username
 				}
-				o.printf("%-20s  %-12v  %-12v  %s\n",
-					truncate(p.Provider, 20), p.Configured, p.Connected, username)
+				o.Printf("%-20s  %-12v  %-12v  %s\n",
+					cli.Truncate(p.Provider, 20), p.Configured, p.Connected, username)
 			}
 			return o.Err()
 		},
@@ -70,7 +71,7 @@ func oauthConnectCommand() *ucli.Command {
 		Usage:     "Print OAuth authorization URL and code to authorize a provider",
 		ArgsUsage: "<provider>",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			provider := c.Args().First()
@@ -84,14 +85,14 @@ func oauthConnectCommand() *ucli.Command {
 				return err
 			}
 
-			if isJSON(c) {
-				return printJSON(c, flow)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, flow)
 			}
 
-			o := stdout(c)
-			o.printf("To authorize, open this URL and enter the code:\n  URL:  %s\n", flow.VerificationUri)
+			o := cli.Stdout(c)
+			o.Printf("To authorize, open this URL and enter the code:\n  URL:  %s\n", flow.VerificationUri)
 			if flow.UserCode != nil {
-				o.printf("  Code: %s\n", *flow.UserCode)
+				o.Printf("  Code: %s\n", *flow.UserCode)
 			}
 			return o.Err()
 		},
@@ -104,7 +105,7 @@ func oauthStatusCommand() *ucli.Command {
 		Usage:     "Check connection status for a provider",
 		ArgsUsage: "<provider>",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			provider := c.Args().First()
@@ -117,18 +118,18 @@ func oauthStatusCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, status)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, status)
 			}
-			o := stdout(c)
+			o := cli.Stdout(c)
 			if status.Connected {
 				username := ""
 				if status.Username != nil {
 					username = " (" + *status.Username + ")"
 				}
-				o.printf("%s: connected%s\n", provider, username)
+				o.Printf("%s: connected%s\n", provider, username)
 			} else {
-				o.printf("%s: not connected\n", provider)
+				o.Printf("%s: not connected\n", provider)
 			}
 			return o.Err()
 		},
@@ -141,7 +142,7 @@ func oauthDisconnectCommand() *ucli.Command {
 		Usage:     "Disconnect an OAuth provider",
 		ArgsUsage: "<provider>",
 		Flags: []ucli.Flag{
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			provider := c.Args().First()
@@ -153,11 +154,11 @@ func oauthDisconnectCommand() *ucli.Command {
 			}); err != nil {
 				return err
 			}
-			if isJSON(c) {
-				return printJSON(c, map[string]any{"provider": provider, "connected": false})
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{"provider": provider, "connected": false})
 			}
-			o := stdout(c)
-			o.printf("Disconnected from %s.\n", provider)
+			o := cli.Stdout(c)
+			o.Printf("Disconnected from %s.\n", provider)
 			return o.Err()
 		},
 	}

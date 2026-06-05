@@ -48,7 +48,7 @@ OIDC_REDIRECT_URL=https://your-stella-host/auth/callback/Zitadel
 Then start the server normally:
 
 ```bash
-stella server
+stellad server
 ```
 
 The login page will show a **Sign in Zitadel** button. Clicking it starts the OIDC Authorization Code Flow with PKCE — no password is stored in Stella.
@@ -207,7 +207,7 @@ When you log in through OIDC or OAuth, Stella links the account by the provider 
 - **Provider subject already linked** — Stella signs you in to that account. Your existing data (agents, conversations, vault secrets) is preserved.
 - **Provider subject not linked** — Stella creates a new account for you. The first user to register is automatically assigned the admin role; subsequent users get the regular user role.
 
-Admins can manage users, roles, and explicit login identity links from **Settings > Users** in the web UI or with `stella auth link-user`.
+Admins can manage users, roles, and explicit login identity links from **Settings > Users** in the web UI or with `stellad auth link-user`.
 
 ## Upgrading an existing installation
 
@@ -216,7 +216,7 @@ Stella automatically copies your existing users and channel identities into the 
 To attach an external login to an existing account, link the provider subject explicitly:
 
 ```bash
-stella auth link-user --user-id <id> --provider <provider> --provider-subject <subject> --email <your@email.com>
+stellad auth link-user --user-id <id> --provider <provider> --provider-subject <subject> --email <your@email.com>
 ```
 
 This creates an explicit login identity link for that user. A matching email alone is not enough to link accounts automatically.

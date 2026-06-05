@@ -6,7 +6,7 @@ title: CLI as a REST client
 
 ## Overview
 
-Stella's CLI is intentionally a thin REST client. The running `stella server`
+Stella's CLI is intentionally a thin REST client. The running `stellad server`
 process is the **only** thing that opens the SQLite database, writes to the
 markdown library, fetches RSS feeds, or makes any other state change.
 
@@ -16,7 +16,7 @@ SDKs and integrations all consume the same contract).
 
 ```
 ┌──────────┐         HTTP          ┌──────────────────────┐
-│   CLI    │ ────────────────────▶ │   stella server        │
+│   CLI    │ ────────────────────▶ │   stellad server       │
 │ (stella …) │  Bearer STELLA_TOKEN    │  • SQLite            │
 └──────────┘                       │  • markdown library  │
                                    │  • RSS fetchers      │

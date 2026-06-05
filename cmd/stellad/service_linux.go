@@ -24,7 +24,7 @@ WorkingDirectory=/var/lib/stella
 Environment=STELLA_HOME=/var/lib/stella
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-ExecStart=STELLA_EXEC
+ExecStart=STELLAD_EXEC
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
@@ -81,7 +81,7 @@ func (m *systemdManager) Install() error {
 	}
 
 	unitPath := filepath.Join("/etc/systemd/system", unitName)
-	unitContent := strings.ReplaceAll(systemUnitTemplate, "STELLA_EXEC", unitExecStart(bin))
+	unitContent := strings.ReplaceAll(systemUnitTemplate, "STELLAD_EXEC", unitExecStart(bin))
 	if err := os.WriteFile(unitPath, []byte(unitContent), 0o644); err != nil {
 		return fmt.Errorf("write unit file: %w", err)
 	}

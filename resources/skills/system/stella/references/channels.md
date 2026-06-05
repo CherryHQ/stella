@@ -36,7 +36,7 @@ Telegram channel config (JSON):
 
 Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 
-4. Start: `stella server`
+4. Start: `stellad server`
 
 ### Features
 
@@ -78,7 +78,7 @@ QQ channel config (JSON):
 }
 ```
 
-4. Start: `stella server`
+4. Start: `stellad server`
 
 Connects via WebSocket (no public URL needed). QQ supports the same channel instance routing as other chat channels.
 
@@ -109,7 +109,7 @@ Feishu channel config (JSON):
 }
 ```
 
-5. Start: `stella server`
+5. Start: `stellad server`
 
 Connects via WebSocket (no public URL or webhook needed).
 
@@ -139,7 +139,7 @@ WeChat channel config (JSON):
 }
 ```
 
-5. Start: `stella server`
+5. Start: `stellad server`
 
 Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 

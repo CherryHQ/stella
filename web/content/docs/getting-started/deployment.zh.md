@@ -30,17 +30,18 @@ sudo dnf install ./stella_*_linux_amd64.rpm
 # 示例：Linux amd64
 curl -LO https://github.com/CherryHQ/stella/releases/latest/download/stella_linux_amd64.tar.gz
 tar xzf stella_linux_amd64.tar.gz
-chmod +x stella
-sudo mv stella /usr/local/bin/
+chmod +x stella stellad
+sudo mv stella stellad /usr/local/bin/
 ```
 
 ### Go
 
 ```bash
-go install github.com/CherryHQ/stella@latest
+go install github.com/CherryHQ/stella/cmd/stella@latest
+go install github.com/CherryHQ/stella/cmd/stellad@latest
 # 或
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o stella ./cmd/stella/
+cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stellad/
 ```
 
 ## 运行
@@ -48,25 +49,25 @@ cd stella && go build -o stella ./cmd/stella/
 启动服务器 —— Web UI访问地址：`http://localhost:25678`：
 
 ```bash
-stella server
+stellad server
 ```
 
 这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 `~/.stella/stella.db` 中 —— 无需手动配置文件。
 
 ```bash
-stella server --port 8080                  # 自定义端口
-stella server --host 0.0.0.0 --port 8080   # 绑定所有网络接口
+stellad server --port 8080                  # 自定义端口
+stellad server --host 0.0.0.0 --port 8080   # 绑定所有网络接口
 ```
 
 ### 版本和自动升级
 
 ```bash
 stella version
-stella upgrade
-stella upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
+stellad upgrade
+stellad upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
 ```
 
-`stella upgrade` 从 GitHub 获取最新稳定版本，下载与当前操作系统/架构匹配的安装包，并默认替换当前正在运行的 `stella` 二进制文件。如果目标目录不可写，请用具备对应系统权限的用户重新运行，或使用 `--install-dir` 指定其他目录。如果二进制文件被锁定或显示 busy，请先停止正在运行的 Stella 进程或服务，再重试。
+`stellad upgrade` 从 GitHub 获取最新稳定版本，下载与当前操作系统/架构匹配的安装包，并默认替换当前正在运行的 `stellad` 二进制文件。如果目标目录不可写，请用具备对应系统权限的用户重新运行，或使用 `--install-dir` 指定其他目录。如果二进制文件被锁定或显示 busy，请先停止正在运行的 Stella 进程或服务，再重试。
 
 ## 作为后台服务运行
 
@@ -81,13 +82,13 @@ brew services restart stella
 ### macOS — 手动
 
 ```bash
-stella service install       # 安装 LaunchAgent 并启动
-stella service status
-stella service logs --follow
-stella service stop
-stella service start
-stella service restart
-stella service uninstall
+stellad service install       # 安装 LaunchAgent 并启动
+stellad service status
+stellad service logs --follow
+stellad service stop
+stellad service start
+stellad service restart
+stellad service uninstall
 ```
 
 日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。
@@ -97,13 +98,13 @@ stella service uninstall
 服务以当前用户身份运行，登录时自动启动。运行前需先安装 `bubblewrap`（通过 Homebrew 或包管理器安装时会自动拉取；直接使用二进制文件时请手动安装：`apt install bubblewrap` / `dnf install bubblewrap`）。
 
 ```bash
-stella service install
-stella service status
-stella service logs --follow
-stella service stop
-stella service start
-stella service restart
-stella service uninstall
+stellad service install
+stellad service status
+stellad service logs --follow
+stellad service stop
+stellad service start
+stellad service restart
+stellad service uninstall
 ```
 
 Unit 文件安装至 `~/.config/systemd/user/stella.service`。
@@ -113,10 +114,10 @@ Unit 文件安装至 `~/.config/systemd/user/stella.service`。
 以 root 身份运行，开机自动启动。
 
 ```bash
-sudo stella service install --system
-stella service status
-stella service logs --follow
-sudo stella service uninstall --system
+sudo stellad service install --system
+stellad service status
+stellad service logs --follow
+sudo stellad service uninstall --system
 ```
 
 Unit 文件安装至 `/etc/systemd/system/stella.service`。
@@ -143,7 +144,7 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella server --port 8080
+  stellad server --port 8080
 ```
 
 然后启动服务器：
@@ -155,7 +156,7 @@ docker run -d \
   -v ~/.stella:/home/nonroot/.stella \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
-  stella server
+  stellad server
 ```
 
 容器以 `nonroot` 用户运行。挂载 `~/.stella` 以持久化数据库、技能和缓存。您可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
@@ -181,7 +182,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `--port 8080` 启动服务器，通过 `http://localhost:8080` 的Web UI进行配置，或使用 `docker compose exec stella stella server --port 8080`。
+要运行初始设置，使用 `--port 8080` 启动服务器，通过 `http://localhost:8080` 的Web UI进行配置，或使用 `docker compose exec stella stellad server --port 8080`。
 
 ### 本地构建
 

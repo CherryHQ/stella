@@ -15,7 +15,8 @@ brew install CherryHQ/tap/stella
 **Go install：**
 
 ```bash
-go install github.com/CherryHQ/stella@latest
+go install github.com/CherryHQ/stella/cmd/stella@latest
+go install github.com/CherryHQ/stella/cmd/stellad@latest
 ```
 
 **下载二进制文件：**
@@ -23,7 +24,7 @@ go install github.com/CherryHQ/stella@latest
 从 [Releases](https://github.com/CherryHQ/stella/releases) 下载最新版本，或对已有安装执行自动更新：
 
 ```bash
-stella upgrade
+stellad upgrade
 ```
 
 ## 设置 API 密钥
@@ -43,7 +44,7 @@ export OPENAI_API_KEY="sk-..."
 ## 启动服务
 
 ```bash
-stella server
+stellad server
 ```
 
 Stella 启动后会在 [http://localhost:25678](http://localhost:25678) 提供Web UI。在浏览器中打开它。
@@ -51,7 +52,7 @@ Stella 启动后会在 [http://localhost:25678](http://localhost:25678) 提供We
 如需使用其他端口：
 
 ```bash
-stella server --port 8080
+stellad server --port 8080
 ```
 
 ## 配置服务商

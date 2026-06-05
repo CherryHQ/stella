@@ -20,9 +20,9 @@ stella is a self-hosted AI assistant with multi-user and multi-agent support. Sh
 
 Run mode:
 
-- **Server**: `stella server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
+- **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stella server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration is stored in a SQLite database (`$STELLA_HOME/stella.db`). Data: `$STELLA_HOME/workspaces/{agent_id}/`.
 
 ## Architecture
 
@@ -74,7 +74,8 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 The `stella` CLI is self-documenting. These are the command groups and their subcommands — **always run `stella <command> [<subcommand>] --help` (via bash) for exact flags and usage before invoking one.** Use the canonical command names shown here; do not guess historical aliases. Prefer `--json` for scriptable output when a command supports it.
 
 ```
-stella server                   # Start server (channels + scheduler); web UI at http://localhost:25678
+stellad server                  # Start server (channels + scheduler); web UI at http://localhost:25678
+stellad upgrade                 # Self-update to latest release
 stella skill      list/search/install/remove
 stella vault      list/get/set/delete
 stella oauth      providers/connect/status/disconnect
@@ -83,7 +84,6 @@ stella scheduler  add/list/remove
 stella task       list/get/create/cancel/reopen/readiness/events/runs/deps/dep/blocker/reviews/review
 stella task goal  list/get/create/activate/cancel/tasks/reviews/review
 stella version                  # Print version
-stella upgrade                  # Self-update to latest release
 ```
 
 For when to use tasks/goals and how to combine the subcommands, read [references/tasks.md](references/tasks.md).

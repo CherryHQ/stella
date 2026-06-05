@@ -176,7 +176,7 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 
 func TestRunHelp(t *testing.T) {
 	app := newApp()
-	err := app.Run([]string{"stella", "--help"})
+	err := app.Run([]string{"stellad", "--help"})
 	if err != nil {
 		t.Fatalf("run --help: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestRunHelp(t *testing.T) {
 
 func TestRunHelpShort(t *testing.T) {
 	app := newApp()
-	err := app.Run([]string{"stella", "-h"})
+	err := app.Run([]string{"stellad", "-h"})
 	if err != nil {
 		t.Fatalf("run -h: %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 
 	apiclient "github.com/CherryHQ/stella/api/client"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/cli"
 )
 
 func authCommand() *ucli.Command {
@@ -55,7 +56,7 @@ Requires an active stella server and admin credentials.`,
 				Name:  "name",
 				Usage: "Display name for this identity (optional)",
 			},
-			jsonFlag(),
+			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
 			req := apitypes.LinkLoginIdentityRequest{
@@ -75,15 +76,15 @@ Requires an active stella server and admin credentials.`,
 				return fmt.Errorf("link identity: %w", err)
 			}
 
-			if isJSON(c) {
-				return printJSON(c, identity)
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, identity)
 			}
-			o := stdout(c)
-			o.printf("Linked identity %s\n", identity.Id)
-			o.printf("  User:     %s\n", identity.UserId)
-			o.printf("  Provider: %s\n", identity.Provider)
-			o.printf("  Subject:  %s\n", identity.ProviderSubject)
-			o.printf("  Email:    %s\n", identity.Email)
+			o := cli.Stdout(c)
+			o.Printf("Linked identity %s\n", identity.Id)
+			o.Printf("  User:     %s\n", identity.UserId)
+			o.Printf("  Provider: %s\n", identity.Provider)
+			o.Printf("  Subject:  %s\n", identity.ProviderSubject)
+			o.Printf("  Email:    %s\n", identity.Email)
 			return o.Err()
 		},
 	}

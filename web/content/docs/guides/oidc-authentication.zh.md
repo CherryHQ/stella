@@ -48,7 +48,7 @@ OIDC_REDIRECT_URL=https://your-stella-host/auth/callback/Zitadel
 然后正常启动服务器：
 
 ```bash
-stella server
+stellad server
 ```
 
 登录页面将显示 **Sign in Zitadel** 按钮。点击后会启动带 PKCE 的 OIDC 授权码流程——Stella 不存储任何密码。
@@ -207,7 +207,7 @@ OIDC_SCOPES=openid,email,profile,urn:zitadel:iam:org:project:id:zitadel:aud
 - **Provider subject 已绑定** — Stella 登录到该账号，已有数据（智能体、对话、密钥库）完整保留。
 - **Provider subject 未绑定** — Stella 为你创建新账号。第一个注册的用户自动获得管理员角色，后续用户获得普通用户角色。
 
-管理员可以在 Web UI 的**设置 > 用户**页面管理用户、角色和显式登录身份绑定，也可以使用 `stella auth link-user`。
+管理员可以在 Web UI 的**设置 > 用户**页面管理用户、角色和显式登录身份绑定，也可以使用 `stellad auth link-user`。
 
 ## 从已有安装升级
 
@@ -216,7 +216,7 @@ Stella 在首次启动时会自动将现有用户和渠道身份复制到新认�
 如需把外部登录绑定到已有账号，请显式绑定 provider subject：
 
 ```bash
-stella auth link-user --user-id <id> --provider <provider> --provider-subject <subject> --email <your@email.com>
+stellad auth link-user --user-id <id> --provider <provider> --provider-subject <subject> --email <your@email.com>
 ```
 
 此命令会为该用户创建明确的登录身份绑定。仅邮箱匹配不会自动关联账号。

@@ -31,7 +31,7 @@ Stella 为每个人提供一个会记住你、能使用可信工具做事、并�
 brew install CherryHQ/tap/stella
 
 # 2. 启动服务器
-stella server
+stellad server
 
 # 3. 打开 Web UI：http://localhost:25678
 #    在 Providers 中添加模型提供商和 API 密钥
@@ -39,7 +39,7 @@ stella server
 # 4. 打开 Chat，开始对话
 ```
 
-你也可以使用 `go install github.com/CherryHQ/stella@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。
+你也可以使用 `go install github.com/CherryHQ/stella/cmd/stella@latest && go install github.com/CherryHQ/stella/cmd/stellad@latest` 安装，或从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件。
 
 详见[完整快速开始指南](web/content/docs/getting-started/quickstart.zh.md)。
 
@@ -79,15 +79,15 @@ stella skill list
 ## CLI 参考
 
 ```bash
-stella server                           # 启动服务器；Web UI 位于 http://localhost:25678
-stella server --port 8080               # 自定义端口
+stellad server                          # 启动服务器；Web UI 位于 http://localhost:25678
+stellad server --port 8080              # 自定义端口
+stellad upgrade                         # 自升级到最新版本
 stella skill search <query>             # 搜索 skills.sh
 stella skill install <name>             # 安装技能
 stella skill list                       # 列出已安装技能
 stella scheduler list                   # 列出定时任务
 stella vault list                       # 列出已保存的密钥
 stella version                          # 打印版本
-stella upgrade                          # 自升级到最新版本
 ```
 
 ## 开发
