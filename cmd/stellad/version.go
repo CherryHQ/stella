@@ -5,6 +5,8 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +26,10 @@ import (
 const (
 	githubOwner = "CherryHQ"
 	githubRepo  = "stella"
+
+	// maxArchiveBytes caps the total decompressed size of a release archive
+	// to defend against decompression bombs or CDN compromise.
+	maxArchiveBytes = 100 << 20 // 100 MB
 )
 
 var (
@@ -177,7 +183,7 @@ func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch st
 		return nil, err
 	}
 
-	if err := installReleaseAsset(ctx, asset, installDir, goos); err != nil {
+	if err := installReleaseAsset(ctx, asset, installDir, goos, release); err != nil {
 		return nil, err
 	}
 	result.InstallDir = installDir
@@ -201,7 +207,7 @@ func releaseAssetSuffixes(goos, goarch string) []string {
 	return []string{base + ".tar.gz", base + ".zip"}
 }
 
-func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installDir, goos string) (err error) {
+func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installDir, goos string, release *githubRelease) (err error) {
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return fmt.Errorf("create install dir: %w", err)
 	}
@@ -218,6 +224,10 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 
 	archivePath := filepath.Join(tmpDir, filepath.Base(asset.Name))
 	if err := downloadFile(ctx, asset.BrowserDownloadURL, archivePath); err != nil {
+		return err
+	}
+
+	if err := verifyChecksum(ctx, release, asset.Name, archivePath); err != nil {
 		return err
 	}
 
@@ -363,6 +373,83 @@ func rollbackUpgrade(committed, backedUp []string) {
 	}
 }
 
+// verifyChecksum fetches the checksums.txt asset from the release,
+// computes the SHA-256 of the downloaded archive, and rejects mismatches.
+func verifyChecksum(ctx context.Context, release *githubRelease, archiveName, archivePath string) error {
+	csAsset, found := findChecksumAsset(release.Assets)
+	if !found {
+		slog.Warn("skipping checksum verification — checksums.txt not found in release")
+		return nil
+	}
+
+	resp, err := upgradeHTTPClient.R().
+		SetContext(ctx).
+		SetHeader("User-Agent", upgradeUserAgent).
+		Get(csAsset.BrowserDownloadURL)
+	if err != nil {
+		return fmt.Errorf("fetch checksums.txt: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("fetch checksums.txt: unexpected status %d", resp.StatusCode())
+	}
+
+	expected, err := parseChecksumForFile(resp.String(), archiveName)
+	if err != nil {
+		return err
+	}
+
+	actual, err := sha256File(archivePath)
+	if err != nil {
+		return err
+	}
+
+	if actual != expected {
+		return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", archiveName, expected, actual)
+	}
+	return nil
+}
+
+func findChecksumAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
+	for _, a := range assets {
+		if strings.EqualFold(filepath.Base(a.Name), "checksums.txt") {
+			return a, true
+		}
+	}
+	return githubReleaseAsset{}, false
+}
+
+func parseChecksumForFile(checksumsTxt, filename string) (string, error) {
+	for line := range strings.SplitSeq(checksumsTxt, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// GoReleaser format: "<sha256>  <filename>"
+		parts := strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		if parts[1] == filename {
+			return parts[0], nil
+		}
+	}
+	return "", fmt.Errorf("no checksum found for %s in checksums.txt", filename)
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open file for checksum: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("compute checksum: %w", err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func downloadFile(ctx context.Context, url, dest string) error {
 	resp, err := upgradeHTTPClient.R().
 		SetContext(ctx).
@@ -473,9 +560,16 @@ func writeReaderToFile(path string, reader io.Reader, mode os.FileMode) error {
 		return fmt.Errorf("create extracted binary: %w", err)
 	}
 
-	if _, err := io.Copy(out, reader); err != nil {
+	limited := io.LimitReader(reader, maxArchiveBytes)
+	n, err := io.Copy(out, limited)
+	if err != nil {
 		_ = out.Close()
 		return fmt.Errorf("write extracted binary: %w", err)
+	}
+	if n >= maxArchiveBytes {
+		_ = out.Close()
+		_ = os.Remove(path)
+		return fmt.Errorf("extracted binary exceeds %d MB size limit", maxArchiveBytes>>20)
 	}
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("close extracted binary: %w", err)
