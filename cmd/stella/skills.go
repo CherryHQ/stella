@@ -52,7 +52,7 @@ func resolveSkill(c *ucli.Context, name string) (string, apitypes.Skill, error) 
 		return "", apitypes.Skill{}, err
 	}
 	for _, s := range list.Skills {
-		if derefStr(s.Name) == name {
+		if cli.DerefStr(s.Name) == name {
 			return agentID, s, nil
 		}
 	}
@@ -71,7 +71,7 @@ func fetchSkillContent(c *ucli.Context, agentID, name string, scope apitypes.Ski
 	if err != nil {
 		return "", err
 	}
-	return derefStr(file.Content), nil
+	return cli.DerefStr(file.Content), nil
 }
 
 func skillsInspectCommand() *ucli.Command {
@@ -79,7 +79,7 @@ func skillsInspectCommand() *ucli.Command {
 		Name:      "inspect",
 		Usage:     "Show skill metadata and SKILL.md content",
 		ArgsUsage: "<name>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
@@ -96,26 +96,26 @@ func skillsInspectCommand() *ucli.Command {
 				return fmt.Errorf("failed to read SKILL.md: %w", err)
 			}
 
-			if isJSON(c) {
-				return printJSON(c, map[string]any{
-					"name":        derefStr(skill.Name),
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]any{
+					"name":        cli.DerefStr(skill.Name),
 					"scope":       derefSkillScope(skill.Scope),
-					"description": derefStr(skill.Description),
-					"status":      derefStr(skill.Status),
+					"description": cli.DerefStr(skill.Description),
+					"status":      cli.DerefStr(skill.Status),
 					"content":     content,
 				})
 			}
 
-			o := stdout(c)
-			o.printf("Name:        %s\n", derefStr(skill.Name))
-			o.printf("Scope:       %s\n", derefSkillScope(skill.Scope))
-			o.printf("Description: %s\n", derefStr(skill.Description))
-			if derefStr(skill.Status) != "" {
-				o.printf("Status:      %s\n", derefStr(skill.Status))
+			o := cli.Stdout(c)
+			o.Printf("Name:        %s\n", cli.DerefStr(skill.Name))
+			o.Printf("Scope:       %s\n", derefSkillScope(skill.Scope))
+			o.Printf("Description: %s\n", cli.DerefStr(skill.Description))
+			if cli.DerefStr(skill.Status) != "" {
+				o.Printf("Status:      %s\n", cli.DerefStr(skill.Status))
 			}
-			o.println()
-			o.println("--- SKILL.md ---")
-			o.println(content)
+			o.Println()
+			o.Println("--- SKILL.md ---")
+			o.Println(content)
 			return o.Err()
 		},
 	}
@@ -126,7 +126,7 @@ func skillsLoadCommand() *ucli.Command {
 		Name:      "load",
 		Usage:     "Load skill content for the agent to read and follow",
 		ArgsUsage: "<name>",
-		Flags:     []ucli.Flag{jsonFlag()},
+		Flags:     []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
@@ -143,15 +143,15 @@ func skillsLoadCommand() *ucli.Command {
 				return fmt.Errorf("failed to read SKILL.md: %w", err)
 			}
 
-			if isJSON(c) {
-				return printJSON(c, map[string]string{
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, map[string]string{
 					"name":    name,
 					"content": content,
 				})
 			}
 
-			o := stdout(c)
-			o.println(content)
+			o := cli.Stdout(c)
+			o.Println(content)
 			return o.Err()
 		},
 	}
