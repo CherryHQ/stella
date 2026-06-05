@@ -2,6 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 
 	ucli "github.com/urfave/cli/v2"
 )
@@ -26,7 +30,7 @@ Start the server with "stellad server".`,
 			taskCommand(),
 			movedCommand("server", "stellad server"),
 			movedCommand("service", "stellad service"),
-			movedCommand("upgrade", "stellad upgrade"),
+			upgradeShimCommand(),
 			movedCommand("auth", "stellad auth"),
 		},
 	}
@@ -49,4 +53,51 @@ func movedCommand(name, replacement string) *ucli.Command {
 			)
 		},
 	}
+}
+
+// upgradeShimCommand delegates to stellad upgrade if found alongside this
+// binary; otherwise prints migration guidance. This handles the transition
+// where pre-split users run "stella upgrade" and get the new thin CLI.
+func upgradeShimCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:   "upgrade",
+		Hidden: true,
+		Action: func(c *ucli.Context) error {
+			stellad := findCompanionDaemon()
+			if stellad != "" {
+				cmd := exec.CommandContext(c.Context, stellad, append([]string{"upgrade"}, c.Args().Slice()...)...)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = c.App.Writer
+				cmd.Stderr = c.App.ErrWriter
+				return cmd.Run()
+			}
+			return fmt.Errorf(
+				"\"stella upgrade\" has moved to the stellad binary.\n\n" +
+					"Run: stellad upgrade\n\n" +
+					"If stellad is not installed:\n" +
+					"  brew upgrade stella    (Homebrew)\n" +
+					"  or download both binaries from the latest GitHub release",
+			)
+		},
+	}
+}
+
+func findCompanionDaemon() string {
+	self, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	self, err = filepath.EvalSymlinks(self)
+	if err != nil {
+		return ""
+	}
+	name := "stellad"
+	if runtime.GOOS == "windows" {
+		name = "stellad.exe"
+	}
+	candidate := filepath.Join(filepath.Dir(self), name)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return ""
 }

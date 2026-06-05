@@ -226,18 +226,52 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 		return err
 	}
 
-	for _, binName := range binariesToUpgrade(goos) {
-		extractedPath, err := extractBinaryFromArchive(archivePath, tmpDir, binName)
+	bins := binariesToUpgrade(goos)
+
+	// Extract all binaries first — fail fast before modifying anything.
+	extracted := make(map[string]string, len(bins))
+	for _, binName := range bins {
+		path, err := extractBinaryFromArchive(archivePath, tmpDir, binName)
 		if err != nil {
 			return fmt.Errorf("extract %s: %w", binName, err)
 		}
+		extracted[binName] = path
+	}
 
+	// Pre-check all targets are replaceable before installing any.
+	for _, binName := range bins {
 		targetPath := filepath.Join(installDir, binName)
-		if err := installBinary(extractedPath, targetPath, goos != "windows"); err != nil {
+		if err := ensureReplaceableTarget(targetPath); err != nil {
 			return upgradeInstallError(err, targetPath, goos)
 		}
 	}
+
+	// Install with rollback: track installed files, restore on failure.
+	var installed []string
+	for _, binName := range bins {
+		targetPath := filepath.Join(installDir, binName)
+		if err := installBinary(extracted[binName], targetPath, goos != "windows"); err != nil {
+			rollbackInstalledBinaries(installed)
+			return upgradeInstallError(err, targetPath, goos)
+		}
+		installed = append(installed, targetPath)
+	}
+	// Clean up .bak files left by successful installs.
+	for _, p := range installed {
+		_ = os.Remove(p + ".bak")
+	}
 	return nil
+}
+
+// rollbackInstalledBinaries restores .bak files for any binaries that were
+// already replaced before a failure occurred.
+func rollbackInstalledBinaries(paths []string) {
+	for _, p := range paths {
+		bak := p + ".bak"
+		if _, err := os.Stat(bak); err == nil {
+			_ = renameFile(bak, p)
+		}
+	}
 }
 
 func downloadFile(ctx context.Context, url, dest string) error {

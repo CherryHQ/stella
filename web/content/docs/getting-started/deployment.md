@@ -30,8 +30,8 @@ Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/s
 # Example: Linux amd64
 curl -LO https://github.com/CherryHQ/stella/releases/latest/download/stella_linux_amd64.tar.gz
 tar xzf stella_linux_amd64.tar.gz
-chmod +x stella
-sudo mv stella /usr/local/bin/
+chmod +x stella stellad
+sudo mv stella stellad /usr/local/bin/
 ```
 
 ### Go

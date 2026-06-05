@@ -17,7 +17,7 @@ import (
 func NewAPIClient(extra ...ClientOption) (*Client, error) {
 	token := os.Getenv("STELLA_TOKEN")
 	if token == "" {
-		return nil, fmt.Errorf("STELLA_TOKEN env var is required (run 'stella serve' and set STELLA_TOKEN to a generated token)")
+		return nil, fmt.Errorf("STELLA_TOKEN env var is required (start the server with 'stellad server' and use the token from the agent sandbox)")
 	}
 	opts := append([]ClientOption{WithRequestEditorFn(BearerAuth(token))}, extra...)
 	return NewClient(config.ServerURL(), opts...)
