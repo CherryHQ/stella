@@ -268,7 +268,7 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 		bakPath := targetPath + ".bak"
 		if _, err := os.Lstat(targetPath); err == nil {
 			if err := renameFile(targetPath, bakPath); err != nil {
-				restoreBackups(backedUp)
+				rollbackUpgrade(nil, backedUp)
 				for _, t := range staged {
 					_ = os.Remove(t)
 				}
@@ -278,12 +278,14 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 		}
 	}
 
+	var committed []string
 	for _, binName := range bins {
 		targetPath := filepath.Join(installDir, binName)
 		if err := renameFile(staged[binName], targetPath); err != nil {
-			restoreBackups(backedUp)
+			rollbackUpgrade(committed, backedUp)
 			return upgradeInstallError(err, targetPath, goos)
 		}
+		committed = append(committed, targetPath)
 	}
 
 	for _, p := range backedUp {
@@ -328,10 +330,16 @@ func stageBinary(srcPath, targetPath string, executable bool) (string, error) {
 	return tmpPath, nil
 }
 
-// restoreBackups moves .bak files back to their original names.
-func restoreBackups(paths []string) {
-	for _, p := range paths {
-		_ = renameFile(p+".bak", p)
+// rollbackUpgrade removes newly committed binaries and restores their backups.
+// On Windows os.Rename cannot overwrite, so the new file must be removed first.
+func rollbackUpgrade(committed, backedUp []string) {
+	for _, p := range committed {
+		_ = os.Remove(p)
+	}
+	for _, p := range backedUp {
+		if err := renameFile(p+".bak", p); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "WARNING: failed to restore %s from backup: %v\n", p, err)
+		}
 	}
 }
 

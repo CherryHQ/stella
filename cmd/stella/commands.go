@@ -60,8 +60,9 @@ func movedCommand(name, replacement string) *ucli.Command {
 // where pre-split users run "stella upgrade" and get the new thin CLI.
 func upgradeShimCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:   "upgrade",
-		Hidden: true,
+		Name:            "upgrade",
+		Hidden:          true,
+		SkipFlagParsing: true,
 		Action: func(c *ucli.Context) error {
 			stellad := findCompanionDaemon()
 			if stellad != "" {
@@ -71,16 +72,7 @@ func upgradeShimCommand() *ucli.Command {
 				cmd.Stderr = c.App.ErrWriter
 				return cmd.Run()
 			}
-			return fmt.Errorf(
-				"stellad not found — it is required for upgrades.\n\n" +
-					"Install both binaries:\n\n" +
-					"  Homebrew:  brew upgrade stella\n" +
-					"  Manual:    download the latest release from\n" +
-					"             https://github.com/CherryHQ/stella/releases/latest\n" +
-					"             extract both stella and stellad, then:\n" +
-					"             chmod +x stella stellad && sudo mv stella stellad /usr/local/bin/\n\n" +
-					"Then run:    stellad upgrade",
-			)
+			return bootstrapUpgrade(c.Context)
 		},
 	}
 }
