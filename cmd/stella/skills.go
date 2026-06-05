@@ -145,6 +145,9 @@ func derefSkillScope(s *apitypes.SkillScope) string {
 }
 
 func skillsListAction(c *ucli.Context) error {
+	if c.Args().Present() {
+		return fmt.Errorf("unknown command %q. Run 'stella skill --help' for usage", c.Args().First())
+	}
 	agentID, params, err := skillAgentContext()
 	if err != nil {
 		return err
