@@ -15,7 +15,8 @@ brew install CherryHQ/tap/stella
 **Go install:**
 
 ```bash
-go install github.com/CherryHQ/stella@latest
+go install github.com/CherryHQ/stella/cmd/stella@latest
+go install github.com/CherryHQ/stella/cmd/stellad@latest
 ```
 
 **Binary download:**
@@ -23,7 +24,7 @@ go install github.com/CherryHQ/stella@latest
 Grab the latest binary from [Releases](https://github.com/CherryHQ/stella/releases), or self-update an existing install with:
 
 ```bash
-stella upgrade
+stellad upgrade
 ```
 
 ## Set up your API key
@@ -43,7 +44,7 @@ You can also add these to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) so 
 ## Start the server
 
 ```bash
-stella server
+stellad server
 ```
 
 Stella starts and serves the Web UI at [http://localhost:25678](http://localhost:25678). Open it in your browser.
@@ -51,7 +52,7 @@ Stella starts and serves the Web UI at [http://localhost:25678](http://localhost
 To use a different port:
 
 ```bash
-stella server --port 8080
+stellad server --port 8080
 ```
 
 ## Configure a provider

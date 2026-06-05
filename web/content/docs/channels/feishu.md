@@ -8,7 +8,7 @@ Stella includes a Feishu (Lark) bot that connects over WebSocket, so you do not 
 
 Before you start, make sure you have:
 
-- A running Stella server (`stella server`)
+- A running Stella server (`stellad server`)
 - At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A Feishu app created at [Feishu Open Platform](https://open.feishu.cn/) with the **Bot** capability enabled
 
@@ -23,13 +23,13 @@ Before you start, make sure you have:
 5. Start your Stella server if it is not already running:
 
    ```bash
-   stella server
+   stellad server
    ```
 
 6. Open the Web UI at `http://localhost:25678`.
 7. Go to the **Channels** page and add a new Feishu channel instance.
 8. Enter your credentials and save.
-9. Restart `stella server` to activate the new channel.
+9. Restart `stellad server` to activate the new channel.
 
 You can create multiple Feishu channel instances in the Web UI. Each instance can use its own Feishu app credentials and can optionally be bound to a dedicated agent.
 
@@ -196,7 +196,7 @@ Feishu supports the standard chat commands:
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the Feishu channel is configured in the Web UI.
+- Make sure `stellad server` is running and the Feishu channel is configured in the Web UI.
 - Verify your App ID and App Secret are correct.
 - Check that you added the `im.message.receive_v1` event subscription to your Feishu app.
 
@@ -212,7 +212,7 @@ Feishu supports the standard chat commands:
 4. Confirm your Feishu app has these scopes: `contact:user.base:readonly` and `contact:user.id:readonly`.
 5. At least one Stella admin must already exist. Fresh deployments refuse auto-provision until the first admin account is created.
 6. External guests are intentionally not auto-provisioned. Only internal tenant members qualify.
-7. Restart `stella server` after changing any configuration.
+7. Restart `stellad server` after changing any configuration.
 
 A reliable auto-provisioning configuration looks like:
 

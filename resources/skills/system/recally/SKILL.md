@@ -10,7 +10,7 @@ metadata:
 
 # Recally - Reading Assistant
 
-**Environment**: The CLI talks HTTP to the running stella server. `STELLA_TOKEN`
+**Environment**: The CLI talks HTTP to the running stellad server. `STELLA_TOKEN`
 is auto-set; the agent process inherits a reachable `STELLA_SERVER_URL` (default
 `http://127.0.0.1:25678`). Do not pass user identity flags. Do not try to
 open the SQLite database directly.

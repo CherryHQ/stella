@@ -9,7 +9,7 @@ description: Command-line interface conventions for Stella's cmd/stella commands
 > make commands predictable, scriptable, composable, and kind to humans using a
 > terminal at 2 a.m.
 
-Stella's CLI is a first-party client for `stella server`, not a second backend.
+Stella's CLI is a first-party client for `stellad server`, not a second backend.
 For state-changing features, read [CLI as a REST client](../cli-as-client) and
 [API design rules](./api-design) before designing the command surface.
 
@@ -273,7 +273,7 @@ Pattern:
 If the server is unavailable, say how to fix it:
 
 ```text
-connect to Stella server: connection refused (start it with `stella server` or set STELLA_SERVER_URL)
+connect to Stella server: connection refused (start it with `stellad server` or set STELLA_SERVER_URL)
 ```
 
 ## Logging and Verbosity

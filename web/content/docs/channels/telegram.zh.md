@@ -8,7 +8,7 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 
 开始之前，请确保你已具备：
 
-- 一个正在运行的 Stella 服务器（`stella server`）
+- 一个正在运行的 Stella 服务器（`stellad server`）
 - 至少在Web UI中配置了一个 AI 提供商（如 Anthropic、OpenAI）
 - 一个 Telegram 账号
 
@@ -18,13 +18,13 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 2. 如果尚未启动，先启动 Stella 服务器：
 
    ```bash
-   stella server
+   stellad server
    ```
 
 3. 打开Web UI `http://localhost:25678`。
 4. 进入 **Channels** 页面，添加一个新的 Telegram 频道实例。
 5. 将你的 bot token 粘贴到配置中并保存。
-6. 重启 `stella server` 以激活新频道。
+6. 重启 `stellad server` 以激活新频道。
 
 你可以创建多个 Telegram 频道实例（如果你有多个机器人）。每个实例可以在Web UI中绑定到专用的 agent。
 
@@ -152,7 +152,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **机器人不响应消息？**
 
-- 确保 `stella server` 正在运行，且 Telegram 频道已在Web UI中配置。
+- 确保 `stellad server` 正在运行，且 Telegram 频道已在Web UI中配置。
 - 仔细检查 bot token 是否正确。你可以向 [@BotFather](https://t.me/BotFather) 发消息查看你的机器人列表来确认。
 - 如果设置了访问控制，请确认你的 Telegram 用户 ID 在 `allowed_ids` 列表中。向机器人发送 `/whoami` 来检查。
 

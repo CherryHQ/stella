@@ -22,7 +22,7 @@ stella vault keygen
 
 ```bash
 export STELLA_VAULT_KEY="AGE-SECRET-KEY-1..."
-stella server
+stellad server
 ```
 
 > **请备份你的主密钥。** 如果丢失，所有存储的机密信息将永久无法恢复。请将其保存在密码管理器或其他安全位置。

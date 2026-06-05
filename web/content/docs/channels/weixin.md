@@ -8,7 +8,7 @@ Stella includes a WeChat bot that connects via the iLink Bot API using long-poll
 
 Before you start, make sure you have:
 
-- A running Stella server (`stella server`)
+- A running Stella server (`stellad server`)
 - At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A WeChat account to authorize the bot via QR code login
 
@@ -17,7 +17,7 @@ Before you start, make sure you have:
 1. Start your Stella server if it is not already running:
 
    ```bash
-   stella server
+   stellad server
    ```
 
 2. Open the Web UI at `http://localhost:25678`.
@@ -25,7 +25,7 @@ Before you start, make sure you have:
 4. Click **Scan QR to Login** to generate a QR code.
 5. Open WeChat on your phone and scan the QR code to authorize the bot.
 6. Once confirmed, your credentials are saved automatically.
-7. Restart `stella server` to activate the channel.
+7. Restart `stellad server` to activate the channel.
 
 All channel configuration is managed through the Web UI. The QR login flow is only available through the Web UI and must be re-done if the session expires.
 
@@ -83,7 +83,7 @@ Send these commands as text messages to the bot:
 
 The WeChat channel supports notifications (scheduler results, notify tool). Set "Enable Notify" and configure "Notify Chat" with a user ID in the Web UI.
 
-**Important limitation**: Notifications require a cached token which is in-memory only. After restarting `stella server`, notifications to WeChat users will fail until they send a new message. This is a known limitation of the iLink protocol.
+**Important limitation**: Notifications require a cached token which is in-memory only. After restarting `stellad server`, notifications to WeChat users will fail until they send a new message. This is a known limitation of the iLink protocol.
 
 ## Configuration Reference
 
@@ -102,7 +102,7 @@ All settings below are managed through the Web UI.
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the WeChat channel is configured in the Web UI.
+- Make sure `stellad server` is running and the WeChat channel is configured in the Web UI.
 - Your session may have expired. Go to the Web UI and re-scan the QR code to re-authorize.
 
 **Session expired?**
@@ -112,7 +112,7 @@ All settings below are managed through the Web UI.
 **Notifications not being delivered?**
 
 - WeChat notifications require the recipient to have sent a message to the bot first (so Stella has a cached context token).
-- After restarting `stella server`, all users need to send at least one message before they can receive notifications again.
+- After restarting `stellad server`, all users need to send at least one message before they can receive notifications again.
 
 **Images or files not being analyzed?**
 

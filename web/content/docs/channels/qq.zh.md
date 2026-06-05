@@ -8,7 +8,7 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 
 开始之前，请确保你已具备：
 
-- 一个正在运行的 Stella 服务器（`stella server`）
+- 一个正在运行的 Stella 服务器（`stellad server`）
 - 至少在Web UI中配置了一个 AI 提供商（如 Anthropic、OpenAI）
 - 在 [QQ 开放平台](https://q.qq.com/) 注册的 QQ 机器人，并获取了 AppID 和 AppSecret
 
@@ -18,13 +18,13 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 2. 如果尚未启动，先启动 Stella 服务器：
 
    ```bash
-   stella server
+   stellad server
    ```
 
 3. 打开Web UI `http://localhost:25678`。
 4. 进入 **Channels** 页面，添加一个新的 QQ 频道实例。
 5. 输入你的 AppID 和 AppSecret，然后保存。
-6. 重启 `stella server` 以激活新频道。
+6. 重启 `stellad server` 以激活新频道。
 
 所有频道配置（凭据、群组模式、允许的 ID 等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
 
@@ -106,7 +106,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **机器人不响应消息？**
 
-- 确保 `stella server` 正在运行，且 QQ 频道已在Web UI中配置。
+- 确保 `stellad server` 正在运行，且 QQ 频道已在Web UI中配置。
 - 确认你的 AppID 和 AppSecret 是否正确。
 - 如果设置了访问控制，请确认你的 QQ OpenID 在 `allowed_ids` 列表中。向机器人发送 `/whoami` 来检查。
 
@@ -121,5 +121,5 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **连接问题？**
 
-- 机器人使用持久 WebSocket 连接。如果连接断开，请重启 `stella server`。
+- 机器人使用持久 WebSocket 连接。如果连接断开，请重启 `stellad server`。
 - 检查你的网络连接，确保 QQ 开放平台凭据有效。

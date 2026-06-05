@@ -25,10 +25,10 @@ title: 可观测性
 
 ```bash
 # 默认 —— LLM/工具/记忆事件以 INFO 级别输出
-stella server
+stellad server
 
 # 详细 —— 包含记忆细节字段
-LOG_LEVEL=TRACE stella server
+LOG_LEVEL=TRACE stellad server
 ```
 
 日志输出示例：
@@ -78,7 +78,7 @@ docker run -d --name jaeger \
 # 通过 OTLP/gRPC 启动带追踪的 stella
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
-stella server
+stellad server
 ```
 
 打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。
@@ -91,31 +91,31 @@ stella server
 # Grafana Tempo（OTLP/gRPC）
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.internal:4317 \
-stella server
+stellad server
 
 # SigNoz（OTLP/gRPC）
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz.internal:4317 \
-stella server
+stellad server
 
 # OTel Collector（OTLP/gRPC）
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
-stella server
+stellad server
 
 # 云端 OTLP/gRPC，带 TLS 和认证头
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com:443 \
 OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Bearer <token>" \
 OTEL_EXPORTER_OTLP_INSECURE=false \
-stella server
+stellad server
 
 # 云端 OTLP/HTTP，带 TLS 和认证头
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com/api/default \
 OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Basic <base64>,organization=default,stream-name=default" \
 OTEL_EXPORTER_OTLP_INSECURE=false \
-stella server
+stellad server
 ```
 
 如果你的服务商给的是 OTLP/HTTP 端点，如 `https://collector.example.com/api/default`，请直接使用该基础 URL，让导出器自动追加 `/v1/traces`。

@@ -8,7 +8,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 
 开始之前，请确保你已具备：
 
-- 一个正在运行的 Stella 服务器（`stella server`）
+- 一个正在运行的 Stella 服务器（`stellad server`）
 - 至少在Web UI中配置了一个 AI 提供商（如 Anthropic、OpenAI）
 - 一个微信账号，用于通过扫码授权机器人
 
@@ -17,7 +17,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 1. 如果尚未启动，先启动 Stella 服务器：
 
    ```bash
-   stella server
+   stellad server
    ```
 
 2. 打开Web UI `http://localhost:25678`。
@@ -25,7 +25,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 4. 点击 **扫码登录** 生成二维码。
 5. 在手机上打开微信，扫描二维码授权机器人。
 6. 确认后，凭据会自动保存。
-7. 重启 `stella server` 以激活频道。
+7. 重启 `stellad server` 以激活频道。
 
 所有频道配置都通过Web UI管理。扫码登录流程只能在Web UI中进行，如果会话过期需要重新操作。
 
@@ -83,7 +83,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 
 微信频道支持通知（调度器结果、notify 工具）。在Web UI中设置"启用通知"并配置"通知聊天"的用户 ID。
 
-**重要限制**：通知需要一个缓存的 token，该 token 仅存在于内存中。重启 `stella server` 后，向微信用户发送通知会失败，直到他们发送一条新消息。这是 iLink 协议的已知限制。
+**重要限制**：通知需要一个缓存的 token，该 token 仅存在于内存中。重启 `stellad server` 后，向微信用户发送通知会失败，直到他们发送一条新消息。这是 iLink 协议的已知限制。
 
 ## 配置参考
 
@@ -102,7 +102,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 
 **机器人不响应消息？**
 
-- 确保 `stella server` 正在运行，且微信频道已在Web UI中配置。
+- 确保 `stellad server` 正在运行，且微信频道已在Web UI中配置。
 - 你的会话可能已过期。进入Web UI重新扫码授权。
 
 **会话过期了？**
@@ -112,7 +112,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 **通知无法送达？**
 
 - 微信通知需要接收者先向机器人发送过消息（这样 Stella 才有缓存的 context token）。
-- 重启 `stella server` 后，所有用户需要至少发送一条消息才能再次接收通知。
+- 重启 `stellad server` 后，所有用户需要至少发送一条消息才能再次接收通知。
 
 **图片或文件未被分析？**
 

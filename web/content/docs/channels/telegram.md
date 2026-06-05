@@ -8,7 +8,7 @@ Stella includes a Telegram bot that connects via long polling -- no webhook or p
 
 Before you start, make sure you have:
 
-- A running Stella server (`stella server`)
+- A running Stella server (`stellad server`)
 - At least one AI provider configured in the Web UI (e.g. Anthropic, OpenAI)
 - A Telegram account
 
@@ -18,13 +18,13 @@ Before you start, make sure you have:
 2. Start your Stella server if it is not already running:
 
    ```bash
-   stella server
+   stellad server
    ```
 
 3. Open the Web UI at `http://localhost:25678`.
 4. Go to the **Channels** page and add a new Telegram channel instance.
 5. Paste your bot token into the configuration and save.
-6. Restart `stella server` to activate the new channel.
+6. Restart `stellad server` to activate the new channel.
 
 You can create multiple Telegram channel instances if you have multiple bots. Each instance can optionally be bound to a dedicated agent in the Web UI.
 
@@ -152,7 +152,7 @@ All settings below are managed through the Web UI.
 
 **Bot not responding to messages?**
 
-- Make sure `stella server` is running and the Telegram channel is configured in the Web UI.
+- Make sure `stellad server` is running and the Telegram channel is configured in the Web UI.
 - Double-check that your bot token is correct. You can verify it by messaging [@BotFather](https://t.me/BotFather) and checking your bot list.
 - If you set up access control, confirm your Telegram user ID is in the `allowed_ids` list. Send `/whoami` to the bot to check.
 

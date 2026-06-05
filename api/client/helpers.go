@@ -104,7 +104,7 @@ func WrapServerErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("call stella server: %w (run 'stella serve' or set STELLA_SERVER_URL)", err)
+	return fmt.Errorf("call stella server: %w (run 'stellad server' or set STELLA_SERVER_URL)", err)
 }
 
 // Ptr returns a pointer to v.

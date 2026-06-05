@@ -5,7 +5,7 @@ description: Stella cmd/stella 命令行界面约定。
 
 > 这是给贡献者看的**规则文件**。新增或修改 `cmd/stella/` 下的命令前，先读这页并遵守它。Stella 遵循 [Command Line Interface Guidelines](https://github.com/cli-guidelines/cli-guidelines) 的精神：命令要可预测、可脚本化、可组合，并且善待凌晨两点还在终端里的用户。
 
-Stella CLI 是 `stella server` 的一等客户端，不是第二套后端。设计会修改服务端状态的功能前，先读 [CLI as a REST client](../cli-as-client) 和 [API design rules](./api-design)。
+Stella CLI 是 `stellad server` 的一等客户端，不是第二套后端。设计会修改服务端状态的功能前，先读 [CLI as a REST client](../cli-as-client) 和 [API design rules](./api-design)。
 
 ## 核心原则
 
@@ -234,7 +234,7 @@ flag > environment variable > persisted config > default
 服务端不可用时，告诉用户怎么修：
 
 ```text
-connect to Stella server: connection refused (start it with `stella server` or set STELLA_SERVER_URL)
+connect to Stella server: connection refused (start it with `stellad server` or set STELLA_SERVER_URL)
 ```
 
 ## 日志和详细程度

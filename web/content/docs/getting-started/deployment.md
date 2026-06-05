@@ -37,10 +37,11 @@ sudo mv stella /usr/local/bin/
 ### Go
 
 ```bash
-go install github.com/CherryHQ/stella@latest
+go install github.com/CherryHQ/stella/cmd/stella@latest
+go install github.com/CherryHQ/stella/cmd/stellad@latest
 # or
 git clone https://github.com/CherryHQ/stella.git
-cd stella && go build -o stella ./cmd/stella/
+cd stella && go build -o stella ./cmd/stella/ && go build -o stellad ./cmd/stellad/
 ```
 
 ## Run
@@ -48,25 +49,25 @@ cd stella && go build -o stella ./cmd/stella/
 Start the server — the Web UI is available at `http://localhost:25678`:
 
 ```bash
-stella server
+stellad server
 ```
 
 This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in `~/.stella/stella.db` — no config files needed.
 
 ```bash
-stella server --port 8080             # custom port
-stella server --host 0.0.0.0 --port 8080  # bind to all interfaces
+stellad server --port 8080             # custom port
+stellad server --host 0.0.0.0 --port 8080  # bind to all interfaces
 ```
 
 ### Version and Self-Upgrade
 
 ```bash
 stella version
-stella upgrade
-stella upgrade --install-dir "$HOME/.local/bin"  # custom install path
+stellad upgrade
+stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 ```
 
-`stella upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and replaces the running `stella` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
+`stellad upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and replaces the running `stellad` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
 ## Run as a Background Service
 
@@ -81,13 +82,13 @@ brew services restart stella
 ### macOS — manual
 
 ```bash
-stella service install       # install LaunchAgent and start
-stella service status
-stella service logs --follow
-stella service stop
-stella service start
-stella service restart
-stella service uninstall
+stellad service install       # install LaunchAgent and start
+stellad service status
+stellad service logs --follow
+stellad service stop
+stellad service start
+stellad service restart
+stellad service uninstall
 ```
 
 Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash.
@@ -97,13 +98,13 @@ Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automat
 The service runs as your user and starts on login. `bubblewrap` must be installed first (pulled in automatically by Homebrew and package-manager installs; for raw binary installs: `apt install bubblewrap` / `dnf install bubblewrap`).
 
 ```bash
-stella service install
-stella service status
-stella service logs --follow
-stella service stop
-stella service start
-stella service restart
-stella service uninstall
+stellad service install
+stellad service status
+stellad service logs --follow
+stellad service stop
+stellad service start
+stellad service restart
+stellad service uninstall
 ```
 
 The unit file is installed to `~/.config/systemd/user/stella.service`.
@@ -113,10 +114,10 @@ The unit file is installed to `~/.config/systemd/user/stella.service`.
 Runs as root, starts on boot.
 
 ```bash
-sudo stella service install --system
-stella service status
-stella service logs --follow
-sudo stella service uninstall --system
+sudo stellad service install --system
+stellad service status
+stellad service logs --follow
+sudo stellad service uninstall --system
 ```
 
 The unit file is installed to `/etc/systemd/system/stella.service`.
@@ -143,7 +144,7 @@ docker run -it --rm \
   -v ~/.stella:/home/nonroot/.stella \
   -p 8080:8080 \
   ghcr.io/cherryhq/stella:latest \
-  stella server --port 8080
+  stellad server --port 8080
 ```
 
 Then start the server:
@@ -155,7 +156,7 @@ docker run -d \
   -v ~/.stella:/home/nonroot/.stella \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
-  stella server
+  stellad server
 ```
 
 The container runs as `nonroot` user. Mount `~/.stella` to persist the database, skills, and cache. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
@@ -181,7 +182,7 @@ services:
 docker compose up -d
 ```
 
-To run initial setup, start with `--port 8080` and configure via the Web UI at `http://localhost:8080`, or use `docker compose exec stella stella server --port 8080`.
+To run initial setup, start with `--port 8080` and configure via the Web UI at `http://localhost:8080`, or use `docker compose exec stella stellad server --port 8080`.
 
 ### Build Locally
 

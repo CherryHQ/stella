@@ -2,7 +2,7 @@
 title: 配置
 ---
 
-所有配置都通过Web UI进行管理。使用 `stella server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 `~/.stella/stella.db` 这个 SQLite 数据库中，无需编辑任何配置文件。
+所有配置都通过Web UI进行管理。使用 `stellad server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 `~/.stella/stella.db` 这个 SQLite 数据库中，无需编辑任何配置文件。
 
 主目录默认为 `~/.stella`，可以通过设置 `STELLA_HOME` 环境变量来更改。
 
@@ -67,7 +67,7 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 - **间隔** — 检查频率（例如 `10m`）
 - **文件** — 心跳文件路径（例如代理工作空间中的 `HEARTBEAT.md`）
 
-心跳仅在服务器模式（`stella server`）下运行。它使用快速模型来判断是否需要采取行动，以降低成本。
+心跳仅在服务器模式（`stellad server`）下运行。它使用快速模型来判断是否需要采取行动，以降低成本。
 
 ## 目录结构
 

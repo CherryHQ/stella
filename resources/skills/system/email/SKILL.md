@@ -109,6 +109,6 @@ Use `--account NAME` on any command to override.
 ## Notes
 
 - **Never use the vault tool to set EMAIL_CONFIG directly.** Always use `stella email config` subcommands.
-- Runtime commands (`folders`, `list`, `read`, `send`) read the `EMAIL_CONFIG` env var (injected by the vault into the sandbox). They connect to IMAP/SMTP directly — no stella server required.
-- Config commands (`config add/remove/list/get/default`) use the vault HTTP API and require a running stella server and `STELLA_TOKEN`.
+- Runtime commands (`folders`, `list`, `read`, `send`) read the `EMAIL_CONFIG` env var (injected by the vault into the sandbox). They connect to IMAP/SMTP directly — no stellad server required.
+- Config commands (`config add/remove/list/get/default`) use the vault HTTP API and require a running stellad server and `STELLA_TOKEN`.
 - Attachments > 50 MB are skipped during save with a warning.

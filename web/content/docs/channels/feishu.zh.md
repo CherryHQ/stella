@@ -8,7 +8,7 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 
 开始之前，请确保你已具备：
 
-- 一个正在运行的 Stella 服务器（`stella server`）
+- 一个正在运行的 Stella 服务器（`stellad server`）
 - 至少在Web UI中配置了一个 AI 提供商（如 Anthropic、OpenAI）
 - 在 [飞书开放平台](https://open.feishu.cn/) 创建的应用，并启用了 **Bot** 能力
 
@@ -23,13 +23,13 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 5. 如果尚未启动，先启动 Stella 服务器：
 
    ```bash
-   stella server
+   stellad server
    ```
 
 6. 打开Web UI `http://localhost:25678`。
 7. 进入 **Channels** 页面，添加一个新的飞书频道实例。
 8. 输入你的凭据并保存。
-9. 重启 `stella server` 以激活新频道。
+9. 重启 `stellad server` 以激活新频道。
 
 你可以在Web UI中创建多个飞书频道实例。每个实例可以使用不同的飞书应用凭据，并可选择绑定专用 agent。
 
@@ -194,7 +194,7 @@ lark-cli auth status
 
 **机器人不响应消息？**
 
-- 确保 `stella server` 正在运行，且飞书频道已在Web UI中配置。
+- 确保 `stellad server` 正在运行，且飞书频道已在Web UI中配置。
 - 确认你的 App ID 和 App Secret 是否正确。
 - 检查是否在飞书应用中添加了 `im.message.receive_v1` 事件订阅。
 
@@ -210,7 +210,7 @@ lark-cli auth status
 4. 确认飞书应用具备以下权限：`contact:user.base:readonly` 和 `contact:user.id:readonly`。
 5. Stella 中必须至少存在一个管理员。全新部署在第一个管理员创建前会拒绝自动注册。
 6. 外部访客不会被自动注册，只有内部租户成员才符合条件。
-7. 修改配置后请重启 `stella server`。
+7. 修改配置后请重启 `stellad server`。
 
 一个可靠的自动注册配置如下：
 

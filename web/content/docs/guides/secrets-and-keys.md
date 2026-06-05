@@ -22,7 +22,7 @@ This prints a secret key. Copy the line starting with `AGE-SECRET-KEY-1`.
 
 ```bash
 export STELLA_VAULT_KEY="AGE-SECRET-KEY-1..."
-stella server
+stellad server
 ```
 
 > **Back up your master key.** If it is lost, all stored secrets become permanently unrecoverable. Store it in a password manager or another secure location.

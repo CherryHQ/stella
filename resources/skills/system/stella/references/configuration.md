@@ -2,17 +2,17 @@
 
 All configuration is stored in a SQLite database at `$STELLA_HOME/stella.db` (`~/.stella/stella.db` by default).
 
-The easiest way to configure stella is to run `stella server` and open `http://localhost:25678`. Use `--port` to change the port.
+The easiest way to configure stella is to run `stellad server` and open `http://localhost:25678`. Use `--port` to change the port.
 
 ## Quick start
 
-1. Run `stella server` and open `http://localhost:25678`
+1. Run `stellad server` and open `http://localhost:25678`
 2. Add a provider (e.g., "anthropic" with your API key)
 3. Create or edit an agent (set provider, model, system prompt)
 4. Configure channels (Telegram token, etc.)
-5. Restart: `stella server`
+5. Restart: `stellad server`
 
-Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `stella server`. Default bootstrapping will create an "anthropic" provider and "stella" agent automatically.
+Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `stellad server`. Default bootstrapping will create an "anthropic" provider and "stella" agent automatically.
 
 ## Database tables
 
