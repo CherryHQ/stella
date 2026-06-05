@@ -1,17 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
-import {
-  MessageCircleDashed,
-  PanelRightClose,
-  PanelRightOpen,
-  ArrowUp,
-  Paperclip,
-} from "lucide-react";
+import { MessageCircleDashed, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import { agentSkillsOptions } from "@/lib/queries/agents";
 import type { Message, Session } from "@/lib/types";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -21,7 +15,9 @@ import {
   uiMessageToMessage,
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
+import { ChatComposer } from "./ChatComposer";
 import { Transcript } from "./Transcript";
+import { useFileAttachments } from "./useFileAttachments";
 
 interface Props {
   session: Session | null;
@@ -45,18 +41,34 @@ export function SessionDetail({
 }: Props) {
   const { t } = useI18n();
   const [userInput, setUserInput] = useState("");
-  const [attachments, setAttachments] = useState<
-    { name: string; path: string; uploading: boolean }[]
-  >([]);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
   const shouldAutoScrollRef = useRef(true);
 
   const sessionId = session?.id ?? "";
   const agentId = session?.agent_id ?? "";
+
+  const uploadFn = useCallback(
+    async (file: File): Promise<string> => {
+      const { data } = await uploadWorkspaceFile({
+        path: { agentId, sessionId },
+        body: { file },
+        throwOnError: true,
+      });
+      return data.path;
+    },
+    [agentId, sessionId],
+  );
+  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageText } =
+    useFileAttachments(uploadFn);
+
+  const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
+  const composerSkills = useMemo(
+    () => skills.map((s) => ({ name: s.name, description: s.description })),
+    [skills],
+  );
 
   const transport = useMemo(
     () => (session ? createSessionTransport(session.agent_id, session.id) : undefined),
@@ -112,7 +124,7 @@ export function SessionDetail({
   useEffect(() => {
     if (!session) {
       setChatMessages([]);
-      setAttachments([]);
+      clearAttachments();
       return;
     }
     sessionIDRef.current = session.id;
@@ -168,49 +180,13 @@ export function SessionDetail({
     }
   }, [loadOlderMessages]);
 
-  const handleFileSelect = useCallback(
-    async (files: FileList | null) => {
-      if (!files || files.length === 0 || !session) return;
-      for (const file of Array.from(files)) {
-        const placeholder = { name: file.name, path: "", uploading: true };
-        setAttachments((prev) => [...prev, placeholder]);
-        try {
-          const { data: res } = await uploadWorkspaceFile({
-            path: { agentId: agentId, sessionId: sessionId },
-            body: { file },
-            throwOnError: true,
-          });
-          setAttachments((prev) =>
-            prev.map((a) => (a === placeholder ? { ...a, path: res.path, uploading: false } : a)),
-          );
-        } catch (e) {
-          console.error("upload failed:", e);
-          setAttachments((prev) => prev.filter((a) => a !== placeholder));
-        }
-      }
-    },
-    [session, agentId, sessionId],
-  );
-
-  const removeAttachment = useCallback((idx: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== idx));
-  }, []);
-
   const sendMessage = useCallback(async () => {
     if ((!userInput.trim() && attachments.length === 0) || isStreaming || !session) return;
-    const uploading = attachments.some((a) => a.uploading);
-    if (uploading) return;
+    if (attachments.some((a) => a.uploading)) return;
 
-    const filePaths = attachments.filter((a) => a.path).map((a) => a.path);
-    const parts: string[] = [];
-    for (const p of filePaths) {
-      parts.push(`[file: ${p}]`);
-    }
-    if (userInput.trim()) parts.push(userInput.trim());
-    const text = parts.join("\n");
-
+    const text = buildMessageText(userInput);
     setUserInput("");
-    setAttachments([]);
+    clearAttachments();
     shouldAutoScrollRef.current = true;
     setTimeout(() => {
       if (transcriptRef.current)
@@ -218,7 +194,15 @@ export function SessionDetail({
     }, 0);
 
     void chatSendMessage({ text });
-  }, [userInput, isStreaming, session, attachments, chatSendMessage]);
+  }, [
+    userInput,
+    isStreaming,
+    session,
+    attachments,
+    buildMessageText,
+    clearAttachments,
+    chatSendMessage,
+  ]);
 
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
@@ -308,151 +292,18 @@ export function SessionDetail({
 
           {/* Message input */}
           {session.user_id === currentUserID && (
-            <div className="flex-shrink-0 bg-gradient-to-t from-background via-background to-transparent px-4 pt-4 pb-5 sm:px-8">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  handleFileSelect(e.target.files).catch(console.error);
-                  e.target.value = "";
-                }}
-              />
-              <div
-                className={cn(
-                  "mx-auto max-w-3xl rounded-xl border bg-card transition-all duration-120 flex flex-col p-1.5 shadow-none",
-                  isStreaming
-                    ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
-                    : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
-                )}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!isStreaming) handleFileSelect(e.dataTransfer.files).catch(console.error);
-                }}
-              >
-                {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
-                    {attachments.map((a, i) => (
-                      <span
-                        key={i}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 text-[11px] font-mono rounded-md px-3 py-1 max-w-48 border",
-                          a.uploading
-                            ? "bg-muted/50 text-muted-foreground/50 border-border"
-                            : "bg-primary/5 text-primary border-primary/20",
-                        )}
-                      >
-                        {a.uploading ? (
-                          <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin shrink-0" />
-                        ) : (
-                          <Paperclip className="w-3 h-3 shrink-0 text-primary/70" />
-                        )}
-                        <span className="truncate">{a.name}</span>
-                        {!a.uploading && (
-                          <button
-                            onClick={() => removeAttachment(i)}
-                            className="text-muted-foreground/50 hover:text-foreground cursor-pointer shrink-0 font-bold ml-0.5"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <textarea
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage().catch(console.error);
-                    }
-                  }}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = "auto";
-                    el.style.height = Math.min(el.scrollHeight, 160) + "px";
-                  }}
-                  onPaste={(e) => {
-                    const files = e.clipboardData.files;
-                    if (files.length > 0 && !isStreaming) {
-                      e.preventDefault();
-                      handleFileSelect(files).catch(console.error);
-                    }
-                  }}
-                  placeholder={t("sessions.composer.placeholder")}
-                  className={cn(
-                    "w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-2 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground/60 text-foreground",
-                  )}
-                  style={{ minHeight: 44, maxHeight: 160 }}
-                  rows={1}
-                  disabled={isStreaming}
-                />
-                <div className="flex items-center justify-between px-3 pb-1.5 pt-2.5 border-t border-border/30 bg-muted/15 rounded-b-[10px]">
-                  <div className="flex items-center gap-1.5">
-                    {!isStreaming && (
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="text-muted-foreground hover:text-foreground hover:bg-muted transition-colors p-1.5 rounded-lg w-8 h-8 flex items-center justify-center cursor-pointer"
-                        title="Attach files"
-                      >
-                        <Paperclip className="w-4 h-4" />
-                      </button>
-                    )}
-                    {!isStreaming && (
-                      <span className="text-[10px] font-mono text-muted-foreground/45 select-none pl-1">
-                        ↵ send · ⇧↵ new line
-                      </span>
-                    )}
-                    {isStreaming && (
-                      <span className="text-[10px] font-mono text-primary/80 select-none animate-pulse pl-1">
-                        generating…
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isStreaming && (
-                      <button
-                        type="button"
-                        onClick={() => chatStop()}
-                        className="text-destructive hover:bg-destructive/10 bg-destructive/5 border border-destructive/25 font-semibold text-xs rounded-lg px-3.5 h-8 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <div className="w-2 h-2 bg-destructive rounded-xs" />
-                        <span>Stop</span>
-                      </button>
-                    )}
-                    {!isStreaming && (
-                      <button
-                        type="button"
-                        disabled={
-                          (!userInput.trim() && attachments.length === 0) ||
-                          attachments.some((a) => a.uploading)
-                        }
-                        onClick={() => sendMessage().catch(console.error)}
-                        className={cn(
-                          "w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer",
-                          (!userInput.trim() && attachments.length === 0) ||
-                            attachments.some((a) => a.uploading)
-                            ? "bg-muted text-muted-foreground/30 cursor-not-allowed"
-                            : "bg-primary text-primary-foreground hover:bg-primary-hover",
-                        )}
-                        title="Send message"
-                      >
-                        <ArrowUp className="w-4 h-4 stroke-[2.5]" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ChatComposer
+              value={userInput}
+              onChange={setUserInput}
+              onSend={() => void sendMessage()}
+              onStop={() => chatStop()}
+              isStreaming={isStreaming}
+              placeholder={t("sessions.composer.placeholder")}
+              attachments={attachments}
+              onFileSelect={(files) => void selectFiles(files)}
+              onRemoveAttachment={removeAttachment}
+              skills={composerSkills}
+            />
           )}
         </div>
       </div>
