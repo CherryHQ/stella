@@ -12,9 +12,25 @@ import (
 
 const emailDialTimeout = 30 * time.Second
 
+// Ranges that netip.IsPrivate does not cover but are still effectively internal:
+// carrier-grade NAT (RFC 6598) and the NAT64 well-known prefix (RFC 6052).
+var (
+	cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+	nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+)
+
 // ValidateAccountEgress rejects email server hosts that would make stellad
 // connect to local or private infrastructure on behalf of an authenticated user.
 func ValidateAccountEgress(acct EmailAccount) error {
+	// Server-side egress reaches public hosts only (see validatePublicAddr), so
+	// an unencrypted connection would put the account credentials on the wire in
+	// cleartext. Reject TLS=none for the daemon path.
+	if acct.IMAPTLS == "none" {
+		return fmt.Errorf("imap_tls=none is not allowed for server-side email; use ssl or starttls")
+	}
+	if acct.SMTPTLS == "none" {
+		return fmt.Errorf("smtp_tls=none is not allowed for server-side email; use ssl or starttls")
+	}
 	if _, err := ResolvePublicHost("imap", acct.IMAPHost); err != nil {
 		return err
 	}
@@ -90,7 +106,7 @@ func DialPublicTCP(ctx context.Context, kind, host string, port int) (net.Conn, 
 }
 
 func validatePublicAddr(kind, host string, addr netip.Addr) error {
-	if !addr.IsGlobalUnicast() || addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
+	if !addr.IsGlobalUnicast() || addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() || cgnatPrefix.Contains(addr) || nat64Prefix.Contains(addr) {
 		return fmt.Errorf("%s_host %q resolves to disallowed address %s", kind, host, addr)
 	}
 	return nil
