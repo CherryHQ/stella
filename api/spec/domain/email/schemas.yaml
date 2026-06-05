@@ -67,12 +67,6 @@ components:
         reply_to: { type: string }
         in_reply_to: { type: string }
 
-    EmailSendResult:
-      type: object
-      required: [sent]
-      properties:
-        sent: { type: boolean }
-
     EmailMarkRequest:
       type: object
       required: [seen]

@@ -639,9 +639,6 @@ components:
     EmailSendRequest: {
       $ref: "./components.yaml#/components/schemas/EmailSendRequest",
     }
-    EmailSendResult: {
-      $ref: "./components.yaml#/components/schemas/EmailSendResult",
-    }
     EmailMarkRequest: {
       $ref: "./components.yaml#/components/schemas/EmailMarkRequest",
     }

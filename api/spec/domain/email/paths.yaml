@@ -148,13 +148,8 @@ paths:
               $ref: "../../components.yaml#/components/schemas/EmailSendRequest",
             }
       responses:
-        "200":
+        "204":
           description: sent
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/EmailSendResult",
-              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

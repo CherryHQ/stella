@@ -13,6 +13,11 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 )
 
+// maxEmailRequestBytes caps the JSON body of email write endpoints. Attachments
+// are not accepted over the API, so a few MB is ample for headers and text body
+// while bounding memory use from an authenticated client.
+const maxEmailRequestBytes = 5 << 20
+
 // loadEmailAccount loads the EMAIL_CONFIG vault entry for the authenticated
 // user, parses it, and resolves the requested account name. On failure it
 // writes an error response and returns a zero value + false.
@@ -31,7 +36,7 @@ func (s *Server) loadEmailAccount(w http.ResponseWriter, r *http.Request, accoun
 	value, err := s.vaultSvc.Get(r.Context(), info.UserID, "EMAIL_CONFIG")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusBadRequest, "no email accounts configured — use 'stella email config add' first")
+			writeError(w, http.StatusBadRequest, "no email accounts configured")
 			return email.EmailAccount{}, false
 		}
 		s.log.Error("load email config from vault", "user_id", info.UserID, "error", err)
@@ -50,7 +55,7 @@ func (s *Server) loadEmailAccount(w http.ResponseWriter, r *http.Request, accoun
 		cfg.Accounts = make(map[string]email.EmailAccount)
 	}
 	if len(cfg.Accounts) == 0 {
-		writeError(w, http.StatusBadRequest, "no email accounts configured — use 'stella email config add' first")
+		writeError(w, http.StatusBadRequest, "no email accounts configured")
 		return email.EmailAccount{}, false
 	}
 
@@ -174,6 +179,7 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxEmailRequestBytes)
 	var body apitypes.EmailSendRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -221,7 +227,7 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 		return
 	}
 
-	writeData(w, http.StatusOK, apitypes.EmailSendResult{Sent: true})
+	writeNoContent(w)
 }
 
 // MarkEmailMessage handles POST /api/email/messages/{uid}/mark.
@@ -236,6 +242,7 @@ func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid in
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxEmailRequestBytes)
 	var body struct {
 		Seen *bool `json:"seen"`
 	}
