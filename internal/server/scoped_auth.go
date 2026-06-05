@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/pkg/auth"
 )
 
 func scopedTokenAllowsRequest(claims *auth.ScopedTokenClaims, r *http.Request) bool {

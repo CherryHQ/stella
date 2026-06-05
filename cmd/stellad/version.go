@@ -58,7 +58,7 @@ func versionCommand() *ucli.Command {
 		Usage:    "Show the current stella version",
 		Category: "System",
 		Action: func(c *ucli.Context) error {
-			fmt.Println(displayVersion())
+			fmt.Println(version.DisplayVersion())
 			return nil
 		},
 	}
@@ -81,7 +81,7 @@ func upgradeCommand() *ucli.Command {
 				return err
 			}
 
-			result, err := runUpgrade(c.Context, installDir, displayVersion(), runtime.GOOS, runtime.GOARCH)
+			result, err := runUpgrade(c.Context, installDir, version.DisplayVersion(), runtime.GOOS, runtime.GOARCH)
 			if err != nil {
 				return err
 			}
@@ -95,14 +95,6 @@ func upgradeCommand() *ucli.Command {
 			return nil
 		},
 	}
-}
-
-func displayVersion() string {
-	normalized := normalizeVersion(version.Version)
-	if normalized == "" {
-		return "dev"
-	}
-	return normalized
 }
 
 // resolveUpgradeDir returns the directory to install upgraded binaries into.
@@ -150,7 +142,7 @@ func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("fetch latest release: unexpected status %d: %s", resp.StatusCode(), strings.TrimSpace(resp.String()))
 	}
-	if normalizeVersion(parsed.TagName) == "" {
+	if version.NormalizeVersion(parsed.TagName) == "" {
 		return nil, fmt.Errorf("latest release tag %q is invalid", parsed.TagName)
 	}
 	return &parsed, nil
@@ -163,8 +155,8 @@ func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch st
 	}
 
 	result := &upgradeResult{
-		CurrentVersion: normalizeVersion(currentVersion),
-		LatestVersion:  normalizeVersion(release.TagName),
+		CurrentVersion: version.NormalizeVersion(currentVersion),
+		LatestVersion:  version.NormalizeVersion(release.TagName),
 	}
 	if result.CurrentVersion == "" {
 		result.CurrentVersion = "dev"
@@ -172,7 +164,7 @@ func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch st
 	if result.LatestVersion == "" {
 		return nil, fmt.Errorf("latest release tag %q is invalid", release.TagName)
 	}
-	if result.LatestVersion == normalizeVersion(currentVersion) {
+	if result.LatestVersion == version.NormalizeVersion(currentVersion) {
 		result.AlreadyCurrent = true
 		return result, nil
 	}
@@ -221,7 +213,7 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 		}
 	}()
 
-	archivePath := filepath.Join(tmpDir, asset.Name)
+	archivePath := filepath.Join(tmpDir, filepath.Base(asset.Name))
 	if err := downloadFile(ctx, asset.BrowserDownloadURL, archivePath); err != nil {
 		return err
 	}
@@ -283,6 +275,9 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 		targetPath := filepath.Join(installDir, binName)
 		if err := renameFile(staged[binName], targetPath); err != nil {
 			rollbackUpgrade(committed, backedUp)
+			for _, t := range staged {
+				_ = os.Remove(t)
+			}
 			return upgradeInstallError(err, targetPath, goos)
 		}
 		committed = append(committed, targetPath)
@@ -333,10 +328,18 @@ func stageBinary(srcPath, targetPath string, executable bool) (string, error) {
 // rollbackUpgrade removes newly committed binaries and restores their backups.
 // On Windows os.Rename cannot overwrite, so the new file must be removed first.
 func rollbackUpgrade(committed, backedUp []string) {
+	removeFailed := make(map[string]bool, len(committed))
 	for _, p := range committed {
-		_ = os.Remove(p)
+		if err := os.Remove(p); err != nil {
+			removeFailed[p] = true
+			_, _ = fmt.Fprintf(os.Stderr, "WARNING: could not remove %s: %v\n", p, err)
+		}
 	}
 	for _, p := range backedUp {
+		if removeFailed[p] {
+			_, _ = fmt.Fprintf(os.Stderr, "WARNING: cannot restore backup — target %s still exists; manually remove it and rename %s.bak\n", p, p)
+			continue
+		}
 		if err := renameFile(p+".bak", p); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "WARNING: failed to restore %s from backup: %v\n", p, err)
 		}
@@ -491,23 +494,4 @@ func ensureReplaceableTarget(targetPath string) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", errInvalidTarget, targetPath)
-}
-
-func normalizeVersion(v string) string {
-	trimmed := strings.TrimSpace(v)
-	trimmed = strings.TrimPrefix(trimmed, "v")
-	if trimmed == "" {
-		return ""
-	}
-	for part := range strings.SplitSeq(trimmed, ".") {
-		if part == "" {
-			return ""
-		}
-		for _, r := range part {
-			if r < '0' || r > '9' {
-				return trimmed
-			}
-		}
-	}
-	return trimmed
 }

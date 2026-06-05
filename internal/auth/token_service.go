@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/vault"
+	pkgauth "github.com/CherryHQ/stella/pkg/auth"
 )
 
 const (
@@ -166,7 +167,7 @@ func (s *TokenService) CreateScopedToken(ctx context.Context, userID, agentID, s
 			return "", fmt.Errorf("token service: user %s is inactive", userID)
 		}
 	}
-	return SignScopedToken(s.scopedSecret, ScopedTokenClaims{
+	return pkgauth.SignScopedToken(s.scopedSecret, pkgauth.ScopedTokenClaims{
 		UserID:    userID,
 		AgentID:   agentID,
 		SessionID: sessionID,
@@ -175,14 +176,14 @@ func (s *TokenService) CreateScopedToken(ctx context.Context, userID, agentID, s
 }
 
 // AuthenticateScoped returns the active user and scoped claims identified by rawToken.
-func (s *TokenService) AuthenticateScoped(ctx context.Context, rawToken string) (User, ScopedTokenClaims, error) {
-	claims, err := VerifyScopedToken(s.scopedSecret, rawToken, s.now())
+func (s *TokenService) AuthenticateScoped(ctx context.Context, rawToken string) (User, pkgauth.ScopedTokenClaims, error) {
+	claims, err := pkgauth.VerifyScopedToken(s.scopedSecret, rawToken, s.now())
 	if err != nil {
-		return User{}, ScopedTokenClaims{}, err
+		return User{}, pkgauth.ScopedTokenClaims{}, err
 	}
 	user, err := s.store.GetUser(ctx, claims.UserID)
 	if err != nil {
-		return User{}, ScopedTokenClaims{}, fmt.Errorf("token service: get user %s: %w", claims.UserID, err)
+		return User{}, pkgauth.ScopedTokenClaims{}, fmt.Errorf("token service: get user %s: %w", claims.UserID, err)
 	}
 	return user, claims, nil
 }

@@ -4,7 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/pkg/auth"
 )
 
 func TestScopedTokenAllowsOnlyMatchingAgentPath(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/tasks"
 	"github.com/CherryHQ/stella/internal/tools"
+	"github.com/CherryHQ/stella/internal/version"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -44,7 +45,7 @@ func newApp() *ucli.App {
 		Usage: "Stella daemon — server, services, and system management",
 		Description: `Stellad is the server component of Stella. Run "stellad server" to start
 the server, or use "stellad service" to manage it as a background service.`,
-		Version: displayVersion(),
+		Version: version.DisplayVersion(),
 		Commands: []*ucli.Command{
 			serverCommand(),
 			versionCommand(),
