@@ -72,11 +72,14 @@ func upgradeShimCommand() *ucli.Command {
 				return cmd.Run()
 			}
 			return fmt.Errorf(
-				"\"stella upgrade\" has moved to the stellad binary.\n\n" +
-					"Run: stellad upgrade\n\n" +
-					"If stellad is not installed:\n" +
-					"  brew upgrade stella    (Homebrew)\n" +
-					"  or download both binaries from the latest GitHub release",
+				"stellad not found — it is required for upgrades.\n\n" +
+					"Install both binaries:\n\n" +
+					"  Homebrew:  brew upgrade stella\n" +
+					"  Manual:    download the latest release from\n" +
+					"             https://github.com/CherryHQ/stella/releases/latest\n" +
+					"             extract both stella and stellad, then:\n" +
+					"             chmod +x stella stellad && sudo mv stella stellad /usr/local/bin/\n\n" +
+					"Then run:    stellad upgrade",
 			)
 		},
 	}

@@ -246,31 +246,92 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 		}
 	}
 
-	// Install with rollback: track installed files, restore on failure.
-	var installed []string
+	// Stage new binaries as .tmp files alongside their targets.
+	staged := make(map[string]string, len(bins))
 	for _, binName := range bins {
 		targetPath := filepath.Join(installDir, binName)
-		if err := installBinary(extracted[binName], targetPath, goos != "windows"); err != nil {
-			rollbackInstalledBinaries(installed)
+		tmpPath, err := stageBinary(extracted[binName], targetPath, goos != "windows")
+		if err != nil {
+			for _, t := range staged {
+				_ = os.Remove(t)
+			}
 			return upgradeInstallError(err, targetPath, goos)
 		}
-		installed = append(installed, targetPath)
+		staged[binName] = tmpPath
 	}
-	// Clean up .bak files left by successful installs.
-	for _, p := range installed {
+
+	// Two-phase commit: back up all existing targets, then rename all
+	// staged files into place. If any step fails, restore backups.
+	var backedUp []string
+	for _, binName := range bins {
+		targetPath := filepath.Join(installDir, binName)
+		bakPath := targetPath + ".bak"
+		if _, err := os.Lstat(targetPath); err == nil {
+			if err := renameFile(targetPath, bakPath); err != nil {
+				restoreBackups(backedUp)
+				for _, t := range staged {
+					_ = os.Remove(t)
+				}
+				return fmt.Errorf("back up %s: %w", binName, err)
+			}
+			backedUp = append(backedUp, targetPath)
+		}
+	}
+
+	for _, binName := range bins {
+		targetPath := filepath.Join(installDir, binName)
+		if err := renameFile(staged[binName], targetPath); err != nil {
+			restoreBackups(backedUp)
+			return upgradeInstallError(err, targetPath, goos)
+		}
+	}
+
+	for _, p := range backedUp {
 		_ = os.Remove(p + ".bak")
 	}
 	return nil
 }
 
-// rollbackInstalledBinaries restores .bak files for any binaries that were
-// already replaced before a failure occurred.
-func rollbackInstalledBinaries(paths []string) {
-	for _, p := range paths {
-		bak := p + ".bak"
-		if _, err := os.Stat(bak); err == nil {
-			_ = renameFile(bak, p)
+// stageBinary copies src to a .tmp file next to targetPath, returning
+// the temp path. The caller is responsible for renaming or cleaning it up.
+func stageBinary(srcPath, targetPath string, executable bool) (string, error) {
+	tmpPath := targetPath + ".tmp"
+	in, err := os.Open(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("open extracted binary: %w", err)
+	}
+	defer func() { _ = in.Close() }()
+
+	mode := os.FileMode(0o644)
+	if executable {
+		mode = 0o755
+	}
+	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return "", fmt.Errorf("create staged binary: %w", err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("write staged binary: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("close staged binary: %w", err)
+	}
+	if executable {
+		if err := os.Chmod(tmpPath, 0o755); err != nil {
+			_ = os.Remove(tmpPath)
+			return "", fmt.Errorf("chmod staged binary: %w", err)
 		}
+	}
+	return tmpPath, nil
+}
+
+// restoreBackups moves .bak files back to their original names.
+func restoreBackups(paths []string) {
+	for _, p := range paths {
+		_ = renameFile(p+".bak", p)
 	}
 }
 
@@ -390,84 +451,6 @@ func writeReaderToFile(path string, reader io.Reader, mode os.FileMode) error {
 	}
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("close extracted binary: %w", err)
-	}
-	return nil
-}
-
-func installBinary(srcPath, targetPath string, executable bool) error {
-	tmpPath := targetPath + ".tmp"
-	backupPath := targetPath + ".bak"
-	in, err := os.Open(srcPath)
-	if err != nil {
-		return fmt.Errorf("open extracted binary: %w", err)
-	}
-
-	mode := os.FileMode(0o644)
-	if executable {
-		mode = 0o755
-	}
-	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-	if err != nil {
-		return fmt.Errorf("create temp install file: %w", err)
-	}
-
-	_, copyErr := io.Copy(out, in)
-	inputCloseErr := in.Close()
-	closeErr := out.Close()
-	if copyErr != nil {
-		return fmt.Errorf("write temp install file: %w", copyErr)
-	}
-	if inputCloseErr != nil {
-		return fmt.Errorf("close extracted binary: %w", inputCloseErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("close temp install file: %w", closeErr)
-	}
-
-	if executable {
-		if err := os.Chmod(tmpPath, 0o755); err != nil {
-			return fmt.Errorf("chmod temp install file: %w", err)
-		}
-	}
-
-	if err := ensureReplaceableTarget(targetPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-
-	if runtime.GOOS != "windows" {
-		if err := renameFile(tmpPath, targetPath); err != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("install binary: %w", err)
-		}
-		return nil
-	}
-
-	if _, err := os.Lstat(targetPath); err == nil {
-		if err := renameFile(targetPath, backupPath); err != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("move existing binary aside: %w", err)
-		}
-		defer func() {
-			if _, err := os.Stat(backupPath); err == nil {
-				_ = os.RemoveAll(backupPath)
-			}
-		}()
-	}
-
-	if err := renameFile(tmpPath, targetPath); err != nil {
-		if _, statErr := os.Stat(backupPath); statErr == nil {
-			if restoreErr := renameFile(backupPath, targetPath); restoreErr != nil {
-				return fmt.Errorf("install binary: %w (restore failed: %w)", err, restoreErr)
-			}
-		}
-		return fmt.Errorf("install binary: %w", err)
-	}
-
-	if _, err := os.Stat(backupPath); err == nil {
-		if removeErr := os.RemoveAll(backupPath); removeErr != nil {
-			return fmt.Errorf("cleanup previous binary backup: %w", removeErr)
-		}
 	}
 	return nil
 }

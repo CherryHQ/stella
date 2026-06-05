@@ -171,7 +171,7 @@ echo "Verifying archive contains both stella and stellad..."
 archive=$(ls dist/stella_*_$(go env GOOS)_$(go env GOARCH).tar.gz 2>/dev/null || ls dist/stella_*_$(go env GOOS)_$(go env GOARCH).zip 2>/dev/null)
 if [ -z "$archive" ]; then echo "ERROR: no archive found for host platform" >&2; exit 1; fi
 for bin in stella stellad; do
-  if ! tar tzf "$archive" 2>/dev/null | grep -q "^${bin}$\\|/${bin}$" && ! unzip -l "$archive" 2>/dev/null | grep -q " ${bin}$"; then
+  if ! tar tzf "$archive" 2>/dev/null | grep -Eq "(^|/)${bin}$" && ! unzip -l "$archive" 2>/dev/null | grep -Eq " ${bin}$"; then
     echo "ERROR: $bin missing from $archive" >&2; exit 1
   fi
 done
