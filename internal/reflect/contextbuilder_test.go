@@ -121,6 +121,76 @@ func TestBuildReviewContext_EmptySession(t *testing.T) {
 	}
 }
 
+func TestBuildReviewContext_FallbackFiltersToolResults(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+
+	ctx := context.Background()
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: "request", Timestamp: now},
+		ai.AssistantMessage{
+			Content: []ai.ContentBlock{
+				ai.ToolCall{ID: "tc1", Name: "bash", Arguments: map[string]any{"command": "ls"}},
+			},
+			StopReason: ai.StopReasonToolUse,
+			Timestamp:  now.Add(time.Second),
+		},
+		ai.ToolResultMessage{
+			ToolCallID: "tc1",
+			Content:    []ai.ContentBlock{ai.TextContent{Text: strings.Repeat("x", 10000)}},
+			Timestamp:  now.Add(2 * time.Second),
+		},
+		ai.UserMessage{Content: "thanks", Timestamp: now.Add(3 * time.Second)},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	text, err := svc.buildReviewContext(ctx, sess, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "[tool]") {
+		t.Error("tool result should be filtered out in fallback path")
+	}
+	if !strings.Contains(text, "request") || !strings.Contains(text, "thanks") {
+		t.Errorf("expected user messages preserved, got %q", text)
+	}
+}
+
+func TestTailByBudget_FitsAll(t *testing.T) {
+	lines := []string{"short", "lines", "here"}
+	got := tailByBudget(lines, 10000)
+	if len(got) != 3 {
+		t.Errorf("expected all 3 lines, got %d", len(got))
+	}
+}
+
+func TestTailByBudget_Truncates(t *testing.T) {
+	big := strings.Repeat("x", 4000) // ~1000 tokens
+	lines := []string{big, big, big, "last"}
+	got := tailByBudget(lines, 1500)
+	// Budget 1500 tokens: "last" (~1 token) + one big (~1000) fits, two bigs don't.
+	if len(got) > 2 {
+		t.Errorf("expected at most 2 lines within budget, got %d", len(got))
+	}
+	if len(got) == 0 || got[len(got)-1] != "last" {
+		t.Error("expected tail to include the last element")
+	}
+}
+
+func TestTailByBudget_Empty(t *testing.T) {
+	got := tailByBudget(nil, 10000)
+	if len(got) != 0 {
+		t.Errorf("expected empty result, got %d", len(got))
+	}
+}
+
 // nonReviewerProvider wraps a Fake but hides the Reviewer interface.
 // This forces buildReviewContext to use the SessionManager fallback path.
 type nonReviewerProvider struct {
