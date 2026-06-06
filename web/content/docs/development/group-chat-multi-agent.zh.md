@@ -218,6 +218,22 @@ membership 表闭环:
 
 `channel.agent_id` 仍表示 bot→agent 绑定;`channel_agent` 的单 active 语义只留给 DM/非群。dispatcher 收到任一 bot 的消息,按 `group_id` 解析出该群全部 agent,各 agent 用自己的 `reply_channel_id` 回复。双重断言防止配置错/恶意写让 agentB 借 agentA 的 bot 发言。
 
+## 当前发言人:逐轮个性化(D10)
+
+D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍需知道**此刻是谁在说话**才能个性化回复。这是第二条身份轴,刻意与运行时/session 身份分离,使它永远不会变成后者。
+
+`memory.CurrentSpeaker` 携带逐轮发言人:`Platform`、`PlatformUserID`(仅查询/审计)、`DisplayName`、以及 `UserID`(发送者已关联时为解析出的 Stella 用户,未关联时为空)。它经由 `WithCurrentSpeaker` / `CurrentSpeakerFromContext` 走 context,与 `UserIDFromContext` 平行——绝不合并。
+
+硬规则:
+
+- **是个性化目标,不是运行时身份。** `CurrentSpeaker.UserID` 绝不可传给 `memory.WithUserID`、sandbox/vault/token 代码、plugin 或 delegate 上下文、notify 路由、hook 用户元数据。`runtime/chat.go` 为群聊回合附上发言人,但仍跳过 `WithUserID`,故 D9 四个面全部保持群作用域。
+- **逐轮构建,绝不缓存。** prompt 的 `## Current Speaker` 段由 PoolManager 的 before-run prompt 重建逻辑每轮重渲整份系统提示词生成。缓存的群 runner 不持有发言人上下文,故一个发言人的回合元数据不会泄漏到另一个发言人的回合。
+- **prompt 渲染按 `GroupID` 分支,而非按群记忆是否为空。** 群聊回合渲染 `## Group Memory`(+ 可选的 `## Current Speaker`),即使群抽屉为空也绝不回退到按用户的 `## User Profile` 段。
+- **不自动注入私有 profile。** `## Current Speaker` 只暴露显示名与已关联/未关联状态,不包含发言人的 profile 正文、带日期条目、soul 或 constraints:公开群不是披露某成员私有记忆,也不是把某成员硬规则套到整群的地方。
+- **按硬事实解析。** 平台发送者经渠道身份查找解析(已关联 → auth 用户 id;未关联 → 空 UserID → 仅名字)。Web 发送者仅当是真正的 human actor 时才信任已认证的 `actor_id` 作为发言人,否则 fail-closed。
+
+`memory` 工具在群聊回合中对应:没有 session 用户时,只有模型显式调用工具时 `profile_get` / `profile_update` 才回退到当前发言人;`soul_*`、`constraint_*`、`profile_history` / `profile_rollback` 保持严格并 fail-closed。
+
 ## 实现顺序
 
 数据模型(难改门)先行,行为层后接:

@@ -57,6 +57,18 @@ The LCM plugin implements the full set. The Simple plugin implements the core pr
 
 The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer actions.
 
+### Group turns: current-speaker fallback
+
+In a group session the runtime identity is the group, so there is no session user (D9). To still let an agent remember facts about the person speaking, `profile_get` and `profile_update` fall back to the current speaker when no session user is present:
+
+1. Session user (`UserIDFromContext`) — normal DM behavior.
+2. Otherwise the linked current speaker (`CurrentSpeaker.UserID`) — group personalization.
+3. Otherwise fail closed with `no linked current speaker` (unlinked sender).
+
+The fallback is deliberately narrow. **Only `profile_get` / `profile_update` get it, and only when the model explicitly calls the tool.** `soul_get`, `soul_update`, `constraint_*`, `profile_history`, and `profile_rollback` stay on the strict session-user resolver, so in a group turn they fail closed — a public room is not a place to read or rewrite one member's soul, constraints, or history through a shared agent. A `profile_update` via the fallback advances the speaker's own snapshot row `(session, speaker.UserID, agent)`, never the group's.
+
+See [Group chat: current speaker (D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10).
+
 ## System Prompt Layers
 
 Each turn can rebuild the system prompt from the current or frozen memory version. The prompt order is:
@@ -65,11 +77,13 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 2. **Tools and plugin prompt inventory** — available tools, plugin capabilities, skills.
 3. **Constraints** — user-approved hard rules from `ConstraintStore`; injected before soul/profile and not touched by Reflect.
 4. **Agent soul** — agent identity/personality text.
-5. **User profile** — durable user notes.
+5. **User profile** — durable user notes. **Group turns replace this with `## Group Memory` (the shared group drawer) plus an optional `## Current Speaker` section** that contains only speaker name and linked status; the per-user profile is never rendered in a group turn. Group mode is keyed on the session having a `group_id`, not on group memory being non-empty.
 6. **Knowledge** — active fact/context entries from `KnowledgeStore`.
 7. **Project context** — `AGENTS.md` and related project instructions.
 
 Conversation history is assembled separately by the memory provider. Constraints, identity, and knowledge live in the system prompt, so conversation compaction does not remove them.
+
+For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind explicit `memory.profile_get` / `memory.profile_update` tool calls.
 
 ## Changelog and Rollback
 

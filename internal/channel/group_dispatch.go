@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -169,14 +170,31 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 	}
 
 	return &ResolvedChat{
-		Service:    svc,
-		User:       resolved.User,
-		AgentID:    agentID,
-		SessionKey: agent.BuildGroupSessionKey(agentID, groupID),
-		Channel:    session.Channel(channelCtx),
-		ChatCtx:    ChatContext{Platform: msg.Platform, ChannelID: channelID, ChatID: msg.ChatID, IsGroup: true},
-		GroupID:    groupID,
+		Service:        svc,
+		User:           resolved.User,
+		AgentID:        agentID,
+		SessionKey:     agent.BuildGroupSessionKey(agentID, groupID),
+		Channel:        session.Channel(channelCtx),
+		ChatCtx:        ChatContext{Platform: msg.Platform, ChannelID: channelID, ChatID: msg.ChatID, IsGroup: true},
+		GroupID:        groupID,
+		CurrentSpeaker: platformGroupSpeaker(msg, resolved.User.ID, resolved.User.Name),
 	}, nil
+}
+
+// platformGroupSpeaker builds the per-turn speaker for a platform group sender.
+// A linked sender carries the resolved auth user id (profile target); an unlinked
+// sender carries an empty UserID, so no profile is ever injected for them.
+func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName string) memory.CurrentSpeaker {
+	displayName := msg.SenderName
+	if displayName == "" {
+		displayName = userName
+	}
+	return memory.CurrentSpeaker{
+		Platform:       msg.Platform,
+		PlatformUserID: msg.SenderID,
+		DisplayName:    displayName,
+		UserID:         userID,
+	}
 }
 
 // findMemberReplyChannel returns the ReplyChannelID for the given agent, or "".

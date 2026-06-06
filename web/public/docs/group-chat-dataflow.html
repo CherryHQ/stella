@@ -1395,13 +1395,18 @@ history = [
                 </div>
                 <pre>r.Chat(ctx, history, userMsg)
 
-<span class="cm">// LLM 看到的消息序列:</span>
+<span class="cm">// system 由 PoolManager before-run 路径逐轮重建 (prompt/prompt.go)</span>
 [system]    你是天气助手，帮助用户查询天气信息…
+            <span class="ok">## Group Memory</span>      <span class="cm">← 群共享抽屉 (group_id)</span>
+            <span class="ok">## Current Speaker</span>   <span class="cm">← 发言人元信息，不自动注入私有 profile</span>
+              Name: Alice         <span class="cm">  仅寻址/语气目标，非运行时身份 (D9)</span>
+              Linked Stella user: yes  <span class="cm">profile 仅在显式工具调用时可读</span>
 
+<span class="cm">// LLM 看到的消息序列:</span>
 [user]      推荐一下周末去哪玩            <span class="cm">← agentHistory</span>
 [assistant] 周末天气晴朗适合出行…         <span class="cm">← agentHistory</span>
 [user]      <span class="ok">[agent:travel-bot]: 推荐故宫和颐和园…</span>  <span class="cm">← injected</span>
-[user]      @weather-bot 北京今天天气怎么样？   <span class="cm">← userMsg (ChatRequest.Message)</span></pre>
+[user]      @weather-bot 北京今天天气怎么样？   <span class="cm">← userMsg + ChatRequest.CurrentSpeaker</span></pre>
               </div>
 
               <!-- 5d: Writeback -->

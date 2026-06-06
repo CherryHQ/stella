@@ -279,7 +279,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		IdleTimeout:    pm.idleTimeout,
 		DefaultModel:   snap.ResolveModelID(config.ModelTierStrong),
 		HooksFn:        pm.HookPlugins,
-		BeforeRun:      pm.runtimeBeforeRun,
+		BeforeRun:      pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt: pm.buildSnapshotPromptFunc(snap),
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
@@ -297,45 +297,64 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	return svc, nil
 }
 
+// promptScope computes the per-session workspace root and the prompt subject for
+// profile rendering. Group sessions blank the prompt UserID so the group id is
+// never treated as a human profile subject (D9); plugin/skill sections still use
+// the session's UserID (the group id) so they match the cached group runner.
+func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot, promptUserID, groupID string) {
+	if info.GroupID != "" {
+		if dir, err := SetupGroupWorkspace(agentID, config.StellaHome(), info.GroupID); err == nil {
+			userRoot = dir
+		}
+		return userRoot, "", info.GroupID
+	}
+	if info.UserID != "" {
+		if dir, err := SetupUserWorkspace(agentID, config.StellaHome(), info.UserID); err == nil {
+			userRoot = dir
+		}
+	}
+	return userRoot, info.UserID, ""
+}
+
+func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot string) []pkgplugins.SystemPromptSection {
+	homeDir, _ := os.UserHomeDir()
+	pluginView := pkgplugins.SessionPluginView{}
+	if pm.sessionPluginViewBuilder != nil {
+		pluginView, _ = pm.sessionPluginViewBuilder(ctx)
+	}
+	promptBuild := pkgplugins.SystemPromptContext{
+		StellaHome:          config.StellaHome(),
+		HomeDir:             homeDir,
+		AgentRoot:           snap.Workspace,
+		UserID:              info.UserID,
+		AgentID:             info.AgentID,
+		UserRoot:            userRoot,
+		SkillStore:          pm.skillStore,
+		RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
+		EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+	}
+	var sections []pkgplugins.SystemPromptSection
+	if pm.promptSectionsBuilder != nil {
+		sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+	}
+	if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		sections = append(sections, skillsSection)
+	}
+	return sections
+}
+
 func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentruntime.SnapshotPromptFunc {
 	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) string {
-		userRoot := ""
-		if info.UserID != "" {
-			if dir, err := SetupUserWorkspace(snap.AgentID, config.StellaHome(), info.UserID); err == nil {
-				userRoot = dir
-			}
-		}
-
-		homeDir, _ := os.UserHomeDir()
-		pluginView := pkgplugins.SessionPluginView{}
-		if pm.sessionPluginViewBuilder != nil {
-			pluginView, _ = pm.sessionPluginViewBuilder(ctx)
-		}
-		promptBuild := pkgplugins.SystemPromptContext{
-			StellaHome:          config.StellaHome(),
-			HomeDir:             homeDir,
-			AgentRoot:           snap.Workspace,
-			UserID:              info.UserID,
-			AgentID:             info.AgentID,
-			UserRoot:            userRoot,
-			SkillStore:          pm.skillStore,
-			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
-			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
-		}
-		var sections []pkgplugins.SystemPromptSection
-		if pm.promptSectionsBuilder != nil {
-			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
-		}
-		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
-			sections = append(sections, skillsSection)
-		}
+		userRoot, promptUserID, groupID := pm.promptScope(snap.AgentID, info)
+		sections := pm.promptSections(ctx, snap, info, userRoot)
 
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 			SystemPrompt:      snap.SystemPrompt,
 			AgentSoul:         snap.Soul,
 			Memory:            pm.mem,
-			UserID:            info.UserID,
+			UserID:            promptUserID,
 			AgentID:           info.AgentID,
+			GroupID:           groupID,
 			StellaHome:        config.StellaHome(),
 			AgentRoot:         snap.Workspace,
 			UserRoot:          userRoot,
@@ -346,27 +365,59 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 	}
 }
 
-func (pm *PoolManager) runtimeBeforeRun(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
-	if pm.beforeRunBuilder == nil {
-		return system, nil
-	}
-	result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
-		SessionID:    info.ID,
-		Channel:      info.Channel,
-		UserID:       info.UserID,
-		AgentID:      info.AgentID,
-		Model:        model,
-		MessageText:  msgText,
-		SystemPrompt: system,
-		History:      append([]ai.Message(nil), history...),
+// buildGroupSystemPrompt renders a per-turn group system prompt with the current
+// speaker. It is never cached on the runner, so one speaker's addressing context
+// can't leak into another speaker's turn. The prompt UserID stays empty and
+// group memory flows from GroupID; private speaker profile text is deliberately
+// not auto-injected into public group prompts.
+func (pm *PoolManager) buildGroupSystemPrompt(ctx context.Context, snap *config.Snapshot, info session.Info, speaker memory.CurrentSpeaker) string {
+	userRoot, _, groupID := pm.promptScope(snap.AgentID, info)
+	sections := pm.promptSections(ctx, snap, info, userRoot)
+
+	return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+		SystemPrompt:      snap.SystemPrompt,
+		AgentSoul:         snap.Soul,
+		Memory:            pm.mem,
+		UserID:            "",
+		AgentID:           info.AgentID,
+		GroupID:           groupID,
+		StellaHome:        config.StellaHome(),
+		AgentRoot:         snap.Workspace,
+		UserRoot:          userRoot,
+		Sections:          sections,
+		CurrentSpeaker:    speaker,
+		HasCurrentSpeaker: true,
 	})
-	if err != nil {
-		return "", err
+}
+
+func (pm *PoolManager) runtimeBeforeRunFunc(snap *config.Snapshot) agentruntime.BeforeRunFunc {
+	return func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
+		if info.GroupID != "" {
+			if speaker, ok := memory.CurrentSpeakerFromContext(ctx); ok {
+				system = pm.buildGroupSystemPrompt(ctx, snap, info, speaker)
+			}
+		}
+		if pm.beforeRunBuilder == nil {
+			return system, nil
+		}
+		result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
+			SessionID:    info.ID,
+			Channel:      info.Channel,
+			UserID:       info.UserID,
+			AgentID:      info.AgentID,
+			Model:        model,
+			MessageText:  msgText,
+			SystemPrompt: system,
+			History:      append([]ai.Message(nil), history...),
+		})
+		if err != nil {
+			return "", err
+		}
+		if result.SystemPrompt == "" {
+			return system, nil
+		}
+		return result.SystemPrompt, nil
 	}
-	if result.SystemPrompt == "" {
-		return system, nil
-	}
-	return result.SystemPrompt, nil
 }
 
 // GetService returns the Service for the given agent ID, or nil if not found.

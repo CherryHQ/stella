@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // GroupResolver resolves the canonical group_id for a physical group identity.
@@ -24,6 +25,10 @@ type ResolvedChat struct {
 	Channel    session.Channel
 	ChatCtx    ChatContext
 	GroupID    string // non-empty for group sessions; used as session scope (D9)
+	// CurrentSpeaker is the per-turn group speaker (personalization target only).
+	// Canonical source for group personalization; runtime/session scope still
+	// flows from GroupID / sessionUserID(), never from User.ID.
+	CurrentSpeaker memory.CurrentSpeaker
 }
 
 func (rc *ResolvedChat) UserID() string { return rc.User.ID }
@@ -72,13 +77,14 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
 	stream := rc.Service.Chat(ctx, agent.ChatRequest{
-		SessionID: info.ID,
-		UserID:    rc.sessionUserID(),
-		AgentID:   rc.AgentID,
-		Kind:      session.Kind(info.Kind),
-		GroupID:   rc.GroupID,
-		Channel:   rc.Channel,
-		Message:   message,
+		SessionID:      info.ID,
+		UserID:         rc.sessionUserID(),
+		AgentID:        rc.AgentID,
+		Kind:           session.Kind(info.Kind),
+		GroupID:        rc.GroupID,
+		Channel:        rc.Channel,
+		Message:        message,
+		CurrentSpeaker: rc.CurrentSpeaker,
 	})
 	return stream, info.ID, nil
 }

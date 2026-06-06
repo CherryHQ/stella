@@ -42,6 +42,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	if info.GroupID == "" {
 		ctx = memory.WithUserID(ctx, info.UserID)
+	} else if co.hasSpeaker {
+		// Group turns: attach the speaker as a personalization target only.
+		// memory.WithUserID stays unset so runtime identity remains the group (D9).
+		ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
 	}
 	ctx = memory.WithAgentID(ctx, info.AgentID)
 	if info.ProjectID != "" {
@@ -136,9 +140,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	baseSystem := co.systemOverride
 	if baseSystem == "" {
 		baseSystem = r.SystemPrompt()
-		// Per-turn snapshot prompt: rebuild system with frozen memory version.
-		// Skipped when systemOverride is set (e.g. delegate custom system).
-		if rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
+		if info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
+			// DM per-turn snapshot prompt: rebuild system with frozen memory
+			// version. Skipped when systemOverride is set (e.g. delegate custom
+			// system).
 			sss, ok := rt.mem.(memory.SessionSnapshotStore)
 			if ok {
 				snap, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)

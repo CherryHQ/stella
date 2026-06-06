@@ -80,14 +80,26 @@ Your identity, personality, and behavior. Edit via the memory tool (soul_get / s
 {{ .AgentSoul }}
 </agent_soul>
 
-{{ if .GroupMemory }}## Group Memory
+{{ if .IsGroup }}## Group Memory
 
 Shared knowledge about this group conversation.
 
 <group_memory>
 {{ .GroupMemory }}
 </group_memory>
-{{ else }}## User Profile
+{{ if .HasCurrentSpeaker }}
+## Current Speaker
+
+The human speaking in this turn. This section is for addressing and tone only.
+Private profile facts are not injected into public group prompts. Do not call
+`memory.profile_get` or disclose profile details in a group unless this speaker
+explicitly asks you to read or use their profile in this conversation.
+
+<current_speaker>
+Name: {{ .CurrentSpeakerName }}
+{{ if .CurrentSpeakerLinked }}Linked Stella user: yes (profile available only by explicit request){{ else }}Linked Stella user: no{{ end }}
+</current_speaker>
+{{ end }}{{ else }}## User Profile
 
 What you know about this user. Edit via the memory tool (profile_get / profile_update).
 

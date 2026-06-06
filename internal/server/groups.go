@@ -419,10 +419,14 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	// Empty client_message_id disables tier-1 dedup (no fake UUID).
 	platformMsgID := derefStr(req.ClientMessageId)
 	appendResult, err := s.eventLog.AppendGroupMessage(ctx, eventlog.Message{
-		Platform:          "web",
-		PlatformGroupID:   groupId,
-		PlatformThreadID:  "",
-		ActorType:         eventlog.ActorHuman,
+		Platform:         "web",
+		PlatformGroupID:  groupId,
+		PlatformThreadID: "",
+		ActorType:        eventlog.ActorHuman,
+		// Invariant (#308): the Web group actor_id is the authenticated user id.
+		// The group dispatcher (webGroupSpeaker) trusts this as the current-speaker
+		// profile target, so it must never be a client-supplied or otherwise
+		// unauthenticated value.
 		ActorID:           authInfo.UserID,
 		PlatformMessageID: platformMsgID,
 		Content:           req.Content,
