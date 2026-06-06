@@ -15,6 +15,9 @@ RETURNING *;
 -- name: RemoveGroupMember :exec
 DELETE FROM channel_group_member WHERE group_id = ? AND agent_id = ?;
 
+-- name: CountGroupMembers :one
+SELECT COUNT(*) FROM channel_group_member WHERE group_id = ?;
+
 -- name: ListGroupsByAgent :many
 SELECT * FROM channel_group_member WHERE agent_id = ?;
 

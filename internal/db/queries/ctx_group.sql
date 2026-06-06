@@ -5,9 +5,28 @@ WHERE platform = sqlc.arg(platform)
   AND platform_thread_id = sqlc.arg(platform_thread_id);
 
 -- name: CreateGroupState :one
-INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id)
-VALUES (?, ?, ?, ?)
+INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id, group_name, created_by_user_id)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: GetGroupStateByID :one
+SELECT * FROM ctx_group_state WHERE id = ?;
+
+-- name: ListGroupsByUser :many
+SELECT * FROM ctx_group_state
+WHERE created_by_user_id = sqlc.arg(user_id)
+  AND platform = 'web'
+ORDER BY updated_at DESC
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+
+-- name: UpdateGroupName :one
+UPDATE ctx_group_state
+SET group_name = sqlc.arg(group_name), updated_at = datetime('now')
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: DeleteGroupState :exec
+DELETE FROM ctx_group_state WHERE id = ?;
 
 -- name: BumpGroupSeq :one
 UPDATE ctx_group_state
@@ -29,6 +48,12 @@ SELECT * FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
 ORDER BY seq DESC
 LIMIT sqlc.arg(max_count);
+
+-- name: ListGroupMessagesPaginated :many
+SELECT * FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+ORDER BY seq DESC
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (

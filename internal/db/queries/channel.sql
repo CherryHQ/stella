@@ -12,6 +12,11 @@ ON CONFLICT(id) DO UPDATE SET
     config = excluded.config,
     updated_at = datetime('now');
 
+-- name: CreateWebChannelIfNotExists :exec
+INSERT INTO channel (id, name, type, agent_id)
+VALUES (?, 'Web', 'web', ?)
+ON CONFLICT(id) DO NOTHING;
+
 -- name: ListChannels :many
 SELECT * FROM channel ORDER BY type, id;
 

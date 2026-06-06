@@ -400,13 +400,15 @@ type CtxGroupMessage struct {
 }
 
 type CtxGroupState struct {
-	ID               string `json:"id"`
-	Platform         string `json:"platform"`
-	PlatformGroupID  string `json:"platform_group_id"`
-	PlatformThreadID string `json:"platform_thread_id"`
-	NextSeq          int64  `json:"next_seq"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
+	ID               string         `json:"id"`
+	Platform         string         `json:"platform"`
+	PlatformGroupID  string         `json:"platform_group_id"`
+	PlatformThreadID string         `json:"platform_thread_id"`
+	NextSeq          int64          `json:"next_seq"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
+	GroupName        string         `json:"group_name"`
+	CreatedByUserID  sql.NullString `json:"created_by_user_id"`
 }
 
 type CtxItem struct {

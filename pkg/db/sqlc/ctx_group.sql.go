@@ -80,16 +80,18 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 }
 
 const createGroupState = `-- name: CreateGroupState :one
-INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id)
-VALUES (?, ?, ?, ?)
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at
+INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id, group_name, created_by_user_id)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
 `
 
 type CreateGroupStateParams struct {
-	ID               string `json:"id"`
-	Platform         string `json:"platform"`
-	PlatformGroupID  string `json:"platform_group_id"`
-	PlatformThreadID string `json:"platform_thread_id"`
+	ID               string         `json:"id"`
+	Platform         string         `json:"platform"`
+	PlatformGroupID  string         `json:"platform_group_id"`
+	PlatformThreadID string         `json:"platform_thread_id"`
+	GroupName        string         `json:"group_name"`
+	CreatedByUserID  sql.NullString `json:"created_by_user_id"`
 }
 
 func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStateParams) (CtxGroupState, error) {
@@ -98,6 +100,8 @@ func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStatePara
 		arg.Platform,
 		arg.PlatformGroupID,
 		arg.PlatformThreadID,
+		arg.GroupName,
+		arg.CreatedByUserID,
 	)
 	var i CtxGroupState
 	err := row.Scan(
@@ -108,8 +112,19 @@ func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStatePara
 		&i.NextSeq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
 	)
 	return i, err
+}
+
+const deleteGroupState = `-- name: DeleteGroupState :exec
+DELETE FROM ctx_group_state WHERE id = ?
+`
+
+func (q *Queries) DeleteGroupState(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteGroupState, id)
+	return err
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
@@ -168,8 +183,29 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 	return i, err
 }
 
+const getGroupStateByID = `-- name: GetGroupStateByID :one
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = ?
+`
+
+func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupState, error) {
+	row := q.db.QueryRowContext(ctx, getGroupStateByID, id)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const getGroupStateByTriple = `-- name: GetGroupStateByTriple :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at FROM ctx_group_state
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state
 WHERE platform = ?1
   AND platform_group_id = ?2
   AND platform_thread_id = ?3
@@ -192,8 +228,106 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 		&i.NextSeq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
 	)
 	return i, err
+}
+
+const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+WHERE group_id = ?1
+ORDER BY seq DESC
+LIMIT ?3 OFFSET ?2
+`
+
+type ListGroupMessagesPaginatedParams struct {
+	GroupID     string `json:"group_id"`
+	OffsetCount int64  `json:"offset_count"`
+	LimitCount  int64  `json:"limit_count"`
+}
+
+func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]CtxGroupMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listGroupMessagesPaginated, arg.GroupID, arg.OffsetCount, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupMessage{}
+	for rows.Next() {
+		var i CtxGroupMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.SourceChannelID,
+			&i.ActorType,
+			&i.ActorID,
+			&i.PlatformMessageID,
+			&i.ReplyTo,
+			&i.PlatformTimestamp,
+			&i.IdempotencyKey,
+			&i.Content,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGroupsByUser = `-- name: ListGroupsByUser :many
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state
+WHERE created_by_user_id = ?1
+  AND platform = 'web'
+ORDER BY updated_at DESC
+LIMIT ?3 OFFSET ?2
+`
+
+type ListGroupsByUserParams struct {
+	UserID      sql.NullString `json:"user_id"`
+	OffsetCount int64          `json:"offset_count"`
+	LimitCount  int64          `json:"limit_count"`
+}
+
+func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserParams) ([]CtxGroupState, error) {
+	rows, err := q.db.QueryContext(ctx, listGroupsByUser, arg.UserID, arg.OffsetCount, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupState{}
+	for rows.Next() {
+		var i CtxGroupState
+		if err := rows.Scan(
+			&i.ID,
+			&i.Platform,
+			&i.PlatformGroupID,
+			&i.PlatformThreadID,
+			&i.NextSeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.GroupName,
+			&i.CreatedByUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
@@ -242,4 +376,33 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateGroupName = `-- name: UpdateGroupName :one
+UPDATE ctx_group_state
+SET group_name = ?1, updated_at = datetime('now')
+WHERE id = ?2
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+`
+
+type UpdateGroupNameParams struct {
+	GroupName string `json:"group_name"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) UpdateGroupName(ctx context.Context, arg UpdateGroupNameParams) (CtxGroupState, error) {
+	row := q.db.QueryRowContext(ctx, updateGroupName, arg.GroupName, arg.ID)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+	)
+	return i, err
 }

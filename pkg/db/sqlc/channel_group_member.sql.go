@@ -37,6 +37,17 @@ func (q *Queries) AddGroupMember(ctx context.Context, arg AddGroupMemberParams) 
 	return i, err
 }
 
+const countGroupMembers = `-- name: CountGroupMembers :one
+SELECT COUNT(*) FROM channel_group_member WHERE group_id = ?
+`
+
+func (q *Queries) CountGroupMembers(ctx context.Context, groupID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countGroupMembers, groupID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getGroupMember = `-- name: GetGroupMember :one
 SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = ? AND agent_id = ?
 `

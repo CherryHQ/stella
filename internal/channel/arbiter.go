@@ -50,11 +50,22 @@ type ArbiterDecision struct {
 	Debounced        bool     // true = message was suppressed by debounce window
 }
 
+// DecideOptions controls per-call arbiter behavior.
+type DecideOptions struct {
+	// AllMembersFallback: when true, if there is no @mention and no
+	// channelAgentID, return all group members instead of empty.
+	AllMembersFallback bool
+}
+
 // Decide determines which agents should respond to a human message in a group.
 // mentionedAgents are the agent IDs resolved from @mentions.
 // groupMembers are all agents currently in the group.
 // channelAgentID is the channel's default agent (fallback when no mention).
-func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchannel.Mention, groupMembers []GroupMember, channelAgentID string) ArbiterDecision {
+func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchannel.Mention, groupMembers []GroupMember, channelAgentID string, opts ...DecideOptions) ArbiterDecision {
+	var opt DecideOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	log := slog.With("component", "arbiter", "group_id", groupID)
 
 	// Resolve mentions FIRST so explicit @mentions bypass debounce (CR-010).
@@ -74,28 +85,32 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 
 	// Explicit @mention always responds — skip debounce entirely.
 	if len(responding) == 0 {
-		// No fallback agent → nothing to debounce or dispatch (CR-012).
+		// No fallback agent → check AllMembersFallback or skip (CR-012).
 		if channelAgentID == "" {
-			log.Debug("no mention and no channel default agent, skipping")
-			return ArbiterDecision{}
-		}
-
-		// Fallback path: apply debounce only for non-mention responses.
-		if a.cfg.DebounceWindow > 0 {
-			a.mu.Lock()
-			last := a.lastTrigger[groupID]
-			now := time.Now()
-			if !last.IsZero() && now.Sub(last) < a.cfg.DebounceWindow {
-				a.mu.Unlock()
-				log.Debug("debounced", "since_last", now.Sub(last))
-				return ArbiterDecision{Debounced: true}
+			if !opt.AllMembersFallback {
+				log.Debug("no mention and no channel default agent, skipping")
+				return ArbiterDecision{}
 			}
-			a.lastTrigger[groupID] = now
-			a.evictExpired(now)
-			a.mu.Unlock()
+			for _, m := range groupMembers {
+				responding = append(responding, m.AgentID)
+			}
+		} else {
+			// Fallback path: apply debounce only for non-mention responses.
+			if a.cfg.DebounceWindow > 0 {
+				a.mu.Lock()
+				last := a.lastTrigger[groupID]
+				now := time.Now()
+				if !last.IsZero() && now.Sub(last) < a.cfg.DebounceWindow {
+					a.mu.Unlock()
+					log.Debug("debounced", "since_last", now.Sub(last))
+					return ArbiterDecision{Debounced: true}
+				}
+				a.lastTrigger[groupID] = now
+				a.evictExpired(now)
+				a.mu.Unlock()
+			}
+			responding = append(responding, channelAgentID)
 		}
-
-		responding = append(responding, channelAgentID)
 	}
 
 	if len(responding) > a.cfg.MaxRepliesPerTrigger {

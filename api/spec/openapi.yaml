@@ -40,6 +40,7 @@ tags:
   - name: tools
   - name: builtin
   - name: channels
+  - name: groups
   - name: weixin
   - name: providers
   - name: sessions
@@ -316,6 +317,17 @@ paths:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1request-changes"
   /api/goals/{goalId}/reviews/{reviewId}/escalate:
     $ref: "./domain/goals/paths.yaml#/paths/~1api~1goals~1{goalId}~1reviews~1{reviewId}~1escalate"
+  # ── Groups ─────────────────────────────────────────────────────────────────
+  /api/groups:
+    $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups"
+  /api/groups/{groupId}:
+    $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}"
+  /api/groups/{groupId}/members:
+    $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1members"
+  /api/groups/{groupId}/members/{agentId}:
+    $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1members~1{agentId}"
+  /api/groups/{groupId}/messages:
+    $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1messages"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
@@ -620,6 +632,30 @@ components:
     }
     ChangelogList: {
       $ref: "./components.yaml#/components/schemas/ChangelogList",
+    }
+    Group: { $ref: "./components.yaml#/components/schemas/Group" }
+    GroupList: { $ref: "./components.yaml#/components/schemas/GroupList" }
+    GroupMember: { $ref: "./components.yaml#/components/schemas/GroupMember" }
+    GroupMemberList: {
+      $ref: "./components.yaml#/components/schemas/GroupMemberList",
+    }
+    GroupMessage: {
+      $ref: "./components.yaml#/components/schemas/GroupMessage",
+    }
+    GroupMessageList: {
+      $ref: "./components.yaml#/components/schemas/GroupMessageList",
+    }
+    CreateGroupRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateGroupRequest",
+    }
+    UpdateGroupRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateGroupRequest",
+    }
+    AddGroupMemberRequest: {
+      $ref: "./components.yaml#/components/schemas/AddGroupMemberRequest",
+    }
+    SendGroupMessageRequest: {
+      $ref: "./components.yaml#/components/schemas/SendGroupMessageRequest",
     }
     EmailFolderList: {
       $ref: "./components.yaml#/components/schemas/EmailFolderList",

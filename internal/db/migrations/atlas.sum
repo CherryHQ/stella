@@ -1,4 +1,4 @@
-h1:rQdEX7hk64zjcn/MB8A9/rpjvMy+VCVnVZWGTQxUT/s=
+h1:QwzVII+KzJuPi8ayvUJOB5mti8w9U9z2zzvB+t9ZGmk=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
@@ -9,3 +9,4 @@ h1:rQdEX7hk64zjcn/MB8A9/rpjvMy+VCVnVZWGTQxUT/s=
 20260604091531_group_memory.sql h1:DH0MPQd9gFi0awAeTLPff3619aBQcbyosBudUWJ8N6Y=
 20260604094241_group_ingest.sql h1:yNSEfntVnFqz7VHcH2dwuDjBSgI+QGT8l2OT7H+kBeo=
 20260604095508_group_member.sql h1:1eDwlgLgZerETpqB4ZCRUK/USHA50GZNMpdzpAniB7k=
+20260604161936_add_web_group_fields.sql h1:rju9A0Anv0IqVKomj+LYUgcxGB2CJi/iUive8b6s9N0=

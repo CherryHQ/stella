@@ -1,0 +1,100 @@
+openapi: 3.0.3
+info:
+  title: Groups Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    Group:
+      type: object
+      required: [id, group_name, platform, created_at, updated_at]
+      properties:
+        id: { type: string }
+        group_name: { type: string }
+        platform: { type: string }
+        created_by_user_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    GroupList:
+      type: object
+      required: [groups]
+      properties:
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/Group" }
+        next_page_token: { type: string, nullable: true }
+
+    GroupMember:
+      type: object
+      required: [group_id, agent_id, reply_channel_id, created_at]
+      properties:
+        group_id: { type: string }
+        agent_id: { type: string }
+        agent_name: { type: string }
+        reply_channel_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    GroupMemberList:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/GroupMember" }
+
+    GroupMessage:
+      type: object
+      required: [id, group_id, seq, actor_type, actor_id, content, created_at]
+      properties:
+        id: { type: string }
+        group_id: { type: string }
+        seq: { type: integer }
+        actor_type: { type: string }
+        actor_id: { type: string }
+        actor_name: { type: string }
+        content: { type: string }
+        reasoning: { type: string }
+        agent_session_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    GroupMessageList:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/GroupMessage" }
+        next_page_token: { type: string, nullable: true }
+
+    CreateGroupRequest:
+      type: object
+      required: [group_name, agent_ids]
+      properties:
+        group_name: { type: string }
+        agent_ids:
+          type: array
+          items: { type: string }
+          minItems: 1
+
+    UpdateGroupRequest:
+      type: object
+      required: [group_name]
+      properties:
+        group_name: { type: string }
+
+    AddGroupMemberRequest:
+      type: object
+      required: [agent_id]
+      properties:
+        agent_id: { type: string }
+
+    SendGroupMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+        client_message_id: {
+          type: string,
+          description: "Client-generated UUID for idempotent dedup",
+        }

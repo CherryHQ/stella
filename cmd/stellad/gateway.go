@@ -208,6 +208,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
 	elStore := eventlog.NewStore(s.db)
+	adminSrv.SetEventLogStore(elStore)
 	botRegistry := channel.NewBotIdentityRegistry()
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
