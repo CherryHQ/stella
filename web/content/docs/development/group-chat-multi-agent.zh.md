@@ -227,7 +227,7 @@ D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍
 硬规则:
 
 - **是个性化目标,不是运行时身份。** `CurrentSpeaker.UserID` 绝不可传给 `memory.WithUserID`、sandbox/vault/token 代码、plugin 或 delegate 上下文、notify 路由、hook 用户元数据。`runtime/chat.go` 为群聊回合附上发言人,但仍跳过 `WithUserID`,故 D9 四个面全部保持群作用域。
-- **逐轮构建,绝不缓存。** prompt 的 `## Current Speaker` 段由 `GroupPromptFunc` 每轮重渲整份系统提示词生成。缓存的群 runner 不持有发言人上下文,故一个发言人的回合元数据不会泄漏到另一个发言人的回合。
+- **逐轮构建,绝不缓存。** prompt 的 `## Current Speaker` 段由 PoolManager 的 before-run prompt 重建逻辑每轮重渲整份系统提示词生成。缓存的群 runner 不持有发言人上下文,故一个发言人的回合元数据不会泄漏到另一个发言人的回合。
 - **prompt 渲染按 `GroupID` 分支,而非按群记忆是否为空。** 群聊回合渲染 `## Group Memory`(+ 可选的 `## Current Speaker`),即使群抽屉为空也绝不回退到按用户的 `## User Profile` 段。
 - **不自动注入私有 profile。** `## Current Speaker` 只暴露显示名与已关联/未关联状态,不包含发言人的 profile 正文、带日期条目、soul 或 constraints:公开群不是披露某成员私有记忆,也不是把某成员硬规则套到整群的地方。
 - **按硬事实解析。** 平台发送者经渠道身份查找解析(已关联 → auth 用户 id;未关联 → 空 UserID → 仅名字)。Web 发送者仅当是真正的 human actor 时才信任已认证的 `actor_id` 作为发言人,否则 fail-closed。

@@ -83,7 +83,7 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 
 Conversation history is assembled separately by the memory provider. Constraints, identity, and knowledge live in the system prompt, so conversation compaction does not remove them.
 
-For group turns the per-turn rebuild is a `GroupPromptFunc` that re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind explicit `memory.profile_get` / `memory.profile_update` tool calls.
+For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind explicit `memory.profile_get` / `memory.profile_update` tool calls.
 
 ## Changelog and Rollback
 

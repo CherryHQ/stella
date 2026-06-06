@@ -93,13 +93,13 @@ type DBPromptParams struct {
 	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
 	SnapshotUpdatedAt time.Time // wall-clock time of the last snapshot advance; used to filter knowledge
 
-	// CurrentSpeaker, when non-nil, renders a group-only "## Current Speaker"
-	// section for the human speaking this turn. It is a personalization target
-	// only: its UserID must never be passed as the prompt UserID (which stays
-	// empty/group-scoped for group sessions). Group prompts expose only speaker
-	// presence/linked status; private profile text is not auto-injected into a
-	// public room.
-	CurrentSpeaker *memory.CurrentSpeaker
+	// CurrentSpeaker renders a group-only "## Current Speaker" section when
+	// HasCurrentSpeaker is true. It is a personalization target only: its UserID
+	// must never be passed as the prompt UserID (which stays empty/group-scoped for
+	// group sessions). Group prompts expose only speaker presence/linked status;
+	// private profile text is not auto-injected into a public room.
+	CurrentSpeaker    memory.CurrentSpeaker
+	HasCurrentSpeaker bool
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -190,12 +190,10 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// linked. Private profile text/entries, soul, and constraints are intentionally
 	// NOT auto-injected; a public room is not the place to disclose one member's
 	// private memory to the whole group.
-	// Render the section only for a real speaker. A zero-value speaker reaches
-	// here on fail-closed group dispatch (e.g. a non-human Web trigger); rendering
-	// it would inject a phantom "Unknown speaker" telling the model a human is
-	// present when none resolved. An unlinked platform sender is still non-zero
-	// (platform/name set) and renders correctly.
-	if p.CurrentSpeaker != nil && *p.CurrentSpeaker != (memory.CurrentSpeaker{}) {
+	// Render the section only when the caller resolved a real speaker. Unlinked
+	// platform senders can still render (name/platform set); fail-closed dispatch
+	// leaves HasCurrentSpeaker false so no phantom "Unknown speaker" appears.
+	if p.HasCurrentSpeaker && p.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		data.HasCurrentSpeaker = true
 		data.CurrentSpeakerName = p.CurrentSpeaker.DisplayName
 		if data.CurrentSpeakerName == "" {

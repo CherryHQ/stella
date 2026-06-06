@@ -1395,7 +1395,7 @@ history = [
                 </div>
                 <pre>r.Chat(ctx, history, userMsg)
 
-<span class="cm">// system 由 GroupPromptFunc 逐轮重建 (prompt/prompt.go)</span>
+<span class="cm">// system 由 PoolManager before-run 路径逐轮重建 (prompt/prompt.go)</span>
 [system]    你是天气助手，帮助用户查询天气信息…
             <span class="ok">## Group Memory</span>      <span class="cm">← 群共享抽屉 (group_id)</span>
             <span class="ok">## Current Speaker</span>   <span class="cm">← 发言人元信息，不自动注入私有 profile</span>

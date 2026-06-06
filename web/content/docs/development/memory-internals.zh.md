@@ -83,7 +83,7 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 对话历史由记忆 provider 单独组装。约束、身份和知识位于系统提示中，因此对话压缩不会删除它们。
 
-群聊回合的逐轮重建是一个 `GroupPromptFunc`,它带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的 `memory.profile_get` / `memory.profile_update` 工具调用。
+群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的 `memory.profile_get` / `memory.profile_update` 工具调用。
 
 ## Changelog 与回滚
 

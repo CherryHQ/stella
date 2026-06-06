@@ -31,14 +31,6 @@ type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, 
 // SnapshotPromptFunc builds a system prompt from the session's snapshot version.
 type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) string
 
-// GroupPromptFunc builds a per-turn system prompt for a group session, injecting
-// the current speaker's addressing context. It re-renders the full prompt (base
-// + group memory + current speaker) so cached runner state never carries one
-// speaker's turn context into another speaker's turn. The standard builder
-// always returns a full prompt; an empty return is treated defensively as "leave
-// the cached prompt".
-type GroupPromptFunc func(ctx context.Context, info session.Info, speaker memory.CurrentSpeaker) string
-
 // chat is the goroutine body for Runtime.Chat.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
 	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model)
@@ -148,16 +140,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	baseSystem := co.systemOverride
 	if baseSystem == "" {
 		baseSystem = r.SystemPrompt()
-		switch {
-		case info.GroupID != "" && rt.groupPrompt != nil:
-			// Group turns: rebuild per-turn with the current speaker. This path
-			// is group-safe (UserID stays the group, speaker is a separate axis)
-			// and deliberately bypasses the user-keyed snapshot prompt, whose
-			// subject would be the group id, not a human.
-			if system := rt.groupPrompt(ctx, info, co.currentSpeaker); system != "" {
-				baseSystem = system
-			}
-		case info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "":
+		if info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
 			// DM per-turn snapshot prompt: rebuild system with frozen memory
 			// version. Skipped when systemOverride is set (e.g. delegate custom
 			// system).

@@ -23,12 +23,13 @@ func TestCurrentSpeakerLinkedRendersWithGroupMemory(t *testing.T) {
 	_ = fake.SetProfile(ctx, "other", "a1", "OTHER MEMBER SECRET")
 
 	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt:   "You are Stella.",
-		Memory:         fake,
-		UserID:         "",
-		AgentID:        "a1",
-		GroupID:        "grp-1",
-		CurrentSpeaker: &memory.CurrentSpeaker{Platform: "telegram", DisplayName: "Alice", UserID: "speaker1"},
+		SystemPrompt:      "You are Stella.",
+		Memory:            fake,
+		UserID:            "",
+		AgentID:           "a1",
+		GroupID:           "grp-1",
+		CurrentSpeaker:    memory.CurrentSpeaker{Platform: "telegram", DisplayName: "Alice", UserID: "speaker1"},
+		HasCurrentSpeaker: true,
 	})
 
 	for _, want := range []string{"## Group Memory", "## Current Speaker", "Alice", "Linked Stella user: yes"} {
@@ -52,11 +53,12 @@ func TestCurrentSpeakerUnlinkedRendersNameOnly(t *testing.T) {
 	_ = fake.SetProfile(ctx, "tg-stranger", "a1", "WRONG PROFILE")
 
 	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt:   "You are Stella.",
-		Memory:         fake,
-		AgentID:        "a1",
-		GroupID:        "grp-1",
-		CurrentSpeaker: &memory.CurrentSpeaker{Platform: "telegram", PlatformUserID: "tg-stranger", DisplayName: "Stranger"},
+		SystemPrompt:      "You are Stella.",
+		Memory:            fake,
+		AgentID:           "a1",
+		GroupID:           "grp-1",
+		CurrentSpeaker:    memory.CurrentSpeaker{Platform: "telegram", PlatformUserID: "tg-stranger", DisplayName: "Stranger"},
+		HasCurrentSpeaker: true,
 	})
 
 	if !strings.Contains(p, "## Current Speaker") {
@@ -84,11 +86,12 @@ func TestCurrentSpeakerPrivateMemoryNotInjected(t *testing.T) {
 	_ = fake.SetProfile(ctx, "speaker1", "a1", "Alice profile")
 
 	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt:   "You are Stella.",
-		Memory:         fake,
-		AgentID:        "a1",
-		GroupID:        "grp-1",
-		CurrentSpeaker: &memory.CurrentSpeaker{DisplayName: "Alice", UserID: "speaker1"},
+		SystemPrompt:      "You are Stella.",
+		Memory:            fake,
+		AgentID:           "a1",
+		GroupID:           "grp-1",
+		CurrentSpeaker:    memory.CurrentSpeaker{DisplayName: "Alice", UserID: "speaker1"},
+		HasCurrentSpeaker: true,
 	})
 
 	for _, forbidden := range []string{"Alice profile", "SPEAKER SECRET SOUL", "SPEAKER SECRET CONSTRAINT"} {
@@ -103,16 +106,15 @@ func TestCurrentSpeakerZeroValueRendersNoSection(t *testing.T) {
 	ctx := context.Background()
 	fake.SetGroupMemory("grp-1", "Group about Go.")
 
-	// Fail-closed dispatch (e.g. non-human Web trigger) yields a zero speaker.
-	// The group prompt builder still passes a non-nil pointer to it; the section
-	// must not render a phantom "Unknown" speaker.
-	zero := memory.CurrentSpeaker{}
+	// Fail-closed dispatch (e.g. non-human Web trigger) can defensively pass a
+	// zero speaker; the section must not render a phantom "Unknown" speaker.
 	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt:   "You are Stella.",
-		Memory:         fake,
-		AgentID:        "a1",
-		GroupID:        "grp-1",
-		CurrentSpeaker: &zero,
+		SystemPrompt:      "You are Stella.",
+		Memory:            fake,
+		AgentID:           "a1",
+		GroupID:           "grp-1",
+		CurrentSpeaker:    memory.CurrentSpeaker{},
+		HasCurrentSpeaker: true,
 	})
 
 	if strings.Contains(p, "## Current Speaker") {

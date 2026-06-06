@@ -279,9 +279,8 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		IdleTimeout:    pm.idleTimeout,
 		DefaultModel:   snap.ResolveModelID(config.ModelTierStrong),
 		HooksFn:        pm.HookPlugins,
-		BeforeRun:      pm.runtimeBeforeRun,
+		BeforeRun:      pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt: pm.buildSnapshotPromptFunc(snap),
-		GroupPrompt:    pm.buildGroupPromptFunc(snap),
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -366,54 +365,59 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 	}
 }
 
-// buildGroupPromptFunc renders a per-turn group system prompt with the current
+// buildGroupSystemPrompt renders a per-turn group system prompt with the current
 // speaker. It is never cached on the runner, so one speaker's addressing context
 // can't leak into another speaker's turn. The prompt UserID stays empty and
 // group memory flows from GroupID; private speaker profile text is deliberately
 // not auto-injected into public group prompts.
-func (pm *PoolManager) buildGroupPromptFunc(snap *config.Snapshot) agentruntime.GroupPromptFunc {
-	return func(ctx context.Context, info session.Info, speaker memory.CurrentSpeaker) string {
-		userRoot, _, groupID := pm.promptScope(snap.AgentID, info)
-		sections := pm.promptSections(ctx, snap, info, userRoot)
+func (pm *PoolManager) buildGroupSystemPrompt(ctx context.Context, snap *config.Snapshot, info session.Info, speaker memory.CurrentSpeaker) string {
+	userRoot, _, groupID := pm.promptScope(snap.AgentID, info)
+	sections := pm.promptSections(ctx, snap, info, userRoot)
 
-		cs := speaker
-		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt:   snap.SystemPrompt,
-			AgentSoul:      snap.Soul,
-			Memory:         pm.mem,
-			UserID:         "",
-			AgentID:        info.AgentID,
-			GroupID:        groupID,
-			StellaHome:     config.StellaHome(),
-			AgentRoot:      snap.Workspace,
-			UserRoot:       userRoot,
-			Sections:       sections,
-			CurrentSpeaker: &cs,
-		})
-	}
+	return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+		SystemPrompt:      snap.SystemPrompt,
+		AgentSoul:         snap.Soul,
+		Memory:            pm.mem,
+		UserID:            "",
+		AgentID:           info.AgentID,
+		GroupID:           groupID,
+		StellaHome:        config.StellaHome(),
+		AgentRoot:         snap.Workspace,
+		UserRoot:          userRoot,
+		Sections:          sections,
+		CurrentSpeaker:    speaker,
+		HasCurrentSpeaker: true,
+	})
 }
 
-func (pm *PoolManager) runtimeBeforeRun(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
-	if pm.beforeRunBuilder == nil {
-		return system, nil
+func (pm *PoolManager) runtimeBeforeRunFunc(snap *config.Snapshot) agentruntime.BeforeRunFunc {
+	return func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
+		if info.GroupID != "" {
+			if speaker, ok := memory.CurrentSpeakerFromContext(ctx); ok {
+				system = pm.buildGroupSystemPrompt(ctx, snap, info, speaker)
+			}
+		}
+		if pm.beforeRunBuilder == nil {
+			return system, nil
+		}
+		result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
+			SessionID:    info.ID,
+			Channel:      info.Channel,
+			UserID:       info.UserID,
+			AgentID:      info.AgentID,
+			Model:        model,
+			MessageText:  msgText,
+			SystemPrompt: system,
+			History:      append([]ai.Message(nil), history...),
+		})
+		if err != nil {
+			return "", err
+		}
+		if result.SystemPrompt == "" {
+			return system, nil
+		}
+		return result.SystemPrompt, nil
 	}
-	result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
-		SessionID:    info.ID,
-		Channel:      info.Channel,
-		UserID:       info.UserID,
-		AgentID:      info.AgentID,
-		Model:        model,
-		MessageText:  msgText,
-		SystemPrompt: system,
-		History:      append([]ai.Message(nil), history...),
-	})
-	if err != nil {
-		return "", err
-	}
-	if result.SystemPrompt == "" {
-		return system, nil
-	}
-	return result.SystemPrompt, nil
 }
 
 // GetService returns the Service for the given agent ID, or nil if not found.

@@ -24,7 +24,6 @@ type Runtime struct {
 	compact        CompactionConfig
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
-	groupPrompt    GroupPromptFunc
 	active         sync.Map // session ID → struct{}, tracks in-flight turns
 }
 
@@ -56,7 +55,6 @@ type Config struct {
 	HooksFn        func() []hooks.HookPlugin
 	BeforeRun      BeforeRunFunc
 	SnapshotPrompt SnapshotPromptFunc
-	GroupPrompt    GroupPromptFunc
 }
 
 // New creates a Runtime from the given config.
@@ -82,7 +80,6 @@ func New(cfg Config) (*Runtime, error) {
 		compact:        cfg.Compaction.WithDefaults(),
 		beforeRun:      cfg.BeforeRun,
 		snapshotPrompt: cfg.SnapshotPrompt,
-		groupPrompt:    cfg.GroupPrompt,
 	}, nil
 }
 

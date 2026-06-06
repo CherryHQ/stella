@@ -6,11 +6,12 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-// A reused group runner must rebuild the system prompt per turn with the current
-// speaker, and must never promote the speaker to the runtime/session user (D9).
-func TestRuntimeChatGroupPromptPerSpeakerNoContamination(t *testing.T) {
+// A reused group runner must expose the current speaker to per-turn hooks and
+// must never promote the speaker to the runtime/session user (D9).
+func TestRuntimeChatGroupSpeakerContextNoUserPromotion(t *testing.T) {
 	mem := &recordingMemory{}
 	var gotSpeakers []string
 	var gotCtxUserIDs []string
@@ -20,13 +21,14 @@ func TestRuntimeChatGroupPromptPerSpeakerNoContamination(t *testing.T) {
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
-		GroupPrompt: func(ctx context.Context, _ session.Info, speaker memory.CurrentSpeaker) string {
-			gotSpeakers = append(gotSpeakers, speaker.UserID)
-			if cs, ok := memory.CurrentSpeakerFromContext(ctx); !ok || cs.UserID != speaker.UserID {
-				t.Errorf("ctx speaker = %+v ok=%v, want UserID %q", cs, ok, speaker.UserID)
+		BeforeRun: func(ctx context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+			cs, ok := memory.CurrentSpeakerFromContext(ctx)
+			if !ok {
+				t.Fatal("missing current speaker in group turn context")
 			}
+			gotSpeakers = append(gotSpeakers, cs.UserID)
 			gotCtxUserIDs = append(gotCtxUserIDs, memory.UserIDFromContext(ctx))
-			return "system-for-" + speaker.UserID
+			return system, nil
 		},
 	})
 	if err != nil {
@@ -45,9 +47,9 @@ func TestRuntimeChatGroupPromptPerSpeakerNoContamination(t *testing.T) {
 		}
 	}
 
-	// Per-turn rebuild: one call per turn, each with its own speaker.
+	// Per-turn context: one hook call per turn, each with its own speaker.
 	if len(gotSpeakers) != 2 || gotSpeakers[0] != "alice" || gotSpeakers[1] != "bob" {
-		t.Fatalf("group prompt speakers = %v, want [alice bob]", gotSpeakers)
+		t.Fatalf("current speakers = %v, want [alice bob]", gotSpeakers)
 	}
 	// D9: the memory user id is never set to a human in a group turn.
 	for i, uid := range gotCtxUserIDs {
