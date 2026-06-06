@@ -954,9 +954,11 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
             <span class="stage-file">arbiter.go + ctx_group_dispatch (target)</span>
           </div>
           <div class="stage-desc">
-            Arbiter 是统一的路由闸门。目标态下 Web 和 Platform 都不绕过它：@mention 直达，否则由
-            arbiter 选择响应者，并应用 reply cap / debounce。决策结果落到 dispatch ledger，记录 哪个
-            agent 该通过哪个 <code>reply_channel_id</code> 发言、是否已经完成。
+            Arbiter 是统一的路由闸门。目标态下 Web 和 Platform 都不绕过它：@mention
+            走规则直达（L0）， 无 mention 时若配置了<strong>语义群仲裁（L1）</strong>，则由 fast
+            模型判断该谁回复（定向 / 广播 / 静默），否则回退到旧的成员 fallback 规则。决策结果落到
+            dispatch ledger，记录哪个 agent 该通过哪个
+            <code>reply_channel_id</code> 发言、是否已经完成。
           </div>
           <div class="stage-body">
             <div class="data-card">
@@ -998,19 +1000,23 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
               </div>
 
               <div class="decision-branch">
-                <span class="decision-condition">无 mention + 有 channelAgent</span>
+                <span class="decision-condition">无 mention + 配置了语义仲裁 (L1)</span>
                 <div class="decision-result">
-                  → 检查 debounce window。未被抑制则 channel default agent 响应。<br />
-                  <code>DebounceWindow > 0</code> 时，同一群组内 window 内的非 mention
-                  消息被静默跳过。
+                  → <code>semantic_group_arbiter.go</code>：fast 模型读最近群上下文 + 成员描述，返回
+                  <code>{should_reply, agents[]}</code>。定向 → 单个 agent；广播 → 多个（受自身
+                  <code>maxResponders</code> 上限）；闲聊/超时/解析失败 → 静默。<br />
+                  路由模型按归属选取：Web 群优先群主自己的 agent，否则 system-scope；Platform 群仅
+                  system-scope —— 私有 agent 的凭据不会被用于共享路由决策。
                 </div>
               </div>
 
               <div class="decision-branch">
-                <span class="decision-condition">无 mention + 无 channelAgent</span>
+                <span class="decision-condition">无 mention + 未配置语义仲裁（回退）</span>
                 <div class="decision-result">
-                  → <code>AllMembersFallback=true</code>：所有成员响应（受 MaxReplies 上限）。<br />
-                  → <code>AllMembersFallback=false</code>：不响应（静默跳过）。
+                  → <code>AllMembersFallback=true</code>（Web / platform
+                  <code>always</code>）：所有成员响应（受 MaxReplies 上限）。<br />
+                  → <code>AllMembersFallback=false</code>（platform
+                  <code>mention</code>）：不响应（静默跳过）。
                 </div>
               </div>
             </div>
