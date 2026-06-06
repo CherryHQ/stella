@@ -281,6 +281,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		HooksFn:        pm.HookPlugins,
 		BeforeRun:      pm.runtimeBeforeRun,
 		SnapshotPrompt: pm.buildSnapshotPromptFunc(snap),
+		GroupPrompt:    pm.buildGroupPromptFunc(snap),
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -297,51 +298,107 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	return svc, nil
 }
 
+// promptScope computes the per-session workspace root and the prompt subject for
+// profile rendering. Group sessions blank the prompt UserID so the group id is
+// never treated as a human profile subject (D9); plugin/skill sections still use
+// the session's UserID (the group id) so they match the cached group runner.
+func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot, promptUserID, groupID string) {
+	if info.GroupID != "" {
+		if dir, err := SetupGroupWorkspace(agentID, config.StellaHome(), info.GroupID); err == nil {
+			userRoot = dir
+		}
+		return userRoot, "", info.GroupID
+	}
+	if info.UserID != "" {
+		if dir, err := SetupUserWorkspace(agentID, config.StellaHome(), info.UserID); err == nil {
+			userRoot = dir
+		}
+	}
+	return userRoot, info.UserID, ""
+}
+
+func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot string) []pkgplugins.SystemPromptSection {
+	homeDir, _ := os.UserHomeDir()
+	pluginView := pkgplugins.SessionPluginView{}
+	if pm.sessionPluginViewBuilder != nil {
+		pluginView, _ = pm.sessionPluginViewBuilder(ctx)
+	}
+	promptBuild := pkgplugins.SystemPromptContext{
+		StellaHome:          config.StellaHome(),
+		HomeDir:             homeDir,
+		AgentRoot:           snap.Workspace,
+		UserID:              info.UserID,
+		AgentID:             info.AgentID,
+		UserRoot:            userRoot,
+		SkillStore:          pm.skillStore,
+		RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
+		EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+	}
+	var sections []pkgplugins.SystemPromptSection
+	if pm.promptSectionsBuilder != nil {
+		sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+	}
+	if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		sections = append(sections, skillsSection)
+	}
+	return sections
+}
+
 func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentruntime.SnapshotPromptFunc {
 	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) string {
-		userRoot := ""
-		if info.UserID != "" {
-			if dir, err := SetupUserWorkspace(snap.AgentID, config.StellaHome(), info.UserID); err == nil {
-				userRoot = dir
-			}
-		}
-
-		homeDir, _ := os.UserHomeDir()
-		pluginView := pkgplugins.SessionPluginView{}
-		if pm.sessionPluginViewBuilder != nil {
-			pluginView, _ = pm.sessionPluginViewBuilder(ctx)
-		}
-		promptBuild := pkgplugins.SystemPromptContext{
-			StellaHome:          config.StellaHome(),
-			HomeDir:             homeDir,
-			AgentRoot:           snap.Workspace,
-			UserID:              info.UserID,
-			AgentID:             info.AgentID,
-			UserRoot:            userRoot,
-			SkillStore:          pm.skillStore,
-			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
-			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
-		}
-		var sections []pkgplugins.SystemPromptSection
-		if pm.promptSectionsBuilder != nil {
-			sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
-		}
-		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
-			sections = append(sections, skillsSection)
-		}
+		userRoot, promptUserID, groupID := pm.promptScope(snap.AgentID, info)
+		sections := pm.promptSections(ctx, snap, info, userRoot)
 
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 			SystemPrompt:      snap.SystemPrompt,
 			AgentSoul:         snap.Soul,
 			Memory:            pm.mem,
-			UserID:            info.UserID,
+			UserID:            promptUserID,
 			AgentID:           info.AgentID,
+			GroupID:           groupID,
 			StellaHome:        config.StellaHome(),
 			AgentRoot:         snap.Workspace,
 			UserRoot:          userRoot,
 			Sections:          sections,
 			SnapshotVersion:   ss.Version,
 			SnapshotUpdatedAt: ss.UpdatedAt,
+		})
+	}
+}
+
+// buildGroupPromptFunc renders a per-turn group system prompt with the current
+// speaker. It is never cached on the runner, so one speaker's profile can't leak
+// into another speaker's turn. The speaker profile is read under the speaker's
+// own snapshot row (session, speaker.UserID, agent) — created here on first use —
+// while the prompt UserID stays empty and group memory flows from GroupID.
+func (pm *PoolManager) buildGroupPromptFunc(snap *config.Snapshot) agentruntime.GroupPromptFunc {
+	return func(ctx context.Context, info session.Info, speaker memory.CurrentSpeaker) string {
+		userRoot, _, groupID := pm.promptScope(snap.AgentID, info)
+		sections := pm.promptSections(ctx, snap, info, userRoot)
+
+		var speakerVersion int64
+		if speaker.UserID != "" && info.AgentID != "" {
+			if sss, ok := pm.mem.(memory.SessionSnapshotStore); ok {
+				if ss, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, speaker.UserID, info.AgentID); err == nil {
+					speakerVersion = ss.Version
+				}
+			}
+		}
+
+		cs := speaker
+		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+			SystemPrompt:           snap.SystemPrompt,
+			AgentSoul:              snap.Soul,
+			Memory:                 pm.mem,
+			UserID:                 "",
+			AgentID:                info.AgentID,
+			GroupID:                groupID,
+			StellaHome:             config.StellaHome(),
+			AgentRoot:              snap.Workspace,
+			UserRoot:               userRoot,
+			Sections:               sections,
+			CurrentSpeaker:         &cs,
+			SpeakerSnapshotVersion: speakerVersion,
 		})
 	}
 }

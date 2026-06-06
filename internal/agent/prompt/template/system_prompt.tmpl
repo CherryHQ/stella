@@ -80,14 +80,27 @@ Your identity, personality, and behavior. Edit via the memory tool (soul_get / s
 {{ .AgentSoul }}
 </agent_soul>
 
-{{ if .GroupMemory }}## Group Memory
+{{ if .IsGroup }}## Group Memory
 
 Shared knowledge about this group conversation.
 
 <group_memory>
 {{ .GroupMemory }}
 </group_memory>
-{{ else }}## User Profile
+{{ if .HasCurrentSpeaker }}
+## Current Speaker
+
+The human speaking in this turn. Personalize your reply for them; do not treat
+their profile as shared group knowledge, and do not apply it to other members.
+
+<current_speaker>
+Name: {{ .CurrentSpeakerName }}
+{{ if .CurrentSpeakerLinked }}<speaker_profile>
+{{ .CurrentSpeakerProfile }}{{ range .CurrentSpeakerEntries }}
+[{{ .CreatedAt }}] {{ .Text }}{{ end }}
+</speaker_profile>{{ else }}(Unlinked sender — no personal profile available.){{ end }}
+</current_speaker>
+{{ end }}{{ else }}## User Profile
 
 What you know about this user. Edit via the memory tool (profile_get / profile_update).
 

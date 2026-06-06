@@ -64,6 +64,16 @@ type promptData struct {
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
+
+	// Group session rendering. IsGroup switches the template from the per-user
+	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
+	// driven by session kind, not by whether group memory text is non-empty.
+	IsGroup               bool
+	HasCurrentSpeaker     bool // a current-speaker section should render this turn
+	CurrentSpeakerName    string
+	CurrentSpeakerLinked  bool   // resolved to a Stella user → profile available
+	CurrentSpeakerProfile string // speaker's profile blob; only when linked
+	CurrentSpeakerEntries []memory.ProfileEntry
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -84,6 +94,14 @@ type DBPromptParams struct {
 	Host              sandbox.Host
 	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
 	SnapshotUpdatedAt time.Time // wall-clock time of the last snapshot advance; used to filter knowledge
+
+	// CurrentSpeaker, when non-nil, renders a group-only "## Current Speaker"
+	// section for the human speaking this turn. It is a personalization target
+	// only: its UserID must never be passed as the prompt UserID (which stays
+	// empty/group-scoped for group sessions). Linked speakers get their profile
+	// at SpeakerSnapshotVersion; unlinked speakers render name only.
+	CurrentSpeaker         *memory.CurrentSpeaker
+	SpeakerSnapshotVersion int64 // frozen speaker profile version; 0 means current
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -158,10 +176,44 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Group memory: inject shared group knowledge for group sessions (D4).
+	// Group mode is keyed on GroupID, not on group memory being non-empty, so a
+	// group turn never falls through to the per-user "## User Profile" section.
+	data.IsGroup = p.GroupID != ""
 	if p.GroupID != "" && p.Memory != nil {
 		if gms, ok := p.Memory.(memory.GroupMemoryStore); ok {
 			if content, err := gms.GetGroupMemory(ctx, p.GroupID); err == nil && content != "" {
 				data.GroupMemory = strings.TrimRight(content, "\n")
+			}
+		}
+	}
+
+	// Current speaker (D9): a per-turn personalization axis for group turns. The
+	// speaker's profile is read under speaker.UserID — never p.UserID — and the
+	// speaker's soul/constraints are intentionally NOT injected (a public room is
+	// not the place to apply one member's hard rules to the whole group).
+	if p.CurrentSpeaker != nil {
+		data.HasCurrentSpeaker = true
+		data.CurrentSpeakerName = p.CurrentSpeaker.DisplayName
+		if data.CurrentSpeakerName == "" {
+			data.CurrentSpeakerName = "Unknown"
+		}
+		if speakerID := p.CurrentSpeaker.UserID; speakerID != "" && p.AgentID != "" && p.Memory != nil {
+			data.CurrentSpeakerLinked = true
+			if p.SpeakerSnapshotVersion > 0 {
+				if vps, ok := p.Memory.(memory.VersionedProfileStore); ok {
+					if c, err := vps.GetProfileAt(ctx, speakerID, p.AgentID, p.SpeakerSnapshotVersion); err == nil {
+						data.CurrentSpeakerProfile = strings.TrimRight(c, "\n")
+					}
+				}
+			} else if ps, ok := p.Memory.(memory.ProfileStore); ok {
+				if c, err := ps.GetProfile(ctx, speakerID, p.AgentID); err == nil {
+					data.CurrentSpeakerProfile = strings.TrimRight(c, "\n")
+				}
+			}
+			if pes, ok := p.Memory.(memory.ProfileEntryStore); ok {
+				if entries, err := pes.GetProfileEntries(ctx, speakerID, p.AgentID); err == nil {
+					data.CurrentSpeakerEntries = entries
+				}
 			}
 		}
 	}

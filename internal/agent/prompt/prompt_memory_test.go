@@ -132,10 +132,14 @@ func TestGroupSessionWithEmptyGroupMemory(t *testing.T) {
 		GroupID:      "grp-empty",
 	})
 
-	// With empty group memory, the template should fall through to the else branch
-	// which shows User Profile. Since UserID is empty, profile will be empty.
-	if strings.Contains(p, "Group Memory") {
-		t.Error("empty group memory should not produce Group Memory section")
+	// Group mode is keyed on GroupID, not on group memory being non-empty: a group
+	// turn renders Group Memory (empty) and never falls back to the per-user
+	// User Profile section (D9 — issue #308).
+	if !strings.Contains(p, "Group Memory") {
+		t.Error("group session should render Group Memory even when empty")
+	}
+	if strings.Contains(p, "User Profile") {
+		t.Error("group session must never render User Profile, even with empty group memory")
 	}
 }
 

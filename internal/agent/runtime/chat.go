@@ -31,6 +31,12 @@ type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, 
 // SnapshotPromptFunc builds a system prompt from the session's snapshot version.
 type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) string
 
+// GroupPromptFunc builds a per-turn system prompt for a group session, injecting
+// the current speaker. It re-renders the full prompt (base + group memory +
+// current speaker) so cached runner state never carries one speaker's profile
+// into another speaker's turn. Returns "" to fall back to the cached prompt.
+type GroupPromptFunc func(ctx context.Context, info session.Info, speaker memory.CurrentSpeaker) string
+
 // chat is the goroutine body for Runtime.Chat.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
 	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model)
@@ -42,6 +48,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	if info.GroupID == "" {
 		ctx = memory.WithUserID(ctx, info.UserID)
+	} else if co.hasSpeaker {
+		// Group turns: attach the speaker as a personalization target only.
+		// memory.WithUserID stays unset so runtime identity remains the group (D9).
+		ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
 	}
 	ctx = memory.WithAgentID(ctx, info.AgentID)
 	if info.ProjectID != "" {
@@ -136,9 +146,19 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	baseSystem := co.systemOverride
 	if baseSystem == "" {
 		baseSystem = r.SystemPrompt()
-		// Per-turn snapshot prompt: rebuild system with frozen memory version.
-		// Skipped when systemOverride is set (e.g. delegate custom system).
-		if rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
+		switch {
+		case info.GroupID != "" && rt.groupPrompt != nil:
+			// Group turns: rebuild per-turn with the current speaker. This path
+			// is group-safe (UserID stays the group, speaker is a separate axis)
+			// and deliberately bypasses the user-keyed snapshot prompt, whose
+			// subject would be the group id, not a human.
+			if system := rt.groupPrompt(ctx, info, co.currentSpeaker); system != "" {
+				baseSystem = system
+			}
+		case info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "":
+			// DM per-turn snapshot prompt: rebuild system with frozen memory
+			// version. Skipped when systemOverride is set (e.g. delegate custom
+			// system).
 			sss, ok := rt.mem.(memory.SessionSnapshotStore)
 			if ok {
 				snap, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)
