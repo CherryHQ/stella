@@ -32,7 +32,7 @@ var notifyInputSchema = map[string]any{
 		},
 		"channel": map[string]any{
 			"type":        "string",
-			"description": "Target backend (e.g. \"telegram\", \"slack\"). Omit to broadcast to all configured backends.",
+			"description": "Target backend (one of \"telegram\", \"feishu\", \"qq\", \"weixin\"). Omit to broadcast to all configured backends.",
 		},
 		"chat_id": map[string]any{
 			"type":        "string",
@@ -40,7 +40,7 @@ var notifyInputSchema = map[string]any{
 		},
 		"silent": map[string]any{
 			"type":        "boolean",
-			"description": "Send without notification sound",
+			"description": "Send without notification sound. Only honored by telegram; ignored by other backends.",
 		},
 	},
 	"required": []string{"message"},
@@ -49,7 +49,7 @@ var notifyInputSchema = map[string]any{
 func (t *notifyTool) Definition() pkgtools.Definition {
 	return pkgtools.Definition{
 		Name:        "notify",
-		Description: "Send a notification message to the user. In normal user conversations, omit 'chat_id' so Stella can route via the current user's linked identities automatically. Supports multiple backends (Telegram, Slack, etc.). Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
+		Description: "Send a notification message to the user. In normal user conversations, omit 'channel' and 'chat_id' so Stella routes via the current user's linked identities automatically. Supported backends: telegram, feishu, qq, weixin. To target a specific recipient, set 'channel' to the backend and 'chat_id' to that backend's target ID (e.g. a Feishu open_id 'ou_...', union_id 'on_...', or group chat_id 'oc_...'). Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
 		InputSchema: notifyInputSchema,
 	}
 }
