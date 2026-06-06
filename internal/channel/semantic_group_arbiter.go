@@ -116,9 +116,12 @@ func (a *LLMSemanticGroupArbiter) Decide(ctx context.Context, req SemanticGroupR
 		return SemanticGroupDecision{}
 	}
 
-	model, stream, ok := a.resolveRoutingModel(ctx, req)
-	if !ok {
-		a.debug("no eligible routing agent; staying silent")
+	model, stream, reason := a.resolveRoutingModel(ctx, req)
+	if reason != "" {
+		a.info("no eligible routing agent; staying silent",
+			"reason", reason,
+			"members", len(req.Members),
+			"has_owner", req.OwnerUserID != "")
 		return SemanticGroupDecision{}
 	}
 
@@ -146,48 +149,75 @@ func (a *LLMSemanticGroupArbiter) Decide(ctx context.Context, req SemanticGroupR
 // the message. Web groups prefer the group owner's own agent, then any
 // system-scope agent; platform groups (no owner) allow system-scope only. This
 // keeps a private user agent's credentials out of a shared routing decision.
-func (a *LLMSemanticGroupArbiter) resolveRoutingModel(ctx context.Context, req SemanticGroupRequest) (ai.Model, providers.StreamFunc, bool) {
+// On failure it returns a non-empty reason describing why no model was usable,
+// so the silent fallback is debuggable instead of opaque.
+func (a *LLMSemanticGroupArbiter) resolveRoutingModel(ctx context.Context, req SemanticGroupRequest) (ai.Model, providers.StreamFunc, string) {
+	var failures []string
 	if req.OwnerUserID != "" {
 		for _, m := range req.Members {
 			if m.CreatorID == req.OwnerUserID {
-				if model, stream, ok := a.modelFor(ctx, m.AgentID); ok {
-					return model, stream, true
+				if model, stream, why := a.modelFor(ctx, m.AgentID); why == "" {
+					return model, stream, ""
+				} else {
+					failures = append(failures, fmt.Sprintf("owner:%s(%s)", m.AgentID, why))
 				}
 			}
 		}
 	}
 	for _, m := range req.Members {
 		if m.Scope == config.AgentScopeSystem {
-			if model, stream, ok := a.modelFor(ctx, m.AgentID); ok {
-				return model, stream, true
+			if model, stream, why := a.modelFor(ctx, m.AgentID); why == "" {
+				return model, stream, ""
+			} else {
+				failures = append(failures, fmt.Sprintf("system:%s(%s)", m.AgentID, why))
 			}
 		}
 	}
-	return ai.Model{}, nil, false
+	if len(failures) == 0 {
+		if req.OwnerUserID != "" {
+			return ai.Model{}, nil, "no owner-owned or system-scope agent in group"
+		}
+		return ai.Model{}, nil, "no system-scope agent in group"
+	}
+	return ai.Model{}, nil, "all candidate agents unusable: " + strings.Join(failures, ", ")
 }
 
-func (a *LLMSemanticGroupArbiter) modelFor(ctx context.Context, agentID string) (ai.Model, providers.StreamFunc, bool) {
+// modelFor resolves an agent's classifier model and stream. It returns an empty
+// reason on success, or a short reason naming the missing piece.
+func (a *LLMSemanticGroupArbiter) modelFor(ctx context.Context, agentID string) (ai.Model, providers.StreamFunc, string) {
 	if agentID == "" {
-		return ai.Model{}, nil, false
+		return ai.Model{}, nil, "empty agent id"
 	}
 	snap, err := a.loadSnapshot(ctx, agentID)
-	if err != nil || snap == nil {
-		return ai.Model{}, nil, false
+	if err != nil {
+		return ai.Model{}, nil, fmt.Sprintf("load snapshot: %v", err)
 	}
-	if strings.TrimSpace(snap.ModelFast) == "" {
-		return ai.Model{}, nil, false
+	if snap == nil {
+		return ai.Model{}, nil, "snapshot not found"
 	}
+	// ModelFast is optional: ResolveModelTier falls back to the agent's default
+	// model when model_fast is unset, so we route on whatever model resolves
+	// rather than going silent on agents that simply never configured a fast tier.
 	model := snap.ResolveModelTier(config.ModelTierFast)
 	if model.API == "" || model.ID == "" {
-		return ai.Model{}, nil, false
+		return ai.Model{}, nil, "model resolves to empty API/ID"
 	}
 	creds := snap.ResolveProviderCreds(model.Provider)
 	providerType := classifierProviderType(snap, model.Provider, creds)
 	stream, err := a.buildStream(ctx, providerType, creds)
-	if err != nil || stream == nil {
-		return ai.Model{}, nil, false
+	if err != nil {
+		return ai.Model{}, nil, fmt.Sprintf("build stream: %v", err)
 	}
-	return model, stream, true
+	if stream == nil {
+		return ai.Model{}, nil, "nil stream"
+	}
+	return model, stream, ""
+}
+
+func (a *LLMSemanticGroupArbiter) info(msg string, args ...any) {
+	if a != nil && a.log != nil {
+		a.log.Info(msg, args...)
+	}
 }
 
 func (a *LLMSemanticGroupArbiter) debug(msg string, args ...any) {
