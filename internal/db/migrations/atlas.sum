@@ -1,4 +1,4 @@
-h1:QwzVII+KzJuPi8ayvUJOB5mti8w9U9z2zzvB+t9ZGmk=
+h1:Un/QtmUeDj6s9a0ct8A3GwKJv1iLyX/ZoGgOrQP6Yn4=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
@@ -10,3 +10,5 @@ h1:QwzVII+KzJuPi8ayvUJOB5mti8w9U9z2zzvB+t9ZGmk=
 20260604094241_group_ingest.sql h1:yNSEfntVnFqz7VHcH2dwuDjBSgI+QGT8l2OT7H+kBeo=
 20260604095508_group_member.sql h1:1eDwlgLgZerETpqB4ZCRUK/USHA50GZNMpdzpAniB7k=
 20260604161936_add_web_group_fields.sql h1:rju9A0Anv0IqVKomj+LYUgcxGB2CJi/iUive8b6s9N0=
+20260605043849_add_group_message_reasoning.sql h1:rkAQA4up0srgOBnZXn+PmtcwP8aXYBqhPR6bHfVYewk=
+20260605054406_add_group_message_session_id.sql h1:mxlQCPtjczlzw+FL5jDB3opXF9VPWvgptnvQ9L+J2rQ=

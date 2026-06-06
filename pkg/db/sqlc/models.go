@@ -396,6 +396,8 @@ type CtxGroupMessage struct {
 	PlatformTimestamp sql.NullString `json:"platform_timestamp"`
 	IdempotencyKey    sql.NullString `json:"idempotency_key"`
 	Content           string         `json:"content"`
+	Reasoning         string         `json:"reasoning"`
+	AgentSessionID    string         `json:"agent_session_id"`
 	CreatedAt         string         `json:"created_at"`
 }
 

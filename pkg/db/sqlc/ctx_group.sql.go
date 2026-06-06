@@ -27,10 +27,10 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 const createGroupMessage = `-- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content
+  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at
 `
 
 type CreateGroupMessageParams struct {
@@ -45,6 +45,8 @@ type CreateGroupMessageParams struct {
 	PlatformTimestamp sql.NullString `json:"platform_timestamp"`
 	IdempotencyKey    sql.NullString `json:"idempotency_key"`
 	Content           string         `json:"content"`
+	Reasoning         string         `json:"reasoning"`
+	AgentSessionID    string         `json:"agent_session_id"`
 }
 
 func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessageParams) (CtxGroupMessage, error) {
@@ -60,6 +62,8 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		arg.PlatformTimestamp,
 		arg.IdempotencyKey,
 		arg.Content,
+		arg.Reasoning,
+		arg.AgentSessionID,
 	)
 	var i CtxGroupMessage
 	err := row.Scan(
@@ -74,6 +78,8 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		&i.PlatformTimestamp,
 		&i.IdempotencyKey,
 		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -128,7 +134,7 @@ func (q *Queries) DeleteGroupState(ctx context.Context, id string) error {
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
 WHERE idempotency_key = ?1
 `
 
@@ -147,13 +153,15 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 		&i.PlatformTimestamp,
 		&i.IdempotencyKey,
 		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
 WHERE group_id = ?1
   AND platform_message_id = ?2
 `
@@ -178,6 +186,8 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 		&i.PlatformTimestamp,
 		&i.IdempotencyKey,
 		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -235,7 +245,7 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 }
 
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
 WHERE group_id = ?1
 ORDER BY seq DESC
 LIMIT ?3 OFFSET ?2
@@ -268,6 +278,8 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.PlatformTimestamp,
 			&i.IdempotencyKey,
 			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -331,7 +343,7 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 }
 
 const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
 WHERE group_id = ?1
 ORDER BY seq DESC
 LIMIT ?2
@@ -363,6 +375,8 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 			&i.PlatformTimestamp,
 			&i.IdempotencyKey,
 			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

@@ -58,7 +58,7 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content
+  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;

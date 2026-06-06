@@ -75,7 +75,7 @@ func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (b
 }
 
 const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
 WHERE group_id = ?1 AND seq > ?2
 ORDER BY seq ASC
 LIMIT ?3
@@ -108,6 +108,8 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.PlatformTimestamp,
 			&i.IdempotencyKey,
 			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -124,7 +126,7 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 }
 
 const listGroupMessagesBetweenSeqs = `-- name: ListGroupMessagesBetweenSeqs :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
 WHERE group_id = ?1
   AND seq > ?2
   AND seq < ?3
@@ -158,6 +160,8 @@ func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGrou
 			&i.PlatformTimestamp,
 			&i.IdempotencyKey,
 			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
