@@ -122,12 +122,14 @@ func TestGroupAssemble_HybridFlow(t *testing.T) {
 		t.Fatalf("assemble turn 2: %v", err)
 	}
 
-	// Should have: ctx_message history [user: "hey", assistant: "Hi there!"] + no injection (seq=3 is self).
-	if len(msgs2) != 2 {
-		t.Fatalf("expected 2 messages (agent history), got %d", len(msgs2))
+	// Should have: persisted injected [user1]: hello from turn 1, plus ctx_message [user: "hey", assistant: "Hi there!"].
+	// seq=3 (agent-a self) is skipped in between-turn.
+	if len(msgs2) != 3 {
+		t.Fatalf("expected 3 messages (1 persisted injected + 2 agent history), got %d", len(msgs2))
 	}
 	assertRole(t, msgs2[0], "user")
-	assertRole(t, msgs2[1], "assistant")
+	assertRole(t, msgs2[1], "user")
+	assertRole(t, msgs2[2], "assistant")
 }
 
 func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
@@ -438,12 +440,14 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble turn 2: %v", err)
 	}
-	// Should have agent history from turn 1 only (user "c" + assistant "reply").
-	if len(msgs2) != 2 {
-		t.Fatalf("turn 2: expected 2 (agent history), got %d", len(msgs2))
+	// Should have persisted injected [user1]:a + [user2]:b from turn 1, plus agent history user "c" + assistant "reply".
+	if len(msgs2) != 4 {
+		t.Fatalf("turn 2: expected 4 (2 persisted injected + 2 agent history), got %d", len(msgs2))
 	}
 	assertRole(t, msgs2[0], "user")
-	assertRole(t, msgs2[1], "assistant")
+	assertRole(t, msgs2[1], "user")
+	assertRole(t, msgs2[2], "user")
+	assertRole(t, msgs2[3], "assistant")
 }
 
 func TestGroupAssemble_TriggerSeqZero(t *testing.T) {

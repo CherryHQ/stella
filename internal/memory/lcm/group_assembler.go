@@ -61,6 +61,15 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		injected = groupRowsToMessages(rows, agentID)
 	}
 
+	// 3.5. Persist injected messages to agent's own conversation so they
+	// survive across rounds and participate in future compaction.
+	if len(injected) > 0 {
+		if err := p.Append(ctx, session, injected...); err != nil {
+			p.log.Warn("failed to persist between-turn messages",
+				"session_id", session.ID, "agent_id", agentID, "error", err)
+		}
+	}
+
 	// 4. Update watermark to triggering seq.
 	if triggerSeq > watermark {
 		if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{

@@ -391,17 +391,28 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 
 	ctx := r.Context()
 
-	appendResult, err := s.eventLog.AppendToGroup(ctx, groupId, eventlog.GroupMessage{
-		ActorType: eventlog.ActorHuman,
-		ActorID:   authInfo.UserID,
-		Content:   req.Content,
-	})
+	members, err := s.q.ListGroupMembers(ctx, groupId)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
 
-	members, err := s.q.ListGroupMembers(ctx, groupId)
+	// Intercept slash commands before they hit the event log + LLM.
+	if reply, handled := s.handleGroupCommand(ctx, groupId, req.Content, members); handled {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, "streaming not supported")
+			return
+		}
+		streamPlainReply(w, flusher, reply)
+		return
+	}
+
+	appendResult, err := s.eventLog.AppendToGroup(ctx, groupId, eventlog.GroupMessage{
+		ActorType: eventlog.ActorHuman,
+		ActorID:   authInfo.UserID,
+		Content:   req.Content,
+	})
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -423,6 +434,7 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("X-Vercel-AI-UI-Message-Stream", "v1")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -442,7 +454,9 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	baseCtx = memory.WithGroupSeq(baseCtx, appendResult.Seq)
 
 	for _, agentID := range responding {
-		s.streamAgentResponse(baseCtx, w, flusher, writeSSE, groupId, agentID, appendResult.Seq, req.Content)
+		writeSSE(map[string]string{"type": "start-step"})
+		s.streamAgentResponse(baseCtx, writeSSE, groupId, agentID, req.Content)
+		writeSSE(map[string]string{"type": "finish-step"})
 	}
 
 	writeSSE(map[string]string{"type": "finish"})
@@ -451,12 +465,9 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 
 func (s *Server) streamAgentResponse(
 	baseCtx context.Context,
-	w http.ResponseWriter,
-	flusher http.Flusher,
 	writeSSE func(any),
 	groupID, agentID string,
-	seq int64,
-	_ string,
+	messageContent string,
 ) {
 	svc := s.poolManager.GetService(agentID)
 	if svc == nil {
@@ -481,8 +492,12 @@ func (s *Server) streamAgentResponse(
 		agentName = a.Name
 	}
 
-	msgID := uuid.NewString()
-	writeSSE(map[string]any{"type": "agent-start", "agentId": agentID, "agentName": agentName, "messageId": msgID})
+	// Emit agent identity as a data part (consumed by useChat as a data-* UIMessage part).
+	writeSSE(map[string]any{
+		"type": "data-agent-info",
+		"id":   uuid.NewString(),
+		"data": map[string]any{"agentId": agentID, "agentName": agentName},
+	})
 
 	var (
 		inText       bool
@@ -513,6 +528,7 @@ func (s *Server) streamAgentResponse(
 		Kind:      session.KindChat,
 		GroupID:   groupID,
 		Channel:   session.Channel(channelStr),
+		Message:   messageContent,
 	})
 	for evt := range ch {
 		if evt.Err != nil {
@@ -521,7 +537,7 @@ func (s *Server) streamAgentResponse(
 			writeSSE(map[string]string{"type": "error", "errorText": evt.Err.Error()})
 			break
 		}
-		if evt.Store != nil {
+		if evt.Store != nil || evt.Step != nil {
 			continue
 		}
 		if evt.Reasoning != "" {
@@ -541,25 +557,32 @@ func (s *Server) streamAgentResponse(
 			tu := evt.ToolUse
 			switch tu.Status {
 			case "running":
+				writeSSE(map[string]any{
+					"type":       "tool-input-start",
+					"toolCallId": tu.ID,
+					"toolName":   tu.Tool,
+					"dynamic":    true,
+				})
 				args := tu.Arguments
 				if args == nil {
 					args = map[string]any{"input": tu.Input}
 				}
 				writeSSE(map[string]any{
-					"type":       "tool-start",
+					"type":       "tool-input-available",
 					"toolCallId": tu.ID,
 					"toolName":   tu.Tool,
+					"dynamic":    true,
 					"input":      args,
 				})
 			case "done":
 				writeSSE(map[string]any{
-					"type":       "tool-end",
+					"type":       "tool-output-available",
 					"toolCallId": tu.ID,
 					"output":     tu.Content,
 				})
 			case "error":
 				writeSSE(map[string]any{
-					"type":       "tool-error",
+					"type":       "tool-output-error",
 					"toolCallId": tu.ID,
 					"errorText":  tu.Content,
 				})
@@ -581,7 +604,6 @@ func (s *Server) streamAgentResponse(
 
 	closeText()
 	closeReasoning()
-	writeSSE(map[string]any{"type": "agent-end", "agentId": agentID, "messageId": msgID})
 
 	// Write agent response to event log.
 	if (textBuf.Len() > 0 || reasoningBuf.Len() > 0) && s.eventLog != nil {
@@ -594,6 +616,46 @@ func (s *Server) streamAgentResponse(
 			Reasoning:      reasoningBuf.String(),
 			AgentSessionID: info.ID,
 		})
+	}
+}
+
+// handleGroupCommand intercepts slash commands in group chat.
+// Returns the reply text and true if handled.
+func (s *Server) handleGroupCommand(ctx context.Context, groupID, content string, members []sqlc.ChannelGroupMember) (string, bool) {
+	cmd, ok := parseCommand(content)
+	if !ok {
+		return "", false
+	}
+	switch cmd {
+	case "/compact":
+		var results []string
+		for _, m := range members {
+			svc := s.poolManager.GetService(m.AgentID)
+			if svc == nil {
+				continue
+			}
+			agentCtx := memory.WithAgentID(ctx, m.AgentID)
+			sessionKey := agent.BuildGroupSessionKey(m.AgentID, groupID)
+			channelStr := "group:" + groupID
+			info, err := svc.ResolveChannelSession(agentCtx, sessionKey, groupID, m.AgentID, session.Channel(channelStr))
+			if err != nil {
+				results = append(results, fmt.Sprintf("%s: failed to resolve session: %v", m.AgentID, err))
+				continue
+			}
+			info.GroupID = groupID
+			summary, err := svc.CompactSession(agentCtx, info)
+			if err != nil {
+				results = append(results, fmt.Sprintf("%s: compaction failed: %v", m.AgentID, err))
+				continue
+			}
+			results = append(results, fmt.Sprintf("%s: %s", m.AgentID, summary))
+		}
+		if len(results) == 0 {
+			return "No agents to compact.", true
+		}
+		return strings.Join(results, "\n"), true
+	default:
+		return "", false
 	}
 }
 
