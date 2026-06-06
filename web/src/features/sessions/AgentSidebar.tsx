@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { SectionLabel } from "@/components/AppSidebar";
 import { useSidebar } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
+import { GroupSection } from "@/features/groups/GroupSidebar";
 import {
   Dialog,
   DialogPopup,
@@ -569,6 +570,9 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
 
       {/* ── Scrollable nav ──────────────────────────────────────────────── */}
       <div ref={listRef} className="flex-1 overflow-y-auto px-3 pb-2" onScroll={handleScroll}>
+        {/* ── Groups ───────────────────────────────────────────────────── */}
+        <GroupSection />
+
         {/* ── Workspace ─────────────────────────────────────────────────── */}
         <div>
           <SectionLabel>Workspace</SectionLabel>
