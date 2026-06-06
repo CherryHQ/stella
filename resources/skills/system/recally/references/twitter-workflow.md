@@ -22,7 +22,7 @@ numeric id; `since` is a best-effort optimization only — never rely on it for
 correctness.
 
 ```bash
-tap site twitter/fxembed-profile-statuses handle=id:<numeric-user-id> --json
+tap site twitter/fxembed-profile-statuses handle=id:<numeric-user-id> -f json
 ```
 
 For each returned status:
