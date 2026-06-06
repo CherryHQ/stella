@@ -38,7 +38,7 @@ Recally can subscribe to feeds and keep a live stream of new entries. Use this f
 
 Beyond RSS, you can follow:
 
-- **Twitter/X accounts** — subscribe with a profile URL like `https://x.com/<handle>` and Recally treats new tweets as feed entries, saved and summarized like any other source.
+- **Twitter/X accounts** — subscribe with a profile URL like `https://x.com/<handle>` and Recally treats new tweets as feed entries, saved and summarized like any other source. Only profile timelines are subscribable; lists, search, individual posts, and bookmarks are rejected.
 - **YouTube channels** — subscribe to the channel's RSS feed (`https://www.youtube.com/feeds/videos.xml?channel_id=...`) to track new uploads.
 
 Recally detects the source type from the URL, so subscribing is the same one step regardless of where the content lives.

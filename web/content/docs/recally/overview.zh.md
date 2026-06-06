@@ -38,7 +38,7 @@ Recally 可以订阅 feeds，并持续获取新条目。适合长期关注的来
 
 除了 RSS，你还可以关注：
 
-- **Twitter/X 账号** —— 用类似 `https://x.com/<handle>` 的主页地址订阅，Recally 会把新推文当作 feed 条目，像其他来源一样保存和总结。
+- **Twitter/X 账号** —— 用类似 `https://x.com/<handle>` 的主页地址订阅，Recally 会把新推文当作 feed 条目，像其他来源一样保存和总结。仅支持个人主页 timeline；列表、搜索、单条推文和书签会被拒绝。
 - **YouTube 频道** —— 订阅频道的 RSS 地址（`https://www.youtube.com/feeds/videos.xml?channel_id=...`）即可跟进新视频。
 
 Recally 会从 URL 自动识别来源类型，所以无论内容在哪，订阅都是同样的一步。

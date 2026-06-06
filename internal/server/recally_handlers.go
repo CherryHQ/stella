@@ -415,6 +415,10 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid feed kind")
 		return
 	}
+	if err := recally.ValidateFeedSubscription(body.Url, kind); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	title := strDeref(body.Title)
 	description := ""
