@@ -14,6 +14,7 @@ import (
 	"github.com/tencent-connect/botgo/token"
 	"golang.org/x/oauth2"
 
+	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -60,6 +61,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		handler:    handler,
 		chatModels: make(map[string]channel.ModelOption),
 		cfg:        cfg,
+	}
+	if registrar, ok := handler.(interface {
+		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
+	}); ok {
+		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 
 	return b, nil

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -370,7 +369,7 @@ func (s *Server) ListGroupMessages(w http.ResponseWriter, r *http.Request, group
 }
 
 func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupId string) {
-	if s.eventLog == nil || s.arbiter == nil {
+	if s.eventLog == nil || s.groupDispatcher == nil {
 		writeError(w, http.StatusServiceUnavailable, "group chat not available")
 		return
 	}
@@ -419,7 +418,6 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	// Unified entry: triple resolve + dedup via AppendGroupMessage.
 	// Empty client_message_id disables tier-1 dedup (no fake UUID).
 	platformMsgID := derefStr(req.ClientMessageId)
-	var mentions []pkgchannel.Mention
 	appendResult, err := s.eventLog.AppendGroupMessage(ctx, eventlog.Message{
 		Platform:          "web",
 		PlatformGroupID:   groupId,
@@ -429,7 +427,7 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 		PlatformMessageID: platformMsgID,
 		Content:           req.Content,
 	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
-		mentions = parseWebMentions(req.Content, members)
+		mentions := parseWebMentions(req.Content, members)
 		envelope, err := channel.EncodeGroupOutboxEnvelope(mentions)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
@@ -455,20 +453,18 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 		return
 	}
 	if !appendResult.Inserted {
-		w.WriteHeader(http.StatusOK)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, "streaming not supported")
+			return
+		}
+		streamEmptyGroupReply(w, flusher)
 		return
 	}
 
-	// Build channel.GroupMember list for arbiter.
-	groupMembers := make([]channel.GroupMember, len(members))
-	for i, m := range members {
-		groupMembers[i] = channel.GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
-	}
-
-	decision := s.arbiter.Decide(ctx, appendResult.GroupID, mentions, groupMembers, "",
-		channel.DecideOptions{AllMembersFallback: true})
-	if decision.Debounced || len(decision.RespondingAgents) == 0 {
-		writeError(w, http.StatusOK, "no agents responding")
+	outbox, err := s.q.GetGroupOutboxByMessage(ctx, appendResult.Message.ID)
+	if err != nil {
+		s.writeInternalError(w, err)
 		return
 	}
 
@@ -485,29 +481,14 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	writeSSE := func(v any) {
-		data, _ := json.Marshal(v)
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
+	publisher := &webGroupPublisher{w: w, flusher: flusher}
+	publisher.writeSSE(map[string]string{"type": "start", "messageId": uuid.NewString()})
+	if err := s.groupDispatcher.DispatchSync(ctx, outbox, publisher); err != nil {
+		publisher.writeSSE(map[string]string{"type": "error", "errorText": err.Error()})
 	}
-	writeDone := func() {
-		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
-		flusher.Flush()
-	}
-
-	writeSSE(map[string]string{"type": "start", "messageId": uuid.NewString()})
-
-	baseCtx := memory.WithUserID(ctx, authInfo.UserID)
-	baseCtx = memory.WithGroupSeq(baseCtx, appendResult.Seq)
-
-	for _, agentID := range decision.RespondingAgents {
-		writeSSE(map[string]string{"type": "start-step"})
-		s.streamAgentResponse(baseCtx, writeSSE, appendResult.GroupID, agentID, req.Content)
-		writeSSE(map[string]string{"type": "finish-step"})
-	}
-
-	writeSSE(map[string]string{"type": "finish"})
-	writeDone()
+	publisher.writeSSE(map[string]string{"type": "finish"})
+	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
 }
 
 // parseWebMentions extracts @AgentID patterns from message text and returns
@@ -529,162 +510,6 @@ func parseWebMentions(content string, members []sqlc.ChannelGroupMember) []pkgch
 		}
 	}
 	return mentions
-}
-
-func (s *Server) streamAgentResponse(
-	baseCtx context.Context,
-	writeSSE func(any),
-	groupID, agentID string,
-	messageContent string,
-) {
-	svc := s.poolManager.GetService(agentID)
-	if svc == nil {
-		writeSSE(map[string]string{"type": "error", "errorText": "agent not available: " + agentID})
-		return
-	}
-
-	agentCtx := memory.WithAgentID(baseCtx, agentID)
-
-	sessionKey := agent.BuildGroupSessionKey(agentID, groupID)
-	channelStr := "group:" + groupID
-
-	info, err := svc.ResolveChannelSession(agentCtx, sessionKey, groupID, agentID, session.Channel(channelStr))
-	if err != nil {
-		writeSSE(map[string]string{"type": "error", "errorText": "session error: " + err.Error()})
-		return
-	}
-	info.GroupID = groupID
-
-	agentName := agentID
-	if a, aErr := s.store.GetAgent(agentCtx, agentID); aErr == nil && a.Name != "" {
-		agentName = a.Name
-	}
-
-	// Emit agent identity as a data part (consumed by useChat as a data-* UIMessage part).
-	writeSSE(map[string]any{
-		"type": "data-agent-info",
-		"id":   uuid.NewString(),
-		"data": map[string]any{"agentId": agentID, "agentName": agentName},
-	})
-
-	var (
-		inText       bool
-		textID       string
-		inReasoning  bool
-		reasoningID  string
-		textBuf      strings.Builder
-		reasoningBuf strings.Builder
-	)
-
-	closeText := func() {
-		if inText {
-			writeSSE(map[string]string{"type": "text-end", "id": textID})
-			inText = false
-		}
-	}
-	closeReasoning := func() {
-		if inReasoning {
-			writeSSE(map[string]string{"type": "reasoning-end", "id": reasoningID})
-			inReasoning = false
-		}
-	}
-
-	ch := svc.Chat(agentCtx, agent.ChatRequest{
-		SessionID: info.ID,
-		UserID:    groupID,
-		AgentID:   agentID,
-		Kind:      session.KindChat,
-		GroupID:   groupID,
-		Channel:   session.Channel(channelStr),
-		Message:   messageContent,
-	})
-	for evt := range ch {
-		if evt.Err != nil {
-			closeText()
-			closeReasoning()
-			writeSSE(map[string]string{"type": "error", "errorText": evt.Err.Error()})
-			break
-		}
-		if evt.Store != nil || evt.Step != nil {
-			continue
-		}
-		if evt.Reasoning != "" {
-			closeText()
-			if !inReasoning {
-				reasoningID = uuid.NewString()
-				writeSSE(map[string]string{"type": "reasoning-start", "id": reasoningID})
-				inReasoning = true
-			}
-			reasoningBuf.WriteString(evt.Reasoning)
-			writeSSE(map[string]any{"type": "reasoning-delta", "id": reasoningID, "delta": evt.Reasoning})
-			continue
-		}
-		if evt.ToolUse != nil {
-			closeText()
-			closeReasoning()
-			tu := evt.ToolUse
-			switch tu.Status {
-			case "running":
-				writeSSE(map[string]any{
-					"type":       "tool-input-start",
-					"toolCallId": tu.ID,
-					"toolName":   tu.Tool,
-					"dynamic":    true,
-				})
-				args := tu.Arguments
-				if args == nil {
-					args = map[string]any{"input": tu.Input}
-				}
-				writeSSE(map[string]any{
-					"type":       "tool-input-available",
-					"toolCallId": tu.ID,
-					"toolName":   tu.Tool,
-					"dynamic":    true,
-					"input":      args,
-				})
-			case "done":
-				writeSSE(map[string]any{
-					"type":       "tool-output-available",
-					"toolCallId": tu.ID,
-					"output":     tu.Content,
-				})
-			case "error":
-				writeSSE(map[string]any{
-					"type":       "tool-output-error",
-					"toolCallId": tu.ID,
-					"errorText":  tu.Content,
-				})
-			}
-			continue
-		}
-		if evt.Text != "" {
-			closeReasoning()
-			if !inText {
-				textID = uuid.NewString()
-				writeSSE(map[string]string{"type": "text-start", "id": textID})
-				inText = true
-			}
-			textBuf.WriteString(evt.Text)
-			writeSSE(map[string]any{"type": "text-delta", "id": textID, "delta": evt.Text})
-			continue
-		}
-	}
-
-	closeText()
-	closeReasoning()
-
-	// Write agent response to event log.
-	if (textBuf.Len() > 0 || reasoningBuf.Len() > 0) && s.eventLog != nil {
-		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(baseCtx), 10*time.Second)
-		defer cancel()
-		_, _ = s.eventLog.AppendToGroup(writeCtx, groupID, eventlog.GroupMessage{
-			ActorType:      eventlog.ActorAgent,
-			ActorID:        agentID,
-			Content:        textBuf.String(),
-			Reasoning:      reasoningBuf.String(),
-			AgentSessionID: info.ID,
-		})
-	}
 }
 
 // handleGroupCommand intercepts slash commands in group chat.

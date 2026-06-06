@@ -73,6 +73,8 @@ type Server struct {
 	eventLog *eventlog.Store
 	// arbiter decides which agents respond in Web group chat (optional; if nil, group chat returns 503).
 	arbiter *channel.Arbiter
+	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
+	groupDispatcher *channel.GroupDispatcher
 }
 
 // New creates an admin server with all API routes mounted.
@@ -150,6 +152,10 @@ func (s *Server) SetEventLogStore(store *eventlog.Store) {
 
 func (s *Server) SetArbiter(a *channel.Arbiter) {
 	s.arbiter = a
+}
+
+func (s *Server) SetGroupDispatcher(dispatcher *channel.GroupDispatcher) {
+	s.groupDispatcher = dispatcher
 }
 
 // SetBaseURL sets the public base URL and propagates it to the credentials

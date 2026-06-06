@@ -30,13 +30,17 @@ func (b *Bot) sendFinalResponse(c tele.Context, response string, images []channe
 
 // sendImage decodes a base64 image and sends it as a photo to the chat.
 func (b *Bot) sendImage(c tele.Context, img channel.ImageEvent) {
+	b.sendImageTo(c.Chat(), img)
+}
+
+func (b *Bot) sendImageTo(chat tele.Recipient, img channel.ImageEvent) {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)
 		return
 	}
 	photo := &tele.Photo{File: tele.FromReader(bytes.NewReader(data))}
-	if _, err := b.bot.Send(c.Chat(), photo); err != nil {
+	if _, err := b.bot.Send(chat, photo); err != nil {
 		logger().Error("send image failed", "error", err)
 	}
 }

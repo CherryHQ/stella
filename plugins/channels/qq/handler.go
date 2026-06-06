@@ -237,6 +237,9 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 		b.sendReply(replyTarget, msgID, resp, scope)
 		return
 	}
+	if stream == nil {
+		return
+	}
 
 	logger().Debug("message received", "author", authorID, "session", stream.SessionID)
 

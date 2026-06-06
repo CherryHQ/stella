@@ -13,6 +13,7 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
+	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -75,6 +76,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 
 	if registrar, ok := handler.(channel.BotRegistrar); ok && bot.Me.Username != "" {
 		registrar.RegisterBotIdentity(channel.PlatformTelegram, bot.Me.Username, cfg.InstanceID)
+	}
+	if registrar, ok := handler.(interface {
+		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
+	}); ok {
+		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 
 	return b, nil
