@@ -22,6 +22,7 @@ const (
 	semanticMaxContextMessages = 6
 	semanticPerMessageRunes    = 240
 	semanticContextTotalRunes  = 1500
+	semanticAgentsTotalRunes   = 1500
 	semanticMemberSummaryRunes = 180
 	semanticTimeout            = 2 * time.Second
 	// semanticDefaultMaxResponders caps a broadcast decision. The rule arbiter's
@@ -38,7 +39,7 @@ type SemanticGroupMember struct {
 	Name           string
 	Scope          string
 	CreatorID      string
-	Summary        string // bounded soul/system_prompt excerpt
+	Summary        string // bounded public routing summary
 	ReplyChannelID string
 }
 
@@ -198,19 +199,8 @@ func (a *LLMSemanticGroupArbiter) debug(msg string, args ...any) {
 func buildSemanticUserPayload(req SemanticGroupRequest) string {
 	var b strings.Builder
 	b.WriteString("Agents:\n")
-	for _, m := range req.Members {
-		b.WriteString("- ")
-		b.WriteString(m.AgentID)
-		if m.Name != "" {
-			b.WriteString(" (")
-			b.WriteString(m.Name)
-			b.WriteString(")")
-		}
-		if s := trimRunes(strings.TrimSpace(m.Summary), semanticMemberSummaryRunes); s != "" {
-			b.WriteString(": ")
-			b.WriteString(s)
-		}
-		b.WriteString("\n")
+	for _, line := range semanticAgentLines(req.Members) {
+		b.WriteString(line)
 	}
 
 	if ctxLines := recentContextLines(req.RecentContext); len(ctxLines) > 0 {
@@ -223,6 +213,45 @@ func buildSemanticUserPayload(req SemanticGroupRequest) string {
 
 	b.WriteString("\nLatest message:\n")
 	b.WriteString(trimRunes(strings.TrimSpace(req.Message), semanticPerMessageRunes))
+	return b.String()
+}
+
+func semanticAgentLines(members []SemanticGroupMember) []string {
+	lines := make([]string, 0, len(members))
+	total := 0
+	for _, m := range members {
+		line := semanticAgentLine(m)
+		lineRunes := utf8.RuneCountInString(line)
+		remaining := semanticAgentsTotalRunes - total
+		if remaining <= 0 {
+			break
+		}
+		if lineRunes > remaining {
+			if len(lines) == 0 {
+				lines = append(lines, trimRunes(line, remaining))
+			}
+			break
+		}
+		lines = append(lines, line)
+		total += lineRunes
+	}
+	return lines
+}
+
+func semanticAgentLine(m SemanticGroupMember) string {
+	var b strings.Builder
+	b.WriteString("- ")
+	b.WriteString(m.AgentID)
+	if m.Name != "" {
+		b.WriteString(" (")
+		b.WriteString(m.Name)
+		b.WriteString(")")
+	}
+	if s := trimRunes(strings.TrimSpace(m.Summary), semanticMemberSummaryRunes); s != "" {
+		b.WriteString(": ")
+		b.WriteString(s)
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 

@@ -130,6 +130,30 @@ func TestSemanticDecideBroadcastCapped(t *testing.T) {
 	}
 }
 
+func TestSemanticAgentLinesHaveTotalBudget(t *testing.T) {
+	members := make([]SemanticGroupMember, 0, 30)
+	for range 30 {
+		m := systemMember("agent")
+		m.Name = "verbose agent"
+		m.Summary = "this is deliberately long routing metadata that should not make the semantic arbiter prompt grow without bound"
+		members = append(members, m)
+	}
+	lines := semanticAgentLines(members)
+	if len(lines) == 0 {
+		t.Fatal("expected at least one agent line")
+	}
+	if len(lines) >= len(members) {
+		t.Fatalf("expected large member list to be capped, got %d lines for %d members", len(lines), len(members))
+	}
+	total := 0
+	for _, line := range lines {
+		total += len([]rune(line))
+	}
+	if total > semanticAgentsTotalRunes {
+		t.Fatalf("agent lines total = %d, want <= %d", total, semanticAgentsTotalRunes)
+	}
+}
+
 func TestSemanticDecideFallbacks(t *testing.T) {
 	members := []SemanticGroupMember{systemMember("a")}
 	load := func(_ context.Context, id string) (*config.Snapshot, error) { return fastSnapshot(id), nil }

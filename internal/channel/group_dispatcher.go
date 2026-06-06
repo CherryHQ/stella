@@ -273,8 +273,12 @@ func (d *GroupDispatcher) claimOutbox(ctx context.Context, row sqlc.CtxGroupOutb
 }
 
 func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox sqlc.CtxGroupOutbox) error {
+	responding, err := d.prepareDispatchResponders(ctx, d.q, outbox)
+	if err != nil {
+		return err
+	}
 	if d.db == nil {
-		return d.materializeDispatchRows(ctx, d.q, outbox)
+		return d.createDispatchRows(ctx, d.q, outbox, responding)
 	}
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -286,7 +290,7 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 			_ = tx.Rollback()
 		}
 	}()
-	if err := d.materializeDispatchRows(ctx, d.q.WithTx(tx), outbox); err != nil {
+	if err := d.createDispatchRows(ctx, d.q.WithTx(tx), outbox, responding); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -296,15 +300,27 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 	return nil
 }
 
-func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox) error {
+func (d *GroupDispatcher) prepareDispatchResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox) ([]string, error) {
 	message, state, err := d.messageAndStateWithQueries(ctx, q, outbox.GroupMessageID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
 	if err != nil {
-		return fmt.Errorf("decode outbox envelope: %w", err)
+		return nil, fmt.Errorf("decode outbox envelope: %w", err)
 	}
+	members, err := q.ListGroupMembers(ctx, outbox.GroupID)
+	if err != nil {
+		return nil, fmt.Errorf("list group members: %w", err)
+	}
+	groupMembers := make([]GroupMember, len(members))
+	for i, m := range members {
+		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
+	}
+	return d.decideResponders(ctx, q, outbox, message, state, envelope, groupMembers), nil
+}
+
+func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, responding []string) error {
 	members, err := q.ListGroupMembers(ctx, outbox.GroupID)
 	if err != nil {
 		return fmt.Errorf("list group members: %w", err)
@@ -313,7 +329,6 @@ func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Q
 	for i, m := range members {
 		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 	}
-	responding := d.decideResponders(ctx, q, outbox, message, state, envelope, groupMembers)
 	for _, agentID := range responding {
 		replyChannelID := findMemberReplyChannel(groupMembers, agentID)
 		if replyChannelID == "" {
@@ -343,7 +358,16 @@ func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Q
 // when one is configured; otherwise it falls back to existing platform behavior
 // (web/always broadcast, mention-mode silence).
 func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope, groupMembers []GroupMember) []string {
-	if len(mentionedAgentIDs(envelope.Mentions)) == 0 && d.coord != nil && d.coord.semanticGroupArbiter != nil {
+	if len(envelope.Mentions) > 0 {
+		if d.coord != nil && d.coord.arbiter != nil {
+			return d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
+				AllMembersFallback: false,
+				DisableDebounce:    true,
+			}).RespondingAgents
+		}
+		return fallbackGroupDecision(envelope.Mentions, groupMembers, false).RespondingAgents
+	}
+	if d.coord != nil && d.coord.semanticGroupArbiter != nil {
 		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
 	}
 	allMembersFallback := state.Platform == "web" || effectivePlatformGroupMode(ctx, q, groupMembers, state) == "always"
@@ -368,9 +392,6 @@ func (d *GroupDispatcher) semanticResponders(ctx context.Context, q *sqlc.Querie
 			continue
 		}
 		summary := a.Soul
-		if strings.TrimSpace(summary) == "" {
-			summary = a.SystemPrompt
-		}
 		smembers = append(smembers, SemanticGroupMember{
 			AgentID:        m.AgentID,
 			Name:           a.Name,
@@ -383,11 +404,15 @@ func (d *GroupDispatcher) semanticResponders(ctx context.Context, q *sqlc.Querie
 	if len(smembers) == 0 {
 		return nil
 	}
+	ownerUserID := ""
+	if state.Platform == "web" {
+		ownerUserID = nullStringValue(state.CreatedByUserID)
+	}
 	decision := d.coord.semanticGroupArbiter.Decide(ctx, SemanticGroupRequest{
 		Message:       message.Content,
 		RecentContext: d.recentGroupContext(ctx, q, groupID, message.Seq),
 		Members:       smembers,
-		OwnerUserID:   nullStringValue(state.CreatedByUserID),
+		OwnerUserID:   ownerUserID,
 	})
 	if !decision.ShouldReply {
 		return nil
@@ -395,13 +420,13 @@ func (d *GroupDispatcher) semanticResponders(ctx context.Context, q *sqlc.Querie
 	return decision.RespondingAgents
 }
 
-// recentGroupContext returns prior group messages oldest→newest, excluding the
-// current message. It over-fetches by one to compensate for dropping the
-// current row; the arbiter enforces its own size budget.
+// recentGroupContext returns prior group messages oldest→newest. It caps by
+// seq so delayed outbox retries never route using future messages.
 func (d *GroupDispatcher) recentGroupContext(ctx context.Context, q *sqlc.Queries, groupID string, currentSeq int64) []SemanticGroupContextMessage {
-	rows, err := q.ListRecentGroupMessages(ctx, sqlc.ListRecentGroupMessagesParams{
-		GroupID:  groupID,
-		MaxCount: int64(semanticMaxContextMessages + 1),
+	rows, err := q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{
+		GroupID:   groupID,
+		BeforeSeq: currentSeq,
+		MaxCount:  int64(semanticMaxContextMessages),
 	})
 	if err != nil {
 		d.log.Warn("semantic routing: list recent messages failed", "group_id", groupID, "error", err)
@@ -410,9 +435,6 @@ func (d *GroupDispatcher) recentGroupContext(ctx context.Context, q *sqlc.Querie
 	out := make([]SemanticGroupContextMessage, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- {
 		r := rows[i]
-		if r.Seq == currentSeq {
-			continue
-		}
 		out = append(out, SemanticGroupContextMessage{
 			ActorType: r.ActorType,
 			ActorID:   r.ActorID,

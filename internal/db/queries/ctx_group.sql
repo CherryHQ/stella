@@ -52,6 +52,13 @@ WHERE group_id = sqlc.arg(group_id)
 ORDER BY seq DESC
 LIMIT sqlc.arg(max_count);
 
+-- name: ListRecentGroupMessagesBeforeSeq :many
+SELECT * FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq < sqlc.arg(before_seq)
+ORDER BY seq DESC
+LIMIT sqlc.arg(max_count);
+
 -- name: ListGroupMessagesPaginated :many
 SELECT * FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
