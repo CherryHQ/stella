@@ -1289,8 +1289,8 @@ components:
       enum: [pending, saved, skipped, error]
     FeedKind:
       type: string
-      description: "Extraction-dispatch hint. 'rss' uses the built-in poller; other kinds are extracted by the recally skill."
-      enum: [rss, twitter]
+      description: "Extraction-dispatch hint. 'rss' uses the built-in poller; other kinds (twitter, website) are extracted by the recally skill."
+      enum: [rss, twitter, website]
     Article:
       type: object
       required: [

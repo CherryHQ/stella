@@ -22,6 +22,7 @@ open the SQLite database directly.
 | Saving an article (fetch → generate → save) | [references/save-workflow.md](references/save-workflow.md)       |
 | RSS batch processing                        | [references/rss-workflow.md](references/rss-workflow.md)         |
 | Twitter/X feed discovery                    | [references/twitter-workflow.md](references/twitter-workflow.md) |
+| Website (no-RSS) feed discovery             | [references/website-workflow.md](references/website-workflow.md) |
 
 ## Search and Retrieve
 
@@ -55,10 +56,12 @@ stella recally feed entry add --feed-id <id> --guid <guid> --url <url> --title <
 ```
 
 `feed add` sniffs the kind from the URL: `x.com` / `twitter.com` hosts become
-`twitter`, everything else defaults to `rss`. Pass `--kind rss|twitter` to force it.
+`twitter`, everything else defaults to `rss`. Pass `--kind rss|twitter|website` to
+force it. Use `--kind website` for a page that lists items but has no RSS.
 
 - **rss** feeds: poll server-side, then process pending entries — see [references/rss-workflow.md](references/rss-workflow.md).
 - **twitter** feeds: discover entries via the skill — see [references/twitter-workflow.md](references/twitter-workflow.md).
+- **website** feeds: scrape item links from a no-RSS page — see [references/website-workflow.md](references/website-workflow.md).
 
 `feed entry add` is the source-agnostic discovery sink: it dedups on `(feed-id, guid)`
 and prints `new` or `dup`. YouTube channels work today with no new code — subscribe
