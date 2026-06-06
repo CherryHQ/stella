@@ -116,9 +116,7 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 		}
 	}
 
-	if len(responding) > a.cfg.MaxRepliesPerTrigger {
-		responding = responding[:a.cfg.MaxRepliesPerTrigger]
-	}
+	responding = capResponders(responding, a.cfg.MaxRepliesPerTrigger)
 
 	// Evict expired debounce entries on all paths (not just fallback).
 	if a.cfg.DebounceWindow > 0 {
@@ -140,6 +138,19 @@ func (a *Arbiter) evictExpired(now time.Time) {
 			delete(a.lastTrigger, k)
 		}
 	}
+}
+
+// capResponders truncates ids to at most max entries. max <= 0 means cap at 1,
+// matching NewArbiter's default. Shared by the rule arbiter and the semantic
+// no-mention path so broadcast decisions can never exceed the per-trigger cap.
+func capResponders(ids []string, max int) []string {
+	if max <= 0 {
+		max = 1
+	}
+	if len(ids) > max {
+		return ids[:max]
+	}
+	return ids
 }
 
 func mentionedAgentIDs(mentions []pkgchannel.Mention) []string {

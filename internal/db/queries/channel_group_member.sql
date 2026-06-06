@@ -1,5 +1,5 @@
 -- name: ListGroupMembers :many
-SELECT * FROM channel_group_member WHERE group_id = ?;
+SELECT * FROM channel_group_member WHERE group_id = ? ORDER BY agent_id;
 
 -- name: GetGroupMember :one
 SELECT * FROM channel_group_member WHERE group_id = ? AND agent_id = ?;
