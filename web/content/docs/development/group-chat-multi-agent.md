@@ -218,6 +218,22 @@ The membership table closes the loop:
 
 `channel.agent_id` still means bot→agent binding; `channel_agent`'s single-active semantics stay for DM/non-group only. The dispatcher receives a message from any bot, resolves all agents in the group by `group_id`, and each agent replies via its own `reply_channel_id`. The dual assertion stops a misconfiguration or malicious write from letting agentB speak through agentA's bot.
 
+## Current speaker: per-turn personalization (D10)
+
+D9 keeps the group session anonymous so no human owns the runtime. But the agent still needs to know **who is speaking right now** to personalize a reply. That is a second identity axis, deliberately kept separate from the runtime/session identity so it can never become it.
+
+`memory.CurrentSpeaker` carries the per-turn speaker: `Platform`, `PlatformUserID` (lookup/audit only), `DisplayName`, and `UserID` (the resolved Stella user when the sender is linked; empty when unlinked). It travels on the context via `WithCurrentSpeaker` / `CurrentSpeakerFromContext`, parallel to — never merged with — `UserIDFromContext`.
+
+The hard rules:
+
+- **Personalization target, not runtime identity.** `CurrentSpeaker.UserID` must never be passed to `memory.WithUserID`, sandbox/vault/token code, plugin or delegate contexts, notify routing, or hook user metadata. `runtime/chat.go` attaches the speaker for group turns but still skips `WithUserID`, so all four D9 surfaces stay group-scoped.
+- **Per-turn, never cached.** The prompt's `## Current Speaker` section is built fresh each turn by a `GroupPromptFunc` that re-renders the full system prompt. The cached group runner never holds speaker data, so one speaker's profile can't leak into another's turn.
+- **Prompt rendering is keyed on `GroupID`, not on group memory being non-empty.** A group turn renders `## Group Memory` (+ optional `## Current Speaker`) and never falls back to the per-user `## User Profile` section, even when the group drawer is empty.
+- **Speaker profile only — no soul, no constraints.** The `## Current Speaker` section injects the linked speaker's profile blob and dated entries, read under the speaker's own snapshot row `(session, speaker.UserID, agent)`. Soul and constraints are never injected: a public room is not the place to apply one member's hard rules to the whole group.
+- **Resolution by hard facts.** Platform senders resolve through channel identity lookup (linked → auth user id, unlinked → empty UserID → name only, no profile). Web senders trust the authenticated `actor_id` as the speaker only for a genuine human actor, failing closed otherwise.
+
+The `memory` tool mirrors this in group turns: with no session user, `profile_get` / `profile_update` fall back to the current speaker; `soul_*`, `constraint_*`, and `profile_history` / `profile_rollback` stay strict and fail closed.
+
 ## Implementation order
 
 Data model (the hard-to-change parts) first, behavior second:

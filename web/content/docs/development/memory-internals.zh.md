@@ -57,6 +57,18 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。
 
+### 群聊回合:当前发言人回退
+
+群 session 的运行时身份是群,因此没有 session 用户(D9)。为了仍能让 agent 记住正在说话的人的事实,当不存在 session 用户时,`profile_get` 与 `profile_update` 回退到当前发言人:
+
+1. session 用户(`UserIDFromContext`)—— 正常 DM 行为。
+2. 否则已关联的当前发言人(`CurrentSpeaker.UserID`)—— 群个性化。
+3. 否则 fail-closed,报 `no linked current speaker`(未关联发送者)。
+
+回退刻意收窄。**只有 `profile_get` / `profile_update` 获得它。** `soul_get`、`soul_update`、`constraint_*`、`profile_history`、`profile_rollback` 仍走严格的 session-用户解析器,因此群聊回合中它们 fail-closed——公开群不是通过共享 agent 读取或改写某成员 soul、constraints、历史的地方。经回退的 `profile_update` 推进发言人自己的快照行 `(session, speaker.UserID, agent)`,绝不推进群的。
+
+参见[群聊:当前发言人(D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10)。
+
 ## 系统提示层级
 
 每一轮对话都可以从当前或冻结的记忆版本重建系统提示。顺序如下：
@@ -65,11 +77,13 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 2. **工具和插件提示清单** —— 可用工具、插件能力、技能。
 3. **约束** —— 来自 `ConstraintStore` 的用户确认硬规则；位于 soul/profile 之前，Reflect 不会修改。
 4. **Agent soul** —— agent 身份、人格和语气文本。
-5. **用户画像** —— 持久用户笔记。
+5. **用户画像** —— 持久用户笔记。**群聊回合用 `## Group Memory`(共享群抽屉)加可选的 `## Current Speaker` 段(已关联发言人的 profile)替换它**;群聊回合绝不渲染按用户的画像。群模式按 session 是否有 `group_id` 分支,而非按群记忆是否为空。
 6. **知识** —— 来自 `KnowledgeStore` 的 active fact/context 条目。
 7. **项目上下文** —— `AGENTS.md` 等项目指令。
 
 对话历史由记忆 provider 单独组装。约束、身份和知识位于系统提示中，因此对话压缩不会删除它们。
+
+群聊回合的逐轮重建是一个 `GroupPromptFunc`,它带当前发言人重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的 profile 不会泄漏到另一个发言人的回合。发言人 profile 按其自己的快照版本读取,且发言人的 soul/constraints 刻意不注入。
 
 ## Changelog 与回滚
 
