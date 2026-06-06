@@ -31,16 +31,15 @@ func TestCurrentSpeakerLinkedRendersWithGroupMemory(t *testing.T) {
 		CurrentSpeaker: &memory.CurrentSpeaker{Platform: "telegram", DisplayName: "Alice", UserID: "speaker1"},
 	})
 
-	for _, want := range []string{"## Group Memory", "## Current Speaker", "Alice", "Alice likes tea", "Based in Berlin"} {
+	for _, want := range []string{"## Group Memory", "## Current Speaker", "Alice", "Linked Stella user: yes"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("expected prompt to contain %q\n---\n%s", want, p)
 		}
 	}
-	if strings.Contains(p, "## User Profile") {
-		t.Error("group turn must not render the per-user User Profile section")
-	}
-	if strings.Contains(p, "OTHER MEMBER SECRET") {
-		t.Error("group turn must not leak another member's profile")
+	for _, forbidden := range []string{"## User Profile", "Alice likes tea", "Based in Berlin", "OTHER MEMBER SECRET", "<speaker_profile>"} {
+		if strings.Contains(p, forbidden) {
+			t.Errorf("group turn must not auto-inject private profile content %q", forbidden)
+		}
 	}
 }
 
@@ -66,7 +65,7 @@ func TestCurrentSpeakerUnlinkedRendersNameOnly(t *testing.T) {
 	if !strings.Contains(p, "Stranger") {
 		t.Error("expected unlinked sender display name")
 	}
-	if !strings.Contains(p, "Unlinked sender") {
+	if !strings.Contains(p, "Linked Stella user: no") {
 		t.Error("expected unlinked marker")
 	}
 	if strings.Contains(p, "WRONG PROFILE") {
@@ -74,7 +73,7 @@ func TestCurrentSpeakerUnlinkedRendersNameOnly(t *testing.T) {
 	}
 }
 
-func TestCurrentSpeakerSoulAndConstraintsNotInjected(t *testing.T) {
+func TestCurrentSpeakerPrivateMemoryNotInjected(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
@@ -92,14 +91,10 @@ func TestCurrentSpeakerSoulAndConstraintsNotInjected(t *testing.T) {
 		CurrentSpeaker: &memory.CurrentSpeaker{DisplayName: "Alice", UserID: "speaker1"},
 	})
 
-	if !strings.Contains(p, "Alice profile") {
-		t.Error("expected speaker profile to render")
-	}
-	if strings.Contains(p, "SPEAKER SECRET SOUL") {
-		t.Error("speaker soul must not be injected into a group prompt")
-	}
-	if strings.Contains(p, "SPEAKER SECRET CONSTRAINT") {
-		t.Error("speaker constraints must not be injected into a group prompt")
+	for _, forbidden := range []string{"Alice profile", "SPEAKER SECRET SOUL", "SPEAKER SECRET CONSTRAINT"} {
+		if strings.Contains(p, forbidden) {
+			t.Errorf("speaker private memory must not be injected into a group prompt: %q", forbidden)
+		}
 	}
 }
 

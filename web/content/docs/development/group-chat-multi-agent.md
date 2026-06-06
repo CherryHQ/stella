@@ -227,12 +227,12 @@ D9 keeps the group session anonymous so no human owns the runtime. But the agent
 The hard rules:
 
 - **Personalization target, not runtime identity.** `CurrentSpeaker.UserID` must never be passed to `memory.WithUserID`, sandbox/vault/token code, plugin or delegate contexts, notify routing, or hook user metadata. `runtime/chat.go` attaches the speaker for group turns but still skips `WithUserID`, so all four D9 surfaces stay group-scoped.
-- **Per-turn, never cached.** The prompt's `## Current Speaker` section is built fresh each turn by a `GroupPromptFunc` that re-renders the full system prompt. The cached group runner never holds speaker data, so one speaker's profile can't leak into another's turn.
+- **Per-turn, never cached.** The prompt's `## Current Speaker` section is built fresh each turn by a `GroupPromptFunc` that re-renders the full system prompt. The cached group runner never holds speaker context, so one speaker's turn metadata can't leak into another's turn.
 - **Prompt rendering is keyed on `GroupID`, not on group memory being non-empty.** A group turn renders `## Group Memory` (+ optional `## Current Speaker`) and never falls back to the per-user `## User Profile` section, even when the group drawer is empty.
-- **Speaker profile only — no soul, no constraints.** The `## Current Speaker` section injects the linked speaker's profile blob and dated entries, read under the speaker's own snapshot row `(session, speaker.UserID, agent)`. Soul and constraints are never injected: a public room is not the place to apply one member's hard rules to the whole group.
-- **Resolution by hard facts.** Platform senders resolve through channel identity lookup (linked → auth user id, unlinked → empty UserID → name only, no profile). Web senders trust the authenticated `actor_id` as the speaker only for a genuine human actor, failing closed otherwise.
+- **No automatic private profile injection.** `## Current Speaker` exposes the display name and linked/unlinked status only. It does not include the speaker's profile blob, dated entries, soul, or constraints: a public room is not the place to disclose one member's private memory or apply their hard rules to the whole group.
+- **Resolution by hard facts.** Platform senders resolve through channel identity lookup (linked → auth user id, unlinked → empty UserID → name only). Web senders trust the authenticated `actor_id` as the speaker only for a genuine human actor, failing closed otherwise.
 
-The `memory` tool mirrors this in group turns: with no session user, `profile_get` / `profile_update` fall back to the current speaker; `soul_*`, `constraint_*`, and `profile_history` / `profile_rollback` stay strict and fail closed.
+The `memory` tool mirrors this in group turns: with no session user, `profile_get` / `profile_update` fall back to the current speaker only when the model explicitly calls the tool. `soul_*`, `constraint_*`, and `profile_history` / `profile_rollback` stay strict and fail closed.
 
 ## Implementation order
 

@@ -68,12 +68,10 @@ type promptData struct {
 	// Group session rendering. IsGroup switches the template from the per-user
 	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
 	// driven by session kind, not by whether group memory text is non-empty.
-	IsGroup               bool
-	HasCurrentSpeaker     bool // a current-speaker section should render this turn
-	CurrentSpeakerName    string
-	CurrentSpeakerLinked  bool   // resolved to a Stella user → profile available
-	CurrentSpeakerProfile string // speaker's profile blob; only when linked
-	CurrentSpeakerEntries []memory.ProfileEntry
+	IsGroup              bool
+	HasCurrentSpeaker    bool // a current-speaker section should render this turn
+	CurrentSpeakerName   string
+	CurrentSpeakerLinked bool // resolved to a Stella user; private profile is not auto-injected in groups
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -98,10 +96,10 @@ type DBPromptParams struct {
 	// CurrentSpeaker, when non-nil, renders a group-only "## Current Speaker"
 	// section for the human speaking this turn. It is a personalization target
 	// only: its UserID must never be passed as the prompt UserID (which stays
-	// empty/group-scoped for group sessions). Linked speakers get their profile
-	// at SpeakerSnapshotVersion; unlinked speakers render name only.
-	CurrentSpeaker         *memory.CurrentSpeaker
-	SpeakerSnapshotVersion int64 // frozen speaker profile version; 0 means current
+	// empty/group-scoped for group sessions). Group prompts expose only speaker
+	// presence/linked status; private profile text is not auto-injected into a
+	// public room.
+	CurrentSpeaker *memory.CurrentSpeaker
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -187,10 +185,11 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 	}
 
-	// Current speaker (D9): a per-turn personalization axis for group turns. The
-	// speaker's profile is read under speaker.UserID — never p.UserID — and the
-	// speaker's soul/constraints are intentionally NOT injected (a public room is
-	// not the place to apply one member's hard rules to the whole group).
+	// Current speaker (D9): a per-turn personalization axis for group turns.
+	// Public group prompts expose only who is speaking and whether they are
+	// linked. Private profile text/entries, soul, and constraints are intentionally
+	// NOT auto-injected; a public room is not the place to disclose one member's
+	// private memory to the whole group.
 	// Render the section only for a real speaker. A zero-value speaker reaches
 	// here on fail-closed group dispatch (e.g. a non-human Web trigger); rendering
 	// it would inject a phantom "Unknown speaker" telling the model a human is
@@ -202,25 +201,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		if data.CurrentSpeakerName == "" {
 			data.CurrentSpeakerName = "Unknown"
 		}
-		if speakerID := p.CurrentSpeaker.UserID; speakerID != "" && p.AgentID != "" && p.Memory != nil {
-			data.CurrentSpeakerLinked = true
-			if p.SpeakerSnapshotVersion > 0 {
-				if vps, ok := p.Memory.(memory.VersionedProfileStore); ok {
-					if c, err := vps.GetProfileAt(ctx, speakerID, p.AgentID, p.SpeakerSnapshotVersion); err == nil {
-						data.CurrentSpeakerProfile = strings.TrimRight(c, "\n")
-					}
-				}
-			} else if ps, ok := p.Memory.(memory.ProfileStore); ok {
-				if c, err := ps.GetProfile(ctx, speakerID, p.AgentID); err == nil {
-					data.CurrentSpeakerProfile = strings.TrimRight(c, "\n")
-				}
-			}
-			if pes, ok := p.Memory.(memory.ProfileEntryStore); ok {
-				if entries, err := pes.GetProfileEntries(ctx, speakerID, p.AgentID); err == nil {
-					data.CurrentSpeakerEntries = entries
-				}
-			}
-		}
+		data.CurrentSpeakerLinked = p.CurrentSpeaker.UserID != ""
 	}
 
 	// Knowledge: active fact/context entries injected as ## Knowledge section.

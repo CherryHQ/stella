@@ -32,10 +32,11 @@ type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, 
 type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) string
 
 // GroupPromptFunc builds a per-turn system prompt for a group session, injecting
-// the current speaker. It re-renders the full prompt (base + group memory +
-// current speaker) so cached runner state never carries one speaker's profile
-// into another speaker's turn. The standard builder always returns a full
-// prompt; an empty return is treated defensively as "leave the cached prompt".
+// the current speaker's addressing context. It re-renders the full prompt (base
+// + group memory + current speaker) so cached runner state never carries one
+// speaker's turn context into another speaker's turn. The standard builder
+// always returns a full prompt; an empty return is treated defensively as "leave
+// the cached prompt".
 type GroupPromptFunc func(ctx context.Context, info session.Info, speaker memory.CurrentSpeaker) string
 
 // chat is the goroutine body for Runtime.Chat.

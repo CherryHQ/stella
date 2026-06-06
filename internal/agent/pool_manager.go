@@ -367,38 +367,28 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 }
 
 // buildGroupPromptFunc renders a per-turn group system prompt with the current
-// speaker. It is never cached on the runner, so one speaker's profile can't leak
-// into another speaker's turn. The speaker profile is read under the speaker's
-// own snapshot row (session, speaker.UserID, agent) — created here on first use —
-// while the prompt UserID stays empty and group memory flows from GroupID.
+// speaker. It is never cached on the runner, so one speaker's addressing context
+// can't leak into another speaker's turn. The prompt UserID stays empty and
+// group memory flows from GroupID; private speaker profile text is deliberately
+// not auto-injected into public group prompts.
 func (pm *PoolManager) buildGroupPromptFunc(snap *config.Snapshot) agentruntime.GroupPromptFunc {
 	return func(ctx context.Context, info session.Info, speaker memory.CurrentSpeaker) string {
 		userRoot, _, groupID := pm.promptScope(snap.AgentID, info)
 		sections := pm.promptSections(ctx, snap, info, userRoot)
 
-		var speakerVersion int64
-		if speaker.UserID != "" && info.AgentID != "" {
-			if sss, ok := pm.mem.(memory.SessionSnapshotStore); ok {
-				if ss, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, speaker.UserID, info.AgentID); err == nil {
-					speakerVersion = ss.Version
-				}
-			}
-		}
-
 		cs := speaker
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt:           snap.SystemPrompt,
-			AgentSoul:              snap.Soul,
-			Memory:                 pm.mem,
-			UserID:                 "",
-			AgentID:                info.AgentID,
-			GroupID:                groupID,
-			StellaHome:             config.StellaHome(),
-			AgentRoot:              snap.Workspace,
-			UserRoot:               userRoot,
-			Sections:               sections,
-			CurrentSpeaker:         &cs,
-			SpeakerSnapshotVersion: speakerVersion,
+			SystemPrompt:   snap.SystemPrompt,
+			AgentSoul:      snap.Soul,
+			Memory:         pm.mem,
+			UserID:         "",
+			AgentID:        info.AgentID,
+			GroupID:        groupID,
+			StellaHome:     config.StellaHome(),
+			AgentRoot:      snap.Workspace,
+			UserRoot:       userRoot,
+			Sections:       sections,
+			CurrentSpeaker: &cs,
 		})
 	}
 }
