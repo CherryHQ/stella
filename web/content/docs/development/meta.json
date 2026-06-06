@@ -10,6 +10,7 @@
     "sandbox",
     "memory-internals",
     "group-chat-multi-agent",
+    "group-chat-dataflow",
     "session-compaction",
     "plugin-system",
     "task-system",
