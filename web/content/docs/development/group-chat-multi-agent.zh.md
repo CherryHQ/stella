@@ -163,18 +163,23 @@ CREATE TABLE ctx_group_memory (
 
 ## Arbiter:发言闸门(D7)
 
-群消息不再各 bot 直连 runtime。新链路:
+群消息不再各 bot 直连 runtime。持久化链路:
 
 ```
 群消息(任一 bot 送达)
   → 写 event log(D2 幂等;非首次插入则在此丢弃)
+  → 创建 outbox work
   → 单一 group dispatcher
-      → 廉价规则预筛 → arbiter.decide(只出意图)
-      → 去抖窗
-      → 对决定开口的 agent 逐个:runtime → publisher(发到群 ChatID)
+      → L0 规则闸门:已解析 @mention → 确定性响应者
+      → L1 语义闸门:无 mention → fast-model JSON 决策
+      → 物化 ctx_group_dispatch 行
+      → 对选中的 agent 逐个:runtime → publisher(通过 reply_channel_id)
 ```
 
-- 被 @点名的 agent 绕过 arbiter 直接应答。
+- 任何 `@mention` 信号都留在 L0 规则路径。如果平台 mention 无法解析到 Stella 群成员,dispatcher 不会把它当成无 mention 语义请求;它会静默,避免回复本来发给别人的消息。
+- 无 mention 消息在配置了语义仲裁时走 L1 语义路由。分类器可以返回静默、单 agent 或受上限保护的多 agent 广播。失败、超时、无效 JSON 或无合格路由模型都折叠为静默。
+- L1 路由模型按归属选择,不是随便取第一个成员。Web 群优先群 owner 自己的 agent,再退到 system-scope agent。Platform 群只允许 system-scope agent,避免把私有 agent 的凭据用于共享路由决策。
+- L1 只接收有界的公开路由元数据:agent ID/name、`soul` 摘要,以及 `seq < currentSeq` 的有界历史群上下文。它不会收到 agent `system_prompt`,延迟 outbox 重试也不会把未来消息当成历史上下文。
 - decide 与 generate 分离,**decide 只出意图、不出草稿**(省 token)。
 - 每次人类触发硬上限 N 条公开回复,防失控刷屏。
 - agent 自己的发言写进 log(可被动读),但**默认不唤醒其他 agent 的 arbiter**。例外是显式 `@另一个 agent`,由独立 handoff dispatcher 处理——普通 arbiter 只对 `actor_type=human` 反应,两条路径互不冲突。

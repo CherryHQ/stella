@@ -981,12 +981,12 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
               <div class="decision-label">决策树 (三条路径)</div>
 
               <div class="decision-branch">
-                <span class="decision-condition">有 @mention?</span>
+                <span class="decision-condition">有任意 @mention?</span>
                 <div class="decision-result">
-                  <strong style="color: var(--accent-green)">→ 直达被 mention 的 agent(s)</strong
-                  ><br />
-                  跳过 debounce。过滤只保留群组成员。受
-                  <code>MaxRepliesPerTrigger</code> 上限。<br />
+                  <strong style="color: var(--accent-green)">→ L0 规则路径</strong><br />
+                  已解析到 Stella 群成员的 mention 直达对应 agent(s)，跳过 debounce，并受
+                  <code>MaxRepliesPerTrigger</code> 上限。无法解析的 mention 不会被当成无 mention
+                  语义请求；默认静默，避免回复本来发给别人的消息。<br />
                   <span
                     style="
                       color: var(--accent-green);
@@ -1002,11 +1002,13 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
               <div class="decision-branch">
                 <span class="decision-condition">无 mention + 配置了语义仲裁 (L1)</span>
                 <div class="decision-result">
-                  → <code>semantic_group_arbiter.go</code>：fast 模型读最近群上下文 + 成员描述，返回
+                  → <code>semantic_group_arbiter.go</code>：fast 模型读取有界历史群上下文（只取
+                  <code>seq &lt; currentSeq</code>）+ 有界公开成员描述，返回
                   <code>{should_reply, agents[]}</code>。定向 → 单个 agent；广播 → 多个（受自身
                   <code>maxResponders</code> 上限）；闲聊/超时/解析失败 → 静默。<br />
                   路由模型按归属选取：Web 群优先群主自己的 agent，否则 system-scope；Platform 群仅
-                  system-scope —— 私有 agent 的凭据不会被用于共享路由决策。
+                  system-scope。私有 agent 的凭据不会被用于共享路由决策；agent 的
+                  <code>system_prompt</code> 也不会暴露给路由模型。
                 </div>
               </div>
 
@@ -1031,8 +1033,8 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
     DebounceWindow       time.Duration  <span class="cm">// 0 → 不 debounce; 同群组非 mention 消息最小间隔</span>
 }
 
-<span class="cm">// 目标默认: MaxReplies=1，避免无 @ 时炸群</span>
-<span class="cm">// AllMembersFallback 存在 per-group dispatch policy；当前 Web 硬编码 true，迁移后变成显式配置</span></pre>
+<span class="cm">// 规则路径默认 MaxReplies=1，避免无 @ fallback 炸群</span>
+<span class="cm">// 语义广播使用自己的 maxResponders 上限；未配置语义仲裁时才走 AllMembersFallback</span></pre>
             </div>
 
             <div class="data-card" style="margin-top: 12px">

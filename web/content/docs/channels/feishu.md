@@ -59,7 +59,7 @@ When you enable auto-provisioning for a Feishu channel instance, Stella can also
 ### How it works
 
 1. A user messages the bot.
-2. Auto-provision runs only for messages that the bot actually handles. In groups, the default `group_mode` is `mention`, so the user must `@` the bot unless you change the group override to `always`.
+2. Auto-provision runs only for messages that the bot actually handles. In groups, the most reliable first-contact trigger is an `@` mention. Non-mention messages may be handled when Stella's semantic group routing confidently selects this bot.
 3. Stella determines the bot tenant key:
    - If you configured `tenant_key`, that value is used.
    - Otherwise Stella tries to auto-detect it at startup via the Feishu tenant API.
@@ -138,10 +138,10 @@ When you message inside a Feishu thread, Stella keeps the response in that threa
 
 ## Group Behavior
 
-`group_mode` controls whether Stella responds in groups:
+`group_mode` controls how Stella considers group messages:
 
-- `mention`: respond only when the bot is mentioned
-- `always`: respond to every message
+- `mention`: @mentions always route to the mentioned bot. Other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available; otherwise they stay silent.
+- `always`: consider every group message. Non-mention messages still pass through semantic routing first, so chatter can stay silent; if semantic routing is unavailable, Stella falls back to the legacy all-members response.
 - `disabled`: never respond in groups
 
 You can also set per-group overrides with the `groups` map in channel config.
@@ -180,17 +180,17 @@ Feishu supports the standard chat commands:
 }
 ```
 
-| Field                | Description                                                                                                          |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `app_id`             | Feishu app ID                                                                                                        |
-| `app_secret`         | Feishu app secret                                                                                                    |
-| `encrypt_key`        | Optional event encryption key                                                                                        |
-| `verification_token` | Optional event verification token                                                                                    |
-| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`                                                           |
-| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                   |
-| `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended |
-| `auto_provision`     | Automatically create Stella accounts for users handled by this Feishu channel instance                               |
-| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                |
+| Field                | Description                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `app_id`             | Feishu app ID                                                                                                                            |
+| `app_secret`         | Feishu app secret                                                                                                                        |
+| `encrypt_key`        | Optional event encryption key                                                                                                            |
+| `verification_token` | Optional event verification token                                                                                                        |
+| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`. @mentions are deterministic; no-mention messages may be routed semantically. |
+| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                                       |
+| `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended                     |
+| `auto_provision`     | Automatically create Stella accounts for users handled by this Feishu channel instance                                                   |
+| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                                    |
 
 ## Troubleshooting
 
@@ -202,12 +202,13 @@ Feishu supports the standard chat commands:
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the Web UI. The default is `mention`, which means you need to @mention the bot.
+- Check the `group_mode` setting in the Web UI. @mention the bot for the most reliable trigger.
+- If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
 
 **Auto-provisioning not creating users?**
 
 1. Make sure you enabled auto-provision on the correct Feishu channel instance -- it is configured per instance, not globally.
-2. In groups with `group_mode: mention`, the user must @mention the bot for auto-provision to trigger.
+2. In groups, ask the user to @mention the bot for first contact. Non-mention messages can stay silent if semantic routing does not select the bot.
 3. Verify that `tenant_key` is set or that startup auto-detection succeeded. If neither works, auto-provision is skipped.
 4. Confirm your Feishu app has these scopes: `contact:user.base:readonly` and `contact:user.id:readonly`.
 5. At least one Stella admin must already exist. Fresh deployments refuse auto-provision until the first admin account is created.
@@ -226,7 +227,7 @@ A reliable auto-provisioning configuration looks like:
 }
 ```
 
-Use `group_mode: "always"` only if you want provisioning and replies for every group message. Otherwise keep `mention` and make sure users @mention the bot on first contact.
+Use `group_mode: "always"` only if you want Stella to consider every group message. Semantic routing may still keep chatter silent, so users should @mention the bot for reliable first contact and auto-provisioning.
 
 **Images or files not being analyzed?**
 
