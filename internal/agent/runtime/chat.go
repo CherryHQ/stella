@@ -118,11 +118,18 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	// Assemble history before appending the new user message.
 	var history []ai.Message
+	assembledOK := false
 	assembled, err := rt.mem.Assemble(ctx, memSess, rt.compact.MaxTokens, rt.compact.KeepTail)
 	if err != nil {
 		rt.log.Warn("memory assemble failed", "session_id", info.ID, "error", err)
+		if memSess.GroupID != "" {
+			out <- Event{Err: fmt.Errorf("assemble group memory: %w", err)}
+			close(out)
+			return
+		}
 	} else {
 		history = assembled
+		assembledOK = true
 	}
 
 	// Resolve system prompt.
@@ -163,14 +170,27 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		ctx = withExcludedTools(ctx, co.excludedTools...)
 	}
 
-	// Persist user message.
+	// Persist group trigger messages only after the turn succeeds. Otherwise a
+	// failed durable dispatch retry would leave the same trigger in history and
+	// duplicate it on the next attempt.
 	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
-	if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+	var storePrefix []ai.Message
+	if memSess.GroupID != "" {
+		storePrefix = []ai.Message{userMsg}
+	} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
 		rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
 	}
 
 	stream := r.Chat(ctx, history, userMsg)
-	rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart)
+	chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
+		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
+			commitCtx := context.WithoutCancel(ctx)
+			if err := committer.CommitGroupCursor(commitCtx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
+				rt.log.Warn("group cursor commit failed", "session_id", info.ID, "group_id", memSess.GroupID, "error", err)
+			}
+		}
+	}
 }
 
 func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string) (*cachedSession, Runner, error) {
@@ -250,6 +270,9 @@ func (rt *Runtime) compact_(ctx context.Context, sess memory.Session) (string, e
 // blocking on a channel nobody drains — which would otherwise wedge the upstream
 // runner goroutine indefinitely.
 func sendEvent(ctx context.Context, out chan<- Event, evt Event) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	select {
 	case out <- evt:
 		return true
@@ -268,8 +291,26 @@ func (rt *Runtime) streamEvents(
 	hs *hooks.HookSet,
 	hookMeta hooks.HookMeta,
 	chatStart time.Time,
-) {
+	storePrefix ...ai.Message,
+) error {
+	persistCtx := context.WithoutCancel(ctx)
+	isGroup := memSess.GroupID != ""
 	var chatErr error
+	var pendingStores []ai.Message
+	appendWithPrefix := func(msgs ...ai.Message) error {
+		storeMessages := make([]ai.Message, 0, len(storePrefix)+len(msgs))
+		storeMessages = append(storeMessages, storePrefix...)
+		storeMessages = append(storeMessages, msgs...)
+		storePrefix = nil
+		return rt.mem.Append(persistCtx, memSess, storeMessages...)
+	}
+	storeCurrent := func(msgs ...ai.Message) error {
+		if isGroup {
+			pendingStores = append(pendingStores, msgs...)
+			return nil
+		}
+		return appendWithPrefix(msgs...)
+	}
 	defer func() {
 		hs.RunPostAgentCall(ctx, &hooks.PostAgentCallContext{
 			HookMeta: hookMeta,
@@ -279,14 +320,13 @@ func (rt *Runtime) streamEvents(
 		close(out)
 	}()
 
-	persistCtx := context.WithoutCancel(ctx)
 	var textBuf strings.Builder
 	var reasoningBuf strings.Builder
 
 	for evt := range stream {
 		if evt.Err != nil {
 			chatErr = evt.Err
-			if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
+			if !isGroup && (textBuf.Len() > 0 || reasoningBuf.Len() > 0) {
 				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
 				if err := rt.mem.Append(persistCtx, memSess, flush); err != nil {
 					rt.log.Warn("memory append error-flush failed", "session_id", sessionID, "error", err)
@@ -296,15 +336,17 @@ func (rt *Runtime) streamEvents(
 			}
 			if errors.Is(evt.Err, ErrChatTimeout) {
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
-				noticeMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: notice}}}
-				if err := rt.mem.Append(persistCtx, memSess, noticeMsg); err != nil {
-					rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
+				if !isGroup {
+					noticeMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: notice}}}
+					if err := rt.mem.Append(persistCtx, memSess, noticeMsg); err != nil {
+						rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
+					}
 				}
 				sendEvent(ctx, out, Event{Text: notice})
-				return
+				return chatErr
 			}
 			sendEvent(ctx, out, evt)
-			return
+			return chatErr
 		}
 
 		if evt.Store != nil {
@@ -313,20 +355,23 @@ func (rt *Runtime) streamEvents(
 				reasoningBuf.Reset()
 			} else if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
 				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
-				if err := rt.mem.Append(persistCtx, memSess, flush); err != nil {
+				if err := storeCurrent(flush); err != nil {
 					rt.log.Warn("memory append text-flush failed", "session_id", sessionID, "error", err)
+					return fmt.Errorf("memory append text-flush: %w", err)
 				}
 				textBuf.Reset()
 				reasoningBuf.Reset()
 			}
-			if err := rt.mem.Append(persistCtx, memSess, evt.Store); err != nil {
+			if err := storeCurrent(evt.Store); err != nil {
 				rt.log.Warn("memory append store message failed", "session_id", sessionID, "error", err)
+				return fmt.Errorf("memory append store message: %w", err)
 			}
 		}
 
 		if evt.ToolUse != nil {
 			if !sendEvent(ctx, out, evt) {
-				break
+				chatErr = ctx.Err()
+				return chatErr
 			}
 			continue
 		}
@@ -338,16 +383,33 @@ func (rt *Runtime) streamEvents(
 			textBuf.WriteString(evt.Text)
 		}
 		if !sendEvent(ctx, out, evt) {
-			break
+			chatErr = ctx.Err()
+			return chatErr
 		}
 	}
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
-		final := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
-		if err := rt.mem.Append(persistCtx, memSess, final); err != nil {
+		pendingStores = append(pendingStores, bufferedAssistantMessage(textBuf.String(), reasoningBuf.String()))
+	}
+	if isGroup {
+		if len(storePrefix) > 0 || len(pendingStores) > 0 {
+			if err := appendWithPrefix(pendingStores...); err != nil {
+				rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
+				return fmt.Errorf("memory append final message: %w", err)
+			}
+		}
+		return nil
+	}
+	if len(pendingStores) > 0 {
+		if err := appendWithPrefix(pendingStores...); err != nil {
 			rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
+			return fmt.Errorf("memory append final message: %w", err)
 		}
 	}
+	return nil
 }
 
 func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {

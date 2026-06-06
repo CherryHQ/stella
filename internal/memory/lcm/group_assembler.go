@@ -61,32 +61,24 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		injected = groupRowsToMessages(rows, agentID)
 	}
 
-	// 3.5. Persist injected messages to agent's own conversation so they
-	// survive across rounds and participate in future compaction.
+	// 3.5. Persist injected messages before the live user turn so future
+	// assemblies preserve event-log chronology. Cursor movement is intentionally
+	// deferred to CommitGroupCursor after the chat succeeds.
+	injected = filterAlreadyPersistedInjected(injected, agentHistory)
 	if len(injected) > 0 {
 		if err := p.Append(ctx, session, injected...); err != nil {
-			p.log.Warn("failed to persist between-turn messages",
-				"session_id", session.ID, "agent_id", agentID, "error", err)
+			return nil, fmt.Errorf("persist between-turn messages: %w", err)
 		}
+		agentHistory = append(agentHistory, injected...)
+		injected = nil
 	}
 
-	// 4. Update watermark to triggering seq.
-	if triggerSeq > watermark {
-		if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
-			GroupID:  groupID,
-			Pipeline: pipeline,
-			LastSeq:  triggerSeq,
-		}); err != nil {
-			p.log.Warn("failed to update group cursor", "group_id", groupID, "agent_id", agentID, "error", err)
-		}
-	}
-
-	// 5. Merge: agent history first, then injected between-turn messages.
+	// 4. Merge: agent history first, then injected between-turn messages.
 	merged := make([]ai.Message, 0, len(agentHistory)+len(injected))
 	merged = append(merged, agentHistory...)
 	merged = append(merged, injected...)
 
-	// 6. Apply token budget: trim oldest messages first.
+	// 5. Apply token budget: trim oldest messages first.
 	total := 0
 	for _, m := range merged {
 		total += estimateMessageTokens(m)
@@ -98,6 +90,64 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 	}
 
 	return merged[cutIdx:], nil
+}
+
+func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
+	if session.GroupID == "" || session.AgentID == "" || triggerSeq <= 0 {
+		return nil
+	}
+	groupID := session.GroupID
+	pipeline := groupCursorPipeline(session.AgentID)
+	watermark := p.getGroupCursor(ctx, groupID, pipeline)
+	if triggerSeq <= watermark {
+		return nil
+	}
+	if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+		GroupID:  groupID,
+		Pipeline: pipeline,
+		LastSeq:  triggerSeq,
+	}); err != nil {
+		return fmt.Errorf("update group cursor: %w", err)
+	}
+	return nil
+}
+
+func filterAlreadyPersistedInjected(injected, history []ai.Message) []ai.Message {
+	if len(injected) == 0 || len(history) == 0 {
+		return injected
+	}
+	seen := make(map[string]struct{}, len(history))
+	for _, msg := range history {
+		um, ok := msg.(ai.UserMessage)
+		if !ok {
+			continue
+		}
+		seen[flattenUserContent(um)] = struct{}{}
+	}
+	out := injected[:0]
+	for _, msg := range injected {
+		um, ok := msg.(ai.UserMessage)
+		if !ok {
+			out = append(out, msg)
+			continue
+		}
+		if _, ok := seen[flattenUserContent(um)]; ok {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
+}
+
+func flattenUserContent(msg ai.UserMessage) string {
+	switch c := msg.Content.(type) {
+	case string:
+		return c
+	case []ai.ContentBlock:
+		return ai.FlattenText(c)
+	default:
+		return fmt.Sprintf("%v", c)
+	}
 }
 
 // getGroupCursor returns the last-seen event log seq for this agent, or 0.
@@ -134,7 +184,7 @@ func groupRowsToMessages(rows []sqlc.CtxGroupMessage, selfAgentID string) []ai.M
 		}
 		msgs = append(msgs, ai.UserMessage{
 			Content: []ai.ContentBlock{ai.TextContent{
-				Text: fmt.Sprintf("[%s]: %s", label, row.Content),
+				Text: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content),
 			}},
 		})
 	}

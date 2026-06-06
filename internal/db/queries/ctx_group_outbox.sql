@@ -53,28 +53,42 @@ WHERE id = sqlc.arg(id)
   AND lease_until <= sqlc.arg(now)
 RETURNING *;
 
--- name: MarkGroupOutboxCompleted :exec
+-- name: ExtendRunningGroupOutboxLease :execrows
+UPDATE ctx_group_outbox
+SET lease_until = sqlc.arg(lease_until),
+    updated_at = datetime('now')
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: MarkGroupOutboxCompleted :execrows
 UPDATE ctx_group_outbox
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
     updated_at = datetime('now')
-WHERE id = ?;
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
 
--- name: MarkGroupOutboxFailed :exec
+-- name: MarkGroupOutboxFailed :execrows
 UPDATE ctx_group_outbox
 SET status = 'failed',
     lease_until = NULL,
     next_attempt_at = NULL,
     last_error = sqlc.arg(last_error),
     updated_at = datetime('now')
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
 
--- name: RequeueGroupOutbox :exec
+-- name: RequeueGroupOutbox :execrows
 UPDATE ctx_group_outbox
 SET status = 'pending',
     lease_until = NULL,
     next_attempt_at = sqlc.arg(next_attempt_at),
     last_error = sqlc.arg(last_error),
     updated_at = datetime('now')
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);

@@ -60,28 +60,42 @@ WHERE id = sqlc.arg(id)
   AND lease_until <= sqlc.arg(now)
 RETURNING *;
 
--- name: MarkGroupDispatchCompleted :exec
+-- name: ExtendRunningGroupDispatchLease :execrows
+UPDATE ctx_group_dispatch
+SET lease_until = sqlc.arg(lease_until),
+    updated_at = datetime('now')
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
     updated_at = datetime('now')
-WHERE id = ?;
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
 
--- name: MarkGroupDispatchFailed :exec
+-- name: MarkGroupDispatchFailed :execrows
 UPDATE ctx_group_dispatch
 SET status = 'failed',
     lease_until = NULL,
     next_attempt_at = NULL,
     last_error = sqlc.arg(last_error),
     updated_at = datetime('now')
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
 
--- name: RequeueGroupDispatch :exec
+-- name: RequeueGroupDispatch :execrows
 UPDATE ctx_group_dispatch
 SET status = 'pending',
     lease_until = NULL,
     next_attempt_at = sqlc.arg(next_attempt_at),
     last_error = sqlc.arg(last_error),
     updated_at = datetime('now')
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);

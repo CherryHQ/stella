@@ -85,8 +85,8 @@ func TestGroupAssemble_HybridFlow(t *testing.T) {
 	}
 	assertRole(t, msgs[0], "user")
 	text := flattenUserMessage(msgs[0].(ai.UserMessage))
-	if text != "[user1]: hello" {
-		t.Fatalf("injected text = %q, want [user1]: hello", text)
+	if text != "[seq:1 user1]: hello" {
+		t.Fatalf("injected text = %q, want [seq:1 user1]: hello", text)
 	}
 
 	// Simulate agent processing: append user msg + assistant response to ctx_message.
@@ -95,6 +95,10 @@ func TestGroupAssemble_HybridFlow(t *testing.T) {
 		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "Hi there!"}}},
 	); err != nil {
 		t.Fatalf("append: %v", err)
+	}
+
+	if err := p.CommitGroupCursor(context.Background(), sess, res2.Seq); err != nil {
+		t.Fatalf("commit cursor turn 1: %v", err)
 	}
 
 	// Agent response written back to event log (seq=3).
@@ -174,6 +178,10 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 		t.Fatalf("append: %v", err)
 	}
 
+	if err := p.CommitGroupCursor(context.Background(), sess, res1.Seq); err != nil {
+		t.Fatalf("commit cursor turn 1: %v", err)
+	}
+
 	// Agent-a response → event log seq=2.
 	_, err = el.AppendToGroup(ctx, gid, eventlog.GroupMessage{
 		ActorType: eventlog.ActorAgent, ActorID: "agent-a", Content: "hi",
@@ -216,7 +224,7 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	assertRole(t, msgs2[2], "user")      // injected: agent-b
 
 	text := flattenUserMessage(msgs2[2].(ai.UserMessage))
-	if text != "[agent:agent-b]: I'm agent B" {
+	if text != "[seq:3 agent:agent-b]: I'm agent B" {
 		t.Fatalf("injected text = %q", text)
 	}
 }
@@ -418,12 +426,23 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 		t.Fatalf("turn 1: expected 2 injected, got %d", len(msgs))
 	}
 
+	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != 0 {
+		t.Fatalf("assemble advanced cursor before commit: got %d", got)
+	}
+
 	// Simulate turn processing.
 	if err := p.Append(groupCtx(res3.Seq), sess,
 		ai.UserMessage{Content: "c"},
 		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "reply"}}},
 	); err != nil {
 		t.Fatalf("append: %v", err)
+	}
+
+	if err := p.CommitGroupCursor(context.Background(), sess, res3.Seq); err != nil {
+		t.Fatalf("commit cursor turn 1: %v", err)
+	}
+	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != res3.Seq {
+		t.Fatalf("cursor after commit = %d, want %d", got, res3.Seq)
 	}
 
 	// New message: user2 says "d" (seq=4).
@@ -448,6 +467,84 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	assertRole(t, msgs2[1], "user")
 	assertRole(t, msgs2[2], "user")
 	assertRole(t, msgs2[3], "assistant")
+}
+
+func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gc", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "before", PlatformMessageID: "c1",
+	})
+	if err != nil {
+		t.Fatalf("seed first: %v", err)
+	}
+	res2, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gc", ActorType: eventlog.ActorHuman,
+		ActorID: "user2", Content: "trigger", PlatformMessageID: "c2",
+	})
+	if err != nil {
+		t.Fatalf("seed trigger: %v", err)
+	}
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", res1.GroupID)
+	msgs, err := p.Assemble(groupCtx(res2.Seq), sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("assemble messages = %d, want 1", len(msgs))
+	}
+	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != 0 {
+		t.Fatalf("cursor before commit = %d, want 0", got)
+	}
+	historyBeforeCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble raw history before commit: %v", err)
+	}
+	if len(historyBeforeCommit) != 1 {
+		t.Fatalf("persisted messages before commit = %d, want 1", len(historyBeforeCommit))
+	}
+	if err := p.Append(groupCtx(res2.Seq), sess, ai.UserMessage{Content: "trigger"}); err != nil {
+		t.Fatalf("append failed trigger: %v", err)
+	}
+	retryBeforeCommit, err := p.Assemble(groupCtx(res2.Seq), sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("retry assemble before commit: %v", err)
+	}
+	if len(retryBeforeCommit) != 2 {
+		t.Fatalf("retry before commit messages = %d, want persisted injected + trigger without duplicate injected", len(retryBeforeCommit))
+	}
+	if got := flattenUserMessage(retryBeforeCommit[0].(ai.UserMessage)); got != "[seq:1 user1]: before" {
+		t.Fatalf("retry injected text = %q", got)
+	}
+	if got := flattenUserMessage(retryBeforeCommit[1].(ai.UserMessage)); got != "trigger" {
+		t.Fatalf("retry trigger text = %q", got)
+	}
+	if err := p.CommitGroupCursor(context.Background(), sess, res2.Seq); err != nil {
+		t.Fatalf("commit cursor: %v", err)
+	}
+	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != res2.Seq {
+		t.Fatalf("cursor after commit = %d, want %d", got, res2.Seq)
+	}
+	historyAfterCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble raw history after commit: %v", err)
+	}
+	if len(historyAfterCommit) != 2 {
+		t.Fatalf("persisted messages after commit = %d, want 2", len(historyAfterCommit))
+	}
+	retryMsgs, err := p.Assemble(groupCtx(res2.Seq), sess, 100_000, 20)
+	if err != nil {
+		t.Fatalf("retry assemble: %v", err)
+	}
+	if len(retryMsgs) != 2 {
+		t.Fatalf("retry assemble messages = %d, want 2 without duplicate injected", len(retryMsgs))
+	}
 }
 
 func TestGroupAssemble_TriggerSeqZero(t *testing.T) {
@@ -480,6 +577,15 @@ func TestGroupAssemble_TriggerSeqZero(t *testing.T) {
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages with triggerSeq=0, got %d", len(msgs))
 	}
+}
+
+func mustConversationID(t *testing.T, p *Provider, session memory.Session) string {
+	t.Helper()
+	convID, err := p.getOrCreateConversation(context.Background(), session)
+	if err != nil {
+		t.Fatalf("get conversation: %v", err)
+	}
+	return convID
 }
 
 func assertRole(t *testing.T, msg ai.Message, expected string) {

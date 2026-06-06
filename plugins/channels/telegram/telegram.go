@@ -165,8 +165,8 @@ func (b *Bot) guard(h tele.HandlerFunc) tele.HandlerFunc {
 		// Skip group filtering for callback queries — they originate from
 		// the bot's own inline keyboards (e.g. model selection) and don't
 		// carry mention/reply context.
-		if isGroup(c) && c.Callback() == nil && !b.shouldRespondInGroup(c) {
-			logger().Debug("guard: skipped group message", "chat", c.Chat().ID)
+		if isGroup(c) && c.Callback() == nil && !b.shouldIngestGroup(c) {
+			logger().Debug("guard: skipped disabled group message", "chat", c.Chat().ID)
 			return nil
 		}
 		if c.Callback() != nil {
@@ -182,35 +182,8 @@ func isGroup(c tele.Context) bool {
 	return t == tele.ChatGroup || t == tele.ChatSuperGroup
 }
 
-// shouldRespondInGroup checks whether the bot should respond based on group_mode.
-func (b *Bot) shouldRespondInGroup(c tele.Context) bool {
-	switch b.cfg.GroupMode {
-	case "disabled":
-		return false
-	case "always":
-		return true
-	default: // "mention"
-		return b.isMentionedOrReplied(c)
-	}
-}
-
-// isMentionedOrReplied returns true if the bot is @mentioned in the text
-// or the message is a reply to one of the bot's messages.
-func (b *Bot) isMentionedOrReplied(c tele.Context) bool {
-	// Check for reply to bot.
-	if reply := c.Message().ReplyTo; reply != nil && reply.Sender != nil {
-		if reply.Sender.ID == b.bot.Me.ID {
-			return true
-		}
-	}
-	// Check for @mention in text or caption (photos carry text in Caption).
-	if b.bot.Me.Username != "" {
-		mention := "@" + b.bot.Me.Username
-		if strings.Contains(c.Message().Text, mention) || strings.Contains(c.Message().Caption, mention) {
-			return true
-		}
-	}
-	return false
+func (b *Bot) shouldIngestGroup(c tele.Context) bool {
+	return b.cfg.GroupMode != "disabled"
 }
 
 // stripBotMention removes @botname from the message text.

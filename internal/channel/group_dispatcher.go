@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -75,6 +76,42 @@ func (d *GroupDispatcher) Wake() {
 	}
 }
 
+func (d *GroupDispatcher) startHeartbeat(ctx context.Context, label, id string, extend func(context.Context, time.Time) (int64, error), onLost func()) func() {
+	if d == nil || d.leaseDuration <= 0 || extend == nil {
+		return func() {}
+	}
+	interval := d.leaseDuration / 3
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	hctx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-hctx.Done():
+				return
+			case <-ticker.C:
+				until := time.Now().UTC().Add(d.leaseDuration)
+				rows, err := extend(hctx, until)
+				if err != nil {
+					d.log.Warn("group dispatch heartbeat failed", "type", label, "id", id, "error", err)
+					continue
+				}
+				if rows == 0 {
+					d.log.Debug("group dispatch heartbeat lost ownership", "type", label, "id", id)
+					if onLost != nil {
+						onLost()
+					}
+					return
+				}
+			}
+		}
+	}()
+	return cancel
+}
+
 func (d *GroupDispatcher) Run(ctx context.Context) error {
 	if d == nil || d.q == nil {
 		return errors.New("group dispatcher not configured")
@@ -145,12 +182,12 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	}
 	for _, row := range outboxRows {
 		if row.AttemptCount >= d.maxAttempts {
-			if err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, LastError: "lease expired"}); err != nil {
+			if _, err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired"}); err != nil {
 				return fmt.Errorf("fail expired outbox: %w", err)
 			}
 			continue
 		}
-		if err := d.q.RequeueGroupOutbox(ctx, sqlc.RequeueGroupOutboxParams{ID: row.ID, NextAttemptAt: nullTime(now), LastError: "lease expired"}); err != nil {
+		if _, err := d.q.RequeueGroupOutbox(ctx, sqlc.RequeueGroupOutboxParams{ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(now), LastError: "lease expired"}); err != nil {
 			return fmt.Errorf("requeue expired outbox: %w", err)
 		}
 	}
@@ -163,12 +200,12 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	}
 	for _, row := range dispatchRows {
 		if row.AttemptCount >= d.maxAttempts {
-			if err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, LastError: "lease expired"}); err != nil {
+			if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired"}); err != nil {
 				return fmt.Errorf("fail expired dispatch: %w", err)
 			}
 			continue
 		}
-		if err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{ID: row.ID, NextAttemptAt: nullTime(now), LastError: "lease expired"}); err != nil {
+		if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(now), LastError: "lease expired"}); err != nil {
 			return fmt.Errorf("requeue expired dispatch: %w", err)
 		}
 	}
@@ -183,17 +220,32 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 	if !ok {
 		return nil
 	}
-	count, err := d.q.CountGroupDispatchByMessage(ctx, claimed.GroupMessageID)
+	ownedCtx, cancelOwned := context.WithCancel(ctx)
+	defer cancelOwned()
+	stopHeartbeat := d.startHeartbeat(ownedCtx, "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+		return d.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
+			ID:           claimed.ID,
+			LeaseUntil:   nullTime(until),
+			AttemptCount: claimed.AttemptCount,
+		})
+	}, cancelOwned)
+	defer stopHeartbeat()
+	count, err := d.q.CountGroupDispatchByMessage(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
 		return d.failOutbox(ctx, claimed, fmt.Errorf("count dispatch rows: %w", err))
 	}
 	if count == 0 {
-		if err := d.materializeDispatchRowsTx(ctx, claimed); err != nil {
+		if err := d.materializeDispatchRowsTx(ownedCtx, claimed); err != nil {
 			return d.failOutbox(ctx, claimed, err)
 		}
 	}
-	if err := d.q.MarkGroupOutboxCompleted(ctx, claimed.ID); err != nil {
+	stopHeartbeat()
+	rows, err := d.q.MarkGroupOutboxCompleted(ctx, sqlc.MarkGroupOutboxCompletedParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount})
+	if err != nil {
 		return fmt.Errorf("mark outbox completed: %w", err)
+	}
+	if rows == 0 {
+		return nil
 	}
 	return d.executeDispatchesByMessage(ctx, claimed.GroupMessageID, publisherOverride)
 }
@@ -245,7 +297,7 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 }
 
 func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox) error {
-	message, state, err := d.messageAndStateWithQueries(ctx, q, outbox.GroupMessageID)
+	_, state, err := d.messageAndStateWithQueries(ctx, q, outbox.GroupMessageID)
 	if err != nil {
 		return err
 	}
@@ -261,15 +313,15 @@ func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Q
 	for i, m := range members {
 		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 	}
-	channelAgentID := channelAgentIDWithQueries(ctx, q, message)
+	allMembersFallback := state.Platform == "web" || effectivePlatformGroupMode(ctx, q, groupMembers, state) == "always"
 	var decision ArbiterDecision
 	if d.coord != nil && d.coord.arbiter != nil {
-		decision = d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, channelAgentID, DecideOptions{
-			AllMembersFallback: state.Platform == "web",
+		decision = d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
+			AllMembersFallback: allMembersFallback,
 			DisableDebounce:    true,
 		})
 	} else {
-		decision = fallbackGroupDecision(envelope.Mentions, groupMembers, channelAgentID, state.Platform == "web")
+		decision = fallbackGroupDecision(envelope.Mentions, groupMembers, allMembersFallback)
 	}
 	for _, agentID := range decision.RespondingAgents {
 		replyChannelID := findMemberReplyChannel(groupMembers, agentID)
@@ -320,7 +372,17 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if !ok {
 		return nil
 	}
-	message, state, err := d.messageAndState(ctx, claimed.GroupMessageID)
+	ownedCtx, cancelOwned := context.WithCancel(ctx)
+	defer cancelOwned()
+	stopHeartbeat := d.startHeartbeat(ownedCtx, "dispatch", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+		return d.q.ExtendRunningGroupDispatchLease(ctx, sqlc.ExtendRunningGroupDispatchLeaseParams{
+			ID:           claimed.ID,
+			LeaseUntil:   nullTime(until),
+			AttemptCount: claimed.AttemptCount,
+		})
+	}, cancelOwned)
+	defer stopHeartbeat()
+	message, state, err := d.messageAndState(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -329,14 +391,14 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		return d.failDispatch(ctx, claimed, err)
 	}
 	agentName := claimed.AgentID
-	if a, err := d.q.GetAgent(ctx, claimed.AgentID); err == nil && a.Name != "" {
+	if a, err := d.q.GetAgent(ownedCtx, claimed.AgentID); err == nil && a.Name != "" {
 		agentName = a.Name
 	}
-	stream, err := d.chat(ctx, claimed, message, state)
+	stream, err := d.chat(ownedCtx, claimed, message, state)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
-	if err := publisher.Publish(ctx, GroupPublishRequest{
+	if err := publisher.Publish(ownedCtx, GroupPublishRequest{
 		GroupID:          claimed.GroupID,
 		AgentID:          claimed.AgentID,
 		AgentName:        agentName,
@@ -349,8 +411,12 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	}); err != nil {
 		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", err))
 	}
-	if err := d.q.MarkGroupDispatchCompleted(ctx, claimed.ID); err != nil {
+	rows, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount})
+	if err != nil {
 		return fmt.Errorf("mark dispatch completed: %w", err)
+	}
+	if rows == 0 {
+		return nil
 	}
 	return nil
 }
@@ -392,13 +458,14 @@ func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGro
 
 func (d *GroupDispatcher) failOutbox(ctx context.Context, row sqlc.CtxGroupOutbox, cause error) error {
 	if row.AttemptCount >= d.maxAttempts {
-		if err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, LastError: cause.Error()}); err != nil {
+		if _, err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
 			return fmt.Errorf("mark outbox failed: %w", err)
 		}
 		return cause
 	}
-	if err := d.q.RequeueGroupOutbox(ctx, sqlc.RequeueGroupOutboxParams{
+	if _, err := d.q.RequeueGroupOutbox(ctx, sqlc.RequeueGroupOutboxParams{
 		ID:            row.ID,
+		AttemptCount:  row.AttemptCount,
 		NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))),
 		LastError:     cause.Error(),
 	}); err != nil {
@@ -409,13 +476,14 @@ func (d *GroupDispatcher) failOutbox(ctx context.Context, row sqlc.CtxGroupOutbo
 
 func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
 	if row.AttemptCount >= d.maxAttempts {
-		if err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, LastError: cause.Error()}); err != nil {
+		if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
 			return fmt.Errorf("mark dispatch failed: %w", err)
 		}
 		return cause
 	}
-	if err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
+	if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
 		ID:            row.ID,
+		AttemptCount:  row.AttemptCount,
 		NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))),
 		LastError:     cause.Error(),
 	}); err != nil {
@@ -440,15 +508,40 @@ func (d *GroupDispatcher) messageAndStateWithQueries(ctx context.Context, q *sql
 	return message, state, nil
 }
 
-func channelAgentIDWithQueries(ctx context.Context, q *sqlc.Queries, message sqlc.CtxGroupMessage) string {
-	if !message.SourceChannelID.Valid || message.SourceChannelID.String == "" {
-		return ""
+type groupModeConfig struct {
+	GroupMode string                          `json:"group_mode"`
+	Groups    map[string]groupModeGroupConfig `json:"groups"`
+}
+
+type groupModeGroupConfig struct {
+	GroupMode string `json:"group_mode"`
+}
+
+func effectivePlatformGroupMode(ctx context.Context, q *sqlc.Queries, members []GroupMember, state sqlc.CtxGroupState) string {
+	if state.Platform == "web" {
+		return "mention"
 	}
-	ch, err := q.GetChannel(ctx, message.SourceChannelID.String)
-	if err != nil || !ch.AgentID.Valid || ch.AgentID.String == "" {
-		return ""
+	for _, member := range members {
+		if member.ReplyChannelID == "" {
+			continue
+		}
+		ch, err := q.GetChannel(ctx, member.ReplyChannelID)
+		if err != nil {
+			continue
+		}
+		var cfg groupModeConfig
+		if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil {
+			continue
+		}
+		mode := cfg.GroupMode
+		if gc, ok := cfg.Groups[state.PlatformGroupID]; ok && gc.GroupMode != "" {
+			mode = gc.GroupMode
+		}
+		if mode == "always" {
+			return "always"
+		}
 	}
-	return ch.AgentID.String
+	return "mention"
 }
 
 func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
@@ -570,7 +663,7 @@ func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, groupID, 
 	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}
 }
 
-func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember, channelAgentID string, allMembersFallback bool) ArbiterDecision {
+func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember, allMembersFallback bool) ArbiterDecision {
 	mentioned := mentionedAgentIDs(mentions)
 	if len(mentioned) > 0 {
 		memberSet := make(map[string]struct{}, len(members))
@@ -584,9 +677,6 @@ func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember,
 			}
 		}
 		return ArbiterDecision{RespondingAgents: responding}
-	}
-	if channelAgentID != "" {
-		return ArbiterDecision{RespondingAgents: []string{channelAgentID}}
 	}
 	if allMembersFallback {
 		responding := make([]string, len(members))

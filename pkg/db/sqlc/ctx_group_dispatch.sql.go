@@ -139,6 +139,29 @@ func (q *Queries) CreateGroupDispatch(ctx context.Context, arg CreateGroupDispat
 	return err
 }
 
+const extendRunningGroupDispatchLease = `-- name: ExtendRunningGroupDispatchLease :execrows
+UPDATE ctx_group_dispatch
+SET lease_until = ?1,
+    updated_at = datetime('now')
+WHERE id = ?2
+  AND status = 'running'
+  AND attempt_count = ?3
+`
+
+type ExtendRunningGroupDispatchLeaseParams struct {
+	LeaseUntil   sql.NullString `json:"lease_until"`
+	ID           string         `json:"id"`
+	AttemptCount int64          `json:"attempt_count"`
+}
+
+func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg ExtendRunningGroupDispatchLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, extendRunningGroupDispatchLease, arg.LeaseUntil, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getGroupDispatch = `-- name: GetGroupDispatch :one
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_dispatch WHERE id = ?
 `
@@ -311,21 +334,31 @@ func (q *Queries) ListPendingGroupDispatchByMessage(ctx context.Context, arg Lis
 	return items, nil
 }
 
-const markGroupDispatchCompleted = `-- name: MarkGroupDispatchCompleted :exec
+const markGroupDispatchCompleted = `-- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
     updated_at = datetime('now')
-WHERE id = ?
+WHERE id = ?1
+  AND status = 'running'
+  AND attempt_count = ?2
 `
 
-func (q *Queries) MarkGroupDispatchCompleted(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, markGroupDispatchCompleted, id)
-	return err
+type MarkGroupDispatchCompletedParams struct {
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
 }
 
-const markGroupDispatchFailed = `-- name: MarkGroupDispatchFailed :exec
+func (q *Queries) MarkGroupDispatchCompleted(ctx context.Context, arg MarkGroupDispatchCompletedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markGroupDispatchCompleted, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markGroupDispatchFailed = `-- name: MarkGroupDispatchFailed :execrows
 UPDATE ctx_group_dispatch
 SET status = 'failed',
     lease_until = NULL,
@@ -333,19 +366,25 @@ SET status = 'failed',
     last_error = ?1,
     updated_at = datetime('now')
 WHERE id = ?2
+  AND status = 'running'
+  AND attempt_count = ?3
 `
 
 type MarkGroupDispatchFailedParams struct {
-	LastError string `json:"last_error"`
-	ID        string `json:"id"`
+	LastError    string `json:"last_error"`
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
 }
 
-func (q *Queries) MarkGroupDispatchFailed(ctx context.Context, arg MarkGroupDispatchFailedParams) error {
-	_, err := q.db.ExecContext(ctx, markGroupDispatchFailed, arg.LastError, arg.ID)
-	return err
+func (q *Queries) MarkGroupDispatchFailed(ctx context.Context, arg MarkGroupDispatchFailedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markGroupDispatchFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const requeueGroupDispatch = `-- name: RequeueGroupDispatch :exec
+const requeueGroupDispatch = `-- name: RequeueGroupDispatch :execrows
 UPDATE ctx_group_dispatch
 SET status = 'pending',
     lease_until = NULL,
@@ -353,15 +392,26 @@ SET status = 'pending',
     last_error = ?2,
     updated_at = datetime('now')
 WHERE id = ?3
+  AND status = 'running'
+  AND attempt_count = ?4
 `
 
 type RequeueGroupDispatchParams struct {
 	NextAttemptAt sql.NullString `json:"next_attempt_at"`
 	LastError     string         `json:"last_error"`
 	ID            string         `json:"id"`
+	AttemptCount  int64          `json:"attempt_count"`
 }
 
-func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDispatchParams) error {
-	_, err := q.db.ExecContext(ctx, requeueGroupDispatch, arg.NextAttemptAt, arg.LastError, arg.ID)
-	return err
+func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDispatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueGroupDispatch,
+		arg.NextAttemptAt,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

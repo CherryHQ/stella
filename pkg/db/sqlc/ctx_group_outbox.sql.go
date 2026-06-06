@@ -138,6 +138,29 @@ func (q *Queries) CreateGroupOutbox(ctx context.Context, arg CreateGroupOutboxPa
 	return i, err
 }
 
+const extendRunningGroupOutboxLease = `-- name: ExtendRunningGroupOutboxLease :execrows
+UPDATE ctx_group_outbox
+SET lease_until = ?1,
+    updated_at = datetime('now')
+WHERE id = ?2
+  AND status = 'running'
+  AND attempt_count = ?3
+`
+
+type ExtendRunningGroupOutboxLeaseParams struct {
+	LeaseUntil   sql.NullString `json:"lease_until"`
+	ID           string         `json:"id"`
+	AttemptCount int64          `json:"attempt_count"`
+}
+
+func (q *Queries) ExtendRunningGroupOutboxLease(ctx context.Context, arg ExtendRunningGroupOutboxLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, extendRunningGroupOutboxLease, arg.LeaseUntil, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getGroupOutbox = `-- name: GetGroupOutbox :one
 SELECT id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_outbox WHERE id = ?
 `
@@ -281,21 +304,31 @@ func (q *Queries) ListPendingGroupOutbox(ctx context.Context, arg ListPendingGro
 	return items, nil
 }
 
-const markGroupOutboxCompleted = `-- name: MarkGroupOutboxCompleted :exec
+const markGroupOutboxCompleted = `-- name: MarkGroupOutboxCompleted :execrows
 UPDATE ctx_group_outbox
 SET status = 'completed',
     lease_until = NULL,
     next_attempt_at = NULL,
     updated_at = datetime('now')
-WHERE id = ?
+WHERE id = ?1
+  AND status = 'running'
+  AND attempt_count = ?2
 `
 
-func (q *Queries) MarkGroupOutboxCompleted(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, markGroupOutboxCompleted, id)
-	return err
+type MarkGroupOutboxCompletedParams struct {
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
 }
 
-const markGroupOutboxFailed = `-- name: MarkGroupOutboxFailed :exec
+func (q *Queries) MarkGroupOutboxCompleted(ctx context.Context, arg MarkGroupOutboxCompletedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markGroupOutboxCompleted, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markGroupOutboxFailed = `-- name: MarkGroupOutboxFailed :execrows
 UPDATE ctx_group_outbox
 SET status = 'failed',
     lease_until = NULL,
@@ -303,19 +336,25 @@ SET status = 'failed',
     last_error = ?1,
     updated_at = datetime('now')
 WHERE id = ?2
+  AND status = 'running'
+  AND attempt_count = ?3
 `
 
 type MarkGroupOutboxFailedParams struct {
-	LastError string `json:"last_error"`
-	ID        string `json:"id"`
+	LastError    string `json:"last_error"`
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
 }
 
-func (q *Queries) MarkGroupOutboxFailed(ctx context.Context, arg MarkGroupOutboxFailedParams) error {
-	_, err := q.db.ExecContext(ctx, markGroupOutboxFailed, arg.LastError, arg.ID)
-	return err
+func (q *Queries) MarkGroupOutboxFailed(ctx context.Context, arg MarkGroupOutboxFailedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markGroupOutboxFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const requeueGroupOutbox = `-- name: RequeueGroupOutbox :exec
+const requeueGroupOutbox = `-- name: RequeueGroupOutbox :execrows
 UPDATE ctx_group_outbox
 SET status = 'pending',
     lease_until = NULL,
@@ -323,15 +362,26 @@ SET status = 'pending',
     last_error = ?2,
     updated_at = datetime('now')
 WHERE id = ?3
+  AND status = 'running'
+  AND attempt_count = ?4
 `
 
 type RequeueGroupOutboxParams struct {
 	NextAttemptAt sql.NullString `json:"next_attempt_at"`
 	LastError     string         `json:"last_error"`
 	ID            string         `json:"id"`
+	AttemptCount  int64          `json:"attempt_count"`
 }
 
-func (q *Queries) RequeueGroupOutbox(ctx context.Context, arg RequeueGroupOutboxParams) error {
-	_, err := q.db.ExecContext(ctx, requeueGroupOutbox, arg.NextAttemptAt, arg.LastError, arg.ID)
-	return err
+func (q *Queries) RequeueGroupOutbox(ctx context.Context, arg RequeueGroupOutboxParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueGroupOutbox,
+		arg.NextAttemptAt,
+		arg.LastError,
+		arg.ID,
+		arg.AttemptCount,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

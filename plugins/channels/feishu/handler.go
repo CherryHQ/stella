@@ -60,7 +60,7 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	// Look up the reacted message to get its chat context so we resolve
 	// against the correct session (group vs private, threaded vs not).
 	chatID, chatType, rootID := b.getMessageContext(messageID)
-	if chatType == "group" && !b.shouldRespondInGroup(chatID, nil) {
+	if chatType == "group" && !b.shouldIngestGroup(chatID) {
 		return nil
 	}
 
@@ -121,7 +121,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	if chatType == "group" && !b.shouldRespondInGroup(chatID, mentions) {
+	if chatType == "group" && !b.shouldIngestGroup(chatID) {
 		return nil
 	}
 

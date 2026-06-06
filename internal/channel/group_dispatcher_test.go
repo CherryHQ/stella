@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -16,6 +17,25 @@ type recordingGroupPublisher struct {
 	err   error
 	calls int
 	texts []string
+}
+
+type blockingGroupPublisher struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingGroupPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
+	close(p.started)
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if req.Stream != nil {
+		for range req.Stream.Events {
+		}
+	}
+	return nil
 }
 
 func (p *recordingGroupPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
@@ -166,6 +186,75 @@ func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
 	}
 }
 
+func TestGroupDispatcherPlatformMentionModeDoesNotUseObserverFallback(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-1' WHERE id = ?`, fx.message.ID); err != nil {
+		t.Fatalf("set source channel: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-1'`); err != nil {
+		t.Fatalf("set channel config: %v", err)
+	}
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
+	if err != nil {
+		t.Fatalf("count dispatch: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("dispatch rows = %d, want 0", count)
+	}
+}
+
+func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	if _, err := fx.q.CreateAgent(context.Background(), sqlc.CreateAgentParams{
+		ID:                   "agent-2",
+		Name:                 "Agent Two",
+		Workspace:            t.TempDir(),
+		Sandbox:              "{}",
+		EnabledBuiltinSkills: "[]",
+		Scope:                "system",
+		Enabled:              1,
+	}); err != nil {
+		t.Fatalf("create second agent: %v", err)
+	}
+	if err := fx.q.CreateWebChannelIfNotExists(context.Background(), sqlc.CreateWebChannelIfNotExistsParams{
+		ID:      "ch-2",
+		AgentID: sql.NullString{String: "agent-2", Valid: true},
+	}); err != nil {
+		t.Fatalf("create second channel: %v", err)
+	}
+	if _, err := fx.q.AddGroupMember(context.Background(), sqlc.AddGroupMemberParams{
+		GroupID:        "group-1",
+		AgentID:        "agent-2",
+		ReplyChannelID: "ch-2",
+	}); err != nil {
+		t.Fatalf("add second member: %v", err)
+	}
+	firstPublisher := &recordingGroupPublisher{}
+	secondPublisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", firstPublisher)
+	fx.d.publishers.Register("ch-2", secondPublisher)
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET source_channel_id = 'ch-2' WHERE id = ?`, fx.message.ID); err != nil {
+		t.Fatalf("set source channel: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"always"}' WHERE id = 'ch-1'`); err != nil {
+		t.Fatalf("set first channel config: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE channel SET config = '{"group_mode":"mention"}' WHERE id = 'ch-2'`); err != nil {
+		t.Fatalf("set second channel config: %v", err)
+	}
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if firstPublisher.calls != 1 {
+		t.Fatalf("first publisher calls = %d, want 1", firstPublisher.calls)
+	}
+}
+
 func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{not-json`)
 	publisher := &recordingGroupPublisher{}
@@ -236,6 +325,189 @@ func TestGroupDispatcherDispatchSyncUsesPublisherOverride(t *testing.T) {
 	}
 	if publisher.calls != 1 {
 		t.Fatalf("publisher calls = %d, want 1", publisher.calls)
+	}
+}
+
+func TestGroupDispatcherExtendsOutboxLeaseWhileRunning(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.leaseDuration = 2 * time.Second
+	claimed, err := fx.q.ClaimPendingGroupOutbox(context.Background(), sqlc.ClaimPendingGroupOutboxParams{
+		ID:         fx.outbox.ID,
+		Now:        nullTime(time.Now().UTC()),
+		LeaseUntil: nullTime(time.Now().UTC().Add(fx.d.leaseDuration)),
+	})
+	if err != nil {
+		t.Fatalf("claim outbox: %v", err)
+	}
+	initialLease := claimed.LeaseUntil.String
+	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+		return fx.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
+			ID:           claimed.ID,
+			LeaseUntil:   nullTime(until),
+			AttemptCount: claimed.AttemptCount,
+		})
+	}, nil)
+	defer stop()
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("outbox lease was not extended; initial lease %q", initialLease)
+		case <-ticker.C:
+			current, err := fx.q.GetGroupOutbox(context.Background(), claimed.ID)
+			if err != nil {
+				t.Fatalf("get outbox while waiting heartbeat: %v", err)
+			}
+			if current.LeaseUntil.String != "" && current.LeaseUntil.String != initialLease {
+				return
+			}
+		}
+	}
+}
+
+func TestGroupDispatcherHeartbeatDoesNotExtendAfterOwnershipLoss(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.leaseDuration = 2 * time.Second
+	claimed, err := fx.q.ClaimPendingGroupOutbox(context.Background(), sqlc.ClaimPendingGroupOutboxParams{
+		ID:         fx.outbox.ID,
+		Now:        nullTime(time.Now().UTC()),
+		LeaseUntil: nullTime(time.Now().UTC().Add(fx.d.leaseDuration)),
+	})
+	if err != nil {
+		t.Fatalf("claim outbox: %v", err)
+	}
+	stop := fx.d.startHeartbeat(context.Background(), "outbox", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
+		return fx.q.ExtendRunningGroupOutboxLease(ctx, sqlc.ExtendRunningGroupOutboxLeaseParams{
+			ID:           claimed.ID,
+			LeaseUntil:   nullTime(until),
+			AttemptCount: claimed.AttemptCount,
+		})
+	}, nil)
+	defer stop()
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET attempt_count = attempt_count + 1 WHERE id = ?`, claimed.ID); err != nil {
+		t.Fatalf("simulate ownership loss: %v", err)
+	}
+	afterLoss, err := fx.q.GetGroupOutbox(context.Background(), claimed.ID)
+	if err != nil {
+		t.Fatalf("get outbox after ownership loss: %v", err)
+	}
+	time.Sleep(time.Second)
+	current, err := fx.q.GetGroupOutbox(context.Background(), claimed.ID)
+	if err != nil {
+		t.Fatalf("get outbox after heartbeat: %v", err)
+	}
+	if current.LeaseUntil.String != afterLoss.LeaseUntil.String {
+		t.Fatalf("stale heartbeat extended lease after ownership loss: before=%q after=%q", afterLoss.LeaseUntil.String, current.LeaseUntil.String)
+	}
+}
+
+func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.leaseDuration = 2 * time.Second
+	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
+	fx.d.publishers.Register("ch-1", publisher)
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "dispatch-1",
+		GroupMessageID: fx.message.ID,
+		GroupID:        "group-1",
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	errC := make(chan error, 1)
+	go func() { errC <- fx.d.ExecuteDispatch(context.Background(), dispatch, nil) }()
+	select {
+	case <-publisher.started:
+	case err := <-errC:
+		t.Fatalf("execute dispatch returned before publisher started: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("publisher did not start")
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = ?`, "dispatch-1"); err != nil {
+		t.Fatalf("simulate dispatch ownership loss: %v", err)
+	}
+	select {
+	case err := <-errC:
+		if err == nil {
+			t.Fatal("execute dispatch succeeded after ownership loss")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("execute dispatch did not stop after ownership loss")
+	}
+	current, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch after ownership loss: %v", err)
+	}
+	if current.Status == "completed" {
+		t.Fatal("stale owner marked dispatch completed after ownership loss")
+	}
+}
+
+func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.leaseDuration = 2 * time.Second
+	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
+	fx.d.publishers.Register("ch-1", publisher)
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "dispatch-1",
+		GroupMessageID: fx.message.ID,
+		GroupID:        "group-1",
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+
+	errC := make(chan error, 1)
+	go func() { errC <- fx.d.ExecuteDispatch(context.Background(), dispatch, nil) }()
+	select {
+	case <-publisher.started:
+	case err := <-errC:
+		t.Fatalf("execute dispatch returned before publisher started: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("publisher did not start")
+	}
+	running, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get running dispatch: %v", err)
+	}
+	initialLease := running.LeaseUntil.String
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			close(publisher.release)
+			t.Fatalf("dispatch lease was not extended; initial lease %q", initialLease)
+		case <-ticker.C:
+			current, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+			if err != nil {
+				t.Fatalf("get dispatch while waiting heartbeat: %v", err)
+			}
+			if current.LeaseUntil.String != "" && current.LeaseUntil.String != initialLease {
+				close(publisher.release)
+				if err := <-errC; err != nil {
+					t.Fatalf("execute dispatch after heartbeat: %v", err)
+				}
+				return
+			}
+		}
 	}
 }
 
