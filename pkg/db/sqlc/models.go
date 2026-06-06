@@ -360,6 +360,21 @@ type CtxConversation struct {
 	UpdatedAt      string         `json:"updated_at"`
 }
 
+type CtxGroupDispatch struct {
+	ID             string         `json:"id"`
+	GroupMessageID string         `json:"group_message_id"`
+	GroupID        string         `json:"group_id"`
+	AgentID        string         `json:"agent_id"`
+	ReplyChannelID string         `json:"reply_channel_id"`
+	Status         string         `json:"status"`
+	AttemptCount   int64          `json:"attempt_count"`
+	LeaseUntil     sql.NullString `json:"lease_until"`
+	NextAttemptAt  sql.NullString `json:"next_attempt_at"`
+	LastError      string         `json:"last_error"`
+	CreatedAt      string         `json:"created_at"`
+	UpdatedAt      string         `json:"updated_at"`
+}
+
 type CtxGroupIngestCursor struct {
 	GroupID   string `json:"group_id"`
 	Pipeline  string `json:"pipeline"`
@@ -399,6 +414,20 @@ type CtxGroupMessage struct {
 	Reasoning         string         `json:"reasoning"`
 	AgentSessionID    string         `json:"agent_session_id"`
 	CreatedAt         string         `json:"created_at"`
+}
+
+type CtxGroupOutbox struct {
+	ID             string         `json:"id"`
+	GroupMessageID string         `json:"group_message_id"`
+	GroupID        string         `json:"group_id"`
+	Envelope       string         `json:"envelope"`
+	Status         string         `json:"status"`
+	AttemptCount   int64          `json:"attempt_count"`
+	LeaseUntil     sql.NullString `json:"lease_until"`
+	NextAttemptAt  sql.NullString `json:"next_attempt_at"`
+	LastError      string         `json:"last_error"`
+	CreatedAt      string         `json:"created_at"`
+	UpdatedAt      string         `json:"updated_at"`
 }
 
 type CtxGroupState struct {

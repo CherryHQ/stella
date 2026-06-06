@@ -25,6 +25,12 @@ import (
 
 func webChannelID(agentID string) string { return "web:" + agentID }
 
+const groupOutboxLeaseDuration = 5 * time.Minute
+
+func groupDispatchTimestamp(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
+}
+
 func groupToAPI(g sqlc.CtxGroupState) apitypes.Group {
 	resp := apitypes.Group{
 		Id:        g.ID,
@@ -413,6 +419,7 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	// Unified entry: triple resolve + dedup via AppendGroupMessage.
 	// Empty client_message_id disables tier-1 dedup (no fake UUID).
 	platformMsgID := derefStr(req.ClientMessageId)
+	var mentions []pkgchannel.Mention
 	appendResult, err := s.eventLog.AppendGroupMessage(ctx, eventlog.Message{
 		Platform:          "web",
 		PlatformGroupID:   groupId,
@@ -421,7 +428,28 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 		ActorID:           authInfo.UserID,
 		PlatformMessageID: platformMsgID,
 		Content:           req.Content,
-	})
+	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
+		mentions = parseWebMentions(req.Content, members)
+		envelope, err := channel.EncodeGroupOutboxEnvelope(mentions)
+		if err != nil {
+			return fmt.Errorf("encode outbox envelope: %w", err)
+		}
+		_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
+			ID:             uuid.NewString(),
+			GroupMessageID: result.Message.ID,
+			GroupID:        result.GroupID,
+			Envelope:       envelope,
+			Status:         "running",
+			AttemptCount:   0,
+			LeaseUntil:     sql.NullString{String: groupDispatchTimestamp(time.Now().UTC().Add(groupOutboxLeaseDuration)), Valid: true},
+			NextAttemptAt:  sql.NullString{},
+			LastError:      "",
+		})
+		if err != nil {
+			return fmt.Errorf("create group outbox: %w", err)
+		}
+		return nil
+	}))
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -430,9 +458,6 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-
-	// Parse @mentions from text → build Mention list for arbiter.
-	mentions := parseWebMentions(req.Content, members)
 
 	// Build channel.GroupMember list for arbiter.
 	groupMembers := make([]channel.GroupMember, len(members))

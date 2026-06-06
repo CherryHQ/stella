@@ -2,6 +2,7 @@ package eventlog_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func newStore(t *testing.T) *eventlog.Store {
@@ -50,6 +52,69 @@ func TestAppendInsertsFirstMessageWithSeqOne(t *testing.T) {
 	}
 	if res.GroupID == "" {
 		t.Fatal("group id should be resolved")
+	}
+}
+
+func TestAppendOnInsertedRunsOnlyForNewRows(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	msg := humanMsg()
+	msg.PlatformMessageID = "m1"
+
+	called := 0
+	first, err := s.AppendGroupMessage(ctx, msg, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
+		called++
+		if result.GroupID == "" || result.Message.ID == "" {
+			t.Fatal("callback should receive populated append result")
+		}
+		if _, err := q.GetGroupStateByID(ctx, result.GroupID); err != nil {
+			t.Fatalf("callback should run on transaction-bound queries: %v", err)
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+	if !first.Inserted || called != 1 {
+		t.Fatalf("first append inserted=%v callback calls=%d, want inserted and one callback", first.Inserted, called)
+	}
+
+	second, err := s.AppendGroupMessage(ctx, msg, eventlog.WithOnInserted(func(context.Context, *sqlc.Queries, eventlog.AppendResult) error {
+		called++
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("second append: %v", err)
+	}
+	if second.Inserted {
+		t.Fatal("duplicate should not insert")
+	}
+	if called != 1 {
+		t.Fatalf("callback calls after duplicate = %d, want 1", called)
+	}
+}
+
+func TestAppendOnInsertedErrorRollsBack(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	boom := errors.New("boom")
+	msg := humanMsg()
+	msg.PlatformMessageID = "m1"
+
+	if _, err := s.AppendGroupMessage(ctx, msg, eventlog.WithOnInserted(func(context.Context, *sqlc.Queries, eventlog.AppendResult) error {
+		return boom
+	})); !errors.Is(err, boom) {
+		t.Fatalf("append error = %v, want boom", err)
+	}
+
+	res, err := s.AppendGroupMessage(ctx, msg)
+	if err != nil {
+		t.Fatalf("append after rollback: %v", err)
+	}
+	if !res.Inserted || res.Seq != 1 {
+		t.Fatalf("append after rollback inserted=%v seq=%d, want inserted seq 1", res.Inserted, res.Seq)
 	}
 }
 

@@ -16,6 +16,8 @@
 -- atlas:import tables/ctx_item.sql
 -- atlas:import tables/ctx_group_state.sql
 -- atlas:import tables/ctx_group_message.sql
+-- atlas:import tables/ctx_group_outbox.sql
+-- atlas:import tables/ctx_group_dispatch.sql
 -- atlas:import tables/ctx_group_memory.sql
 -- atlas:import tables/ctx_group_ingest_cursor.sql
 -- atlas:import tables/ctx_group_ingest_error.sql

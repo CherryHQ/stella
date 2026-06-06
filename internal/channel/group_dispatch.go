@@ -2,10 +2,13 @@ package channel
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -13,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // GroupMember represents a bot's membership in a group chat.
@@ -149,7 +153,36 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		PlatformTimestamp: msg.Timestamp,
 		ReplyTo:           msg.ReplyTo,
 		Content:           contentBlocksToText(msg.Content),
-	})
+	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
+		members, err := q.ListGroupMembers(ctx, result.GroupID)
+		if err != nil {
+			return fmt.Errorf("list group members: %w", err)
+		}
+		groupMembers := make([]GroupMember, len(members))
+		for i, m := range members {
+			groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
+		}
+		c.resolveMentionAgentsWithMembers(ctx, result.GroupID, msg.Platform, msg.Mentions, groupMembers)
+		envelope, err := EncodeGroupOutboxEnvelope(msg.Mentions)
+		if err != nil {
+			return fmt.Errorf("encode outbox envelope: %w", err)
+		}
+		_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
+			ID:             uuid.NewString(),
+			GroupMessageID: result.Message.ID,
+			GroupID:        result.GroupID,
+			Envelope:       envelope,
+			Status:         "pending",
+			AttemptCount:   0,
+			LeaseUntil:     sql.NullString{},
+			NextAttemptAt:  sql.NullString{},
+			LastError:      "",
+		})
+		if err != nil {
+			return fmt.Errorf("create group outbox: %w", err)
+		}
+		return nil
+	}))
 }
 
 // resolveMentionAgentsWithMembers fills Mention.AgentID for mentions whose

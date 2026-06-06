@@ -66,6 +66,22 @@ type AppendResult struct {
 	Message  sqlc.CtxGroupMessage
 }
 
+// AppendOption customizes AppendGroupMessage.
+type AppendOption func(*appendConfig)
+
+type appendConfig struct {
+	onInserted func(context.Context, *sqlc.Queries, AppendResult) error
+}
+
+// WithOnInserted runs callback inside AppendGroupMessage's transaction after a
+// new row is inserted and before commit. It is not called for deduplicated
+// redeliveries; returning an error rolls back the message insert.
+func WithOnInserted(callback func(context.Context, *sqlc.Queries, AppendResult) error) AppendOption {
+	return func(cfg *appendConfig) {
+		cfg.onInserted = callback
+	}
+}
+
 // Store appends to the group event log.
 type Store struct {
 	db *sql.DB
@@ -79,9 +95,14 @@ func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 // so this serializes group writes): resolve-or-create the registry row, check
 // for an existing message by unique key, and only on a miss bump next_seq and
 // insert. An idempotent redelivery neither inserts a row nor consumes a seq.
-func (s *Store) AppendGroupMessage(ctx context.Context, msg Message) (AppendResult, error) {
+func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...AppendOption) (AppendResult, error) {
 	if err := validate(msg); err != nil {
 		return AppendResult{}, err
+	}
+
+	cfg := appendConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -140,11 +161,18 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message) (AppendResu
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
 	}
 
+	result := AppendResult{GroupID: groupID, Seq: seq, Inserted: true, Message: row}
+	if cfg.onInserted != nil {
+		if err := cfg.onInserted(ctx, q, result); err != nil {
+			return AppendResult{}, fmt.Errorf("eventlog: on inserted: %w", err)
+		}
+	}
+
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
 	committed = true
-	return AppendResult{GroupID: groupID, Seq: seq, Inserted: true, Message: row}, nil
+	return result, nil
 }
 
 // AppendToGroup appends a message directly to a pre-resolved group (bypassing
