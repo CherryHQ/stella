@@ -218,6 +218,19 @@ func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentB
 	return append([]ai.ContentBlock{prefix}, content...)
 }
 
+// imageContentBlock downloads an image by key and returns it as an ImageContent
+// block. The bool is false when the download fails (already logged), letting
+// callers decide whether to drop the message or emit a text fallback.
+func (b *Bot) imageContentBlock(messageID, imageKey string) (ai.ImageContent, bool) {
+	data, mime, err := b.downloadImage(messageID, imageKey)
+	if err != nil {
+		logger().Error("download image failed", "image_key", imageKey, "error", err)
+		return ai.ImageContent{}, false
+	}
+	logger().Debug("image received", "size", len(data), "mime", mime)
+	return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime}, true
+}
+
 // buildMessageContent constructs the message content from a Feishu message.
 // assetsDir is the resolved per-user assets directory; pass "" to fall back to
 // the filename-only placeholder when the path is not yet known.
@@ -239,7 +252,32 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 		if strings.TrimSpace(rawContent) == "" {
 			return nil
 		}
-		return channel.TextContent(rawContent)
+		text, imageKeys := parsePostBlocks(rawContent)
+		text = stripMentions(text, msg.Mentions)
+		if len(imageKeys) == 0 {
+			if strings.TrimSpace(text) == "" {
+				logger().Warn("post message produced no usable content", "message_id", messageID)
+				return nil
+			}
+			return channel.TextContent(text)
+		}
+		// Build mixed content: text + downloaded images.
+		var blocks []ai.ContentBlock
+		if strings.TrimSpace(text) != "" {
+			blocks = append(blocks, ai.TextContent{Text: text})
+		}
+		for _, imgKey := range imageKeys {
+			block, ok := b.imageContentBlock(messageID, imgKey)
+			if !ok {
+				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Failed to download image: %s]", imgKey)})
+				continue
+			}
+			blocks = append(blocks, block)
+		}
+		if len(blocks) == 0 {
+			return nil
+		}
+		return blocks
 
 	case "image":
 		imageKey := extractJSONField(rawContent, "image_key")
@@ -247,16 +285,11 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			logger().Warn("image message missing image_key")
 			return nil
 		}
-		data, mime, err := b.downloadImage(messageID, imageKey)
-		if err != nil {
-			logger().Error("download image failed", "image_key", imageKey, "error", err)
-			return nil
+		block, ok := b.imageContentBlock(messageID, imageKey)
+		if !ok {
+			return channel.TextContent("[Failed to download image]")
 		}
-		encoded := base64.StdEncoding.EncodeToString(data)
-		logger().Debug("image received", "size", len(data), "mime", mime)
-		return []ai.ContentBlock{
-			ai.ImageContent{Data: encoded, MimeType: mime},
-		}
+		return []ai.ContentBlock{block}
 
 	case "audio":
 		return channel.TextContent(parseAudioContent(rawContent))

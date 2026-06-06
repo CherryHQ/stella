@@ -3,6 +3,7 @@ package feishu
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // extractJSONField extracts a string field from a JSON object.
@@ -126,4 +127,96 @@ func parseShareUserContent(raw string) string {
 // parseMergeForwardContent returns descriptive text for a merge-forwarded message.
 func parseMergeForwardContent(_ string) string {
 	return "[Forwarded messages]"
+}
+
+// postNode represents a single element inside a Feishu "post" rich-text message.
+type postNode struct {
+	Tag      string `json:"tag"`
+	Text     string `json:"text,omitempty"`
+	Href     string `json:"href,omitempty"`
+	UserName string `json:"user_name,omitempty"`
+	ImageKey string `json:"image_key,omitempty"`
+}
+
+// parsePostBlocks parses Feishu post (rich text) JSON content and returns the
+// concatenated plain text along with the (deduplicated) image keys found across
+// all paragraphs. Received post content is the flat
+// {"title":"...","content":[[{node}]]} shape; the locale-wrapped
+// {"zh_cn":{...}} form is unwrapped first as a defensive fallback. Supported
+// nodes: text, a (link), at (mention), img; media renders as a placeholder and
+// other tags are ignored.
+func parsePostBlocks(raw string) (text string, imageKeys []string) {
+	if raw == "" {
+		return "", nil
+	}
+
+	var post struct {
+		Title   string       `json:"title"`
+		Content [][]postNode `json:"content"`
+	}
+	if err := json.Unmarshal(unwrapPostLocale(raw), &post); err != nil {
+		return raw, nil
+	}
+
+	seen := make(map[string]bool)
+	var textParts []string
+	if post.Title != "" {
+		textParts = append(textParts, post.Title)
+	}
+	for _, paragraph := range post.Content {
+		var line string
+		for _, node := range paragraph {
+			switch node.Tag {
+			case "text":
+				line += node.Text
+			case "a":
+				line += postLinkText(node)
+			case "at":
+				if node.UserName != "" {
+					line += "@" + node.UserName
+				}
+			case "media":
+				line += "[Video]"
+			case "img":
+				if node.ImageKey != "" && !seen[node.ImageKey] {
+					seen[node.ImageKey] = true
+					imageKeys = append(imageKeys, node.ImageKey)
+				}
+			}
+		}
+		if line != "" {
+			textParts = append(textParts, line)
+		}
+	}
+
+	return strings.Join(textParts, "\n"), imageKeys
+}
+
+// postLinkText renders an "a" (link) node, keeping both display text and URL
+// when they differ so the model sees the destination.
+func postLinkText(node postNode) string {
+	switch {
+	case node.Text != "" && node.Href != "" && node.Text != node.Href:
+		return node.Text + " (" + node.Href + ")"
+	case node.Text != "":
+		return node.Text
+	default:
+		return node.Href
+	}
+}
+
+// unwrapPostLocale returns the inner content of a locale-wrapped post
+// ({"zh_cn":{...}}) when present, otherwise the original bytes. Received post
+// events are already flat, so this only guards against the send-shaped form.
+func unwrapPostLocale(raw string) []byte {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return []byte(raw)
+	}
+	for _, locale := range []string{"zh_cn", "en_us", "ja_jp"} {
+		if v, ok := m[locale]; ok {
+			return v
+		}
+	}
+	return []byte(raw)
 }
