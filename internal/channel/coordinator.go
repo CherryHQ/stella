@@ -37,23 +37,25 @@ type userInvalidator interface {
 }
 
 type Coordinator struct {
-	serviceManager   agent.ServiceManager
-	invalidator      userInvalidator
-	store            config.Store
-	auth             channelAuthStore
-	engine           *auth.PolicyEngine
-	linkCodes        *auth.LinkCodeStore
-	vaultRecipient   *age.X25519Recipient
-	vaultSvc         *vault.Service
-	listFn           func() []pkgchannel.ModelOption
-	switchFn         func(provider, model string) error
-	queue            *sessionQueue
-	intentClassifier IntentClassifier
-	groupResolver    GroupResolver
-	eventLog         *eventlog.Store
-	memberLister     GroupMemberLister
-	botRegistry      *BotIdentityRegistry
-	arbiter          *Arbiter
+	serviceManager    agent.ServiceManager
+	invalidator       userInvalidator
+	store             config.Store
+	auth              channelAuthStore
+	engine            *auth.PolicyEngine
+	linkCodes         *auth.LinkCodeStore
+	vaultRecipient    *age.X25519Recipient
+	vaultSvc          *vault.Service
+	listFn            func() []pkgchannel.ModelOption
+	switchFn          func(provider, model string) error
+	queue             *sessionQueue
+	intentClassifier  IntentClassifier
+	groupResolver     GroupResolver
+	eventLog          *eventlog.Store
+	memberLister      GroupMemberLister
+	botRegistry       *BotIdentityRegistry
+	arbiter           *Arbiter
+	publisherRegistry *PublisherRegistry
+	groupDispatcher   *GroupDispatcher
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -152,6 +154,24 @@ func WithArbiter(a *Arbiter) CoordinatorOption {
 	}
 }
 
+// WithPublisherRegistry configures cross-channel group response publishers.
+func WithPublisherRegistry(reg *PublisherRegistry) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.publisherRegistry = reg
+	}
+}
+
+// WithGroupDispatcher configures the durable group dispatcher wake path.
+func WithGroupDispatcher(dispatcher *GroupDispatcher) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.groupDispatcher = dispatcher
+	}
+}
+
+func (c *Coordinator) SetGroupDispatcher(dispatcher *GroupDispatcher) {
+	c.groupDispatcher = dispatcher
+}
+
 // RegisterBotIdentity records a bot's platform identity for mention resolution.
 // Implements pkgchannel.BotRegistrar.
 func (c *Coordinator) RegisterBotIdentity(platform, platformBotID, channelID string) {
@@ -159,6 +179,13 @@ func (c *Coordinator) RegisterBotIdentity(platform, platformBotID, channelID str
 		return
 	}
 	c.botRegistry.Register(platform, platformBotID, channelID)
+}
+
+func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher GroupPublisher) {
+	if c.publisherRegistry == nil {
+		return
+	}
+	c.publisherRegistry.Register(channelID, publisher)
 }
 
 // resolve performs the full user -> agent -> pool -> session key resolution.
@@ -371,8 +398,9 @@ func (c *Coordinator) SwitchModel(provider, model string) error {
 
 func convertEvent(evt agent.Event) pkgchannel.Event {
 	out := pkgchannel.Event{
-		Text: evt.Text,
-		Err:  evt.Err,
+		Text:      evt.Text,
+		Reasoning: evt.Reasoning,
+		Err:       evt.Err,
 	}
 	if evt.Image != nil {
 		out.Image = &pkgchannel.ImageEvent{
@@ -388,10 +416,13 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	}
 	if evt.ToolUse != nil {
 		out.ToolUse = &pkgchannel.ToolUseEvent{
-			Tool:   evt.ToolUse.Tool,
-			Status: evt.ToolUse.Status,
-			Input:  evt.ToolUse.Input,
-			Detail: evt.ToolUse.Detail,
+			ID:        evt.ToolUse.ID,
+			Tool:      evt.ToolUse.Tool,
+			Status:    evt.ToolUse.Status,
+			Input:     evt.ToolUse.Input,
+			Arguments: evt.ToolUse.Arguments,
+			Detail:    evt.ToolUse.Detail,
+			Content:   evt.ToolUse.Content,
 		}
 	}
 	return out

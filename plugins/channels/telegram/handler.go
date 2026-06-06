@@ -241,6 +241,9 @@ func (b *Bot) handleText(c tele.Context) error {
 	if handled {
 		return c.Send(resp)
 	}
+	if stream == nil {
+		return nil
+	}
 
 	return b.handleStream(c, stream)
 }
@@ -290,6 +293,9 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	if err != nil {
 		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))
+	}
+	if stream == nil {
+		return nil
 	}
 	return b.handleStream(c, stream)
 }
@@ -364,6 +370,9 @@ func (b *Bot) handleDocument(c tele.Context) error {
 	if err != nil {
 		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))
+	}
+	if stream == nil {
+		return nil
 	}
 	return b.handleStream(c, stream)
 }

@@ -213,8 +213,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		MaxRepliesPerTrigger: 100,
 	}))
 	botRegistry := channel.NewBotIdentityRegistry()
+	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
+	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
 	coordOpts = append(coordOpts, channel.WithArbiter(channel.NewArbiter(channel.ArbiterConfig{
 		MaxRepliesPerTrigger: 1,
 	})))
@@ -240,6 +242,15 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		switchFn,
 		coordOpts...,
 	)
+	groupDispatcher := channel.NewGroupDispatcher(s.db, coordinator, publisherRegistry)
+	coordinator.SetGroupDispatcher(groupDispatcher)
+	adminSrv.SetGroupDispatcher(groupDispatcher)
+	g.Go(func() error {
+		if err := groupDispatcher.Run(gctx); err != nil && !errors.Is(err, context.Canceled) {
+			return err
+		}
+		return nil
+	})
 	if s.channelRuntimeServices != nil {
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}

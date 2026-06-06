@@ -19,6 +19,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
+	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -95,6 +96,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 		cfg:         cfg,
+	}
+	if registrar, ok := handler.(interface {
+		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
+	}); ok {
+		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 
 	return b, nil

@@ -331,6 +331,11 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 		replyFn(resp)
 		return
 	}
+	if stream == nil {
+		defer cancel()
+		b.removeReaction(messageID, ackReactionID)
+		return
+	}
 	defer cancel()
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)

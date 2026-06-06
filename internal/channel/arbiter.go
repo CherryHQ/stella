@@ -55,6 +55,9 @@ type DecideOptions struct {
 	// AllMembersFallback: when true, if there is no @mention and no
 	// channelAgentID, return all group members instead of empty.
 	AllMembersFallback bool
+	// DisableDebounce skips the in-memory fallback debounce for durable dispatch
+	// replays. Mention routing already bypasses debounce.
+	DisableDebounce bool
 }
 
 // Decide determines which agents should respond to a human message in a group.
@@ -96,7 +99,7 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 			}
 		} else {
 			// Fallback path: apply debounce only for non-mention responses.
-			if a.cfg.DebounceWindow > 0 {
+			if a.cfg.DebounceWindow > 0 && !opt.DisableDebounce {
 				a.mu.Lock()
 				last := a.lastTrigger[groupID]
 				now := time.Now()

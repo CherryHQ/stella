@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -30,9 +28,9 @@ type GroupMemberLister interface {
 	ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error)
 }
 
-// handleGroupIncoming processes a group message: append to event log (dedup),
-// resolve @mentions, run arbiter, and dispatch to the selected agent.
+// handleGroupIncoming ingests a group message and wakes the durable dispatcher.
 func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	_ = args
 	log := slog.With("component", "group_dispatch", "platform", msg.Platform, "chat_id", msg.ChatID)
 
 	// CR-007: /config may contain secrets — block it in groups before event log write.
@@ -49,91 +47,11 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 		return "", false, nil, nil
 	}
 
-	log = log.With("group_id", result.GroupID, "seq", result.Seq)
-	log.Debug("group message appended")
-
-	ctx = memory.WithGroupSeq(ctx, result.Seq)
-
-	// Query members once and share with mention resolution and arbiter (CR-005).
-	var members []GroupMember
-	if c.memberLister != nil {
-		var memberErr error
-		members, memberErr = c.memberLister.ListGroupMembers(ctx, result.GroupID)
-		if memberErr != nil {
-			log.Warn("failed to list group members", "error", memberErr)
-		}
+	log.With("group_id", result.GroupID, "seq", result.Seq).Debug("group message appended")
+	if c.groupDispatcher != nil {
+		c.groupDispatcher.Wake()
 	}
-
-	c.resolveMentionAgentsWithMembers(ctx, result.GroupID, msg.Platform, msg.Mentions, members)
-
-	// Determine the channel's default agent for fallback.
-	channelAgentID := c.resolveChannelAgentID(ctx, msg)
-
-	observerChannelID := msg.ChannelID
-	if observerChannelID == "" {
-		observerChannelID = msg.Platform
-	}
-
-	if c.arbiter != nil {
-		decision := c.arbiter.Decide(ctx, result.GroupID, msg.Mentions, members, channelAgentID)
-		if decision.Debounced {
-			log.Debug("arbiter debounced")
-			return "", false, nil, nil
-		}
-		if len(decision.RespondingAgents) > 0 {
-			agentID := decision.RespondingAgents[0]
-			replyChannelID := findMemberReplyChannel(members, agentID)
-			log.Debug("arbiter selected agent", "agent_id", agentID, "reply_channel_id", replyChannelID)
-			if replyChannelID != "" && replyChannelID != observerChannelID {
-				log.Warn("selected agent's reply channel differs from observer, not responding",
-					"agent_id", agentID, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
-				return "", false, nil, nil
-			}
-			rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, agentID, replyChannelID)
-			if err != nil {
-				log.Warn("failed to resolve arbiter-selected agent", "agent_id", agentID, "error", err)
-				return "", false, nil, nil
-			}
-			return c.handleGroupResolved(ctx, rc, msg, command, args)
-		}
-		log.Debug("arbiter returned no responding agents")
-		return "", false, nil, nil
-	} else if mentionedAgent := firstMentionedAgent(msg.Mentions); mentionedAgent != "" {
-		replyChannelID := findMemberReplyChannel(members, mentionedAgent)
-		log.Debug("routing to @mentioned agent (no arbiter)", "agent_id", mentionedAgent, "reply_channel_id", replyChannelID)
-		if replyChannelID != "" && replyChannelID != observerChannelID {
-			log.Warn("mentioned agent's reply channel differs from observer, not responding",
-				"agent_id", mentionedAgent, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
-			return "", false, nil, nil
-		}
-		rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, mentionedAgent, replyChannelID)
-		if err != nil {
-			log.Warn("failed to resolve @mentioned agent", "agent_id", mentionedAgent, "error", err)
-			return "", false, nil, nil
-		}
-		return c.handleGroupResolved(ctx, rc, msg, command, args)
-	}
-
-	// No arbiter, no mention — fall back to channel default agent.
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return "", false, nil, err
-	}
-	return c.handleGroupResolved(ctx, rc, msg, command, args)
-}
-
-// resolveChannelAgentID returns the channel's default agent for the message,
-// used as fallback when no @mention is present.
-func (c *Coordinator) resolveChannelAgentID(ctx context.Context, msg pkgchannel.IncomingMessage) string {
-	channelID := msg.ChannelID
-	if channelID == "" {
-		channelID = msg.Platform
-	}
-	ch, err := c.store.GetChannel(ctx, channelID)
-	if err != nil || ch.AgentID == "" {
-		return ""
-	}
-	return ch.AgentID
+	return "", false, nil, nil
 }
 
 // appendGroupMessage writes the incoming message to the event log.
@@ -269,54 +187,6 @@ func findMemberReplyChannel(members []GroupMember, agentID string) string {
 		}
 	}
 	return ""
-}
-
-// handleGroupResolved wraps handleResolvedIncoming with agent response writeback
-// to the event log, so other agents can see this agent's responses.
-func (c *Coordinator) handleGroupResolved(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
-	text, handled, stream, err := c.handleResolvedIncoming(ctx, rc, msg, command, args)
-	if stream != nil && c.eventLog != nil && rc.GroupID != "" {
-		stream = c.wrapGroupResponseStream(ctx, rc.GroupID, rc.AgentID, stream)
-	}
-	return text, handled, stream, err
-}
-
-// wrapGroupResponseStream intercepts a ChatStream to collect the agent's text
-// response and write it back to the event log as actor_type=agent after the
-// stream completes.
-func (c *Coordinator) wrapGroupResponseStream(ctx context.Context, groupID, agentID string, stream *pkgchannel.ChatStream) *pkgchannel.ChatStream {
-	out := make(chan pkgchannel.Event, 100)
-	go func() {
-		defer close(out)
-		var textBuf strings.Builder
-		for evt := range stream.Events {
-			if evt.Text != "" {
-				textBuf.WriteString(evt.Text)
-			}
-			select {
-			case out <- evt:
-			case <-ctx.Done():
-			}
-		}
-		if textBuf.Len() > 0 {
-			// Use a context detached from the request lifecycle so the event log
-			// write survives client disconnects (CR-004).
-			writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			defer cancel()
-			if _, err := c.eventLog.AppendToGroup(writeCtx, groupID, eventlog.GroupMessage{
-				ActorType: eventlog.ActorAgent,
-				ActorID:   agentID,
-				Content:   textBuf.String(),
-			}); err != nil {
-				slog.Warn("group dispatch: failed to write agent response to event log",
-					"group_id", groupID, "agent_id", agentID, "error", err)
-			}
-		}
-	}()
-	return &pkgchannel.ChatStream{
-		Events:    out,
-		SessionID: stream.SessionID,
-	}
 }
 
 // firstMentionedAgent returns the AgentID of the first resolved @mention,

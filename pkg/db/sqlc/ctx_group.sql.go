@@ -133,6 +133,32 @@ func (q *Queries) DeleteGroupState(ctx context.Context, id string) error {
 	return err
 }
 
+const getGroupMessage = `-- name: GetGroupMessage :one
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message WHERE id = ?
+`
+
+func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
+	row := q.db.QueryRowContext(ctx, getGroupMessage, id)
+	var i CtxGroupMessage
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.Seq,
+		&i.SourceChannelID,
+		&i.ActorType,
+		&i.ActorID,
+		&i.PlatformMessageID,
+		&i.ReplyTo,
+		&i.PlatformTimestamp,
+		&i.IdempotencyKey,
+		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
 WHERE idempotency_key = ?1

@@ -1,0 +1,75 @@
+package channel
+
+import (
+	"context"
+	"sync"
+
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+)
+
+// GroupPublisher renders and sends an agent response stream to one concrete
+// group egress. It must not resolve sessions, call agents, or write event-log
+// rows; the dispatcher owns those cross-platform concerns.
+type GroupPublisher interface {
+	Publish(ctx context.Context, req GroupPublishRequest) error
+}
+
+type GroupPublishRequest struct {
+	GroupID          string
+	AgentID          string
+	AgentName        string
+	ReplyChannelID   string
+	Platform         string
+	PlatformGroupID  string
+	PlatformThreadID string
+	ReplyTo          string
+	Stream           *pkgchannel.ChatStream
+}
+
+type PublisherRegistry struct {
+	mu         sync.RWMutex
+	publishers map[string]GroupPublisher
+}
+
+func NewPublisherRegistry() *PublisherRegistry {
+	return &PublisherRegistry{publishers: make(map[string]GroupPublisher)}
+}
+
+func (r *PublisherRegistry) Register(channelID string, publisher GroupPublisher) {
+	if r == nil || channelID == "" || publisher == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.publishers[channelID] = publisher
+}
+
+func (r *PublisherRegistry) Get(channelID string) (GroupPublisher, bool) {
+	if r == nil || channelID == "" {
+		return nil, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	publisher, ok := r.publishers[channelID]
+	return publisher, ok
+}
+
+type noopGroupPublisher struct{}
+
+func NoopGroupPublisher() GroupPublisher { return noopGroupPublisher{} }
+
+func (noopGroupPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
+	if req.Stream == nil {
+		return nil
+	}
+	for {
+		select {
+		case _, ok := <-req.Stream.Events:
+			if !ok {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}

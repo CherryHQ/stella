@@ -113,11 +113,12 @@ type ChatStream struct {
 // Event is a stream event from the agent, consumed by channel plugins
 // to render responses on the platform.
 type Event struct {
-	Text    string
-	Image   *ImageEvent
-	File    *FileEvent
-	ToolUse *ToolUseEvent
-	Err     error
+	Text      string
+	Reasoning string
+	Image     *ImageEvent
+	File      *FileEvent
+	ToolUse   *ToolUseEvent
+	Err       error
 }
 
 // ImageEvent carries a base64-encoded image.
@@ -134,10 +135,13 @@ type FileEvent struct {
 
 // ToolUseEvent describes a tool invocation in progress or completed.
 type ToolUseEvent struct {
-	Tool   string // tool name, e.g. "bash", "read"
-	Status string // "running", "done", "error"
-	Input  string // short summary of the tool input
-	Detail string // error detail or result summary
+	ID        string
+	Tool      string // tool name, e.g. "bash", "read"
+	Status    string // "running", "done", "error"
+	Input     string // short summary of the tool input
+	Arguments map[string]any
+	Detail    string // error detail or result summary
+	Content   string
 }
 
 // Notification is a push message to send to a chat.
