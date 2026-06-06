@@ -420,6 +420,9 @@ func (t *memoryTool) execExpand(ctx context.Context, args map[string]any) (strin
 }
 
 // requireProfileCtx validates that ProfileStore and user/agent context are available.
+// It resolves strictly against the session user, so group turns (which have no
+// session user, D9) fail closed. This backs soul, profile_history, and
+// profile_rollback, which must never operate on a group member via fallback.
 func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (string, string, error) {
 	if t.profileStore == nil {
 		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
@@ -435,13 +438,40 @@ func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (stri
 	return userID, agentID, nil
 }
 
+// resolveProfileTarget resolves the (userID, agentID) a profile action should
+// target. Normal sessions use the session user. Group turns have no session user
+// (runtime identity is the group, D9), so profile_get / profile_update fall back
+// to the current speaker's linked auth user. Only those two actions use this
+// resolver; soul, constraints, and history/rollback stay on requireProfileCtx
+// and therefore reject the speaker fallback by construction.
+func (t *memoryTool) resolveProfileTarget(ctx context.Context, action string) (string, string, error) {
+	if t.profileStore == nil {
+		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
+	}
+	agentID := AgentIDFromContext(ctx)
+	if agentID == "" {
+		return "", "", fmt.Errorf("memory %s: no agent context", action)
+	}
+	if userID := UserIDFromContext(ctx); userID != "" {
+		return userID, agentID, nil
+	}
+	if speaker, ok := CurrentSpeakerFromContext(ctx); ok && speaker.UserID != "" {
+		return speaker.UserID, agentID, nil
+	}
+	return "", "", fmt.Errorf("memory %s: no linked current speaker", action)
+}
+
+// ctxTargetResolver resolves the (userID, agentID) a store action targets.
+type ctxTargetResolver func(ctx context.Context, action string) (string, string, error)
+
 func (t *memoryTool) execStoreGet(
 	ctx context.Context,
 	action string,
+	resolve ctxTargetResolver,
 	getter func(context.Context, string, string) (string, error),
 	emptyMsg string,
 ) (string, error) {
-	userID, agentID, err := t.requireProfileCtx(ctx, action)
+	userID, agentID, err := resolve(ctx, action)
 	if err != nil {
 		return "", err
 	}
@@ -455,49 +485,53 @@ func (t *memoryTool) execStoreGet(
 	return content, nil
 }
 
+// execStoreUpdate runs a profile/soul write and returns the resolved target
+// userID so the caller can advance the right snapshot row (the session user for
+// DM/soul writes, the current speaker for group profile writes).
 func (t *memoryTool) execStoreUpdate(
 	ctx context.Context,
 	args map[string]any,
 	action string,
+	resolve ctxTargetResolver,
 	setter func(context.Context, string, string, string) error,
 	successMsg string,
-) (string, error) {
+) (string, string, error) {
 	content, _ := args["content"].(string)
 	if content == "" {
-		return "", fmt.Errorf("memory %s: content is required", action)
+		return "", "", fmt.Errorf("memory %s: content is required", action)
 	}
-	userID, agentID, err := t.requireProfileCtx(ctx, action)
+	userID, agentID, err := resolve(ctx, action)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := setter(ctx, userID, agentID, content); err != nil {
-		return "", fmt.Errorf("memory %s: %w", action, err)
+		return "", "", fmt.Errorf("memory %s: %w", action, err)
 	}
-	return successMsg, nil
+	return successMsg, userID, nil
 }
 
 func (t *memoryTool) execProfileGet(ctx context.Context) (string, error) {
-	return t.execStoreGet(ctx, actionProfileGet, t.profileStore.GetProfile, "No profile notes found.")
+	return t.execStoreGet(ctx, actionProfileGet, t.resolveProfileTarget, t.profileStore.GetProfile, "No profile notes found.")
 }
 
 func (t *memoryTool) execSoulGet(ctx context.Context) (string, error) {
-	return t.execStoreGet(ctx, actionSoulGet, t.profileStore.GetAgentSoul, "No agent soul defined.")
+	return t.execStoreGet(ctx, actionSoulGet, t.requireProfileCtx, t.profileStore.GetAgentSoul, "No agent soul defined.")
 }
 
 func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any) (string, error) {
-	result, err := t.execStoreUpdate(ctx, args, actionProfileUpdate, t.profileStore.SetProfile,
+	result, userID, err := t.execStoreUpdate(ctx, args, actionProfileUpdate, t.resolveProfileTarget, t.profileStore.SetProfile,
 		"Profile updated. Changes will appear in the system prompt at the next session start.")
 	if err == nil {
-		t.advanceSnapshot(ctx)
+		t.advanceSnapshot(ctx, userID)
 	}
 	return result, err
 }
 
 func (t *memoryTool) execSoulUpdate(ctx context.Context, args map[string]any) (string, error) {
-	result, err := t.execStoreUpdate(ctx, args, actionSoulUpdate, t.profileStore.SetAgentSoul,
+	result, userID, err := t.execStoreUpdate(ctx, args, actionSoulUpdate, t.requireProfileCtx, t.profileStore.SetAgentSoul,
 		"Agent soul updated. Changes will appear in the system prompt at the next session start.")
 	if err == nil {
-		t.advanceSnapshot(ctx)
+		t.advanceSnapshot(ctx, userID)
 	}
 	return result, err
 }
@@ -575,7 +609,7 @@ func (t *memoryTool) execProfileRollback(ctx context.Context, args map[string]an
 			return "", fmt.Errorf("memory profile_rollback: %w", err)
 		}
 	}
-	t.advanceSnapshot(ctx)
+	t.advanceSnapshot(ctx, userID)
 
 	return fmt.Sprintf("Rolled back %s to version %d.", scope, version), nil
 }
@@ -623,7 +657,7 @@ func (t *memoryTool) execConstraintAdd(ctx context.Context, args map[string]any)
 	if err != nil {
 		return "", fmt.Errorf("memory constraint_add: %w", err)
 	}
-	t.advanceSnapshot(ctx)
+	t.advanceSnapshot(ctx, userID)
 	return marshalJSON(entries)
 }
 
@@ -640,13 +674,16 @@ func (t *memoryTool) execConstraintRemove(ctx context.Context, args map[string]a
 	if err != nil {
 		return "", fmt.Errorf("memory constraint_remove: %w", err)
 	}
-	t.advanceSnapshot(ctx)
+	t.advanceSnapshot(ctx, userID)
 	return marshalJSON(entries)
 }
 
-// advanceSnapshot advances the session snapshot after a front-end write operation.
+// advanceSnapshot advances the session snapshot for the given profile subject
+// after a front-end write. userID is the resolved write target — the session
+// user for DM/soul/constraint writes, or the current speaker for group profile
+// writes — so the speaker snapshot row is advanced, never the group_id row.
 // Reflect writes don't carry session_id so they naturally skip this.
-func (t *memoryTool) advanceSnapshot(ctx context.Context) {
+func (t *memoryTool) advanceSnapshot(ctx context.Context, userID string) {
 	if t.snapshotStore == nil {
 		return
 	}
@@ -654,7 +691,6 @@ func (t *memoryTool) advanceSnapshot(ctx context.Context) {
 	if sessionID == "" {
 		return
 	}
-	userID := UserIDFromContext(ctx)
 	agentID := AgentIDFromContext(ctx)
 	if userID == "" || agentID == "" {
 		return

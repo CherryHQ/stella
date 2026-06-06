@@ -11,11 +11,12 @@ import (
 type contextKey string
 
 const (
-	sessionIDKey contextKey = "memory_session_id"
-	userIDKey    contextKey = "memory_user_id"
-	agentIDKey   contextKey = "memory_agent_id"
-	projectIDKey contextKey = "memory_project_id"
-	groupSeqKey  contextKey = "memory_group_seq"
+	sessionIDKey      contextKey = "memory_session_id"
+	userIDKey         contextKey = "memory_user_id"
+	agentIDKey        contextKey = "memory_agent_id"
+	projectIDKey      contextKey = "memory_project_id"
+	groupSeqKey       contextKey = "memory_group_seq"
+	currentSpeakerKey contextKey = "memory_current_speaker"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -60,6 +61,34 @@ func WithProjectID(ctx context.Context, projectID string) context.Context {
 func ProjectIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(projectIDKey).(string)
 	return s
+}
+
+// CurrentSpeaker carries the human who sent the current turn in a group session,
+// where the runtime/session identity is the group (D9), not any one person.
+//
+// D9 WARNING: CurrentSpeaker.UserID is a per-turn personalization target ONLY,
+// never a runtime identity. Do not pass it to WithUserID, sandbox config,
+// vault/token code, plugin contexts, delegate sessions, notify routing, or hook
+// user metadata. Session/runtime ownership keeps flowing from the group id;
+// this axis only selects whose profile the prompt and memory tool personalize.
+type CurrentSpeaker struct {
+	Platform       string // source platform (telegram, feishu, web, ...)
+	PlatformUserID string // platform sender id / Web auth user id; lookup/audit only
+	DisplayName    string // sender display name when available
+	UserID         string // resolved Stella auth user id when linked; empty when unlinked
+}
+
+// WithCurrentSpeaker attaches the current-turn speaker to the context.
+func WithCurrentSpeaker(ctx context.Context, speaker CurrentSpeaker) context.Context {
+	return context.WithValue(ctx, currentSpeakerKey, speaker)
+}
+
+// CurrentSpeakerFromContext extracts the current-turn speaker. The bool is false
+// when no speaker is set (DM turns); it is true but UserID may be empty for an
+// unlinked platform sender.
+func CurrentSpeakerFromContext(ctx context.Context) (CurrentSpeaker, bool) {
+	s, ok := ctx.Value(currentSpeakerKey).(CurrentSpeaker)
+	return s, ok
 }
 
 // WithGroupSeq attaches the triggering event-log seq to the context.
