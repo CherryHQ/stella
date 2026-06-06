@@ -4,6 +4,7 @@ package recally
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -82,22 +83,88 @@ func (k FeedKind) Valid() bool {
 	}
 }
 
+// isTwitterHost reports whether host is an X/Twitter web host (ignoring a www. prefix).
+func isTwitterHost(host string) bool {
+	host = strings.TrimPrefix(strings.ToLower(host), "www.")
+	switch host {
+	case "x.com", "twitter.com", "mobile.twitter.com", "mobile.x.com":
+		return true
+	default:
+		return false
+	}
+}
+
+// twitterReservedPaths are first path segments on X/Twitter that are not
+// subscribable profile handles (system pages, search, lists, etc.).
+var twitterReservedPaths = map[string]bool{
+	"i":             true,
+	"home":          true,
+	"explore":       true,
+	"search":        true,
+	"hashtag":       true,
+	"messages":      true,
+	"notifications": true,
+	"settings":      true,
+	"compose":       true,
+	"intent":        true,
+}
+
+// twitterHandle returns the profile handle of an X/Twitter timeline URL. It
+// succeeds only when the path is a single handle segment (/<handle>), rejecting
+// system pages, search, lists, individual statuses, replies, and bookmarks —
+// none of which are pollable as a profile timeline.
+func twitterHandle(rawURL string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !isTwitterHost(u.Hostname()) {
+		return "", false
+	}
+	segs := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
+	if len(segs) != 1 || segs[0] == "" {
+		return "", false
+	}
+	handle := strings.TrimPrefix(segs[0], "@")
+	if handle == "" || twitterReservedPaths[strings.ToLower(handle)] {
+		return "", false
+	}
+	for _, r := range handle {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return "", false
+		}
+	}
+	return handle, true
+}
+
 // SniffFeedKind infers a feed kind from a subscription URL. x.com / twitter.com
 // hosts map to twitter; everything else defaults to rss. The caller may override
-// the result with an explicit kind.
+// the result with an explicit kind. URL shape is enforced separately by
+// ValidateFeedSubscription.
 func SniffFeedKind(rawURL string) FeedKind {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return FeedKindRSS
 	}
-	host := strings.ToLower(u.Hostname())
-	host = strings.TrimPrefix(host, "www.")
-	switch host {
-	case "x.com", "twitter.com", "mobile.twitter.com", "mobile.x.com":
+	if isTwitterHost(u.Hostname()) {
 		return FeedKindTwitter
-	default:
-		return FeedKindRSS
 	}
+	return FeedKindRSS
+}
+
+// ValidateFeedSubscription reports whether rawURL can be subscribed as kind.
+// X/Twitter hosts are only subscribable as profile timelines (/<handle>) — they
+// never serve RSS, so lists, search, individual posts, and bookmarks are
+// rejected regardless of kind. RSS feeds are validated when fetched, so any
+// non-X URL is accepted here.
+func ValidateFeedSubscription(rawURL string, kind FeedKind) error {
+	if u, err := url.Parse(strings.TrimSpace(rawURL)); err == nil && isTwitterHost(u.Hostname()) {
+		if _, ok := twitterHandle(rawURL); !ok {
+			return fmt.Errorf("x/twitter feeds must be a profile timeline like https://x.com/<handle>; lists, search, individual posts, and bookmarks are not subscribable")
+		}
+		return nil
+	}
+	if kind == FeedKindTwitter {
+		return fmt.Errorf("kind=twitter requires an x.com/<handle> profile URL")
+	}
+	return nil
 }
 
 // Article represents a saved article with its metadata.
