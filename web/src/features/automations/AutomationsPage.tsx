@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { goalsOptions } from "@/lib/queries/goals";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
 import { standaloneTasksOptions } from "./queries";
@@ -8,28 +8,28 @@ import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 import { ListPanel } from "./ListPanel";
 import { DetailPanel } from "./DetailPanel";
-import type { AutomationItem } from "./types";
-import { classifyAll, parseItemKey } from "./types";
+import type { AutomationItem, ItemKind } from "./types";
+import { classifyAll, itemKey } from "./types";
 import type { SchedulerJob } from "@/lib/types";
 
-const NEW_SCHEDULE_KEY = "new-schedule";
+interface AutomationsPageProps {
+  selectedKind?: ItemKind;
+  selectedId?: string;
+}
 
-export function AutomationsPage() {
+export function AutomationsPage({ selectedKind, selectedId }: AutomationsPageProps = {}) {
   const { t } = useI18n();
-  const { agentId } = useParams({ from: "/_app/agents/$agentId/automations/" });
-  const search = useSearch({ from: "/_app/agents/$agentId/automations/" });
+  const { agentId } = useParams({ strict: false }) as { agentId: string };
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
-  const selectedKey = (search as Record<string, unknown>).item as string | undefined;
-  const searchText = ((search as Record<string, unknown>).q as string) || "";
-  const isNewSchedule = selectedKey === NEW_SCHEDULE_KEY;
+  const [searchText, setSearchText] = useState("");
+  const [isNewSchedule, setIsNewSchedule] = useState(false);
 
   const { data: goals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
   const { data: tasks = [] } = useQuery(standaloneTasksOptions(agentId));
 
-  // Build unified item list
   const allItems: AutomationItem[] = useMemo(() => {
     const items: AutomationItem[] = [];
     for (const g of goals) items.push({ kind: "goal", id: g.id, data: g });
@@ -38,7 +38,6 @@ export function AutomationsPage() {
     return items;
   }, [goals, jobs, tasks]);
 
-  // Filter by search
   const filtered = useMemo(() => {
     if (!searchText) return allItems;
     const q = searchText.toLowerCase();
@@ -52,67 +51,56 @@ export function AutomationsPage() {
     });
   }, [allItems, searchText]);
 
-  // Classify into sections
   const sections = useMemo(() => classifyAll(filtered), [filtered]);
 
-  // Resolve selected item
   const selectedItem = useMemo(() => {
-    if (!selectedKey || isNewSchedule) return null;
-    const parsed = parseItemKey(selectedKey);
-    if (!parsed) return null;
-    return allItems.find((item) => item.kind === parsed.kind && item.id === parsed.id) ?? null;
-  }, [selectedKey, isNewSchedule, allItems]);
+    if (!selectedKind || !selectedId) return null;
+    return allItems.find((item) => item.kind === selectedKind && item.id === selectedId) ?? null;
+  }, [selectedKind, selectedId, allItems]);
 
-  // Navigation helpers
-  const setSelectedKey = useCallback(
-    (key: string) =>
-      void navigate({
-        to: "/agents/$agentId/automations",
-        params: { agentId },
-        search: (prev: Record<string, unknown>) => ({ ...prev, item: key }),
-        replace: true,
-      }),
-    [agentId, navigate],
+  const selectedKey = selectedItem ? itemKey(selectedItem) : undefined;
+
+  const pathForItem = useCallback(
+    (kind: ItemKind, id: string) => {
+      const base = `/agents/${agentId}/automations`;
+      switch (kind) {
+        case "goal":
+          return `${base}/goals/${id}`;
+        case "schedule":
+          return `${base}/schedules/${id}`;
+        case "task":
+          return `${base}/tasks/${id}`;
+      }
+    },
+    [agentId],
   );
 
-  const setSearch = useCallback(
-    (q: string) =>
-      void navigate({
-        to: "/agents/$agentId/automations",
-        params: { agentId },
-        search: (prev: Record<string, unknown>) => ({
-          ...prev,
-          q: q || undefined,
-        }),
-        replace: true,
-      }),
-    [agentId, navigate],
+  const handleSelect = useCallback(
+    (key: string) => {
+      setIsNewSchedule(false);
+      const [kind, ...rest] = key.split(":");
+      const id = rest.join(":");
+      void navigate({ to: pathForItem(kind as ItemKind, id) });
+    },
+    [navigate, pathForItem],
   );
 
-  const handleNew = useCallback(() => setSelectedKey(NEW_SCHEDULE_KEY), [setSelectedKey]);
+  const handleNew = useCallback(() => setIsNewSchedule(true), []);
 
   const handleScheduleCreated = useCallback(
-    (jobId: string) => setSelectedKey(`schedule:${jobId}`),
-    [setSelectedKey],
+    (jobId: string) => {
+      setIsNewSchedule(false);
+      void navigate({ to: pathForItem("schedule", jobId) });
+    },
+    [navigate, pathForItem],
   );
 
-  const handleScheduleDeleted = useCallback(
-    () =>
-      void navigate({
-        to: "/agents/$agentId/automations",
-        params: { agentId },
-        search: (prev: Record<string, unknown>) => {
-          const { item: _, ...rest } = prev;
-          return rest;
-        },
-        replace: true,
-      }),
-    [agentId, navigate],
-  );
+  const handleScheduleDeleted = useCallback(() => {
+    setIsNewSchedule(false);
+    void navigate({ to: `/agents/${agentId}/automations` });
+  }, [navigate, agentId]);
 
-  // Header
   useEffect(() => {
-    const totalCount = allItems.length;
     setHeaderTitle(
       <div className="min-w-0">
         <div className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
@@ -122,7 +110,7 @@ export function AutomationsPage() {
       </div>,
     );
     setHeaderActions(
-      <span className="font-mono text-xs text-muted-foreground">{totalCount} items</span>,
+      <span className="font-mono text-xs text-muted-foreground">{allItems.length} items</span>,
     );
     return () => {
       setHeaderTitle(null);
@@ -136,8 +124,8 @@ export function AutomationsPage() {
         sections={sections}
         selectedKey={selectedKey}
         searchText={searchText}
-        onSearch={setSearch}
-        onSelect={setSelectedKey}
+        onSearch={setSearchText}
+        onSelect={handleSelect}
         onNew={handleNew}
       />
       <DetailPanel

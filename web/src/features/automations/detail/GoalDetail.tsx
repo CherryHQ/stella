@@ -1,6 +1,5 @@
+import { lazy, Suspense, useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
 import {
   activateGoal,
   cancelGoal,
@@ -15,13 +14,17 @@ import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogPopup, DialogTitle } from "@/components/ui/dialog";
 import { StatusPill, ProgressBar, statusLabel, statusMeta, rollup } from "../lib";
+
+const GoalDetailPage = lazy(() =>
+  import("../GoalDetailPage").then((m) => ({ default: m.GoalDetailPage })),
+);
 
 export function GoalDetail({ goal }: { goal: ComponentsGoal }) {
   const { t } = useI18n();
-  const { agentId } = useParams({ from: "/_app/agents/$agentId/automations/" });
-  const navigate = useNavigate();
   const qc = useQueryClient();
+  const [dagOpen, setDagOpen] = useState(false);
 
   const { data: graph } = useQuery(goalGraphOptions(goal.id));
   const tasks = graph?.tasks ?? [];
@@ -53,12 +56,6 @@ export function GoalDetail({ goal }: { goal: ComponentsGoal }) {
       setActing(false);
     }
   }, [goal.id, invalidate]);
-
-  const openDag = () =>
-    void navigate({
-      to: "/agents/$agentId/automations/goals/$goalId",
-      params: { agentId, goalId: goal.id },
-    });
 
   return (
     <div className="max-w-[680px] px-9 py-7">
@@ -131,7 +128,7 @@ export function GoalDetail({ goal }: { goal: ComponentsGoal }) {
             </span>
             <button
               type="button"
-              onClick={openDag}
+              onClick={() => setDagOpen(true)}
               className="text-[11px] font-medium text-primary hover:underline"
             >
               {t("hub.viewDag")}
@@ -176,6 +173,30 @@ export function GoalDetail({ goal }: { goal: ComponentsGoal }) {
           </div>
         </div>
       )}
+
+      {/* DAG modal */}
+      <Dialog open={dagOpen} onOpenChange={setDagOpen}>
+        <DialogPopup className="h-[85vh] max-w-[90vw] overflow-hidden p-0">
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <DialogTitle className="font-serif text-base font-semibold">
+                {t("hub.viewDag")}
+              </DialogTitle>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center py-20">
+                    <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+                  </div>
+                }
+              >
+                {dagOpen && <GoalDetailPage />}
+              </Suspense>
+            </div>
+          </div>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }
