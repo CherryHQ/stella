@@ -793,8 +793,8 @@ VALUES ('uuid-new', 'grp_9f3a', <span class="num">42</span>, 'human', 'uid_88',
   'tg_msg_9001', '@weather-bot 北京今天天气怎么样？', ...);
 
 <span class="cm">-- Step 3: same transaction outbox — “这条事实需要被调度”</span>
-INSERT INTO ctx_group_outbox (id, group_message_id, group_id, seq, status)
-VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', <span class="num">42</span>, 'pending');</pre>
+INSERT INTO ctx_group_outbox (id, group_message_id, group_id, envelope, status)
+VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', '{"mentions":[{"agent_id":"weather-bot"}]}', 'pending');</pre>
             </div>
 
             <div class="info-callout">
@@ -888,21 +888,23 @@ VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', <span class="num">42</span>, 'p
     id               TEXT NOT NULL PRIMARY KEY,
     group_message_id TEXT NOT NULL REFERENCES ctx_group_message(id) ON DELETE CASCADE,
     group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
-    seq              INTEGER NOT NULL,
+    envelope         TEXT NOT NULL DEFAULT '{}',        <span class="cm">-- resolved mentions JSON</span>
     status           TEXT NOT NULL DEFAULT 'pending',  <span class="cm">-- Go-enforced: pending/running/completed/failed</span>
     attempt_count    INTEGER NOT NULL DEFAULT 0,
     lease_until      TEXT,
     next_attempt_at  TEXT,
-    error            TEXT,
+    last_error       TEXT NOT NULL DEFAULT '',
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (group_message_id)
 );
 
-CREATE INDEX idx_ctx_group_outbox_status_attempt
-    ON ctx_group_outbox (status, next_attempt_at);
-CREATE INDEX idx_ctx_group_outbox_group_seq
-    ON ctx_group_outbox (group_id, seq);</pre>
+CREATE INDEX idx_ctx_group_outbox_pending
+    ON ctx_group_outbox (status, next_attempt_at, created_at)
+    WHERE status = 'pending';
+CREATE INDEX idx_ctx_group_outbox_running_lease
+    ON ctx_group_outbox (status, lease_until)
+    WHERE status = 'running';</pre>
             </div>
           </div>
         </div>
@@ -938,7 +940,7 @@ mentions = [{PlatformID: "bot_777", AgentID: ""}]
 <span class="cm">//    检查 weather-bot 是否在 group 成员里 → 是</span>
 mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</span>}]
 
-<span class="cm">// Web UI 则直接解析 @AgentName → 匹配 member.AgentID</span></pre>
+<span class="cm">// Web UI 则直接解析 @AgentID → 匹配 member.AgentID</span></pre>
             </div>
           </div>
         </div>
@@ -968,7 +970,7 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
     groupID:        "grp_9f3a",
     mentions:       [{AgentID: "weather-bot"}],
     groupMembers:   ["weather-bot", "travel-bot"],
-    channelAgentID: "weather-bot",  <span class="cm">← channel default (fallback)</span>
+    channelAgentID: "",  <span class="cm">← source_channel_id 不参与 responder 选择</span>
     channel.DecideOptions{AllMembersFallback: policy.AllMembersFallback},
 )</pre>
             </div>
@@ -1038,10 +1040,10 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
 }
 
 INSERT INTO ctx_group_dispatch (
-  id, group_message_id, agent_id, group_id, seq,
+  id, group_message_id, agent_id, group_id,
   reply_channel_id, status, attempt_count
 ) VALUES (
-  'disp-uuid-1', 'uuid-new', 'weather-bot', 'grp_9f3a', <span class="num">42</span>,
+  'disp-uuid-1', 'uuid-new', 'weather-bot', 'grp_9f3a',
   'tg-bot-weather', 'pending', 0
 );</pre>
             </div>
@@ -1054,26 +1056,29 @@ INSERT INTO ctx_group_dispatch (
               <pre>CREATE TABLE ctx_group_dispatch (
     id               TEXT NOT NULL PRIMARY KEY,
     group_message_id TEXT NOT NULL REFERENCES ctx_group_message(id) ON DELETE CASCADE,
-    agent_id         TEXT NOT NULL,
+    agent_id         TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
     group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
-    seq              INTEGER NOT NULL,
-    reply_channel_id TEXT NOT NULL REFERENCES channel(id),
+    reply_channel_id TEXT NOT NULL REFERENCES channel(id) ON DELETE CASCADE,
     status           TEXT NOT NULL DEFAULT 'pending',  <span class="cm">-- Go-enforced: pending/running/completed/failed</span>
     attempt_count    INTEGER NOT NULL DEFAULT 0,
     lease_until      TEXT,
     next_attempt_at  TEXT,
-    error            TEXT,
+    last_error       TEXT NOT NULL DEFAULT '',
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (group_message_id, agent_id)
 );
 
-CREATE INDEX idx_ctx_group_dispatch_status_attempt
-    ON ctx_group_dispatch (status, next_attempt_at);
+CREATE INDEX idx_ctx_group_dispatch_group_id
+    ON ctx_group_dispatch (group_id);
 CREATE INDEX idx_ctx_group_dispatch_reply_channel
     ON ctx_group_dispatch (reply_channel_id);
-CREATE INDEX idx_ctx_group_dispatch_group_seq
-    ON ctx_group_dispatch (group_id, seq);</pre>
+CREATE INDEX idx_ctx_group_dispatch_pending
+    ON ctx_group_dispatch (status, next_attempt_at, created_at)
+    WHERE status = 'pending';
+CREATE INDEX idx_ctx_group_dispatch_running_lease
+    ON ctx_group_dispatch (status, lease_until)
+    WHERE status = 'running';</pre>
             </div>
           </div>
         </div>
@@ -1109,14 +1114,14 @@ if publisher == nil {
     return
 }
 
-<span class="cm">// 注入 triggerSeq — 所有 agent 共享同一个</span>
-ctx = memory.WithGroupSeq(ctx, dispatch.Seq)
+<span class="cm">// 注入 triggerSeq — 从 group_message.seq 读取，所有 agent 共享同一个</span>
+ctx = memory.WithGroupSeq(ctx, groupMessage.Seq)
 
 publisher.PublishGroupResponse(ctx, GroupDispatchRequest{
     GroupID:        dispatch.GroupID,
     AgentID:        dispatch.AgentID,
     ReplyChannelID: dispatch.ReplyChannelID,
-    TriggerSeq:     dispatch.Seq,
+    TriggerSeq:     groupMessage.Seq,
 })
 
 <span class="cm">// publisher 内部：session resolve → Chat() → platform API → AppendToGroup writeback</span>
@@ -1131,7 +1136,7 @@ publisher.PublishGroupResponse(ctx, GroupDispatchRequest{
                   >status='pending' AND (next_attempt_at IS NULL OR next_attempt_at &lt;= now)</code
                 >，以及
                 <code>status='running' AND lease_until &lt; now</code> 的过期租约回收。执行期初始
-                lease 建议 10 分钟，长工具调用可 heartbeat 延长。失败时递增
+                lease 默认 5 分钟，长工具调用可 heartbeat 延长。失败时递增
                 <code>attempt_count</code> 并指数退避；超过 <code>MaxDispatchAttempts</code> 后标记
                 <code>failed</code>，写 log/metric，平台侧不冒名 fallback。
               </p>
@@ -1244,7 +1249,7 @@ ORDER BY seq ASC;
 <span class="cm">-- seq=41  agent  travel-bot   "推荐故宫和颐和园…" ← 注入!</span>
 
 injected = [
-  {Role: "user", Content: "[agent:travel-bot]: 推荐故宫和颐和园…"},
+  {Role: "user", Content: "[seq:41 agent:travel-bot]: 推荐故宫和颐和园…"},
 ]</pre>
               </div>
 
@@ -1272,19 +1277,23 @@ p.Append(ctx, session, injected...)
 
               <div class="data-card" style="margin-top: 8px">
                 <div class="data-card-header">
-                  <span class="data-card-label">④ 更新水位线</span>
+                  <span class="data-card-label">④ 成功后提交水位线</span>
                   <span class="data-card-tag tag-db">Cursor</span>
                 </div>
-                <pre>UpsertIngestCursor(grp_9f3a, "lcm:weather-bot", last_seq=<span class="num">42</span>)</pre>
+                <pre><span class="cm">// assembleGroup() 不推进 cursor</span>
+<span class="cm">// Chat() 成功、stream 正常结束后：</span>
+CommitGroupCursor(grp_9f3a, "lcm:weather-bot", triggerSeq=<span class="num">42</span>)
+UpsertIngestCursor(grp_9f3a, "lcm:weather-bot", last_seq=<span class="num">42</span>)</pre>
               </div>
 
-              <div class="risk-callout" style="margin-top: 8px">
-                <div class="risk-callout-label">CR-006 — 水位线提前推进</div>
+              <div class="info-callout" style="margin-top: 8px">
+                <div class="info-callout-label">CR-006 resolved — prepare / commit</div>
                 <p>
-                  水位线在 <code>assembleGroup()</code> 内更新，此时 LLM 还没调用。 如果后续
-                  <code>Chat()</code> 失败，cursor 已经推进到 42 — seq 40-41 的 between-turn
-                  消息不会被下一轮再注入。 严格来说应在 Chat 成功后再推进，但需要拆分 assembly 和
-                  cursor update 的时机。
+                  <code>assembleGroup()</code> 负责准备上下文并持久化 injected
+                  消息以保持时间线顺序， 但不移动 <code>ctx_group_ingest_cursor</code>。只有
+                  <code>Chat()</code> 成功完成后， runtime 才调用
+                  <code>CommitGroupCursor()</code> 推进 cursor；runner error、timeout、 客户端断开或
+                  assemble 失败都不会提交。
                 </p>
               </div>
 
@@ -1300,7 +1309,7 @@ history = [
   {Role: "user",      Content: "推荐一下周末去哪玩"},
   {Role: "assistant", Content: "周末天气晴朗适合出行…"},
   <span class="cm">// injected (event log between-turn)</span>
-  {Role: "user",      Content: <span class="ok">"[agent:travel-bot]: 推荐故宫和颐和园…"</span>},
+  {Role: "user",      Content: <span class="ok">"[seq:41 agent:travel-bot]: 推荐故宫和颐和园…"</span>},
 ]
 <span class="cm">// 当前用户消息不在 history 里 — 通过 ChatRequest.Message 独立传入</span></pre>
               </div>
@@ -1654,7 +1663,7 @@ data: [DONE]</pre>
           </tr>
           <tr>
             <td style="color: var(--accent-green)">@Mention 解析</td>
-            <td>解析 @AgentName 文本匹配</td>
+            <td>解析 @AgentID 文本匹配</td>
             <td>平台 mention → botRegistry → agentID</td>
           </tr>
           <tr>
@@ -1703,39 +1712,33 @@ data: [DONE]</pre>
         </table>
       </div>
 
-      <!-- ───────── Known Risks ───────── -->
+      <!-- ───────── Current Status ───────── -->
       <div class="section-divider">
-        <h2>已知风险</h2>
+        <h2>当前状态</h2>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 12px">
-        <div class="risk-callout">
-          <div class="risk-callout-label">CR-006 — 水位线提前推进</div>
+        <div class="info-callout">
+          <div class="info-callout-label">CR-006 — 已修复</div>
           <p>
-            <code>UpsertIngestCursor</code> 在 <code>assembleGroup()</code> 内执行，早于
-            <code>Chat()</code> 调用。 若 LLM 调用失败，cursor 已推进，between-turn 消息永久跳过。
-            修复方向：拆分 assembly 为 prepare + commit，Chat 成功后再推进 cursor。
+            <code>assembleGroup()</code> 不再推进 <code>ctx_group_ingest_cursor</code>。 runtime
+            只在 group <code>Chat()</code> 成功结束后调用 <code>CommitGroupCursor()</code>。
           </p>
         </div>
 
-        <div class="risk-callout">
-          <div class="risk-callout-label">CR-009 — Dispatch 仍绑定 observer adapter</div>
+        <div class="info-callout">
+          <div class="info-callout-label">CR-009 — 已修复</div>
           <p>
-            当前代码仍在接收消息的 adapter 调用栈内决定和执行回复；当 selected agent 的
-            <code>replyChannelID</code> 与观察者 bot 不同时，会静默跳过。目标模型把 ingest 和
-            dispatch 解耦：adapter 只写 event log/outbox；dispatcher worker claim outbox/dispatch
-            ledger；publisher 按 <code>reply_channel_id</code> 发出。禁止 fallback 到 channel
-            default 或 observer bot。
+            adapter 只负责写 event log/outbox；dispatcher materialize dispatch ledger；publisher 按
+            selected agent 的 <code>reply_channel_id</code> 发布，不使用 observer bot 冒名。
           </p>
         </div>
 
-        <div class="risk-callout">
-          <div class="risk-callout-label">CR-012 — 无 channel default 且无 mention</div>
+        <div class="info-callout">
+          <div class="info-callout-label">CR-012 — 当前设计</div>
           <p>
-            如果群组没有设置 channel default agent，且消息不含 @mention，
-            <code>AllMembersFallback=false</code> 时 arbiter 返回空 — 消息被静默忽略。
-            目标统一模型下，Web 也应走同一个 arbiter；全员响应只能是 per-group dispatch policy
-            里的显式配置，不是硬编码默认语义。
+            无 mention 时 responder 来自成员 <code>reply_channel_id</code> policy；
+            <code>AllMembersFallback=false</code> 返回空是显式静默，不是 debounce bug。
           </p>
         </div>
       </div>

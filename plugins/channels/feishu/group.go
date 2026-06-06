@@ -13,6 +13,10 @@ func (b *Bot) groupMode(chatID string) string {
 	return b.cfg.GroupMode
 }
 
+func (b *Bot) shouldIngestGroup(chatID string) bool {
+	return b.groupMode(chatID) != "disabled"
+}
+
 // shouldRespondInGroup checks whether the bot should respond based on group_mode
 // and whether it was mentioned. Uses per-group config when available.
 func (b *Bot) shouldRespondInGroup(chatID string, mentions []*larkim.MentionEvent) bool {

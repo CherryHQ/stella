@@ -83,6 +83,13 @@ type Session struct {
 	GroupID string // non-empty for group sessions; assembles history from event log instead of ctx_message
 }
 
+// GroupCursorCommitter advances group event-log ingestion only after a chat turn
+// has completed successfully. Assemble may prepare between-turn rows, but commit
+// owns durable cursor movement.
+type GroupCursorCommitter interface {
+	CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error
+}
+
 // SessionInfo holds metadata about a session.
 type SessionInfo struct {
 	ID         string
