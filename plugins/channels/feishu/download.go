@@ -10,6 +10,11 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 )
 
+// maxImageBytes caps a single downloaded image. base64-encoding holds ~1.33x of
+// this in memory on top of the raw bytes, so the limit bounds per-message peak
+// memory even when a post references many inline images.
+const maxImageBytes = 20 << 20 // 20 MiB
+
 // downloadImage downloads an image from Feishu using the MessageResource API.
 func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) {
 	apiCtx, cancel := b.apiContext()
@@ -34,9 +39,12 @@ func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) 
 		defer func() { _ = closer.Close() }()
 	}
 
-	data, err := io.ReadAll(resp.File)
+	data, err := io.ReadAll(io.LimitReader(resp.File, maxImageBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("read file: %w", err)
+	}
+	if len(data) > maxImageBytes {
+		return nil, "", fmt.Errorf("image exceeds %d bytes", maxImageBytes)
 	}
 
 	mime := http.DetectContentType(data)

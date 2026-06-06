@@ -874,6 +874,55 @@ func TestParsePostBlocksInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestParsePostBlocksLink(t *testing.T) {
+	raw := `{"title":"","content":[[{"tag":"text","text":"see "},{"tag":"a","text":"docs","href":"https://x.io"}]]}`
+	text, images := parsePostBlocks(raw)
+	if text != "see docs (https://x.io)" {
+		t.Errorf("text = %q, want link with href", text)
+	}
+	if len(images) != 0 {
+		t.Errorf("images = %v, want empty", images)
+	}
+}
+
+func TestParsePostBlocksMention(t *testing.T) {
+	raw := `{"title":"","content":[[{"tag":"at","user_id":"ou_1","user_name":"Alice"},{"tag":"text","text":" ping"}]]}`
+	text, _ := parsePostBlocks(raw)
+	if text != "@Alice ping" {
+		t.Errorf("text = %q, want %q", text, "@Alice ping")
+	}
+}
+
+func TestParsePostBlocksMedia(t *testing.T) {
+	raw := `{"title":"","content":[[{"tag":"media","file_key":"f1","image_key":"i1"}]]}`
+	text, images := parsePostBlocks(raw)
+	if text != "[Video]" {
+		t.Errorf("text = %q, want %q", text, "[Video]")
+	}
+	if len(images) != 0 {
+		t.Errorf("images = %v, want empty", images)
+	}
+}
+
+func TestParsePostBlocksDedupImages(t *testing.T) {
+	raw := `{"title":"","content":[[{"tag":"img","image_key":"dup"}],[{"tag":"img","image_key":"dup"}]]}`
+	_, images := parsePostBlocks(raw)
+	if len(images) != 1 || images[0] != "dup" {
+		t.Errorf("images = %v, want [dup]", images)
+	}
+}
+
+func TestParsePostBlocksLocaleWrapped(t *testing.T) {
+	raw := `{"zh_cn":{"title":"标题","content":[[{"tag":"text","text":"hi"},{"tag":"img","image_key":"img_w"}]]}}`
+	text, images := parsePostBlocks(raw)
+	if text != "标题\nhi" {
+		t.Errorf("text = %q, want %q", text, "标题\nhi")
+	}
+	if len(images) != 1 || images[0] != "img_w" {
+		t.Errorf("images = %v, want [img_w]", images)
+	}
+}
+
 func TestBuildMessageContentUnsupportedType(t *testing.T) {
 	bot := &Bot{}
 	msgType := "card_action"
