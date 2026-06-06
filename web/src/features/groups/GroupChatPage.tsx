@@ -1,21 +1,14 @@
 import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { Settings } from "lucide-react";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
+import { Button } from "@/components/ui/button";
 import { AppShell } from "@/layouts/AppShell";
 import { AgentSidebarContent } from "@/features/sessions/AgentSidebar";
 import { GroupChat } from "./GroupChat";
 import { GroupSettings } from "./GroupSettings";
-
-function SettingsIcon() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
 
 export function GroupChatPage() {
   const { groupId } = useParams({ from: "/_app/groups/$groupId" });
@@ -53,14 +46,15 @@ export function GroupChatPage() {
         </div>
       }
       headerActions={
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={() => setSettingsOpen(true)}
-          className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="h-7 w-7 rounded-full p-0 text-muted-foreground"
           title="Group settings"
         >
-          <SettingsIcon />
-        </button>
+          <Settings className="size-3.5" />
+        </Button>
       }
     >
       <GroupChat groupId={groupId} />

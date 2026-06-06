@@ -343,13 +343,15 @@ func (s *Server) ListGroupMessages(w http.ResponseWriter, r *http.Request, group
 	apiMsgs := make([]apitypes.GroupMessage, len(msgs))
 	for i, m := range msgs {
 		apiMsgs[i] = apitypes.GroupMessage{
-			Id:        m.ID,
-			GroupId:   m.GroupID,
-			Seq:       int(m.Seq),
-			ActorType: m.ActorType,
-			ActorId:   m.ActorID,
-			Content:   m.Content,
-			CreatedAt: parseTime(m.CreatedAt),
+			Id:             m.ID,
+			GroupId:        m.GroupID,
+			Seq:            int(m.Seq),
+			ActorType:      m.ActorType,
+			ActorId:        m.ActorID,
+			Content:        m.Content,
+			Reasoning:      ptrStr(m.Reasoning),
+			AgentSessionId: ptrStr(m.AgentSessionID),
+			CreatedAt:      parseTime(m.CreatedAt),
 		}
 	}
 
@@ -483,11 +485,12 @@ func (s *Server) streamAgentResponse(
 	writeSSE(map[string]any{"type": "agent-start", "agentId": agentID, "agentName": agentName, "messageId": msgID})
 
 	var (
-		inText      bool
-		textID      string
-		inReasoning bool
-		reasoningID string
-		textBuf     strings.Builder
+		inText       bool
+		textID       string
+		inReasoning  bool
+		reasoningID  string
+		textBuf      strings.Builder
+		reasoningBuf strings.Builder
 	)
 
 	closeText := func() {
@@ -528,7 +531,39 @@ func (s *Server) streamAgentResponse(
 				writeSSE(map[string]string{"type": "reasoning-start", "id": reasoningID})
 				inReasoning = true
 			}
+			reasoningBuf.WriteString(evt.Reasoning)
 			writeSSE(map[string]any{"type": "reasoning-delta", "id": reasoningID, "delta": evt.Reasoning})
+			continue
+		}
+		if evt.ToolUse != nil {
+			closeText()
+			closeReasoning()
+			tu := evt.ToolUse
+			switch tu.Status {
+			case "running":
+				args := tu.Arguments
+				if args == nil {
+					args = map[string]any{"input": tu.Input}
+				}
+				writeSSE(map[string]any{
+					"type":       "tool-start",
+					"toolCallId": tu.ID,
+					"toolName":   tu.Tool,
+					"input":      args,
+				})
+			case "done":
+				writeSSE(map[string]any{
+					"type":       "tool-end",
+					"toolCallId": tu.ID,
+					"output":     tu.Content,
+				})
+			case "error":
+				writeSSE(map[string]any{
+					"type":       "tool-error",
+					"toolCallId": tu.ID,
+					"errorText":  tu.Content,
+				})
+			}
 			continue
 		}
 		if evt.Text != "" {
@@ -549,13 +584,15 @@ func (s *Server) streamAgentResponse(
 	writeSSE(map[string]any{"type": "agent-end", "agentId": agentID, "messageId": msgID})
 
 	// Write agent response to event log.
-	if textBuf.Len() > 0 && s.eventLog != nil {
+	if (textBuf.Len() > 0 || reasoningBuf.Len() > 0) && s.eventLog != nil {
 		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(baseCtx), 10*time.Second)
 		defer cancel()
 		_, _ = s.eventLog.AppendToGroup(writeCtx, groupID, eventlog.GroupMessage{
-			ActorType: eventlog.ActorAgent,
-			ActorID:   agentID,
-			Content:   textBuf.String(),
+			ActorType:      eventlog.ActorAgent,
+			ActorID:        agentID,
+			Content:        textBuf.String(),
+			Reasoning:      reasoningBuf.String(),
+			AgentSessionID: info.ID,
 		})
 	}
 }

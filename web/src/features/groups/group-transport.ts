@@ -1,18 +1,24 @@
 import type { GroupMessage } from "@/lib/api-client/types.gen";
 
-export interface GroupStreamMessage {
-  agentId: string;
-  agentName: string;
-  messageId: string;
-  text: string;
-  reasoning: string;
-  done: boolean;
+export interface ToolCallState {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  output?: string;
+  isError?: boolean;
 }
 
 export interface GroupStreamCallbacks {
   onAgentStart: (agentId: string, agentName: string, messageId: string) => void;
   onTextDelta: (agentId: string, delta: string) => void;
   onReasoningDelta: (agentId: string, delta: string) => void;
+  onToolStart: (
+    agentId: string,
+    toolCallId: string,
+    toolName: string,
+    input: Record<string, unknown>,
+  ) => void;
+  onToolEnd: (agentId: string, toolCallId: string, output: string, isError: boolean) => void;
   onAgentEnd: (agentId: string) => void;
   onFinish: () => void;
   onError: (error: string) => void;
@@ -64,25 +70,55 @@ export async function sendGroupMessage(
         }
 
         try {
-          const evt = JSON.parse(payload) as Record<string, string>;
+          const evt = JSON.parse(payload) as Record<string, unknown>;
           switch (evt.type) {
             case "agent-start":
-              callbacks.onAgentStart(evt.agentId, evt.agentName, evt.messageId);
+              callbacks.onAgentStart(
+                evt.agentId as string,
+                evt.agentName as string,
+                evt.messageId as string,
+              );
               break;
             case "text-delta":
-              if (evt.delta) callbacks.onTextDelta(evt.agentId ?? "", evt.delta);
+              if (evt.delta)
+                callbacks.onTextDelta((evt.agentId as string) ?? "", evt.delta as string);
               break;
             case "reasoning-delta":
-              if (evt.delta) callbacks.onReasoningDelta(evt.agentId ?? "", evt.delta);
+              if (evt.delta)
+                callbacks.onReasoningDelta((evt.agentId as string) ?? "", evt.delta as string);
+              break;
+            case "tool-start":
+              callbacks.onToolStart(
+                (evt.agentId as string) ?? "",
+                evt.toolCallId as string,
+                evt.toolName as string,
+                (evt.input as Record<string, unknown>) ?? {},
+              );
+              break;
+            case "tool-end":
+              callbacks.onToolEnd(
+                (evt.agentId as string) ?? "",
+                evt.toolCallId as string,
+                (evt.output as string) ?? "",
+                false,
+              );
+              break;
+            case "tool-error":
+              callbacks.onToolEnd(
+                (evt.agentId as string) ?? "",
+                evt.toolCallId as string,
+                (evt.errorText as string) ?? "",
+                true,
+              );
               break;
             case "agent-end":
-              callbacks.onAgentEnd(evt.agentId);
+              callbacks.onAgentEnd(evt.agentId as string);
               break;
             case "finish":
               callbacks.onFinish();
               return;
             case "error":
-              callbacks.onError(evt.errorText ?? "unknown error");
+              callbacks.onError((evt.errorText as string) ?? "unknown error");
               break;
           }
         } catch {
@@ -101,6 +137,8 @@ export function groupMessageToDisplay(m: GroupMessage): {
   agentId?: string;
   agentName?: string;
   content: string;
+  reasoning?: string;
+  agentSessionId?: string;
   timestamp: string;
 } {
   return {
@@ -109,6 +147,8 @@ export function groupMessageToDisplay(m: GroupMessage): {
     agentId: m.actor_type === "agent" ? m.actor_id : undefined,
     agentName: m.actor_type === "agent" ? m.actor_name : undefined,
     content: m.content,
+    reasoning: m.reasoning || undefined,
+    agentSessionId: m.agent_session_id || undefined,
     timestamp: m.created_at,
   };
 }

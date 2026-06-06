@@ -29,6 +29,10 @@ CREATE TABLE ctx_group_message (
     idempotency_key     TEXT,
     -- JSON-serialized []ai.ContentBlock.
     content             TEXT NOT NULL DEFAULT '',
+    -- Agent reasoning / thinking text (empty for human messages).
+    reasoning           TEXT NOT NULL DEFAULT '',
+    -- Links to the agent session that produced this response (agent messages only).
+    agent_session_id    TEXT NOT NULL DEFAULT '',
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (group_id, seq)
 );

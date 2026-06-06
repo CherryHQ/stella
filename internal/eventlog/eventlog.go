@@ -184,12 +184,14 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 	}
 
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:        uuid.NewString(),
-		GroupID:   groupID,
-		Seq:       seq,
-		ActorType: string(msg.ActorType),
-		ActorID:   msg.ActorID,
-		Content:   msg.Content,
+		ID:             uuid.NewString(),
+		GroupID:        groupID,
+		Seq:            seq,
+		ActorType:      string(msg.ActorType),
+		ActorID:        msg.ActorID,
+		Content:        msg.Content,
+		Reasoning:      msg.Reasoning,
+		AgentSessionID: msg.AgentSessionID,
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -204,9 +206,11 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 
 // GroupMessage is a simplified message for direct group append (pre-resolved groupID).
 type GroupMessage struct {
-	ActorType ActorType
-	ActorID   string
-	Content   string
+	ActorType      ActorType
+	ActorID        string
+	Content        string
+	Reasoning      string
+	AgentSessionID string
 }
 
 func validate(msg Message) error {

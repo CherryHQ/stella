@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { fetchAllTasks } from "@/lib/paginated";
 import { cn } from "@/lib/utils";
+import { getAgentColor } from "@/lib/agent-colors";
 import type { ComponentsSession, TaskList } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
@@ -36,23 +37,6 @@ interface Props {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-const AVATAR_COLORS = [
-  "linear-gradient(145deg, #111, #3d3d42)",
-  "linear-gradient(145deg, #005fb8, #2997ff)",
-  "linear-gradient(145deg, #2d6a4f, #52b788)",
-  "linear-gradient(145deg, #7b2d8e, #b06ef5)",
-  "linear-gradient(145deg, #b8860b, #e8b84b)",
-  "linear-gradient(145deg, #b02020, #e05050)",
-  "linear-gradient(145deg, #1a8a8a, #3bc9db)",
-];
-
-function agentGradient(id: string, index: number): string {
-  if (index < AVATAR_COLORS.length) return AVATAR_COLORS[index];
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
 
 function sessionTitle(s: Session): string {
   return s.title || "Untitled";
@@ -542,22 +526,20 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                   }
                 }}
                 className={cn(
-                  "group grid min-h-[46px] cursor-pointer grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-all duration-150 border",
+                  "group grid min-h-[34px] cursor-pointer grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-2.5 py-1 text-left transition-all duration-150 border",
                   isCur
-                    ? "bg-card text-foreground border-border shadow-none"
+                    ? "bg-muted font-semibold text-foreground border-border/60 shadow-none"
                     : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
                 )}
               >
                 <span
-                  className="grid size-8 place-items-center rounded-lg text-[13px] font-bold text-white shadow-none"
-                  style={{ background: agentGradient(ag.id, idx) }}
+                  className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-white shadow-none shrink-0"
+                  style={{ background: getAgentColor(ag.id, idx).bg }}
                 >
                   {ag.name[0]?.toUpperCase()}
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-                    {ag.name}
-                  </span>
+                  <span className="block truncate text-[13px] tracking-[-0.01em]">{ag.name}</span>
                 </span>
               </div>
             );
