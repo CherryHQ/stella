@@ -14,17 +14,18 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-// Semantic arbiter prompt/latency budget. These are deliberately small: the
-// arbiter runs on the no-mention group hot path, so a large prompt or a slow
-// model would either time out (→ no response, worse than broadcast) or charge a
-// tenant for routing every chatter message.
+// Semantic arbiter prompt/latency budget. The prompt is kept small because the
+// arbiter runs on the no-mention group hot path. The timeout must still be large
+// enough for a real chat model to emit its first token and a short JSON body —
+// too tight and every message times out into silence (which is worse than a
+// broadcast), so it is sized for model latency, not as an aggressive cutoff.
 const (
 	semanticMaxContextMessages = 6
 	semanticPerMessageRunes    = 240
 	semanticContextTotalRunes  = 1500
 	semanticAgentsTotalRunes   = 1500
 	semanticMemberSummaryRunes = 180
-	semanticTimeout            = 2 * time.Second
+	semanticTimeout            = 8 * time.Second
 	// semanticDefaultMaxResponders caps a broadcast decision. The rule arbiter's
 	// no-mention cap is 1 (storm guard for the all-members fallback); a semantic
 	// broadcast is an intentional multi-select, so it gets its own, larger cap.
@@ -118,7 +119,7 @@ func (a *LLMSemanticGroupArbiter) Decide(ctx context.Context, req SemanticGroupR
 
 	model, stream, reason := a.resolveRoutingModel(ctx, req)
 	if reason != "" {
-		a.info("no eligible routing agent; staying silent",
+		a.warn("no eligible routing agent; staying silent",
 			"reason", reason,
 			"members", len(req.Members),
 			"has_owner", req.OwnerUserID != "")
@@ -128,21 +129,55 @@ func (a *LLMSemanticGroupArbiter) Decide(ctx context.Context, req SemanticGroupR
 	reqCtx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 
+	payload := buildSemanticUserPayload(req)
+	a.debug("semantic routing request",
+		"model", model.ID,
+		"provider", model.Provider,
+		"api", model.API,
+		"base_url", model.BaseURL,
+		"payload", payload)
+
 	msg, err := a.complete(reqCtx, model, ai.Context{
 		System:   semanticGroupPrompt,
-		Messages: []ai.Message{ai.UserMessage{Content: buildSemanticUserPayload(req)}},
+		Messages: []ai.Message{ai.UserMessage{Content: payload}},
 	}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: a.timeout}}, stream)
 	if err != nil {
-		a.debug("semantic completion failed", "error", err)
+		a.warn("semantic completion failed; staying silent", "error", err, "model", model.ID)
 		return SemanticGroupDecision{}
 	}
 
-	decision, err := parseSemanticDecision(ai.FlattenText(msg.Content))
-	if err != nil {
-		a.debug("semantic response parse failed", "error", err)
+	text := ai.FlattenText(msg.Content)
+	a.debug("semantic routing response",
+		"model", model.ID,
+		"stop_reason", msg.StopReason,
+		"provider_error", msg.ErrorMessage,
+		"input_tokens", msg.Usage.InputTokens,
+		"output_tokens", msg.Usage.OutputTokens,
+		"raw", text)
+
+	// Complete swallows stream errors into msg.ErrorMessage and returns nil err,
+	// so an empty response is usually a provider error or a timeout that cut the
+	// stream before any text. Surface that instead of an opaque parse failure.
+	if strings.TrimSpace(text) == "" {
+		a.warn("semantic response empty; staying silent",
+			"model", model.ID,
+			"stop_reason", msg.StopReason,
+			"provider_error", msg.ErrorMessage)
 		return SemanticGroupDecision{}
 	}
-	return sanitizeSemanticDecision(decision, req, a.maxResponders)
+
+	decision, err := parseSemanticDecision(text)
+	if err != nil {
+		a.warn("semantic response parse failed; staying silent", "error", err, "model", model.ID)
+		return SemanticGroupDecision{}
+	}
+	final := sanitizeSemanticDecision(decision, req, a.maxResponders)
+	a.debug("semantic routing decision",
+		"model", model.ID,
+		"should_reply", final.ShouldReply,
+		"agents", final.RespondingAgents,
+		"reason", final.Reason)
+	return final
 }
 
 // resolveRoutingModel picks the agent whose model_fast and credentials classify
@@ -214,12 +249,16 @@ func (a *LLMSemanticGroupArbiter) modelFor(ctx context.Context, agentID string) 
 	return model, stream, ""
 }
 
-func (a *LLMSemanticGroupArbiter) info(msg string, args ...any) {
+// warn marks a handled degradation: routing fell back to silence, so a message
+// that may have warranted a reply was dropped. Operators should see these.
+func (a *LLMSemanticGroupArbiter) warn(msg string, args ...any) {
 	if a != nil && a.log != nil {
-		a.log.Info(msg, args...)
+		a.log.Warn(msg, args...)
 	}
 }
 
+// debug carries per-message routing flow (prompt, raw response, decision). It is
+// high-volume on the no-mention hot path, so it stays off unless explicitly enabled.
 func (a *LLMSemanticGroupArbiter) debug(msg string, args ...any) {
 	if a != nil && a.log != nil {
 		a.log.Debug(msg, args...)
