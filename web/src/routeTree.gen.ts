@@ -36,6 +36,7 @@ import { Route as AppSettingsAgentsRouteImport } from './routes/_app/settings/ag
 import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings/account'
 import { Route as AppSettingsAboutRouteImport } from './routes/_app/settings/about'
 import { Route as AppSessionsSplatRouteImport } from './routes/_app/sessions.$'
+import { Route as AppGroupsGroupIdRouteImport } from './routes/_app/groups.$groupId'
 import { Route as AppAutomationsSplatRouteImport } from './routes/_app/automations.$'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
@@ -215,6 +216,13 @@ const AppSessionsSplatRoute = AppSessionsSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => AppSessionsRoute,
 } as any)
+const AppGroupsGroupIdRoute = AppGroupsGroupIdRouteImport.update({
+  id: '/groups/$groupId',
+  path: '/groups/$groupId',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app/groups.$groupId.lazy').then((d) => d.Route),
+)
 const AppAutomationsSplatRoute = AppAutomationsSplatRouteImport.update({
   id: '/$',
   path: '/$',
@@ -445,6 +453,7 @@ export interface FileRoutesByFullPath {
   '/s/$token': typeof STokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRouteWithChildren
   '/automations/$': typeof AppAutomationsSplatRoute
+  '/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
   '/settings/account': typeof AppSettingsAccountRoute
@@ -494,6 +503,7 @@ export interface FileRoutesByTo {
   '/docs/$': typeof DocsSplatRoute
   '/s/$token': typeof STokenRoute
   '/automations/$': typeof AppAutomationsSplatRoute
+  '/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
   '/settings/account': typeof AppSettingsAccountRoute
@@ -548,6 +558,7 @@ export interface FileRoutesById {
   '/s/$token': typeof STokenRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRouteWithChildren
   '/_app/automations/$': typeof AppAutomationsSplatRoute
+  '/_app/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/_app/sessions/$': typeof AppSessionsSplatRoute
   '/_app/settings/about': typeof AppSettingsAboutRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
@@ -602,6 +613,7 @@ export interface FileRouteTypes {
     | '/s/$token'
     | '/agents/$agentId'
     | '/automations/$'
+    | '/groups/$groupId'
     | '/sessions/$'
     | '/settings/about'
     | '/settings/account'
@@ -651,6 +663,7 @@ export interface FileRouteTypes {
     | '/docs/$'
     | '/s/$token'
     | '/automations/$'
+    | '/groups/$groupId'
     | '/sessions/$'
     | '/settings/about'
     | '/settings/account'
@@ -704,6 +717,7 @@ export interface FileRouteTypes {
     | '/s/$token'
     | '/_app/agents/$agentId'
     | '/_app/automations/$'
+    | '/_app/groups/$groupId'
     | '/_app/sessions/$'
     | '/_app/settings/about'
     | '/_app/settings/account'
@@ -941,6 +955,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/sessions/$'
       preLoaderRoute: typeof AppSessionsSplatRouteImport
       parentRoute: typeof AppSessionsRoute
+    }
+    '/_app/groups/$groupId': {
+      id: '/_app/groups/$groupId'
+      path: '/groups/$groupId'
+      fullPath: '/groups/$groupId'
+      preLoaderRoute: typeof AppGroupsGroupIdRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/automations/$': {
       id: '/_app/automations/$'
@@ -1307,6 +1328,7 @@ interface AppRouteChildren {
   AppSessionsRoute: typeof AppSessionsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppTasksRoute: typeof AppTasksRouteWithChildren
+  AppGroupsGroupIdRoute: typeof AppGroupsGroupIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1317,6 +1339,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSessionsRoute: AppSessionsRouteWithChildren,
   AppSettingsRoute: AppSettingsRouteWithChildren,
   AppTasksRoute: AppTasksRouteWithChildren,
+  AppGroupsGroupIdRoute: AppGroupsGroupIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
