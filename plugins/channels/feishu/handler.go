@@ -239,7 +239,33 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 		if strings.TrimSpace(rawContent) == "" {
 			return nil
 		}
-		return channel.TextContent(rawContent)
+		text, imageKeys := parsePostBlocks(rawContent)
+		if len(imageKeys) == 0 {
+			// No inline images — return extracted text (or raw content as fallback).
+			if strings.TrimSpace(text) == "" {
+				return nil
+			}
+			return channel.TextContent(text)
+		}
+		// Build mixed content: text + downloaded images.
+		var blocks []ai.ContentBlock
+		if strings.TrimSpace(text) != "" {
+			blocks = append(blocks, ai.TextContent{Text: text})
+		}
+		for _, imgKey := range imageKeys {
+			data, mime, err := b.downloadImage(messageID, imgKey)
+			if err != nil {
+				logger().Error("download post image failed", "image_key", imgKey, "error", err)
+				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Failed to download image: %s]", imgKey)})
+				continue
+			}
+			encoded := base64.StdEncoding.EncodeToString(data)
+			blocks = append(blocks, ai.ImageContent{Data: encoded, MimeType: mime})
+		}
+		if len(blocks) == 0 {
+			return nil
+		}
+		return blocks
 
 	case "image":
 		imageKey := extractJSONField(rawContent, "image_key")
@@ -250,7 +276,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 		data, mime, err := b.downloadImage(messageID, imageKey)
 		if err != nil {
 			logger().Error("download image failed", "image_key", imageKey, "error", err)
-			return nil
+			return channel.TextContent("[Failed to download image]")
 		}
 		encoded := base64.StdEncoding.EncodeToString(data)
 		logger().Debug("image received", "size", len(data), "mime", mime)

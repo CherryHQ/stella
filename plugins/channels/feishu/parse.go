@@ -3,6 +3,7 @@ package feishu
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // extractJSONField extracts a string field from a JSON object.
@@ -126,4 +127,51 @@ func parseShareUserContent(raw string) string {
 // parseMergeForwardContent returns descriptive text for a merge-forwarded message.
 func parseMergeForwardContent(_ string) string {
 	return "[Forwarded messages]"
+}
+
+// postNode represents a single element inside a Feishu "post" rich-text message.
+type postNode struct {
+	Tag      string `json:"tag"`
+	Text     string `json:"text,omitempty"`
+	ImageKey string `json:"image_key,omitempty"`
+}
+
+// parsePostBlocks parses Feishu post (rich text) JSON content and returns the
+// concatenated plain text along with any image keys found across all paragraphs.
+// Post content format: {"title":"...","content":[[{node},{node}],[{node}]]}
+func parsePostBlocks(raw string) (text string, imageKeys []string) {
+	if raw == "" {
+		return "", nil
+	}
+
+	var post struct {
+		Title   string       `json:"title"`
+		Content [][]postNode `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(raw), &post); err != nil {
+		return raw, nil
+	}
+
+	var textParts []string
+	if post.Title != "" {
+		textParts = append(textParts, post.Title)
+	}
+	for _, paragraph := range post.Content {
+		var line string
+		for _, node := range paragraph {
+			switch node.Tag {
+			case "text":
+				line += node.Text
+			case "img":
+				if node.ImageKey != "" {
+					imageKeys = append(imageKeys, node.ImageKey)
+				}
+			}
+		}
+		if line != "" {
+			textParts = append(textParts, line)
+		}
+	}
+
+	return strings.Join(textParts, "\n"), imageKeys
 }
