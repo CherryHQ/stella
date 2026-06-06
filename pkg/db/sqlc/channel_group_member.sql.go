@@ -71,7 +71,7 @@ func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) 
 }
 
 const listGroupMembers = `-- name: ListGroupMembers :many
-SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = ?
+SELECT group_id, agent_id, reply_channel_id, created_at, updated_at FROM channel_group_member WHERE group_id = ? ORDER BY agent_id
 `
 
 func (q *Queries) ListGroupMembers(ctx context.Context, groupID string) ([]ChannelGroupMember, error) {

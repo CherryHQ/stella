@@ -39,6 +39,18 @@ func newTestRuntime(gate chan struct{}) *Runtime {
 	return rt
 }
 
+func waitSessionFree(t *testing.T, rt *Runtime, sessionID string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := rt.active.Load(sessionID); !ok {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("session %s did not become free", sessionID)
+}
+
 func TestChat_BusyGuard_RejectsConcurrentSameSession(t *testing.T) {
 	gate := make(chan struct{})
 	rt := newTestRuntime(gate)
@@ -58,10 +70,13 @@ func TestChat_BusyGuard_RejectsConcurrentSameSession(t *testing.T) {
 		t.Fatalf("expected ErrSessionBusy, got %v", evt.Err)
 	}
 
-	// Release the first chat and drain.
+	// Release the first chat and drain. The output channel closes before the
+	// outer Chat goroutine runs its active-session cleanup, so wait for the guard
+	// itself to clear instead of racing the cleanup defer.
 	close(gate)
 	for range ch1 {
 	}
+	waitSessionFree(t, rt, info.ID)
 
 	// After first completes, the session should be free again.
 	gate2 := make(chan struct{})

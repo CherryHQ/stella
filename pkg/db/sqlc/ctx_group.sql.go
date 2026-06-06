@@ -418,6 +418,58 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 	return items, nil
 }
 
+const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+WHERE group_id = ?1
+  AND seq < ?2
+ORDER BY seq DESC
+LIMIT ?3
+`
+
+type ListRecentGroupMessagesBeforeSeqParams struct {
+	GroupID   string `json:"group_id"`
+	BeforeSeq int64  `json:"before_seq"`
+	MaxCount  int64  `json:"max_count"`
+}
+
+func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]CtxGroupMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.MaxCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupMessage{}
+	for rows.Next() {
+		var i CtxGroupMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.SourceChannelID,
+			&i.ActorType,
+			&i.ActorID,
+			&i.PlatformMessageID,
+			&i.ReplyTo,
+			&i.PlatformTimestamp,
+			&i.IdempotencyKey,
+			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateGroupName = `-- name: UpdateGroupName :one
 UPDATE ctx_group_state
 SET group_name = ?1, updated_at = datetime('now')

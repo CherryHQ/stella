@@ -207,6 +207,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
+	if semanticArbiter := newSemanticGroupArbiter(s.store, s.pluginHost); semanticArbiter != nil {
+		coordOpts = append(coordOpts, channel.WithSemanticGroupArbiter(semanticArbiter))
+	}
+
 	elStore := eventlog.NewStore(s.db)
 	adminSrv.SetEventLogStore(elStore)
 	adminSrv.SetArbiter(channel.NewArbiter(channel.ArbiterConfig{
@@ -391,4 +395,16 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 			"base_url": creds.BaseURL,
 		})
 	}
+}
+
+func newSemanticGroupArbiter(store config.Store, ph *pluginhost.Host) *channel.LLMSemanticGroupArbiter {
+	if store == nil || ph == nil {
+		return nil
+	}
+	return channel.NewLLMSemanticGroupArbiter(
+		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
+			return store.Snapshot(ctx, agentID)
+		},
+		intentClassifierStreamFuncBuilder(ph),
+	)
 }

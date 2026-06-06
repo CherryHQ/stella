@@ -100,9 +100,11 @@ The agent can then use the `kreuzberg extract` command to parse the file.
 
 The bot supports group chats with configurable response behavior. Set the group mode in the Web UI:
 
-- `mention` -- only respond when @mentioned (default)
-- `always` -- respond to all messages
+- `mention` -- @mentions always route to the mentioned bot. Other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available; otherwise they stay silent. This is the default.
+- `always` -- consider every group message. Non-mention messages still pass through semantic routing first, so chatter can stay silent; if semantic routing is unavailable, Stella falls back to the legacy all-members response.
 - `disabled` -- ignore group messages entirely
+
+For semantic no-mention routing, the bot must be able to read normal group messages. In Telegram, disable privacy mode for the bot in BotFather.
 
 ## Access Control
 
@@ -140,13 +142,13 @@ You can switch models mid-conversation using the `/model` command, which opens a
 
 All settings below are managed through the Web UI.
 
-| Field         | Description                                     | Default    |
-| ------------- | ----------------------------------------------- | ---------- |
-| `token`       | Bot API token                                   | (required) |
-| `notify_chat` | Chat ID for proactive notifications             |            |
-| `channel_id`  | Broadcast channel (@name or numeric ID)         |            |
-| `group_mode`  | Group behavior: `mention`, `always`, `disabled` | `mention`  |
-| `allowed_ids` | User IDs allowed to use bot (empty = all)       | `[]`       |
+| Field         | Description                                                                                                                   | Default    |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `token`       | Bot API token                                                                                                                 | (required) |
+| `notify_chat` | Chat ID for proactive notifications                                                                                           |            |
+| `channel_id`  | Broadcast channel (@name or numeric ID)                                                                                       |            |
+| `group_mode`  | Group behavior: `mention`, `always`, `disabled`. @mentions are deterministic; no-mention messages may be routed semantically. | `mention`  |
+| `allowed_ids` | User IDs allowed to use bot (empty = all)                                                                                     | `[]`       |
 
 ## Troubleshooting
 
@@ -158,8 +160,9 @@ All settings below are managed through the Web UI.
 
 **Bot not responding in groups?**
 
-- Check the `group_mode` setting in the Web UI. The default is `mention`, which means you need to @mention the bot.
-- Make sure the bot has been added to the group and has permission to read messages.
+- Check the `group_mode` setting in the Web UI. @mention the bot for the most reliable trigger.
+- If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
+- Make sure the bot has been added to the group and has permission to read messages. For Telegram, disable bot privacy mode in BotFather if you want no-mention routing.
 
 **Images or files not being analyzed?**
 

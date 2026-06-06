@@ -163,18 +163,23 @@ Memory is never written on the reply path. A background single-consumer pulls fr
 
 ## Arbiter: the speaking gate (D7)
 
-Group messages no longer flow each-bot-directly-into-runtime. The new path:
+Group messages no longer flow each-bot-directly-into-runtime. The durable path:
 
 ```
 group message (delivered by any bot)
   → append to event log (D2 idempotent; if not first insert, drop here)
+  → create outbox work
   → single group dispatcher
-      → cheap rule prefilter → arbiter.decide (intent only)
-      → debounce window
-      → for each agent that chose to speak: runtime → publisher (to the group ChatID)
+      → L0 rule gate: resolved @mention → deterministic responders
+      → L1 semantic gate: no mention → fast-model JSON decision
+      → materialize ctx_group_dispatch rows
+      → for each selected agent: runtime → publisher (through reply_channel_id)
 ```
 
-- An @-mentioned agent bypasses the arbiter and answers directly.
+- Any `@mention` signal stays on the L0 rule path. If a platform mention cannot be resolved to a Stella group member, the dispatcher does not treat it as a no-mention semantic request; it stays silent rather than replying to a message aimed elsewhere.
+- No-mention messages use L1 semantic routing when the semantic arbiter is configured. The classifier can return silence, one agent, or a capped multi-agent broadcast. Failures, timeouts, invalid JSON, or no eligible routing model collapse to silence.
+- The L1 routing model is selected by ownership, not by arbitrary member order. Web groups prefer the group owner's own agent, then system-scope agents. Platform groups allow system-scope agents only, so private agents' credentials are not used for shared routing decisions.
+- L1 sees only bounded public routing metadata: agent ID/name, `soul` summary, and bounded prior group context with `seq < currentSeq`. It never receives agent `system_prompt`, and delayed outbox retries never see future messages as prior context.
 - decide and generate are separate; **decide emits intent only, not a draft** (saves tokens).
 - A hard cap of N public replies per human trigger prevents runaway flooding.
 - An agent's own message is logged (passively readable) but **does not wake other agents' arbiters by default.** The exception is an explicit `@otherAgent`, which is handled by a separate handoff dispatcher — the normal arbiter only reacts to `actor_type=human`, so the two paths don't conflict.

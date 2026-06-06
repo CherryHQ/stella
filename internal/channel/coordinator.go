@@ -37,25 +37,26 @@ type userInvalidator interface {
 }
 
 type Coordinator struct {
-	serviceManager    agent.ServiceManager
-	invalidator       userInvalidator
-	store             config.Store
-	auth              channelAuthStore
-	engine            *auth.PolicyEngine
-	linkCodes         *auth.LinkCodeStore
-	vaultRecipient    *age.X25519Recipient
-	vaultSvc          *vault.Service
-	listFn            func() []pkgchannel.ModelOption
-	switchFn          func(provider, model string) error
-	queue             *sessionQueue
-	intentClassifier  IntentClassifier
-	groupResolver     GroupResolver
-	eventLog          *eventlog.Store
-	memberLister      GroupMemberLister
-	botRegistry       *BotIdentityRegistry
-	arbiter           *Arbiter
-	publisherRegistry *PublisherRegistry
-	groupDispatcher   *GroupDispatcher
+	serviceManager       agent.ServiceManager
+	invalidator          userInvalidator
+	store                config.Store
+	auth                 channelAuthStore
+	engine               *auth.PolicyEngine
+	linkCodes            *auth.LinkCodeStore
+	vaultRecipient       *age.X25519Recipient
+	vaultSvc             *vault.Service
+	listFn               func() []pkgchannel.ModelOption
+	switchFn             func(provider, model string) error
+	queue                *sessionQueue
+	intentClassifier     IntentClassifier
+	groupResolver        GroupResolver
+	eventLog             *eventlog.Store
+	memberLister         GroupMemberLister
+	botRegistry          *BotIdentityRegistry
+	arbiter              *Arbiter
+	semanticGroupArbiter SemanticGroupArbiter
+	publisherRegistry    *PublisherRegistry
+	groupDispatcher      *GroupDispatcher
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -151,6 +152,15 @@ func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
 func WithArbiter(a *Arbiter) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.arbiter = a
+	}
+}
+
+// WithSemanticGroupArbiter configures semantic routing for no-mention group
+// messages. When set, no-mention messages are classified instead of using the
+// all-members fallback; when unset, no-mention behavior is unchanged.
+func WithSemanticGroupArbiter(a SemanticGroupArbiter) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.semanticGroupArbiter = a
 	}
 }
 

@@ -650,7 +650,7 @@
           目标模型：Web UI 和平台适配器（Telegram / QQ / Feishu）共用同一条管线： triple resolve →
           dedup event log → durable outbox → dispatcher worker → dispatch ledger →
           publisher(reply_channel_id) → hybrid memory → LLM → writeback。
-          本文档追踪一条消息从入口到渲染的完整路径，并标出当前实现仍需补齐的 gap。
+          本文档追踪一条消息从入口到渲染的完整路径。
         </p>
       </header>
 
@@ -954,9 +954,11 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
             <span class="stage-file">arbiter.go + ctx_group_dispatch (target)</span>
           </div>
           <div class="stage-desc">
-            Arbiter 是统一的路由闸门。目标态下 Web 和 Platform 都不绕过它：@mention 直达，否则由
-            arbiter 选择响应者，并应用 reply cap / debounce。决策结果落到 dispatch ledger，记录 哪个
-            agent 该通过哪个 <code>reply_channel_id</code> 发言、是否已经完成。
+            Arbiter 是统一的路由闸门。目标态下 Web 和 Platform 都不绕过它：@mention
+            走规则直达（L0）， 无 mention 时若配置了<strong>语义群仲裁（L1）</strong>，则由 fast
+            模型判断该谁回复（定向 / 广播 / 静默），否则回退到旧的成员 fallback 规则。决策结果落到
+            dispatch ledger，记录哪个 agent 该通过哪个
+            <code>reply_channel_id</code> 发言、是否已经完成。
           </div>
           <div class="stage-body">
             <div class="data-card">
@@ -979,12 +981,12 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
               <div class="decision-label">决策树 (三条路径)</div>
 
               <div class="decision-branch">
-                <span class="decision-condition">有 @mention?</span>
+                <span class="decision-condition">有任意 @mention?</span>
                 <div class="decision-result">
-                  <strong style="color: var(--accent-green)">→ 直达被 mention 的 agent(s)</strong
-                  ><br />
-                  跳过 debounce。过滤只保留群组成员。受
-                  <code>MaxRepliesPerTrigger</code> 上限。<br />
+                  <strong style="color: var(--accent-green)">→ L0 规则路径</strong><br />
+                  已解析到 Stella 群成员的 mention 直达对应 agent(s)，跳过 debounce，并受
+                  <code>MaxRepliesPerTrigger</code> 上限。无法解析的 mention 不会被当成无 mention
+                  语义请求；默认静默，避免回复本来发给别人的消息。<br />
                   <span
                     style="
                       color: var(--accent-green);
@@ -998,19 +1000,33 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
               </div>
 
               <div class="decision-branch">
-                <span class="decision-condition">无 mention + 有 channelAgent</span>
+                <span class="decision-condition">无 mention + 配置了语义仲裁 (L1)</span>
                 <div class="decision-result">
-                  → 检查 debounce window。未被抑制则 channel default agent 响应。<br />
-                  <code>DebounceWindow > 0</code> 时，同一群组内 window 内的非 mention
-                  消息被静默跳过。
+                  → <code>semantic_group_arbiter.go</code>：fast 模型读取有界历史群上下文（只取
+                  <code>seq &lt; currentSeq</code>）+ 有界公开成员描述，返回
+                  <code>{should_reply, agents[]}</code>。定向 → 单个 agent；广播 → 多个（受自身
+                  <code>maxResponders</code> 上限）；闲聊/超时/解析失败 → 静默。<br />
+                  路由模型按归属选取：Web 群优先群主自己的 agent，否则 system-scope；Platform 群仅
+                  system-scope。所选 agent 用其 fast tier 分类，若未配置
+                  <code>model_fast</code> 则自动回退到该 agent
+                  的默认模型（不会因为没配快模型就静默）。私有 agent
+                  的凭据不会被用于共享路由决策；agent 的
+                  <code>system_prompt</code> 也不会暴露给路由模型。<br />
+                  分类调用有
+                  <strong>8s</strong> 预算（覆盖首 token + 一小段
+                  JSON）。失败均降级为静默，并按级别记日志：每条消息的 prompt / 原始响应 / 决策走
+                  <code>DEBUG</code>，「本该路由却被吞」的降级（无可用模型、provider
+                  报错、空响应、解析失败）走 <code>WARN</code>。
                 </div>
               </div>
 
               <div class="decision-branch">
-                <span class="decision-condition">无 mention + 无 channelAgent</span>
+                <span class="decision-condition">无 mention + 未配置语义仲裁（回退）</span>
                 <div class="decision-result">
-                  → <code>AllMembersFallback=true</code>：所有成员响应（受 MaxReplies 上限）。<br />
-                  → <code>AllMembersFallback=false</code>：不响应（静默跳过）。
+                  → <code>AllMembersFallback=true</code>（Web / platform
+                  <code>always</code>）：所有成员响应（受 MaxReplies 上限）。<br />
+                  → <code>AllMembersFallback=false</code>（platform
+                  <code>mention</code>）：不响应（静默跳过）。
                 </div>
               </div>
             </div>
@@ -1025,8 +1041,8 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
     DebounceWindow       time.Duration  <span class="cm">// 0 → 不 debounce; 同群组非 mention 消息最小间隔</span>
 }
 
-<span class="cm">// 目标默认: MaxReplies=1，避免无 @ 时炸群</span>
-<span class="cm">// AllMembersFallback 存在 per-group dispatch policy；当前 Web 硬编码 true，迁移后变成显式配置</span></pre>
+<span class="cm">// 规则路径默认 MaxReplies=1，避免无 @ fallback 炸群</span>
+<span class="cm">// 语义广播使用自己的 maxResponders 上限；未配置语义仲裁时才走 AllMembersFallback</span></pre>
             </div>
 
             <div class="data-card" style="margin-top: 12px">
@@ -1046,6 +1062,62 @@ INSERT INTO ctx_group_dispatch (
   'disp-uuid-1', 'uuid-new', 'weather-bot', 'grp_9f3a',
   'tg-bot-weather', 'pending', 0
 );</pre>
+            </div>
+
+            <div class="data-card" style="margin-top: 12px">
+              <div class="data-card-header">
+                <span class="data-card-label">语义仲裁内部流水 — semantic_group_arbiter.go</span>
+                <span class="data-card-tag tag-arbiter">L1 详细</span>
+              </div>
+              <pre><span class="cm">// ① 选路由模型 resolveRoutingModel()：按归属挑一个 agent 的凭据来分类</span>
+<span class="cm">//    Web 群：群主自己的 agent → 任意 system-scope；Platform 群：仅 system-scope</span>
+<span class="cm">//    每个候选走 modelFor()，全失败则带原因 WARN「no eligible routing agent」</span>
+model := snap.ResolveModelTier(<span class="ok">ModelTierFast</span>)  <span class="cm">// model_fast 未配置 → 回退默认模型</span>
+
+<span class="cm">// ② 组装有界 payload（成员描述 + 最近 N 条上下文 + 最新消息，各有 rune 上限）</span>
+<span class="cm">// ③ complete()：8s 预算，流式跑完拼成一条 assistant message</span>
+msg := complete(ctx, model, {System: semanticGroupPrompt, User: payload})
+
+<span class="cm">// ④ 解析 + 净化 sanitizeSemanticDecision()：</span>
+<span class="cm">//    只保留当前群成员的 agent_id（丢弃模型臆造的 ID）、去重、按 maxResponders 截断</span>
+<span class="cm">//    should_reply=true 但净化后为空 → 收敛为静默</span>
+decision := sanitize(parse(FlattenText(msg.Content)))</pre>
+            </div>
+
+            <div class="data-card" style="margin-top: 12px">
+              <div class="data-card-header">
+                <span class="data-card-label">路由 system prompt（节选）</span>
+                <span class="data-card-tag tag-arbiter">Prompt</span>
+              </div>
+              <pre>
+You route a group chat message to the agents that should respond.
+No agent was @mentioned, so decide from meaning alone.
+Return JSON only: {"should_reply":bool,"agents":["agent_id",...],"reason":"short"}.
+
+Rules:
+- should_reply=false for chatter / small talk → empty agents.
+- targeted question → single best-matching agent by description.
+- explicit broadcast ("大家都说说") → include relevant agents.
+- agents MUST be ids from the list. Never invent IDs.
+- Prefer silence when unsure. A wrong reply is worse than no reply.</pre
+              >
+            </div>
+
+            <div class="data-card" style="margin-top: 12px">
+              <div class="data-card-header">
+                <span class="data-card-label">失败模式与日志级别</span>
+                <span class="data-card-tag tag-arbiter">可观测性</span>
+              </div>
+              <pre><span class="cm">// 每条无 mention 消息的流水（高频，排查时才开） → DEBUG</span>
+semantic routing request    {model, provider, payload}
+semantic routing response   {stop_reason, provider_error, tokens, raw}
+semantic routing decision   {should_reply, agents, reason}
+
+<span class="cm">// 「本该路由却降级成静默」——消息可能被吞，运维要看 → WARN</span>
+no eligible routing agent     <span class="cm">// 无可用模型 / 凭据（配置问题）</span>
+semantic completion failed    <span class="cm">// provider / 传输报错</span>
+semantic response empty       <span class="cm">// 超时或 provider error 砍断流（带 stop_reason）</span>
+semantic response parse failed<span class="cm">// 模型返回非法 JSON</span></pre>
             </div>
 
             <div class="data-card" style="margin-top: 12px">
@@ -1710,37 +1782,6 @@ data: [DONE]</pre>
             </td>
           </tr>
         </table>
-      </div>
-
-      <!-- ───────── Current Status ───────── -->
-      <div class="section-divider">
-        <h2>当前状态</h2>
-      </div>
-
-      <div style="display: flex; flex-direction: column; gap: 12px">
-        <div class="info-callout">
-          <div class="info-callout-label">CR-006 — 已修复</div>
-          <p>
-            <code>assembleGroup()</code> 不再推进 <code>ctx_group_ingest_cursor</code>。 runtime
-            只在 group <code>Chat()</code> 成功结束后调用 <code>CommitGroupCursor()</code>。
-          </p>
-        </div>
-
-        <div class="info-callout">
-          <div class="info-callout-label">CR-009 — 已修复</div>
-          <p>
-            adapter 只负责写 event log/outbox；dispatcher materialize dispatch ledger；publisher 按
-            selected agent 的 <code>reply_channel_id</code> 发布，不使用 observer bot 冒名。
-          </p>
-        </div>
-
-        <div class="info-callout">
-          <div class="info-callout-label">CR-012 — 当前设计</div>
-          <p>
-            无 mention 时 responder 来自成员 <code>reply_channel_id</code> policy；
-            <code>AllMembersFallback=false</code> 返回空是显式静默，不是 debounce bug。
-          </p>
-        </div>
       </div>
     </div>
   </body>
