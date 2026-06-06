@@ -4,7 +4,7 @@ title: 群聊多 Agent
 
 > 本页面面向开发 Stella 群聊支持的开发者:channel 适配器、消息 event log、arbiter/dispatcher、群记忆、session 身份。面向用户的指南见 channel 文档。
 
-Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是独立的平台 bot;单个后端进程托管全部 bot,因此中央 arbiter 能成为真正可执行的发言闸门。本页记录让这件事安全的数据模型与身份规则。
+Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是独立的平台 bot;单个后端进程托管全部 bot,因此中央 arbiter 能成为真正可执行的发言闸门。本页记录让这件事安全的数据模型与身份规则。Web UI 与平台适配器共用的目标请求到回复流程见[群聊数据流](/docs/development/group-chat-dataflow)。
 
 设计在动手前一次定死,因为大部分一旦带数据就难回头:新表(event log、群记忆、membership、ingest cursor)和 `ctx_conversation` 的归属列都是「上线带数据就回不去」的难改门。
 

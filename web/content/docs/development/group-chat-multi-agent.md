@@ -4,7 +4,7 @@ title: Group-chat multi-agent
 
 > This page is for developers working on Stella's group-chat support: channel adapters, the message event log, the arbiter/dispatcher, group memory, or session identity. For the user-facing guide, see the channels docs.
 
-Stella's group chat hosts **multiple agents in one physical group**. Each agent is its own platform bot; a single backend process owns all of them, so a central arbiter can act as a real, enforceable speaking gate. This page documents the data model and the identity rules that make that safe.
+Stella's group chat hosts **multiple agents in one physical group**. Each agent is its own platform bot; a single backend process owns all of them, so a central arbiter can act as a real, enforceable speaking gate. This page documents the data model and the identity rules that make that safe. For the target request-to-reply flow shared by Web UI and platform adapters, see [Group-chat dataflow](/docs/development/group-chat-dataflow).
 
 The design is locked up front because most of it is hard to change once it carries data: new tables (event log, group memory, membership, ingest cursor) and the `ctx_conversation` ownership column are all "ship-it-with-data-and-you-can't-go-back" decisions.
 
