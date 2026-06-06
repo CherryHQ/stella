@@ -27,6 +27,17 @@ func TestSniffFeedKind(t *testing.T) {
 	}
 }
 
+func TestFeedKindValid(t *testing.T) {
+	for _, k := range []FeedKind{FeedKindRSS, FeedKindTwitter, FeedKindWebsite} {
+		if !k.Valid() {
+			t.Errorf("FeedKind(%q).Valid() = false, want true", k)
+		}
+	}
+	if FeedKind("bogus").Valid() {
+		t.Errorf("FeedKind(\"bogus\").Valid() = true, want false")
+	}
+}
+
 func TestValidateFeedSubscription(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -56,6 +67,11 @@ func TestValidateFeedSubscription(t *testing.T) {
 		{"rss feed", "https://example.com/feed.xml", FeedKindRSS, false},
 		{"youtube rss", "https://www.youtube.com/feeds/videos.xml?channel_id=abc", FeedKindRSS, false},
 		{"lookalike host", "https://notx.com/i/lists/1", FeedKindRSS, false},
+		// website: any non-X page accepted (skill scrapes it).
+		{"website page", "https://example.com/blog", FeedKindWebsite, false},
+		{"website index with path", "https://example.com/news/latest", FeedKindWebsite, false},
+		// website on an X host is still blocked by the X-host guard.
+		{"website on x lists rejected", "https://x.com/i/lists/1", FeedKindWebsite, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

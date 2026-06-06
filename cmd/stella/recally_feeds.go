@@ -35,7 +35,7 @@ func recallyFeedAddCommand() *ucli.Command {
 		Usage:     "Subscribe to a feed (kind is sniffed from the URL unless --kind is set)",
 		ArgsUsage: "<feed-url>",
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "kind", Usage: "Force feed kind: rss, twitter (default: sniff from URL)"},
+			&ucli.StringFlag{Name: "kind", Usage: "Force feed kind: rss, twitter, website (default: sniff from URL)"},
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {

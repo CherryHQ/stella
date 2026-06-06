@@ -71,12 +71,13 @@ type FeedKind string
 const (
 	FeedKindRSS     FeedKind = "rss"
 	FeedKindTwitter FeedKind = "twitter"
+	FeedKindWebsite FeedKind = "website"
 )
 
 // Valid reports whether k is a known feed kind.
 func (k FeedKind) Valid() bool {
 	switch k {
-	case FeedKindRSS, FeedKindTwitter:
+	case FeedKindRSS, FeedKindTwitter, FeedKindWebsite:
 		return true
 	default:
 		return false
