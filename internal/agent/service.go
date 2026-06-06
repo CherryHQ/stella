@@ -38,6 +38,10 @@ type ChatRequest struct {
 	GroupID string // non-empty for group sessions; overlaid onto session.Info after Ensure
 	Message MessageContent
 	Model   string
+	// CurrentSpeaker is the human speaking this group turn. Personalization
+	// target only (D9): forwarded to the runtime as WithCurrentSpeaker, never
+	// used as the session/runtime UserID. Zero value for DM turns.
+	CurrentSpeaker memory.CurrentSpeaker
 	// RuntimeOpts are forwarded verbatim to Runtime.Chat.
 	RuntimeOpts []agentruntime.Option
 }
@@ -112,6 +116,9 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 	opts := req.RuntimeOpts
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
+	}
+	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
+		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
 	return s.Runtime.Chat(ctx, info, req.Message, opts...)
 }

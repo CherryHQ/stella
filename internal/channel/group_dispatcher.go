@@ -672,7 +672,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	var stream *pkgchannel.ChatStream
 	var err error
 	if state.Platform == "web" {
-		stream, err = d.chatWeb(ctx, row, message.Content)
+		stream, err = d.chatWeb(ctx, row, message)
 	} else {
 		var rc *ResolvedChat
 		rc, err = d.coord.resolveGroupChat(ctx, pkgchannel.IncomingMessage{
@@ -696,7 +696,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	return d.wrapGroupResponseStream(ctx, row.GroupID, row.AgentID, stream), nil
 }
 
-func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message string) (*pkgchannel.ChatStream, error) {
+func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
 	svc := d.coord.serviceManager.GetService(row.AgentID)
 	if svc == nil {
 		return nil, fmt.Errorf("agent service %q not found", row.AgentID)
@@ -709,13 +709,14 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 	}
 	info.GroupID = row.GroupID
 	events := svc.Chat(ctx, agent.ChatRequest{
-		SessionID: info.ID,
-		UserID:    row.GroupID,
-		AgentID:   row.AgentID,
-		Kind:      session.KindChat,
-		GroupID:   row.GroupID,
-		Channel:   session.Channel(channelStr),
-		Message:   message,
+		SessionID:      info.ID,
+		UserID:         row.GroupID,
+		AgentID:        row.AgentID,
+		Kind:           session.KindChat,
+		GroupID:        row.GroupID,
+		Channel:        session.Channel(channelStr),
+		Message:        message.Content,
+		CurrentSpeaker: webGroupSpeaker(message),
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
@@ -728,6 +729,22 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		}
 	}()
 	return &pkgchannel.ChatStream{Events: out, SessionID: info.ID}, nil
+}
+
+// webGroupSpeaker derives the per-turn speaker for a Web group dispatch. Web
+// senders authenticate and SendGroupMessage persists the auth user id as
+// actor_id, so it is a safe profile target — but only for a genuine human actor.
+// Any other actor type or an empty id fails closed (zero speaker) so a malformed
+// row never injects an arbitrary user's private profile.
+func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
+	if message.ActorType != string(eventlog.ActorHuman) || message.ActorID == "" {
+		return memory.CurrentSpeaker{}
+	}
+	return memory.CurrentSpeaker{
+		Platform:       "web",
+		PlatformUserID: message.ActorID,
+		UserID:         message.ActorID,
+	}
 }
 
 func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, groupID, agentID string, stream *pkgchannel.ChatStream) *pkgchannel.ChatStream {
