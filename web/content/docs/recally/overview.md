@@ -32,9 +32,16 @@ After saving an article, you can ask questions about it:
 
 This turns reading from passive collection into active understanding.
 
-## Subscribe to RSS
+## Subscribe to feeds
 
-Recally can subscribe to RSS feeds and keep a live stream of new entries. Use this for sources you care about repeatedly: company blogs, release notes, journals, newsletters, and policy updates.
+Recally can subscribe to feeds and keep a live stream of new entries. Use this for sources you care about repeatedly: company blogs, release notes, journals, newsletters, and policy updates.
+
+Beyond RSS, you can follow:
+
+- **Twitter/X accounts** — subscribe with a profile URL like `https://x.com/<handle>` and Recally treats new tweets as feed entries, saved and summarized like any other source.
+- **YouTube channels** — subscribe to the channel's RSS feed (`https://www.youtube.com/feeds/videos.xml?channel_id=...`) to track new uploads.
+
+Recally detects the source type from the URL, so subscribing is the same one step regardless of where the content lives.
 
 ## Maintain a reading list
 
