@@ -777,7 +777,7 @@ feed, _ := h.store.<span class="fn">CreateFeed</span>(ctx, userID, body.Url, kin
             </div>
             <div class="data-card">
               <div class="data-card-header">
-                <span class="data-card-label">recally_rss_feed — 新增 kind / metadata 列</span>
+                <span class="data-card-label">recally_feed — 新增 kind / metadata 列</span>
                 <span class="data-card-tag tag-db">SQLite</span>
               </div>
               <table class="db-table">
@@ -914,7 +914,7 @@ tap site twitter/fxembed-profile-statuses handle=id:33836629 --json</pre>
           <div class="stage-header">
             <span class="stage-number">04</span>
             <span class="stage-title">去重 sink — guid upsert，只有 new 变 pending</span>
-            <span class="stage-file">queries/recally_rss_feed.sql · store.go</span>
+            <span class="stage-file">queries/recally_feed.sql · store.go</span>
           </div>
           <div class="stage-desc">
             两条发现路径汇到同一个端点。这是整条流的<strong>命门</strong>：去重发生在抓取/总结<strong>之前</strong>。
@@ -928,7 +928,7 @@ tap site twitter/fxembed-profile-statuses handle=id:33836629 --json</pre>
                 <span class="data-card-label">CreateRSSFeedEntry — 仓库现成的去重</span>
                 <span class="data-card-tag tag-sql">SQLite</span>
               </div>
-              <pre><span class="kw">INSERT INTO</span> recally_rss_feed_entry (id, feed_id, guid, url, title, status, ...)
+              <pre><span class="kw">INSERT INTO</span> recally_feed_entry (id, feed_id, guid, url, title, status, ...)
 <span class="kw">VALUES</span> (?, 'feed_7c', ?, ?, ?, <span class="str">'pending'</span>, ...)
 <span class="kw">ON CONFLICT</span>(feed_id, guid) <span class="kw">DO NOTHING</span>
 <span class="kw">RETURNING</span> *;   <span class="cm">-- 有行 = new；DO NOTHING 命中冲突 → 无行 = dup</span></pre>
@@ -943,7 +943,7 @@ feed entry add --guid tw_1001  → <span class="cm">dup</span>   <span class="cm
             </div>
             <div class="data-card">
               <div class="data-card-header">
-                <span class="data-card-label">recally_rss_feed_entry — sink 之后</span>
+                <span class="data-card-label">recally_feed_entry — sink 之后</span>
                 <span class="data-card-tag tag-db">SQLite</span>
               </div>
               <table class="db-table">

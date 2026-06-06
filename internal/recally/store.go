@@ -282,7 +282,7 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 	if kind == "" {
 		kind = FeedKindRSS
 	}
-	row, err := s.q.CreateRSSFeed(ctx, sqlc.CreateRSSFeedParams{
+	row, err := s.q.CreateFeed(ctx, sqlc.CreateFeedParams{
 		ID:            generateID(),
 		UserID:        userID,
 		AgentID:       toNullString(agentID),
@@ -307,7 +307,7 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 
 // GetFeed retrieves a feed by ID.
 func (s *Store) GetFeed(ctx context.Context, userID string, feedID string) (*Feed, error) {
-	row, err := s.q.GetRSSFeed(ctx, sqlc.GetRSSFeedParams{ID: feedID, UserID: userID})
+	row, err := s.q.GetFeed(ctx, sqlc.GetFeedParams{ID: feedID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found: %s", feedID)
@@ -321,7 +321,7 @@ func (s *Store) GetFeed(ctx context.Context, userID string, feedID string) (*Fee
 
 // GetFeedByURL retrieves a feed by URL for a user.
 func (s *Store) GetFeedByURL(ctx context.Context, userID string, feedURL string) (*Feed, error) {
-	row, err := s.q.GetRSSFeedByURL(ctx, sqlc.GetRSSFeedByURLParams{UserID: userID, Url: feedURL})
+	row, err := s.q.GetFeedByURL(ctx, sqlc.GetFeedByURLParams{UserID: userID, Url: feedURL})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found")
@@ -338,7 +338,7 @@ func (s *Store) ListFeeds(ctx context.Context, userID string, limit, offset int)
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.q.ListRSSFeeds(ctx, sqlc.ListRSSFeedsParams{
+	rows, err := s.q.ListFeeds(ctx, sqlc.ListFeedsParams{
 		UserID: userID,
 		Limit:  int64(limit),
 		Offset: int64(offset),
@@ -357,7 +357,7 @@ func (s *Store) ListFeeds(ctx context.Context, userID string, limit, offset int)
 
 // UpdateFeed updates feed metadata.
 func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, updates map[string]any) (*Feed, error) {
-	current, err := s.q.GetRSSFeed(ctx, sqlc.GetRSSFeedParams{ID: feedID, UserID: userID})
+	current, err := s.q.GetFeed(ctx, sqlc.GetFeedParams{ID: feedID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found: %s", feedID)
@@ -399,7 +399,7 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 		enabled = boolToInt64(v)
 	}
 
-	updated, err := s.q.UpdateRSSFeed(ctx, sqlc.UpdateRSSFeedParams{
+	updated, err := s.q.UpdateFeed(ctx, sqlc.UpdateFeedParams{
 		ID:            feedID,
 		UserID:        userID,
 		Title:         title,
@@ -422,7 +422,7 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 
 // DeleteFeed removes a feed and all its entries.
 func (s *Store) DeleteFeed(ctx context.Context, userID string, feedID string) error {
-	if err := s.q.DeleteRSSFeed(ctx, sqlc.DeleteRSSFeedParams{ID: feedID, UserID: userID}); err != nil {
+	if err := s.q.DeleteFeed(ctx, sqlc.DeleteFeedParams{ID: feedID, UserID: userID}); err != nil {
 		return fmt.Errorf("delete feed: %w", err)
 	}
 	return nil
@@ -431,7 +431,7 @@ func (s *Store) DeleteFeed(ctx context.Context, userID string, feedID string) er
 // CreateFeedEntry creates a new feed entry. Returns nil, nil when the entry
 // already exists (ON CONFLICT DO NOTHING).
 func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, title string) (*FeedEntry, error) {
-	row, err := s.q.CreateRSSFeedEntry(ctx, sqlc.CreateRSSFeedEntryParams{
+	row, err := s.q.CreateFeedEntry(ctx, sqlc.CreateFeedEntryParams{
 		ID:           generateID(),
 		FeedID:       feedID,
 		Guid:         guid,
@@ -460,7 +460,7 @@ func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := s.q.ListPendingRSSEntries(ctx, sqlc.ListPendingRSSEntriesParams{FeedID: feedID, Limit: int64(limit), Offset: int64(offset)})
+	rows, err := s.q.ListPendingEntries(ctx, sqlc.ListPendingEntriesParams{FeedID: feedID, Limit: int64(limit), Offset: int64(offset)})
 	if err != nil {
 		return nil, fmt.Errorf("list pending entries: %w", err)
 	}
@@ -475,7 +475,7 @@ func (s *Store) ListPendingFeedEntries(ctx context.Context, feedID string, limit
 
 // GetFeedEntry retrieves a feed entry by ID.
 func (s *Store) GetFeedEntry(ctx context.Context, feedID string, entryID string) (*FeedEntry, error) {
-	row, err := s.q.GetRSSFeedEntry(ctx, sqlc.GetRSSFeedEntryParams{ID: entryID, FeedID: feedID})
+	row, err := s.q.GetFeedEntry(ctx, sqlc.GetFeedEntryParams{ID: entryID, FeedID: feedID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("feed entry not found: %s", entryID)
@@ -489,7 +489,7 @@ func (s *Store) GetFeedEntry(ctx context.Context, feedID string, entryID string)
 
 // MarkFeedEntry updates the status of a feed entry after processing.
 func (s *Store) MarkFeedEntry(ctx context.Context, feedID string, entryID string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
-	updated, err := s.q.UpdateRSSFeedEntry(ctx, sqlc.UpdateRSSFeedEntryParams{
+	updated, err := s.q.UpdateFeedEntry(ctx, sqlc.UpdateFeedEntryParams{
 		ID:        entryID,
 		FeedID:    feedID,
 		Status:    string(status),

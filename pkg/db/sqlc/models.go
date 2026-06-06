@@ -609,7 +609,7 @@ type RecallyDigestArticle struct {
 	Position  int64  `json:"position"`
 }
 
-type RecallyRssFeed struct {
+type RecallyFeed struct {
 	ID            string         `json:"id"`
 	UserID        string         `json:"user_id"`
 	AgentID       sql.NullString `json:"agent_id"`
@@ -627,7 +627,7 @@ type RecallyRssFeed struct {
 	UpdatedAt     string         `json:"updated_at"`
 }
 
-type RecallyRssFeedEntry struct {
+type RecallyFeedEntry struct {
 	ID           string         `json:"id"`
 	FeedID       string         `json:"feed_id"`
 	Guid         string         `json:"guid"`

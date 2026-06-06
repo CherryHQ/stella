@@ -40,7 +40,7 @@
 -- atlas:import tables/vault_entry.sql
 -- atlas:import tables/plugin_oauth_provider.sql
 -- atlas:import tables/recally_article.sql
--- atlas:import tables/recally_rss_feed.sql
+-- atlas:import tables/recally_feed.sql
 -- atlas:import tables/recally_digest.sql
 -- atlas:import tables/project.sql
 -- agent_task and agent_task_run reference each other (active_run_id  task_id).
