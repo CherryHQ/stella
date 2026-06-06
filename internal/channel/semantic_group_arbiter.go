@@ -24,6 +24,10 @@ const (
 	semanticContextTotalRunes  = 1500
 	semanticMemberSummaryRunes = 180
 	semanticTimeout            = 2 * time.Second
+	// semanticDefaultMaxResponders caps a broadcast decision. The rule arbiter's
+	// no-mention cap is 1 (storm guard for the all-members fallback); a semantic
+	// broadcast is an intentional multi-select, so it gets its own, larger cap.
+	semanticDefaultMaxResponders = 5
 )
 
 // SemanticGroupMember is one candidate agent for a no-mention group decision.
@@ -53,7 +57,6 @@ type SemanticGroupRequest struct {
 	RecentContext []SemanticGroupContextMessage
 	Members       []SemanticGroupMember
 	OwnerUserID   string // ctx_group_state.created_by_user_id; "" for platform groups
-	MaxResponders int
 }
 
 // SemanticGroupDecision is the strict outcome. RespondingAgents is always a
@@ -85,20 +88,22 @@ Rules:
 - Prefer silence when unsure. A wrong reply is worse than no reply.`
 
 type LLMSemanticGroupArbiter struct {
-	loadSnapshot SnapshotLoader
-	buildStream  StreamFuncBuilder
-	complete     CompleteFunc
-	timeout      time.Duration
-	log          *slog.Logger
+	loadSnapshot  SnapshotLoader
+	buildStream   StreamFuncBuilder
+	complete      CompleteFunc
+	timeout       time.Duration
+	maxResponders int
+	log           *slog.Logger
 }
 
 func NewLLMSemanticGroupArbiter(loadSnapshot SnapshotLoader, buildStream StreamFuncBuilder) *LLMSemanticGroupArbiter {
 	return &LLMSemanticGroupArbiter{
-		loadSnapshot: loadSnapshot,
-		buildStream:  buildStream,
-		complete:     providers.Complete,
-		timeout:      semanticTimeout,
-		log:          slog.With("component", "semantic_group_arbiter"),
+		loadSnapshot:  loadSnapshot,
+		buildStream:   buildStream,
+		complete:      providers.Complete,
+		timeout:       semanticTimeout,
+		maxResponders: semanticDefaultMaxResponders,
+		log:           slog.With("component", "semantic_group_arbiter"),
 	}
 }
 
@@ -133,7 +138,7 @@ func (a *LLMSemanticGroupArbiter) Decide(ctx context.Context, req SemanticGroupR
 		a.debug("semantic response parse failed", "error", err)
 		return SemanticGroupDecision{}
 	}
-	return sanitizeSemanticDecision(decision, req)
+	return sanitizeSemanticDecision(decision, req, a.maxResponders)
 }
 
 // resolveRoutingModel picks the agent whose model_fast and credentials classify
@@ -276,7 +281,7 @@ func parseSemanticDecision(raw string) (SemanticGroupDecision, error) {
 // sanitizeSemanticDecision drops anything the model invented: only current group
 // member IDs survive, duplicates are removed, and the result is capped. A
 // should_reply=true with no surviving agents collapses to silence.
-func sanitizeSemanticDecision(d SemanticGroupDecision, req SemanticGroupRequest) SemanticGroupDecision {
+func sanitizeSemanticDecision(d SemanticGroupDecision, req SemanticGroupRequest, max int) SemanticGroupDecision {
 	if !d.ShouldReply {
 		return SemanticGroupDecision{Reason: d.Reason}
 	}
@@ -299,7 +304,7 @@ func sanitizeSemanticDecision(d SemanticGroupDecision, req SemanticGroupRequest)
 		seen[id] = struct{}{}
 		ids = append(ids, id)
 	}
-	ids = capResponders(ids, req.MaxResponders)
+	ids = capResponders(ids, max)
 	if len(ids) == 0 {
 		return SemanticGroupDecision{Reason: d.Reason}
 	}

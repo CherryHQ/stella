@@ -297,7 +297,7 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 }
 
 func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox) error {
-	_, state, err := d.messageAndStateWithQueries(ctx, q, outbox.GroupMessageID)
+	message, state, err := d.messageAndStateWithQueries(ctx, q, outbox.GroupMessageID)
 	if err != nil {
 		return err
 	}
@@ -313,17 +313,8 @@ func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Q
 	for i, m := range members {
 		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 	}
-	allMembersFallback := state.Platform == "web" || effectivePlatformGroupMode(ctx, q, groupMembers, state) == "always"
-	var decision ArbiterDecision
-	if d.coord != nil && d.coord.arbiter != nil {
-		decision = d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
-			AllMembersFallback: allMembersFallback,
-			DisableDebounce:    true,
-		})
-	} else {
-		decision = fallbackGroupDecision(envelope.Mentions, groupMembers, allMembersFallback)
-	}
-	for _, agentID := range decision.RespondingAgents {
+	responding := d.decideResponders(ctx, q, outbox, message, state, envelope, groupMembers)
+	for _, agentID := range responding {
 		replyChannelID := findMemberReplyChannel(groupMembers, agentID)
 		if replyChannelID == "" {
 			d.log.Warn("selected group agent has no reply channel", "group_id", outbox.GroupID, "agent_id", agentID)
@@ -345,6 +336,90 @@ func (d *GroupDispatcher) materializeDispatchRows(ctx context.Context, q *sqlc.Q
 		}
 	}
 	return nil
+}
+
+// decideResponders selects which agents respond. Explicit mentions always take
+// the deterministic rule path. A no-mention message uses the semantic arbiter
+// when one is configured; otherwise it falls back to existing platform behavior
+// (web/always broadcast, mention-mode silence).
+func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope, groupMembers []GroupMember) []string {
+	if len(mentionedAgentIDs(envelope.Mentions)) == 0 && d.coord != nil && d.coord.semanticGroupArbiter != nil {
+		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
+	}
+	allMembersFallback := state.Platform == "web" || effectivePlatformGroupMode(ctx, q, groupMembers, state) == "always"
+	if d.coord != nil && d.coord.arbiter != nil {
+		return d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
+			AllMembersFallback: allMembersFallback,
+			DisableDebounce:    true,
+		}).RespondingAgents
+	}
+	return fallbackGroupDecision(envelope.Mentions, groupMembers, allMembersFallback).RespondingAgents
+}
+
+// semanticResponders builds the semantic request from current DB facts and asks
+// the arbiter. Returns nil (no rows) on any silence/failure — the arbiter itself
+// already collapses failures to silence.
+func (d *GroupDispatcher) semanticResponders(ctx context.Context, q *sqlc.Queries, groupID string, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, groupMembers []GroupMember) []string {
+	smembers := make([]SemanticGroupMember, 0, len(groupMembers))
+	for _, m := range groupMembers {
+		a, err := q.GetAgent(ctx, m.AgentID)
+		if err != nil {
+			d.log.Warn("semantic routing: get agent failed", "group_id", groupID, "agent_id", m.AgentID, "error", err)
+			continue
+		}
+		summary := a.Soul
+		if strings.TrimSpace(summary) == "" {
+			summary = a.SystemPrompt
+		}
+		smembers = append(smembers, SemanticGroupMember{
+			AgentID:        m.AgentID,
+			Name:           a.Name,
+			Scope:          a.Scope,
+			CreatorID:      a.CreatorID,
+			Summary:        summary,
+			ReplyChannelID: m.ReplyChannelID,
+		})
+	}
+	if len(smembers) == 0 {
+		return nil
+	}
+	decision := d.coord.semanticGroupArbiter.Decide(ctx, SemanticGroupRequest{
+		Message:       message.Content,
+		RecentContext: d.recentGroupContext(ctx, q, groupID, message.Seq),
+		Members:       smembers,
+		OwnerUserID:   nullStringValue(state.CreatedByUserID),
+	})
+	if !decision.ShouldReply {
+		return nil
+	}
+	return decision.RespondingAgents
+}
+
+// recentGroupContext returns prior group messages oldest→newest, excluding the
+// current message. It over-fetches by one to compensate for dropping the
+// current row; the arbiter enforces its own size budget.
+func (d *GroupDispatcher) recentGroupContext(ctx context.Context, q *sqlc.Queries, groupID string, currentSeq int64) []SemanticGroupContextMessage {
+	rows, err := q.ListRecentGroupMessages(ctx, sqlc.ListRecentGroupMessagesParams{
+		GroupID:  groupID,
+		MaxCount: int64(semanticMaxContextMessages + 1),
+	})
+	if err != nil {
+		d.log.Warn("semantic routing: list recent messages failed", "group_id", groupID, "error", err)
+		return nil
+	}
+	out := make([]SemanticGroupContextMessage, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- {
+		r := rows[i]
+		if r.Seq == currentSeq {
+			continue
+		}
+		out = append(out, SemanticGroupContextMessage{
+			ActorType: r.ActorType,
+			ActorID:   r.ActorID,
+			Content:   r.Content,
+		})
+	}
+	return out
 }
 
 func (d *GroupDispatcher) executeDispatchesByMessage(ctx context.Context, groupMessageID string, publisherOverride GroupPublisher) error {
