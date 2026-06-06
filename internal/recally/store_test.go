@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS recally_rss_feed (
     user_id INTEGER NOT NULL,
     agent_id TEXT,
     url TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'rss',
+    metadata TEXT NOT NULL DEFAULT '{}',
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     check_interval TEXT NOT NULL DEFAULT '1h',
@@ -379,7 +381,7 @@ func TestStore_Feeds(t *testing.T) {
 	ctx := t.Context()
 
 	// Create feed
-	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", "Test Feed", "A test feed", nil)
+	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", FeedKindRSS, nil, "Test Feed", "A test feed", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed failed: %v", err)
 	}
@@ -456,7 +458,7 @@ func TestStore_FeedEntries(t *testing.T) {
 	ctx := t.Context()
 
 	// Create feed
-	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", "Test Feed", "", nil)
+	feed, err := store.CreateFeed(ctx, "1", "https://example.com/feed.xml", FeedKindRSS, nil, "Test Feed", "", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed failed: %v", err)
 	}

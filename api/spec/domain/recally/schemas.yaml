@@ -18,6 +18,11 @@ components:
       type: string
       enum: [pending, saved, skipped, error]
 
+    FeedKind:
+      type: string
+      description: "Extraction-dispatch hint. 'rss' uses the built-in poller; other kinds are extracted by the recally skill."
+      enum: [rss, twitter]
+
     Article:
       type: object
       required: [
@@ -113,6 +118,7 @@ components:
       required: [
         id,
         url,
+        kind,
         title,
         check_interval,
         enabled,
@@ -123,6 +129,10 @@ components:
         id: { type: string }
         agent_id: { type: string, nullable: true }
         url: { type: string, format: uri }
+        kind: { $ref: "#/components/schemas/FeedKind" }
+        metadata:
+          type: object
+          additionalProperties: { type: string }
         title: { type: string }
         description: { type: string }
         check_interval: { type: string }
@@ -145,9 +155,12 @@ components:
       required: [url]
       properties:
         url: { type: string, format: uri }
+        kind:
+          allOf: [{ $ref: "#/components/schemas/FeedKind" }]
+          description: "Escape hatch to force the feed kind. Omit to let the server sniff it from the URL (x.com/twitter.com → twitter, otherwise rss)."
         title: {
           type: string,
-          description: "Optional override; server fetches feed metadata if omitted",
+          description: "Optional override; server fetches feed metadata if omitted (rss only)",
         }
         agent_id: { type: string, nullable: true }
 
@@ -192,6 +205,30 @@ components:
         status: { $ref: "#/components/schemas/FeedEntryStatus" }
         article_id: { type: string, nullable: true }
         error_msg: { type: string }
+
+    CreateFeedEntryRequest:
+      type: object
+      required: [guid]
+      properties:
+        guid: {
+          type: string,
+          description: "Stable per-source item id; the dedup key (unique per feed)",
+        }
+        url: { type: string }
+        title: { type: string }
+
+    CreateFeedEntryResult:
+      type: object
+      required: [created]
+      properties:
+        created: {
+          type: boolean,
+          description: "true if a new entry was inserted; false if the guid already existed (dup)",
+        }
+        entry:
+          allOf: [{ $ref: "#/components/schemas/FeedEntry" }]
+          nullable: true
+          description: "The inserted entry; null on dup (ON CONFLICT DO NOTHING returns no row)"
 
     FeedPollResult:
       type: object

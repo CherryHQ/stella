@@ -24,6 +24,7 @@ check all feeds at once or target a single feed by ID.`,
 			recallyFeedRemoveCommand(),
 			recallyFeedPollCommand(),
 			recallyFeedMarkCommand(),
+			recallyFeedEntryCommand(),
 		},
 	}
 }
@@ -31,16 +32,24 @@ check all feeds at once or target a single feed by ID.`,
 func recallyFeedAddCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "add",
-		Usage:     "Subscribe to an RSS feed (server fetches feed metadata)",
+		Usage:     "Subscribe to a feed (kind is sniffed from the URL unless --kind is set)",
 		ArgsUsage: "<feed-url>",
-		Flags:     []ucli.Flag{cli.JSONFlag()},
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "kind", Usage: "Force feed kind: rss, twitter (default: sniff from URL)"},
+			cli.JSONFlag(),
+		},
 		Action: func(c *ucli.Context) error {
 			feedURL := c.Args().First()
 			if feedURL == "" {
 				return fmt.Errorf("usage: stella recally feed add <feed-url>")
 			}
+			body := apiclient.CreateFeedJSONRequestBody{Url: feedURL}
+			if v := c.String("kind"); v != "" {
+				kind := apitypes.FeedKind(v)
+				body.Kind = &kind
+			}
 			feed, err := apiclient.Call[apiclient.Feed](func(api *apiclient.Client) (*http.Response, error) {
-				return api.CreateFeed(c.Context, apiclient.CreateFeedJSONRequestBody{Url: feedURL})
+				return api.CreateFeed(c.Context, body)
 			})
 			if err != nil {
 				return err
@@ -50,8 +59,62 @@ func recallyFeedAddCommand() *ucli.Command {
 			}
 			o := cli.Stdout(c)
 			o.Printf("Subscribed to feed: %s\n", feed.Id)
+			o.Printf("  Kind: %s\n", feed.Kind)
 			o.Printf("  Title: %s\n", feed.Title)
 			o.Printf("  URL: %s\n", feed.Url)
+			return o.Err()
+		},
+	}
+}
+
+func recallyFeedEntryCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "entry",
+		Usage: "Manage feed entries",
+		Subcommands: []*ucli.Command{
+			recallyFeedEntryAddCommand(),
+		},
+	}
+}
+
+func recallyFeedEntryAddCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "add",
+		Usage: "Add an entry by guid (source-agnostic; dedups on guid)",
+		Description: `Push a discovered item into a feed. Idempotent on (feed-id, guid):
+prints "new" when inserted, "dup" when the guid already existed. This is
+how skill-driven extraction (e.g. Twitter) feeds items into the library.`,
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "feed-id", Usage: "Feed ID", Required: true},
+			&ucli.StringFlag{Name: "guid", Usage: "Stable per-source item id (dedup key)", Required: true},
+			&ucli.StringFlag{Name: "url", Usage: "Item URL"},
+			&ucli.StringFlag{Name: "title", Usage: "Item title"},
+			cli.JSONFlag(),
+		},
+		Action: func(c *ucli.Context) error {
+			feedID := c.String("feed-id")
+			body := apiclient.CreateFeedEntryJSONRequestBody{Guid: c.String("guid")}
+			if v := c.String("url"); v != "" {
+				body.Url = &v
+			}
+			if v := c.String("title"); v != "" {
+				body.Title = &v
+			}
+			result, err := apiclient.Call[apitypes.CreateFeedEntryResult](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CreateFeedEntry(c.Context, feedID, body)
+			})
+			if err != nil {
+				return err
+			}
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, result)
+			}
+			o := cli.Stdout(c)
+			if result.Created {
+				o.Println("new")
+			} else {
+				o.Println("dup")
+			}
 			return o.Err()
 		},
 	}

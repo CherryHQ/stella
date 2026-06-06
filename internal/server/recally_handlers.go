@@ -406,21 +406,34 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "feed already subscribed")
 		return
 	}
-	title := strDeref(body.Title)
-	description := ""
-	parseCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	parsed, err := h.feeds.ParseURLWithContext(body.Url, parseCtx)
-	cancel()
-	if err != nil {
-		h.writeBadGatewayError(w, err)
+
+	kind := recally.SniffFeedKind(body.Url)
+	if body.Kind != nil {
+		kind = recally.FeedKind(*body.Kind)
+	}
+	if !kind.Valid() {
+		writeError(w, http.StatusBadRequest, "invalid feed kind")
 		return
 	}
-	if title == "" {
-		title = parsed.Title
-	}
-	description = parsed.Description
 
-	feed, err := h.store.CreateFeed(r.Context(), userID, body.Url, title, description, body.AgentId)
+	title := strDeref(body.Title)
+	description := ""
+	// Only rss kinds are parsed server-side; skill-driven kinds backfill metadata later.
+	if kind == recally.FeedKindRSS {
+		parseCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		parsed, err := h.feeds.ParseURLWithContext(body.Url, parseCtx)
+		cancel()
+		if err != nil {
+			h.writeBadGatewayError(w, err)
+			return
+		}
+		if title == "" {
+			title = parsed.Title
+		}
+		description = parsed.Description
+	}
+
+	feed, err := h.store.CreateFeed(r.Context(), userID, body.Url, kind, nil, title, description, body.AgentId)
 	if err != nil {
 		h.writeInternalError(w, err)
 		return
@@ -508,6 +521,12 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 		writeData(w, http.StatusOK, result)
 		return
 	}
+	// Only rss feeds are polled server-side; skill-driven kinds discover entries
+	// via the recally extraction workflow, so this is a no-op for them.
+	if feed.Kind != recally.FeedKindRSS {
+		writeData(w, http.StatusOK, result)
+		return
+	}
 
 	parseCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	parsed, err := h.feeds.ParseURLWithContext(feed.URL, parseCtx)
@@ -587,6 +606,36 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 		list.NextPageToken = &nextToken
 	}
 	writeData(w, http.StatusOK, list)
+}
+
+func (h *recallyHandlers) CreateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string) {
+	userID, ok := h.requireUser(w, r)
+	if !ok {
+		return
+	}
+	if _, ok := h.feedOwned(w, r.Context(), feedId, userID); !ok {
+		return
+	}
+	var body apitypes.CreateFeedEntryRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.Guid == "" {
+		writeError(w, http.StatusBadRequest, "guid is required")
+		return
+	}
+	entry, err := h.store.CreateFeedEntry(r.Context(), feedId, body.Guid, strDeref(body.Url), strDeref(body.Title))
+	if err != nil {
+		h.writeInternalError(w, err)
+		return
+	}
+	result := apitypes.CreateFeedEntryResult{Created: entry != nil}
+	if entry != nil {
+		apiEntry := toAPIFeedEntry(entry)
+		result.Entry = &apiEntry
+	}
+	writeData(w, http.StatusOK, result)
 }
 
 func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
@@ -834,10 +883,17 @@ func toAPIArticles(articles []recally.Article) []apiserver.Article {
 }
 
 func toAPIFeed(f *recally.Feed) apiserver.Feed {
+	var metadata *map[string]string
+	if len(f.Metadata) > 0 {
+		m := f.Metadata
+		metadata = &m
+	}
 	return apiserver.Feed{
 		Id:            f.ID,
 		AgentId:       f.AgentID,
 		Url:           f.URL,
+		Kind:          apitypes.FeedKind(f.Kind),
+		Metadata:      metadata,
 		Title:         f.Title,
 		Description:   ptrStr(f.Description),
 		CheckInterval: f.CheckInterval,

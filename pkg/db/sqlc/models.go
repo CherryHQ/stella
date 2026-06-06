@@ -614,6 +614,8 @@ type RecallyRssFeed struct {
 	UserID        string         `json:"user_id"`
 	AgentID       sql.NullString `json:"agent_id"`
 	Url           string         `json:"url"`
+	Kind          string         `json:"kind"`
+	Metadata      string         `json:"metadata"`
 	Title         string         `json:"title"`
 	Description   string         `json:"description"`
 	CheckInterval string         `json:"check_interval"`
