@@ -297,8 +297,8 @@ func (a *Article) FromSQLCArticle(sa sqlc.RecallyArticle) {
 	a.UpdatedAt = parseTime(sa.UpdatedAt)
 }
 
-// FromSQLCFeed populates a Feed from a sqlc RssFeed.
-func (f *Feed) FromSQLCFeed(sf sqlc.RecallyRssFeed) {
+// FromSQLCFeed populates a Feed from a sqlc RecallyFeed.
+func (f *Feed) FromSQLCFeed(sf sqlc.RecallyFeed) {
 	f.ID = sf.ID
 	f.UserID = sf.UserID
 	if sf.AgentID.Valid {
@@ -320,8 +320,8 @@ func (f *Feed) FromSQLCFeed(sf sqlc.RecallyRssFeed) {
 	f.UpdatedAt = parseTime(sf.UpdatedAt)
 }
 
-// FromSQLCFeedEntry populates a FeedEntry from a sqlc RssFeedEntry.
-func (e *FeedEntry) FromSQLCFeedEntry(se sqlc.RecallyRssFeedEntry) {
+// FromSQLCFeedEntry populates a FeedEntry from a sqlc RecallyFeedEntry.
+func (e *FeedEntry) FromSQLCFeedEntry(se sqlc.RecallyFeedEntry) {
 	e.ID = se.ID
 	e.FeedID = se.FeedID
 	e.GUID = se.Guid
