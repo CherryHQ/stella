@@ -69,11 +69,14 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [toast, setToast] = useState<{ msg: string; kind: "success" | "error" } | null>(null);
 
+  // Use the job's own agent_id for API calls — it may differ from the route agentId
+  const effectiveAgentId = job?.agent_id || agentId;
+
   useEffect(() => {
     setForm(job ? formFromJob(job) : emptyForm());
   }, [job?.id]);
 
-  const { data: runs = [] } = useQuery(schedulerJobRunsOptions(agentId, job?.id ?? ""));
+  const { data: runs = [] } = useQuery(schedulerJobRunsOptions(effectiveAgentId, job?.id ?? ""));
 
   const showToast = useCallback((msg: string, kind: "success" | "error" = "success") => {
     setToast({ msg, kind });
@@ -82,8 +85,11 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["agent-scheduler-jobs"] });
-    if (job) void qc.invalidateQueries({ queryKey: ["scheduler-job-runs", agentId, job.id] });
-  }, [qc, agentId, job]);
+    if (job)
+      void qc.invalidateQueries({
+        queryKey: ["scheduler-job-runs", effectiveAgentId, job.id],
+      });
+  }, [qc, effectiveAgentId, job]);
 
   const isFormValid =
     form.name && form.message && (form.schedule_type === "cron" ? !!form.cron : !!form.every);
@@ -96,18 +102,18 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
       every: form.schedule_type === "every" ? form.every : "",
       session_mode: form.session_mode,
       enabled: form.enabled,
-      agent_id: agentId,
+      agent_id: effectiveAgentId,
     };
     try {
       if (mode === "edit" && job) {
         await updateSchedulerJob({
-          path: { agentId, jobId: job.id },
+          path: { agentId: effectiveAgentId, jobId: job.id },
           body: payload,
           throwOnError: true,
         });
       } else {
         const { data } = await createSchedulerJob({
-          path: { agentId },
+          path: { agentId: effectiveAgentId },
           body: payload,
           throwOnError: true,
         });
@@ -118,25 +124,31 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Request failed", "error");
     }
-  }, [form, mode, job, agentId, invalidate, showToast, onCreated, t]);
+  }, [form, mode, job, effectiveAgentId, invalidate, showToast, onCreated, t]);
 
   const handleDelete = useCallback(async () => {
     if (!job) return;
     try {
-      await deleteSchedulerJob({ path: { agentId, jobId: job.id }, throwOnError: true });
+      await deleteSchedulerJob({
+        path: { agentId: effectiveAgentId, jobId: job.id },
+        throwOnError: true,
+      });
       invalidate();
       showToast(t("hub.deleted"));
       onDeleted?.();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Request failed", "error");
     }
-  }, [job, agentId, invalidate, showToast, onDeleted, t]);
+  }, [job, effectiveAgentId, invalidate, showToast, onDeleted, t]);
 
   const handleTrigger = useCallback(async () => {
     if (!job) return;
     setTriggering(true);
     try {
-      await triggerSchedulerJob({ path: { agentId, jobId: job.id }, throwOnError: true });
+      await triggerSchedulerJob({
+        path: { agentId: effectiveAgentId, jobId: job.id },
+        throwOnError: true,
+      });
       invalidate();
       showToast(t("hub.triggered"));
     } catch (e) {
@@ -144,7 +156,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
     } finally {
       setTriggering(false);
     }
-  }, [job, agentId, invalidate, showToast, t]);
+  }, [job, effectiveAgentId, invalidate, showToast, t]);
 
   const up = (patch: Partial<JobForm>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -212,7 +224,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
           </PropField>
         </div>
 
-        <RunHistory runs={runs} />
+        <RunHistory runs={runs} agentId={effectiveAgentId} />
       </div>
     );
   }
@@ -349,7 +361,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
       </div>
 
       {/* Run history (edit mode only) */}
-      {mode === "edit" && <RunHistory runs={runs} />}
+      {mode === "edit" && <RunHistory runs={runs} agentId={effectiveAgentId} />}
 
       {/* Delete confirm */}
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
@@ -392,6 +404,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
 
 function RunHistory({
   runs,
+  agentId,
 }: {
   runs: {
     id: string;
@@ -401,6 +414,7 @@ function RunHistory({
     session_id?: string;
     error?: string;
   }[];
+  agentId: string;
 }) {
   const { t } = useI18n();
   if (!runs.length) return null;
@@ -426,7 +440,7 @@ function RunHistory({
           )}
           {run.session_id && (
             <a
-              href={"/sessions/" + encodeURIComponent(run.session_id)}
+              href={`/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(run.session_id)}`}
               className="text-[11px] text-primary hover:underline"
             >
               session
