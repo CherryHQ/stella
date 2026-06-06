@@ -103,6 +103,31 @@ func TestCurrentSpeakerSoulAndConstraintsNotInjected(t *testing.T) {
 	}
 }
 
+func TestCurrentSpeakerZeroValueRendersNoSection(t *testing.T) {
+	fake := memorytest.New()
+	ctx := context.Background()
+	fake.SetGroupMemory("grp-1", "Group about Go.")
+
+	// Fail-closed dispatch (e.g. non-human Web trigger) yields a zero speaker.
+	// The group prompt builder still passes a non-nil pointer to it; the section
+	// must not render a phantom "Unknown" speaker.
+	zero := memory.CurrentSpeaker{}
+	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+		SystemPrompt:   "You are Stella.",
+		Memory:         fake,
+		AgentID:        "a1",
+		GroupID:        "grp-1",
+		CurrentSpeaker: &zero,
+	})
+
+	if strings.Contains(p, "## Current Speaker") {
+		t.Error("zero-value speaker must not render a Current Speaker section")
+	}
+	if !strings.Contains(p, "## Group Memory") {
+		t.Error("group memory should still render for the group turn")
+	}
+}
+
 func TestCurrentSpeakerAbsentInDM(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()

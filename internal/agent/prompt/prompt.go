@@ -191,7 +191,12 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// speaker's profile is read under speaker.UserID — never p.UserID — and the
 	// speaker's soul/constraints are intentionally NOT injected (a public room is
 	// not the place to apply one member's hard rules to the whole group).
-	if p.CurrentSpeaker != nil {
+	// Render the section only for a real speaker. A zero-value speaker reaches
+	// here on fail-closed group dispatch (e.g. a non-human Web trigger); rendering
+	// it would inject a phantom "Unknown speaker" telling the model a human is
+	// present when none resolved. An unlinked platform sender is still non-zero
+	// (platform/name set) and renders correctly.
+	if p.CurrentSpeaker != nil && *p.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		data.HasCurrentSpeaker = true
 		data.CurrentSpeakerName = p.CurrentSpeaker.DisplayName
 		if data.CurrentSpeakerName == "" {

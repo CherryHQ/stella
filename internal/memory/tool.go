@@ -510,6 +510,12 @@ func (t *memoryTool) execStoreUpdate(
 	return successMsg, userID, nil
 }
 
+// profile_get / profile_update use resolveProfileTarget — the ONLY two actions
+// allowed to fall back to the group current speaker. soul_* / constraint_* /
+// profile_history / profile_rollback deliberately stay on requireProfileCtx so
+// they fail closed in group turns (D9): a public room must not read or rewrite a
+// member's soul, constraints, or history through the shared agent. Do not switch
+// a soul/constraint/history action to resolveProfileTarget.
 func (t *memoryTool) execProfileGet(ctx context.Context) (string, error) {
 	return t.execStoreGet(ctx, actionProfileGet, t.resolveProfileTarget, t.profileStore.GetProfile, "No profile notes found.")
 }
@@ -519,6 +525,7 @@ func (t *memoryTool) execSoulGet(ctx context.Context) (string, error) {
 }
 
 func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any) (string, error) {
+	// Speaker fallback intentional here (see execProfileGet); forbidden for soul.
 	result, userID, err := t.execStoreUpdate(ctx, args, actionProfileUpdate, t.resolveProfileTarget, t.profileStore.SetProfile,
 		"Profile updated. Changes will appear in the system prompt at the next session start.")
 	if err == nil {

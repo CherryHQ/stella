@@ -707,7 +707,14 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}
-	info.GroupID = row.GroupID
+	speaker := webGroupSpeaker(message)
+	// CtxGroupMessage carries no display name; fill it best-effort from the auth
+	// user so the prompt shows a real name instead of "Unknown". Fail-soft.
+	if speaker.UserID != "" && speaker.DisplayName == "" && d.coord.auth != nil {
+		if u, err := d.coord.auth.GetUser(ctx, speaker.UserID); err == nil && u.Name != "" {
+			speaker.DisplayName = u.Name
+		}
+	}
 	events := svc.Chat(ctx, agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         row.GroupID,
@@ -716,7 +723,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		GroupID:        row.GroupID,
 		Channel:        session.Channel(channelStr),
 		Message:        message.Content,
-		CurrentSpeaker: webGroupSpeaker(message),
+		CurrentSpeaker: speaker,
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
