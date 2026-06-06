@@ -18,6 +18,14 @@ CREATE TABLE ctx_group_state (
     next_seq           INTEGER NOT NULL DEFAULT 0,
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    -- human-readable display name (web groups require it; platform groups may populate later).
+    group_name         TEXT NOT NULL DEFAULT '',
+    -- web groups only: the user who created this group. NULL for platform-created groups.
+    created_by_user_id TEXT REFERENCES auth_user(id) ON DELETE CASCADE,
     -- one registry row per physical group/thread, stable across all observing bots.
     UNIQUE (platform, platform_group_id, platform_thread_id)
 );
+
+CREATE INDEX idx_ctx_group_state_web_owner
+    ON ctx_group_state(created_by_user_id)
+    WHERE platform = 'web';

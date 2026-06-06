@@ -124,6 +124,36 @@ func TestArbiterMentionedNonMemberIgnored(t *testing.T) {
 	}
 }
 
+func TestArbiterAllMembersFallback(t *testing.T) {
+	a := NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 10})
+	ctx := context.Background()
+
+	members := []GroupMember{
+		{AgentID: "agent-a"},
+		{AgentID: "agent-b"},
+		{AgentID: "agent-c"},
+	}
+
+	// No @mention, no channelAgentID, AllMembersFallback=true → all members.
+	d := a.Decide(ctx, "g1", nil, members, "", DecideOptions{AllMembersFallback: true})
+	if len(d.RespondingAgents) != 3 {
+		t.Fatalf("expected 3 agents, got %v", d.RespondingAgents)
+	}
+
+	// No @mention, no channelAgentID, AllMembersFallback=false → empty (CR-012).
+	d2 := a.Decide(ctx, "g1", nil, members, "")
+	if len(d2.RespondingAgents) != 0 {
+		t.Fatalf("expected empty (CR-012), got %v", d2.RespondingAgents)
+	}
+
+	// @mention with AllMembersFallback=true → only mentioned agent.
+	mentions := []pkgchannel.Mention{{PlatformID: "bot1", AgentID: "agent-b"}}
+	d3 := a.Decide(ctx, "g1", mentions, members, "", DecideOptions{AllMembersFallback: true})
+	if len(d3.RespondingAgents) != 1 || d3.RespondingAgents[0] != "agent-b" {
+		t.Fatalf("expected [agent-b], got %v", d3.RespondingAgents)
+	}
+}
+
 func TestArbiterUnresolvedMentionFallback(t *testing.T) {
 	a := NewArbiter(ArbiterConfig{})
 	ctx := context.Background()

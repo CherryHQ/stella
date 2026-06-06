@@ -10,6 +10,22 @@ import (
 	"database/sql"
 )
 
+const createWebChannelIfNotExists = `-- name: CreateWebChannelIfNotExists :exec
+INSERT INTO channel (id, name, type, agent_id)
+VALUES (?, 'Web', 'web', ?)
+ON CONFLICT(id) DO NOTHING
+`
+
+type CreateWebChannelIfNotExistsParams struct {
+	ID      string         `json:"id"`
+	AgentID sql.NullString `json:"agent_id"`
+}
+
+func (q *Queries) CreateWebChannelIfNotExists(ctx context.Context, arg CreateWebChannelIfNotExistsParams) error {
+	_, err := q.db.ExecContext(ctx, createWebChannelIfNotExists, arg.ID, arg.AgentID)
+	return err
+}
+
 const deleteChannel = `-- name: DeleteChannel :exec
 DELETE FROM channel WHERE id = ?
 `

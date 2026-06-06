@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -67,6 +68,8 @@ type Server struct {
 	sessions auth.SessionStore
 	// credentials provides access to auth_credential (optional).
 	credentials auth.CredentialStore
+	// eventLog is the group event log store (optional; if nil, group chat returns 503).
+	eventLog *eventlog.Store
 }
 
 // New creates an admin server with all API routes mounted.
@@ -136,6 +139,10 @@ func (s *Server) SetTokenService(svc *auth.TokenService) {
 // If not set, those handlers write DB-only.
 func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 	s.schedulerSvc = svc
+}
+
+func (s *Server) SetEventLogStore(store *eventlog.Store) {
+	s.eventLog = store
 }
 
 // SetBaseURL sets the public base URL and propagates it to the credentials
