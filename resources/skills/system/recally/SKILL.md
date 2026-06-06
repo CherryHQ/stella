@@ -17,10 +17,11 @@ open the SQLite database directly.
 
 ## References
 
-| Topic                                       | File                                                       |
-| ------------------------------------------- | ---------------------------------------------------------- |
-| Saving an article (fetch → generate → save) | [references/save-workflow.md](references/save-workflow.md) |
-| RSS batch processing                        | [references/rss-workflow.md](references/rss-workflow.md)   |
+| Topic                                       | File                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| Saving an article (fetch → generate → save) | [references/save-workflow.md](references/save-workflow.md)       |
+| RSS batch processing                        | [references/rss-workflow.md](references/rss-workflow.md)         |
+| Twitter/X feed discovery                    | [references/twitter-workflow.md](references/twitter-workflow.md) |
 
 ## Search and Retrieve
 
@@ -43,16 +44,25 @@ stella recally update <id> --summary "..."
 stella recally delete <id>
 ```
 
-## RSS Feeds
+## Feeds
 
 ```bash
-stella recally feed add <feed-url>
-stella recally feed poll --limit 20 --json     # returns pending entries
-stella recally feed list
+stella recally feed add <feed-url>             # kind sniffed from URL (x.com → twitter, else rss); override with --kind
+stella recally feed poll --limit 20 --json     # rss fast-path; non-rss feeds are skipped server-side
+stella recally feed list --json                # includes each feed's kind
 stella recally feed remove <feed-id>
+stella recally feed entry add --feed-id <id> --guid <guid> --url <url> --title <title>   # source-agnostic; prints new/dup
 ```
 
-For processing pending entries, see [references/rss-workflow.md](references/rss-workflow.md).
+`feed add` sniffs the kind from the URL: `x.com` / `twitter.com` hosts become
+`twitter`, everything else defaults to `rss`. Pass `--kind rss|twitter` to force it.
+
+- **rss** feeds: poll server-side, then process pending entries — see [references/rss-workflow.md](references/rss-workflow.md).
+- **twitter** feeds: discover entries via the skill — see [references/twitter-workflow.md](references/twitter-workflow.md).
+
+`feed entry add` is the source-agnostic discovery sink: it dedups on `(feed-id, guid)`
+and prints `new` or `dup`. YouTube channels work today with no new code — subscribe
+to the channel's RSS feed (`https://www.youtube.com/feeds/videos.xml?channel_id=...`).
 
 ## Daily Digest
 

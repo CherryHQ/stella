@@ -1,9 +1,9 @@
 -- name: CreateRSSFeed :one
 INSERT INTO recally_rss_feed (
-    id, user_id, agent_id, url, title, description, check_interval,
+    id, user_id, agent_id, url, kind, metadata, title, description, check_interval,
     last_checked_at, last_etag, last_modified, enabled
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetRSSFeed :one
@@ -22,6 +22,7 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 UPDATE recally_rss_feed
 SET title           = sqlc.arg('title'),
     description     = sqlc.arg('description'),
+    metadata        = sqlc.arg('metadata'),
     check_interval  = sqlc.arg('check_interval'),
     last_checked_at = sqlc.arg('last_checked_at'),
     last_etag       = sqlc.arg('last_etag'),

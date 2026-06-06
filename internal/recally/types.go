@@ -4,6 +4,8 @@ package recally
 import (
 	"database/sql"
 	"encoding/json"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -60,6 +62,44 @@ const (
 	EntryStatusError   RSSEntryStatus = "error"
 )
 
+// FeedKind is the extraction-dispatch hint for a feed subscription. Go stores
+// it and routes scheduling on it, but does not branch business logic on it —
+// per-source item discovery lives in the recally skill.
+type FeedKind string
+
+const (
+	FeedKindRSS     FeedKind = "rss"
+	FeedKindTwitter FeedKind = "twitter"
+)
+
+// Valid reports whether k is a known feed kind.
+func (k FeedKind) Valid() bool {
+	switch k {
+	case FeedKindRSS, FeedKindTwitter:
+		return true
+	default:
+		return false
+	}
+}
+
+// SniffFeedKind infers a feed kind from a subscription URL. x.com / twitter.com
+// hosts map to twitter; everything else defaults to rss. The caller may override
+// the result with an explicit kind.
+func SniffFeedKind(rawURL string) FeedKind {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return FeedKindRSS
+	}
+	host := strings.ToLower(u.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	switch host {
+	case "x.com", "twitter.com", "mobile.twitter.com", "mobile.x.com":
+		return FeedKindTwitter
+	default:
+		return FeedKindRSS
+	}
+}
+
 // Article represents a saved article with its metadata.
 type Article struct {
 	ID           string            `json:"id"`
@@ -86,19 +126,21 @@ type Article struct {
 
 // Feed represents an RSS feed subscription.
 type Feed struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	AgentID       *string    `json:"agent_id,omitempty"`
-	URL           string     `json:"url"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description"`
-	CheckInterval string     `json:"check_interval"`
-	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
-	LastETag      string     `json:"last_etag"`
-	LastModified  string     `json:"last_modified"`
-	Enabled       bool       `json:"enabled"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID            string            `json:"id"`
+	UserID        string            `json:"user_id"`
+	AgentID       *string           `json:"agent_id,omitempty"`
+	URL           string            `json:"url"`
+	Kind          FeedKind          `json:"kind"`
+	Metadata      map[string]string `json:"metadata"`
+	Title         string            `json:"title"`
+	Description   string            `json:"description"`
+	CheckInterval string            `json:"check_interval"`
+	LastCheckedAt *time.Time        `json:"last_checked_at,omitempty"`
+	LastETag      string            `json:"last_etag"`
+	LastModified  string            `json:"last_modified"`
+	Enabled       bool              `json:"enabled"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
 }
 
 // FeedEntry represents an entry/item from an RSS feed.
@@ -265,6 +307,8 @@ func (f *Feed) FromSQLCFeed(sf sqlc.RecallyRssFeed) {
 		f.AgentID = nil
 	}
 	f.URL = sf.Url
+	f.Kind = FeedKind(sf.Kind)
+	f.Metadata = decodeMetadata(sf.Metadata)
 	f.Title = sf.Title
 	f.Description = sf.Description
 	f.CheckInterval = sf.CheckInterval

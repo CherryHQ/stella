@@ -259,6 +259,10 @@ func (s *Server) ListFeedEntries(w http.ResponseWriter, r *http.Request, feedId 
 	s.recally.ListFeedEntries(w, r, feedId, params)
 }
 
+func (s *Server) CreateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string) {
+	s.recally.CreateFeedEntry(w, r, feedId)
+}
+
 func (s *Server) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
 	s.recally.UpdateFeedEntry(w, r, feedId, id)
 }

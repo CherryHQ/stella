@@ -3,6 +3,8 @@ CREATE TABLE recally_rss_feed (
     user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
     agent_id        TEXT REFERENCES agent(id) ON DELETE SET NULL,
     url             TEXT NOT NULL,
+    kind            TEXT NOT NULL DEFAULT 'rss',
+    metadata        TEXT NOT NULL DEFAULT '{}',
     title           TEXT NOT NULL DEFAULT '',
     description     TEXT NOT NULL DEFAULT '',
     check_interval  TEXT NOT NULL DEFAULT '1h',

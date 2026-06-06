@@ -1,0 +1,1237 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recally 订阅数据流</title>
+    <style>
+      :root {
+        --bg: oklch(14% 0.01 260);
+        --surface: oklch(18% 0.012 260);
+        --surface-2: oklch(22% 0.014 260);
+        --fg: oklch(92% 0.008 250);
+        --muted: oklch(58% 0.014 250);
+        --border: oklch(28% 0.012 260);
+        --accent-blue: oklch(68% 0.16 240);
+        --accent-green: oklch(72% 0.16 155);
+        --accent-amber: oklch(78% 0.14 75);
+        --accent-red: oklch(68% 0.18 25);
+        --accent-purple: oklch(68% 0.14 300);
+        --accent-cyan: oklch(72% 0.12 200);
+        --code-bg: oklch(12% 0.008 260);
+
+        --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --font-body: "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-body);
+        font-size: 14px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 48px 24px 80px;
+      }
+
+      header {
+        margin-bottom: 48px;
+      }
+
+      header h1 {
+        font-family: var(--font-display);
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin-bottom: 12px;
+      }
+
+      header p {
+        color: var(--muted);
+        font-size: 14px;
+        max-width: 720px;
+      }
+
+      /* Entry point diagram */
+      .entry-diagram {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 0;
+        align-items: center;
+        margin-bottom: 40px;
+      }
+
+      .entry-column {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .entry-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .entry-card-label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+      }
+
+      .entry-card-label.web {
+        color: var(--accent-blue);
+      }
+      .entry-card-label.platform {
+        color: var(--accent-purple);
+      }
+      .entry-card-label.shared {
+        color: var(--accent-green);
+      }
+
+      .entry-card dd {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: oklch(78% 0.008 250);
+      }
+
+      .entry-merge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0 24px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        gap: 4px;
+      }
+
+      .entry-merge .arrow-down {
+        font-size: 20px;
+        opacity: 0.4;
+      }
+
+      .merge-target {
+        grid-column: 1 / -1;
+        margin-top: 12px;
+        background: oklch(72% 0.16 155 / 0.06);
+        border: 1px solid oklch(72% 0.16 155 / 0.25);
+        border-radius: 6px;
+        padding: 14px 20px;
+        text-align: center;
+      }
+
+      .merge-target-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-green);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .merge-target p {
+        font-size: 13px;
+        color: oklch(78% 0.01 250);
+      }
+
+      /* Scenario */
+      .scenario {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px 24px;
+        margin-bottom: 40px;
+      }
+
+      .scenario-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--accent-amber);
+        margin-bottom: 10px;
+      }
+
+      .scenario-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 16px;
+      }
+
+      .scenario-item {
+        font-size: 13px;
+      }
+
+      .scenario-item dt {
+        color: var(--muted);
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+
+      .scenario-item dd {
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+
+      /* Flow stages */
+      .flow {
+        position: relative;
+      }
+
+      .flow::before {
+        content: "";
+        position: absolute;
+        left: 23px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: linear-gradient(
+          to bottom,
+          var(--border) 0%,
+          var(--accent-blue) 10%,
+          var(--accent-green) 30%,
+          var(--accent-amber) 50%,
+          var(--accent-purple) 75%,
+          var(--border) 100%
+        );
+        opacity: 0.5;
+      }
+
+      .stage {
+        position: relative;
+        padding-left: 56px;
+        margin-bottom: 32px;
+      }
+
+      .stage-dot {
+        position: absolute;
+        left: 16px;
+        top: 4px;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        border: 2px solid;
+        background: var(--bg);
+        z-index: 1;
+      }
+
+      .stage-dot.blue {
+        border-color: var(--accent-blue);
+      }
+      .stage-dot.green {
+        border-color: var(--accent-green);
+      }
+      .stage-dot.amber {
+        border-color: var(--accent-amber);
+      }
+      .stage-dot.red {
+        border-color: var(--accent-red);
+      }
+      .stage-dot.purple {
+        border-color: var(--accent-purple);
+      }
+      .stage-dot.cyan {
+        border-color: var(--accent-cyan);
+      }
+
+      .stage-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .stage-number {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--muted);
+        min-width: 20px;
+      }
+
+      .stage-title {
+        font-family: var(--font-display);
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: oklch(82% 0.008 250);
+      }
+
+      .stage-file {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--muted);
+        background: var(--surface);
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid var(--border);
+      }
+
+      .stage-desc {
+        color: var(--muted);
+        font-size: 13px;
+        margin-bottom: 12px;
+        max-width: 720px;
+      }
+
+      .stage-body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      /* Data cards */
+      .data-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .data-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+
+      .data-card-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+
+      .data-card-tag {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid;
+      }
+
+      .tag-go {
+        color: var(--accent-blue);
+        border-color: oklch(68% 0.16 240 / 0.3);
+        background: oklch(68% 0.16 240 / 0.08);
+      }
+      .tag-sql {
+        color: var(--accent-green);
+        border-color: oklch(72% 0.16 155 / 0.3);
+        background: oklch(72% 0.16 155 / 0.08);
+      }
+      .tag-sse {
+        color: var(--accent-purple);
+        border-color: oklch(68% 0.14 300 / 0.3);
+        background: oklch(68% 0.14 300 / 0.08);
+      }
+      .tag-skill {
+        color: var(--accent-amber);
+        border-color: oklch(78% 0.14 75 / 0.3);
+        background: oklch(78% 0.14 75 / 0.08);
+      }
+      .tag-cli {
+        color: var(--accent-purple);
+        border-color: oklch(68% 0.14 300 / 0.3);
+        background: oklch(68% 0.14 300 / 0.08);
+      }
+      .tag-db {
+        color: var(--accent-green);
+        border-color: oklch(72% 0.16 155 / 0.3);
+        background: oklch(72% 0.16 155 / 0.08);
+      }
+      .tag-tap {
+        color: var(--accent-cyan);
+        border-color: oklch(72% 0.12 200 / 0.3);
+        background: oklch(72% 0.12 200 / 0.08);
+      }
+      .tag-llm {
+        color: var(--accent-red);
+        border-color: oklch(68% 0.18 25 / 0.3);
+        background: oklch(68% 0.18 25 / 0.08);
+      }
+
+      .data-card pre {
+        padding: 12px 14px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.7;
+        color: oklch(82% 0.008 250);
+        overflow-x: auto;
+        white-space: pre;
+        background: var(--code-bg);
+      }
+
+      /* DB table */
+      .db-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+      }
+
+      .db-table th {
+        text-align: left;
+        padding: 6px 12px;
+        color: var(--muted);
+        font-weight: 500;
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+
+      .db-table td {
+        padding: 6px 12px;
+        border-bottom: 1px solid oklch(22% 0.01 260);
+        color: oklch(78% 0.008 250);
+        white-space: nowrap;
+      }
+
+      .db-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .db-table .highlight td {
+        background: oklch(68% 0.16 240 / 0.06);
+        color: var(--fg);
+      }
+
+      .db-table .new td {
+        background: oklch(72% 0.16 155 / 0.06);
+      }
+      .db-table .dim td {
+        color: var(--muted);
+      }
+
+      /* Arrow */
+      .arrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 11px;
+      }
+
+      .arrow::before {
+        content: "↓";
+        font-size: 14px;
+        opacity: 0.5;
+      }
+
+      /* Callouts */
+      .risk-callout {
+        background: oklch(68% 0.18 25 / 0.06);
+        border: 1px solid oklch(68% 0.18 25 / 0.25);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .risk-callout-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-red);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .risk-callout p {
+        color: oklch(78% 0.01 250);
+      }
+
+      .info-callout {
+        background: oklch(68% 0.16 240 / 0.06);
+        border: 1px solid oklch(68% 0.16 240 / 0.25);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .info-callout-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-blue);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .info-callout p {
+        color: oklch(78% 0.01 250);
+      }
+
+      .design-callout {
+        background: oklch(72% 0.16 155 / 0.06);
+        border: 1px solid oklch(72% 0.16 155 / 0.25);
+        border-radius: 6px;
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      .design-callout-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-green);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .design-callout p {
+        color: oklch(78% 0.01 250);
+      }
+
+      /* Inline code */
+      code {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        background: var(--surface-2);
+        padding: 1px 5px;
+        border-radius: 3px;
+        border: 1px solid var(--border);
+        color: oklch(78% 0.06 240);
+      }
+
+      /* Sub-stage */
+      .sub-stage {
+        margin-left: 20px;
+        padding-left: 16px;
+        border-left: 1px solid var(--border);
+      }
+
+      .sub-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-green);
+        margin-bottom: 6px;
+      }
+
+      /* Decision tree */
+      .decision-tree {
+        border: 1px dashed oklch(72% 0.12 200 / 0.3);
+        border-radius: 6px;
+        padding: 16px;
+        background: oklch(72% 0.12 200 / 0.03);
+      }
+
+      .decision-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-cyan);
+        margin-bottom: 12px;
+      }
+
+      .decision-branch {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 8px;
+        align-items: flex-start;
+      }
+
+      .decision-condition {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-cyan);
+        background: oklch(72% 0.12 200 / 0.1);
+        border: 1px solid oklch(72% 0.12 200 / 0.2);
+        border-radius: 4px;
+        padding: 4px 8px;
+        white-space: nowrap;
+        min-width: 120px;
+      }
+
+      .decision-result {
+        font-size: 13px;
+        color: oklch(78% 0.008 250);
+        padding-top: 2px;
+      }
+
+      .decision-result code {
+        font-size: 11px;
+      }
+
+      /* Two col */
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .three-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+      }
+
+      /* Section divider */
+      .section-divider {
+        border-top: 1px solid var(--border);
+        margin: 48px 0 40px;
+        padding-top: 40px;
+      }
+
+      .section-divider h2 {
+        font-family: var(--font-display);
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin-bottom: 8px;
+      }
+
+      .section-divider p {
+        color: var(--muted);
+        font-size: 13px;
+        max-width: 680px;
+      }
+
+      /* Syntax highlight */
+      .cm {
+        color: oklch(50% 0.01 250);
+      }
+      .kw {
+        color: oklch(72% 0.12 300);
+      }
+      .str {
+        color: oklch(72% 0.12 155);
+      }
+      .num {
+        color: oklch(78% 0.12 75);
+      }
+      .fn {
+        color: oklch(72% 0.14 240);
+      }
+      .err {
+        color: var(--accent-red);
+      }
+      .ok {
+        color: var(--accent-green);
+      }
+
+      @media (max-width: 768px) {
+        .scenario-grid {
+          grid-template-columns: 1fr;
+        }
+        .two-col,
+        .three-col {
+          grid-template-columns: 1fr;
+        }
+        .entry-diagram {
+          grid-template-columns: 1fr;
+        }
+        .entry-merge {
+          padding: 12px 0;
+        }
+        .stage {
+          padding-left: 44px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Recally 订阅数据流</h1>
+        <p>
+          目标模型：Go 只拥有<strong>源无关的记账</strong>（feed / entry 表、guid
+          去重、调度、重试）； 抓取与总结下沉到 recally
+          <strong>skill + tap</strong>。一个源加进来，只动 skill workflow（+ 也许一个 tap
+          脚本），不动 Go。核心翻转：正确性建立在
+          <code>ON CONFLICT(feed_id, guid)</code> 去重上，<strong>不靠 since 水位</strong>。
+          本文档追踪一条新条目从「发现」到「入库 + 通知」的完整路径。
+        </p>
+      </header>
+
+      <!-- ───────── Entry Points ───────── -->
+      <div class="entry-diagram">
+        <div class="entry-column">
+          <div class="entry-card">
+            <div class="entry-card-label web">kind = rss（公开 / 免登录）</div>
+            <dd>stella recally feed poll</dd>
+            <dd style="color: var(--muted); font-size: 11px; margin-top: 4px">
+              server 端 gofeed 解析，便宜稳定，零 LLM
+            </dd>
+          </div>
+        </div>
+        <div class="entry-merge">
+          <span class="arrow-down">→</span>
+          <span>汇入</span>
+          <span class="arrow-down">←</span>
+        </div>
+        <div class="entry-column">
+          <div class="entry-card">
+            <div class="entry-card-label platform">kind ≠ rss（twitter / 未来源）</div>
+            <dd>recally skill workflow</dd>
+            <dd style="color: var(--muted); font-size: 11px; margin-top: 4px">
+              tap fxembed / browser 列出条目
+            </dd>
+          </div>
+        </div>
+        <div class="merge-target">
+          <div class="merge-target-label">源无关 dedup sink</div>
+          <p>
+            <code>stella recally feed entry add --feed-id --guid --url --title</code>
+            → <code>POST /feeds/{id}/entries</code> → <code>CreateRSSFeedEntry</code> （<code
+              >ON CONFLICT(feed_id, guid) DO NOTHING RETURNING *</code
+            >）：有行 = <span style="color: var(--accent-green)">new</span>，空 =
+            <span style="color: var(--muted)">dup</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- ───────── Scenario ───────── -->
+      <div class="scenario">
+        <div class="scenario-label">场景实例 — 订阅一个 X 账号</div>
+        <div class="scenario-grid">
+          <div class="scenario-item">
+            <dt>用户</dt>
+            <dd>Alice (user_id=u_42)</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>订阅 URL</dt>
+            <dd>https://x.com/karpathy</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>嗅探出 kind</dt>
+            <dd>twitter</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>feed_id</dt>
+            <dd>feed_7c (UUID)</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>metadata.external_id</dt>
+            <dd>33836629（数字 user-id）</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>调度周期</dt>
+            <dd>recally-rss builtin / 6h</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>已存条目 (上轮)</dt>
+            <dd>guid=tw_1001 (saved)</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>本轮 fxembed 列出</dt>
+            <dd>tw_1002(新), tw_1001(旧), rt_99(retweet)</dd>
+          </div>
+          <div class="scenario-item">
+            <dt>预期结果</dt>
+            <dd>仅 tw_1002 入库 + 总结一次</dd>
+          </div>
+        </div>
+      </div>
+
+      <!-- ───────── Flow ───────── -->
+      <div class="flow">
+        <!-- Stage 1: Subscribe -->
+        <div class="stage">
+          <div class="stage-dot blue"></div>
+          <div class="stage-header">
+            <span class="stage-number">01</span>
+            <span class="stage-title">订阅 — URL 嗅探出 kind</span>
+            <span class="stage-file">recally_handlers.go · types.go</span>
+          </div>
+          <div class="stage-desc">
+            <code>feed add</code> 从 URL 嗅探来源类型并落库。<code>x.com</code> /
+            <code>twitter.com</code> 主机 → <code>kind=twitter</code>，其余默认
+            <code>rss</code>；<code>--kind</code> 是逃生舱。 非 rss kind
+            <strong>不走 server 端 gofeed 解析</strong>（那解析不了 x.com），title/description 留给
+            skill 回填。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">CreateFeed — 嗅探 + 跳过解析</span>
+                <span class="data-card-tag tag-go">Go</span>
+              </div>
+              <pre><span class="fn">kind</span> := recally.<span class="fn">SniffFeedKind</span>(body.Url)  <span class="cm">// x.com → twitter</span>
+<span class="kw">if</span> body.Kind != <span class="kw">nil</span> { kind = recally.FeedKind(*body.Kind) }  <span class="cm">// --kind 覆盖</span>
+<span class="kw">if</span> !kind.<span class="fn">Valid</span>() { <span class="cm">/* 400 写入边界校验枚举 */</span> }
+
+<span class="kw">if</span> kind == recally.FeedKindRSS {
+    parsed, err := h.feeds.<span class="fn">ParseURLWithContext</span>(body.Url, ctx)  <span class="cm">// 仅 rss 解析</span>
+    title, description = parsed.Title, parsed.Description
+}
+<span class="cm">// 非 rss：跳过解析，title 空着等 skill 回填</span>
+feed, _ := h.store.<span class="fn">CreateFeed</span>(ctx, userID, body.Url, kind, <span class="kw">nil</span>, title, description, agentID)</pre>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">recally_rss_feed — 新增 kind / metadata 列</span>
+                <span class="data-card-tag tag-db">SQLite</span>
+              </div>
+              <table class="db-table">
+                <tr>
+                  <th>id</th>
+                  <th>user_id</th>
+                  <th>url</th>
+                  <th>kind</th>
+                  <th>metadata</th>
+                  <th>title</th>
+                </tr>
+                <tr class="new">
+                  <td>feed_7c</td>
+                  <td>u_42</td>
+                  <td>x.com/karpathy</td>
+                  <td style="color: var(--accent-green)">twitter</td>
+                  <td>{"external_id":"33836629"}</td>
+                  <td>Andrej Karpathy</td>
+                </tr>
+                <tr class="dim">
+                  <td>feed_3a</td>
+                  <td>u_42</td>
+                  <td>example.com/feed.xml</td>
+                  <td>rss</td>
+                  <td>{}</td>
+                  <td>Example Blog</td>
+                </tr>
+              </table>
+            </div>
+            <div class="info-callout">
+              <div class="info-callout-label">kind 是分流提示，不是业务分支</div>
+              <p>
+                Go 存
+                <code>kind</code> 只为决定「调度走哪条路」，<strong>不在它上面分业务逻辑</strong>。
+                枚举（rss / twitter）在 Go 写入边界校验，schema 用 plain <code>TEXT</code> —— 新增
+                kind 不用迁移。 <code>metadata</code> 是 JSON blob，存数字 user-id
+                这种改名不变的标识。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 2: Schedule dispatch -->
+        <div class="stage">
+          <div class="stage-dot cyan"></div>
+          <div class="stage-header">
+            <span class="stage-number">02</span>
+            <span class="stage-title">调度 — recally-rss builtin 按 kind 分流</span>
+            <span class="stage-file">scheduler/builtin_rss.go</span>
+          </div>
+          <div class="stage-desc">
+            每 6h 起一个 <strong>agent session</strong>（<code>ExecScopeAllUsers</code>）。builtin
+            是一段 prompt，指示 agent 按 feed 的 kind 分发发现逻辑 —— rss 走 Go 快路径，非 rss 走
+            skill。
+          </div>
+          <div class="stage-body">
+            <div class="decision-tree">
+              <div class="decision-label">dispatch by feed.kind</div>
+              <div class="decision-branch">
+                <span class="decision-condition">kind == "rss"</span>
+                <span class="decision-result">
+                  <code>stella recally feed poll --json</code> 一次跑完所有 enabled feed。 server 端
+                  gofeed 解析 + <code>CreateFeedEntry</code> 去重，<strong
+                    >非 rss feed 在 server 被短路成 no-op</strong
+                  >。
+                </span>
+              </div>
+              <div class="decision-branch">
+                <span class="decision-condition">kind != "rss"</span>
+                <span class="decision-result">
+                  <code>feed list --json</code> 取出 kind=twitter 的 feed，逐个跑该 kind 的 workflow
+                  （见 <code>twitter-workflow.md</code>）→ Stage 03。
+                </span>
+              </div>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">PollFeed — 非 rss 短路</span>
+                <span class="data-card-tag tag-go">Go</span>
+              </div>
+              <pre><span class="cm">// 只有 rss feed 在 server 端轮询；skill 驱动的 kind 在这里是 no-op</span>
+<span class="kw">if</span> feed.Kind != recally.FeedKindRSS {
+    <span class="fn">writeData</span>(w, http.StatusOK, result)  <span class="cm">// 空 new_entries，无害</span>
+    <span class="kw">return</span>
+}</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 3: Discover (Twitter) -->
+        <div class="stage">
+          <div class="stage-dot amber"></div>
+          <div class="stage-header">
+            <span class="stage-number">03</span>
+            <span class="stage-title">发现 — skill 列推文（仅 twitter 路径）</span>
+            <span class="stage-file">references/twitter-workflow.md</span>
+          </div>
+          <div class="stage-desc">
+            agent 用 tap 的 FxEmbed 脚本列出最近推文。<code>since</code> 只是省流量的优化，
+            <strong>坏了不影响正确性</strong> —— 每轮把列出的推文全部推给 sink，去重交给 Go。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">tap fxembed-profile-statuses</span>
+                <span class="data-card-tag tag-tap">tap</span>
+              </div>
+              <pre><span class="cm"># 用 metadata.external_id 的数字 id，防 handle 改名</span>
+tap site twitter/fxembed-profile-statuses handle=id:33836629 --json</pre>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">每条 status 的处理</span>
+                <span class="data-card-tag tag-skill">skill</span>
+              </div>
+              <pre><span class="cm">tw_1002</span>  is_repost=false  → guid=tw_1002  url=…/status/1002  title="<span class="str">New post on …</span>"  <span class="ok">push</span>
+<span class="cm">tw_1001</span>  is_repost=false  → guid=tw_1001  <span class="cm">(上轮已 saved)</span>                          <span class="ok">push</span>
+<span class="cm">rt_99</span>   is_repost=<span class="err">true</span>   → <span class="err">skip</span> retweet（默认跳过）
+<span class="cm">空正文</span>  → title fallback "<span class="str">(media: Andrej Karpathy)</span>"</pre>
+            </div>
+            <div class="design-callout">
+              <div class="design-callout-label">为什么不在 skill 里判断「这条是不是新的」</div>
+              <p>
+                判新是有状态的，扔给 LLM loop 就脆。skill 只做<strong>无状态</strong>的「列出 + 映射
+                + 推送」， 有状态的去重收口在 Go/SQLite 的一句 <code>ON CONFLICT</code> 里。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 4: Dedup sink -->
+        <div class="stage">
+          <div class="stage-dot green"></div>
+          <div class="stage-header">
+            <span class="stage-number">04</span>
+            <span class="stage-title">去重 sink — guid upsert，只有 new 变 pending</span>
+            <span class="stage-file">queries/recally_rss_feed.sql · store.go</span>
+          </div>
+          <div class="stage-desc">
+            两条发现路径汇到同一个端点。这是整条流的<strong>命门</strong>：去重发生在抓取/总结<strong>之前</strong>。
+            一条重复的推文在这里被 <code>DO NOTHING</code> 挡掉，<strong
+              >根本不会产生新的 pending 条目</strong
+            >。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">CreateRSSFeedEntry — 仓库现成的去重</span>
+                <span class="data-card-tag tag-sql">SQLite</span>
+              </div>
+              <pre><span class="kw">INSERT INTO</span> recally_rss_feed_entry (id, feed_id, guid, url, title, status, ...)
+<span class="kw">VALUES</span> (?, 'feed_7c', ?, ?, ?, <span class="str">'pending'</span>, ...)
+<span class="kw">ON CONFLICT</span>(feed_id, guid) <span class="kw">DO NOTHING</span>
+<span class="kw">RETURNING</span> *;   <span class="cm">-- 有行 = new；DO NOTHING 命中冲突 → 无行 = dup</span></pre>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">本轮两次 push 的结果</span>
+                <span class="data-card-tag tag-cli">CLI</span>
+              </div>
+              <pre>feed entry add --guid tw_1002  → <span class="ok">new</span>   <span class="cm">// 插入 status=pending</span>
+feed entry add --guid tw_1001  → <span class="cm">dup</span>   <span class="cm">// 已存在，什么都不做</span></pre>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">recally_rss_feed_entry — sink 之后</span>
+                <span class="data-card-tag tag-db">SQLite</span>
+              </div>
+              <table class="db-table">
+                <tr>
+                  <th>id</th>
+                  <th>feed_id</th>
+                  <th>guid</th>
+                  <th>status</th>
+                  <th>attempts</th>
+                  <th>article_id</th>
+                </tr>
+                <tr class="dim">
+                  <td>en_a1</td>
+                  <td>feed_7c</td>
+                  <td>tw_1001</td>
+                  <td>saved</td>
+                  <td>1</td>
+                  <td>art_x</td>
+                </tr>
+                <tr class="new">
+                  <td>en_b2</td>
+                  <td>feed_7c</td>
+                  <td>tw_1002</td>
+                  <td style="color: var(--accent-green)">pending</td>
+                  <td>0</td>
+                  <td>—</td>
+                </tr>
+              </table>
+            </div>
+            <div class="info-callout">
+              <div class="info-callout-label">会重复总结吗？不会。</div>
+              <p>
+                总结发生在 Stage 05（save-workflow），而 save-workflow
+                <strong>只处理 pending 条目</strong>。 <code>tw_1001</code> 在 sink 返回
+                <code>dup</code>、未产生新 pending → 轮不到它被抓取和总结。 每轮重复的只是「列推文 +
+                guid upsert」这种零成本操作，<strong
+                  >贵的 LLM 总结永远只对真正新增的条目跑一次</strong
+                >。
+              </p>
+            </div>
+            <div class="design-callout">
+              <div class="design-callout-label">correctness = guid dedup, not watermark</div>
+              <p>
+                抓取失败那轮就是「没发现新条目」，下一轮重列、重推，重复的被
+                <code>DO NOTHING</code> 丢掉 → 永不丢条目，也不需要脆弱的「成功才推进
+                since」逻辑。这条把 reviewer 当初的 BLOCK 直接消解。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 5: Fetch + Summarize -->
+        <div class="stage">
+          <div class="stage-dot red"></div>
+          <div class="stage-header">
+            <span class="stage-number">05</span>
+            <span class="stage-title">抓取 + 总结 — agent 自己干，无 Go 代码</span>
+            <span class="stage-file">references/save-workflow.md</span>
+          </div>
+          <div class="stage-desc">
+            对每个 <code>pending</code> 条目（含重试：<code
+              >status IN ('pending','error') AND attempts &lt; 3</code
+            >）， agent 跑 save-workflow。这一步的「总结」<strong
+              >不是 Go 里的代码，也不是单独的 LLM API 调用</strong
+            >
+            —— 就是当前 agent（即 LLM 本身）读完正文后生成的一段文本。
+          </div>
+          <div class="stage-body">
+            <div class="sub-stage">
+              <div class="sub-label">5a · Fetch 全文到临时文件</div>
+              <div class="data-card">
+                <div class="data-card-header">
+                  <span class="data-card-label">tap 抓取（含升级链）</span>
+                  <span class="data-card-tag tag-tap">tap</span>
+                </div>
+                <pre>tap site twitter/fxembed-status id=tw_1002 format=markdown -f raw &gt; $f
+<span class="cm"># 通用页面升级链：tap fetch → --lp → Jina → -b → browser network intercept</span></pre>
+              </div>
+            </div>
+            <div class="sub-stage" style="margin-top: 12px">
+              <div class="sub-label">5b · Generate Metadata — agent 读 $f，写结构化总结</div>
+              <div class="data-card">
+                <div class="data-card-header">
+                  <span class="data-card-label">$sf — agent 生成（非代码）</span>
+                  <span class="data-card-tag tag-llm">LLM</span>
+                </div>
+                <pre><span class="cm"># Summary</span>      (2-3 句) 摘要
+<span class="cm"># Abstract</span>     (150-200 词)
+<span class="cm"># Key Points</span>   要点 bullet
+<span class="cm"># Insights and Implications</span>
+<span class="cm"># Actionable Takeaways</span> (如适用)
+<span class="cm"># Critical Analysis</span>
+<span class="cm">+ Title / Author / Tags(3-7) / Worth-Reading tier (⭐/👍/📖)</span></pre>
+              </div>
+            </div>
+            <div class="risk-callout" style="margin-top: 12px">
+              <div class="risk-callout-label">总结「跑」在哪</div>
+              <p>
+                不在 stellad 进程里（Go 不调 LLM 做总结）；不是对 Anthropic/OpenAI 的独立请求。
+                就在<strong>当前这个 agent 会话的上下文</strong>里 —— 调度器起的 agent
+                一路抓取、总结、调 CLI 保存， 总结只是它的一段文本输出。skill 文件本质是
+                prompt，不是可执行代码。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 6: Save + mark -->
+        <div class="stage">
+          <div class="stage-dot purple"></div>
+          <div class="stage-header">
+            <span class="stage-number">06</span>
+            <span class="stage-title">入库 + 标记 — 文章持久化，条目转 saved</span>
+            <span class="stage-file">recally save · feed mark</span>
+          </div>
+          <div class="stage-desc">
+            <code>stella recally save</code> 是纯持久化命令：给它
+            <code>--summary</code> 字符串，它原样存进
+            <code>recally_article</code>，<strong>不关心这字符串怎么来的</strong>。保存后把 entry
+            标记为 saved。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">save → mark</span>
+                <span class="data-card-tag tag-cli">CLI</span>
+              </div>
+              <pre>art=$(stella recally save "https://x.com/karpathy/status/1002" --json \
+    --content-file "$f" --summary "$(cat $sf)" \
+    --title "…" --author "Andrej Karpathy" --tags "ai" --tags "ml" \
+    --source-type <span class="str">twitter</span> \
+    --metadata '{"worth_reading":"Top pick"}')
+
+stella recally feed mark feed_7c en_b2 --status <span class="ok">saved</span> --article-id $(echo $art | jq -r .id)
+<span class="cm"># 失败：--status error --error "&lt;reason&gt;"  ／ 跳过：--status skipped</span></pre>
+            </div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">recally_article — 落库一条</span>
+                <span class="data-card-tag tag-db">SQLite</span>
+              </div>
+              <table class="db-table">
+                <tr>
+                  <th>id</th>
+                  <th>user_id</th>
+                  <th>source_type</th>
+                  <th>title</th>
+                  <th>status</th>
+                </tr>
+                <tr class="new">
+                  <td>art_y</td>
+                  <td>u_42</td>
+                  <td style="color: var(--accent-amber)">twitter</td>
+                  <td>New post on …</td>
+                  <td>unread</td>
+                </tr>
+              </table>
+            </div>
+            <div class="info-callout">
+              <div class="info-callout-label">第二层保险 — 文章级去重</div>
+              <p>
+                即便 dup 漏到这步，<code>recally save</code> 还按
+                <strong>canonical URL</strong> 做文章级去重 （mobile/desktop
+                变体可能各算一份）。但正常路径在 Stage 04 就拦住了，到不了这层。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 7: Notify / Digest -->
+        <div class="stage">
+          <div class="stage-dot green"></div>
+          <div class="stage-header">
+            <span class="stage-number">07</span>
+            <span class="stage-title">通知 + 摘要</span>
+            <span class="stage-file">builtin_rss.go · recally digest</span>
+          </div>
+          <div class="stage-desc">
+            仅当本轮 ≥1 篇文章被保存时才调一次 notify（零保存就停手，不打扰）。每日 digest
+            另行汇总。
+          </div>
+          <div class="stage-body">
+            <div class="data-card">
+              <div class="data-card-header">
+                <span class="data-card-label">notify 门槛（builtin prompt）</span>
+                <span class="data-card-tag tag-skill">skill</span>
+              </div>
+              <pre>saved == 0  → <span class="err">不调 notify</span>，结束
+saved &gt;= 1  → notify 一次：
+  · 每篇(最多5)：Worth-Reading 标签 + 标题 + 作者 + "# Summary" 段
+  · 超过5篇：其余仅列 标题 + 作者</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ───────── Path Comparison ───────── -->
+      <div class="section-divider">
+        <h2>RSS vs Twitter 差异点</h2>
+        <p>
+          两条路只在「发现」环节不同 —— auth 边界才是真正的分界，不是源类型。一旦成了 pending
+          条目，抓取 / 总结 / 入库 / 通知走的是同一条路。
+        </p>
+      </div>
+
+      <div class="data-card">
+        <table class="db-table" style="font-size: 12px">
+          <tr>
+            <th style="width: 20%">阶段</th>
+            <th style="width: 40%">RSS (kind=rss)</th>
+            <th style="width: 40%">Twitter (kind=twitter)</th>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-blue)">订阅嗅探</td>
+            <td>默认 kind=rss</td>
+            <td>x.com / twitter.com → kind=twitter</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-blue)">入库时解析</td>
+            <td>server gofeed 取 title/description</td>
+            <td>跳过解析，skill 回填 + 存数字 user-id</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-cyan)">发现执行者</td>
+            <td>server（Go 快路径，零 LLM）</td>
+            <td>agent skill + tap fxembed</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-amber)">列出条目</td>
+            <td>gofeed 解析 RSS items</td>
+            <td>fxembed-profile-statuses，跳 retweet</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-green)">去重</td>
+            <td colspan="2" style="text-align: center">
+              共享 <code>feed entry add</code> — <code>ON CONFLICT(feed_id, guid) DO NOTHING</code>
+            </td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-red)">抓取 + 总结</td>
+            <td colspan="2" style="text-align: center">
+              共享 save-workflow — agent 读全文，LLM 生成结构化总结（仅对 pending 条目）
+            </td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-purple)">入库</td>
+            <td colspan="2" style="text-align: center">
+              共享 <code>recally save</code> → recally_article（canonical URL 二次去重）
+            </td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-purple)">source_type</td>
+            <td>rss</td>
+            <td>twitter</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-green)">通知 / 摘要</td>
+            <td colspan="2" style="text-align: center">共享 notify 门槛 + 每日 digest</td>
+          </tr>
+          <tr>
+            <td style="color: var(--accent-cyan)">成本优化空间</td>
+            <td>已是最便宜路径</td>
+            <td>per-source 缓存折叠重复抓取（v2 / #316）</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="section-divider">
+        <h2>auth 边界 — 框架的真正分界（#316）</h2>
+        <p>决定一个源能不能留 Go 快路径的，不是「它是什么源」，而是「需不需要登录」。</p>
+      </div>
+      <div class="two-col">
+        <div class="design-callout">
+          <div class="design-callout-label">公开 / 免登录</div>
+          <p>
+            RSS、YouTube 频道 RSS、fxtwitter 公开主页 —— <strong>可</strong>留 Go 快路径作成本优化，
+            避免每轮起一个 LLM。YouTube 频道今天就能用：直接订阅
+            <code>youtube.com/feeds/videos.xml?channel_id=…</code>，零新代码。
+          </p>
+        </div>
+        <div class="risk-callout">
+          <div class="risk-callout-label">登录态</div>
+          <p>
+            X following / for-you / bookmarks、付费内容 —— <strong>只能</strong>走 tap 的 attached
+            browser， 在 agent 会话内执行 → skill-only，没有 Go 路径可言。
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -275,13 +275,20 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 	return articles, nil
 }
 
-// CreateFeed creates a new RSS feed subscription.
-func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL, title, description string, agentID *string) (*Feed, error) {
+// CreateFeed creates a new feed subscription. kind is the extraction-dispatch
+// hint ("rss", "twitter"); metadata carries source-specific bookkeeping such as
+// a stable numeric user id.
+func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, kind FeedKind, metadata map[string]string, title, description string, agentID *string) (*Feed, error) {
+	if kind == "" {
+		kind = FeedKindRSS
+	}
 	row, err := s.q.CreateRSSFeed(ctx, sqlc.CreateRSSFeedParams{
 		ID:            generateID(),
 		UserID:        userID,
 		AgentID:       toNullString(agentID),
 		Url:           feedURL,
+		Kind:          string(kind),
+		Metadata:      encodeMetadata(metadata),
 		Title:         title,
 		Description:   description,
 		CheckInterval: "1h",
@@ -360,6 +367,7 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 
 	title := current.Title
 	description := current.Description
+	metadata := current.Metadata
 	checkInterval := current.CheckInterval
 	lastCheckedAt := current.LastCheckedAt
 	lastETag := current.LastEtag
@@ -371,6 +379,9 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 	}
 	if v, ok := updates["description"].(string); ok {
 		description = v
+	}
+	if v, ok := updates["metadata"].(map[string]string); ok {
+		metadata = encodeMetadata(v)
 	}
 	if v, ok := updates["check_interval"].(string); ok {
 		checkInterval = v
@@ -393,6 +404,7 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 		UserID:        userID,
 		Title:         title,
 		Description:   description,
+		Metadata:      metadata,
 		CheckInterval: checkInterval,
 		LastCheckedAt: lastCheckedAt,
 		LastEtag:      lastETag,

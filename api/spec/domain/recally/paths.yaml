@@ -321,6 +321,33 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [feed-entries]
+      summary: Add an entry by guid (source-agnostic; dedups via ON CONFLICT)
+      description: "Skill-driven extraction pushes discovered items here. Idempotent on (feed_id, guid): a returned created=false means the item already existed."
+      operationId: createFeedEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateFeedEntryRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CreateFeedEntryResult",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/recally/feeds/{feedId}/entries/{id}:
     parameters:

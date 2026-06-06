@@ -12,11 +12,11 @@ import (
 
 const createRSSFeed = `-- name: CreateRSSFeed :one
 INSERT INTO recally_rss_feed (
-    id, user_id, agent_id, url, title, description, check_interval,
+    id, user_id, agent_id, url, kind, metadata, title, description, check_interval,
     last_checked_at, last_etag, last_modified, enabled
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at
 `
 
 type CreateRSSFeedParams struct {
@@ -24,6 +24,8 @@ type CreateRSSFeedParams struct {
 	UserID        string         `json:"user_id"`
 	AgentID       sql.NullString `json:"agent_id"`
 	Url           string         `json:"url"`
+	Kind          string         `json:"kind"`
+	Metadata      string         `json:"metadata"`
 	Title         string         `json:"title"`
 	Description   string         `json:"description"`
 	CheckInterval string         `json:"check_interval"`
@@ -39,6 +41,8 @@ func (q *Queries) CreateRSSFeed(ctx context.Context, arg CreateRSSFeedParams) (R
 		arg.UserID,
 		arg.AgentID,
 		arg.Url,
+		arg.Kind,
+		arg.Metadata,
 		arg.Title,
 		arg.Description,
 		arg.CheckInterval,
@@ -53,6 +57,8 @@ func (q *Queries) CreateRSSFeed(ctx context.Context, arg CreateRSSFeedParams) (R
 		&i.UserID,
 		&i.AgentID,
 		&i.Url,
+		&i.Kind,
+		&i.Metadata,
 		&i.Title,
 		&i.Description,
 		&i.CheckInterval,
@@ -148,7 +154,7 @@ func (q *Queries) DeleteRSSFeed(ctx context.Context, arg DeleteRSSFeedParams) er
 }
 
 const getRSSFeed = `-- name: GetRSSFeed :one
-SELECT id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed WHERE id = ? AND user_id = ?
+SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed WHERE id = ? AND user_id = ?
 `
 
 type GetRSSFeedParams struct {
@@ -164,6 +170,8 @@ func (q *Queries) GetRSSFeed(ctx context.Context, arg GetRSSFeedParams) (Recally
 		&i.UserID,
 		&i.AgentID,
 		&i.Url,
+		&i.Kind,
+		&i.Metadata,
 		&i.Title,
 		&i.Description,
 		&i.CheckInterval,
@@ -178,7 +186,7 @@ func (q *Queries) GetRSSFeed(ctx context.Context, arg GetRSSFeedParams) (Recally
 }
 
 const getRSSFeedByURL = `-- name: GetRSSFeedByURL :one
-SELECT id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed WHERE user_id = ? AND url = ?
+SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed WHERE user_id = ? AND url = ?
 `
 
 type GetRSSFeedByURLParams struct {
@@ -194,6 +202,8 @@ func (q *Queries) GetRSSFeedByURL(ctx context.Context, arg GetRSSFeedByURLParams
 		&i.UserID,
 		&i.AgentID,
 		&i.Url,
+		&i.Kind,
+		&i.Metadata,
 		&i.Title,
 		&i.Description,
 		&i.CheckInterval,
@@ -335,7 +345,7 @@ func (q *Queries) ListRSSFeedEntries(ctx context.Context, arg ListRSSFeedEntries
 }
 
 const listRSSFeeds = `-- name: ListRSSFeeds :many
-SELECT id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed
+SELECT id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at FROM recally_rss_feed
 WHERE user_id = ?1
 ORDER BY created_at DESC, id DESC
 LIMIT ?3 OFFSET ?2
@@ -361,6 +371,8 @@ func (q *Queries) ListRSSFeeds(ctx context.Context, arg ListRSSFeedsParams) ([]R
 			&i.UserID,
 			&i.AgentID,
 			&i.Url,
+			&i.Kind,
+			&i.Metadata,
 			&i.Title,
 			&i.Description,
 			&i.CheckInterval,
@@ -388,19 +400,21 @@ const updateRSSFeed = `-- name: UpdateRSSFeed :one
 UPDATE recally_rss_feed
 SET title           = ?1,
     description     = ?2,
-    check_interval  = ?3,
-    last_checked_at = ?4,
-    last_etag       = ?5,
-    last_modified   = ?6,
-    enabled         = ?7,
+    metadata        = ?3,
+    check_interval  = ?4,
+    last_checked_at = ?5,
+    last_etag       = ?6,
+    last_modified   = ?7,
+    enabled         = ?8,
     updated_at      = datetime('now')
-WHERE id = ?8 AND user_id = ?9
-RETURNING id, user_id, agent_id, url, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at
+WHERE id = ?9 AND user_id = ?10
+RETURNING id, user_id, agent_id, url, kind, metadata, title, description, check_interval, last_checked_at, last_etag, last_modified, enabled, created_at, updated_at
 `
 
 type UpdateRSSFeedParams struct {
 	Title         string         `json:"title"`
 	Description   string         `json:"description"`
+	Metadata      string         `json:"metadata"`
 	CheckInterval string         `json:"check_interval"`
 	LastCheckedAt sql.NullString `json:"last_checked_at"`
 	LastEtag      string         `json:"last_etag"`
@@ -414,6 +428,7 @@ func (q *Queries) UpdateRSSFeed(ctx context.Context, arg UpdateRSSFeedParams) (R
 	row := q.db.QueryRowContext(ctx, updateRSSFeed,
 		arg.Title,
 		arg.Description,
+		arg.Metadata,
 		arg.CheckInterval,
 		arg.LastCheckedAt,
 		arg.LastEtag,
@@ -428,6 +443,8 @@ func (q *Queries) UpdateRSSFeed(ctx context.Context, arg UpdateRSSFeedParams) (R
 		&i.UserID,
 		&i.AgentID,
 		&i.Url,
+		&i.Kind,
+		&i.Metadata,
 		&i.Title,
 		&i.Description,
 		&i.CheckInterval,
