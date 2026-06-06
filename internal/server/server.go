@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credentials"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -70,6 +71,8 @@ type Server struct {
 	credentials auth.CredentialStore
 	// eventLog is the group event log store (optional; if nil, group chat returns 503).
 	eventLog *eventlog.Store
+	// arbiter decides which agents respond in Web group chat (optional; if nil, group chat returns 503).
+	arbiter *channel.Arbiter
 }
 
 // New creates an admin server with all API routes mounted.
@@ -143,6 +146,10 @@ func (s *Server) SetSchedulerService(svc *scheduler.Service) {
 
 func (s *Server) SetEventLogStore(store *eventlog.Store) {
 	s.eventLog = store
+}
+
+func (s *Server) SetArbiter(a *channel.Arbiter) {
+	s.arbiter = a
 }
 
 // SetBaseURL sets the public base URL and propagates it to the credentials

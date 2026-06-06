@@ -30,7 +30,7 @@ export function createGroupTransport(groupId: string) {
         )
         .map((p) => p.text)
         .join("");
-      return { body: { content: text } };
+      return { body: { content: text, client_message_id: last.id } };
     },
   });
 }

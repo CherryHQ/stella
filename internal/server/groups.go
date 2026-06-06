@@ -16,8 +16,10 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -362,8 +364,8 @@ func (s *Server) ListGroupMessages(w http.ResponseWriter, r *http.Request, group
 }
 
 func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupId string) {
-	if s.eventLog == nil {
-		writeError(w, http.StatusServiceUnavailable, "event log not available")
+	if s.eventLog == nil || s.arbiter == nil {
+		writeError(w, http.StatusServiceUnavailable, "group chat not available")
 		return
 	}
 
@@ -408,20 +410,40 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 		return
 	}
 
-	appendResult, err := s.eventLog.AppendToGroup(ctx, groupId, eventlog.GroupMessage{
-		ActorType: eventlog.ActorHuman,
-		ActorID:   authInfo.UserID,
-		Content:   req.Content,
+	// Unified entry: triple resolve + dedup via AppendGroupMessage.
+	// Empty client_message_id disables tier-1 dedup (no fake UUID).
+	platformMsgID := derefStr(req.ClientMessageId)
+	appendResult, err := s.eventLog.AppendGroupMessage(ctx, eventlog.Message{
+		Platform:          "web",
+		PlatformGroupID:   groupId,
+		PlatformThreadID:  "",
+		ActorType:         eventlog.ActorHuman,
+		ActorID:           authInfo.UserID,
+		PlatformMessageID: platformMsgID,
+		Content:           req.Content,
 	})
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
+	if !appendResult.Inserted {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
-	// Determine responding agents: @mention → mentioned only, else → all members.
-	responding := resolveGroupResponders(req.Content, members)
-	if len(responding) == 0 {
-		writeError(w, http.StatusBadRequest, "no responding agents")
+	// Parse @mentions from text → build Mention list for arbiter.
+	mentions := parseWebMentions(req.Content, members)
+
+	// Build channel.GroupMember list for arbiter.
+	groupMembers := make([]channel.GroupMember, len(members))
+	for i, m := range members {
+		groupMembers[i] = channel.GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
+	}
+
+	decision := s.arbiter.Decide(ctx, appendResult.GroupID, mentions, groupMembers, "",
+		channel.DecideOptions{AllMembersFallback: true})
+	if decision.Debounced || len(decision.RespondingAgents) == 0 {
+		writeError(w, http.StatusOK, "no agents responding")
 		return
 	}
 
@@ -453,14 +475,35 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	baseCtx := memory.WithUserID(ctx, authInfo.UserID)
 	baseCtx = memory.WithGroupSeq(baseCtx, appendResult.Seq)
 
-	for _, agentID := range responding {
+	for _, agentID := range decision.RespondingAgents {
 		writeSSE(map[string]string{"type": "start-step"})
-		s.streamAgentResponse(baseCtx, writeSSE, groupId, agentID, req.Content)
+		s.streamAgentResponse(baseCtx, writeSSE, appendResult.GroupID, agentID, req.Content)
 		writeSSE(map[string]string{"type": "finish-step"})
 	}
 
 	writeSSE(map[string]string{"type": "finish"})
 	writeDone()
+}
+
+// parseWebMentions extracts @AgentID patterns from message text and returns
+// them as Mention structs with AgentID pre-resolved (Web has no platform-level
+// bot identity to resolve).
+func parseWebMentions(content string, members []sqlc.ChannelGroupMember) []pkgchannel.Mention {
+	memberSet := make(map[string]struct{}, len(members))
+	for _, m := range members {
+		memberSet[m.AgentID] = struct{}{}
+	}
+	var mentions []pkgchannel.Mention
+	for w := range strings.FieldsSeq(content) {
+		after, ok := strings.CutPrefix(w, "@")
+		if !ok {
+			continue
+		}
+		if _, isMember := memberSet[after]; isMember {
+			mentions = append(mentions, pkgchannel.Mention{Raw: "@" + after, AgentID: after})
+		}
+	}
+	return mentions
 }
 
 func (s *Server) streamAgentResponse(
@@ -627,6 +670,8 @@ func (s *Server) handleGroupCommand(ctx context.Context, groupID, content string
 		return "", false
 	}
 	switch cmd {
+	case "/config":
+		return "⚠️ /config is not available in group chats. Please use it in a direct message.", true
 	case "/compact":
 		var results []string
 		for _, m := range members {
@@ -657,33 +702,4 @@ func (s *Server) handleGroupCommand(ctx context.Context, groupID, content string
 	default:
 		return "", false
 	}
-}
-
-// resolveGroupResponders determines which agents should respond.
-// If @AgentName patterns are found in the content, only matched agents respond.
-// Otherwise, all members respond.
-func resolveGroupResponders(content string, members []sqlc.ChannelGroupMember) []string {
-	// Simple @mention parsing: extract @word patterns and match against member agent IDs.
-	var mentioned []string
-	words := strings.Fields(content)
-	memberIDs := make(map[string]struct{}, len(members))
-	for _, m := range members {
-		memberIDs[m.AgentID] = struct{}{}
-	}
-	for _, w := range words {
-		if after, ok := strings.CutPrefix(w, "@"); ok {
-			name := after
-			if _, ok := memberIDs[name]; ok {
-				mentioned = append(mentioned, name)
-			}
-		}
-	}
-	if len(mentioned) > 0 {
-		return mentioned
-	}
-	all := make([]string, len(members))
-	for i, m := range members {
-		all[i] = m.AgentID
-	}
-	return all
 }

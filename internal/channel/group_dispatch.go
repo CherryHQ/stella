@@ -80,50 +80,40 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 			agentID := decision.RespondingAgents[0]
 			replyChannelID := findMemberReplyChannel(members, agentID)
 			log.Debug("arbiter selected agent", "agent_id", agentID, "reply_channel_id", replyChannelID)
-			// CR-009: only dispatch through observer when reply channels match.
-			// Cross-adapter publishing is deferred; mismatched agents fall through
-			// to channel default so the observer bot doesn't impersonate another.
 			if replyChannelID != "" && replyChannelID != observerChannelID {
-				log.Warn("selected agent's reply channel differs from observer, falling back to channel default",
+				log.Warn("selected agent's reply channel differs from observer, not responding",
 					"agent_id", agentID, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
-			} else {
-				rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, agentID, replyChannelID)
-				if err != nil {
-					log.Warn("failed to resolve arbiter-selected agent, falling back", "agent_id", agentID, "error", err)
-				} else {
-					return c.handleGroupResolved(ctx, rc, msg, command, args)
-				}
+				return "", false, nil, nil
 			}
+			rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, agentID, replyChannelID)
+			if err != nil {
+				log.Warn("failed to resolve arbiter-selected agent", "agent_id", agentID, "error", err)
+				return "", false, nil, nil
+			}
+			return c.handleGroupResolved(ctx, rc, msg, command, args)
 		}
+		log.Debug("arbiter returned no responding agents")
+		return "", false, nil, nil
 	} else if mentionedAgent := firstMentionedAgent(msg.Mentions); mentionedAgent != "" {
 		replyChannelID := findMemberReplyChannel(members, mentionedAgent)
 		log.Debug("routing to @mentioned agent (no arbiter)", "agent_id", mentionedAgent, "reply_channel_id", replyChannelID)
 		if replyChannelID != "" && replyChannelID != observerChannelID {
-			log.Warn("mentioned agent's reply channel differs from observer, falling back to channel default",
+			log.Warn("mentioned agent's reply channel differs from observer, not responding",
 				"agent_id", mentionedAgent, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
-		} else {
-			rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, mentionedAgent, replyChannelID)
-			if err != nil {
-				log.Warn("failed to resolve @mentioned agent, falling back", "agent_id", mentionedAgent, "error", err)
-			} else {
-				return c.handleGroupResolved(ctx, rc, msg, command, args)
-			}
+			return "", false, nil, nil
 		}
+		rc, err := c.resolveGroupChat(ctx, msg, result.GroupID, mentionedAgent, replyChannelID)
+		if err != nil {
+			log.Warn("failed to resolve @mentioned agent", "agent_id", mentionedAgent, "error", err)
+			return "", false, nil, nil
+		}
+		return c.handleGroupResolved(ctx, rc, msg, command, args)
 	}
 
+	// No arbiter, no mention — fall back to channel default agent.
 	rc, err := c.resolve(ctx, msg)
 	if err != nil {
 		return "", false, nil, err
-	}
-	// Guard: if resolve() picked the same agent that was rejected by the
-	// cross-adapter check, don't respond — otherwise the guard is bypassed.
-	if rc.AgentID == channelAgentID && channelAgentID != "" {
-		replyChannelID := findMemberReplyChannel(members, channelAgentID)
-		if replyChannelID != "" && replyChannelID != observerChannelID {
-			log.Warn("fallback agent also rejected by cross-adapter guard, not responding",
-				"agent_id", channelAgentID, "reply_channel_id", replyChannelID, "observer_channel_id", observerChannelID)
-			return "", false, nil, nil
-		}
 	}
 	return c.handleGroupResolved(ctx, rc, msg, command, args)
 }

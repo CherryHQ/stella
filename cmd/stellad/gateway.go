@@ -209,6 +209,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	elStore := eventlog.NewStore(s.db)
 	adminSrv.SetEventLogStore(elStore)
+	adminSrv.SetArbiter(channel.NewArbiter(channel.ArbiterConfig{
+		MaxRepliesPerTrigger: 100,
+	}))
 	botRegistry := channel.NewBotIdentityRegistry()
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
