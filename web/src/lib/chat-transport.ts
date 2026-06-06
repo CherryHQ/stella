@@ -1,5 +1,6 @@
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
+import type { GroupMessage } from "@/lib/api-client/types.gen";
 import type { Message } from "./types";
 
 export function createSessionTransport(agentId: string, sessionId: string) {
@@ -16,6 +17,112 @@ export function createSessionTransport(agentId: string, sessionId: string) {
       return { body: { parts } };
     },
   });
+}
+
+export function createGroupTransport(groupId: string) {
+  return new DefaultChatTransport({
+    api: `/api/groups/${encodeURIComponent(groupId)}/messages`,
+    prepareSendMessagesRequest: ({ messages }) => {
+      const last = messages[messages.length - 1];
+      const text = last.parts
+        .filter(
+          (p): p is Extract<(typeof last.parts)[number], { type: "text" }> => p.type === "text",
+        )
+        .map((p) => p.text)
+        .join("");
+      return { body: { content: text } };
+    },
+  });
+}
+
+export interface AgentInfoData {
+  agentId: string;
+  agentName: string;
+}
+
+export function groupMessagesToUIMessages(
+  messages: GroupMessage[],
+  agentNameMap: Map<string, string>,
+): UIMessage[] {
+  const result: UIMessage[] = [];
+  let i = 0;
+
+  while (i < messages.length) {
+    const msg = messages[i];
+
+    if (msg.actor_type === "human") {
+      result.push({
+        id: `grp-${msg.id}`,
+        role: "user",
+        parts: [{ type: "text" as const, text: msg.content }],
+        metadata: { timestamp: msg.created_at },
+      });
+      i++;
+
+      const agentParts: UIMessage["parts"] = [];
+      let firstAgentId = "";
+
+      while (i < messages.length && messages[i].actor_type === "agent") {
+        const agentMsg = messages[i];
+        const agentName =
+          agentNameMap.get(agentMsg.actor_id) ?? agentMsg.actor_name ?? agentMsg.actor_id;
+
+        if (!firstAgentId) firstAgentId = agentMsg.id;
+
+        agentParts.push({ type: "step-start" as const });
+        agentParts.push({
+          type: "data-agent-info",
+          id: `ai-${agentMsg.id}`,
+          data: { agentId: agentMsg.actor_id, agentName },
+        } as UIMessage["parts"][number]);
+
+        if (agentMsg.reasoning) {
+          agentParts.push({ type: "reasoning", text: agentMsg.reasoning, providerMetadata: {} });
+        }
+        if (agentMsg.content) {
+          agentParts.push({ type: "text" as const, text: agentMsg.content });
+        }
+
+        i++;
+      }
+
+      if (agentParts.length > 0) {
+        result.push({
+          id: `grp-ast-${firstAgentId}`,
+          role: "assistant",
+          parts: agentParts,
+          metadata: { timestamp: messages[i - 1]?.created_at },
+        });
+      }
+    } else {
+      const agentMsg = messages[i];
+      const agentName =
+        agentNameMap.get(agentMsg.actor_id) ?? agentMsg.actor_name ?? agentMsg.actor_id;
+      const parts: UIMessage["parts"] = [
+        { type: "step-start" as const },
+        {
+          type: "data-agent-info",
+          id: `ai-${agentMsg.id}`,
+          data: { agentId: agentMsg.actor_id, agentName },
+        } as UIMessage["parts"][number],
+      ];
+      if (agentMsg.reasoning) {
+        parts.push({ type: "reasoning", text: agentMsg.reasoning, providerMetadata: {} });
+      }
+      if (agentMsg.content) {
+        parts.push({ type: "text" as const, text: agentMsg.content });
+      }
+      result.push({
+        id: `grp-ast-${agentMsg.id}`,
+        role: "assistant",
+        parts,
+        metadata: { timestamp: agentMsg.created_at },
+      });
+      i++;
+    }
+  }
+
+  return result;
 }
 
 /**

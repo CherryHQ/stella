@@ -1,23 +1,11 @@
 import { forwardRef, useMemo } from "react";
+import type { UIMessage } from "ai";
 import type { ContentBlock } from "@/lib/types";
+import type { AgentInfoData } from "@/lib/chat-transport";
 import { ChatTranscript, type TranscriptMessage } from "@/components/chat/ChatTranscript";
-import type { ToolCallState } from "./group-transport";
-
-export interface DisplayMessage {
-  id: string;
-  role: "user" | "assistant";
-  agentId?: string;
-  agentName?: string;
-  content: string;
-  reasoning?: string;
-  toolCalls?: ToolCallState[];
-  agentSessionId?: string;
-  timestamp?: string;
-  streaming?: boolean;
-}
 
 interface Props {
-  messages: DisplayMessage[];
+  messages: UIMessage[];
   loading?: boolean;
   onScroll?: () => void;
   agentNames?: Map<string, string>;
@@ -30,19 +18,8 @@ export const GroupTranscript = forwardRef<HTMLDivElement, Props>(function GroupT
   ref,
 ) {
   const transcriptMessages = useMemo(
-    (): TranscriptMessage[] =>
-      messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp,
-        agentName: msg.agentName,
-        agentId: msg.agentId,
-        blocks: toBlocks(msg),
-        streaming: msg.streaming,
-        agentSessionId: msg.agentSessionId,
-      })),
-    [messages],
+    () => uiMessagesToTranscriptMessages(messages, agentNames),
+    [messages, agentNames],
   );
 
   return (
@@ -58,24 +35,157 @@ export const GroupTranscript = forwardRef<HTMLDivElement, Props>(function GroupT
   );
 });
 
-function toBlocks(msg: DisplayMessage): ContentBlock[] {
-  const blocks: ContentBlock[] = [];
-  if (msg.reasoning) blocks.push({ type: "thinking", thinking: msg.reasoning });
-  if (msg.toolCalls) {
-    for (const tc of msg.toolCalls) {
-      blocks.push({
-        type: "tool_call",
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.input,
-        status: tc.output !== undefined ? "done" : "running",
-        result:
-          tc.output !== undefined
-            ? { tool_call_id: tc.id, content: tc.output, is_error: tc.isError ?? false }
-            : undefined,
+function uiMessagesToTranscriptMessages(
+  messages: UIMessage[],
+  agentNames?: Map<string, string>,
+): TranscriptMessage[] {
+  const result: TranscriptMessage[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      const text = msg.parts
+        .filter(
+          (p): p is Extract<(typeof msg.parts)[number], { type: "text" }> => p.type === "text",
+        )
+        .map((p) => p.text)
+        .join("");
+      result.push({
+        id: msg.id,
+        role: "user",
+        content: text,
+        timestamp: (msg.metadata as Record<string, unknown> | undefined)?.timestamp as
+          | string
+          | undefined,
+      });
+      continue;
+    }
+
+    const steps = splitBySteps(msg.parts);
+
+    if (steps.length === 0) {
+      const text = msg.parts
+        .filter(
+          (p): p is Extract<(typeof msg.parts)[number], { type: "text" }> => p.type === "text",
+        )
+        .map((p) => p.text)
+        .join("");
+      result.push({
+        id: msg.id,
+        role: "assistant",
+        content: text,
+        blocks: partsToBlocks(msg.parts),
+        streaming: msg.parts.some(
+          (p) => p.type === "text" && (p as Record<string, unknown>).state === "streaming",
+        ),
+      });
+      continue;
+    }
+
+    for (let si = 0; si < steps.length; si++) {
+      const stepParts = steps[si];
+      const info = extractAgentInfo(stepParts);
+      const agentId = info?.agentId;
+      const agentName = agentId
+        ? (agentNames?.get(agentId) ?? info?.agentName ?? agentId)
+        : undefined;
+
+      const text = stepParts
+        .filter(
+          (p): p is Extract<(typeof msg.parts)[number], { type: "text" }> => p.type === "text",
+        )
+        .map((p) => p.text)
+        .join("");
+
+      result.push({
+        id: `${msg.id}-step-${si}`,
+        role: "assistant",
+        content: text,
+        blocks: partsToBlocks(stepParts),
+        agentName,
+        agentId,
+        streaming: stepParts.some(
+          (p) => p.type === "text" && (p as Record<string, unknown>).state === "streaming",
+        ),
       });
     }
   }
-  if (msg.content) blocks.push({ type: "text", text: msg.content });
+
+  return result;
+}
+
+function splitBySteps(parts: UIMessage["parts"]): UIMessage["parts"][] {
+  const steps: UIMessage["parts"][] = [];
+  let current: UIMessage["parts"] | null = null;
+
+  for (const part of parts) {
+    if (part.type === "step-start") {
+      if (current !== null) steps.push(current);
+      current = [];
+      continue;
+    }
+    if (current !== null) {
+      current.push(part);
+    }
+  }
+  if (current !== null && current.length > 0) steps.push(current);
+  return steps;
+}
+
+function extractAgentInfo(parts: UIMessage["parts"]): AgentInfoData | null {
+  for (const part of parts) {
+    if (part.type === "data-agent-info") {
+      return (part as unknown as { data: AgentInfoData }).data;
+    }
+  }
+  return null;
+}
+
+type AnyToolPart = {
+  type: string;
+  toolCallId: string;
+  toolName?: string;
+  state: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+};
+
+function partsToBlocks(parts: UIMessage["parts"]): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  for (const part of parts) {
+    switch (part.type) {
+      case "text":
+        if (part.text) blocks.push({ type: "text", text: part.text });
+        break;
+      case "reasoning":
+        blocks.push({ type: "thinking", thinking: part.text });
+        break;
+      default:
+        if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
+          const tp = part as unknown as AnyToolPart;
+          const hasOutput = tp.state === "output-available" || tp.state === "output-error";
+          blocks.push({
+            type: "tool_call",
+            id: tp.toolCallId,
+            name: tp.toolName ?? "",
+            arguments: (tp.input as Record<string, unknown>) ?? {},
+            status: hasOutput ? "done" : "running",
+            result: hasOutput
+              ? {
+                  tool_call_id: tp.toolCallId,
+                  content:
+                    tp.state === "output-error"
+                      ? (tp.errorText ?? "error")
+                      : typeof tp.output === "string"
+                        ? tp.output
+                        : JSON.stringify(tp.output ?? ""),
+                  is_error: tp.state === "output-error",
+                }
+              : undefined,
+          });
+        }
+        break;
+    }
+  }
   return blocks;
 }

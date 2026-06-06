@@ -14,6 +14,10 @@ export interface ComposerSkill {
   description: string;
 }
 
+export const BUILTIN_COMMANDS: ComposerSkill[] = [
+  { name: "compact", description: "Compact session memory" },
+];
+
 interface Props {
   value: string;
   onChange: (value: string) => void;

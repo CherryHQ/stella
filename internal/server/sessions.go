@@ -148,6 +148,14 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
+	// Intercept slash commands before hitting the LLM.
+	if text, ok := msgContent.(string); ok {
+		if reply, handled := handleSessionCommand(ctx, svc, si, text); handled {
+			streamPlainReply(w, flusher, reply)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -1309,4 +1317,67 @@ func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m["content"] = text
 	m["is_error"] = env.Error != ""
 	return m
+}
+
+// parseCommand extracts the slash command from a message, returning the
+// lowercase command (e.g. "/compact") and true, or ("", false) if the
+// message is not a command.
+func parseCommand(text string) (string, bool) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return "", false
+	}
+	cmd := strings.ToLower(fields[0])
+	if !strings.HasPrefix(cmd, "/") {
+		return "", false
+	}
+	return cmd, true
+}
+
+// handleSessionCommand intercepts slash commands from the web UI so they
+// don't get sent to the LLM. Returns the reply text and true if handled.
+func handleSessionCommand(ctx context.Context, svc *agent.Service, si memory.SessionInfo, text string) (string, bool) {
+	cmd, ok := parseCommand(text)
+	if !ok {
+		return "", false
+	}
+	switch cmd {
+	case "/compact":
+		summary, err := svc.CompactSession(ctx, si)
+		if err != nil {
+			return fmt.Sprintf("Compaction failed: %v", err), true
+		}
+		return summary, true
+	default:
+		return "", false
+	}
+}
+
+// streamPlainReply writes a complete SSE stream for a simple text reply
+// (used by slash commands that bypass the LLM).
+func streamPlainReply(w http.ResponseWriter, flusher http.Flusher, text string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("X-Vercel-AI-UI-Message-Stream", "v1")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	write := func(v any) {
+		data, _ := json.Marshal(v)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	messageID := uuid.New().String()
+	textID := uuid.New().String()
+	write(map[string]string{"type": "start", "messageId": messageID})
+	write(map[string]string{"type": "start-step"})
+	write(map[string]string{"type": "text-start", "id": textID})
+	write(map[string]any{"type": "text-delta", "id": textID, "delta": text})
+	write(map[string]string{"type": "text-end", "id": textID})
+	write(map[string]string{"type": "finish-step"})
+	write(map[string]string{"type": "finish"})
+	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
 }

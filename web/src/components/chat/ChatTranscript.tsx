@@ -35,7 +35,8 @@ interface Annotated extends TranscriptMessage {
 function annotate(messages: TranscriptMessage[]): Annotated[] {
   return messages.map((msg, i) => ({
     ...msg,
-    sameRoleAsPrev: i > 0 && messages[i - 1].role === msg.role,
+    sameRoleAsPrev:
+      i > 0 && messages[i - 1].role === msg.role && messages[i - 1].agentId === msg.agentId,
     showTimestamp: i === messages.length - 1 || messages[i + 1].role !== msg.role,
   }));
 }

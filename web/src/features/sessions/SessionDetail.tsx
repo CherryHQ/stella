@@ -15,7 +15,7 @@ import {
   uiMessageToMessage,
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
-import { ChatComposer } from "./ChatComposer";
+import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
 
@@ -66,7 +66,10 @@ export function SessionDetail({
 
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
   const composerSkills = useMemo(
-    () => skills.map((s) => ({ name: s.name, description: s.description })),
+    () => [
+      ...BUILTIN_COMMANDS,
+      ...skills.map((s) => ({ name: s.name, description: s.description })),
+    ],
     [skills],
   );
 
