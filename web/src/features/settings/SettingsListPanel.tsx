@@ -4,9 +4,7 @@ import { cn } from "@/lib/utils";
 export function SettingsListHeader({ title, action }: { title: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-4 py-3">
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-        {title}
-      </span>
+      <span className="text-xs font-semibold text-muted-foreground">{title}</span>
       {action && <div className="shrink-0">{action}</div>}
     </div>
   );
