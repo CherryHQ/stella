@@ -146,14 +146,12 @@ export function RecallyReader({
     <div className="min-h-0 flex-1 overflow-auto bg-background">
       {!selectedId ? (
         <div className="flex h-full items-center justify-center px-8 py-12 text-center bg-background">
-          <div className="max-w-md w-full border border-border rounded-xl p-8 bg-card shadow-none">
+          <div className="max-w-md w-full border border-border rounded-xl p-8 bg-card">
             <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
               <BookOpen className="size-6" />
             </div>
-            <h3 className="text-base font-semibold text-foreground/90">
-              {t("recally.reader.empty")}
-            </h3>
-            <p className="text-xs text-muted-foreground/60 mt-1 max-w-72 mx-auto leading-relaxed">
+            <h3 className="text-base font-semibold text-foreground">{t("recally.reader.empty")}</h3>
+            <p className="text-xs text-muted-foreground mt-1 max-w-72 mx-auto leading-relaxed">
               Select an article or digest from the sidebar queue to start reading and chatting with
               AI.
             </p>
@@ -188,7 +186,7 @@ export function RecallyReader({
                 <button
                   onClick={onToggleChat}
                   className={cn(
-                    "inline-flex items-center justify-center p-2 rounded-lg border transition-colors duration-120 cursor-pointer gap-1.5 text-xs font-medium shadow-none",
+                    "inline-flex items-center justify-center p-2 rounded-lg border transition-colors duration-120 cursor-pointer gap-1.5 text-xs font-medium",
                     chatOpen
                       ? "bg-primary/10 text-primary border-primary/25"
                       : "bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted",
@@ -331,30 +329,30 @@ export function RecallyReader({
           </div>
 
           <article className="w-full">
-            <h2 className="mb-2 text-2xl font-bold leading-tight tracking-tight text-foreground/90 font-sans">
+            <h2 className="mb-2 text-2xl font-bold leading-tight tracking-tight text-foreground font-sans">
               {selectedArticle.title}
             </h2>
             {selectedArticle.author && (
-              <p className="mb-4 font-mono text-xs text-muted-foreground/70">
+              <p className="mb-4 font-mono text-xs text-muted-foreground">
                 {selectedArticle.author}
               </p>
             )}
 
             {/* Gorgeous Metadata Card */}
             {parsed.metadata && (parsed.metadata.url || parsed.metadata.publishedTime) && (
-              <div className="mb-5 rounded-xl border border-border bg-card p-4.5 text-xs text-muted-foreground/90 font-mono space-y-3.5 shadow-none">
+              <div className="mb-5 rounded-xl border border-border bg-card p-4.5 text-xs text-muted-foreground font-mono space-y-3.5">
                 {parsed.metadata.url && (
                   <div className="flex items-start gap-2.5">
                     <Link className="size-4 text-primary/75 shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
-                      <span className="text-[10px] uppercase font-bold text-muted-foreground/50 block tracking-wider leading-none mb-1">
+                      <span className="text-[10px] font-bold text-muted-foreground block leading-none mb-1">
                         Source URL
                       </span>
                       <a
                         href={parsed.metadata.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="truncate text-[11px] text-foreground/80 hover:text-primary transition-colors hover:underline block leading-tight"
+                        className="truncate text-[11px] text-foreground hover:text-primary transition-colors hover:underline block leading-tight"
                       >
                         {parsed.metadata.url}
                       </a>
@@ -365,10 +363,10 @@ export function RecallyReader({
                   <div className="flex items-start gap-2.5">
                     <Calendar className="size-4 text-primary/75 shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
-                      <span className="text-[10px] uppercase font-bold text-muted-foreground/50 block tracking-wider leading-none mb-1">
+                      <span className="text-[10px] font-bold text-muted-foreground block leading-none mb-1">
                         Published Time
                       </span>
-                      <span className="text-[11px] text-foreground/80 block leading-tight">
+                      <span className="text-[11px] text-foreground block leading-tight">
                         {parsed.metadata.publishedTime}
                       </span>
                     </div>
@@ -379,14 +377,14 @@ export function RecallyReader({
 
             {/* AI Summary card */}
             {selectedArticle.summary && (
-              <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4.5 shadow-none">
+              <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4.5">
                 <button
                   type="button"
                   onClick={() => setSummaryExpanded(!summaryExpanded)}
                   className="flex w-full items-center gap-1.5 focus:outline-none"
                 >
                   <Sparkles className="size-4 text-primary" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                  <span className="text-[11px] font-bold text-primary">
                     {t("recally.summary.label")}
                   </span>
                   <ChevronDown
@@ -399,7 +397,7 @@ export function RecallyReader({
                 {summaryExpanded && (
                   <MarkdownPreview
                     content={selectedArticle.summary}
-                    className="mt-2 text-foreground/90 leading-relaxed prose-headings:text-foreground prose-a:text-primary"
+                    className="mt-2 text-foreground leading-relaxed prose-headings:text-foreground prose-a:text-primary"
                   />
                 )}
               </div>
@@ -409,18 +407,18 @@ export function RecallyReader({
             {parsed.body ? (
               <MarkdownPreview
                 content={parsed.body}
-                className="prose-neutral text-foreground/90 leading-relaxed md:prose-base prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline font-sans text-[15px]"
+                className="prose-neutral text-foreground leading-relaxed md:prose-base prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline font-sans text-[15px]"
               />
             ) : (
-              <div className="rounded-xl border border-border bg-card p-6 text-center space-y-3 shadow-none">
+              <div className="rounded-xl border border-border bg-card p-6 text-center space-y-3">
                 <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">
                   <BookOpen className="size-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-semibold text-foreground/80">
+                  <h4 className="text-sm font-semibold text-foreground">
                     No article content parsed
                   </h4>
-                  <p className="text-xs text-muted-foreground/60 max-w-96 mx-auto mt-1 leading-normal">
+                  <p className="text-xs text-muted-foreground max-w-96 mx-auto mt-1 leading-normal">
                     This item has no body text. It could be a simple link, or require JavaScript to
                     render. You can read the summary or visit the original webpage.
                   </p>
