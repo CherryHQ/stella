@@ -41,13 +41,13 @@ function ModelComboField({
     <div className="relative">
       <div className="flex items-center justify-between mb-1.5">
         <label
-          className="text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+          className="text-xs font-semibold text-muted-foreground"
           htmlFor={`model-field-${field}`}
         >
           {label}
         </label>
         {optional && (
-          <span className="text-[10px] font-mono text-muted-foreground/50">
+          <span className="text-[10px] font-mono text-muted-foreground">
             ({t("common.optional")})
           </span>
         )}
@@ -68,12 +68,12 @@ function ModelComboField({
         }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder={placeholder}
-        className="text-sm font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+        className="text-sm font-mono"
         autoComplete="off"
         id={`model-field-${field}`}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-none py-1">
+        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
           {filtered.map((m) => (
             <button
               key={m.value}
@@ -117,6 +117,7 @@ function ChannelSelector({
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const unselected = channels.filter((ch) => !selectedIds.includes(ch.id));
@@ -124,26 +125,26 @@ function ChannelSelector({
 
   return (
     <div>
-      <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-        Dedicated channels
+      <label className="block text-xs font-semibold text-muted-foreground mb-1">
+        {t("agents.form.channels")}
       </label>
-      <p className="text-[11px] text-muted-foreground mb-2">
-        Bind channel instances to this agent.
-      </p>
+      <p className="text-[11px] text-muted-foreground mb-2">{t("agents.form.channelsDesc")}</p>
       <div ref={containerRef} className="relative">
         <div
-          className="min-h-9 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm cursor-pointer flex flex-wrap gap-1.5 items-center transition-all duration-120 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
+          className="min-h-9 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm cursor-pointer flex flex-wrap gap-1.5 items-center"
           onClick={() => setOpen((v) => !v)}
           onKeyDown={(e) => e.key === "Enter" && setOpen((v) => !v)}
           role="combobox"
           aria-expanded={open}
           tabIndex={0}
         >
-          {selected.length === 0 && <span className="text-muted-foreground">Select channels…</span>}
+          {selected.length === 0 && (
+            <span className="text-muted-foreground">{t("agents.form.selectChannels")}</span>
+          )}
           {selected.map((ch) => (
             <span
               key={ch.id}
-              className="inline-flex items-center gap-1 rounded-md bg-muted border border-border px-2 py-0.5 text-xs font-mono text-foreground/80"
+              className="inline-flex items-center gap-1 rounded-md bg-muted border border-border px-2 py-0.5 text-xs font-mono text-foreground"
             >
               {channelDisplayName(ch)}
               <button
@@ -162,7 +163,7 @@ function ChannelSelector({
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl shadow-none py-1">
+            <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
               {unselected.length === 0 && (
                 <div className="px-3 py-2 text-xs text-muted-foreground">
                   No more channels available.
@@ -178,10 +179,10 @@ function ChannelSelector({
                   className="w-full text-left px-3 py-1.5 hover:bg-muted/80 cursor-pointer flex items-center justify-between transition-colors duration-120"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground/90 truncate">
+                    <p className="text-sm font-medium text-foreground truncate">
                       {channelDisplayName(ch)}
                     </p>
-                    <p className="text-[10px] text-muted-foreground/50 font-mono truncate">
+                    <p className="text-[10px] text-muted-foreground font-mono truncate">
                       {ch.type}
                     </p>
                   </div>
@@ -219,27 +220,27 @@ export function ConfigTab({ state, onSetState }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+        <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
           {t("common.name")}
         </label>
         <Input
           nativeInput
           value={form.name}
           onChange={(e) => setForm({ name: (e.target as HTMLInputElement).value })}
-          placeholder="My Agent"
-          className="text-sm transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+          placeholder={t("agents.form.namePlaceholder")}
+          className="text-sm"
         />
       </div>
       <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1">
-          <span>Models</span>
-          <span className="normal-case tracking-normal text-muted-foreground/50 font-normal">
-            — provider/model
+        <p className="text-xs font-semibold text-muted-foreground mb-3 flex items-center gap-1">
+          <span>{t("agents.form.models")}</span>
+          <span className="text-muted-foreground font-normal">
+            — {t("agents.form.modelProvider")}
           </span>
         </p>
         <div className="space-y-4">
           <ModelComboField
-            label="Default"
+            label={t("agents.form.modelDefault")}
             field="model"
             value={form.model ?? ""}
             placeholder="anthropic/claude-..."
@@ -248,19 +249,19 @@ export function ConfigTab({ state, onSetState }: Props) {
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ModelComboField
-              label="Strong"
+              label={t("agents.form.modelStrong")}
               field="model_strong"
               value={form.model_strong ?? ""}
-              placeholder="Falls back to default"
+              placeholder={t("agents.form.modelFallback")}
               optional
               cachedModels={cachedModels}
               onChange={(v) => setForm({ model_strong: v })}
             />
             <ModelComboField
-              label="Fast"
+              label={t("agents.form.modelFast")}
               field="model_fast"
               value={form.model_fast ?? ""}
-              placeholder="Falls back to default"
+              placeholder={t("agents.form.modelFallback")}
               optional
               cachedModels={cachedModels}
               onChange={(v) => setForm({ model_fast: v })}
@@ -270,16 +271,16 @@ export function ConfigTab({ state, onSetState }: Props) {
       </div>
       {isAdmin && (
         <div>
-          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-            Scope
+          <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+            {t("agents.form.scope")}
           </label>
           <select
             value={form.scope}
             onChange={(e) => setForm({ scope: e.target.value as "system" | "restricted" })}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 cursor-pointer"
           >
-            <option value="system">system — all users can access</option>
-            <option value="restricted">restricted — only assigned users</option>
+            <option value="system">{t("agents.form.scopeSystem")}</option>
+            <option value="restricted">{t("agents.form.scopeRestricted")}</option>
           </select>
         </div>
       )}
@@ -297,7 +298,7 @@ export function ConfigTab({ state, onSetState }: Props) {
             checked={form.enabled}
             onCheckedChange={(checked) => setForm({ enabled: checked })}
           />
-          <span className="text-sm font-medium text-foreground/80">Enabled</span>
+          <span className="text-sm font-medium text-foreground">{t("agents.form.enabled")}</span>
         </label>
       </div>
     </div>

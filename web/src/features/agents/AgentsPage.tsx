@@ -41,6 +41,9 @@ import type {
 } from "@/lib/types";
 import { fetchAllAuthUsers } from "@/lib/auth-users";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useI18n } from "@/lib/i18n";
 import { AgentList } from "./AgentList";
 import { AgentForm } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
@@ -49,27 +52,10 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
 import { ArrowLeft, Plus } from "lucide-react";
 
-type Toast = { message: string; type: "success" | "error" } | null;
-
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
 
 function profileMemories(value: unknown) {
   return (value as ProfileMemory[]) ?? [];
-}
-
-function ToastAlert({ toast }: { toast: Toast }) {
-  if (!toast) return null;
-  return (
-    <div
-      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-lg border px-4 py-3 shadow-none text-sm font-medium ${
-        toast.type === "error"
-          ? "border-destructive/20 bg-destructive/10 text-destructive-foreground"
-          : "border-success/20 bg-success/10 text-success-foreground"
-      }`}
-    >
-      {toast.message}
-    </div>
-  );
 }
 
 export function normalizeSandbox(sandbox: unknown): AgentSandbox {
@@ -337,12 +323,8 @@ export function AgentsPage() {
       loaded: false,
     },
   });
-  const [toast, setToast] = useState<Toast>(null);
-
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
+  const { toasts, showToast } = useToast();
+  const { t } = useI18n();
 
   const set = useCallback((patch: Partial<AgentsPageState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -1098,31 +1080,26 @@ export function AgentsPage() {
       <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
         {state.showForm ? (
           <div className="space-y-4">
-            <button
-              onClick={resetForm}
-              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
-            >
-              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
-              Back to Agents
-            </button>
-            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-none">
-              {detail}
-            </div>
+            <Button onClick={resetForm} variant="ghost" size="sm">
+              <ArrowLeft className="size-3.5" />
+              {t("agents.backToAgents")}
+            </Button>
+            <Card className="overflow-hidden">{detail}</Card>
           </div>
         ) : (
           <div className="space-y-8">
             <SettingsPageHeader
-              title="Agents"
-              description="Create and configure agent profiles with custom models, prompts, souls, and installed skills."
+              title={t("agents.title")}
+              description={t("agents.pageDesc")}
               action={
                 <Button
                   onClick={startCreate}
                   variant="premium"
                   size="sm"
-                  className="group flex items-center gap-1.5"
+                  className="flex items-center gap-1.5"
                 >
-                  <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
-                  Add agent
+                  <Plus className="size-4 shrink-0" />
+                  {t("agents.addAgent")}
                 </Button>
               }
             />
@@ -1165,7 +1142,7 @@ export function AgentsPage() {
           onCancel={() => setState((prev) => ({ ...prev, confirmMsg: "" }))}
         />
       )}
-      <ToastAlert toast={toast} />
+      <ToastContainer messages={toasts} />
     </div>
   );
 }

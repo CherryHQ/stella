@@ -1,6 +1,7 @@
 import { normalizeSandbox } from "../AgentsPage";
 import type { AgentsPageState } from "../AgentsPage";
 import { Textarea } from "@/components/ui/textarea";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   state: AgentsPageState;
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function AdvancedTab({ state, onSetState }: Props) {
+  const { t } = useI18n();
   const { form } = state;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
@@ -33,8 +35,8 @@ export function AdvancedTab({ state, onSetState }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-          Network Policy
+        <p className="text-xs font-semibold text-muted-foreground mb-1.5">
+          {t("agents.form.networkPolicy")}
         </p>
         <p className="text-xs text-muted-foreground">
           Sandbox backend is configured on the{" "}
@@ -48,8 +50,8 @@ export function AdvancedTab({ state, onSetState }: Props) {
         </p>
       </div>
       <div>
-        <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-          Network Mode
+        <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+          {t("agents.form.networkMode")}
         </label>
         <select
           value={networkMode}
@@ -63,7 +65,7 @@ export function AdvancedTab({ state, onSetState }: Props) {
               }),
             })
           }
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer text-foreground/80 font-medium"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 cursor-pointer text-foreground font-medium"
         >
           <option value="disabled">disabled — block outbound network</option>
           <option value="allow_all">allow_all — allow outbound network</option>
@@ -72,19 +74,17 @@ export function AdvancedTab({ state, onSetState }: Props) {
       </div>
       {networkMode === "whitelist" && (
         <div>
-          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-            Allowlist
+          <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+            {t("agents.form.allowlist")}
           </label>
           <Textarea
             value={allowlistText}
             onChange={(e) => updateSandboxAllowlist((e.target as HTMLTextAreaElement).value)}
             placeholder={"api.github.com\npypi.org\n10.0.0.0/8"}
             rows={4}
-            className="text-sm font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+            className="text-sm font-mono"
           />
-          <p className="mt-1.5 text-xs text-warning">
-            Runtime whitelist support depends on your sandbox backend version.
-          </p>
+          <p className="mt-1.5 text-xs text-warning">{t("agents.form.allowlistHint")}</p>
         </div>
       )}
     </div>

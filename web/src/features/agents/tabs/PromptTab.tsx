@@ -22,8 +22,8 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
     <div className="space-y-6">
       {builtinSouls.length > 0 && (
         <div>
-          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Soul preset
+          <label className="block text-xs font-semibold text-muted-foreground mb-2">
+            {t("agents.form.soulPreset")}
           </label>
           <div className="flex flex-wrap gap-2">
             {builtinSouls.map((soul) => (
@@ -31,7 +31,7 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
                 key={soul.id}
                 render={<button type="button" title={soul.description} />}
                 variant={selectedSoulID === soul.id ? "default" : "outline"}
-                className="cursor-pointer font-sans rounded-full px-3 py-1 text-xs transition-all duration-120 hover:border-foreground/20"
+                className="cursor-pointer"
                 onClick={() => {
                   onSetState({ selectedSoulID: soul.id });
                   onApplySoul(soul.id);
@@ -44,22 +44,20 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
         </div>
       )}
       <div>
-        <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-          Soul
+        <label className="block text-xs font-semibold text-muted-foreground mb-1">
+          {t("agents.form.soul")}
         </label>
-        <p className="text-[11px] text-muted-foreground mb-2">
-          Default personality for all users. Each user can override their own.
-        </p>
+        <p className="text-[11px] text-muted-foreground mb-2">{t("agents.form.soulDesc")}</p>
         <Textarea
           value={form.soul}
           onChange={(e) => setForm({ soul: (e.target as HTMLTextAreaElement).value })}
           rows={3}
-          placeholder="Personality and behavior tone..."
-          className="text-sm font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+          placeholder={t("agents.form.soulPlaceholder")}
+          className="text-sm font-mono"
         />
       </div>
       <div>
-        <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+        <label className="block text-xs font-semibold text-muted-foreground mb-2">
           {t("agents.form.systemPrompt")}
         </label>
         <Textarea
@@ -67,7 +65,7 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
           onChange={(e) => setForm({ system_prompt: (e.target as HTMLTextAreaElement).value })}
           rows={10}
           disabled={!canEdit}
-          className="text-sm font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+          className="text-sm font-mono"
         />
       </div>
     </div>

@@ -56,9 +56,9 @@ export function AgentForm({
 
   return (
     <div className="min-w-0 flex flex-col bg-card">
-      <div className="border-b border-border px-6 py-4 bg-muted/10">
-        <span className="font-medium text-sm text-foreground/90">
-          {editingId ? `Edit: ${form.name}` : "New agent"}
+      <div className="border-b border-border px-6 py-4">
+        <span className="font-medium text-sm text-foreground">
+          {editingId ? t("agents.form.editAgent", { name: form.name }) : t("agents.form.newAgent")}
         </span>
       </div>
       <Tabs
@@ -79,23 +79,11 @@ export function AgentForm({
           variant="underline"
           className="w-full justify-start px-6 border-b border-border rounded-none bg-transparent gap-2 h-11"
         >
-          <TabsTrigger value="config" className="cursor-pointer text-xs">
-            {t("agents.tabs.config")}
-          </TabsTrigger>
-          <TabsTrigger value="prompt" className="cursor-pointer text-xs">
-            {t("agents.tabs.prompt")}
-          </TabsTrigger>
-          <TabsTrigger value="skills" className="cursor-pointer text-xs">
-            {t("agents.tabs.skills")}
-          </TabsTrigger>
-          <TabsTrigger value="advanced" className="cursor-pointer text-xs">
-            {t("agents.tabs.advanced")}
-          </TabsTrigger>
-          {isAdmin && (
-            <TabsTrigger value="users" className="cursor-pointer text-xs">
-              {t("agents.tabs.users")}
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="config">{t("agents.tabs.config")}</TabsTrigger>
+          <TabsTrigger value="prompt">{t("agents.tabs.prompt")}</TabsTrigger>
+          <TabsTrigger value="skills">{t("agents.tabs.skills")}</TabsTrigger>
+          <TabsTrigger value="advanced">{t("agents.tabs.advanced")}</TabsTrigger>
+          {isAdmin && <TabsTrigger value="users">{t("agents.tabs.users")}</TabsTrigger>}
         </TabsList>
         <div className="p-6 space-y-6">
           <TabsContent value="config">
@@ -131,7 +119,7 @@ export function AgentForm({
           </TabsContent>
         </div>
       </Tabs>
-      <div className="border-t border-border px-6 py-4 flex items-center justify-end gap-2 bg-muted/10">
+      <div className="border-t border-border px-6 py-4 flex items-center justify-end gap-2">
         <Button onClick={onCancel} variant="ghost" size="sm" className="cursor-pointer">
           {t("common.cancel")}
         </Button>

@@ -29,45 +29,41 @@ export function PersonalTab({ state, onSetState, onSaveSoul, onSaveProfile }: Pr
   return (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-mono mb-1">Soul override</label>
-        <p className="text-xs text-muted-foreground mb-1">
-          Your personal soul for this agent. Replaces the agent default for your sessions only.
-        </p>
+        <label className="block text-sm font-medium mb-1">{t("sessions.soul.title")}</label>
+        <p className="text-xs text-muted-foreground mb-1">{t("sessions.soul.subtitle")}</p>
         <Textarea
           value={personalisation.soulDraft}
           onChange={(e) => setPers({ soulDraft: (e.target as HTMLTextAreaElement).value })}
           rows={3}
-          placeholder="Customise this agent's personality for yourself..."
-          className="text-sm font-mono"
+          placeholder={t("sessions.soul.placeholder")}
+          className="font-mono"
         />
         <Button
           onClick={onSaveSoul}
           disabled={personalisation.soulDraft === personalisation.soul}
-          variant="ghost"
+          variant="link"
           size="xs"
-          className="text-primary mt-1"
+          className="mt-1"
         >
           {t("common.save")}
         </Button>
       </div>
       <div>
-        <label className="block text-sm font-mono mb-1">User profile</label>
-        <p className="text-xs text-muted-foreground mb-1">
-          What this agent knows about you across conversations.
-        </p>
+        <label className="block text-sm font-medium mb-1">{t("sessions.memory.title")}</label>
+        <p className="text-xs text-muted-foreground mb-1">{t("sessions.memory.context")}</p>
         <Textarea
           value={personalisation.profileDraft}
           onChange={(e) => setPers({ profileDraft: (e.target as HTMLTextAreaElement).value })}
           rows={3}
-          placeholder="Add context about yourself for this agent..."
-          className="text-sm font-mono"
+          placeholder={t("sessions.memory.placeholder")}
+          className="font-mono"
         />
         <Button
           onClick={onSaveProfile}
           disabled={personalisation.profileDraft === personalisation.profile}
-          variant="ghost"
+          variant="link"
           size="xs"
-          className="text-primary mt-1"
+          className="mt-1"
         >
           {t("common.save")}
         </Button>

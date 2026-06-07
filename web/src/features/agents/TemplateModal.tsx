@@ -7,6 +7,8 @@ import {
   DialogDescription,
   DialogPanel,
 } from "@/components/ui/dialog";
+import { Card } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   templates: BuiltinItem[];
@@ -16,6 +18,7 @@ interface Props {
 }
 
 export function TemplateModal({ templates, onPick, onPickBlank, onClose }: Props) {
+  const { t } = useI18n();
   return (
     <Dialog
       open
@@ -25,48 +28,47 @@ export function TemplateModal({ templates, onPick, onPickBlank, onClose }: Props
     >
       <DialogPopup className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Start from a template</DialogTitle>
-          <DialogDescription>
-            Templates pre-fill the system prompt, skills, and model. You can edit everything before
-            saving.
-          </DialogDescription>
+          <DialogTitle>{t("agents.template.startFrom")}</DialogTitle>
+          <DialogDescription>{t("agents.template.templateDesc")}</DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {templates.map((tmpl) => (
-              <button
+              <Card
                 key={tmpl.id}
+                render={<button type="button" />}
                 onClick={() => onPick(tmpl)}
-                type="button"
-                className="text-left border border-border bg-card hover:border-foreground/20 hover:bg-muted/10 rounded-xl p-4 transition-all duration-120 cursor-pointer shadow-none flex flex-col justify-between"
+                className="p-4 cursor-pointer hover:border-foreground/20 text-left"
               >
                 <div>
-                  <p className="font-semibold text-sm text-foreground/90">{tmpl.name}</p>
-                  <p className="text-[10px] text-muted-foreground/50 font-mono mt-1 flex items-center gap-1">
-                    <span className="uppercase tracking-wider">Template:</span>
+                  <p className="font-semibold text-sm text-foreground">{tmpl.name}</p>
+                  <p className="text-[10px] text-muted-foreground font-mono mt-1 flex items-center gap-1">
+                    <span>Template:</span>
                     <span>{tmpl.id}</span>
                   </p>
                 </div>
-                <p className="text-xs text-muted-foreground/80 leading-relaxed mt-3">
+                <p className="text-xs text-muted-foreground leading-relaxed mt-3">
                   {tmpl.description}
                 </p>
-              </button>
+              </Card>
             ))}
-            <button
+            <Card
+              render={<button type="button" />}
               onClick={onPickBlank}
-              type="button"
-              className="text-left border border-dashed border-border bg-transparent hover:border-foreground/20 hover:bg-muted/10 rounded-xl p-4 transition-all duration-120 cursor-pointer flex flex-col justify-between"
+              className="p-4 cursor-pointer hover:border-foreground/20 text-left border-dashed"
             >
               <div>
-                <p className="font-semibold text-sm text-foreground/90">Blank</p>
-                <p className="text-[10px] text-muted-foreground/50 font-mono mt-1 uppercase tracking-wider">
-                  Empty Slate
+                <p className="font-semibold text-sm text-foreground">
+                  {t("agents.template.blank")}
+                </p>
+                <p className="text-[10px] text-muted-foreground font-mono mt-1">
+                  {t("agents.template.blankSlate")}
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground/80 leading-relaxed mt-3">
-                Configure everything yourself from scratch.
+              <p className="text-xs text-muted-foreground leading-relaxed mt-3">
+                {t("agents.template.blankDesc")}
               </p>
-            </button>
+            </Card>
           </div>
         </DialogPanel>
       </DialogPopup>

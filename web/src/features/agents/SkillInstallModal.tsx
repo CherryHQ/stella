@@ -86,57 +86,55 @@ export function SkillInstallModal({
       <DialogPopup className="max-w-5xl" showCloseButton={false}>
         <div className="border-b border-border px-6 py-5 flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <DialogTitle>Add a skill</DialogTitle>
-            <DialogDescription>
-              Install from the catalog or upload your own skill bundle.
-            </DialogDescription>
+            <DialogTitle>{t("agents.skills.addSkill")}</DialogTitle>
+            <DialogDescription>{t("agents.skills.addSkillDesc")}</DialogDescription>
           </div>
           <Button onClick={onClose} variant="ghost" size="icon-sm" className="cursor-pointer">
             ✕
           </Button>
         </div>
-        <div className="px-6 py-4 border-b border-border space-y-2.5 bg-muted/10">
-          <label className="text-[10px] font-semibold text-muted-foreground block uppercase tracking-wider">
-            Install target
+        <div className="px-6 py-4 border-b border-border space-y-2.5">
+          <label className="text-[10px] font-semibold text-muted-foreground block">
+            {t("agents.skills.installTarget")}
           </label>
-          <div className="flex items-center bg-muted/30 border border-border p-0.5 rounded-lg w-fit">
+          <div className="flex items-center border border-border p-0.5 rounded-lg w-fit">
             {canInstallAgentSkills && (
               <button
                 type="button"
                 onClick={() => onSetScope("agent")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
                   skillInstallScope === "agent"
-                    ? "bg-card text-foreground shadow-none border border-border/10"
+                    ? "bg-card text-foreground border border-border/10"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Only this agent
+                {t("agents.skills.onlyThisAgent")}
               </button>
             )}
             <button
               type="button"
               onClick={() => onSetScope("user")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
+              className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer ${
                 skillInstallScope === "user"
-                  ? "bg-card text-foreground shadow-none border border-border/10"
+                  ? "bg-card text-foreground border border-border/10"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              My profile
+              {t("agents.skills.myProfile")}
             </button>
           </div>
           {!canInstallAgentSkills && (
-            <p className="text-xs text-muted-foreground/60">
-              Agent-only install is available after the agent is saved, and only for admins.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("agents.skills.agentOnlyHint")}</p>
           )}
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] gap-0">
           <section className="p-6 min-w-0 xl:border-r border-border space-y-5">
             <div className="space-y-1">
-              <h4 className="font-semibold text-sm text-foreground/90">Browse catalog</h4>
+              <h4 className="font-semibold text-sm text-foreground">
+                {t("agents.skills.browseCatalog")}
+              </h4>
               <p className="text-xs text-muted-foreground">
-                Search public skills and install in one click.
+                {t("agents.skills.browseCatalogDesc")}
               </p>
             </div>
             <Input
@@ -149,8 +147,7 @@ export function SkillInstallModal({
                 searchTimerRef.current = setTimeout(() => doSearch(q), 300);
               }}
               type="text"
-              placeholder="Search skills..."
-              className="transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+              placeholder={t("agents.skills.searchPlaceholder")}
               autoFocus
             />
             {searching && (
@@ -163,19 +160,19 @@ export function SkillInstallModal({
                 {searchResults.map((s) => (
                   <div
                     key={s.id}
-                    className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-none transition-colors duration-120 hover:border-foreground/10"
+                    className="rounded-xl border border-border bg-card p-4 space-y-3 transition-colors hover:border-foreground/10"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-mono text-sm font-medium truncate text-foreground/90">
+                          <p className="font-mono text-sm font-medium truncate text-foreground">
                             {s.name || s.skillId}
                           </p>
                           <span className="text-xs text-muted-foreground">
                             {s.installs} installs
                           </span>
                         </div>
-                        <p className="text-[10px] text-muted-foreground/60 font-mono truncate mt-1">
+                        <p className="text-[10px] text-muted-foreground font-mono truncate mt-1">
                           {s.source}@{s.skillId}
                         </p>
                       </div>
@@ -190,7 +187,7 @@ export function SkillInstallModal({
                       </Button>
                     </div>
                     {s.description && (
-                      <p className="text-xs text-muted-foreground/80 leading-relaxed">
+                      <p className="text-xs text-muted-foreground leading-relaxed">
                         {s.description}
                       </p>
                     )}
@@ -200,17 +197,17 @@ export function SkillInstallModal({
             )}
             {!searching && searchResults.length === 0 && searchQuery && (
               <div className="rounded-xl border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
-                No skills found for that search.
+                {t("agents.skills.noSkillsFound")}
               </div>
             )}
             {!searching && !searchQuery && (
               <div className="rounded-xl border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
-                Start typing to search the catalog.
+                {t("agents.skills.startTyping")}
               </div>
             )}
             <div className="space-y-2 pt-2 border-t border-border/10">
-              <h4 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">
-                Or install from source
+              <h4 className="font-semibold text-xs text-muted-foreground">
+                {t("agents.skills.installFromSource")}
               </h4>
               <div className="flex gap-2">
                 <Input
@@ -220,7 +217,7 @@ export function SkillInstallModal({
                   type="text"
                   placeholder="source@skill-id"
                   size="sm"
-                  className="flex-1 font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+                  className="flex-1 font-mono"
                 />
                 <Button
                   onClick={() => handleInstall(installSource)}
@@ -234,14 +231,14 @@ export function SkillInstallModal({
               </div>
             </div>
           </section>
-          <section className="p-6 space-y-5 bg-muted/5">
+          <section className="p-6 space-y-5">
             <div className="space-y-1">
-              <h4 className="font-semibold text-sm text-foreground/90">Upload zip</h4>
-              <p className="text-xs text-muted-foreground">
-                Import a skill you already have on disk.
-              </p>
+              <h4 className="font-semibold text-sm text-foreground">
+                {t("agents.skills.uploadZip")}
+              </h4>
+              <p className="text-xs text-muted-foreground">{t("agents.skills.uploadDesc")}</p>
             </div>
-            <label className="block rounded-xl border border-dashed border-border bg-card/50 px-5 py-8 text-center cursor-pointer hover:border-foreground/20 hover:bg-muted/10 transition-all duration-120">
+            <label className="block rounded-xl border border-dashed border-border bg-card px-5 py-8 text-center cursor-pointer hover:border-foreground/20">
               <input
                 onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
                 type="file"
@@ -249,19 +246,18 @@ export function SkillInstallModal({
                 className="hidden"
               />
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-foreground/80">
-                  {uploadFile ? uploadFile.name : "Choose a .zip file"}
+                <div className="text-sm font-semibold text-foreground">
+                  {uploadFile ? uploadFile.name : t("agents.skills.chooseZip")}
                 </div>
-                <p className="text-[11px] text-muted-foreground/75 leading-relaxed">
-                  Must contain exactly one skill folder with{" "}
-                  <span className="font-mono">SKILL.md</span>.
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {t("agents.skills.zipRequirement")}
                 </p>
                 <Button variant="ghost" size="sm" className="pointer-events-none">
-                  Browse files
+                  {t("agents.skills.browseFiles")}
                 </Button>
               </div>
             </label>
-            <ul className="text-[11px] text-muted-foreground/70 space-y-1.5 list-disc pl-4">
+            <ul className="text-[11px] text-muted-foreground space-y-1.5 list-disc pl-4">
               <li>
                 <span className="font-mono">.zip</span> only
               </li>
@@ -276,7 +272,7 @@ export function SkillInstallModal({
               loading={uploading}
               className="w-full cursor-pointer"
             >
-              Upload skill
+              {t("agents.skills.uploadSkill")}
             </Button>
           </section>
         </div>

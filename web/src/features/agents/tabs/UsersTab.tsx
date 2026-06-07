@@ -17,16 +17,14 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
 
   return (
     <div className="space-y-6">
-      <p className="text-[11px] text-muted-foreground">
-        Manage user access for restricted-scope agents.
-      </p>
+      <p className="text-[11px] text-muted-foreground">{t("agents.users.desc")}</p>
       <div className="divide-y divide-border/60 border-t border-b border-border/40">
         {assignedUsers.map((u) => (
           <div
             key={u.id}
-            className="flex items-center justify-between py-2.5 px-1 hover:bg-muted/10 transition-colors duration-120"
+            className="flex items-center justify-between py-2.5 px-1 hover:bg-muted/10"
           >
-            <span className="text-xs font-mono text-foreground/80">{u.name || u.email}</span>
+            <span className="text-xs font-mono text-foreground">{u.name || u.email}</span>
             <Button
               onClick={() => onRemoveUser(u.id)}
               variant="ghost"
@@ -47,9 +45,9 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
         <select
           value={addUserId}
           onChange={(e) => onSetState({ addUserId: e.target.value })}
-          className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer text-foreground/80 font-medium"
+          className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 cursor-pointer text-foreground font-medium"
         >
-          <option value="">Select user...</option>
+          <option value="">{t("agents.users.selectUser")}</option>
           {availableUsers.map((u) => (
             <option key={u.id} value={u.id}>
               {u.name || u.email}
