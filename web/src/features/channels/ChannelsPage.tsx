@@ -432,8 +432,8 @@ function ChannelDetail({
       <ConfirmDialog
         open={confirmDeleteOpen}
         onOpenChange={setConfirmDeleteOpen}
-        title="Delete channel"
-        message={`Delete channel ${channel.id}?`}
+        title={t("channels.deleteChannel")}
+        message={t("channels.deleteChannelMsg", { id: channel.id })}
         onConfirm={() => onDelete(channel.id)}
       />
     </DetailPanel>
@@ -469,29 +469,27 @@ function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewC
     <DetailPanel
       onSave={() => onAdd(draft)}
       onCancel={onCancel}
-      saveLabel="Add Channel"
+      saveLabel={t("channels.addChannel")}
       cancelLabel={t("common.cancel")}
       isSaving={creating}
-      isSavingLabel="Adding..."
+      isSavingLabel={t("channels.adding")}
       canSave={canSubmit}
     >
       <DetailPanelHeader
-        title="New Channel"
-        subtitle={
-          <p className="text-sm text-muted-foreground">Connect Stella to a messaging platform.</p>
-        }
+        title={t("channels.newChannel")}
+        subtitle={<p className="text-sm text-muted-foreground">{t("channels.connectDesc")}</p>}
       />
 
       <div className="space-y-4">
         <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium">Platform</label>
+          <label className="text-sm font-medium">{t("channels.platform")}</label>
           <select
             value={(draft.type as string) || ""}
             onChange={(e) => updateField("type", e.target.value)}
             className={selectClassName}
           >
             <option value="" disabled>
-              Select platform...
+              {t("channels.selectPlatform")}
             </option>
             {channelTypes.map((ct) => (
               <option key={ct.id} value={ct.id}>

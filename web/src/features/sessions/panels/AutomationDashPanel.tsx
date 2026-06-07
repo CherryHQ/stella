@@ -100,7 +100,7 @@ export function AutomationDashPanel({
           {t("sessions.sidebar.work")}
         </h1>
         <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-          Board
+          {t("automations.board")}
         </span>
       </div>,
     );
@@ -112,7 +112,7 @@ export function AutomationDashPanel({
           onClick={onCreateJob}
           className="h-8 rounded-lg px-2.5 text-xs text-muted-foreground"
         >
-          Schedule
+          {t("automations.scheduleBtn")}
         </Button>
         <Button
           size="sm"
@@ -129,7 +129,7 @@ export function AutomationDashPanel({
           >
             <path d="M12 5v14M5 12h14" />
           </svg>
-          New Task
+          {t("automations.newTaskBtn")}
         </Button>
       </div>,
     );
@@ -227,8 +227,8 @@ export function AutomationDashPanel({
     () => [
       {
         id: "needs",
-        title: "Needs you",
-        detail: "Blocked, review, or failed",
+        title: t("automations.dash.needsYou"),
+        detail: t("automations.dash.needsYouDetail"),
         items: [
           ...tasks
             .filter(
@@ -245,8 +245,8 @@ export function AutomationDashPanel({
       },
       {
         id: "running",
-        title: "Running",
-        detail: "Active tasks and runs",
+        title: t("automations.dash.running"),
+        detail: t("automations.dash.runningDetail"),
         items: [
           ...tasks
             .filter((task) => task.status === "running")
@@ -258,22 +258,22 @@ export function AutomationDashPanel({
       },
       {
         id: "queued",
-        title: "Queued",
-        detail: "Ready but not started",
+        title: t("automations.dash.queued"),
+        detail: t("automations.dash.queuedDetail"),
         items: tasks
           .filter((task) => task.status === "draft" || task.status === "ready")
           .map((task): BoardItem => ({ kind: "task", task })),
       },
       {
         id: "scheduled",
-        title: "Scheduled",
-        detail: "Enabled recurring work",
+        title: t("automations.dash.scheduled"),
+        detail: t("automations.dash.scheduledDetail"),
         items: schedulerJobs
           .filter((job) => job.enabled)
           .map((job): BoardItem => ({ kind: "schedule", job })),
       },
     ],
-    [runs, schedulerJobs, tasks],
+    [runs, schedulerJobs, tasks, t],
   );
 
   const openTask = useCallback(
@@ -381,6 +381,7 @@ function KanbanColumn({
   onOpenJob: (job: SchedulerJob) => void;
   onOpenRun: (run: RunWithMeta) => void;
 }) {
+  const { t } = useI18n();
   return (
     <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/55">
       <div className="shrink-0 border-b border-border/60 px-3 py-2.5">
@@ -395,7 +396,7 @@ function KanbanColumn({
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {items.length === 0 ? (
           <div className="grid h-24 place-items-center rounded-xl border border-dashed border-border/70 text-[11px] text-muted-foreground">
-            Empty
+            {t("automations.dash.empty")}
           </div>
         ) : (
           <div className="grid gap-2">
@@ -436,6 +437,7 @@ function KanbanColumn({
 }
 
 function TaskKanbanCard({ task, onClick }: { task: ComponentsTask; onClick: () => void }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -449,7 +451,7 @@ function TaskKanbanCard({ task, onClick }: { task: ComponentsTask; onClick: () =
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           <StatusDot status={task.status} />
-          {formatStatus(task.status)}
+          {formatStatus(task.status, t)}
         </span>
         {task.priority === "urgent" && (
           <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[9px] font-medium text-destructive">
@@ -464,7 +466,7 @@ function TaskKanbanCard({ task, onClick }: { task: ComponentsTask; onClick: () =
         </p>
       )}
       <p className="mt-2 font-mono text-[10px] text-muted-foreground">
-        updated {formatTime(task.updated_at)}
+        {t("automations.dash.updated", { time: formatTime(task.updated_at) })}
       </p>
     </button>
   );
@@ -479,6 +481,7 @@ function RunKanbanCard({
   selected: boolean;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -491,7 +494,7 @@ function RunKanbanCard({
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           <RunStatusDot status={run.status} />
-          run
+          {t("automations.dash.run")}
         </span>
         <span className="font-mono text-[10px] text-muted-foreground">
           {formatTime(run.started_at)}
@@ -519,6 +522,7 @@ function ScheduleKanbanCard({
   selected: boolean;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -530,7 +534,7 @@ function ScheduleKanbanCard({
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
-          schedule
+          {t("automations.dash.schedule")}
         </span>
         <span className="font-mono text-[10px] text-muted-foreground">
           {job.owner_kind === "system" ? "system" : "user"}
@@ -547,7 +551,7 @@ function ScheduleKanbanCard({
       )}
       {job.last_run_at && (
         <p className="mt-2 font-mono text-[10px] text-muted-foreground">
-          last {formatTime(job.last_run_at)}
+          {t("automations.dash.last", { time: formatTime(job.last_run_at) })}
         </p>
       )}
     </button>
@@ -569,6 +573,7 @@ function JobDetailPanel({
   onSelectRun: (run: SchedulerJobRun) => void;
   onEditJob: () => void;
 }) {
+  const { t } = useI18n();
   const schedule = scheduleLabel(job);
 
   return (
@@ -590,7 +595,7 @@ function JobDetailPanel({
           onClick={onEditJob}
           className="text-[10px] text-muted-foreground"
         >
-          Edit
+          {t("common.edit")}
         </Button>
         <button
           onClick={onClose}
@@ -606,19 +611,23 @@ function JobDetailPanel({
           <p className="text-[12px] text-muted-foreground leading-relaxed">{job.description}</p>
         )}
         <dl className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1.5 text-[11px]">
-          <dt className="font-mono text-muted-foreground">Schedule</dt>
+          <dt className="font-mono text-muted-foreground">{t("automations.dash.scheduleLabel")}</dt>
           <dd className="text-muted-foreground font-mono">{schedule}</dd>
-          <dt className="font-mono text-muted-foreground">Session</dt>
+          <dt className="font-mono text-muted-foreground">{t("automations.dash.sessionLabel")}</dt>
           <dd className="text-muted-foreground font-mono">{job.session_mode || "new"}</dd>
           {job.owner_kind === "system" && (
             <>
-              <dt className="font-mono text-muted-foreground">Owner</dt>
+              <dt className="font-mono text-muted-foreground">
+                {t("automations.dash.ownerLabel")}
+              </dt>
               <dd className="text-muted-foreground">system</dd>
             </>
           )}
           {job.last_run_at && (
             <>
-              <dt className="font-mono text-muted-foreground">Last run</dt>
+              <dt className="font-mono text-muted-foreground">
+                {t("automations.dash.lastRunLabel")}
+              </dt>
               <dd className="text-muted-foreground">{formatTime(job.last_run_at)}</dd>
             </>
           )}
@@ -629,7 +638,7 @@ function JobDetailPanel({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="flex-shrink-0 px-4 py-2 border-b border-border/60">
           <p className="text-[10px] font-mono font-medium text-muted-foreground">
-            Runs
+            {t("automations.dash.runs")}
             {!runsLoading && <span className="ml-1.5 text-muted-foreground">{runs.length}</span>}
           </p>
         </div>
@@ -640,7 +649,7 @@ function JobDetailPanel({
             </div>
           ) : runs.length === 0 ? (
             <p className="text-center text-[11px] text-muted-foreground py-8 font-mono">
-              No runs yet
+              {t("automations.dash.noRuns")}
             </p>
           ) : (
             <div className="p-2 space-y-1">
@@ -689,6 +698,7 @@ function RunDetailPanel({
   run: RunWithMeta;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const sessionId = schedulerRunSessionId(
     { id: run.job_id ?? "", agent_id: run.job_agent_id, session_mode: run.job_session_mode },
     run,
@@ -724,7 +734,7 @@ function RunDetailPanel({
           <p className="text-[12px] text-destructive/80 leading-relaxed">{run.error}</p>
         )}
         <dl className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1.5 text-[11px]">
-          <dt className="font-mono text-muted-foreground">Status</dt>
+          <dt className="font-mono text-muted-foreground">{t("automations.dash.statusLabel")}</dt>
           <dd
             className={cn(
               run.status === "failed" ? "text-destructive font-medium" : "text-muted-foreground",
@@ -732,15 +742,17 @@ function RunDetailPanel({
           >
             {run.status}
           </dd>
-          <dt className="font-mono text-muted-foreground">Started</dt>
+          <dt className="font-mono text-muted-foreground">{t("automations.dash.startedLabel")}</dt>
           <dd className="text-muted-foreground">{formatTime(run.started_at)}</dd>
           {run.duration && (
             <>
-              <dt className="font-mono text-muted-foreground">Duration</dt>
+              <dt className="font-mono text-muted-foreground">
+                {t("automations.dash.durationLabel")}
+              </dt>
               <dd className="text-muted-foreground font-mono">{run.duration}</dd>
             </>
           )}
-          <dt className="font-mono text-muted-foreground">Job</dt>
+          <dt className="font-mono text-muted-foreground">{t("automations.dash.jobLabel")}</dt>
           <dd className="text-muted-foreground truncate">{run.job_name}</dd>
         </dl>
       </div>
@@ -751,7 +763,7 @@ function RunDetailPanel({
           <SessionConversation
             agentId={run.job_agent_id || agentId}
             sessionId={sessionId}
-            placeholder="Ask about this run..."
+            placeholder={t("automations.dash.askAboutRun")}
             className="h-full"
             bodyClassName="min-h-0 flex-1"
             after={run.started_at}
@@ -761,7 +773,7 @@ function RunDetailPanel({
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">
             <p className="text-[11px] text-muted-foreground font-mono text-center">
-              No conversation session for this run
+              {t("automations.dash.noConversation")}
             </p>
           </div>
         )}
@@ -800,8 +812,8 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
-function formatStatus(status: string): string {
-  if (status === "reviewing") return "Reviewing";
+function formatStatus(status: string, t: ReturnType<typeof useI18n>["t"]): string {
+  if (status === "reviewing") return t("automations.dash.reviewing");
   return status;
 }
 

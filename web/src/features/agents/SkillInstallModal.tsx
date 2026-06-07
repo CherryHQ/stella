@@ -261,7 +261,7 @@ export function SkillInstallModal({
               <li>
                 <span className="font-mono">.zip</span> only
               </li>
-              <li>Single skill folder</li>
+              <li>{t("agents.skills.singleFolder")}</li>
               <li>
                 <span className="font-mono">SKILL.md</span> required
               </li>

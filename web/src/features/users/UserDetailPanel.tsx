@@ -435,8 +435,12 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
             </div>
 
             <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t border-border">
-              <p>Created: {user.created_at}</p>
-              <p>Updated: {user.updated_at}</p>
+              <p>
+                {t("users.createdAt")} {user.created_at}
+              </p>
+              <p>
+                {t("users.updatedAt")} {user.updated_at}
+              </p>
             </div>
           </div>
         )}

@@ -181,7 +181,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
     return (
       <div className="flex h-full w-[340px] flex-col border-l border-border bg-card items-center justify-center gap-2 text-xs text-muted-foreground font-mono">
         <Loader2 className="size-4 animate-spin text-primary" />
-        <span>Resolving AI Session...</span>
+        <span>{t("recally.chat.resolvingSession")}</span>
       </div>
     );
   }
@@ -192,9 +192,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5">
         <div className="flex items-center gap-1.5">
           <Sparkles className="size-3.5 text-primary" />
-          <span className="text-xs font-semibold text-foreground">
-            {t("AI 边读边问" as any) || "AI Discussion"}
-          </span>
+          <span className="text-xs font-semibold text-foreground">{t("recally.chat.title")}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <button

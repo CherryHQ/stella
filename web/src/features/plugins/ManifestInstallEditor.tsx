@@ -84,16 +84,14 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-semibold">{t("plugins.editDefinition")}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Override the manifest definition. Binaries sync on save.
-          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">{t("plugins.overrideDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Button onClick={onReset} variant="ghost" size="xs">
-            Reset
+            {t("common.reset")}
           </Button>
           <Button onClick={onSave} variant="default" size="xs">
-            Save
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -133,7 +131,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
             />
           </div>
           <div>
-            <FieldLabel>Display name</FieldLabel>
+            <FieldLabel>{t("plugins.displayName")}</FieldLabel>
             <Input
               nativeInput
               value={draft.display_name}
@@ -142,7 +140,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
             />
           </div>
           <div className="col-span-2 lg:col-span-4">
-            <FieldLabel>Description</FieldLabel>
+            <FieldLabel>{t("common.description")}</FieldLabel>
             <Input
               nativeInput
               value={draft.description}
@@ -156,16 +154,16 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
       {/* Binaries */}
       <div className="space-y-3">
         <SectionHeader
-          title="Binaries"
+          title={t("plugins.binaries")}
           action={
             <Button onClick={addBinary} variant="ghost" size="xs">
-              + Add binary
+              {t("plugins.addBinary")}
             </Button>
           }
         />
         {draft.binaries.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-background/60 px-4 py-5 text-center text-xs text-muted-foreground">
-            No binaries declared. Add one to install a CLI from a GitHub release.
+            {t("plugins.noBinaries")}
           </div>
         ) : (
           <div className="space-y-3">
@@ -176,7 +174,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-muted-foreground">
-                    Binary {index + 1}
+                    {t("plugins.binaryN", { n: index + 1 })}
                     {binary.name && (
                       <span className="ml-2 font-mono font-normal normal-case text-foreground">
                         {binary.name}
@@ -194,7 +192,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                 </div>
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                   <div>
-                    <FieldLabel>Name</FieldLabel>
+                    <FieldLabel>{t("common.name")}</FieldLabel>
                     <Input
                       nativeInput
                       value={binary.name}
@@ -207,7 +205,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                     />
                   </div>
                   <div className="col-span-1 lg:col-span-2">
-                    <FieldLabel>GitHub repo (owner/repo)</FieldLabel>
+                    <FieldLabel>{t("plugins.githubRepoLabel")}</FieldLabel>
                     <Input
                       nativeInput
                       value={binary.tool}
@@ -220,7 +218,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                     />
                   </div>
                   <div>
-                    <FieldLabel>Version</FieldLabel>
+                    <FieldLabel>{t("plugins.versionLabel")}</FieldLabel>
                     <Input
                       nativeInput
                       value={binary.version ?? ""}
@@ -233,7 +231,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                     />
                   </div>
                   <div>
-                    <FieldLabel>Bin path</FieldLabel>
+                    <FieldLabel>{t("plugins.binPath")}</FieldLabel>
                     <Input
                       nativeInput
                       value={binary.bin_path ?? ""}
@@ -246,7 +244,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                     />
                   </div>
                   <div>
-                    <FieldLabel>Executable</FieldLabel>
+                    <FieldLabel>{t("plugins.executable")}</FieldLabel>
                     <Input
                       nativeInput
                       value={binary.bin ?? ""}
@@ -268,16 +266,16 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
       {/* Session environment */}
       <div className="space-y-3">
         <SectionHeader
-          title="Session environment"
+          title={t("plugins.sessionEnv")}
           action={
             <Button onClick={addSessionEnv} variant="ghost" size="xs">
-              + Add variable
+              {t("plugins.addVariable")}
             </Button>
           }
         />
         {draft.session_env.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-background/60 px-4 py-5 text-center text-xs text-muted-foreground">
-            No session environment variables declared.
+            {t("plugins.noSessionEnv")}
           </div>
         ) : (
           <div className="space-y-3">
@@ -288,7 +286,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-muted-foreground">
-                    Variable {index + 1}
+                    {t("plugins.variableN", { n: index + 1 })}
                     {env.env_var && (
                       <span className="ml-2 font-mono font-normal normal-case text-foreground">
                         {env.env_var}
@@ -306,7 +304,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                 </div>
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                   <div>
-                    <FieldLabel>Variable name</FieldLabel>
+                    <FieldLabel>{t("plugins.variableName")}</FieldLabel>
                     <Input
                       nativeInput
                       value={env.env_var}
@@ -319,7 +317,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                     />
                   </div>
                   <div>
-                    <FieldLabel>Source</FieldLabel>
+                    <FieldLabel>{t("plugins.sourceLabel")}</FieldLabel>
                     <select
                       value={env.source}
                       onChange={(e) => updateSessionEnv(index, "source", e.target.value)}
@@ -332,7 +330,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                     </select>
                   </div>
                   <div>
-                    <FieldLabel>Value (static only)</FieldLabel>
+                    <FieldLabel>{t("plugins.valueStaticOnly")}</FieldLabel>
                     <Input
                       nativeInput
                       value={env.value ?? ""}
@@ -351,7 +349,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                     checked={!!env.required}
                     onCheckedChange={(checked) => updateSessionEnv(index, "required", checked)}
                   />
-                  <span className="text-xs text-muted-foreground">Required</span>
+                  <span className="text-xs text-muted-foreground">{t("common.required")}</span>
                 </div>
               </div>
             ))}
@@ -362,7 +360,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
       {/* OAuth provider — only shown when relevant */}
       {(draft.oauth_provider || draft.session_env.some((e) => e.source.startsWith("oauth."))) && (
         <div className="space-y-3">
-          <SectionHeader title="OAuth provider" />
+          <SectionHeader title={t("plugins.oauthProvider")} />
           <div className="max-w-xs">
             <select
               value={draft.oauth_provider}

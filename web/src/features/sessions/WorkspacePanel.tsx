@@ -432,14 +432,14 @@ interface ArtifactShareDialogProps {
   onClose: () => void;
 }
 
-const expirationOptions = [
-  { value: "1h", label: "1 hour" },
-  { value: "1d", label: "1 day" },
-  { value: "7d", label: "7 days" },
-  { value: "never", label: "Never" },
-];
-
 function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShareDialogProps) {
+  const { t } = useI18n();
+  const expirationOptions = [
+    { value: "1h", label: t("sessions.workspace.1hour") },
+    { value: "1d", label: t("sessions.workspace.1day") },
+    { value: "7d", label: t("sessions.workspace.7days") },
+    { value: "never", label: t("sessions.workspace.never") },
+  ];
   const [expiresIn, setExpiresIn] = useState("7d");
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -472,7 +472,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
       setShare({ id: result.id, url: result.url });
       await navigator.clipboard?.writeText(result.url).catch(() => undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to share artifact");
+      setError(e instanceof Error ? e.message : t("sessions.workspace.shareFailed"));
     } finally {
       setCreating(false);
     }
@@ -486,7 +486,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
       await sdkRevokeShare({ path: { id: share.id }, throwOnError: true });
       setShare(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to revoke share");
+      setError(e instanceof Error ? e.message : t("sessions.workspace.revokeFailed"));
     } finally {
       setRevoking(false);
     }
@@ -500,9 +500,11 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
     <Dialog open={Boolean(path)} onOpenChange={(open) => !open && onClose()}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Share artifact</DialogTitle>
+          <DialogTitle>{t("sessions.workspace.shareArtifact")}</DialogTitle>
           <DialogDescription>
-            Create a public, read-only snapshot link for {path ? basename(path) : "this file"}.
+            {t("sessions.workspace.shareDesc", {
+              file: path ? basename(path) : t("sessions.workspace.thisFile"),
+            })}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-4">
@@ -511,7 +513,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
               className="text-xs font-medium text-muted-foreground"
               htmlFor="artifact-share-expiry"
             >
-              Expiration
+              {t("sessions.workspace.expiration")}
             </label>
             <select
               id="artifact-share-expiry"
@@ -529,7 +531,9 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
           </div>
           {share && (
             <div className="rounded-lg border bg-muted/40 p-3">
-              <div className="mb-2 text-xs font-medium text-muted-foreground">Public URL</div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                {t("sessions.workspace.publicUrl")}
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   readOnly
@@ -538,7 +542,7 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
                 />
                 <Button size="sm" variant="outline" onClick={copyShare}>
                   <Copy className="size-3.5" />
-                  Copy
+                  {t("common.copy")}
                 </Button>
               </div>
             </div>
@@ -548,15 +552,15 @@ function ArtifactShareDialog({ path, agentID, sessionID, onClose }: ArtifactShar
         <DialogFooter>
           {share ? (
             <Button variant="destructive" disabled={revoking} onClick={revokeShare}>
-              {revoking ? "Revoking…" : "Revoke link"}
+              {revoking ? t("sessions.workspace.revoking") : t("sessions.workspace.revokeLink")}
             </Button>
           ) : (
             <Button disabled={creating} onClick={createShare}>
-              {creating ? "Creating…" : "Create link"}
+              {creating ? t("sessions.workspace.creating") : t("sessions.workspace.createLink")}
             </Button>
           )}
           <Button variant="ghost" onClick={onClose}>
-            Close
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogPopup>

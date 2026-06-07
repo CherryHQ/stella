@@ -292,7 +292,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
       </div>
 
       <div className="mt-4">
-        <FormField label="Schedule">
+        <FormField label={t("automations.scheduleField")}>
           <div className="mb-2 flex items-center gap-4">
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <input
@@ -303,7 +303,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
                 onChange={() => up({ schedule_type: "cron" })}
                 className="accent-primary"
               />
-              Cron
+              {t("automations.cronLabel")}
             </label>
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <input
@@ -314,7 +314,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
                 onChange={() => up({ schedule_type: "every" })}
                 className="accent-primary"
               />
-              Interval
+              {t("automations.intervalLabel")}
             </label>
           </div>
           {form.schedule_type === "cron" ? (
@@ -340,11 +340,11 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
       </div>
 
       <div className="mt-4">
-        <FormField label="Message">
+        <FormField label={t("automations.messageField")}>
           <Textarea
             value={form.message}
             onChange={(e) => up({ message: e.target.value })}
-            placeholder="What should the agent do?"
+            placeholder={t("automations.messagePlaceholder")}
           />
         </FormField>
       </div>

@@ -494,7 +494,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Name</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.nameLabel")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.name}
@@ -511,7 +513,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Display name</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.displayName")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.display_name}
@@ -528,7 +532,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Version</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.versionLabel")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.version}
@@ -545,7 +551,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Bin path</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.binPath")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.bin_path}
@@ -562,7 +570,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Exe override</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.exeOverride")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.bin}
@@ -579,7 +589,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5 md:col-span-2">
-            <label className="text-xs font-medium text-muted-foreground">Description</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.descriptionLabel")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.description}

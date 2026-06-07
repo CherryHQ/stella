@@ -261,7 +261,7 @@ export function SessionDetail({
               size="xs"
               onClick={onToggleWorkspace}
               className="h-7 w-7 rounded-full p-0 text-muted-foreground"
-              title={workspaceOpen ? "Hide inspector" : "Show inspector"}
+              title={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
             >
               {workspaceOpen ? (
                 <PanelRightClose className="size-3.5" />
@@ -281,7 +281,7 @@ export function SessionDetail({
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <p className="text-sm text-muted-foreground/70">{t("sessions.selectSession")}</p>
           <p className="text-[11px] text-muted-foreground/40 font-mono">
-            or create a new one with + New
+            {t("sessions.createNewHint")}
           </p>
         </div>
       </div>

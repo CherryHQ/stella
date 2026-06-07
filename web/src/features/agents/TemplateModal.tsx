@@ -43,7 +43,7 @@ export function TemplateModal({ templates, onPick, onPickBlank, onClose }: Props
                 <div>
                   <p className="font-semibold text-sm text-foreground">{tmpl.name}</p>
                   <p className="text-[10px] text-muted-foreground font-mono mt-1 flex items-center gap-1">
-                    <span>Template:</span>
+                    <span>{t("agents.template.templateLabel")}</span>
                     <span>{tmpl.id}</span>
                   </p>
                 </div>

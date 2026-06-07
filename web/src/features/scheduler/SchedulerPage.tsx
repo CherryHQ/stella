@@ -216,11 +216,11 @@ export function SchedulerPage() {
       setSelectedJobId(null);
       setCreatingNew(false);
       await loadJobs();
-      showToast("Saved");
+      showToast(t("scheduler.saved"));
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Request failed", "error");
+      showToast(e instanceof Error ? e.message : t("scheduler.requestFailed"), "error");
     }
-  }, [jobForm, isAdmin, editingJobId, resetForm, loadJobs, showToast]);
+  }, [jobForm, isAdmin, editingJobId, resetForm, loadJobs, showToast, t]);
 
   const doDeleteJob = useCallback(
     async (id: string) => {
@@ -236,12 +236,12 @@ export function SchedulerPage() {
           resetForm();
         }
         await loadJobs();
-        showToast("Deleted");
+        showToast(t("hub.deleted"));
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Request failed", "error");
+        showToast(e instanceof Error ? e.message : t("scheduler.requestFailed"), "error");
       }
     },
-    [jobs, selectedJobId, resetForm, loadJobs, showToast],
+    [jobs, selectedJobId, resetForm, loadJobs, showToast, t],
   );
 
   const triggerJob = useCallback(
@@ -252,18 +252,18 @@ export function SchedulerPage() {
           path: { agentId: j.agent_id ?? "", jobId: j.id },
           throwOnError: true,
         });
-        showToast("Job triggered");
+        showToast(t("hub.triggered"));
         if (selectedJobId === j.id) {
           void loadRuns(j.id);
         }
         await loadJobs();
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Request failed", "error");
+        showToast(e instanceof Error ? e.message : t("scheduler.requestFailed"), "error");
       } finally {
         setTriggeringJobId(null);
       }
     },
-    [selectedJobId, loadRuns, loadJobs, showToast],
+    [selectedJobId, loadRuns, loadJobs, showToast, t],
   );
 
   const isFormValid =
@@ -281,7 +281,7 @@ export function SchedulerPage() {
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground">{t("scheduler.jobs")}</span>
           <Button size="xs" onClick={startNew}>
-            + New
+            {t("scheduler.new2")}
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -324,7 +324,7 @@ export function SchedulerPage() {
           ))}
           {jobs.length === 0 && (
             <div className="py-12 text-center">
-              <p className="text-sm text-muted-foreground">No jobs yet.</p>
+              <p className="text-sm text-muted-foreground">{t("scheduler.noJobsYet")}</p>
             </div>
           )}
         </div>
@@ -352,7 +352,7 @@ export function SchedulerPage() {
                     className="text-destructive hover:text-destructive"
                     onClick={() =>
                       setConfirm({
-                        msg: "Delete this job?",
+                        msg: t("scheduler.deleteConfirm"),
                         action: () => doDeleteJob(selectedJob.id),
                       })
                     }
@@ -368,7 +368,7 @@ export function SchedulerPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-4">
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-muted-foreground">
-                      Name
+                      {t("scheduler.nameLabel")}
                     </label>
                     <Input
                       type="text"
@@ -380,7 +380,7 @@ export function SchedulerPage() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-muted-foreground">
-                      Session Mode
+                      {t("scheduler.sessionModeLabel")}
                     </label>
                     <select
                       value={jobForm.session_mode}
@@ -395,7 +395,7 @@ export function SchedulerPage() {
 
                 <div className="mb-4 space-y-1.5">
                   <label className="block text-xs font-semibold text-muted-foreground">
-                    Schedule
+                    {t("scheduler.scheduleLabel")}
                   </label>
                   <div className="flex items-center gap-4 mb-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -418,7 +418,7 @@ export function SchedulerPage() {
                         onChange={() => setJobForm((f) => ({ ...f, schedule_type: "every" }))}
                         className="accent-primary"
                       />
-                      <span>Interval</span>
+                      <span>{t("scheduler.interval")}</span>
                     </label>
                   </div>
                   {jobForm.schedule_type === "cron" ? (
@@ -443,13 +443,15 @@ export function SchedulerPage() {
                 </div>
 
                 <div className="mb-4 space-y-1.5">
-                  <label className="block text-xs font-semibold text-muted-foreground">Agent</label>
+                  <label className="block text-xs font-semibold text-muted-foreground">
+                    {t("scheduler.agentLabel")}
+                  </label>
                   <select
                     value={jobForm.agent_id}
                     onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
                     className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="">Default agent</option>
+                    <option value="">{t("scheduler.defaultAgent")}</option>
                     {agents.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
@@ -464,19 +466,21 @@ export function SchedulerPage() {
                       checked={jobForm.system_job}
                       onCheckedChange={(v) => setJobForm((f) => ({ ...f, system_job: v }))}
                     />
-                    <span className="text-sm">System job</span>
-                    <span className="text-xs text-muted-foreground">(broadcasts to all users)</span>
+                    <span className="text-sm">{t("scheduler.systemJob")}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t("scheduler.systemJobDesc")}
+                    </span>
                   </div>
                 )}
 
                 <div className="mb-4 space-y-1.5">
                   <label className="block text-xs font-semibold text-muted-foreground">
-                    Message
+                    {t("scheduler.messageLabel")}
                   </label>
                   <Textarea
                     value={jobForm.message}
                     onChange={(e) => setJobForm((f) => ({ ...f, message: e.target.value }))}
-                    placeholder="What should the agent do?"
+                    placeholder={t("scheduler.messagePlaceholder")}
                   />
                 </div>
 
@@ -539,9 +543,9 @@ export function SchedulerPage() {
 
             {/* Run history */}
             <div className="mt-8 pt-6 border-t border-border">
-              <h3 className="text-[13px] font-semibold mb-3">Recent runs</h3>
+              <h3 className="text-[13px] font-semibold mb-3">{t("scheduler.recentRuns")}</h3>
               {!runs || runs.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No runs yet.</p>
+                <p className="text-xs text-muted-foreground">{t("scheduler.noRuns")}</p>
               ) : (
                 <div className="space-y-0">
                   {runs.map((run) => (
@@ -565,7 +569,7 @@ export function SchedulerPage() {
                           href={"/sessions/" + encodeURIComponent(run.session_id)}
                           className="text-primary hover:underline text-[11px]"
                         >
-                          session
+                          {t("scheduler.sessionLink")}
                         </a>
                       )}
                       {run.error && (
@@ -581,10 +585,12 @@ export function SchedulerPage() {
           </>
         ) : creatingNew ? (
           <div>
-            <h2 className="font-serif text-xl tracking-tight mb-6">New job</h2>
+            <h2 className="font-serif text-xl tracking-tight mb-6">{t("scheduler.newJob")}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-muted-foreground">Name</label>
+                <label className="block text-xs font-semibold text-muted-foreground">
+                  {t("scheduler.nameLabel")}
+                </label>
                 <Input
                   type="text"
                   value={jobForm.name}
@@ -595,7 +601,7 @@ export function SchedulerPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="block text-xs font-semibold text-muted-foreground">
-                  Session Mode
+                  {t("scheduler.sessionModeLabel")}
                 </label>
                 <select
                   value={jobForm.session_mode}
@@ -609,7 +615,9 @@ export function SchedulerPage() {
             </div>
 
             <div className="mb-4 space-y-1.5">
-              <label className="block text-xs font-semibold text-muted-foreground">Schedule</label>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                {t("scheduler.scheduleLabel")}
+              </label>
               <div className="flex items-center gap-4 mb-2">
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input
@@ -631,7 +639,7 @@ export function SchedulerPage() {
                     onChange={() => setJobForm((f) => ({ ...f, schedule_type: "every" }))}
                     className="accent-primary"
                   />
-                  <span>Interval</span>
+                  <span>{t("scheduler.interval")}</span>
                 </label>
               </div>
               {jobForm.schedule_type === "cron" ? (
@@ -656,13 +664,15 @@ export function SchedulerPage() {
             </div>
 
             <div className="mb-4 space-y-1.5">
-              <label className="block text-xs font-semibold text-muted-foreground">Agent</label>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                {t("scheduler.agentLabel")}
+              </label>
               <select
                 value={jobForm.agent_id}
                 onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
                 className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">Default agent</option>
+                <option value="">{t("scheduler.defaultAgent")}</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -677,17 +687,21 @@ export function SchedulerPage() {
                   checked={jobForm.system_job}
                   onCheckedChange={(v) => setJobForm((f) => ({ ...f, system_job: v }))}
                 />
-                <span className="text-sm">System job</span>
-                <span className="text-xs text-muted-foreground">(broadcasts to all users)</span>
+                <span className="text-sm">{t("scheduler.systemJob")}</span>
+                <span className="text-xs text-muted-foreground">
+                  {t("scheduler.systemJobDesc")}
+                </span>
               </div>
             )}
 
             <div className="mb-4 space-y-1.5">
-              <label className="block text-xs font-semibold text-muted-foreground">Message</label>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                {t("scheduler.messageLabel")}
+              </label>
               <Textarea
                 value={jobForm.message}
                 onChange={(e) => setJobForm((f) => ({ ...f, message: e.target.value }))}
-                placeholder="What should the agent do?"
+                placeholder={t("scheduler.messagePlaceholder")}
               />
             </div>
 
@@ -706,7 +720,7 @@ export function SchedulerPage() {
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            Select a job or create a new one
+            {t("scheduler.selectOrCreate")}
           </div>
         )}
       </div>
