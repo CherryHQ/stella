@@ -1,22 +1,37 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { listPlugins, togglePlugin as togglePluginRequest } from "@/lib/api-client/sdk.gen";
 import type { Plugin } from "@/lib/types";
-import { pluginDescription, pluginLabel, sandboxMeta } from "@/features/plugins/pluginUtils";
+import { pluginLabel, pluginDescription, sandboxMeta } from "@/features/plugins/pluginUtils";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
-import { Box } from "lucide-react";
+import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
+import {
+  SettingsListHeader,
+  SettingsListItem,
+  SettingsListBody,
+} from "@/features/settings/SettingsListPanel";
+import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 
 const validSandboxBackends = new Set(["sandbox/docker", "sandbox/local", "sandbox/none"]);
 
 export function SandboxPage() {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { backendId?: string };
+  const backendId = params.backendId;
+
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const { toasts, showToast } = useToast(4000);
 
   const sandboxPlugins = plugins.filter(
     (p) => p.kind === "sandbox" && validSandboxBackends.has(p.id),
   );
+
+  const selectedPlugin = backendId ? sandboxPlugins.find((p) => p.name === backendId) : undefined;
 
   const loadPlugins = useCallback(async () => {
     try {
@@ -80,114 +95,119 @@ export function SandboxPage() {
     }
   }
 
-  return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10 space-y-8">
-        <SettingsPageHeader
-          title="Sandbox"
-          description="Select which sandbox backend agents use. Only one can be active at a time."
+  let detail: React.ReactNode = undefined;
+  if (selectedPlugin) {
+    const meta = sandboxMeta(selectedPlugin.id);
+    detail = (
+      <DetailPanel>
+        <DetailPanelHeader
+          title={pluginLabel(selectedPlugin)}
+          subtitle={
+            <div className="flex items-center gap-1.5">
+              {selectedPlugin.enabled && (
+                <Badge variant="success" size="sm">
+                  active
+                </Badge>
+              )}
+              {meta.recommended && (
+                <Badge variant="default" size="sm">
+                  recommended
+                </Badge>
+              )}
+              {meta.isDefault && (
+                <Badge variant="secondary" size="sm">
+                  default
+                </Badge>
+              )}
+            </div>
+          }
+          action={
+            <Switch
+              checked={selectedPlugin.enabled}
+              onCheckedChange={(checked) => void toggleSandbox(selectedPlugin.id, checked)}
+            />
+          }
         />
 
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 border-b border-border pb-2">
-            <Box className="size-4 shrink-0 text-muted-foreground" />
-            <h4 className="font-mono text-[9px] text-muted-foreground">Sandbox Backends</h4>
-            <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
-              {sandboxPlugins.length}
-            </Badge>
-          </div>
+        {pluginDescription(selectedPlugin) && (
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {pluginDescription(selectedPlugin)}
+          </p>
+        )}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {sandboxPlugins.map((p) => {
-              const meta = sandboxMeta(p.id);
-              return (
-                <div
-                  key={p.id}
-                  className={`group relative flex flex-col justify-between rounded-xl border bg-card p-5 transition-colors duration-120 ${
-                    p.enabled ? "border-primary/40 bg-primary/[0.02]" : "border-border"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm">{pluginLabel(p)}</span>
-                        {p.enabled && (
-                          <Badge variant="success" size="sm">
-                            active
-                          </Badge>
-                        )}
-                        {meta.recommended && (
-                          <Badge variant="default" size="sm">
-                            recommended
-                          </Badge>
-                        )}
-                        {meta.isDefault && (
-                          <Badge variant="secondary" size="sm">
-                            default
-                          </Badge>
-                        )}
-                      </div>
-                      {pluginDescription(p) && (
-                        <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                          {pluginDescription(p)}
-                        </p>
-                      )}
-                    </div>
-                    <Switch
-                      checked={p.enabled}
-                      onCheckedChange={(checked) => void toggleSandbox(p.id, checked)}
-                    />
-                  </div>
-                  {(meta.features.length > 0 || meta.limitations.length > 0) && (
-                    <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4 sm:flex-row sm:gap-6">
-                      {meta.features.length > 0 && (
-                        <div className="flex-1">
-                          <p className="font-mono text-[9px] text-success-foreground mb-1.5">
-                            Features
-                          </p>
-                          <ul className="text-[11px] text-muted-foreground space-y-1">
-                            {meta.features.map((f) => (
-                              <li key={f} className="flex items-start gap-1">
-                                <span className="text-success-foreground shrink-0 font-bold">
-                                  ✓
-                                </span>
-                                <span>{f}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {meta.limitations.length > 0 && (
-                        <div className="flex-1">
-                          <p className="font-mono text-[9px] text-warning-foreground mb-1.5">
-                            Limitations
-                          </p>
-                          <ul className="text-[11px] text-muted-foreground space-y-1">
-                            {meta.limitations.map((l) => (
-                              <li key={l} className="flex items-start gap-1">
-                                <span className="text-warning-foreground shrink-0 font-bold">
-                                  ⚠
-                                </span>
-                                <span>{l}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {sandboxPlugins.length === 0 && (
-              <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2">
-                No sandbox plugins registered.
-              </div>
-            )}
+        {meta.features.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Features</p>
+            <ul className="text-sm text-muted-foreground space-y-1.5">
+              {meta.features.map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <span className="text-success-foreground shrink-0 font-bold mt-0.5">✓</span>
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-      </div>
+        )}
+
+        {meta.limitations.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Limitations</p>
+            <ul className="text-sm text-muted-foreground space-y-1.5">
+              {meta.limitations.map((l) => (
+                <li key={l} className="flex items-start gap-2">
+                  <span className="text-warning-foreground shrink-0 font-bold mt-0.5">⚠</span>
+                  <span>{l}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </DetailPanel>
+    );
+  }
+
+  return (
+    <>
+      <SettingsDetailLayout
+        list={
+          <>
+            <SettingsListHeader title={t("settings.nav.sandbox")} />
+            <SettingsListBody>
+              {sandboxPlugins.map((p) => (
+                <SettingsListItem
+                  key={p.id}
+                  active={backendId === p.name}
+                  onClick={() =>
+                    void navigate({
+                      to: "/settings/sandbox/$backendId",
+                      params: { backendId: p.name },
+                    })
+                  }
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`shrink-0 size-1.5 rounded-full ${p.enabled ? "bg-green-500" : "bg-muted-foreground"}`}
+                    />
+                    <span className="text-sm truncate">{pluginLabel(p)}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {p.enabled ? "active" : "disabled"}
+                  </span>
+                </SettingsListItem>
+              ))}
+            </SettingsListBody>
+          </>
+        }
+        detail={detail}
+        emptyState={
+          <SettingsEmptyState
+            message="No sandbox backends"
+            description="Select a sandbox backend to configure."
+          />
+        }
+        onBack={() => void navigate({ to: "/settings/sandbox" })}
+      />
       <ToastContainer messages={toasts} />
-    </div>
+    </>
   );
 }
