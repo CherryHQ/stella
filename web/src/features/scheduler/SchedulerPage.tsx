@@ -279,9 +279,7 @@ export function SchedulerPage() {
       {/* Left panel: job list */}
       <div className="w-[320px] min-w-[320px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
-            Jobs
-          </span>
+          <span className="text-[9px] font-mono text-muted-foreground">Jobs</span>
           <Button size="xs" onClick={startNew}>
             + New
           </Button>
@@ -318,7 +316,7 @@ export function SchedulerPage() {
                 ) : (
                   <>
                     {j.agent_id && <span>{j.agent_id}</span>}
-                    <span className="text-muted-foreground/60">{j.session_mode}</span>
+                    <span className="text-muted-foreground">{j.session_mode}</span>
                   </>
                 )}
               </div>
@@ -369,7 +367,7 @@ export function SchedulerPage() {
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-4">
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                    <label className="block text-[10px] font-mono text-muted-foreground">
                       Name
                     </label>
                     <Input
@@ -381,7 +379,7 @@ export function SchedulerPage() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                    <label className="block text-[10px] font-mono text-muted-foreground">
                       Session Mode
                     </label>
                     <select
@@ -396,7 +394,7 @@ export function SchedulerPage() {
                 </div>
 
                 <div className="mb-4 space-y-1.5">
-                  <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                  <label className="block text-[10px] font-mono text-muted-foreground">
                     Schedule
                   </label>
                   <div className="flex items-center gap-4 mb-2">
@@ -445,9 +443,7 @@ export function SchedulerPage() {
                 </div>
 
                 <div className="mb-4 space-y-1.5">
-                  <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                    Agent
-                  </label>
+                  <label className="block text-[10px] font-mono text-muted-foreground">Agent</label>
                   <select
                     value={jobForm.agent_id}
                     onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
@@ -474,7 +470,7 @@ export function SchedulerPage() {
                 )}
 
                 <div className="mb-4 space-y-1.5">
-                  <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                  <label className="block text-[10px] font-mono text-muted-foreground">
                     Message
                   </label>
                   <Textarea
@@ -560,7 +556,7 @@ export function SchedulerPage() {
                         {formatTime(run.started_at)}
                       </span>
                       {run.duration && (
-                        <span className="font-mono text-[11px] text-muted-foreground/60">
+                        <span className="font-mono text-[11px] text-muted-foreground">
                           {run.duration}
                         </span>
                       )}
@@ -588,9 +584,7 @@ export function SchedulerPage() {
             <h2 className="font-serif text-xl tracking-tight mb-6">New job</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-4">
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                  Name
-                </label>
+                <label className="block text-[10px] font-mono text-muted-foreground">Name</label>
                 <Input
                   type="text"
                   value={jobForm.name}
@@ -600,7 +594,7 @@ export function SchedulerPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                <label className="block text-[10px] font-mono text-muted-foreground">
                   Session Mode
                 </label>
                 <select
@@ -615,9 +609,7 @@ export function SchedulerPage() {
             </div>
 
             <div className="mb-4 space-y-1.5">
-              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                Schedule
-              </label>
+              <label className="block text-[10px] font-mono text-muted-foreground">Schedule</label>
               <div className="flex items-center gap-4 mb-2">
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input
@@ -664,9 +656,7 @@ export function SchedulerPage() {
             </div>
 
             <div className="mb-4 space-y-1.5">
-              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                Agent
-              </label>
+              <label className="block text-[10px] font-mono text-muted-foreground">Agent</label>
               <select
                 value={jobForm.agent_id}
                 onChange={(e) => setJobForm((f) => ({ ...f, agent_id: e.target.value }))}
@@ -693,9 +683,7 @@ export function SchedulerPage() {
             )}
 
             <div className="mb-4 space-y-1.5">
-              <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
-                Message
-              </label>
+              <label className="block text-[10px] font-mono text-muted-foreground">Message</label>
               <Textarea
                 value={jobForm.message}
                 onChange={(e) => setJobForm((f) => ({ ...f, message: e.target.value }))}
