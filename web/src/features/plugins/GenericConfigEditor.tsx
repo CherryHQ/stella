@@ -47,7 +47,7 @@ export function GenericConfigEditor({
   const fields = pluginSchemaFields(plugin, schemas);
 
   return (
-    <div className="px-4 pb-4 border-t border-border">
+    <div className="px-4 pb-4 border-t border-border bg-muted">
       <div className="pt-4 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm font-medium">Configuration</p>
@@ -88,7 +88,7 @@ export function GenericConfigEditor({
                       id={fid}
                       value={pluginFieldText(value)}
                       onChange={(e) => onDraftChange(field.name, e.target.value)}
-                      className="h-7.5 sm:h-6.5 w-full rounded-lg border border-input bg-background px-2.5 text-sm text-foreground shadow-xs/5 outline-none transition-shadow focus:border-ring focus:ring-2 focus:ring-ring/24 dark:bg-input/32"
+                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
                     >
                       {(field.schema.enum || []).map((option) => (
                         <option key={String(option)} value={String(option)}>

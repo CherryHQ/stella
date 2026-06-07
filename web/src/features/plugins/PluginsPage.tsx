@@ -430,7 +430,7 @@ export function PluginsPage() {
           <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
             <div className="flex items-center gap-2">
               <Wrench className="size-4 shrink-0 text-muted-foreground" />
-              <h4 className="font-mono text-[9px] text-muted-foreground">
+              <h4 className="text-xs font-semibold text-muted-foreground">
                 {t("plugins.tab.tools")}
               </h4>
               <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -447,7 +447,7 @@ export function PluginsPage() {
                 "Cancel"
               ) : (
                 <>
-                  <Plus className="size-3.5 group-hover:rotate-90 transition-transform duration-120" />
+                  <Plus className="size-3.5" />
                   Add Tool
                 </>
               )}
@@ -459,7 +459,7 @@ export function PluginsPage() {
           </p>
 
           {showAddManifestTool && (
-            <div className="rounded-xl border border-border bg-card p-5 mb-6 space-y-5">
+            <div className="rounded-xl border border-border bg-card p-5 mb-6 space-y-5 ">
               <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
                 <div>
                   <p className="text-sm font-semibold font-sans tracking-tight">Add Tool</p>
@@ -671,7 +671,9 @@ export function PluginsPage() {
         <section className="space-y-4">
           <div className="flex items-center gap-2 border-b border-border pb-2">
             <Webhook className="size-4 shrink-0 text-muted-foreground" />
-            <h4 className="font-mono text-[9px] text-muted-foreground">{t("plugins.tab.hooks")}</h4>
+            <h4 className="text-xs font-semibold text-muted-foreground">
+              {t("plugins.tab.hooks")}
+            </h4>
             <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
               {hookPlugins.length}
             </Badge>
@@ -689,7 +691,7 @@ export function PluginsPage() {
           <section className="space-y-4">
             <div className="flex items-center gap-2 border-b border-border pb-2">
               <Blocks className="size-4 shrink-0 text-muted-foreground" />
-              <h4 className="font-mono text-[9px] text-muted-foreground">
+              <h4 className="text-xs font-semibold text-muted-foreground">
                 {t("plugins.tab.others")}
               </h4>
               <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -771,7 +773,7 @@ function PluginList({
           <div
             key={p.id}
             className={`flex flex-col rounded-xl border bg-card transition-colors duration-120 ${
-              p.enabled ? "border-primary/40 bg-primary/[0.02]" : "border-border"
+              p.enabled ? "border-primary" : "border-border"
             } overflow-hidden ${isOpen ? "sm:col-span-2" : ""}`}
           >
             <div className="flex items-center justify-between gap-4 px-5 py-4">
@@ -856,7 +858,7 @@ function PluginList({
         );
       })}
       {plugins.length === 0 && (
-        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2">
+        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2 ">
           {emptyMessage}
         </div>
       )}

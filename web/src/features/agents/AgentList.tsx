@@ -2,10 +2,8 @@ import type { AgentDetail } from "@/lib/types";
 import type { AgentsPageState, ModelOption } from "./AgentsPage";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import { Trash2 } from "lucide-react";
-import { useI18n } from "@/lib/i18n";
 
 interface Props {
   state: AgentsPageState;
@@ -20,7 +18,6 @@ function modelLabel(value: string, cachedModels: ModelOption[]): string {
 }
 
 export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCreateAgent }: Props) {
-  const { t } = useI18n();
   const { agents, isAdmin, currentUserId, cachedModels } = state;
 
   const canEditAgent = (a: AgentDetail) =>
@@ -29,11 +26,11 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
   if (agents.length === 0) {
     return (
       <SettingsEmptyState
-        message={t("agents.noAgentsConfigured")}
-        description={t("agents.createFirst")}
+        message="No agents configured"
+        description="Create your first agent profile to get started."
         action={
-          <Button onClick={onCreateAgent} variant="outline" size="sm">
-            {t("agents.new")}
+          <Button onClick={onCreateAgent} variant="outline" size="sm" className="rounded-xl">
+            New Agent
           </Button>
         }
       />
@@ -45,10 +42,10 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
       {agents.map((a) => {
         const canEdit = canEditAgent(a);
         return (
-          <Card
+          <div
             key={a.id}
             onClick={() => canEdit && onEdit(a)}
-            className={`group relative p-5 hover:border-foreground/20 ${
+            className={`group relative flex flex-col justify-between rounded-xl border border-border bg-card p-5 transition-all duration-120 hover:border-border hover:bg-muted ${
               canEdit ? "cursor-pointer" : "cursor-default opacity-80"
             }`}
           >
@@ -63,11 +60,19 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
                   <h3 className="text-sm font-medium text-foreground truncate">{a.name}</h3>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {a.scope === "restricted" && (
-                    <Badge variant="warning">{t("agents.restricted")}</Badge>
+                  {a.scope === RestrictedScope(a) && (
+                    <Badge
+                      variant="warning"
+                      className="text-xs font-mono px-1.5 py-0 h-4.5 rounded-[4px]"
+                    >
+                      restricted
+                    </Badge>
                   )}
-                  <Badge variant={a.enabled ? "success" : "outline"}>
-                    {a.enabled ? t("agents.active") : t("agents.disabled")}
+                  <Badge
+                    variant={a.enabled ? "success" : "outline"}
+                    className="text-xs font-mono px-1.5 py-0 h-4.5 rounded-[4px]"
+                  >
+                    {a.enabled ? "active" : "disabled"}
                   </Badge>
                 </div>
               </div>
@@ -79,9 +84,9 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
               </p>
             </div>
             <div className="mt-5 flex items-center justify-between pt-2 border-t border-border/10">
-              <span className="text-[10px] text-muted-foreground font-mono flex items-center gap-1">
-                <span>ID:</span>
-                <span className="text-muted-foreground">{a.id}</span>
+              <span className="text-[10px] text-muted-foreground/50 font-mono flex items-center gap-1">
+                <span className="uppercase tracking-wider">ID:</span>
+                <span className="text-foreground/70">{a.id}</span>
               </span>
               <div className="flex items-center gap-2">
                 {canEdit && (
@@ -105,9 +110,13 @@ export function AgentList({ state, onEdit, onConfirmDelete, onDeleteAgent, onCre
                 )}
               </div>
             </div>
-          </Card>
+          </div>
         );
       })}
     </div>
   );
+}
+
+function RestrictedScope(a: AgentDetail) {
+  return a.scope === "restricted" ? "restricted" : "";
 }

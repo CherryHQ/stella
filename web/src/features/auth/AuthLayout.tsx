@@ -13,7 +13,7 @@ export function AuthLayout({ subtitle, error, children }: AuthLayoutProps) {
       <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-violet-600/10 blur-[150px] pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_80%,transparent_100%)]" />
 
-      <div className="w-full max-w-[420px] mx-4 rounded-2xl border border-border/40 bg-card/45 backdrop-blur-xl shadow-2xl p-8 relative z-10 transition-all hover:shadow-primary/5 hover:border-border/60">
+      <div className="w-full max-w-[420px] mx-4 rounded-2xl border border-border bg-card backdrop-blur-xl p-8 relative z-10 transition-all duration-120 hover:border-border">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-primary/5 border border-primary/10 mb-4 shadow-inner">
             <img
@@ -21,7 +21,7 @@ export function AuthLayout({ subtitle, error, children }: AuthLayoutProps) {
               alt="Stella"
               width={40}
               height={40}
-              className="rounded-lg shadow-sm animate-pulse"
+              className="rounded-lg animate-pulse"
             />
           </div>
           <h1 className="font-serif italic text-primary text-4xl tracking-tight select-none">
