@@ -41,7 +41,6 @@ import { Route as AppAutomationsSplatRouteImport } from './routes/_app/automatio
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
 import { Route as AppSettingsUsersUserIdRouteImport } from './routes/_app/settings/users.$userId'
-import { Route as AppSettingsSandboxBackendIdRouteImport } from './routes/_app/settings/sandbox.$backendId'
 import { Route as AppSettingsProvidersProviderIdRouteImport } from './routes/_app/settings/providers.$providerId'
 import { Route as AppSettingsPluginsPluginIdRouteImport } from './routes/_app/settings/plugins.$pluginId'
 import { Route as AppSettingsCredentialsSectionRouteImport } from './routes/_app/settings/credentials.$section'
@@ -257,16 +256,6 @@ const AppSettingsUsersUserIdRoute = AppSettingsUsersUserIdRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/settings/users.$userId.lazy').then((d) => d.Route),
 )
-const AppSettingsSandboxBackendIdRoute =
-  AppSettingsSandboxBackendIdRouteImport.update({
-    id: '/$backendId',
-    path: '/$backendId',
-    getParentRoute: () => AppSettingsSandboxRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/settings/sandbox.$backendId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
 const AppSettingsProvidersProviderIdRoute =
   AppSettingsProvidersProviderIdRouteImport.update({
     id: '/$providerId',
@@ -547,7 +536,7 @@ export interface FileRoutesByFullPath {
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
-  '/settings/sandbox': typeof AppSettingsSandboxRouteWithChildren
+  '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents/': typeof AppAgentsIndexRoute
@@ -558,7 +547,6 @@ export interface FileRoutesByFullPath {
   '/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
   '/settings/plugins/$pluginId': typeof AppSettingsPluginsPluginIdRoute
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
-  '/settings/sandbox/$backendId': typeof AppSettingsSandboxBackendIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
@@ -605,7 +593,7 @@ export interface FileRoutesByTo {
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
-  '/settings/sandbox': typeof AppSettingsSandboxRouteWithChildren
+  '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents': typeof AppAgentsIndexRoute
@@ -616,7 +604,6 @@ export interface FileRoutesByTo {
   '/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
   '/settings/plugins/$pluginId': typeof AppSettingsPluginsPluginIdRoute
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
-  '/settings/sandbox/$backendId': typeof AppSettingsSandboxBackendIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
@@ -668,7 +655,7 @@ export interface FileRoutesById {
   '/_app/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
-  '/_app/settings/sandbox': typeof AppSettingsSandboxRouteWithChildren
+  '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
   '/_app/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
@@ -679,7 +666,6 @@ export interface FileRoutesById {
   '/_app/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
   '/_app/settings/plugins/$pluginId': typeof AppSettingsPluginsPluginIdRoute
   '/_app/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
-  '/_app/settings/sandbox/$backendId': typeof AppSettingsSandboxBackendIdRoute
   '/_app/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/_app/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/_app/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
@@ -742,7 +728,6 @@ export interface FileRouteTypes {
     | '/settings/credentials/$section'
     | '/settings/plugins/$pluginId'
     | '/settings/providers/$providerId'
-    | '/settings/sandbox/$backendId'
     | '/settings/users/$userId'
     | '/agents/$agentId/'
     | '/agents/$agentId/automations/$jobId'
@@ -800,7 +785,6 @@ export interface FileRouteTypes {
     | '/settings/credentials/$section'
     | '/settings/plugins/$pluginId'
     | '/settings/providers/$providerId'
-    | '/settings/sandbox/$backendId'
     | '/settings/users/$userId'
     | '/agents/$agentId'
     | '/agents/$agentId/automations/$jobId'
@@ -862,7 +846,6 @@ export interface FileRouteTypes {
     | '/_app/settings/credentials/$section'
     | '/_app/settings/plugins/$pluginId'
     | '/_app/settings/providers/$providerId'
-    | '/_app/settings/sandbox/$backendId'
     | '/_app/settings/users/$userId'
     | '/_app/agents/$agentId/'
     | '/_app/agents/$agentId/automations/$jobId'
@@ -1123,13 +1106,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/users/$userId'
       preLoaderRoute: typeof AppSettingsUsersUserIdRouteImport
       parentRoute: typeof AppSettingsUsersRoute
-    }
-    '/_app/settings/sandbox/$backendId': {
-      id: '/_app/settings/sandbox/$backendId'
-      path: '/$backendId'
-      fullPath: '/settings/sandbox/$backendId'
-      preLoaderRoute: typeof AppSettingsSandboxBackendIdRouteImport
-      parentRoute: typeof AppSettingsSandboxRoute
     }
     '/_app/settings/providers/$providerId': {
       id: '/_app/settings/providers/$providerId'
@@ -1520,17 +1496,6 @@ const AppSettingsProvidersRouteChildren: AppSettingsProvidersRouteChildren = {
 const AppSettingsProvidersRouteWithChildren =
   AppSettingsProvidersRoute._addFileChildren(AppSettingsProvidersRouteChildren)
 
-interface AppSettingsSandboxRouteChildren {
-  AppSettingsSandboxBackendIdRoute: typeof AppSettingsSandboxBackendIdRoute
-}
-
-const AppSettingsSandboxRouteChildren: AppSettingsSandboxRouteChildren = {
-  AppSettingsSandboxBackendIdRoute: AppSettingsSandboxBackendIdRoute,
-}
-
-const AppSettingsSandboxRouteWithChildren =
-  AppSettingsSandboxRoute._addFileChildren(AppSettingsSandboxRouteChildren)
-
 interface AppSettingsUsersRouteChildren {
   AppSettingsUsersUserIdRoute: typeof AppSettingsUsersUserIdRoute
 }
@@ -1550,7 +1515,7 @@ interface AppSettingsRouteChildren {
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRouteWithChildren
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
-  AppSettingsSandboxRoute: typeof AppSettingsSandboxRouteWithChildren
+  AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRouteWithChildren
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
@@ -1563,7 +1528,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsCredentialsRoute: AppSettingsCredentialsRouteWithChildren,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
-  AppSettingsSandboxRoute: AppSettingsSandboxRouteWithChildren,
+  AppSettingsSandboxRoute: AppSettingsSandboxRoute,
   AppSettingsUsersRoute: AppSettingsUsersRouteWithChildren,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }
