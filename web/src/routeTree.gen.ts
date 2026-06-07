@@ -42,6 +42,7 @@ import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agen
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
 import { Route as AppSettingsUsersUserIdRouteImport } from './routes/_app/settings/users.$userId'
 import { Route as AppSettingsProvidersProviderIdRouteImport } from './routes/_app/settings/providers.$providerId'
+import { Route as AppSettingsChannelsChannelIdRouteImport } from './routes/_app/settings/channels.$channelId'
 import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/settings/agents.$agentId'
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
 import { Route as AppAgentsAgentIdTasksIndexRouteImport } from './routes/_app/agents.$agentId/tasks/index'
@@ -260,6 +261,16 @@ const AppSettingsProvidersProviderIdRoute =
     getParentRoute: () => AppSettingsProvidersRoute,
   } as any).lazy(() =>
     import('./routes/_app/settings/providers.$providerId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+const AppSettingsChannelsChannelIdRoute =
+  AppSettingsChannelsChannelIdRouteImport.update({
+    id: '/$channelId',
+    path: '/$channelId',
+    getParentRoute: () => AppSettingsChannelsRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/settings/channels.$channelId.lazy').then(
       (d) => d.Route,
     ),
   )
@@ -499,7 +510,7 @@ export interface FileRoutesByFullPath {
   '/settings/about': typeof AppSettingsAboutRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/agents': typeof AppSettingsAgentsRouteWithChildren
-  '/settings/channels': typeof AppSettingsChannelsRoute
+  '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRoute
   '/settings/plugins': typeof AppSettingsPluginsRoute
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
@@ -510,6 +521,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
@@ -553,7 +565,7 @@ export interface FileRoutesByTo {
   '/settings/about': typeof AppSettingsAboutRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/agents': typeof AppSettingsAgentsRouteWithChildren
-  '/settings/channels': typeof AppSettingsChannelsRoute
+  '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRoute
   '/settings/plugins': typeof AppSettingsPluginsRoute
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
@@ -564,6 +576,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId': typeof AppAgentsAgentIdIndexRoute
@@ -612,7 +625,7 @@ export interface FileRoutesById {
   '/_app/settings/about': typeof AppSettingsAboutRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
   '/_app/settings/agents': typeof AppSettingsAgentsRouteWithChildren
-  '/_app/settings/channels': typeof AppSettingsChannelsRoute
+  '/_app/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/_app/settings/credentials': typeof AppSettingsCredentialsRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRoute
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
@@ -623,6 +636,7 @@ export interface FileRoutesById {
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/_app/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/_app/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/_app/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/_app/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
@@ -682,6 +696,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/agents/$agentId/memories'
     | '/settings/agents/$agentId'
+    | '/settings/channels/$channelId'
     | '/settings/providers/$providerId'
     | '/settings/users/$userId'
     | '/agents/$agentId/'
@@ -736,6 +751,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/agents/$agentId/memories'
     | '/settings/agents/$agentId'
+    | '/settings/channels/$channelId'
     | '/settings/providers/$providerId'
     | '/settings/users/$userId'
     | '/agents/$agentId'
@@ -794,6 +810,7 @@ export interface FileRouteTypes {
     | '/_app/settings/'
     | '/_app/agents/$agentId/memories'
     | '/_app/settings/agents/$agentId'
+    | '/_app/settings/channels/$channelId'
     | '/_app/settings/providers/$providerId'
     | '/_app/settings/users/$userId'
     | '/_app/agents/$agentId/'
@@ -1062,6 +1079,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/providers/$providerId'
       preLoaderRoute: typeof AppSettingsProvidersProviderIdRouteImport
       parentRoute: typeof AppSettingsProvidersRoute
+    }
+    '/_app/settings/channels/$channelId': {
+      id: '/_app/settings/channels/$channelId'
+      path: '/$channelId'
+      fullPath: '/settings/channels/$channelId'
+      preLoaderRoute: typeof AppSettingsChannelsChannelIdRouteImport
+      parentRoute: typeof AppSettingsChannelsRoute
     }
     '/_app/settings/agents/$agentId': {
       id: '/_app/settings/agents/$agentId'
@@ -1377,6 +1401,17 @@ const AppSettingsAgentsRouteChildren: AppSettingsAgentsRouteChildren = {
 const AppSettingsAgentsRouteWithChildren =
   AppSettingsAgentsRoute._addFileChildren(AppSettingsAgentsRouteChildren)
 
+interface AppSettingsChannelsRouteChildren {
+  AppSettingsChannelsChannelIdRoute: typeof AppSettingsChannelsChannelIdRoute
+}
+
+const AppSettingsChannelsRouteChildren: AppSettingsChannelsRouteChildren = {
+  AppSettingsChannelsChannelIdRoute: AppSettingsChannelsChannelIdRoute,
+}
+
+const AppSettingsChannelsRouteWithChildren =
+  AppSettingsChannelsRoute._addFileChildren(AppSettingsChannelsRouteChildren)
+
 interface AppSettingsProvidersRouteChildren {
   AppSettingsProvidersProviderIdRoute: typeof AppSettingsProvidersProviderIdRoute
 }
@@ -1403,7 +1438,7 @@ interface AppSettingsRouteChildren {
   AppSettingsAboutRoute: typeof AppSettingsAboutRoute
   AppSettingsAccountRoute: typeof AppSettingsAccountRoute
   AppSettingsAgentsRoute: typeof AppSettingsAgentsRouteWithChildren
-  AppSettingsChannelsRoute: typeof AppSettingsChannelsRoute
+  AppSettingsChannelsRoute: typeof AppSettingsChannelsRouteWithChildren
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRoute
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
@@ -1416,7 +1451,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsAboutRoute: AppSettingsAboutRoute,
   AppSettingsAccountRoute: AppSettingsAccountRoute,
   AppSettingsAgentsRoute: AppSettingsAgentsRouteWithChildren,
-  AppSettingsChannelsRoute: AppSettingsChannelsRoute,
+  AppSettingsChannelsRoute: AppSettingsChannelsRouteWithChildren,
   AppSettingsCredentialsRoute: AppSettingsCredentialsRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRoute,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
