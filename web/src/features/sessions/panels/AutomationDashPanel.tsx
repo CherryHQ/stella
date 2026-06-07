@@ -118,7 +118,7 @@ export function AutomationDashPanel({
           size="sm"
           variant="outline"
           onClick={onCreateTask}
-          className="h-8 rounded-lg border-border/80 bg-background px-2.5 text-xs font-medium shadow-none"
+          className="h-8 rounded-lg border-border/80 bg-background px-2.5 text-xs font-medium"
         >
           <svg
             className="size-3"
@@ -394,7 +394,7 @@ function KanbanColumn({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {items.length === 0 ? (
-          <div className="grid h-24 place-items-center rounded-xl border border-dashed border-border/70 text-[11px] text-muted-foreground/55">
+          <div className="grid h-24 place-items-center rounded-xl border border-dashed border-border/70 text-[11px] text-muted-foreground">
             Empty
           </div>
         ) : (
@@ -443,7 +443,7 @@ function TaskKanbanCard({ task, onClick }: { task: ComponentsTask; onClick: () =
       disabled={!task.session_id}
       className={cn(
         "w-full rounded-xl border border-border/70 bg-background/70 p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm",
-        !task.session_id && "cursor-default opacity-75 hover:border-border/70 hover:shadow-none",
+        !task.session_id && "cursor-default opacity-75 hover:border-border/70",
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -463,7 +463,7 @@ function TaskKanbanCard({ task, onClick }: { task: ComponentsTask; onClick: () =
           {task.description}
         </p>
       )}
-      <p className="mt-2 font-mono text-[10px] text-muted-foreground/55">
+      <p className="mt-2 font-mono text-[10px] text-muted-foreground">
         updated {formatTime(task.updated_at)}
       </p>
     </button>
@@ -493,7 +493,7 @@ function RunKanbanCard({
           <RunStatusDot status={run.status} />
           run
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground/55">
+        <span className="font-mono text-[10px] text-muted-foreground">
           {formatTime(run.started_at)}
         </span>
       </div>
@@ -504,7 +504,7 @@ function RunKanbanCard({
         </p>
       )}
       {run.duration && (
-        <p className="mt-2 font-mono text-[10px] text-muted-foreground/55">{run.duration}</p>
+        <p className="mt-2 font-mono text-[10px] text-muted-foreground">{run.duration}</p>
       )}
     </button>
   );
@@ -532,7 +532,7 @@ function ScheduleKanbanCard({
         <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
           schedule
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground/55">
+        <span className="font-mono text-[10px] text-muted-foreground">
           {job.owner_kind === "system" ? "system" : "user"}
         </span>
       </div>
@@ -546,7 +546,7 @@ function ScheduleKanbanCard({
         </p>
       )}
       {job.last_run_at && (
-        <p className="mt-2 font-mono text-[10px] text-muted-foreground/55">
+        <p className="mt-2 font-mono text-[10px] text-muted-foreground">
           last {formatTime(job.last_run_at)}
         </p>
       )}
@@ -578,9 +578,7 @@ function JobDetailPanel({
         <span
           className={cn(
             "text-[9px] font-mono px-2 py-0.5 rounded-full",
-            job.enabled
-              ? "bg-emerald-500/10 text-emerald-600"
-              : "bg-muted text-muted-foreground/60",
+            job.enabled ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground",
           )}
         >
           {job.enabled ? "on" : "off"}
@@ -596,7 +594,7 @@ function JobDetailPanel({
         </Button>
         <button
           onClick={onClose}
-          className="text-muted-foreground/50 hover:text-foreground text-sm cursor-pointer"
+          className="text-muted-foreground hover:text-foreground text-sm cursor-pointer"
         >
           ×
         </button>
@@ -605,23 +603,23 @@ function JobDetailPanel({
       {/* Job meta */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-border/60 space-y-2">
         {job.description && (
-          <p className="text-[12px] text-muted-foreground/80 leading-relaxed">{job.description}</p>
+          <p className="text-[12px] text-muted-foreground leading-relaxed">{job.description}</p>
         )}
         <dl className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1.5 text-[11px]">
-          <dt className="font-mono text-muted-foreground/50">Schedule</dt>
-          <dd className="text-foreground/70 font-mono">{schedule}</dd>
-          <dt className="font-mono text-muted-foreground/50">Session</dt>
-          <dd className="text-foreground/70 font-mono">{job.session_mode || "new"}</dd>
+          <dt className="font-mono text-muted-foreground">Schedule</dt>
+          <dd className="text-muted-foreground font-mono">{schedule}</dd>
+          <dt className="font-mono text-muted-foreground">Session</dt>
+          <dd className="text-muted-foreground font-mono">{job.session_mode || "new"}</dd>
           {job.owner_kind === "system" && (
             <>
-              <dt className="font-mono text-muted-foreground/50">Owner</dt>
-              <dd className="text-foreground/70">system</dd>
+              <dt className="font-mono text-muted-foreground">Owner</dt>
+              <dd className="text-muted-foreground">system</dd>
             </>
           )}
           {job.last_run_at && (
             <>
-              <dt className="font-mono text-muted-foreground/50">Last run</dt>
-              <dd className="text-foreground/70">{formatTime(job.last_run_at)}</dd>
+              <dt className="font-mono text-muted-foreground">Last run</dt>
+              <dd className="text-muted-foreground">{formatTime(job.last_run_at)}</dd>
             </>
           )}
         </dl>
@@ -630,9 +628,9 @@ function JobDetailPanel({
       {/* Runs list */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="flex-shrink-0 px-4 py-2 border-b border-border/60">
-          <p className="text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground/50">
+          <p className="text-[10px] font-mono font-medium text-muted-foreground">
             Runs
-            {!runsLoading && <span className="ml-1.5 text-muted-foreground/40">{runs.length}</span>}
+            {!runsLoading && <span className="ml-1.5 text-muted-foreground">{runs.length}</span>}
           </p>
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -641,7 +639,7 @@ function JobDetailPanel({
               <div className="w-3.5 h-3.5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
             </div>
           ) : runs.length === 0 ? (
-            <p className="text-center text-[11px] text-muted-foreground/50 py-8 font-mono">
+            <p className="text-center text-[11px] text-muted-foreground py-8 font-mono">
               No runs yet
             </p>
           ) : (
@@ -653,11 +651,11 @@ function JobDetailPanel({
                   className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors duration-150 cursor-pointer"
                 >
                   <RunStatusDot status={run.status} />
-                  <span className="text-[11px] font-mono text-muted-foreground/50 flex-1">
+                  <span className="text-[11px] font-mono text-muted-foreground flex-1">
                     {formatTime(run.started_at)}
                   </span>
                   {run.duration && (
-                    <span className="text-[10px] font-mono text-muted-foreground/40">
+                    <span className="text-[10px] font-mono text-muted-foreground">
                       {run.duration}
                     </span>
                   )}
@@ -714,7 +712,7 @@ function RunDetailPanel({
         <h3 className="flex-1 text-[13px] font-medium truncate">{run.job_name || "Run"}</h3>
         <button
           onClick={onClose}
-          className="text-muted-foreground/50 hover:text-foreground text-sm cursor-pointer"
+          className="text-muted-foreground hover:text-foreground text-sm cursor-pointer"
         >
           ×
         </button>
@@ -726,24 +724,24 @@ function RunDetailPanel({
           <p className="text-[12px] text-destructive/80 leading-relaxed">{run.error}</p>
         )}
         <dl className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1.5 text-[11px]">
-          <dt className="font-mono text-muted-foreground/50">Status</dt>
+          <dt className="font-mono text-muted-foreground">Status</dt>
           <dd
             className={cn(
-              run.status === "failed" ? "text-destructive font-medium" : "text-foreground/70",
+              run.status === "failed" ? "text-destructive font-medium" : "text-muted-foreground",
             )}
           >
             {run.status}
           </dd>
-          <dt className="font-mono text-muted-foreground/50">Started</dt>
-          <dd className="text-foreground/70">{formatTime(run.started_at)}</dd>
+          <dt className="font-mono text-muted-foreground">Started</dt>
+          <dd className="text-muted-foreground">{formatTime(run.started_at)}</dd>
           {run.duration && (
             <>
-              <dt className="font-mono text-muted-foreground/50">Duration</dt>
-              <dd className="text-foreground/70 font-mono">{run.duration}</dd>
+              <dt className="font-mono text-muted-foreground">Duration</dt>
+              <dd className="text-muted-foreground font-mono">{run.duration}</dd>
             </>
           )}
-          <dt className="font-mono text-muted-foreground/50">Job</dt>
-          <dd className="text-foreground/70 truncate">{run.job_name}</dd>
+          <dt className="font-mono text-muted-foreground">Job</dt>
+          <dd className="text-muted-foreground truncate">{run.job_name}</dd>
         </dl>
       </div>
 
@@ -762,7 +760,7 @@ function RunDetailPanel({
           />
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">
-            <p className="text-[11px] text-muted-foreground/50 font-mono text-center">
+            <p className="text-[11px] text-muted-foreground font-mono text-center">
               No conversation session for this run
             </p>
           </div>
