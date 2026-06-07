@@ -1,66 +1,34 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
-import { listPlugins, togglePlugin as togglePluginRequest } from "@/lib/api-client/sdk.gen";
+import { useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { togglePlugin as togglePluginRequest } from "@/lib/api-client/sdk.gen";
 import type { Plugin } from "@/lib/types";
 import { pluginLabel, pluginDescription, sandboxMeta } from "@/features/plugins/pluginUtils";
+import { pluginsQueryOptions } from "@/lib/queries/plugins";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
-import {
-  SettingsListHeader,
-  SettingsListItem,
-  SettingsListBody,
-} from "@/features/settings/SettingsListPanel";
-import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 
 const validSandboxBackends = new Set(["sandbox/docker", "sandbox/local", "sandbox/none"]);
 
 export function SandboxPage() {
   const { t } = useI18n();
-  const navigate = useNavigate();
-  const params = useParams({ strict: false }) as { backendId?: string };
-  const backendId = params.backendId;
-
-  const [plugins, setPlugins] = useState<Plugin[]>([]);
+  const queryClient = useQueryClient();
+  const { data: allPlugins = [] } = useQuery(pluginsQueryOptions);
   const { toasts, showToast } = useToast(4000);
 
-  const sandboxPlugins = plugins.filter(
-    (p) => p.kind === "sandbox" && validSandboxBackends.has(p.id),
+  const sandboxPlugins = useMemo(
+    () =>
+      allPlugins
+        .filter((p) => p.kind === "sandbox" && validSandboxBackends.has(p.id))
+        .map((p) => ({ ...p, capabilities: Array.isArray(p.capabilities) ? p.capabilities : [] })),
+    [allPlugins],
   );
 
-  const selectedPlugin = backendId ? sandboxPlugins.find((p) => p.name === backendId) : undefined;
-
-  const loadPlugins = useCallback(async () => {
-    try {
-      const { data } = await listPlugins({ throwOnError: true });
-      setPlugins(
-        ((data?.plugins as Plugin[]) ?? []).map((p) => ({
-          ...p,
-          capabilities: Array.isArray(p.capabilities) ? p.capabilities : [],
-        })),
-      );
-    } catch (e) {
-      showToast((e as Error).message, "error");
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadPlugins();
-  }, [loadPlugins]);
-
-  function updateEnabled(id: string, enabled: boolean) {
-    setPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled } : p)));
-  }
-
-  async function toggleSandbox(id: string, enabled: boolean) {
-    const previous = new Map(sandboxPlugins.map((p) => [p.id, p.enabled]));
+  async function toggleSandbox(plugin: Plugin, enabled: boolean) {
     try {
       if (enabled) {
-        for (const other of sandboxPlugins.filter((p) => p.id !== id && p.enabled)) {
-          updateEnabled(other.id, false);
+        for (const other of sandboxPlugins.filter((p) => p.id !== plugin.id && p.enabled)) {
           await togglePluginRequest({
             path: { kind: other.kind, name: other.name },
             body: { enabled: false },
@@ -68,9 +36,6 @@ export function SandboxPage() {
           });
         }
       }
-      updateEnabled(id, enabled);
-      const plugin = plugins.find((p) => p.id === id);
-      if (!plugin) return;
       const { data } = await togglePluginRequest({
         path: { kind: plugin.kind, name: plugin.name },
         body: { enabled },
@@ -78,135 +43,107 @@ export function SandboxPage() {
       });
       const updated = data as Plugin;
       const updatedEnabled = !!updated.enabled;
-      updateEnabled(updated.id || id, updatedEnabled);
       showToast(
         enabled
-          ? id + " set as active sandbox"
+          ? plugin.id + " set as active sandbox"
           : updatedEnabled
             ? "At least one sandbox must stay active"
-            : id + " disabled",
+            : plugin.id + " disabled",
       );
-      void loadPlugins();
+      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
     } catch (e) {
-      for (const [pluginID, wasEnabled] of previous) {
-        updateEnabled(pluginID, wasEnabled);
-      }
       showToast((e as Error).message, "error");
+      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
     }
-  }
-
-  let detail: React.ReactNode = undefined;
-  if (selectedPlugin) {
-    const meta = sandboxMeta(selectedPlugin.id);
-    detail = (
-      <DetailPanel>
-        <DetailPanelHeader
-          title={pluginLabel(selectedPlugin)}
-          subtitle={
-            <div className="flex items-center gap-1.5">
-              {selectedPlugin.enabled && (
-                <Badge variant="success" size="sm">
-                  active
-                </Badge>
-              )}
-              {meta.recommended && (
-                <Badge variant="default" size="sm">
-                  recommended
-                </Badge>
-              )}
-              {meta.isDefault && (
-                <Badge variant="secondary" size="sm">
-                  default
-                </Badge>
-              )}
-            </div>
-          }
-          action={
-            <Switch
-              checked={selectedPlugin.enabled}
-              onCheckedChange={(checked) => void toggleSandbox(selectedPlugin.id, checked)}
-            />
-          }
-        />
-
-        {pluginDescription(selectedPlugin) && (
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            {pluginDescription(selectedPlugin)}
-          </p>
-        )}
-
-        {meta.features.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground mb-2">Features</p>
-            <ul className="text-sm text-muted-foreground space-y-1.5">
-              {meta.features.map((f) => (
-                <li key={f} className="flex items-start gap-2">
-                  <span className="text-success-foreground shrink-0 font-bold mt-0.5">✓</span>
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {meta.limitations.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground mb-2">Limitations</p>
-            <ul className="text-sm text-muted-foreground space-y-1.5">
-              {meta.limitations.map((l) => (
-                <li key={l} className="flex items-start gap-2">
-                  <span className="text-warning-foreground shrink-0 font-bold mt-0.5">⚠</span>
-                  <span>{l}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </DetailPanel>
-    );
   }
 
   return (
     <>
-      <SettingsDetailLayout
-        list={
-          <>
-            <SettingsListHeader title={t("settings.nav.sandbox")} />
-            <SettingsListBody>
-              {sandboxPlugins.map((p) => (
-                <SettingsListItem
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-2xl p-6 space-y-6">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              {t("settings.nav.sandbox")}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Choose how agent code execution is isolated.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {sandboxPlugins.map((p) => {
+              const meta = sandboxMeta(p.id);
+              const active = !!p.enabled;
+              return (
+                <div
                   key={p.id}
-                  active={backendId === p.name}
-                  onClick={() =>
-                    void navigate({
-                      to: "/settings/sandbox/$backendId",
-                      params: { backendId: p.name },
-                    })
-                  }
+                  className={`rounded-xl border p-5 space-y-3 transition-colors duration-120 ${
+                    active ? "border-primary/40 bg-primary/4" : "border-border bg-card"
+                  }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`shrink-0 size-1.5 rounded-full ${p.enabled ? "bg-green-500" : "bg-muted-foreground"}`}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">
+                          {pluginLabel(p)}
+                        </span>
+                        {active && (
+                          <Badge variant="success" size="sm">
+                            active
+                          </Badge>
+                        )}
+                        {meta.recommended && (
+                          <Badge variant="default" size="sm">
+                            recommended
+                          </Badge>
+                        )}
+                        {meta.isDefault && (
+                          <Badge variant="secondary" size="sm">
+                            default
+                          </Badge>
+                        )}
+                      </div>
+                      {pluginDescription(p) && (
+                        <p className="text-xs text-muted-foreground">{pluginDescription(p)}</p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={active}
+                      onCheckedChange={(checked) => void toggleSandbox(p, checked)}
                     />
-                    <span className="text-sm truncate">{pluginLabel(p)}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {p.enabled ? "active" : "disabled"}
-                  </span>
-                </SettingsListItem>
-              ))}
-            </SettingsListBody>
-          </>
-        }
-        detail={detail}
-        emptyState={
-          <SettingsEmptyState
-            message="No sandbox backends"
-            description="Select a sandbox backend to configure."
-          />
-        }
-        onBack={() => void navigate({ to: "/settings/sandbox" })}
-      />
+
+                  {meta.features.length > 0 && (
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      {meta.features.map((f) => (
+                        <li key={f} className="flex items-start gap-2">
+                          <span className="text-success-foreground shrink-0 font-bold mt-px">
+                            ✓
+                          </span>
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {meta.limitations.length > 0 && (
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      {meta.limitations.map((l) => (
+                        <li key={l} className="flex items-start gap-2">
+                          <span className="text-warning-foreground shrink-0 font-bold mt-px">
+                            ⚠
+                          </span>
+                          <span>{l}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
       <ToastContainer messages={toasts} />
     </>
   );
