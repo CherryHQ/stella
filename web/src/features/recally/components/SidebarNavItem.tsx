@@ -20,7 +20,7 @@ export function SidebarNavItem({
     >
       <span>{label}</span>
       {count !== undefined && (
-        <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">{count}</span>
+        <span className="text-[10px] font-mono text-muted-foreground tabular-nums">{count}</span>
       )}
     </button>
   );

@@ -102,7 +102,7 @@ export function CreateGroupDialog({ open, onClose }: Props) {
                       "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
                       selected
                         ? "bg-primary/10 text-foreground"
-                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     <span

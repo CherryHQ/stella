@@ -429,8 +429,8 @@ export function PluginsPage() {
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
             <div className="flex items-center gap-2">
-              <Wrench className="size-4 shrink-0 text-muted-foreground/80" />
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
+              <Wrench className="size-4 shrink-0 text-muted-foreground" />
+              <h4 className="font-mono text-[9px] text-muted-foreground">
                 {t("plugins.tab.tools")}
               </h4>
               <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -459,7 +459,7 @@ export function PluginsPage() {
           </p>
 
           {showAddManifestTool && (
-            <div className="rounded-xl border border-border bg-card p-5 mb-6 space-y-5 shadow-none">
+            <div className="rounded-xl border border-border bg-card p-5 mb-6 space-y-5">
               <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
                 <div>
                   <p className="text-sm font-semibold font-sans tracking-tight">Add Tool</p>
@@ -670,10 +670,8 @@ export function PluginsPage() {
         {/* Hooks */}
         <section className="space-y-4">
           <div className="flex items-center gap-2 border-b border-border pb-2">
-            <Webhook className="size-4 shrink-0 text-muted-foreground/80" />
-            <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-              {t("plugins.tab.hooks")}
-            </h4>
+            <Webhook className="size-4 shrink-0 text-muted-foreground" />
+            <h4 className="font-mono text-[9px] text-muted-foreground">{t("plugins.tab.hooks")}</h4>
             <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
               {hookPlugins.length}
             </Badge>
@@ -690,8 +688,8 @@ export function PluginsPage() {
         {standalonePlugins.length > 0 && (
           <section className="space-y-4">
             <div className="flex items-center gap-2 border-b border-border pb-2">
-              <Blocks className="size-4 shrink-0 text-muted-foreground/80" />
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
+              <Blocks className="size-4 shrink-0 text-muted-foreground" />
+              <h4 className="font-mono text-[9px] text-muted-foreground">
                 {t("plugins.tab.others")}
               </h4>
               <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -858,7 +856,7 @@ function PluginList({
         );
       })}
       {plugins.length === 0 && (
-        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2 shadow-none">
+        <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2">
           {emptyMessage}
         </div>
       )}

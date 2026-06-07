@@ -90,10 +90,8 @@ export function SandboxPage() {
 
         <div className="space-y-4">
           <div className="flex items-center gap-2 border-b border-border pb-2">
-            <Box className="size-4 shrink-0 text-muted-foreground/80" />
-            <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-              Sandbox Backends
-            </h4>
+            <Box className="size-4 shrink-0 text-muted-foreground" />
+            <h4 className="font-mono text-[9px] text-muted-foreground">Sandbox Backends</h4>
             <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
               {sandboxPlugins.length}
             </Badge>
@@ -144,7 +142,7 @@ export function SandboxPage() {
                     <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4 sm:flex-row sm:gap-6">
                       {meta.features.length > 0 && (
                         <div className="flex-1">
-                          <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-success-foreground/80 mb-1.5">
+                          <p className="font-mono text-[9px] text-success-foreground mb-1.5">
                             Features
                           </p>
                           <ul className="text-[11px] text-muted-foreground space-y-1">
@@ -161,7 +159,7 @@ export function SandboxPage() {
                       )}
                       {meta.limitations.length > 0 && (
                         <div className="flex-1">
-                          <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-warning-foreground/80 mb-1.5">
+                          <p className="font-mono text-[9px] text-warning-foreground mb-1.5">
                             Limitations
                           </p>
                           <ul className="text-[11px] text-muted-foreground space-y-1">
@@ -182,7 +180,7 @@ export function SandboxPage() {
               );
             })}
             {sandboxPlugins.length === 0 && (
-              <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2 shadow-none">
+              <div className="text-center text-muted-foreground text-sm py-8 border border-dashed border-border rounded-xl bg-card sm:col-span-2">
                 No sandbox plugins registered.
               </div>
             )}

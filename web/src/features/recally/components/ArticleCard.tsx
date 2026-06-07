@@ -33,21 +33,21 @@ export function ArticleCard({
       {article.summary && (
         <div className="mt-2 flex items-start gap-1.5">
           <Sparkles className="mt-0.5 size-2.5 shrink-0 text-primary/60" />
-          <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground/75">
+          <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
             {article.summary}
           </p>
         </div>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-1.5 font-mono text-[9px]">
         <StatusBadge status={article.status} t={t} />
-        <span className="text-muted-foreground/50 border border-border rounded bg-muted/20 px-1 py-0.5">
+        <span className="text-muted-foreground border border-border rounded px-1 py-0.5">
           {t(SOURCE_LABEL_KEYS[article.source_type])}
         </span>
-        <span className="text-muted-foreground/55">{formatSavedAt(article.saved_at, t)}</span>
+        <span className="text-muted-foreground">{formatSavedAt(article.saved_at, t)}</span>
         {article.tags?.map((tag) => (
           <span
             key={tag}
-            className="rounded-full bg-muted/30 border border-border px-1.5 py-0.5 text-muted-foreground/70 hover:text-primary hover:border-primary/20 hover:bg-primary/5 transition-colors duration-120"
+            className="rounded-full border border-border px-1.5 py-0.5 text-muted-foreground hover:text-primary hover:border-primary/20 hover:bg-primary/5 transition-colors duration-120"
           >
             {tag}
           </span>

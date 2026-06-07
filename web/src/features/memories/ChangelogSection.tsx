@@ -73,7 +73,7 @@ export function ChangelogSection({ agentId }: Props) {
             {(entries as ChangelogEntry[]).map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs transition-colors hover:bg-muted/30"
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs transition-colors hover:bg-muted"
               >
                 {/* Scope badge */}
                 <span
@@ -86,7 +86,7 @@ export function ChangelogSection({ agentId }: Props) {
                 </span>
 
                 {/* Action */}
-                <span className="text-foreground/80 font-medium">{entry.action}</span>
+                <span className="text-foreground font-medium">{entry.action}</span>
 
                 {/* Source badge */}
                 <span
@@ -100,13 +100,13 @@ export function ChangelogSection({ agentId }: Props) {
 
                 {/* Version */}
                 {entry.memory_version_after != null && (
-                  <span className="text-muted-foreground/50 font-mono">
+                  <span className="text-muted-foreground font-mono">
                     v{entry.memory_version_after}
                   </span>
                 )}
 
                 {/* Timestamp */}
-                <span className="ml-auto shrink-0 text-muted-foreground/60 font-mono text-[10px]">
+                <span className="ml-auto shrink-0 text-muted-foreground font-mono text-[10px]">
                   {formatTime(entry.created_at)}
                 </span>
               </div>

@@ -625,7 +625,7 @@ export function UsersPage() {
           <div className="space-y-4">
             {/* Default Agent */}
             <div className="flex items-center gap-3">
-              <span className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider shrink-0">
+              <span className="text-xs font-mono font-medium text-muted-foreground shrink-0">
                 Default Agent
               </span>
               <select
@@ -661,7 +661,7 @@ export function UsersPage() {
 
             {/* Memory entries */}
             <div>
-              <p className="text-xs font-mono font-medium text-muted-foreground uppercase tracking-wider mb-3">
+              <p className="text-xs font-mono font-medium text-muted-foreground mb-3">
                 Memory
                 {selectedLegacyUser._memoryCount > 0 && (
                   <span className="text-primary ml-1">({selectedLegacyUser._memoryCount})</span>
@@ -870,8 +870,8 @@ export function UsersPage() {
                   return (
                     <div key={group.role} className="space-y-4">
                       <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                        <Icon className="size-4 shrink-0 text-muted-foreground/80" />
-                        <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                        <Icon className="size-4 shrink-0 text-muted-foreground" />
+                        <h4 className="text-xs font-semibold text-muted-foreground">
                           {group.label}
                         </h4>
                         <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -894,7 +894,7 @@ export function UsersPage() {
                                         u.is_active ? "bg-green-500" : "bg-muted-foreground/40"
                                       }`}
                                     />
-                                    <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                                    <h3 className="text-sm font-semibold text-foreground truncate">
                                       {u.name || u.email}
                                     </h3>
                                   </div>

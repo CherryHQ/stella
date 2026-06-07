@@ -238,7 +238,7 @@ export function EmailAccountsPanel({
             return (
               <div
                 key={name}
-                className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-none flex flex-col justify-between"
+                className="min-w-0 rounded-xl border border-border bg-card p-5 flex flex-col justify-between"
               >
                 <div>
                   <div className="flex min-w-0 items-start justify-between gap-3">
@@ -248,7 +248,7 @@ export function EmailAccountsPanel({
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
-                        className="size-4 text-muted-foreground/80"
+                        className="size-4 text-muted-foreground"
                       >
                         <rect width="20" height="16" x="2" y="4" rx="2" />
                         <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
@@ -325,9 +325,9 @@ export function EmailAccountsPanel({
           </Button>
         </div>
       ) : (
-        <div className="rounded-xl border border-border bg-card p-6 shadow-none space-y-6">
+        <div className="rounded-xl border border-border bg-card p-6 space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground/95 font-sans">
+            <h3 className="text-sm font-semibold text-foreground font-sans">
               {editingName ? `Edit Email Account: ${editingName}` : "Add Email Account"}
             </h3>
             <Button
@@ -357,10 +357,8 @@ export function EmailAccountsPanel({
             )}
 
             {/* IMAP Config */}
-            <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                IMAP (Incoming)
-              </h4>
+            <div className="space-y-4 rounded-lg border border-border bg-muted p-4">
+              <h4 className="font-mono text-[9px] text-muted-foreground">IMAP (Incoming)</h4>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">IMAP Host</label>
@@ -405,10 +403,8 @@ export function EmailAccountsPanel({
             </div>
 
             {/* SMTP Config */}
-            <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                SMTP (Outgoing)
-              </h4>
+            <div className="space-y-4 rounded-lg border border-border bg-muted p-4">
+              <h4 className="font-mono text-[9px] text-muted-foreground">SMTP (Outgoing)</h4>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">SMTP Host</label>
@@ -453,10 +449,8 @@ export function EmailAccountsPanel({
             </div>
 
             {/* Credentials / Auth */}
-            <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-4 md:col-span-2">
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                Account Credentials
-              </h4>
+            <div className="space-y-4 rounded-lg border border-border bg-muted p-4 md:col-span-2">
+              <h4 className="font-mono text-[9px] text-muted-foreground">Account Credentials</h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">

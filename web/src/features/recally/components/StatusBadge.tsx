@@ -11,9 +11,7 @@ export function StatusBadge({ status, t }: { status: ArticleStatus; t: TFunction
         : "border-border bg-muted text-muted-foreground";
 
   return (
-    <span
-      className={`px-1.5 py-0.5 rounded-full border font-mono text-[9px] uppercase tracking-wider ${classes}`}
-    >
+    <span className={`px-1.5 py-0.5 rounded-full border font-mono text-[9px] ${classes}`}>
       {t(STATUS_LABEL_KEYS[status])}
     </span>
   );

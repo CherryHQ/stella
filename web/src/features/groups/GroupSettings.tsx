@@ -157,7 +157,7 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
                     key={ag.id}
                     type="button"
                     onClick={() => void handleAddMember(ag.id)}
-                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <span className="text-xs text-primary">+</span>
                     <span className="font-medium">{ag.name}</span>

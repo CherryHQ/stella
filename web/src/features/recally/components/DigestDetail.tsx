@@ -19,7 +19,7 @@ export function DigestDetail({
         </h2>
 
         {digest.narrative && (
-          <div className="rounded-xl border border-border bg-card p-4 text-sm leading-relaxed text-foreground/90 whitespace-pre-line shadow-none">
+          <div className="rounded-xl border border-border bg-card p-4 text-sm leading-relaxed text-foreground whitespace-pre-line">
             {digest.narrative}
           </div>
         )}
@@ -47,9 +47,9 @@ export function DigestDetail({
               {digest.top_tags.map(({ tag, count }) => (
                 <span
                   key={tag}
-                  className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-mono text-muted-foreground/90 font-medium"
+                  className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-mono text-muted-foreground font-medium"
                 >
-                  {tag} <span className="text-muted-foreground/60">{count}</span>
+                  {tag} <span className="text-muted-foreground">{count}</span>
                 </span>
               ))}
             </div>
@@ -61,11 +61,7 @@ export function DigestDetail({
 }
 
 function SectionLabel({ title }: { title: string }) {
-  return (
-    <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60">
-      {title}
-    </div>
-  );
+  return <div className="text-[10px] font-mono font-semibold text-muted-foreground">{title}</div>;
 }
 
 function ArticleGroup({
@@ -91,9 +87,7 @@ function ArticleGroup({
               {a.starred && (
                 <Star className="mt-0.5 size-3 shrink-0 fill-amber-500 text-amber-500" />
               )}
-              <span className="line-clamp-2 text-sm leading-snug text-foreground/90">
-                {a.title}
-              </span>
+              <span className="line-clamp-2 text-sm leading-snug text-foreground">{a.title}</span>
             </button>
           </li>
         ))}

@@ -47,7 +47,7 @@ export function GenericConfigEditor({
   const fields = pluginSchemaFields(plugin, schemas);
 
   return (
-    <div className="px-4 pb-4 border-t border-border bg-muted/30">
+    <div className="px-4 pb-4 border-t border-border">
       <div className="pt-4 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm font-medium">Configuration</p>

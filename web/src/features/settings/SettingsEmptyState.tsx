@@ -15,17 +15,17 @@ export function SettingsEmptyState({
 }: SettingsEmptyStateProps) {
   return (
     <div className="flex h-full items-center justify-center p-8 text-center bg-background">
-      <div className="max-w-md w-full border border-border rounded-xl p-8 bg-card shadow-none">
+      <div className="max-w-md w-full border border-border rounded-xl p-8 bg-card">
         {icon && (
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
             {icon}
           </div>
         )}
-        <h3 className="text-sm font-semibold text-foreground/95 font-sans tracking-tight">
+        <h3 className="text-sm font-semibold text-foreground font-sans tracking-tight">
           {message}
         </h3>
         {description && (
-          <p className="text-xs text-muted-foreground/60 mt-2 max-w-72 mx-auto leading-relaxed">
+          <p className="text-xs text-muted-foreground mt-2 max-w-72 mx-auto leading-relaxed">
             {description}
           </p>
         )}
