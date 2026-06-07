@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 
 const SELECT_CLASS =
-  "h-7.5 sm:h-6.5 w-full rounded-lg border border-input bg-background px-2.5 text-sm font-mono text-foreground shadow-xs/5 outline-none transition-shadow focus:border-ring focus:ring-2 focus:ring-ring/24 dark:bg-input/32";
+  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-mono outline-none sm:h-8";
 
 interface Props {
   draft: ManifestInstallDraft;
@@ -79,7 +79,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
   }
 
   return (
-    <div className="border-t border-border px-6 py-5 space-y-6">
+    <div className="border-t border-border bg-muted px-6 py-5 space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
