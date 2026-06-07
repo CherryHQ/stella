@@ -134,7 +134,7 @@ function InspectorTabButton({
         "pb-2 px-1 font-medium transition-colors border-b-2 outline-none cursor-pointer text-xs",
         active
           ? "border-primary text-foreground font-semibold"
-          : "border-transparent text-muted-foreground/70 hover:text-foreground",
+          : "border-transparent text-muted-foreground hover:text-foreground",
       )}
     >
       {children}
@@ -238,7 +238,7 @@ function WorkPanel({
                     {item.detail}
                   </span>
                 </span>
-                <span className="text-[10px] text-muted-foreground/70">{item.meta}</span>
+                <span className="text-[10px] text-muted-foreground">{item.meta}</span>
               </div>
             ))}
           </div>
@@ -464,10 +464,8 @@ function ContextSummary({
   skills: number;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-card p-4 shadow-none">
-      <div className="mb-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-        Runtime context
-      </div>
+    <section className="rounded-xl border border-border bg-card p-4">
+      <div className="mb-3 text-[10px] font-semibold text-muted-foreground">Runtime context</div>
       <div className="grid grid-cols-4 gap-1.5">
         <ContextMetric label="Msgs" value={messagesLoading ? "..." : messages.length} />
         <ContextMetric
@@ -491,9 +489,7 @@ function ContextMetric({ label, value }: { label: string; value: string | number
   return (
     <div className="rounded-lg bg-muted/40 border border-border/10 px-2 py-2 text-center">
       <div className="truncate text-sm font-semibold font-mono text-foreground">{value}</div>
-      <div className="mt-0.5 truncate text-[10px] text-muted-foreground/70 uppercase tracking-wider">
-        {label}
-      </div>
+      <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{label}</div>
     </div>
   );
 }
@@ -518,25 +514,25 @@ function ContextSectionCard({
   onAction?: () => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-none">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center transition-all duration-120 hover:bg-muted/30">
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center">
         <button
           type="button"
           onClick={onToggle}
           className="grid min-w-0 grid-cols-[2rem_minmax(0,1fr)_1rem] items-center gap-2.5 px-4 py-3 text-left cursor-pointer"
         >
-          <span className="grid size-8 place-items-center rounded-lg bg-muted border border-border/10 text-muted-foreground/80 shrink-0">
+          <span className="grid size-8 place-items-center rounded-lg bg-muted border border-border/10 text-muted-foreground shrink-0">
             {icon}
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-foreground/90">{title}</span>
-            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/60 leading-none">
+            <span className="block truncate text-sm font-semibold text-foreground">{title}</span>
+            <span className="mt-0.5 block truncate text-[11px] text-muted-foreground leading-none">
               {detail}
             </span>
           </span>
           <ChevronDown
             className={cn(
-              "size-3.5 text-muted-foreground/50 transition-transform duration-200",
+              "size-3.5 text-muted-foreground transition-transform duration-200",
               open && "rotate-180",
             )}
           />
@@ -548,13 +544,13 @@ function ContextSectionCard({
               e.stopPropagation();
               onAction();
             }}
-            className="mr-3 rounded-md px-2.5 py-1.5 text-[10px] font-semibold text-primary transition-all duration-120 hover:bg-primary/10 cursor-pointer uppercase tracking-wider"
+            className="mr-3 rounded-md px-2.5 py-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 cursor-pointer"
           >
             {actionLabel}
           </button>
         )}
       </div>
-      {open && <div className="border-t border-border p-4 bg-muted/5">{children}</div>}
+      {open && <div className="border-t border-border p-4">{children}</div>}
     </section>
   );
 }
@@ -577,52 +573,36 @@ function SessionContextCard({
   return (
     <div className="space-y-3.5">
       <dl className="grid grid-cols-[5.2rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
-        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
-          Channel
-        </dt>
-        <dd className="truncate text-foreground/80 font-medium">
+        <dt className="text-muted-foreground font-semibold text-[10px]">Channel</dt>
+        <dd className="truncate text-foreground font-medium">
           {channelLabel(session.channel) || "chat"}
         </dd>
-        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
-          Agent
-        </dt>
-        <dd className="truncate text-foreground/80 font-medium">{agentName || "unknown"}</dd>
-        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
-          Kind
-        </dt>
-        <dd className="truncate capitalize text-foreground/80 font-medium">{session.kind}</dd>
-        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
-          Active
-        </dt>
-        <dd className="truncate text-foreground/80 font-medium">
-          {formatTime(session.last_active)}
-        </dd>
-        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
-          Messages
-        </dt>
-        <dd className="truncate text-foreground/80 font-medium">
+        <dt className="text-muted-foreground font-semibold text-[10px]">Agent</dt>
+        <dd className="truncate text-foreground font-medium">{agentName || "unknown"}</dd>
+        <dt className="text-muted-foreground font-semibold text-[10px]">Kind</dt>
+        <dd className="truncate capitalize text-foreground font-medium">{session.kind}</dd>
+        <dt className="text-muted-foreground font-semibold text-[10px]">Active</dt>
+        <dd className="truncate text-foreground font-medium">{formatTime(session.last_active)}</dd>
+        <dt className="text-muted-foreground font-semibold text-[10px]">Messages</dt>
+        <dd className="truncate text-foreground font-medium">
           {messagesLoading ? "Loading..." : messages.length.toLocaleString()}
         </dd>
-        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
-          Tokens
-        </dt>
-        <dd className="truncate text-foreground/80 font-medium">
+        <dt className="text-muted-foreground font-semibold text-[10px]">Tokens</dt>
+        <dd className="truncate text-foreground font-medium">
           {messagesLoading
             ? "Loading..."
             : typeof sessionTotalTokens === "number"
               ? sessionTotalTokens.toLocaleString()
               : sessionTotalTokens || "-"}
         </dd>
-        <dt className="text-muted-foreground/60 uppercase tracking-wider font-semibold text-[10px]">
-          Session ID
-        </dt>
-        <dd className="truncate font-mono text-[10px] text-foreground/70">{session.id}</dd>
+        <dt className="text-muted-foreground font-semibold text-[10px]">Session ID</dt>
+        <dd className="truncate font-mono text-[10px] text-muted-foreground">{session.id}</dd>
       </dl>
       <div className="flex justify-end border-t border-border/10 pt-2.5">
         <button
           type="button"
           onClick={copyID}
-          className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground transition-all duration-120 hover:bg-muted hover:text-foreground cursor-pointer uppercase tracking-wider border border-border/60 bg-transparent"
+          className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/60 bg-transparent"
         >
           Copy Session ID
         </button>
@@ -652,25 +632,25 @@ function ToolContextRow({ tool }: { tool: Tool }) {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="grid w-full grid-cols-[1rem_minmax(0,1fr)] gap-2 text-left transition-all duration-120 hover:bg-muted/20 p-1.5 rounded-lg cursor-pointer"
+        className="grid w-full grid-cols-[1rem_minmax(0,1fr)] gap-2 text-left hover:bg-muted/20 p-1.5 rounded-lg cursor-pointer"
       >
-        <span className="pt-0.5 text-[10px] text-muted-foreground/60">{expanded ? "▼" : "▶"}</span>
+        <span className="pt-0.5 text-[10px] text-muted-foreground">{expanded ? "▼" : "▶"}</span>
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-mono text-xs font-semibold text-foreground/80">
+            <span className="truncate font-mono text-xs font-semibold text-foreground">
               {tool.name}
             </span>
             <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
               {tool.category}
             </span>
           </span>
-          <span className="mt-1 block text-[11px] text-muted-foreground/80 leading-normal">
+          <span className="mt-1 block text-[11px] text-muted-foreground leading-normal">
             {tool.description}
           </span>
         </span>
       </button>
       {expanded && (
-        <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-[10px] leading-relaxed text-muted-foreground">
           {JSON.stringify(tool.input_schema, null, 2)}
         </pre>
       )}
@@ -688,18 +668,18 @@ function PromptContext({ systemPrompt, loading }: { systemPrompt: string; loadin
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between gap-2 px-1">
-        <span className="font-mono text-[10px] text-muted-foreground/60">
+        <span className="font-mono text-[10px] text-muted-foreground">
           ~{Math.round(systemPrompt.length / 4)} tokens
         </span>
         <button
           type="button"
           onClick={copyPrompt}
-          className="rounded-lg px-2 py-1 font-semibold text-[10px] text-muted-foreground transition-all duration-120 hover:bg-muted hover:text-foreground cursor-pointer uppercase tracking-wider border border-border/50"
+          className="rounded-lg px-2 py-1 font-semibold text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/50"
         >
           Copy
         </button>
       </div>
-      <pre className="whitespace-pre-wrap rounded-xl border border-border/60 bg-muted/40 p-3.5 font-mono text-[10px] leading-relaxed text-muted-foreground/90">
+      <pre className="whitespace-pre-wrap rounded-xl border border-border/60 bg-muted/40 p-3.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
         {systemPrompt || "No system prompt available."}
       </pre>
     </div>
@@ -723,7 +703,7 @@ function SkillsContext({ skills, loading }: { skills: Skill[]; loading: boolean 
 function MemoryContext({ memories }: { memories: unknown[] }) {
   return (
     <div className="py-1">
-      <p className="text-xs text-muted-foreground/80 leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         {memories.length > 0
           ? `${memories.length} memories are available for this agent.`
           : "No profile memories yet."}
@@ -736,7 +716,7 @@ function SkillContextRow({ skill }: { skill: Skill }) {
   return (
     <div className="border-b border-border/40 last:border-b-0 py-2.5 first:pt-0 last:pb-0">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-mono text-xs font-semibold text-foreground/80">
+        <span className="truncate font-mono text-xs font-semibold text-foreground">
           {skill.name || skill.id}
         </span>
         <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
@@ -754,12 +734,12 @@ function SkillContextRow({ skill }: { skill: Skill }) {
         </span>
       </div>
       {skill.description && (
-        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
           {skill.description}
         </p>
       )}
       {skill.files && skill.files.length > 0 && (
-        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground/50">
+        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
           {skill.files.length} files
         </p>
       )}
