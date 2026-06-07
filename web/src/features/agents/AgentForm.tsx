@@ -25,6 +25,7 @@ interface Props {
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
   onOpenSkillInstallModal: (scope?: "user" | "agent") => void;
+  onDelete?: () => void;
 }
 
 export function AgentForm({
@@ -43,6 +44,7 @@ export function AgentForm({
   onSelectSkillFile,
   onDeleteSkillFile,
   onOpenSkillInstallModal,
+  onDelete,
 }: Props) {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -119,15 +121,29 @@ export function AgentForm({
           </TabsContent>
         </div>
       </Tabs>
-      <div className="border-t border-border px-6 py-4 flex items-center justify-end gap-2">
-        <Button onClick={onCancel} variant="ghost" size="sm" className="cursor-pointer">
-          {t("common.cancel")}
-        </Button>
-        {canEdit && (
-          <Button onClick={onSave} size="sm" className="cursor-pointer">
-            {editingId ? t("common.update") : t("common.create")}
+      <div className="border-t border-border px-6 py-4 flex items-center justify-between gap-2">
+        <div>
+          {canEdit && editingId && onDelete && (
+            <Button
+              onClick={onDelete}
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive cursor-pointer duration-120"
+            >
+              {t("common.delete")}
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button onClick={onCancel} variant="ghost" size="sm" className="cursor-pointer">
+            {t("common.cancel")}
           </Button>
-        )}
+          {canEdit && (
+            <Button onClick={onSave} size="sm" className="cursor-pointer">
+              {editingId ? t("common.update") : t("common.create")}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

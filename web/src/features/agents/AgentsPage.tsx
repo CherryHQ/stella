@@ -40,15 +40,14 @@ import type {
   User,
 } from "@/lib/types";
 import { fetchAllAuthUsers } from "@/lib/auth-users";
-import { Button } from "@/components/ui/button";
 import { AgentList } from "./AgentList";
 import { AgentForm } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
-import { ArrowLeft, Plus } from "lucide-react";
+import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
+import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
 
@@ -608,18 +607,15 @@ export function AgentsPage() {
           }
           return prev;
         });
+        void navigate({ to: "/settings/agents" });
         await loadAgents();
         showToast("Deleted");
       } catch (e) {
         showToast((e as Error).message, "error");
       }
     },
-    [loadAgents, showToast],
+    [loadAgents, showToast, navigate],
   );
-
-  const confirmDelete = useCallback((msg: string, action: () => void) => {
-    setState((prev) => ({ ...prev, confirmMsg: msg, confirmAction: action }));
-  }, []);
 
   const addUser = useCallback(
     async (currentState: AgentsPageState) => {
@@ -1027,16 +1023,6 @@ export function AgentsPage() {
     [showToast],
   );
 
-  const list = (
-    <AgentList
-      state={state}
-      onEdit={editAgent}
-      onConfirmDelete={confirmDelete}
-      onDeleteAgent={doDeleteAgent}
-      onCreateAgent={startCreate}
-    />
-  );
-
   const detail = state.showForm ? (
     <AgentForm
       state={state}
@@ -1069,44 +1055,30 @@ export function AgentsPage() {
           skillInstallScope: scope ?? (prev.isAdmin && prev.editingId ? "agent" : "user"),
         }))
       }
+      onDelete={state.editingId ? () => doDeleteAgent(state.editingId!) : undefined}
     />
   ) : undefined;
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
-        {state.showForm ? (
-          <div className="space-y-4">
-            <button
-              onClick={resetForm}
-              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
-            >
-              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
-              Back to Agents
-            </button>
-            <div className="bg-card border border-border rounded-xl overflow-hidden">{detail}</div>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            <SettingsPageHeader
-              title="Agents"
-              description="Create and configure agent profiles with custom models, prompts, souls, and installed skills."
-              action={
-                <Button
-                  onClick={startCreate}
-                  variant="premium"
-                  size="sm"
-                  className="group flex items-center gap-1.5"
-                >
-                  <Plus className="size-4 shrink-0" />
-                  Add agent
-                </Button>
-              }
-            />
-            {list}
-          </div>
-        )}
-      </div>
+    <>
+      <SettingsDetailLayout
+        list={
+          <AgentList
+            state={state}
+            selectedId={routeAgentId || undefined}
+            onEdit={editAgent}
+            onCreateAgent={startCreate}
+          />
+        }
+        detail={detail}
+        emptyState={
+          <SettingsEmptyState
+            message="No agent selected"
+            description="Select an agent to configure, or create a new one."
+          />
+        }
+        onBack={resetForm}
+      />
       {state.showTemplateModal && (
         <TemplateModal
           templates={state.builtinTemplates}
@@ -1143,6 +1115,6 @@ export function AgentsPage() {
         />
       )}
       <ToastContainer messages={toasts} />
-    </div>
+    </>
   );
 }
