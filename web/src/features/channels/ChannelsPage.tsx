@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import QRCode from "qrcode";
@@ -21,10 +22,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
-import { siTelegram, siQq, siWechat } from "simple-icons";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
+import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import {
   DetailPanel,
@@ -32,15 +32,7 @@ import {
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { ArrowLeft, Plus } from "lucide-react";
-
-function BrandIcon({ path, className = "size-4 shrink-0" }: { path: string; className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
-      <path d={path} />
-    </svg>
-  );
-}
+import { AdminChannelListPanel, PublicChannelListPanel } from "./ChannelListPanel";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
@@ -50,12 +42,10 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
   telegram: {
     label: "Telegram",
     defaults: { token: "", channel_id: "", group_mode: "" },
-    icon: siTelegram.path,
   },
   qq: {
     label: "QQ",
     defaults: { app_id: "", app_secret: "", group_mode: "" },
-    icon: siQq.path,
   },
   feishu: {
     label: "Feishu",
@@ -69,7 +59,7 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
       auto_provision: false,
     },
   },
-  weixin: { label: "Weixin", defaults: {}, icon: siWechat.path },
+  weixin: { label: "Weixin", defaults: {} },
 };
 
 const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({ id, label: meta.label }));
@@ -143,12 +133,10 @@ function channelConfig(ch: Record<string, unknown>): string {
   return JSON.stringify(serializePlatformConfig(ch.type as string, ch));
 }
 
-// ─── toast ────────────────────────────────────────────────────────────────────
-
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const selectClassName =
-  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs/5 outline-none sm:h-8 sm:text-sm";
+  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8 sm:text-sm";
 
 function InstanceFields({
   ch,
@@ -329,14 +317,7 @@ function ChannelDetail({
       deleteLabel={t("common.delete")}
     >
       <DetailPanelHeader
-        title={
-          <span className="flex items-center gap-2">
-            {platformMeta[channel.type]?.icon && (
-              <BrandIcon path={platformMeta[channel.type].icon!} className="size-5 shrink-0" />
-            )}
-            {channel.name || platformLabel}
-          </span>
-        }
+        title={channel.name || platformLabel}
         subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
         action={
           <>
@@ -509,7 +490,7 @@ function NewChannelForm({ fallbackChannelType, onAdd, onCancel, creating }: NewC
             className={selectClassName}
           >
             <option value="" disabled>
-              Select platform…
+              Select platform...
             </option>
             {channelTypes.map((ct) => (
               <option key={ct.id} value={ct.id}>
@@ -692,16 +673,14 @@ function PublicChannelDetail({
 export function ChannelsPage() {
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { channelId?: string };
+  const channelId = params.channelId;
+
   const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(false);
-
-  // Selection state
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [creatingNew, setCreatingNew] = useState(false);
-  // For non-admin: selected public channel type
-  const [selectedPublicType, setSelectedPublicType] = useState<string | null>(null);
 
   const [linkCode, setLinkCode] = useState("");
   const [linkPlatform, setLinkPlatform] = useState("");
@@ -717,9 +696,29 @@ export function ChannelsPage() {
 
   const { toasts, showToast } = useToast();
 
-  // ── helpers ──
+  // ── derived state ──
 
-  const fallbackChannelType = defaultChannelType;
+  const isCreating = isAdmin && channelId === "new";
+
+  const selectedChannel = useMemo(
+    () =>
+      isAdmin && channelId && channelId !== "new"
+        ? instances.find((ch) => ch.id === channelId)
+        : undefined,
+    [isAdmin, channelId, instances],
+  );
+
+  const selectedPublicChannel = useMemo(
+    () => (!isAdmin && channelId ? publicChannels.find((ch) => ch.type === channelId) : undefined),
+    [isAdmin, channelId, publicChannels],
+  );
+
+  const linkedPlatforms = useMemo(
+    () => new Set(linkedIdentities.map((i) => i.platform)),
+    [linkedIdentities],
+  );
+
+  // ── helpers ──
 
   const identityFor = useCallback(
     (platform: string): Identity | null =>
@@ -781,13 +780,6 @@ export function ChannelsPage() {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
   }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances]);
-
-  // Clear selection if selected instance is removed
-  useEffect(() => {
-    if (selectedId && !instances.find((ch) => ch.id === selectedId)) {
-      setSelectedId(null);
-    }
-  }, [instances, selectedId]);
 
   // ── link code ──
 
@@ -922,7 +914,7 @@ export function ChannelsPage() {
     }
     try {
       await deleteChannel({ path: { id: String(id) }, throwOnError: true });
-      setSelectedId(null);
+      void navigate({ to: "/settings/channels" });
       await loadInstances();
       showToast(id + " deleted");
     } catch (e) {
@@ -930,7 +922,7 @@ export function ChannelsPage() {
     }
   };
 
-  const createChannel = async (draft: Record<string, unknown>) => {
+  const createNewChannel = async (draft: Record<string, unknown>) => {
     const id = ((draft.id as string) || "").trim();
     if (!id || !draft.type) {
       showToast("ID and platform are required", "error");
@@ -952,9 +944,11 @@ export function ChannelsPage() {
         },
         throwOnError: true,
       });
-      setCreatingNew(false);
       await loadInstances();
-      setSelectedId(saved.id);
+      void navigate({
+        to: "/settings/channels/$channelId",
+        params: { channelId: saved.id },
+      });
       showToast(saved.id + " created");
     } catch (e) {
       showToast((e as Error).message, "error");
@@ -964,8 +958,6 @@ export function ChannelsPage() {
   };
 
   // ── render ──
-
-  const isLoading = isAdmin && loadingInstances;
 
   const wxQrStatusVariant = (
     status: string,
@@ -977,38 +969,19 @@ export function ChannelsPage() {
     return "secondary";
   };
 
-  // ── admin view ──
+  const isLoading = isAdmin && loadingInstances;
+
+  // ── build detail pane ──
+
+  let detail: React.ReactNode = undefined;
 
   if (isAdmin) {
-    const selectedChannel = selectedId ? instances.find((ch) => ch.id === selectedId) : null;
-
-    // Grouping computation for admin view
-    const grouped = instances.reduce<Record<string, NormalizedChannel[]>>((acc, inst) => {
-      const type = inst.type || "other";
-      if (!acc[type]) acc[type] = [];
-      acc[type].push(inst);
-      return acc;
-    }, {});
-
-    const groupedPlatforms = Object.entries(grouped)
-      .map(([type, platformInstances]) => {
-        const meta = platformMeta[type];
-        return {
-          type,
-          label: meta?.label || type,
-          icon: meta?.icon,
-          instances: platformInstances,
-        };
-      })
-      .sort((a, b) => a.label.localeCompare(b.label));
-
-    let detail: React.ReactNode = undefined;
-    if (creatingNew) {
+    if (isCreating) {
       detail = (
         <NewChannelForm
-          fallbackChannelType={fallbackChannelType}
-          onAdd={createChannel}
-          onCancel={() => setCreatingNew(false)}
+          fallbackChannelType={defaultChannelType}
+          onAdd={createNewChannel}
+          onCancel={() => void navigate({ to: "/settings/channels" })}
           creating={creatingInstance}
         />
       );
@@ -1036,194 +1009,7 @@ export function ChannelsPage() {
         />
       );
     }
-
-    const hasActiveEditor = creatingNew || !!selectedChannel;
-
-    return (
-      <div className="h-full overflow-y-auto bg-background">
-        <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
-          {hasActiveEditor ? (
-            <div className="space-y-4">
-              <button
-                onClick={() => {
-                  setSelectedId(null);
-                  setCreatingNew(false);
-                }}
-                className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
-              >
-                <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
-                Back to Channels
-              </button>
-              <div className="bg-card border border-border/40 rounded-2xl overflow-hidden shadow-sm">
-                {detail}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-8">
-              <SettingsPageHeader
-                title="Channels"
-                description="Configure messaging channel integrations for Stella."
-                action={
-                  <Button
-                    onClick={() => {
-                      setCreatingNew(true);
-                      setSelectedId(null);
-                    }}
-                    variant="premium"
-                    size="sm"
-                    className="group flex items-center gap-1.5"
-                  >
-                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-150" />
-                    Add channel
-                  </Button>
-                }
-              />
-
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <Spinner className="size-4" />
-                </div>
-              ) : instances.length === 0 ? (
-                <SettingsEmptyState
-                  message="No channels configured"
-                  description="Add a channel to connect your messaging platform."
-                  action={
-                    <Button
-                      onClick={() => {
-                        setCreatingNew(true);
-                        setSelectedId(null);
-                      }}
-                      variant="premium-outline"
-                      size="sm"
-                      className="group flex items-center gap-1.5"
-                    >
-                      <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-150" />
-                      Add channel
-                    </Button>
-                  }
-                />
-              ) : (
-                <div className="space-y-8">
-                  {groupedPlatforms.map((platform) => (
-                    <div key={platform.type} className="space-y-4">
-                      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                        {platform.icon ? (
-                          <BrandIcon
-                            path={platform.icon}
-                            className="size-4 shrink-0 text-muted-foreground"
-                          />
-                        ) : (
-                          <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/45" />
-                        )}
-                        <h4 className="text-xs font-semibold text-muted-foreground">
-                          {platform.label}
-                        </h4>
-                        <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
-                          {platform.instances.length}
-                        </Badge>
-                      </div>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        {platform.instances.map((ch) => {
-                          const platformLabel = platformMeta[ch.type]?.label || ch.type;
-                          const iconPath = platformMeta[ch.type]?.icon;
-                          return (
-                            <div
-                              key={ch.id}
-                              onClick={() => {
-                                setSelectedId(ch.id);
-                                setCreatingNew(false);
-                              }}
-                              className="group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 transition-all hover:border-border/80 hover:shadow-sm cursor-pointer"
-                            >
-                              <div className="space-y-3">
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="flex items-center gap-2.5 min-w-0">
-                                    {iconPath ? (
-                                      <BrandIcon
-                                        path={iconPath}
-                                        className="size-4 shrink-0 text-muted-foreground"
-                                      />
-                                    ) : (
-                                      <span
-                                        className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                                          ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
-                                        }`}
-                                      />
-                                    )}
-                                    <h3 className="text-sm font-semibold text-foreground truncate">
-                                      {ch.name || platformLabel}
-                                    </h3>
-                                  </div>
-                                  <Badge
-                                    variant="outline"
-                                    className="font-mono text-[10px] uppercase shrink-0"
-                                  >
-                                    {ch.type}
-                                  </Badge>
-                                </div>
-                              </div>
-                              <div className="mt-4 flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                                      ch.enabled ? "bg-green-500" : "bg-muted-foreground/40"
-                                    }`}
-                                  />
-                                  <span className="text-xs text-muted-foreground">
-                                    {ch.enabled ? "Active" : "Disabled"}
-                                  </span>
-                                </div>
-                                <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                                  Configure →
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        <ToastContainer messages={toasts} />
-      </div>
-    );
-  }
-
-  // ── non-admin view ──
-
-  const selectedPublicChannel = selectedPublicType
-    ? publicChannels.find((ch) => ch.type === selectedPublicType)
-    : null;
-
-  // Grouping computation for non-admin view
-  const groupedPublic = publicChannels.reduce<Record<string, ComponentsPublicChannel[]>>(
-    (acc, ch) => {
-      const type = ch.type || "other";
-      if (!acc[type]) acc[type] = [];
-      acc[type].push(ch);
-      return acc;
-    },
-    {},
-  );
-
-  const groupedPublicPlatforms = Object.entries(groupedPublic)
-    .map(([type, platformChannels]) => {
-      const meta = platformMeta[type];
-      return {
-        type,
-        label: meta?.label || type,
-        icon: meta?.icon,
-        channels: platformChannels,
-      };
-    })
-    .sort((a, b) => a.label.localeCompare(b.label));
-
-  let detail: React.ReactNode = undefined;
-  if (selectedPublicChannel) {
+  } else if (selectedPublicChannel) {
     detail = (
       <PublicChannelDetail
         key={selectedPublicChannel.type}
@@ -1246,123 +1032,50 @@ export function ChannelsPage() {
     );
   }
 
-  const hasActiveEditor = !!selectedPublicChannel;
+  // ── build list pane ──
+
+  const listPane = isAdmin ? (
+    isLoading ? (
+      <div className="flex justify-center py-8">
+        <Spinner className="size-4" />
+      </div>
+    ) : (
+      <AdminChannelListPanel
+        channels={instances}
+        selectedId={channelId}
+        onSelect={(id) =>
+          void navigate({ to: "/settings/channels/$channelId", params: { channelId: id } })
+        }
+        onNew={() =>
+          void navigate({ to: "/settings/channels/$channelId", params: { channelId: "new" } })
+        }
+      />
+    )
+  ) : (
+    <PublicChannelListPanel
+      channels={publicChannels}
+      linkedPlatforms={linkedPlatforms}
+      selectedId={channelId}
+      onSelect={(type) =>
+        void navigate({ to: "/settings/channels/$channelId", params: { channelId: type } })
+      }
+    />
+  );
+
+  const emptyMessage = isAdmin ? "No channels configured" : "No channels available";
+  const emptyDescription = isAdmin
+    ? "Add a channel to connect your messaging platform."
+    : "An admin needs to enable channel plugins first.";
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
-        {hasActiveEditor ? (
-          <div className="space-y-4">
-            <button
-              onClick={() => {
-                setSelectedPublicType(null);
-              }}
-              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
-            >
-              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
-              Back to Channels
-            </button>
-            <div className="bg-card border border-border/40 rounded-2xl overflow-hidden shadow-sm">
-              {detail}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            <SettingsPageHeader
-              title="Channels"
-              description="Link your third-party messaging platform accounts to Stella."
-            />
-
-            {isLoading ? (
-              <div className="flex justify-center py-8">
-                <Spinner className="size-4" />
-              </div>
-            ) : publicChannels.length === 0 ? (
-              <SettingsEmptyState
-                message="No channels available"
-                description="An admin needs to enable channel plugins first."
-              />
-            ) : (
-              <div className="space-y-8">
-                {groupedPublicPlatforms.map((platform) => (
-                  <div key={platform.type} className="space-y-4">
-                    <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                      {platform.icon ? (
-                        <BrandIcon
-                          path={platform.icon}
-                          className="size-4 shrink-0 text-muted-foreground"
-                        />
-                      ) : (
-                        <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/45" />
-                      )}
-                      <h4 className="text-xs font-semibold text-muted-foreground">
-                        {platform.label}
-                      </h4>
-                      <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
-                        {platform.channels.length}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      {platform.channels.map((ch) => {
-                        const linked = isLinked(ch.type);
-                        const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
-                        const iconPath = platformMeta[ch.type]?.icon;
-                        return (
-                          <div
-                            key={ch.type}
-                            onClick={() => {
-                              setSelectedPublicType(ch.type);
-                            }}
-                            className="group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 transition-all hover:border-border/80 hover:shadow-sm cursor-pointer"
-                          >
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  {iconPath ? (
-                                    <BrandIcon
-                                      path={iconPath}
-                                      className="size-4 shrink-0 text-muted-foreground"
-                                    />
-                                  ) : (
-                                    <span
-                                      className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                                        linked ? "bg-green-500" : "bg-muted-foreground/40"
-                                      }`}
-                                    />
-                                  )}
-                                  <h3 className="text-sm font-semibold text-foreground truncate">
-                                    {platformLabel}
-                                  </h3>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="mt-4 flex items-center justify-between">
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                                    linked ? "bg-green-500" : "bg-muted-foreground/40"
-                                  }`}
-                                />
-                                <span className="text-xs text-muted-foreground">
-                                  {linked ? "Linked" : "Not linked"}
-                                </span>
-                              </div>
-                              <span className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                                Link Account →
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+    <>
+      <SettingsDetailLayout
+        list={listPane}
+        detail={detail}
+        emptyState={<SettingsEmptyState message={emptyMessage} description={emptyDescription} />}
+        onBack={() => void navigate({ to: "/settings/channels" })}
+      />
       <ToastContainer messages={toasts} />
-    </div>
+    </>
   );
 }
