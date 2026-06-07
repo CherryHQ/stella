@@ -243,7 +243,7 @@ function FolderTree({
               >
                 <ChevRight
                   className={cn(
-                    "size-2.5 text-muted-foreground/50 transition-transform",
+                    "size-2.5 text-muted-foreground transition-transform",
                     expanded.has(d.path) && "rotate-90",
                   )}
                 />
@@ -380,11 +380,11 @@ function NavItem({
       className={cn(
         "flex h-[34px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-all duration-150 border",
         active
-          ? "bg-muted font-semibold text-foreground border-border/60 shadow-none"
+          ? "bg-muted font-semibold text-foreground border-border/60"
           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
       )}
     >
-      <span className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground/70")}>
+      <span className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground")}>
         {icon}
       </span>
       <span className="flex-1 truncate text-left">{label}</span>
@@ -528,12 +528,12 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                 className={cn(
                   "group grid min-h-[34px] cursor-pointer grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-2.5 py-1 text-left transition-all duration-150 border",
                   isCur
-                    ? "bg-muted font-semibold text-foreground border-border/60 shadow-none"
+                    ? "bg-muted font-semibold text-foreground border-border/60"
                     : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
                 )}
               >
                 <span
-                  className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-white shadow-none shrink-0"
+                  className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-white shrink-0"
                   style={{ background: getAgentColor(ag.id, idx).bg }}
                 >
                   {ag.name[0]?.toUpperCase()}
@@ -580,12 +580,12 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
             <button
               type="button"
               onClick={() => setProjectsOpen((v) => !v)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60 hover:bg-foreground/[0.045] hover:text-muted-foreground"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
             >
               <span>Projects</span>
               <ChevRight
                 className={cn(
-                  "size-2.5 text-muted-foreground/40 transition-transform duration-150",
+                  "size-2.5 text-muted-foreground transition-transform duration-150",
                   projectsOpen && "rotate-90",
                 )}
               />
@@ -593,7 +593,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
             <button
               type="button"
               onClick={() => setShowCreateProject(true)}
-              className="grid size-6 place-items-center rounded-lg text-muted-foreground/40 opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
               title="New project"
             >
               <IconMore />
@@ -611,7 +611,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                       className={cn(
                         "grid min-h-[32px] w-full grid-cols-[21px_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl px-[7px] text-left text-[13px] font-medium tracking-[-0.016em] transition-colors border",
                         isActiveProject
-                          ? "bg-muted text-foreground border-border shadow-none"
+                          ? "bg-muted text-foreground border-border"
                           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
                       )}
                     >
@@ -619,7 +619,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                         <IconFolderProject />
                       </span>
                       <span className="truncate">{p.name}</span>
-                      <span className="font-mono text-[11px] text-muted-foreground/60">
+                      <span className="font-mono text-[11px] text-muted-foreground">
                         {relativeTime(p.updated_at)}
                       </span>
                       <span
@@ -656,12 +656,12 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
             <button
               type="button"
               onClick={() => setChatsOpen((v) => !v)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60 hover:bg-foreground/[0.045] hover:text-muted-foreground"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
             >
               <span>Sessions</span>
               <ChevRight
                 className={cn(
-                  "size-2.5 text-muted-foreground/40 transition-transform duration-150",
+                  "size-2.5 text-muted-foreground transition-transform duration-150",
                   chatsOpen && "rotate-90",
                 )}
               />
@@ -670,7 +670,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
               <button
                 type="button"
                 onClick={() => void createSession()}
-                className="grid size-6 place-items-center rounded-lg text-muted-foreground/40 opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+                className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
                 title="New temporary thread"
               >
                 <IconNewChat />
@@ -693,15 +693,15 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                   className={cn(
                     "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors border",
                     activeSessionId === s.id
-                      ? "bg-muted text-primary border-border/50 shadow-none"
+                      ? "bg-muted text-primary border-border/50"
                       : "text-foreground hover:bg-muted/40 border-transparent",
                   )}
                 >
                   <span className="truncate">{sessionTitle(s)}</span>
-                  <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground/70">
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
                     {sessionKindLabel(s)}
                   </span>
-                  <time className="text-[12px] font-medium text-muted-foreground/60">
+                  <time className="text-[12px] font-medium text-muted-foreground">
                     {relativeTime(s.last_active)}
                   </time>
                 </button>
@@ -723,7 +723,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                 <button
                   type="button"
                   onClick={() => void sessionsQuery.fetchNextPage()}
-                  className="min-h-[28px] rounded-[10px] px-[7px] text-left text-[13px] text-muted-foreground/60 transition-colors hover:bg-foreground/[0.045] hover:text-muted-foreground"
+                  className="min-h-[28px] rounded-[10px] px-[7px] text-left text-[13px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-muted-foreground"
                 >
                   Show more
                 </button>

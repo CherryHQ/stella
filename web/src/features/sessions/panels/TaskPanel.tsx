@@ -14,9 +14,7 @@ interface Props {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="block text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
+      <span className="block text-[11px] font-mono font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
   );
@@ -54,7 +52,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
     <div className="flex flex-col flex-1 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
         <div>
-          <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="text-[11px] font-mono font-medium text-muted-foreground">
             {t("sessions.task.eyebrow")}
           </div>
           <h2 className="mt-1.5 font-serif text-2xl italic tracking-tight">

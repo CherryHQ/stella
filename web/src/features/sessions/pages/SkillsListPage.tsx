@@ -56,7 +56,7 @@ export function SkillsListPage() {
         </div>
       ) : skills.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-muted-foreground/50 font-mono">No skills yet</p>
+          <p className="text-sm text-muted-foreground font-mono">No skills yet</p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
@@ -119,9 +119,7 @@ function SkillGroup({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-mono font-medium uppercase tracking-wider text-muted-foreground/50 mb-2">
-        {label}
-      </p>
+      <p className="text-[10px] font-mono font-medium text-muted-foreground mb-2">{label}</p>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {skills.map((s) => (
           <div
@@ -134,15 +132,13 @@ function SkillGroup({
             <div className="flex items-center gap-2 min-w-0">
               <p className="text-[13px] font-medium truncate">{s.name}</p>
               {s.status && s.status !== "active" && (
-                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
                   {s.status}
                 </span>
               )}
             </div>
             {s.description && (
-              <p className="text-[11px] text-muted-foreground/60 mt-1 line-clamp-2">
-                {s.description}
-              </p>
+              <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">{s.description}</p>
             )}
           </div>
         ))}

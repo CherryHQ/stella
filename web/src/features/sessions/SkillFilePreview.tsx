@@ -56,7 +56,7 @@ export function SkillFilePreview({ path, content, emptyText, className }: Props)
   return (
     <pre
       className={cn(
-        "max-w-full overflow-auto rounded-lg bg-muted/40 p-4 text-sm leading-relaxed text-foreground/90 font-mono",
+        "max-w-full overflow-auto rounded-lg bg-muted/40 p-4 text-sm leading-relaxed text-foreground font-mono",
         kind === "text"
           ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
           : "whitespace-pre",

@@ -239,12 +239,12 @@ export function WorkspacePanel({
     return (
       <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
         <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 px-4">
-          <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-wider">
+          <span className="text-[9px] font-mono text-muted-foreground">
             {t("sessions.workspace.title")}
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-muted-foreground/50 font-mono">
+          <p className="text-xs text-muted-foreground font-mono">
             Select a session to see its workspace
           </p>
         </div>
@@ -288,7 +288,7 @@ export function WorkspacePanel({
               <button
                 type="button"
                 onClick={copyRootPath}
-                className="block min-w-0 truncate rounded-sm font-mono text-[10px] text-muted-foreground/55 transition-colors hover:text-foreground"
+                className="block min-w-0 truncate rounded-sm font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
                 title={workspace?.root}
               >
                 in {rootLabel}
@@ -353,7 +353,7 @@ export function WorkspacePanel({
 
       {/* New item form */}
       {newItemType !== null && (
-        <div className="px-2 py-1.5 border-b border-border flex-shrink-0 bg-muted/30">
+        <div className="px-2 py-1.5 border-b border-border flex-shrink-0">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -361,7 +361,7 @@ export function WorkspacePanel({
             }}
             className="flex items-center gap-1.5"
           >
-            <span className="text-[10px] font-mono text-muted-foreground/50">
+            <span className="text-[10px] font-mono text-muted-foreground">
               {newItemType === "dir" ? "dir" : "file"}:
             </span>
             <input

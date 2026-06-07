@@ -276,7 +276,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
             )}
             <div className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-background/60">
               <div className="min-w-0 max-w-full border-b border-border p-3">
-                <label className="mb-1.5 block text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1.5 block text-[11px] font-mono text-muted-foreground">
                   File
                 </label>
                 <select
@@ -293,7 +293,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 </select>
               </div>
               <div className="min-w-0 max-w-full overflow-hidden p-4">
-                <p className="mb-3 max-w-full truncate text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                <p className="mb-3 max-w-full truncate text-xs font-mono text-muted-foreground">
                   {activeFile}
                 </p>
                 {fileLoading ? (
