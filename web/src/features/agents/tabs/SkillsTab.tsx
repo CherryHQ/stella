@@ -133,21 +133,21 @@ export function SkillsTab({
   };
 
   const viewFilters = [
-    { id: "all", label: "All" },
-    { id: "enabled", label: "Enabled" },
-    { id: "modified", label: "Modified" },
+    { id: "all", label: t("agents.skills.filterAll") },
+    { id: "enabled", label: t("agents.skills.filterEnabled") },
+    { id: "modified", label: t("agents.skills.filterModified") },
   ];
   const scopeFilters = [
-    { id: "all", label: "Any scope" },
-    { id: "system", label: "Built-in" },
-    { id: "user", label: "User" },
-    { id: "agent", label: "This agent" },
+    { id: "all", label: t("agents.skills.scopeAll") },
+    { id: "system", label: t("agents.skills.scopeSystem") },
+    { id: "user", label: t("agents.skills.scopeUser") },
+    { id: "agent", label: t("agents.skills.scopeAgent") },
   ];
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] gap-6 min-w-0">
       {/* Skill list */}
-      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card shadow-none">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
         <div className="p-4 border-b border-border space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <Input
@@ -155,17 +155,17 @@ export function SkillsTab({
               value={skillListQuery}
               onChange={(e) => onSetState({ skillListQuery: (e.target as HTMLInputElement).value })}
               type="text"
-              placeholder="Search skills..."
+              placeholder={t("agents.skills.searchPlaceholder")}
               size="sm"
-              className="w-full lg:max-w-sm transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+              className="w-full lg:max-w-sm"
             />
             <div className="flex items-center gap-2 flex-wrap">
               <Button
                 onClick={() => onOpenSkillInstallModal()}
                 size="sm"
-                className="cursor-pointer duration-120"
+                className="cursor-pointer"
               >
-                + Install skill
+                {t("agents.skills.installSkill")}
               </Button>
             </div>
           </div>
@@ -175,7 +175,6 @@ export function SkillsTab({
                 key={f.id}
                 render={<button type="button" />}
                 variant={skillViewFilter === f.id ? "default" : "outline"}
-                className="cursor-pointer text-[10px] font-sans px-2.5 py-0.5 rounded-full transition-all duration-120 hover:border-foreground/20"
                 onClick={() => onSetState({ skillViewFilter: f.id })}
               >
                 {f.label}
@@ -188,7 +187,6 @@ export function SkillsTab({
                 key={f.id}
                 render={<button type="button" />}
                 variant={skillScopeFilter === f.id ? "secondary" : "outline"}
-                className="cursor-pointer text-[10px] font-sans px-2.5 py-0.5 rounded-full transition-all duration-120 hover:border-foreground/20"
                 onClick={() => onSetState({ skillScopeFilter: f.id })}
               >
                 {f.label}
@@ -196,9 +194,7 @@ export function SkillsTab({
             ))}
           </div>
           {!editingId && (
-            <div className="text-[11px] text-muted-foreground/70">
-              Save the agent first if you want to add or customize agent-specific skills.
-            </div>
+            <div className="text-[11px] text-muted-foreground">{t("agents.skills.saveFirst")}</div>
           )}
         </div>
         <div className="p-3 space-y-2 max-h-[70vh] overflow-y-auto min-w-0">
@@ -213,10 +209,10 @@ export function SkillsTab({
                 key={skillKey(sk)}
                 onClick={() => onSelectSkill(sk)}
                 type="button"
-                className={`w-full text-left rounded-lg border px-3 py-3 transition-all duration-120 hover:bg-muted/30 hover:border-foreground/15 overflow-hidden cursor-pointer ${
+                className={`w-full text-left rounded-lg border px-3 py-3 overflow-hidden cursor-pointer ${
                   selectedSkillKey === skillKey(sk)
                     ? "border-primary bg-primary/5 text-foreground"
-                    : "border-border text-foreground/80"
+                    : "border-border text-foreground"
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -232,26 +228,15 @@ export function SkillsTab({
                       title={sk.status === "active" ? "Disable skill" : "Enable skill"}
                     />
                   ) : (
-                    <Badge
-                      variant="outline"
-                      className="text-[9px] tracking-wide uppercase font-mono px-1 rounded-[4px] shrink-0"
-                    >
-                      read only
-                    </Badge>
+                    <Badge variant="outline">{t("agents.skills.readOnly")}</Badge>
                   )}
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                       <p className="text-sm font-mono truncate min-w-0 font-medium">{sk.name}</p>
-                      <Badge
-                        variant={skillScopeBadgeVariant(sk.scope)}
-                        className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
-                      >
+                      <Badge variant={skillScopeBadgeVariant(sk.scope)}>
                         {skillScopeLabel(sk.scope)}
                       </Badge>
-                      <Badge
-                        variant={skillStatusBadgeVariant(sk.status)}
-                        className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
-                      >
+                      <Badge variant={skillStatusBadgeVariant(sk.status)}>
                         {sk.status === "active" ? "Enabled" : sk.status}
                       </Badge>
                     </div>
@@ -265,16 +250,16 @@ export function SkillsTab({
               </button>
             ))}
           {!agentSkillsLoading && filteredSkills().length === 0 && (
-            <div className="text-xs text-muted-foreground p-2">No skills match this filter.</div>
+            <div className="text-xs text-muted-foreground p-2">{t("agents.skills.noMatch")}</div>
           )}
         </div>
       </div>
 
       {/* Skill detail */}
-      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card shadow-none">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
         {!selectedSkill && !selectedSkillLoading && (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            Select a skill to inspect or edit.
+            {t("agents.skills.selectSkill")}
           </div>
         )}
         {selectedSkillLoading && (
@@ -284,34 +269,28 @@ export function SkillsTab({
         )}
         {selectedSkill && !selectedSkillLoading && (
           <div className="min-w-0">
-            <div className="flex min-w-0 flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-start lg:justify-between bg-muted/5">
+            <div className="flex min-w-0 flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-semibold text-base min-w-0 truncate text-foreground/90">
+                  <h3 className="font-semibold text-base min-w-0 truncate text-foreground">
                     {selectedSkill.name}
                   </h3>
-                  <Badge
-                    variant={skillScopeBadgeVariant(selectedSkill.scope)}
-                    className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
-                  >
+                  <Badge variant={skillScopeBadgeVariant(selectedSkill.scope)}>
                     {skillScopeLabel(selectedSkill.scope)}
                   </Badge>
-                  <Badge
-                    variant={skillStatusBadgeVariant(selectedSkill.status)}
-                    className="text-[9px] tracking-wider uppercase font-mono px-1 rounded-[4px]"
-                  >
+                  <Badge variant={skillStatusBadgeVariant(selectedSkill.status)}>
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 break-words leading-relaxed">
-                  {selectedSkill.description || "No description yet."}
+                  {selectedSkill.description || t("agents.skills.noDescription")}
                 </p>
-                <p className="text-[10px] text-muted-foreground/60 mt-1.5">
+                <p className="text-[10px] text-muted-foreground mt-1.5">
                   {selectedSkill.scope === "system"
-                    ? "System skill. Read-only here."
+                    ? t("agents.skills.systemScope")
                     : selectedSkill.scope === "user"
-                      ? "Installed for you in this agent."
-                      : "Installed for this agent."}
+                      ? t("agents.skills.userScope")
+                      : t("agents.skills.agentScope")}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2 flex-wrap">
@@ -362,13 +341,13 @@ export function SkillsTab({
               </div>
             </div>
 
-            <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/5">
+            <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Status
+                <p className="text-[10px] font-semibold text-muted-foreground">
+                  {t("common.status")}
                 </p>
                 {!selectedSkillEditMode ? (
-                  <div className="text-xs font-mono font-medium text-foreground/80">
+                  <div className="text-xs font-mono font-medium text-foreground">
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
                   </div>
                 ) : (
@@ -384,7 +363,7 @@ export function SkillsTab({
                       });
                     }}
                     disabled={!canEdit}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer font-mono"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs outline-none cursor-pointer font-mono"
                   >
                     <option value="active">active</option>
                     <option value="draft">draft</option>
@@ -393,10 +372,10 @@ export function SkillsTab({
                 )}
               </div>
               <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Scope
+                <p className="text-[10px] font-semibold text-muted-foreground">
+                  {t("agents.form.scope")}
                 </p>
-                <div className="text-xs font-mono font-medium text-foreground/80">
+                <div className="text-xs font-mono font-medium text-foreground">
                   {skillScopeLabel(selectedSkill.scope)}
                 </div>
                 {selectedSkillEditMode && (
@@ -412,7 +391,7 @@ export function SkillsTab({
                       disabled={!canEdit}
                     />
                     <span className="text-xs text-muted-foreground font-medium">
-                      Disable model invocation
+                      {t("agents.skills.disableModelInvocation")}
                     </span>
                   </label>
                 )}
@@ -422,8 +401,8 @@ export function SkillsTab({
             {selectedSkillEditMode && (
               <div className="p-4 border-b border-border space-y-3 bg-card">
                 <div>
-                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                    Description
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                    {t("common.description")}
                   </label>
                   <Input
                     nativeInput
@@ -440,22 +419,23 @@ export function SkillsTab({
                     disabled={!canEdit}
                     type="text"
                     size="sm"
-                    className="text-xs transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+                    className="text-xs"
                   />
                 </div>
               </div>
             )}
 
-            <div className="p-4 border-b border-border bg-muted/5">
+            <div className="p-4 border-b border-border">
               <Button
                 onClick={() =>
                   onSetState({ selectedSkillShowAdvanced: !selectedSkillShowAdvanced })
                 }
-                variant="ghost"
+                variant="link"
                 size="sm"
-                className="px-0 text-primary cursor-pointer hover:bg-transparent"
               >
-                {selectedSkillShowAdvanced ? "Hide advanced" : "Show advanced"}
+                {selectedSkillShowAdvanced
+                  ? t("agents.skills.hideAdvanced")
+                  : t("agents.skills.showAdvanced")}
               </Button>
               <p className="text-[11px] text-muted-foreground mt-1">
                 Files and source editing live here so the main view stays focused on behavior.
@@ -469,7 +449,7 @@ export function SkillsTab({
                     <select
                       value={selectedSkillActiveFile}
                       onChange={(e) => onSelectSkillFile(e.target.value)}
-                      className="min-w-0 max-w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-120 cursor-pointer sm:max-w-sm"
+                      className="min-w-0 max-w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono outline-none cursor-pointer sm:max-w-sm"
                     >
                       {skillFiles.map((f) => (
                         <option key={f} value={f}>
@@ -484,7 +464,7 @@ export function SkillsTab({
                         size="xs"
                         className="text-destructive hover:bg-destructive/10 cursor-pointer"
                       >
-                        Delete file
+                        {t("agents.skills.deleteFile")}
                       </Button>
                     )}
                     {canEdit && selectedSkillEditMode && !selectedSkillAddingFile && (
@@ -499,7 +479,7 @@ export function SkillsTab({
                         size="xs"
                         className="cursor-pointer"
                       >
-                        + Add file
+                        {t("agents.skills.addFile")}
                       </Button>
                     )}
                   </div>
@@ -523,7 +503,7 @@ export function SkillsTab({
                         type="text"
                         placeholder="reference.md"
                         size="sm"
-                        className="flex-1 font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
+                        className="flex-1 font-mono"
                         autoFocus
                       />
                       <Button onClick={commitAddSkillFile} size="xs" className="cursor-pointer">
@@ -540,7 +520,7 @@ export function SkillsTab({
                     </div>
                   )}
                 </div>
-                <div className="min-w-0 p-4 bg-muted/5">
+                <div className="min-w-0 p-4">
                   {selectedSkillFileLoading ? (
                     <div className="py-8 flex justify-center">
                       <Spinner className="size-5" />
@@ -556,14 +536,14 @@ export function SkillsTab({
                       }
                       disabled={!canEdit}
                       rows={18}
-                      className="text-xs font-mono transition-all duration-120 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20 bg-card leading-relaxed"
+                      className="text-xs font-mono leading-relaxed"
                       spellCheck={false}
                     />
                   ) : (
                     <SkillFilePreview
                       path={selectedSkillActiveFile}
                       content={selectedSkillFileContent}
-                      emptyText="No content yet."
+                      emptyText={t("agents.skills.noContent")}
                     />
                   )}
                 </div>
