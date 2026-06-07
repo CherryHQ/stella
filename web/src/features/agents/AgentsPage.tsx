@@ -41,14 +41,12 @@ import type {
 } from "@/lib/types";
 import { fetchAllAuthUsers } from "@/lib/auth-users";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { useI18n } from "@/lib/i18n";
 import { AgentList } from "./AgentList";
 import { AgentForm } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
 import { ArrowLeft, Plus } from "lucide-react";
 
@@ -324,7 +322,6 @@ export function AgentsPage() {
     },
   });
   const { toasts, showToast } = useToast();
-  const { t } = useI18n();
 
   const set = useCallback((patch: Partial<AgentsPageState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -1080,26 +1077,29 @@ export function AgentsPage() {
       <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
         {state.showForm ? (
           <div className="space-y-4">
-            <Button onClick={resetForm} variant="ghost" size="sm">
-              <ArrowLeft className="size-3.5" />
-              {t("agents.backToAgents")}
-            </Button>
-            <Card className="overflow-hidden">{detail}</Card>
+            <button
+              onClick={resetForm}
+              className="group inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium cursor-pointer"
+            >
+              <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+              Back to Agents
+            </button>
+            <div className="bg-card border border-border rounded-xl overflow-hidden">{detail}</div>
           </div>
         ) : (
           <div className="space-y-8">
             <SettingsPageHeader
-              title={t("agents.title")}
-              description={t("agents.pageDesc")}
+              title="Agents"
+              description="Create and configure agent profiles with custom models, prompts, souls, and installed skills."
               action={
                 <Button
                   onClick={startCreate}
                   variant="premium"
                   size="sm"
-                  className="flex items-center gap-1.5"
+                  className="group flex items-center gap-1.5"
                 >
                   <Plus className="size-4 shrink-0" />
-                  {t("agents.addAgent")}
+                  Add agent
                 </Button>
               }
             />
