@@ -50,6 +50,7 @@ export function InspectorPanel({
   const navigate = useNavigate();
   const [tab, setTab] = useState<InspectorTab>("workspace");
   const [workFilter, setWorkFilter] = useState<WorkFilter>("needs");
+  const { t } = useI18n();
 
   useEffect(() => {
     const stored = localStorage.getItem(`${TAB_STORAGE_PREFIX}${agentID}`) as InspectorTab | null;
@@ -69,13 +70,13 @@ export function InspectorPanel({
       <div className="flex h-12 shrink-0 items-end border-b border-border px-4">
         <div className="flex w-full gap-4 text-xs">
           <InspectorTabButton active={tab === "workspace"} onClick={() => selectTab("workspace")}>
-            Workspace
+            {t("sessions.inspector.workspace")}
           </InspectorTabButton>
           <InspectorTabButton active={tab === "work"} onClick={() => selectTab("work")}>
-            Activity
+            {t("sessions.inspector.activity")}
           </InspectorTabButton>
           <InspectorTabButton active={tab === "context"} onClick={() => selectTab("context")}>
-            Context
+            {t("sessions.inspector.context")}
           </InspectorTabButton>
         </div>
       </div>
@@ -403,7 +404,11 @@ function ContextPanel({
 
         <ContextSectionCard
           title={t("sessions.inspector.tools")}
-          detail={tools.length > 0 ? `${tools.length} available` : "Runtime tool catalog"}
+          detail={
+            tools.length > 0
+              ? t("sessions.inspector.available", { count: tools.length })
+              : t("sessions.inspector.runtimeToolCatalog")
+          }
           icon={<Wrench className="size-4" />}
           open={openSections.tools}
           onToggle={() => toggleSection("tools")}
@@ -415,10 +420,10 @@ function ContextPanel({
           title={t("sessions.inspector.prompt")}
           detail={
             promptLoading
-              ? "Loading"
+              ? t("sessions.inspector.loading")
               : systemPrompt
                 ? `~${Math.round(systemPrompt.length / 4)} tokens`
-                : "System prompt"
+                : t("sessions.inspector.systemPrompt")
           }
           icon={<FileText className="size-4" />}
           open={openSections.prompt}
@@ -428,26 +433,32 @@ function ContextPanel({
         </ContextSectionCard>
 
         <ContextSectionCard
-          title="Skills"
+          title={t("sessions.inspector.skills")}
           detail={
-            sessionSkills.length > 0 ? `${sessionSkills.length} enabled` : "Enabled for this chat"
+            sessionSkills.length > 0
+              ? t("sessions.inspector.enabledCount", { count: sessionSkills.length })
+              : t("sessions.inspector.enabledForChat")
           }
           icon={<Sparkles className="size-4" />}
           open={openSections.skills}
           onToggle={() => toggleSection("skills")}
-          actionLabel="Manage"
+          actionLabel={t("sessions.inspector.manage")}
           onAction={onOpenSkills}
         >
           <SkillsContext skills={sessionSkills} loading={sessionSkillsLoading} />
         </ContextSectionCard>
 
         <ContextSectionCard
-          title="Memory"
-          detail={memories.length > 0 ? `${memories.length} memories` : "Soul and profile"}
+          title={t("sessions.inspector.memory")}
+          detail={
+            memories.length > 0
+              ? t("sessions.inspector.memoriesCount", { count: memories.length })
+              : t("sessions.inspector.soulAndProfile")
+          }
           icon={<Brain className="size-4" />}
           open={openSections.memory}
           onToggle={() => toggleSection("memory")}
-          actionLabel="Open"
+          actionLabel={t("sessions.inspector.open")}
           onAction={onOpenMemory}
         >
           <MemoryContext memories={memories} />
@@ -470,13 +481,19 @@ function ContextSummary({
   tools: number;
   skills: number;
 }) {
+  const { t } = useI18n();
   return (
     <section className="rounded-xl border border-border bg-card p-4">
-      <div className="mb-3 text-[10px] font-semibold text-muted-foreground">Runtime context</div>
+      <div className="mb-3 text-[10px] font-semibold text-muted-foreground">
+        {t("sessions.inspector.runtimeContext")}
+      </div>
       <div className="grid grid-cols-4 gap-1.5">
-        <ContextMetric label="Msgs" value={messagesLoading ? "..." : messages.length} />
         <ContextMetric
-          label="Tokens"
+          label={t("sessions.inspector.msgs")}
+          value={messagesLoading ? "..." : messages.length}
+        />
+        <ContextMetric
+          label={t("sessions.inspector.tokens")}
           value={
             messagesLoading
               ? "..."
@@ -485,8 +502,8 @@ function ContextSummary({
                 : tokens || "-"
           }
         />
-        <ContextMetric label="Tools" value={tools || "-"} />
-        <ContextMetric label="Skills" value={skills || "-"} />
+        <ContextMetric label={t("sessions.inspector.tools")} value={tools || "-"} />
+        <ContextMetric label={t("sessions.inspector.skills")} value={skills || "-"} />
       </div>
     </section>
   );
@@ -571,6 +588,7 @@ function SessionContextCard({
   messages: Message[];
   messagesLoading: boolean;
 }) {
+  const { t } = useI18n();
   const copyID = useCallback(() => {
     navigator.clipboard.writeText(session.id).catch(console.error);
   }, [session.id]);
@@ -580,21 +598,33 @@ function SessionContextCard({
   return (
     <div className="space-y-3.5">
       <dl className="grid grid-cols-[5.2rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
-        <dt className="text-muted-foreground font-semibold text-[10px]">Channel</dt>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.channel")}
+        </dt>
         <dd className="truncate text-foreground font-medium">
           {channelLabel(session.channel) || "chat"}
         </dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">Agent</dt>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.agent")}
+        </dt>
         <dd className="truncate text-foreground font-medium">{agentName || "unknown"}</dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">Kind</dt>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.kind")}
+        </dt>
         <dd className="truncate capitalize text-foreground font-medium">{session.kind}</dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">Active</dt>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.active")}
+        </dt>
         <dd className="truncate text-foreground font-medium">{formatTime(session.last_active)}</dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">Messages</dt>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.messages")}
+        </dt>
         <dd className="truncate text-foreground font-medium">
           {messagesLoading ? "Loading..." : messages.length.toLocaleString()}
         </dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">Tokens</dt>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.tokens")}
+        </dt>
         <dd className="truncate text-foreground font-medium">
           {messagesLoading
             ? "Loading..."
@@ -602,7 +632,9 @@ function SessionContextCard({
               ? sessionTotalTokens.toLocaleString()
               : sessionTotalTokens || "-"}
         </dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">Session ID</dt>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.sessionId")}
+        </dt>
         <dd className="truncate font-mono text-[10px] text-muted-foreground">{session.id}</dd>
       </dl>
       <div className="flex justify-end border-t border-border/10 pt-2.5">
@@ -611,7 +643,7 @@ function SessionContextCard({
           onClick={copyID}
           className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/60 bg-transparent"
         >
-          Copy Session ID
+          {t("sessions.inspector.copySessionId")}
         </button>
       </div>
     </div>
@@ -619,8 +651,9 @@ function SessionContextCard({
 }
 
 function ToolsContext({ tools, loading }: { tools: Tool[]; loading: boolean }) {
-  if (loading) return <ContextEmpty>Loading tools...</ContextEmpty>;
-  if (tools.length === 0) return <ContextEmpty>No tools loaded.</ContextEmpty>;
+  const { t } = useI18n();
+  if (loading) return <ContextEmpty>{t("sessions.inspector.loadingTools")}</ContextEmpty>;
+  if (tools.length === 0) return <ContextEmpty>{t("sessions.inspector.noTools")}</ContextEmpty>;
 
   return (
     <div className="grid gap-2">
@@ -666,11 +699,12 @@ function ToolContextRow({ tool }: { tool: Tool }) {
 }
 
 function PromptContext({ systemPrompt, loading }: { systemPrompt: string; loading: boolean }) {
+  const { t } = useI18n();
   const copyPrompt = useCallback(() => {
     navigator.clipboard.writeText(systemPrompt).catch(console.error);
   }, [systemPrompt]);
 
-  if (loading) return <ContextEmpty>Loading prompt...</ContextEmpty>;
+  if (loading) return <ContextEmpty>{t("sessions.inspector.loadingPrompt")}</ContextEmpty>;
 
   return (
     <div className="grid gap-2">
@@ -683,23 +717,24 @@ function PromptContext({ systemPrompt, loading }: { systemPrompt: string; loadin
           onClick={copyPrompt}
           className="rounded-lg px-2 py-1 font-semibold text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/50"
         >
-          Copy
+          {t("sessions.inspector.copy")}
         </button>
       </div>
       <pre className="whitespace-pre-wrap rounded-xl border border-border/60 bg-muted/40 p-3.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
-        {systemPrompt || "No system prompt available."}
+        {systemPrompt || t("sessions.inspector.noPrompt")}
       </pre>
     </div>
   );
 }
 
 function SkillsContext({ skills, loading }: { skills: Skill[]; loading: boolean }) {
-  if (loading) return <ContextEmpty>Loading skills...</ContextEmpty>;
+  const { t } = useI18n();
+  if (loading) return <ContextEmpty>{t("sessions.inspector.loadingSkills")}</ContextEmpty>;
 
   return (
     <div className="grid gap-2">
       {skills.length === 0 ? (
-        <ContextEmpty>No enabled skills available for this session.</ContextEmpty>
+        <ContextEmpty>{t("sessions.inspector.noSkills")}</ContextEmpty>
       ) : (
         skills.map((skill) => <SkillContextRow key={skill.id} skill={skill} />)
       )}
@@ -708,12 +743,13 @@ function SkillsContext({ skills, loading }: { skills: Skill[]; loading: boolean 
 }
 
 function MemoryContext({ memories }: { memories: unknown[] }) {
+  const { t } = useI18n();
   return (
     <div className="py-1">
       <p className="text-xs text-muted-foreground leading-relaxed">
         {memories.length > 0
-          ? `${memories.length} memories are available for this agent.`
-          : "No profile memories yet."}
+          ? t("sessions.inspector.memoriesAvailable", { count: memories.length })
+          : t("sessions.inspector.noMemories")}
       </p>
     </div>
   );

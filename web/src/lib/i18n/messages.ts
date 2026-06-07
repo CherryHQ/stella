@@ -1075,6 +1075,58 @@ const en = {
 
   // Users (additions)
   "users.none": "None",
+
+  // Inspector context panel (additions)
+  "sessions.inspector.workspace": "Workspace",
+  "sessions.inspector.context": "Context",
+  "sessions.inspector.runtimeContext": "Runtime context",
+  "sessions.inspector.msgs": "Msgs",
+  "sessions.inspector.tokens": "Tokens",
+  "sessions.inspector.skills": "Skills",
+  "sessions.inspector.channel": "Channel",
+  "sessions.inspector.agent": "Agent",
+  "sessions.inspector.kind": "Kind",
+  "sessions.inspector.active": "Active",
+  "sessions.inspector.messages": "Messages",
+  "sessions.inspector.sessionId": "Session ID",
+  "sessions.inspector.copySessionId": "Copy Session ID",
+  "sessions.inspector.runtimeToolCatalog": "Runtime tool catalog",
+  "sessions.inspector.systemPrompt": "System prompt",
+  "sessions.inspector.enabledCount": "{{count}} enabled",
+  "sessions.inspector.enabledForChat": "Enabled for this chat",
+  "sessions.inspector.manage": "Manage",
+  "sessions.inspector.memory": "Memory",
+  "sessions.inspector.memoriesCount": "{{count}} memories",
+  "sessions.inspector.soulAndProfile": "Soul and profile",
+  "sessions.inspector.open": "Open",
+  "sessions.inspector.loadingTools": "Loading tools...",
+  "sessions.inspector.noTools": "No tools loaded.",
+  "sessions.inspector.loadingPrompt": "Loading prompt...",
+  "sessions.inspector.noPrompt": "No system prompt available.",
+  "sessions.inspector.copy": "Copy",
+  "sessions.inspector.loadingSkills": "Loading skills...",
+  "sessions.inspector.noSkills": "No enabled skills available for this session.",
+  "sessions.inspector.memoriesAvailable": "{{count}} memories are available for this agent.",
+  "sessions.inspector.noMemories": "No profile memories yet.",
+  "sessions.inspector.available": "{{count}} available",
+  "sessions.inspector.loading": "Loading",
+
+  // Sidebar (additions)
+  "sessions.sidebar.projects": "Projects",
+  "sessions.sidebar.sessions": "Sessions",
+  "sessions.sidebar.newProject2": "New project",
+
+  // Chat transcript
+  "sessions.transcript.loadingEarlier": "Loading earlier messages…",
+  "sessions.transcript.empty": "Empty session.",
+  "sessions.transcript.generating": "generating…",
+  "sessions.transcript.sendHint": "↵ send · ⇧↵ new line",
+  "sessions.transcript.sendHintSkills": "↵ send · ⇧↵ new line · / skills",
+
+  // Session detail (additions)
+  "sessions.untitled": "Untitled session",
+  "sessions.messagesChannel": "{{count}} messages · {{channel}}",
+  "sessions.chat": "chat",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -2143,6 +2195,58 @@ const zh: Record<MessageKey, string> = {
 
   // Users (additions)
   "users.none": "无",
+
+  // Inspector context panel (additions)
+  "sessions.inspector.workspace": "工作区",
+  "sessions.inspector.context": "上下文",
+  "sessions.inspector.runtimeContext": "运行时上下文",
+  "sessions.inspector.msgs": "消息",
+  "sessions.inspector.tokens": "Token",
+  "sessions.inspector.skills": "技能",
+  "sessions.inspector.channel": "频道",
+  "sessions.inspector.agent": "智能体",
+  "sessions.inspector.kind": "类型",
+  "sessions.inspector.active": "活跃",
+  "sessions.inspector.messages": "消息数",
+  "sessions.inspector.sessionId": "会话 ID",
+  "sessions.inspector.copySessionId": "复制会话 ID",
+  "sessions.inspector.runtimeToolCatalog": "运行时工具目录",
+  "sessions.inspector.systemPrompt": "系统提示词",
+  "sessions.inspector.enabledCount": "{{count}} 个已启用",
+  "sessions.inspector.enabledForChat": "为此对话启用",
+  "sessions.inspector.manage": "管理",
+  "sessions.inspector.memory": "记忆",
+  "sessions.inspector.memoriesCount": "{{count}} 条记忆",
+  "sessions.inspector.soulAndProfile": "灵魂与档案",
+  "sessions.inspector.open": "打开",
+  "sessions.inspector.loadingTools": "加载工具中...",
+  "sessions.inspector.noTools": "未加载工具。",
+  "sessions.inspector.loadingPrompt": "加载提示词中...",
+  "sessions.inspector.noPrompt": "暂无系统提示词。",
+  "sessions.inspector.copy": "复制",
+  "sessions.inspector.loadingSkills": "加载技能中...",
+  "sessions.inspector.noSkills": "此会话没有可用的已启用技能。",
+  "sessions.inspector.memoriesAvailable": "此智能体有 {{count}} 条可用记忆。",
+  "sessions.inspector.noMemories": "暂无档案记忆。",
+  "sessions.inspector.available": "{{count}} 个可用",
+  "sessions.inspector.loading": "加载中",
+
+  // Sidebar (additions)
+  "sessions.sidebar.projects": "项目",
+  "sessions.sidebar.sessions": "会话",
+  "sessions.sidebar.newProject2": "新建项目",
+
+  // Chat transcript
+  "sessions.transcript.loadingEarlier": "加载更早的消息…",
+  "sessions.transcript.empty": "空会话。",
+  "sessions.transcript.generating": "生成中…",
+  "sessions.transcript.sendHint": "↵ 发送 · ⇧↵ 换行",
+  "sessions.transcript.sendHintSkills": "↵ 发送 · ⇧↵ 换行 · / 技能",
+
+  // Session detail (additions)
+  "sessions.untitled": "未命名会话",
+  "sessions.messagesChannel": "{{count}} 条消息 · {{channel}}",
+  "sessions.chat": "对话",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };

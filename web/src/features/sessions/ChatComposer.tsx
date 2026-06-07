@@ -368,12 +368,14 @@ export function ChatComposer({
           )}
           {!isStreaming && (
             <span className="text-[9px] font-mono text-muted-foreground select-none">
-              ↵ send · ⇧↵ new line{skills && skills.length > 0 ? " · / skills" : ""}
+              {skills && skills.length > 0
+                ? t("sessions.transcript.sendHintSkills")
+                : t("sessions.transcript.sendHint")}
             </span>
           )}
           {isStreaming && (
             <span className="text-[9px] font-mono text-primary/70 select-none animate-pulse">
-              generating…
+              {t("sessions.transcript.generating")}
             </span>
           )}
         </div>

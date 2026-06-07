@@ -1,4 +1,5 @@
 import { forwardRef, useMemo } from "react";
+import { useI18n } from "@/lib/i18n";
 import type { ContentBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { UserMessage } from "./UserMessage";
@@ -45,6 +46,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
   { messages, loading, onScroll, fileAgentId, fileSessionId, agentNames },
   ref,
 ) {
+  const { t } = useI18n();
   const processed = useMemo(() => annotate(messages), [messages]);
 
   return (
@@ -57,13 +59,15 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
         <div className="mb-6 flex items-center justify-center gap-2">
           <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
           <span className="font-mono text-[10px] text-muted-foreground">
-            Loading earlier messages…
+            {t("sessions.transcript.loadingEarlier")}
           </span>
         </div>
       )}
       {messages.length === 0 && !loading && (
         <div className="py-20 text-center">
-          <p className="font-mono text-xs text-muted-foreground/60">Empty session.</p>
+          <p className="font-mono text-xs text-muted-foreground/60">
+            {t("sessions.transcript.empty")}
+          </p>
         </div>
       )}
       <div className="mx-auto max-w-3xl space-y-8">

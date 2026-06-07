@@ -590,7 +590,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
               onClick={() => setProjectsOpen((v) => !v)}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
             >
-              <span>Projects</span>
+              <span>{t("sessions.sidebar.projects")}</span>
               <ChevRight
                 className={cn(
                   "size-2.5 text-muted-foreground transition-transform duration-150",
@@ -602,7 +602,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
               type="button"
               onClick={() => setShowCreateProject(true)}
               className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
-              title="New project"
+              title={t("sessions.sidebar.newProject2")}
             >
               <IconMore />
             </button>
@@ -666,7 +666,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
               onClick={() => setChatsOpen((v) => !v)}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
             >
-              <span>Sessions</span>
+              <span>{t("sessions.sidebar.sessions")}</span>
               <ChevRight
                 className={cn(
                   "size-2.5 text-muted-foreground transition-transform duration-150",

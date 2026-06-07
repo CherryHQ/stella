@@ -213,9 +213,13 @@ export function SessionDetail({
 
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
-  const titleText = session ? contextTitle || session.title || "Untitled session" : "";
+  const titleText = session ? contextTitle || session.title || t("sessions.untitled") : "";
   const subtitleText = session
-    ? contextSubtitle || `${messages.length} messages · ${channelLabel(session.channel) || "chat"}`
+    ? contextSubtitle ||
+      t("sessions.messagesChannel", {
+        count: messages.length,
+        channel: channelLabel(session.channel) || t("sessions.chat"),
+      })
     : "";
 
   useEffect(() => {
