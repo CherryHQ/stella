@@ -40,6 +40,7 @@ import { Route as AppGroupsGroupIdRouteImport } from './routes/_app/groups.$grou
 import { Route as AppAutomationsSplatRouteImport } from './routes/_app/automations.$'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
+import { Route as AppSettingsProvidersProviderIdRouteImport } from './routes/_app/settings/providers.$providerId'
 import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/settings/agents.$agentId'
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
 import { Route as AppAgentsAgentIdTasksIndexRouteImport } from './routes/_app/agents.$agentId/tasks/index'
@@ -244,6 +245,16 @@ const AppAgentsAgentIdIndexRoute = AppAgentsAgentIdIndexRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/agents.$agentId/index.lazy').then((d) => d.Route),
 )
+const AppSettingsProvidersProviderIdRoute =
+  AppSettingsProvidersProviderIdRouteImport.update({
+    id: '/$providerId',
+    path: '/$providerId',
+    getParentRoute: () => AppSettingsProvidersRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/settings/providers.$providerId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AppSettingsAgentsAgentIdRoute =
   AppSettingsAgentsAgentIdRouteImport.update({
     id: '/$agentId',
@@ -483,7 +494,7 @@ export interface FileRoutesByFullPath {
   '/settings/channels': typeof AppSettingsChannelsRoute
   '/settings/credentials': typeof AppSettingsCredentialsRoute
   '/settings/plugins': typeof AppSettingsPluginsRoute
-  '/settings/providers': typeof AppSettingsProvidersRoute
+  '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
@@ -491,6 +502,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -535,7 +547,7 @@ export interface FileRoutesByTo {
   '/settings/channels': typeof AppSettingsChannelsRoute
   '/settings/credentials': typeof AppSettingsCredentialsRoute
   '/settings/plugins': typeof AppSettingsPluginsRoute
-  '/settings/providers': typeof AppSettingsProvidersRoute
+  '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
@@ -543,6 +555,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/agents/$agentId': typeof AppAgentsAgentIdIndexRoute
   '/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -592,7 +605,7 @@ export interface FileRoutesById {
   '/_app/settings/channels': typeof AppSettingsChannelsRoute
   '/_app/settings/credentials': typeof AppSettingsCredentialsRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRoute
-  '/_app/settings/providers': typeof AppSettingsProvidersRoute
+  '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
@@ -600,6 +613,7 @@ export interface FileRoutesById {
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
+  '/_app/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/_app/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
   '/_app/agents/$agentId/automations/$jobId': typeof AppAgentsAgentIdAutomationsJobIdRouteWithChildren
   '/_app/agents/$agentId/automations/new': typeof AppAgentsAgentIdAutomationsNewRoute
@@ -657,6 +671,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/agents/$agentId/memories'
     | '/settings/agents/$agentId'
+    | '/settings/providers/$providerId'
     | '/agents/$agentId/'
     | '/agents/$agentId/automations/$jobId'
     | '/agents/$agentId/automations/new'
@@ -709,6 +724,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/agents/$agentId/memories'
     | '/settings/agents/$agentId'
+    | '/settings/providers/$providerId'
     | '/agents/$agentId'
     | '/agents/$agentId/automations/$jobId'
     | '/agents/$agentId/automations/new'
@@ -765,6 +781,7 @@ export interface FileRouteTypes {
     | '/_app/settings/'
     | '/_app/agents/$agentId/memories'
     | '/_app/settings/agents/$agentId'
+    | '/_app/settings/providers/$providerId'
     | '/_app/agents/$agentId/'
     | '/_app/agents/$agentId/automations/$jobId'
     | '/_app/agents/$agentId/automations/new'
@@ -1017,6 +1034,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/$agentId/'
       preLoaderRoute: typeof AppAgentsAgentIdIndexRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
+    }
+    '/_app/settings/providers/$providerId': {
+      id: '/_app/settings/providers/$providerId'
+      path: '/$providerId'
+      fullPath: '/settings/providers/$providerId'
+      preLoaderRoute: typeof AppSettingsProvidersProviderIdRouteImport
+      parentRoute: typeof AppSettingsProvidersRoute
     }
     '/_app/settings/agents/$agentId': {
       id: '/_app/settings/agents/$agentId'
@@ -1332,6 +1356,17 @@ const AppSettingsAgentsRouteChildren: AppSettingsAgentsRouteChildren = {
 const AppSettingsAgentsRouteWithChildren =
   AppSettingsAgentsRoute._addFileChildren(AppSettingsAgentsRouteChildren)
 
+interface AppSettingsProvidersRouteChildren {
+  AppSettingsProvidersProviderIdRoute: typeof AppSettingsProvidersProviderIdRoute
+}
+
+const AppSettingsProvidersRouteChildren: AppSettingsProvidersRouteChildren = {
+  AppSettingsProvidersProviderIdRoute: AppSettingsProvidersProviderIdRoute,
+}
+
+const AppSettingsProvidersRouteWithChildren =
+  AppSettingsProvidersRoute._addFileChildren(AppSettingsProvidersRouteChildren)
+
 interface AppSettingsRouteChildren {
   AppSettingsAboutRoute: typeof AppSettingsAboutRoute
   AppSettingsAccountRoute: typeof AppSettingsAccountRoute
@@ -1339,7 +1374,7 @@ interface AppSettingsRouteChildren {
   AppSettingsChannelsRoute: typeof AppSettingsChannelsRoute
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRoute
-  AppSettingsProvidersRoute: typeof AppSettingsProvidersRoute
+  AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
@@ -1352,7 +1387,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsChannelsRoute: AppSettingsChannelsRoute,
   AppSettingsCredentialsRoute: AppSettingsCredentialsRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRoute,
-  AppSettingsProvidersRoute: AppSettingsProvidersRoute,
+  AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsSandboxRoute: AppSettingsSandboxRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,

@@ -17,7 +17,7 @@ export function SettingsEmptyState({
     <div className="flex h-full items-center justify-center p-8 text-center bg-background">
       <div className="max-w-md w-full border border-border rounded-xl p-8 bg-card">
         {icon && (
-          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-accent text-primary">
             {icon}
           </div>
         )}
