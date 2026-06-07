@@ -224,7 +224,7 @@ export function RecallyArticleList({
           <Popover open={explorerOpen} onOpenChange={setExplorerOpen}>
             <PopoverTrigger
               className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-colors duration-120 cursor-pointer text-xs font-semibold shadow-none select-none outline-none",
+                "flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-colors duration-120 cursor-pointer text-xs font-semibold select-none outline-none",
                 explorerOpen
                   ? "bg-primary/10 text-primary border-primary/25"
                   : "bg-card border-border text-foreground hover:bg-muted",
@@ -236,12 +236,12 @@ export function RecallyArticleList({
               <span className="truncate max-w-[120px] font-mono tracking-tight">
                 {activeSourceName}
               </span>
-              <span className="font-mono text-[9px] px-1 py-0.5 rounded-md bg-muted/65 text-muted-foreground/90 font-medium scale-90">
+              <span className="font-mono text-[9px] px-1 py-0.5 rounded-md bg-muted/65 text-muted-foreground font-medium scale-90">
                 {activeSourceCount}
               </span>
               <ChevronDown
                 className={cn(
-                  "size-3 text-muted-foreground/60 transition-transform duration-120 ml-0.5",
+                  "size-3 text-muted-foreground transition-transform duration-120 ml-0.5",
                   explorerOpen && "rotate-180 text-primary",
                 )}
               />
@@ -250,12 +250,12 @@ export function RecallyArticleList({
             <PopoverContent
               align="start"
               sideOffset={8}
-              className="w-[calc(100vw-2rem)] max-w-[560px] p-4 bg-popover border border-border rounded-xl shadow-none"
+              className="w-[calc(100vw-2rem)] max-w-[560px] p-4 bg-popover border border-border rounded-xl"
             >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border/30">
                 {/* Library / Folders */}
                 <div className="space-y-2">
-                  <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
+                  <div className="text-[10px] font-mono font-semibold text-muted-foreground px-1">
                     {t("recally.section.library")}
                   </div>
                   <div className="space-y-1">
@@ -275,7 +275,7 @@ export function RecallyArticleList({
                         <Inbox className="size-3.5" />
                         <span>{t("recally.nav.inbox")}</span>
                       </div>
-                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                      <span className="font-mono text-[9px] bg-muted px-1.5 py-0.5 rounded-md text-muted-foreground">
                         {digest?.total_articles ?? 0}
                       </span>
                     </button>
@@ -292,7 +292,7 @@ export function RecallyArticleList({
                         <Star className="size-3.5" />
                         <span>{t("recally.nav.starred")}</span>
                       </div>
-                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                      <span className="font-mono text-[9px] bg-muted px-1.5 py-0.5 rounded-md text-muted-foreground">
                         {digest?.starred_count ?? 0}
                       </span>
                     </button>
@@ -309,7 +309,7 @@ export function RecallyArticleList({
                         <Archive className="size-3.5" />
                         <span>{t("recally.nav.archive")}</span>
                       </div>
-                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                      <span className="font-mono text-[9px] bg-muted px-1.5 py-0.5 rounded-md text-muted-foreground">
                         {digest?.archived_count ?? 0}
                       </span>
                     </button>
@@ -326,7 +326,7 @@ export function RecallyArticleList({
                         <History className="size-3.5" />
                         <span>{t("recally.nav.digest")}</span>
                       </div>
-                      <span className="font-mono text-[9px] bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground/80">
+                      <span className="font-mono text-[9px] bg-muted px-1.5 py-0.5 rounded-md text-muted-foreground">
                         {digest?.saved_yesterday_count ?? 0}
                       </span>
                     </button>
@@ -335,7 +335,7 @@ export function RecallyArticleList({
 
                 {/* Subscriptions */}
                 <div className="space-y-2 sm:px-4 flex flex-col min-h-0">
-                  <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
+                  <div className="text-[10px] font-mono font-semibold text-muted-foreground px-1">
                     {t("recally.section.feeds")}
                   </div>
                   <div className="flex items-center gap-1.5 px-1">
@@ -349,7 +349,7 @@ export function RecallyArticleList({
                           createFeedMut.mutate({ body: { url: feedUrl.trim() } });
                         }
                       }}
-                      className="h-7 flex-1 rounded-lg bg-muted/30 border border-border/40 px-2.5 text-[10px] font-mono placeholder:text-muted-foreground/45 hover:border-border/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/10 focus:outline-none transition-all duration-150 text-foreground"
+                      className="h-7 flex-1 rounded-lg border border-border/40 px-2.5 text-[10px] font-mono placeholder:text-muted-foreground/45 hover:border-border/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/10 focus:outline-none transition-all duration-150 text-foreground"
                     />
                     <button
                       onClick={() => {
@@ -358,7 +358,7 @@ export function RecallyArticleList({
                         }
                       }}
                       disabled={createFeedMut.isPending || !feedUrl.trim()}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/30 border border-border/40 hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/40 hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       {createFeedMut.isPending ? (
                         <RefreshCw className="size-3 animate-spin text-muted-foreground" />
@@ -375,7 +375,7 @@ export function RecallyArticleList({
                           className="flex items-center justify-between gap-1.5 py-0.5 border-b border-border/10 last:border-0"
                         >
                           <span
-                            className="truncate text-[10px] text-foreground/80 font-medium"
+                            className="truncate text-[10px] text-foreground font-medium"
                             title={feed.title || feed.url}
                           >
                             {feed.title || feed.url}
@@ -383,7 +383,7 @@ export function RecallyArticleList({
                           <button
                             onClick={() => pollFeedMut.mutate({ path: { id: feed.id } })}
                             disabled={pollFeedMut.isPending}
-                            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/30 border border-border/30 px-1 py-0.5 font-mono text-[8px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/30 px-1 py-0.5 font-mono text-[8px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
                           >
                             {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
                               <RefreshCw className="size-2.5 animate-spin" />
@@ -412,7 +412,7 @@ export function RecallyArticleList({
 
                 {/* Tags */}
                 <div className="space-y-2 sm:pl-4">
-                  <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 px-1">
+                  <div className="text-[10px] font-mono font-semibold text-muted-foreground px-1">
                     {t("recally.section.tags")}
                   </div>
                   {sortedTags.length > 0 ? (
@@ -461,7 +461,7 @@ export function RecallyArticleList({
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder={t("recally.searchPlaceholder")}
-                className="w-full pl-8 pr-3 py-1.5 text-[11px] font-mono rounded-xl bg-muted/20 border border-border focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors duration-120 text-foreground placeholder:text-muted-foreground/45 shadow-none"
+                className="w-full pl-8 pr-3 py-1.5 text-[11px] font-mono rounded-xl border border-border focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors duration-120 text-foreground placeholder:text-muted-foreground/45"
               />
             </div>
           )}
@@ -471,7 +471,7 @@ export function RecallyArticleList({
             <button
               onClick={() => setRefinementsOpen(!refinementsOpen)}
               className={cn(
-                "relative p-2 rounded-xl border transition-colors duration-120 cursor-pointer flex items-center justify-center shrink-0 shadow-none",
+                "relative p-2 rounded-xl border transition-colors duration-120 cursor-pointer flex items-center justify-center shrink-0",
                 refinementsOpen || activeFiltersCount > 0
                   ? "bg-primary/10 text-primary border-primary/25"
                   : "bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted",
@@ -491,10 +491,10 @@ export function RecallyArticleList({
 
       {/* Inline Quick Refinements Toolbar */}
       {refinementsOpen && !digestView && (
-        <div className="shrink-0 border-b border-border/40 bg-muted/10 p-3 space-y-2.5">
+        <div className="shrink-0 border-b border-border/40 p-3 space-y-2.5">
           {/* Status Filters */}
           <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 w-12 shrink-0">
+            <span className="text-[10px] font-mono font-semibold text-muted-foreground w-12 shrink-0">
               Status:
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -518,7 +518,7 @@ export function RecallyArticleList({
 
           {/* Source Type Filters */}
           <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground/60 w-12 shrink-0">
+            <span className="text-[10px] font-mono font-semibold text-muted-foreground w-12 shrink-0">
               Source:
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -551,7 +551,7 @@ export function RecallyArticleList({
             )}
             {!storedDigestsLoading && storedDigests.length === 0 && (
               <div className="flex flex-col items-center justify-center h-32 text-center">
-                <p className="text-xs font-mono text-muted-foreground/60">
+                <p className="text-xs font-mono text-muted-foreground">
                   {t("recally.digest.noHistory")}
                 </p>
               </div>
@@ -590,7 +590,7 @@ export function RecallyArticleList({
             )}
             {!articlesQuery.isLoading && !articlesQuery.isError && displayArticles.length === 0 && (
               <div className="flex flex-col items-center justify-center h-32 text-center">
-                <p className="text-xs font-mono text-muted-foreground/60">
+                <p className="text-xs font-mono text-muted-foreground">
                   {t("recally.empty.noArticles")}
                 </p>
                 <p className="text-[10px] font-mono text-muted-foreground/45 mt-1">

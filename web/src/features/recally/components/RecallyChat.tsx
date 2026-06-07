@@ -179,7 +179,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
 
   if (articleQuery.isLoading || sessionLoading || !article || !activeSessionId || historyLoading) {
     return (
-      <div className="flex h-full w-[340px] flex-col border-l border-border bg-card items-center justify-center gap-2 text-xs text-muted-foreground/60 font-mono">
+      <div className="flex h-full w-[340px] flex-col border-l border-border bg-card items-center justify-center gap-2 text-xs text-muted-foreground font-mono">
         <Loader2 className="size-4 animate-spin text-primary" />
         <span>Resolving AI Session...</span>
       </div>
@@ -187,7 +187,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
   }
 
   return (
-    <div className="flex h-full w-[340px] flex-col border-l border-border bg-card shadow-none">
+    <div className="flex h-full w-[340px] flex-col border-l border-border bg-card">
       {/* Header */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3.5">
         <div className="flex items-center gap-1.5">
@@ -224,8 +224,8 @@ export function RecallyChat({ articleId, onClose }: Props) {
               <MessageCircle className="size-4.5" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-foreground/80">Discuss this article</p>
-              <p className="text-[10px] text-muted-foreground/50 mt-1 max-w-44 leading-normal">
+              <p className="text-xs font-semibold text-foreground">Discuss this article</p>
+              <p className="text-[10px] text-muted-foreground mt-1 max-w-44 leading-normal">
                 Ask Stella questions, draft summaries, or translate terms in this article.
               </p>
             </div>
@@ -253,11 +253,11 @@ export function RecallyChat({ articleId, onClose }: Props) {
                 )}
               >
                 {isUser ? (
-                  <h3 className="text-xs font-semibold tracking-tight text-foreground/90 leading-tight">
+                  <h3 className="text-xs font-semibold tracking-tight text-foreground leading-tight">
                     {text}
                   </h3>
                 ) : (
-                  <div className="text-xs leading-relaxed text-foreground/90 font-sans">
+                  <div className="text-xs leading-relaxed text-foreground font-sans">
                     <MarkdownPreview
                       content={text}
                       className="prose-headings:text-foreground [&_code]:text-[10px] [&_pre]:bg-muted/40 [&_pre]:p-1.5 leading-relaxed text-xs"
@@ -280,7 +280,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
 
       {/* Input Form */}
       <div className="shrink-0 border-t border-border bg-card p-3">
-        <div className="relative flex items-center bg-card border border-border rounded-xl px-2.5 py-1 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all shadow-none">
+        <div className="relative flex items-center bg-card border border-border rounded-xl px-2.5 py-1 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
           <textarea
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
