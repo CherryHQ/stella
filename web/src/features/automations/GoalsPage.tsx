@@ -22,7 +22,8 @@ const VIEW_LABEL: Record<GoalsView, MessageKey> = {
 export function GoalsPage() {
   const { t } = useI18n();
   const { agentId } = useParams({ from: "/_app/agents/$agentId/automations/" });
-  const { view } = useSearch({ from: "/_app/agents/$agentId/automations/" });
+  const search = useSearch({ from: "/_app/agents/$agentId/automations/" });
+  const view = (search as Record<string, unknown>).view as string | undefined;
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { data: goals = [], isLoading } = useQuery(goalsOptions(agentId));
@@ -33,7 +34,7 @@ export function GoalsPage() {
       void navigate({
         to: "/agents/$agentId/automations",
         params: { agentId },
-        search: { view: v },
+        search: { view: v } as Record<string, unknown>,
       }),
     [agentId, navigate],
   );
