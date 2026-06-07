@@ -102,19 +102,19 @@ export function GoalDetail({ goal }: { goal: ComponentsGoal }) {
         <PropField label={t("goals.colStatus")}>
           <StatusPill status={goal.status} label={statusLabel(t, goal.status)} />
         </PropField>
-        <PropField label="Priority">
+        <PropField label={t("hub.priority")}>
           <span className="text-[13px] font-medium capitalize">{goal.priority}</span>
         </PropField>
-        <PropField label="Agent">
+        <PropField label={t("hub.agent")}>
           <span className="text-[13px] font-medium">{goal.agent_id || "—"}</span>
         </PropField>
-        <PropField label="Review Policy">
+        <PropField label={t("hub.reviewPolicy")}>
           <span className="text-[13px] font-medium capitalize">{goal.review_policy}</span>
         </PropField>
-        <PropField label="Created">
+        <PropField label={t("hub.created")}>
           <span className="font-mono text-xs">{formatTime(goal.created_at)}</span>
         </PropField>
-        <PropField label="Updated">
+        <PropField label={t("hub.updated")}>
           <span className="font-mono text-xs">{formatTime(goal.updated_at)}</span>
         </PropField>
       </div>

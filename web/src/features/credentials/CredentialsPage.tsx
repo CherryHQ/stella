@@ -351,9 +351,9 @@ export function CredentialsPage() {
             }
           >
             <TabsList variant="underline">
-              <TabsTab value="oauth">OAuth</TabsTab>
-              <TabsTab value="email">Email</TabsTab>
-              <TabsTab value="vault">Vault</TabsTab>
+              <TabsTab value="oauth">{t("credentials.tab.oauth")}</TabsTab>
+              <TabsTab value="email">{t("credentials.tab.email")}</TabsTab>
+              <TabsTab value="vault">{t("credentials.tab.vault")}</TabsTab>
             </TabsList>
 
             <TabsPanel value="oauth" className="pt-4">
@@ -617,10 +617,14 @@ export function CredentialsPage() {
               )}
 
               <div className="border-t border-border pt-5 mt-4 space-y-4">
-                <h3 className="text-sm font-semibold text-foreground font-sans">Add Secret</h3>
+                <h3 className="text-sm font-semibold text-foreground font-sans">
+                  {t("credentials.addSecret")}
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">Name</label>
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {t("credentials.secretName")}
+                    </label>
                     <Input
                       type="text"
                       value={newSecretName}

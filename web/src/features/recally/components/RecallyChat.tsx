@@ -201,7 +201,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
             onClick={handleResetSession}
             disabled={isStreaming}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer disabled:opacity-50"
-            title="Reset Conversation"
+            title={t("recally.chat.reset")}
           >
             <RotateCcw className="size-3.5" />
           </button>
@@ -224,9 +224,11 @@ export function RecallyChat({ articleId, onClose }: Props) {
               <MessageCircle className="size-4.5" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-foreground">Discuss this article</p>
+              <p className="text-xs font-semibold text-foreground">
+                {t("recally.chat.discussArticle")}
+              </p>
               <p className="text-[10px] text-muted-foreground mt-1 max-w-44 leading-normal">
-                Ask Stella questions, draft summaries, or translate terms in this article.
+                {t("recally.chat.discussDesc")}
               </p>
             </div>
           </div>
@@ -272,7 +274,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
         {isStreaming && (
           <div className="flex items-center gap-1.5 text-[10px] font-mono text-primary/80 animate-pulse pl-1">
             <Loader2 className="size-3 animate-spin text-primary" />
-            <span>Stella is typing…</span>
+            <span>{t("recally.chat.typing")}</span>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -290,7 +292,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
                 void sendMessage();
               }
             }}
-            placeholder="Ask follow up..."
+            placeholder={t("recally.chat.placeholder")}
             className="flex-1 resize-none bg-transparent py-1.5 text-xs text-foreground focus:outline-none placeholder:text-muted-foreground/45 max-h-20 min-h-7 leading-relaxed font-sans"
             rows={1}
             disabled={isStreaming}

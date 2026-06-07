@@ -48,6 +48,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
+import { useI18n } from "@/lib/i18n";
 
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
 
@@ -321,6 +322,7 @@ export function AgentsPage() {
     },
   });
   const { toasts, showToast } = useToast();
+  const { t } = useI18n();
 
   const set = useCallback((patch: Partial<AgentsPageState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -1073,8 +1075,8 @@ export function AgentsPage() {
         detail={detail}
         emptyState={
           <SettingsEmptyState
-            message="No agent selected"
-            description="Select an agent to configure, or create a new one."
+            message={t("agents.noAgentSelected")}
+            description={t("agents.selectToConfig")}
           />
         }
         onBack={resetForm}

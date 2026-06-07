@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Transcript } from "./Transcript";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   agentId: string;
@@ -40,6 +41,7 @@ export function SessionConversation({
   before,
   inline,
 }: Props) {
+  const { t } = useI18n();
   const [userInput, setUserInput] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -196,7 +198,7 @@ export function SessionConversation({
       <div className="overflow-hidden rounded-2xl border border-border bg-background sm:hidden">
         <div className="flex items-center justify-between gap-3 px-3 py-3">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Conversation</div>
+            <div className="text-sm font-semibold">{t("sessions.conversation")}</div>
             <div className="truncate font-mono text-[10px] text-muted-foreground">{sessionId}</div>
           </div>
           <Button size="sm" onClick={() => setMobileOpen(true)}>
@@ -210,7 +212,7 @@ export function SessionConversation({
       >
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Conversation</div>
+            <div className="text-sm font-semibold">{t("sessions.conversation")}</div>
             <div className="truncate font-mono text-[10px] text-muted-foreground">{sessionId}</div>
           </div>
           <a
@@ -226,7 +228,7 @@ export function SessionConversation({
       <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
         <DialogPopup className="h-[85vh] max-w-3xl" showCloseButton>
           <DialogHeader>
-            <DialogTitle>Conversation</DialogTitle>
+            <DialogTitle>{t("sessions.conversation")}</DialogTitle>
             <div className="truncate font-mono text-[10px] text-muted-foreground">{sessionId}</div>
           </DialogHeader>
           <DialogPanel className="flex min-h-0 flex-1 flex-col p-0" scrollFade={false}>

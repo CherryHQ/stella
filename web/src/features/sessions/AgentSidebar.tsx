@@ -171,6 +171,7 @@ function FolderTree({
   onSelect: (path: string) => void;
   onRootResolved?: (root: string) => void;
 }) {
+  const { t } = useI18n();
   const [dirs, setDirs] = useState<DirEntry[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -210,7 +211,9 @@ function FolderTree({
     return <p className="px-2 py-3 text-xs text-muted-foreground">Loading folders…</p>;
   }
   if (dirs.length === 0) {
-    return <p className="px-2 py-3 text-xs text-muted-foreground">No folders found</p>;
+    return (
+      <p className="px-2 py-3 text-xs text-muted-foreground">{t("sessions.sidebar.noFolders")}</p>
+    );
   }
 
   return (
@@ -271,6 +274,7 @@ function CreateProjectDialog({
   onCreated: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const [userRoot, setUserRoot] = useState("");
   const [selectedDir, setSelectedDir] = useState("");
   const [name, setName] = useState("");
@@ -315,8 +319,8 @@ function CreateProjectDialog({
     >
       <DialogPopup showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>New Project</DialogTitle>
-          <DialogDescription>Select a workspace folder for this agent.</DialogDescription>
+          <DialogTitle>{t("sessions.sidebar.newProject")}</DialogTitle>
+          <DialogDescription>{t("sessions.sidebar.selectFolder")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 px-6 py-2">
           {sessionId ? (
@@ -330,10 +334,12 @@ function CreateProjectDialog({
               />
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">No active session to browse folders.</p>
+            <p className="text-xs text-muted-foreground">{t("sessions.sidebar.noActiveSession")}</p>
           )}
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Project name</label>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t("sessions.sidebar.projectName")}
+            </label>
             <Input
               placeholder={folderName || "Select a folder above"}
               value={name}
@@ -505,7 +511,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
     <div className="flex min-h-0 w-full flex-col overflow-hidden">
       {/* ── Agents ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 px-3">
-        <SectionLabel>Agents</SectionLabel>
+        <SectionLabel>{t("sessions.sidebar.agents")}</SectionLabel>
         <div className="grid gap-1.5">
           {agents.map((ag, idx) => {
             const isCur = ag.id === agentId;
@@ -545,7 +551,9 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
             );
           })}
           {agents.length === 0 && (
-            <p className="px-2 py-2 text-xs text-muted-foreground">No agents yet.</p>
+            <p className="px-2 py-2 text-xs text-muted-foreground">
+              {t("sessions.sidebar.noAgents")}
+            </p>
           )}
         </div>
       </div>
@@ -557,7 +565,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
 
         {/* ── Workspace ─────────────────────────────────────────────────── */}
         <div>
-          <SectionLabel>Workspace</SectionLabel>
+          <SectionLabel>{t("sessions.sidebar.workspace")}</SectionLabel>
           <div className="grid gap-0.5">
             <NavItem
               active={

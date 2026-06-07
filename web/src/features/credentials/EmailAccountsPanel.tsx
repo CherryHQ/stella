@@ -7,6 +7,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useI18n } from "@/lib/i18n";
 
 interface EmailAccount {
   imap_host: string;
@@ -56,6 +57,7 @@ export function EmailAccountsPanel({
 }: {
   showToast: (msg: string, type?: "error") => void;
 }) {
+  const { t } = useI18n();
   const [config, setConfig] = useState<EmailConfig>({ default: "", accounts: {} });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -100,16 +102,16 @@ export function EmailAccountsPanel({
     setSaving(true);
     try {
       await saveConfig({ ...config, default: name });
-      showToast("Default account updated");
+      showToast(t("credentials.email.defaultUpdated"));
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to update default account", "error");
+      showToast(e instanceof Error ? e.message : t("credentials.email.updateFailed"), "error");
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (name: string) => {
-    if (!window.confirm(`Delete email account "${name}"?`)) return;
+    if (!window.confirm(t("credentials.email.deleteConfirm", { name }))) return;
 
     const updatedAccounts = { ...config.accounts };
     delete updatedAccounts[name];
@@ -128,9 +130,9 @@ export function EmailAccountsPanel({
       } else {
         await saveConfig({ default: nextDefault, accounts: updatedAccounts });
       }
-      showToast("Email account deleted");
+      showToast(t("credentials.email.deleted"));
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to delete account", "error");
+      showToast(e instanceof Error ? e.message : t("credentials.email.deleteFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -167,27 +169,28 @@ export function EmailAccountsPanel({
     const errs: Record<string, string> = {};
     if (!editingName) {
       if (!form.name) {
-        errs.name = "Account name is required";
+        errs.name = t("credentials.email.nameRequired");
       } else if (!/^[a-z][a-z0-9_]{0,31}$/.test(form.name)) {
-        errs.name =
-          "Must start with a lowercase letter and contain only lowercase letters, numbers, and underscores (max 32 chars)";
+        errs.name = t("credentials.email.nameFormat");
       } else if (config.accounts && form.name in config.accounts) {
-        errs.name = "Account name already exists";
+        errs.name = t("credentials.email.nameExists");
       }
     }
 
-    if (!form.imapHost) errs.imapHost = "IMAP host is required";
-    if (!form.smtpHost) errs.smtpHost = "SMTP host is required";
-    if (!form.username) errs.username = "Username is required";
-    if (!form.from) errs.from = "From address is required";
+    if (!form.imapHost) errs.imapHost = t("credentials.email.imapRequired");
+    if (!form.smtpHost) errs.smtpHost = t("credentials.email.smtpRequired");
+    if (!form.username) errs.username = t("credentials.email.usernameRequired");
+    if (!form.from) errs.from = t("credentials.email.fromRequired");
 
     const imapPort = parseInt(form.imapPort, 10);
-    if (isNaN(imapPort) || imapPort <= 0 || imapPort > 65535) errs.imapPort = "Invalid port number";
+    if (isNaN(imapPort) || imapPort <= 0 || imapPort > 65535)
+      errs.imapPort = t("credentials.email.invalidPort");
 
     const smtpPort = parseInt(form.smtpPort, 10);
-    if (isNaN(smtpPort) || smtpPort <= 0 || smtpPort > 65535) errs.smtpPort = "Invalid port number";
+    if (isNaN(smtpPort) || smtpPort <= 0 || smtpPort > 65535)
+      errs.smtpPort = t("credentials.email.invalidPort");
 
-    if (!editingName && !form.password) errs.password = "Password/App Password is required";
+    if (!editingName && !form.password) errs.password = t("credentials.email.passwordRequired");
 
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
@@ -216,10 +219,10 @@ export function EmailAccountsPanel({
       if (!def || Object.keys(config.accounts || {}).length === 0) def = name;
 
       await saveConfig({ default: def, accounts });
-      showToast(editingName ? "Email account updated" : "Email account added");
+      showToast(editingName ? t("credentials.email.accountUpdated") : t("credentials.email.added"));
       setFormOpen(false);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to save account", "error");
+      showToast(e instanceof Error ? e.message : t("credentials.email.saveFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -255,7 +258,7 @@ export function EmailAccountsPanel({
                       </svg>
                       <span className="min-w-0 truncate text-sm font-medium font-mono">{name}</span>
                     </div>
-                    {isDefault && <Badge variant="success">Default</Badge>}
+                    {isDefault && <Badge variant="success">{t("credentials.email.default")}</Badge>}
                   </div>
 
                   <div className="mt-4 space-y-2 text-xs text-muted-foreground">
@@ -285,7 +288,7 @@ export function EmailAccountsPanel({
                       onClick={() => handleSetDefault(name)}
                       loading={saving}
                     >
-                      Set Default
+                      {t("credentials.email.setDefault")}
                     </Button>
                   )}
                   <Button
@@ -294,7 +297,7 @@ export function EmailAccountsPanel({
                     className="cursor-pointer duration-120"
                     onClick={() => handleEdit(name)}
                   >
-                    Edit
+                    {t("common.edit")}
                   </Button>
                   <Button
                     size="xs"
@@ -303,7 +306,7 @@ export function EmailAccountsPanel({
                     onClick={() => handleDelete(name)}
                     loading={saving}
                   >
-                    Delete
+                    {t("common.delete")}
                   </Button>
                 </div>
               </div>
@@ -314,21 +317,23 @@ export function EmailAccountsPanel({
 
       {!hasAccounts && !loading && (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          No email accounts configured yet.
+          {t("credentials.email.noAccounts")}
         </p>
       )}
 
       {!formOpen ? (
         <div className="flex justify-end">
           <Button size="sm" onClick={handleAdd} className="cursor-pointer duration-120">
-            Add Email Account
+            {t("credentials.email.addAccount")}
           </Button>
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card p-6 space-y-6">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground font-sans">
-              {editingName ? `Edit Email Account: ${editingName}` : "Add Email Account"}
+              {editingName
+                ? t("credentials.email.editAccount", { name: editingName })
+                : t("credentials.email.newAccount")}
             </h3>
             <Button
               size="xs"
@@ -336,14 +341,16 @@ export function EmailAccountsPanel({
               className="cursor-pointer duration-120"
               onClick={() => setFormOpen(false)}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {!editingName && (
               <div className="space-y-1.5 md:col-span-2">
-                <label className="text-xs font-medium text-muted-foreground">Account Name</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("credentials.email.accountName")}
+                </label>
                 <Input
                   type="text"
                   value={form.name}
@@ -358,10 +365,14 @@ export function EmailAccountsPanel({
 
             {/* IMAP Config */}
             <div className="space-y-4 rounded-lg border border-border bg-muted p-4">
-              <h4 className="font-mono text-[9px] text-muted-foreground">IMAP (Incoming)</h4>
+              <h4 className="font-mono text-[9px] text-muted-foreground">
+                {t("credentials.email.imapIncoming")}
+              </h4>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">IMAP Host</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("credentials.email.imapHost")}
+                </label>
                 <Input
                   type="text"
                   value={form.imapHost}
@@ -375,7 +386,9 @@ export function EmailAccountsPanel({
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Port</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.email.port")}
+                  </label>
                   <Input
                     type="text"
                     value={form.imapPort}
@@ -388,15 +401,17 @@ export function EmailAccountsPanel({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">TLS Mode</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.email.tlsMode")}
+                  </label>
                   <select
                     value={form.imapTls}
                     onChange={(e) => setForm({ ...form, imapTls: e.target.value })}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring h-9"
                   >
-                    <option value="ssl">SSL / TLS (recommended)</option>
-                    <option value="starttls">STARTTLS</option>
-                    <option value="none">None</option>
+                    <option value="ssl">{t("credentials.email.sslRecommended")}</option>
+                    <option value="starttls">{t("credentials.email.starttls")}</option>
+                    <option value="none">{t("credentials.email.tlsNone")}</option>
                   </select>
                 </div>
               </div>
@@ -404,10 +419,14 @@ export function EmailAccountsPanel({
 
             {/* SMTP Config */}
             <div className="space-y-4 rounded-lg border border-border bg-muted p-4">
-              <h4 className="font-mono text-[9px] text-muted-foreground">SMTP (Outgoing)</h4>
+              <h4 className="font-mono text-[9px] text-muted-foreground">
+                {t("credentials.email.smtpOutgoing")}
+              </h4>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">SMTP Host</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("credentials.email.smtpHost")}
+                </label>
                 <Input
                   type="text"
                   value={form.smtpHost}
@@ -421,7 +440,9 @@ export function EmailAccountsPanel({
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Port</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.email.port")}
+                  </label>
                   <Input
                     type="text"
                     value={form.smtpPort}
@@ -434,15 +455,17 @@ export function EmailAccountsPanel({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">TLS Mode</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.email.tlsMode")}
+                  </label>
                   <select
                     value={form.smtpTls}
                     onChange={(e) => setForm({ ...form, smtpTls: e.target.value })}
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring h-9"
                   >
-                    <option value="starttls">STARTTLS (recommended)</option>
-                    <option value="ssl">SSL / TLS</option>
-                    <option value="none">None</option>
+                    <option value="starttls">{t("credentials.email.starttlsRecommended")}</option>
+                    <option value="ssl">{t("credentials.email.sslRecommended")}</option>
+                    <option value="none">{t("credentials.email.tlsNone")}</option>
                   </select>
                 </div>
               </div>
@@ -450,11 +473,15 @@ export function EmailAccountsPanel({
 
             {/* Credentials / Auth */}
             <div className="space-y-4 rounded-lg border border-border bg-muted p-4 md:col-span-2">
-              <h4 className="font-mono text-[9px] text-muted-foreground">Account Credentials</h4>
+              <h4 className="font-mono text-[9px] text-muted-foreground">
+                {t("credentials.email.credentials")}
+              </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Username</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.email.username")}
+                  </label>
                   <Input
                     type="text"
                     value={form.username}
@@ -467,7 +494,9 @@ export function EmailAccountsPanel({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">From Address</label>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {t("credentials.email.fromAddress")}
+                  </label>
                   <Input
                     type="text"
                     value={form.from}
@@ -481,13 +510,13 @@ export function EmailAccountsPanel({
 
                 <div className="space-y-1.5 md:col-span-2">
                   <label className="text-xs font-medium text-muted-foreground">
-                    Password / App Password
+                    {t("credentials.email.password")}
                   </label>
                   <Input
                     type="password"
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder={editingName ? "Keep existing password (leave blank)" : "password"}
+                    placeholder={editingName ? t("credentials.email.keepExisting") : "password"}
                     autoComplete="new-password"
                     nativeInput
                   />
@@ -504,7 +533,7 @@ export function EmailAccountsPanel({
               className="cursor-pointer duration-120"
               onClick={() => setFormOpen(false)}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               size="sm"
@@ -512,7 +541,7 @@ export function EmailAccountsPanel({
               onClick={handleSave}
               className="cursor-pointer duration-120"
             >
-              Save Account
+              {t("credentials.email.saveAccount")}
             </Button>
           </div>
         </div>

@@ -242,13 +242,13 @@ export function SessionDetail({
                     size="xs"
                     onClick={onNewSession}
                     className="hidden h-7 w-7 rounded-full p-0 text-muted-foreground sm:inline-flex"
-                    aria-label="Start temporary thread"
+                    aria-label={t("sessions.startThread")}
                   >
                     <MessageCircleDashed className="size-3.5" />
                   </Button>
                 }
               />
-              <TooltipPopup side="bottom">Start temporary thread</TooltipPopup>
+              <TooltipPopup side="bottom">{t("sessions.startThread")}</TooltipPopup>
             </Tooltip>
           )}
           {onToggleWorkspace && (
@@ -275,7 +275,7 @@ export function SessionDetail({
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <p className="text-sm text-muted-foreground/70">Select a session from the sidebar</p>
+          <p className="text-sm text-muted-foreground/70">{t("sessions.selectSession")}</p>
           <p className="text-[11px] text-muted-foreground/40 font-mono">
             or create a new one with + New
           </p>

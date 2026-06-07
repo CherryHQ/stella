@@ -145,6 +145,7 @@ function InstanceFields({
   ch: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
 }) {
+  const { t } = useI18n();
   const type = ch.type as string;
   const field = (key: string, label: string, inputType = "text", placeholder = "") => (
     <div className="w-full space-y-1.5">
@@ -168,16 +169,16 @@ function InstanceFields({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             {field("channel_id", "Channel ID", "text", "Default channel")}
             <div className="w-full space-y-1.5">
-              <label className="text-sm font-medium font-mono">Group Mode</label>
+              <label className="text-sm font-medium font-mono">{t("channels.groupMode")}</label>
               <select
                 value={(ch.group_mode as string) || ""}
                 onChange={(e) => onChange("group_mode", e.target.value)}
                 className={selectClassName}
               >
-                <option value="">Default</option>
-                <option value="mention">Mention</option>
-                <option value="always">Always</option>
-                <option value="disabled">Disabled</option>
+                <option value="">{t("channels.groupModeDefault")}</option>
+                <option value="mention">{t("channels.groupModeMention")}</option>
+                <option value="always">{t("channels.groupModeAlways")}</option>
+                <option value="disabled">{t("channels.groupModeDisabled")}</option>
               </select>
             </div>
           </div>
@@ -190,16 +191,16 @@ function InstanceFields({
             {field("app_id", "App ID", "text", "QQ Bot App ID")}
             {field("app_secret", "App Secret", "password")}
             <div className="w-full space-y-1.5">
-              <label className="text-sm font-medium font-mono">Group Mode</label>
+              <label className="text-sm font-medium font-mono">{t("channels.groupMode")}</label>
               <select
                 value={(ch.group_mode as string) || ""}
                 onChange={(e) => onChange("group_mode", e.target.value)}
                 className={selectClassName}
               >
-                <option value="">Default (mention)</option>
-                <option value="mention">Mention</option>
-                <option value="always">Always</option>
-                <option value="disabled">Disabled</option>
+                <option value="">{t("channels.groupModeDefault")}</option>
+                <option value="mention">{t("channels.groupModeMention")}</option>
+                <option value="always">{t("channels.groupModeAlways")}</option>
+                <option value="disabled">{t("channels.groupModeDisabled")}</option>
               </select>
             </div>
           </div>
@@ -218,16 +219,16 @@ function InstanceFields({
             {field("encrypt_key", "Encrypt Key", "password", "optional")}
             {field("verification_token", "Verification Token", "password", "optional")}
             <div className="w-full space-y-1.5">
-              <label className="text-sm font-medium font-mono">Group Mode</label>
+              <label className="text-sm font-medium font-mono">{t("channels.groupMode")}</label>
               <select
                 value={(ch.group_mode as string) || ""}
                 onChange={(e) => onChange("group_mode", e.target.value)}
                 className={selectClassName}
               >
-                <option value="">Default (mention)</option>
-                <option value="mention">Mention</option>
-                <option value="always">Always</option>
-                <option value="disabled">Disabled</option>
+                <option value="">{t("channels.groupModeDefault")}</option>
+                <option value="mention">{t("channels.groupModeMention")}</option>
+                <option value="always">{t("channels.groupModeAlways")}</option>
+                <option value="disabled">{t("channels.groupModeDisabled")}</option>
               </select>
             </div>
             {field("tenant_key", "Tenant Key", "text", "optional, auto-detected at startup")}

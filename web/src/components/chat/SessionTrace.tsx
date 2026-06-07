@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { getSessionMessages } from "@/lib/api-client/sdk.gen";
 import { mergeToolResults } from "@/lib/chat-transport";
+import { useI18n } from "@/lib/i18n";
 import type { Message, ContentBlock } from "@/lib/types";
 import { AssistantMessage } from "./AssistantMessage";
 
@@ -16,6 +17,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
   const [expanded, setExpanded] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const { t } = useI18n();
 
   const load = useCallback(async () => {
     if (blocks !== null) {
@@ -55,7 +57,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
         className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer mt-1"
       >
         <ChevronRight className="size-3" />
-        <span>View execution trace</span>
+        <span>{t("chat.viewTrace")}</span>
       </button>
     );
   }
@@ -67,7 +69,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
         className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
       >
         <ChevronRight className="size-3 rotate-90 transition-transform" />
-        <span>Execution trace</span>
+        <span>{t("chat.executionTrace")}</span>
       </button>
       {loading && (
         <div className="flex items-center gap-2 pl-4">
@@ -87,7 +89,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
       )}
       {blocks !== null && blocks.length === 0 && !loading && (
         <p className="text-[10px] font-mono text-muted-foreground/40 pl-4">
-          No execution details found.
+          {t("chat.noExecutionDetails")}
         </p>
       )}
     </div>

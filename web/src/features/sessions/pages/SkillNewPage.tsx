@@ -13,6 +13,7 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { SkillSearchResult } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 
 export function SkillNewPage() {
@@ -21,6 +22,7 @@ export function SkillNewPage() {
   const activeTab = tab ?? "catalog";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { data: me } = useQuery(meQueryOptions);
   const [scope, setScope] = useState<"user" | "agent">("user");
@@ -39,7 +41,9 @@ export function SkillNewPage() {
 
   useEffect(() => {
     setHeaderTitle(
-      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">Install a skill</h1>,
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {t("sessions.skill.installSkill")}
+      </h1>,
     );
     setHeaderActions(null);
     return () => {
@@ -128,9 +132,9 @@ export function SkillNewPage() {
               <PackagePlus className="size-5" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-lg font-semibold">Install a skill</h2>
+              <h2 className="text-lg font-semibold">{t("sessions.skill.installSkill")}</h2>
               <p className="max-w-[48ch] text-sm leading-5 text-muted-foreground">
-                Search the catalog or import a zip bundle into Anna.
+                {t("sessions.skill.catalogDesc")}
               </p>
             </div>
           </div>
@@ -144,7 +148,7 @@ export function SkillNewPage() {
                 className="justify-start"
               >
                 <User className="size-4" />
-                My profile
+                {t("sessions.skill.myProfile")}
               </Button>
               <Button
                 onClick={() => setScope("agent")}
@@ -154,12 +158,12 @@ export function SkillNewPage() {
                 disabled={!canInstallAgentSkill}
               >
                 <Bot className="size-4" />
-                This agent
+                {t("sessions.skill.thisAgent")}
               </Button>
             </div>
             {!canInstallAgentSkill && (
               <p className="px-2 pt-2 pb-1 text-xs text-muted-foreground">
-                Agent installs are available to admins.
+                {t("sessions.skill.adminOnly")}
               </p>
             )}
           </div>
@@ -181,11 +185,11 @@ export function SkillNewPage() {
               <TabsList className="grid w-[24rem] grid-cols-2">
                 <TabsTrigger value="catalog">
                   <Search className="size-4" />
-                  Catalog
+                  {t("sessions.skill.catalog")}
                 </TabsTrigger>
                 <TabsTrigger value="upload">
                   <Upload className="size-4" />
-                  Upload zip
+                  {t("sessions.skill.uploadZipTab")}
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -194,9 +198,9 @@ export function SkillNewPage() {
               <TabsContent value="catalog" className="space-y-4">
                 <div className="flex items-end justify-between gap-4">
                   <div className="space-y-1">
-                    <h3 className="text-base font-semibold">Catalog</h3>
+                    <h3 className="text-base font-semibold">{t("sessions.skill.catalog")}</h3>
                     <p className="text-sm text-muted-foreground">
-                      Search public skills and install one into the selected target.
+                      {t("sessions.skill.searchPublic")}
                     </p>
                   </div>
                 </div>
@@ -210,7 +214,7 @@ export function SkillNewPage() {
                     searchTimerRef.current = setTimeout(() => void searchSkills(q), 300);
                   }}
                   type="search"
-                  placeholder="Search skills..."
+                  placeholder={t("sessions.skill.searchSkills")}
                   size="lg"
                 />
                 {searching && (
@@ -259,15 +263,15 @@ export function SkillNewPage() {
                 )}
                 {!searching && searchResults.length === 0 && searchQuery && (
                   <div className="rounded-lg border border-dashed border-border px-5 py-14 text-center text-sm text-muted-foreground">
-                    No skills found for that search.
+                    {t("sessions.skill.noSkillsFound")}
                   </div>
                 )}
                 {!searching && !searchQuery && (
                   <div className="rounded-lg border border-dashed border-border px-5 py-16 text-center">
                     <Search className="mx-auto mb-3 size-5 text-muted-foreground" />
-                    <p className="text-sm font-medium">Search the catalog</p>
+                    <p className="text-sm font-medium">{t("sessions.skill.searchCatalog")}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Results appear here as you type.
+                      {t("sessions.skill.resultsAppear")}
                     </p>
                   </div>
                 )}
@@ -276,8 +280,8 @@ export function SkillNewPage() {
 
               <TabsContent value="upload" className="space-y-4">
                 <div className="space-y-1">
-                  <h3 className="text-base font-semibold">Upload zip</h3>
-                  <p className="text-sm text-muted-foreground">Import a skill bundle from disk.</p>
+                  <h3 className="text-base font-semibold">{t("sessions.skill.uploadZipTab")}</h3>
+                  <p className="text-sm text-muted-foreground">{t("sessions.skill.uploadDesc")}</p>
                 </div>
 
                 <label className="block cursor-pointer rounded-lg border-2 border-dashed border-border px-5 py-14 text-center transition-colors hover:border-primary/70">
@@ -292,13 +296,11 @@ export function SkillNewPage() {
                   />
                   <Upload className="mx-auto mb-3 size-7 text-muted-foreground" />
                   <div className="text-sm font-medium">
-                    {uploadFile ? uploadFile.name : "Choose a .zip file"}
+                    {uploadFile ? uploadFile.name : t("sessions.skill.chooseZip")}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Exactly one skill folder with <span className="font-mono">SKILL.md</span>.
-                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("sessions.skill.zipReq")}</p>
                   <Button variant="outline" size="sm" className="mt-4">
-                    Browse files
+                    {t("sessions.skill.browseFiles")}
                   </Button>
                 </label>
 
@@ -318,7 +320,7 @@ export function SkillNewPage() {
                   loading={uploading}
                   className="w-full"
                 >
-                  Upload skill
+                  {t("sessions.skill.uploadSkillBtn")}
                 </Button>
               </TabsContent>
             </div>

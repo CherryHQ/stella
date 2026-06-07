@@ -433,13 +433,12 @@ export function PluginsPage() {
         saveLabel="Save and sync"
         cancelLabel={t("common.cancel")}
       >
-        <DetailPanelHeader
-          title="Add Tool"
-          subtitle="Declare a GitHub release binary. Stella writes it to plugins.yaml and syncs automatically."
-        />
+        <DetailPanelHeader title={t("plugins.addTool")} subtitle={t("plugins.addToolDesc")} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Binary name</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.binaryName")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.binary_name}
@@ -457,7 +456,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">GitHub repo</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.githubRepo")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.tool}
@@ -474,7 +475,9 @@ export function PluginsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Plugin ID</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("plugins.pluginId")}
+            </label>
             <Input
               nativeInput
               value={newManifestTool.id}

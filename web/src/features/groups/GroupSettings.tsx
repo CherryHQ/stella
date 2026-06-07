@@ -6,6 +6,7 @@ import {
   removeGroupMember,
   deleteGroup,
 } from "@/lib/api-client/sdk.gen";
+import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupMembersQueryOptions } from "@/lib/queries/groups";
 import type { GroupMember } from "@/lib/api-client/types.gen";
@@ -32,6 +33,7 @@ interface Props {
 
 export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: Props) {
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const { data: members = [] } = useQuery(groupMembersQueryOptions(groupId));
   const { data: agents = [] } = useQuery(agentsQueryOptions);
 
@@ -83,7 +85,7 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
   );
 
   const handleDelete = useCallback(async () => {
-    if (!window.confirm("Delete this group? This cannot be undone.")) return;
+    if (!window.confirm(t("groups.deleteConfirm"))) return;
     await deleteGroup({ path: { groupId }, throwOnError: true });
     await queryClient.invalidateQueries({ queryKey: ["groups"] });
     onDeleted();
@@ -93,12 +95,14 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Group Settings</DialogTitle>
-          <DialogDescription>Manage group name and members.</DialogDescription>
+          <DialogTitle>{t("groups.settingsTitle")}</DialogTitle>
+          <DialogDescription>{t("groups.settingsDesc")}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-5 py-2">
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Group name</label>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t("groups.groupName")}
+            </label>
             <div className="flex gap-2">
               <Input
                 value={name}
@@ -112,14 +116,14 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
                 disabled={!name.trim() || name === groupName || saving}
                 onClick={() => void saveName()}
               >
-                {saving ? "..." : "Save"}
+                {saving ? "..." : t("common.save")}
               </Button>
             </div>
           </div>
 
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
-              Members ({members.length})
+              {t("groups.members", { count: members.length })}
             </label>
             <div className="grid gap-1 rounded-lg border border-border p-1.5">
               {members.map((m: GroupMember) => (
@@ -141,7 +145,7 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
                         : "opacity-30 cursor-not-allowed",
                     )}
                   >
-                    Remove
+                    {t("common.remove")}
                   </button>
                 </div>
               ))}
@@ -150,7 +154,9 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
 
           {nonMemberAgents.length > 0 && (
             <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Add agent</label>
+              <label className="mb-1 block text-xs text-muted-foreground">
+                {t("groups.addAgent")}
+              </label>
               <div className="grid gap-1 rounded-lg border border-border p-1.5">
                 {nonMemberAgents.map((ag: Agent) => (
                   <button
@@ -169,10 +175,10 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
         </div>
         <DialogFooter className="flex justify-between">
           <Button variant="destructive" size="sm" onClick={() => void handleDelete()}>
-            Delete Group
+            {t("groups.deleteGroup")}
           </Button>
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogPopup>

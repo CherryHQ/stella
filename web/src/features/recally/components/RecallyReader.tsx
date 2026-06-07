@@ -191,10 +191,10 @@ export function RecallyReader({
                       ? "bg-primary/10 text-primary border-primary/25"
                       : "bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
-                  title="Discuss with AI"
+                  title={t("recally.reader.discussWithAI")}
                 >
                   <MessageCircle className="size-4" />
-                  <span className="hidden md:inline">Discuss</span>
+                  <span className="hidden md:inline">{t("recally.reader.discuss")}</span>
                 </button>
               )}
 
@@ -272,7 +272,7 @@ export function RecallyReader({
                 <button
                   onClick={() => navigator.clipboard?.writeText(shareUrl)}
                   className="inline-flex items-center justify-center p-2 rounded-lg border border-primary/20 bg-primary/10 transition-colors text-primary hover:bg-primary/20 cursor-pointer duration-120"
-                  title="Copy share link"
+                  title={t("recally.reader.copyShareLink")}
                 >
                   <Link className="size-4" />
                 </button>

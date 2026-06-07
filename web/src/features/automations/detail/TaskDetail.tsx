@@ -93,13 +93,13 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
         <PropField label={t("goals.colStatus")}>
           <StatusPill status={task.status} label={statusLabel(t, task.status)} />
         </PropField>
-        <PropField label="Priority">
+        <PropField label={t("hub.priority")}>
           <span className="text-[13px] font-medium capitalize">{task.priority}</span>
         </PropField>
-        <PropField label="Agent">
+        <PropField label={t("hub.agent")}>
           <span className="text-[13px] font-medium">{task.agent_id || "—"}</span>
         </PropField>
-        <PropField label="Retries">
+        <PropField label={t("hub.retries")}>
           <span
             className={cn(
               "text-[13px] font-medium",
@@ -114,12 +114,12 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
               : ""}
           </span>
         </PropField>
-        <PropField label="Parent Goal">
+        <PropField label={t("hub.parentGoal")}>
           <span className="text-[13px] font-medium text-muted-foreground">
             {task.goal_id || t("hub.standalone")}
           </span>
         </PropField>
-        <PropField label="Updated">
+        <PropField label={t("hub.updated")}>
           <span className="font-mono text-xs">{formatTime(task.updated_at)}</span>
         </PropField>
       </div>

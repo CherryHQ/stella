@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ComponentsReadiness, ComponentsTask } from "@/lib/api-client/types.gen";
 import { getTaskReadiness } from "@/lib/api-client";
 import { fetchAllTasks } from "@/lib/paginated";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ export function TaskBoardPanel({
   onSelectTask,
   onOpenTaskSession,
 }: Props) {
+  const { t } = useI18n();
   const [tasks, setTasks] = useState<ComponentsTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
@@ -83,7 +85,9 @@ export function TaskBoardPanel({
       >
         {/* Header */}
         <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <span className="font-mono text-[10px] font-semibold text-muted-foreground">Tasks</span>
+          <span className="font-mono text-[10px] font-semibold text-muted-foreground">
+            {t("sessions.task.tasks")}
+          </span>
           <Button
             onClick={() => {
               onSelectTask?.(null);
@@ -93,7 +97,7 @@ export function TaskBoardPanel({
             size="xs"
             className="text-primary font-medium"
           >
-            + New Task
+            {t("sessions.task.newTask")}
           </Button>
         </div>
 
@@ -110,7 +114,11 @@ export function TaskBoardPanel({
                   : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
               )}
             >
-              {f.label}
+              {f.key === "all"
+                ? t("sessions.task.filterAll")
+                : f.key === "active"
+                  ? t("sessions.task.filterActive")
+                  : t("sessions.task.filterDone")}
             </button>
           ))}
         </div>
@@ -122,7 +130,9 @@ export function TaskBoardPanel({
               <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
             </div>
           ) : filtered.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground py-12">No tasks</p>
+            <p className="text-center text-sm text-muted-foreground py-12">
+              {t("sessions.task.noTasks")}
+            </p>
           ) : (
             <div className="space-y-1 p-2">
               {filtered.map((task) => (
@@ -202,7 +212,7 @@ export function TaskBoardPanel({
           />
         ) : (
           <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-muted-foreground">Select a task to view details.</p>
+            <p className="text-sm text-muted-foreground">{t("sessions.task.selectToView")}</p>
           </div>
         )}
       </div>
@@ -221,6 +231,7 @@ function TaskDetail({
   onBack: () => void;
   onOpenSession: () => void;
 }) {
+  const { t } = useI18n();
   const [readiness, setReadiness] = useState<ComponentsReadiness | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -256,7 +267,7 @@ function TaskDetail({
               onClick={onOpenSession}
               className="text-primary font-medium"
             >
-              Open Session
+              {t("sessions.task.openSession")}
             </Button>
           )}
           <button
@@ -287,13 +298,15 @@ function TaskDetail({
         {/* Property rows */}
         <div className="divide-y divide-border">
           <PropertyRow
-            label="Priority"
+            label={t("sessions.task.priority")}
             value={task.priority}
             highlight={task.priority === "urgent"}
           />
-          {readiness && <PropertyRow label="Readiness" value={readiness.state} />}
-          <PropertyRow label="Updated" value={formatTime(task.updated_at)} />
-          <PropertyRow label="Created" value={formatTime(task.created_at)} />
+          {readiness && (
+            <PropertyRow label={t("sessions.task.readiness")} value={readiness.state} />
+          )}
+          <PropertyRow label={t("sessions.task.updated")} value={formatTime(task.updated_at)} />
+          <PropertyRow label={t("sessions.task.created")} value={formatTime(task.created_at)} />
         </div>
       </div>
 
@@ -303,14 +316,16 @@ function TaskDetail({
           <SessionConversation
             agentId={agentId}
             sessionId={task.session_id}
-            placeholder="Ask about this task..."
+            placeholder={t("sessions.task.askAbout")}
             className="h-full"
             bodyClassName="min-h-0 flex-1"
             inline
           />
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">
-            <p className="text-sm text-muted-foreground text-center">No conversation session</p>
+            <p className="text-sm text-muted-foreground text-center">
+              {t("sessions.task.noConversation")}
+            </p>
           </div>
         )}
       </div>

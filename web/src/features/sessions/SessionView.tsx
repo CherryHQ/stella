@@ -8,6 +8,7 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { useI18n } from "@/lib/i18n";
 import { InspectorPanel } from "./InspectorPanel";
 import { SessionDetail } from "./SessionDetail";
 
@@ -29,6 +30,7 @@ export function SessionView() {
     projectId?: string;
   };
   const navigate = useNavigate();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: me } = useQuery(meQueryOptions);
   const { data: agents = [] } = useQuery(agentsQueryOptions);
@@ -221,9 +223,9 @@ export function SessionView() {
           showCloseButton={false}
           className="w-[85%] max-w-sm md:hidden bg-card border-l border-border"
         >
-          <SheetTitle className="sr-only">Inspector</SheetTitle>
+          <SheetTitle className="sr-only">{t("sessions.inspector.inspector")}</SheetTitle>
           <SheetDescription className="sr-only">
-            Session workspace, work queue, and context
+            {t("sessions.inspector.sessionWorkspace")}
           </SheetDescription>
           <div className="flex h-full flex-col overflow-hidden">
             <InspectorPanel

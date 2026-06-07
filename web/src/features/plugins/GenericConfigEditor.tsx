@@ -50,7 +50,7 @@ export function GenericConfigEditor({
     <div className="px-4 pb-4 border-t border-border bg-muted">
       <div className="pt-4 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-sm font-medium">Configuration</p>
+          <p className="text-sm font-medium">{t("plugins.configuration")}</p>
           <div className="flex items-center gap-2">
             {isLoading && <Spinner className="size-4" />}
             <Button onClick={onReset} disabled={isLoading || isSaving} variant="ghost" size="xs">

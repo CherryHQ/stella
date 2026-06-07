@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { AutomationPanel } from "@/features/sessions/panels/AutomationPanel";
 import { useAppShell } from "@/layouts/AppShell";
+import { useI18n } from "@/lib/i18n";
 
 export function AutomationEditPage() {
   const params = useParams({ strict: false }) as { agentId: string; jobId: string };
@@ -10,10 +11,13 @@ export function AutomationEditPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
+  const { t } = useI18n();
 
   useEffect(() => {
     setHeaderTitle(
-      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">Edit schedule</h1>,
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {t("sessions.auto.editSchedule")}
+      </h1>,
     );
     setHeaderActions(null);
     return () => {

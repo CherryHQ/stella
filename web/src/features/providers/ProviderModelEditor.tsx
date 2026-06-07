@@ -105,7 +105,7 @@ export function ProviderModelEditor({
               <Input
                 type="text"
                 value={form.name}
-                placeholder="Llama 3.1 8B (Local)"
+                placeholder={t("providers.modelPlaceholder")}
                 onChange={(e) =>
                   updateField("name", (e as React.ChangeEvent<HTMLInputElement>).target.value)
                 }

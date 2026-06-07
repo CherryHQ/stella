@@ -3,16 +3,20 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { AutomationPanel } from "@/features/sessions/panels/AutomationPanel";
 import { useAppShell } from "@/layouts/AppShell";
+import { useI18n } from "@/lib/i18n";
 
 export function AutomationNewPage() {
   const { agentId } = useParams({ from: "/_app/agents/$agentId/automations/new" });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
+  const { t } = useI18n();
 
   useEffect(() => {
     setHeaderTitle(
-      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">New schedule</h1>,
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {t("sessions.auto.newScheduleTitle")}
+      </h1>,
     );
     setHeaderActions(null);
     return () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { listGroupMessages, createSession, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import { useI18n } from "@/lib/i18n";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
 import { groupMembersQueryOptions } from "@/lib/queries/groups";
 import { agentSkillsOptions } from "@/lib/queries/agents";
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function GroupChat({ groupId }: Props) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: members = [] } = useQuery(groupMembersQueryOptions(groupId));
 
@@ -254,7 +256,7 @@ export function GroupChat({ groupId }: Props) {
         onSend={(text) => handleSend(text)}
         onStop={chatStop}
         isStreaming={isStreaming}
-        placeholder="Message the group… (@ to mention)"
+        placeholder={t("groups.messagePlaceholder")}
         overlay={mentionOverlay}
         textareaRef={inputRef}
         attachments={attachments}

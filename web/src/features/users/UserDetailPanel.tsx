@@ -452,7 +452,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
                 onChange={(e) => setDefaultAgent(e.target.value)}
                 className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8"
               >
-                <option value="">None</option>
+                <option value="">{t("users.none")}</option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} ({a.id})

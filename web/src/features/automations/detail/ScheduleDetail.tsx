@@ -206,18 +206,18 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
         <hr className="my-6 border-border" />
 
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-          <PropField label="Schedule">
+          <PropField label={t("hub.schedule")}>
             <span className="font-mono text-xs">{job.cron || job.every || job.at || "—"}</span>
           </PropField>
-          <PropField label="Owner">
+          <PropField label={t("hub.owner")}>
             <span className="text-[13px] font-medium">
               {job.owner_kind}:{job.plugin_id || "system"}
             </span>
           </PropField>
-          <PropField label="Session Mode">
+          <PropField label={t("hub.sessionMode")}>
             <span className="text-[13px] font-medium">{job.session_mode}</span>
           </PropField>
-          <PropField label="Last Run">
+          <PropField label={t("hub.lastRun")}>
             <span className="font-mono text-xs">
               {job.last_run_at ? formatTime(job.last_run_at) : "—"}
             </span>
@@ -270,23 +270,23 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
 
       {/* Form */}
       <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
-        <FormField label="Name">
+        <FormField label={t("hub.name")}>
           <Input
             type="text"
             value={form.name}
             onChange={(e) => up({ name: e.target.value })}
-            placeholder="Daily summary"
+            placeholder={t("scheduler.dailySummary")}
             nativeInput
           />
         </FormField>
-        <FormField label="Session Mode">
+        <FormField label={t("hub.sessionMode")}>
           <select
             value={form.session_mode}
             onChange={(e) => up({ session_mode: e.target.value })}
             className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
           >
-            <option value="reuse">Reuse session</option>
-            <option value="new">New session each run</option>
+            <option value="reuse">{t("scheduler.reuseSession")}</option>
+            <option value="new">{t("scheduler.newSessionEachRun")}</option>
           </select>
         </FormField>
       </div>

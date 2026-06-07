@@ -8,6 +8,7 @@ import {
 import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import { Plus } from "lucide-react";
 import { siTelegram, siQq, siWechat } from "simple-icons";
+import { useI18n } from "@/lib/i18n";
 
 function BrandIcon({ path, className = "size-4 shrink-0" }: { path: string; className?: string }) {
   return (
@@ -46,6 +47,7 @@ export function AdminChannelListPanel({
   onSelect,
   onNew,
 }: AdminChannelListPanelProps) {
+  const { t } = useI18n();
   const grouped = channels.reduce<Record<string, AdminChannel[]>>((acc, ch) => {
     const type = ch.type || "other";
     if (!acc[type]) acc[type] = [];
@@ -63,7 +65,7 @@ export function AdminChannelListPanel({
   return (
     <>
       <SettingsListHeader
-        title="Channels"
+        title={t("channels.title")}
         action={
           <Button onClick={onNew} variant="ghost" size="icon-sm">
             <Plus className="size-4" />
@@ -122,6 +124,7 @@ export function PublicChannelListPanel({
   selectedId,
   onSelect,
 }: PublicChannelListPanelProps) {
+  const { t } = useI18n();
   const grouped = channels.reduce<Record<string, ComponentsPublicChannel[]>>((acc, ch) => {
     const type = ch.type || "other";
     if (!acc[type]) acc[type] = [];
@@ -138,7 +141,7 @@ export function PublicChannelListPanel({
 
   return (
     <>
-      <SettingsListHeader title="Channels" />
+      <SettingsListHeader title={t("channels.title")} />
       <SettingsListBody>
         {groups.map((group) => (
           <div key={group.type} className="space-y-0.5">
@@ -164,7 +167,7 @@ export function PublicChannelListPanel({
                     <span className="text-sm truncate">{label}</span>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    {linked ? "Linked" : "Not linked"}
+                    {linked ? t("channels.linked") : t("channels.notLinked")}
                   </span>
                 </SettingsListItem>
               );

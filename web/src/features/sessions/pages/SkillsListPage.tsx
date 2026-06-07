@@ -56,14 +56,16 @@ export function SkillsListPage() {
         </div>
       ) : skills.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-muted-foreground font-mono">No skills yet</p>
+          <p className="text-sm text-muted-foreground font-mono">
+            {t("sessions.skillsList.noSkills")}
+          </p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
           <div className="max-w-3xl space-y-6">
             {userSkills.length > 0 && (
               <SkillGroup
-                label="User"
+                label={t("sessions.skillsList.user")}
                 skills={userSkills}
                 agentId={agentId}
                 onSelect={(name) =>
@@ -76,7 +78,7 @@ export function SkillsListPage() {
             )}
             {agentSkills.length > 0 && (
               <SkillGroup
-                label="Agent"
+                label={t("sessions.skillsList.agent")}
                 skills={agentSkills}
                 agentId={agentId}
                 onSelect={(name) =>
@@ -89,7 +91,7 @@ export function SkillsListPage() {
             )}
             {systemSkills.length > 0 && (
               <SkillGroup
-                label="System"
+                label={t("sessions.skillsList.system")}
                 skills={systemSkills}
                 agentId={agentId}
                 onSelect={(name) =>

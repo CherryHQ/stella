@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Settings } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { GroupSettings } from "./GroupSettings";
 export function GroupChatPage() {
   const { groupId } = useParams({ from: "/_app/groups/$groupId" });
   const navigate = useNavigate();
+  const { t } = useI18n();
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const { data: group } = useQuery(groupQueryOptions(groupId));
@@ -39,9 +41,9 @@ export function GroupChatPage() {
       }
       title={
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{group?.group_name || "Group"}</span>
+          <span className="text-sm font-semibold">{group?.group_name || t("groups.group")}</span>
           <span className="text-xs text-muted-foreground">
-            {members.length} member{members.length !== 1 && "s"}
+            {t("groups.memberCount", { count: members.length })}
           </span>
         </div>
       }
@@ -51,7 +53,7 @@ export function GroupChatPage() {
           size="xs"
           onClick={() => setSettingsOpen(true)}
           className="h-7 w-7 rounded-full p-0 text-muted-foreground"
-          title="Group settings"
+          title={t("groups.settings")}
         >
           <Settings className="size-3.5" />
         </Button>

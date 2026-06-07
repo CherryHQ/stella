@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar";
+import { useI18n } from "@/lib/i18n";
 import { groupsQueryOptions } from "@/lib/queries/groups";
 import { cn } from "@/lib/utils";
 import { CreateGroupDialog } from "./CreateGroupDialog";
@@ -47,6 +48,7 @@ function ChevRight({ className }: { className?: string }) {
 
 export function GroupSection() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { setOpenMobile } = useSidebar();
 
@@ -66,7 +68,7 @@ export function GroupSection() {
             onClick={() => setOpen((v) => !v)}
             className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
           >
-            <span>Groups</span>
+            <span>{t("groups.title")}</span>
             <ChevRight
               className={cn(
                 "size-2.5 text-muted-foreground transition-transform duration-150",
@@ -78,7 +80,7 @@ export function GroupSection() {
             type="button"
             onClick={() => setShowCreate(true)}
             className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
-            title="New group"
+            title={t("groups.newGroup")}
           >
             <IconPlus />
           </button>
@@ -105,12 +107,14 @@ export function GroupSection() {
                   <span className={cn("opacity-90", isActive && "text-foreground")}>
                     <IconGroup />
                   </span>
-                  <span className="truncate">{g.group_name || "Unnamed"}</span>
+                  <span className="truncate">{g.group_name || t("groups.unnamed")}</span>
                 </button>
               );
             })}
             {groups.length === 0 && (
-              <p className="px-2 py-2 font-mono text-xs text-muted-foreground">No groups yet.</p>
+              <p className="px-2 py-2 font-mono text-xs text-muted-foreground">
+                {t("groups.noGroups")}
+              </p>
             )}
           </div>
         )}

@@ -1,4 +1,5 @@
 import { FileText } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import {
   replaceUUIDMentions,
@@ -28,6 +29,7 @@ export function UserMessage({
   agentNames,
   sameRoleAsPrev,
 }: UserMessageProps) {
+  const { t } = useI18n();
   const displayContent = replaceUUIDMentions(extractUserText(msg), agentNames);
   const { files, text } = parseFileRefs(displayContent);
   const images = files.filter(isImagePath);
@@ -40,7 +42,7 @@ export function UserMessage({
           <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-[10px] font-bold text-foreground shrink-0">
             Y
           </span>
-          <span className="text-xs font-semibold text-foreground">You</span>
+          <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
           {msg.timestamp && (
             <span className="font-mono text-[10px] text-muted-foreground/50">
               {formatTime(msg.timestamp)}

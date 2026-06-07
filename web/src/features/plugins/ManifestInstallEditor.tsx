@@ -83,7 +83,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold">Edit definition</p>
+          <p className="text-sm font-semibold">{t("plugins.editDefinition")}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Override the manifest definition. Binaries sync on save.
           </p>
@@ -100,10 +100,10 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
 
       {/* Identity */}
       <div className="space-y-3">
-        <SectionHeader title="Identity" />
+        <SectionHeader title={t("plugins.identity")} />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div>
-            <FieldLabel>ID</FieldLabel>
+            <FieldLabel>{t("plugins.fieldId")}</FieldLabel>
             <Input
               nativeInput
               value={draft.id}
@@ -113,7 +113,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
             />
           </div>
           <div>
-            <FieldLabel>Kind</FieldLabel>
+            <FieldLabel>{t("plugins.fieldKind")}</FieldLabel>
             <Input
               nativeInput
               value={draft.kind}
@@ -123,7 +123,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
             />
           </div>
           <div>
-            <FieldLabel>Name</FieldLabel>
+            <FieldLabel>{t("plugins.fieldName")}</FieldLabel>
             <Input
               nativeInput
               value={draft.name}

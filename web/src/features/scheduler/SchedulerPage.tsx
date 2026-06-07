@@ -279,7 +279,7 @@ export function SchedulerPage() {
       {/* Left panel: job list */}
       <div className="w-[320px] min-w-[320px] shrink-0 border-r border-border bg-background flex flex-col overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="text-xs font-semibold text-muted-foreground">Jobs</span>
+          <span className="text-xs font-semibold text-muted-foreground">{t("scheduler.jobs")}</span>
           <Button size="xs" onClick={startNew}>
             + New
           </Button>
@@ -374,7 +374,7 @@ export function SchedulerPage() {
                       type="text"
                       value={jobForm.name}
                       onChange={(e) => setJobForm((f) => ({ ...f, name: e.target.value }))}
-                      placeholder="Daily summary"
+                      placeholder={t("scheduler.dailySummary")}
                       nativeInput
                     />
                   </div>
@@ -387,8 +387,8 @@ export function SchedulerPage() {
                       onChange={(e) => setJobForm((f) => ({ ...f, session_mode: e.target.value }))}
                       className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                     >
-                      <option value="reuse">Reuse session</option>
-                      <option value="new">New session each run</option>
+                      <option value="reuse">{t("scheduler.reuseSession")}</option>
+                      <option value="new">{t("scheduler.newSessionEachRun")}</option>
                     </select>
                   </div>
                 </div>
@@ -407,7 +407,7 @@ export function SchedulerPage() {
                         onChange={() => setJobForm((f) => ({ ...f, schedule_type: "cron" }))}
                         className="accent-primary"
                       />
-                      <span>Cron</span>
+                      <span>{t("scheduler.cron2")}</span>
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input
@@ -589,7 +589,7 @@ export function SchedulerPage() {
                   type="text"
                   value={jobForm.name}
                   onChange={(e) => setJobForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="Daily summary"
+                  placeholder={t("scheduler.dailySummary")}
                   nativeInput
                 />
               </div>
@@ -602,8 +602,8 @@ export function SchedulerPage() {
                   onChange={(e) => setJobForm((f) => ({ ...f, session_mode: e.target.value }))}
                   className="h-8.5 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="reuse">Reuse session</option>
-                  <option value="new">New session each run</option>
+                  <option value="reuse">{t("scheduler.reuseSession")}</option>
+                  <option value="new">{t("scheduler.newSessionEachRun")}</option>
                 </select>
               </div>
             </div>
@@ -620,7 +620,7 @@ export function SchedulerPage() {
                     onChange={() => setJobForm((f) => ({ ...f, schedule_type: "cron" }))}
                     className="accent-primary"
                   />
-                  <span>Cron</span>
+                  <span>{t("scheduler.cron2")}</span>
                 </label>
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input

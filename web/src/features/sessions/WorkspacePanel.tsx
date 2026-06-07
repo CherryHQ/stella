@@ -306,7 +306,7 @@ export function WorkspacePanel({
             variant="ghost"
             size="xs"
             onClick={() => setNewItemType("file")}
-            title="New file"
+            title={t("sessions.workspace.newFile")}
             className="px-1 h-6"
           >
             <FilePlus className="w-3.5 h-3.5" />
@@ -315,7 +315,7 @@ export function WorkspacePanel({
             variant="ghost"
             size="xs"
             onClick={() => setNewItemType("dir")}
-            title="New folder"
+            title={t("sessions.workspace.newFolder")}
             className="px-1 h-6"
           >
             <FolderPlus className="w-3.5 h-3.5" />
@@ -325,7 +325,7 @@ export function WorkspacePanel({
             size="xs"
             disabled={!selectedPath}
             onClick={() => selectedPath && deleteItem(selectedPath).catch(console.error)}
-            title="Delete selected"
+            title={t("sessions.workspace.deleteSelected")}
             className={cn(
               "px-1 h-6",
               selectedPath
@@ -340,7 +340,7 @@ export function WorkspacePanel({
             size="xs"
             onClick={reload}
             disabled={workspaceLoading}
-            title="Refresh"
+            title={t("sessions.workspace.refresh")}
             className="px-1 h-6"
           >
             <RefreshCw className={cn("w-3.5 h-3.5", workspaceLoading && "animate-spin")} />

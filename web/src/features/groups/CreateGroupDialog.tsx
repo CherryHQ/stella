@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { createGroup } from "@/lib/api-client/sdk.gen";
+import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import type { Agent } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ interface Props {
 
 export function CreateGroupDialog({ open, onClose }: Props) {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: agents = [] } = useQuery(agentsQueryOptions);
 
@@ -70,12 +72,14 @@ export function CreateGroupDialog({ open, onClose }: Props) {
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Create Group</DialogTitle>
-          <DialogDescription>Name the group and pick agents to participate.</DialogDescription>
+          <DialogTitle>{t("groups.createGroup")}</DialogTitle>
+          <DialogDescription>{t("groups.createDesc")}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Group name</label>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t("groups.groupName")}
+            </label>
             <Input
               placeholder="e.g. Research Team"
               value={name}
@@ -88,7 +92,7 @@ export function CreateGroupDialog({ open, onClose }: Props) {
           </div>
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
-              Agents ({selectedAgents.size} selected)
+              {t("groups.agentsSelected", { count: selectedAgents.size })}
             </label>
             <div className="grid max-h-48 gap-1 overflow-y-auto rounded-lg border border-border p-1.5">
               {agents.map((ag: Agent) => {
@@ -132,7 +136,7 @@ export function CreateGroupDialog({ open, onClose }: Props) {
                 );
               })}
               {agents.length === 0 && (
-                <p className="px-2 py-2 text-xs text-muted-foreground">No agents available.</p>
+                <p className="px-2 py-2 text-xs text-muted-foreground">{t("groups.noAgents")}</p>
               )}
             </div>
           </div>
@@ -140,10 +144,10 @@ export function CreateGroupDialog({ open, onClose }: Props) {
         </div>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button size="sm" disabled={!canSubmit} onClick={() => void handleSubmit()}>
-            {submitting ? "Creating..." : "Create"}
+            {submitting ? t("groups.creating") : t("common.create")}
           </Button>
         </DialogFooter>
       </DialogPopup>

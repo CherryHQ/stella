@@ -109,7 +109,7 @@ export function SiteHeader() {
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetTrigger
             className="sm:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
-            aria-label="Open navigation"
+            aria-label={t("header.openNavigation")}
           >
             <MenuIcon className="size-5" />
           </SheetTrigger>
@@ -169,6 +169,7 @@ export function SiteHeader() {
 }
 
 export function ThemeSelector() {
+  const { t } = useI18n();
   const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
 
   useEffect(() => {
@@ -201,7 +202,7 @@ export function ThemeSelector() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="w-40">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("header.appearance")}</DropdownMenuLabel>
           {THEME_APPEARANCES.map((appearance) => (
             <DropdownMenuItem
               key={appearance}
@@ -209,7 +210,11 @@ export function ThemeSelector() {
               className="gap-2"
             >
               <ThemeCheck checked={theme.appearance === appearance} />
-              {APPEARANCE_LABELS[appearance]}
+              {appearance === "system"
+                ? t("header.system")
+                : appearance === "light"
+                  ? t("header.light")
+                  : t("header.dark")}
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
@@ -219,12 +224,6 @@ export function ThemeSelector() {
 }
 
 const THEME_APPEARANCES: ThemeAppearance[] = ["system", "light", "dark"];
-
-const APPEARANCE_LABELS: Record<ThemeAppearance, string> = {
-  system: "System",
-  light: "Light",
-  dark: "Dark",
-};
 
 function isAppearance(value: string): value is ThemeAppearance {
   return value === "system" || value === "light" || value === "dark";
@@ -312,13 +311,14 @@ function MobileNavLink({
 }
 
 function GithubLink() {
+  const { t } = useI18n();
   return (
     <a
       href="https://github.com/CherryHQ/stella"
       target="_blank"
       rel="noopener noreferrer"
       className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-      aria-label="GitHub"
+      aria-label={t("header.github")}
     >
       <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="currentColor" aria-hidden="true">
         <path d={siGithub.path} />

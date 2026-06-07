@@ -18,6 +18,7 @@ import { formatTime } from "@/lib/time";
 import { fetchAllTasks } from "@/lib/paginated";
 import type { Message, Session, Skill, Tool, Workspace } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { WorkspacePanel } from "./WorkspacePanel";
 
@@ -153,6 +154,7 @@ function WorkPanel({
   onFilterChange: (filter: WorkFilter) => void;
   onOpenWork: () => void;
 }) {
+  const { t } = useI18n();
   const { tasks, jobs, needsTasks, runningTasks, scheduledJobs, loading } = useWorkData(agentID);
   const filterCounts = {
     needs: needsTasks.length,
@@ -175,7 +177,7 @@ function WorkPanel({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 border-b border-border/70 px-3 py-2">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-xs font-semibold">Activity</span>
+          <span className="text-xs font-semibold">{t("sessions.inspector.activity")}</span>
           <Button variant="ghost" size="xs" onClick={onOpenWork} className="text-muted-foreground">
             Open Tasks
           </Button>
@@ -197,7 +199,11 @@ function WorkPanel({
                 {filterCounts[key]}
               </span>
               <span className="mt-1 block truncate text-[10px]">
-                {key === "needs" ? "Needs you" : key === "running" ? "Running" : "Scheduled"}
+                {key === "needs"
+                  ? t("sessions.inspector.needsYou")
+                  : key === "running"
+                    ? t("sessions.inspector.running")
+                    : t("sessions.inspector.scheduled")}
               </span>
             </button>
           ))}
@@ -212,10 +218,10 @@ function WorkPanel({
         ) : items.length === 0 ? (
           <p className="px-2 py-8 text-center text-xs text-muted-foreground">
             {filter === "needs"
-              ? "Nothing needs your input."
+              ? t("sessions.inspector.nothingNeeds")
               : filter === "running"
-                ? "No active task runs."
-                : "No scheduled automations."}
+                ? t("sessions.inspector.noActiveRuns")
+                : t("sessions.inspector.noScheduled")}
           </p>
         ) : (
           <div className="grid gap-1">
@@ -263,6 +269,7 @@ function ContextPanel({
   onOpenSkills: () => void;
   onOpenMemory: () => void;
 }) {
+  const { t } = useI18n();
   const [openSections, setOpenSections] = useState<Record<ContextSection, boolean>>({
     session: true,
     tools: false,
@@ -379,7 +386,7 @@ function ContextPanel({
         />
 
         <ContextSectionCard
-          title="Session"
+          title={t("sessions.inspector.session")}
           detail={session ? `${channelLabel(session.channel) || "chat"} · ${session.kind}` : ""}
           icon={<FileText className="size-4" />}
           open={openSections.session}
@@ -395,7 +402,7 @@ function ContextPanel({
         </ContextSectionCard>
 
         <ContextSectionCard
-          title="Tools"
+          title={t("sessions.inspector.tools")}
           detail={tools.length > 0 ? `${tools.length} available` : "Runtime tool catalog"}
           icon={<Wrench className="size-4" />}
           open={openSections.tools}
@@ -405,7 +412,7 @@ function ContextPanel({
         </ContextSectionCard>
 
         <ContextSectionCard
-          title="Prompt"
+          title={t("sessions.inspector.prompt")}
           detail={
             promptLoading
               ? "Loading"

@@ -439,8 +439,10 @@ function OverviewTab({
           value={task.priority}
           highlight={task.priority === "urgent"}
         />
-        <Meta label="Retries" value={`${task.retry_count}/${task.max_retries}`} />
-        {task.deadline_at && <Meta label="Deadline" value={formatTime(task.deadline_at)} />}
+        <Meta label={t("hub.retries")} value={`${task.retry_count}/${task.max_retries}`} />
+        {task.deadline_at && (
+          <Meta label={t("hub.deadline")} value={formatTime(task.deadline_at)} />
+        )}
         <Meta label={t("goals.colUpdated")} value={formatTime(task.updated_at)} />
       </div>
 

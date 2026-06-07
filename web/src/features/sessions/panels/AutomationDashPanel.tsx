@@ -352,8 +352,8 @@ export function AutomationDashPanel({
           }}
         >
           <SheetPopup side="bottom" showCloseButton={false} className="h-[85vh]">
-            <SheetTitle className="sr-only">Details</SheetTitle>
-            <SheetDescription className="sr-only">Job or run details</SheetDescription>
+            <SheetTitle className="sr-only">{t("hub.details")}</SheetTitle>
+            <SheetDescription className="sr-only">{t("hub.jobOrRunDetails")}</SheetDescription>
             <div className="flex h-full flex-col overflow-hidden">{sidePanelContent}</div>
           </SheetPopup>
         </Sheet>

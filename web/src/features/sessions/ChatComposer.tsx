@@ -2,6 +2,7 @@ import type { ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Paperclip, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 export interface Attachment {
   name: string;
@@ -49,6 +50,7 @@ export function ChatComposer({
   textareaRef,
   skills,
 }: Props) {
+  const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const internalTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const taRef = textareaRef ?? internalTextareaRef;
@@ -333,7 +335,7 @@ export function ChatComposer({
                 className="text-destructive hover:bg-destructive/10 bg-destructive/5 border border-destructive/25 font-semibold text-xs rounded-lg px-3 h-7 transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <div className="w-2 h-2 bg-destructive rounded-xs" />
-                <span>Stop</span>
+                <span>{t("sessions.composer.stop")}</span>
               </button>
             ) : (
               <button
@@ -346,7 +348,7 @@ export function ChatComposer({
                     ? "bg-muted text-muted-foreground/30 cursor-not-allowed"
                     : "bg-primary text-primary-foreground hover:bg-primary-hover",
                 )}
-                title="Send message"
+                title={t("sessions.composer.sendMessage")}
               >
                 <ArrowUp className="w-4 h-4 stroke-[2.5]" />
               </button>
@@ -359,7 +361,7 @@ export function ChatComposer({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="text-muted-foreground hover:text-foreground hover:bg-muted transition-colors p-1 rounded-md w-6 h-6 flex items-center justify-center cursor-pointer"
-              title="Attach files"
+              title={t("sessions.composer.attachFiles")}
             >
               <Paperclip className="w-3.5 h-3.5" />
             </button>
