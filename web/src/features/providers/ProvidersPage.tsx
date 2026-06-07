@@ -1087,7 +1087,7 @@ export function ProvidersPage() {
                   size="sm"
                   className="group flex items-center gap-1.5"
                 >
-                  <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                  <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-150" />
                   Add provider
                 </Button>
               }
@@ -1107,7 +1107,7 @@ export function ProvidersPage() {
                     size="sm"
                     className="group flex items-center gap-1.5"
                   >
-                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-150" />
                     Add provider
                   </Button>
                 }
@@ -1117,8 +1117,8 @@ export function ProvidersPage() {
                 {groupedPlatforms.map((platform) => (
                   <div key={platform.type} className="space-y-4">
                     <div className="flex items-center gap-2 border-b border-border/40 pb-2">
-                      <Cpu className="size-4 shrink-0 text-muted-foreground/80" />
-                      <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                      <Cpu className="size-4 shrink-0 text-muted-foreground" />
+                      <h4 className="text-xs font-semibold text-muted-foreground">
                         {platform.label}
                       </h4>
                       <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -1146,7 +1146,7 @@ export function ProvidersPage() {
                                       p.enabled ? "bg-green-500" : "bg-muted-foreground/40"
                                     }`}
                                   />
-                                  <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                                  <h3 className="text-sm font-semibold text-foreground truncate">
                                     {p.name || p.id}
                                   </h3>
                                 </div>

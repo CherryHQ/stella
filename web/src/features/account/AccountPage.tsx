@@ -18,7 +18,7 @@ function ToastAlert({ toast }: { toast: Toast }) {
   if (!toast) return null;
   return (
     <div
-      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-xl border px-4 py-3 text-sm shadow-none ${
+      className={`fixed bottom-4 right-4 z-50 w-auto max-w-sm rounded-xl border px-4 py-3 text-sm ${
         toast.type === "error"
           ? "border-destructive/20 bg-destructive/10 text-destructive-foreground"
           : "border-success/20 bg-success/10 text-success-foreground"
@@ -103,16 +103,14 @@ export function AccountPage() {
 
         {/* Profile section */}
         <section>
-          <h2 className="text-base font-semibold text-foreground/90 mb-3">
-            {t("account.profile")}
-          </h2>
-          <div className="rounded-xl border border-border bg-card p-6 shadow-none">
+          <h2 className="text-base font-semibold text-foreground mb-3">{t("account.profile")}</h2>
+          <div className="rounded-xl border border-border bg-card p-6">
             <div className="flex items-start gap-5">
               {me?.avatar_url ? (
                 <img
                   src={me.avatar_url}
                   alt=""
-                  className="h-16 w-16 rounded-full border border-border object-cover shadow-none"
+                  className="h-16 w-16 rounded-full border border-border object-cover"
                 />
               ) : (
                 <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted text-xl font-medium text-muted-foreground">
@@ -140,10 +138,10 @@ export function AccountPage() {
         {/* Password change — only shown for users who have local credentials */}
         {me?.has_credentials && (
           <section>
-            <h2 className="text-base font-semibold text-foreground/90 mb-3">
+            <h2 className="text-base font-semibold text-foreground mb-3">
               {t("account.changePassword")}
             </h2>
-            <div className="rounded-xl border border-border bg-card p-6 shadow-none space-y-4">
+            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-muted-foreground">
@@ -197,10 +195,8 @@ export function AccountPage() {
 
         {/* Sessions section */}
         <section>
-          <h2 className="text-base font-semibold text-foreground/90 mb-3">
-            {t("account.sessions")}
-          </h2>
-          <div className="rounded-xl border border-border bg-card p-6 shadow-none">
+          <h2 className="text-base font-semibold text-foreground mb-3">{t("account.sessions")}</h2>
+          <div className="rounded-xl border border-border bg-card p-6">
             {!sessions?.length ? (
               <p className="text-sm text-muted-foreground py-4 text-center">
                 {t("account.noSessions")}
@@ -210,23 +206,23 @@ export function AccountPage() {
                 {sessions.map((sess) => (
                   <div
                     key={sess.id}
-                    className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3 shadow-none"
+                    className="flex items-center justify-between rounded-lg border border-border bg-background px-4 py-3"
                   >
                     <div className="flex flex-col gap-1 min-w-0">
                       <span className="text-sm font-mono text-foreground font-medium truncate">
                         {sess.id.slice(0, 12)}...
                       </span>
-                      <span className="text-xs text-muted-foreground/80">
+                      <span className="text-xs text-muted-foreground">
                         Created: {new Date(sess.created_at).toLocaleString()}
                       </span>
-                      <span className="text-xs text-muted-foreground/80">
+                      <span className="text-xs text-muted-foreground">
                         Expires: {new Date(sess.expires_at).toLocaleString()}
                       </span>
                     </div>
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive hover:bg-destructive/10 shrink-0 cursor-pointer duration-120"
+                      className="text-destructive hover:bg-destructive/10 shrink-0 cursor-pointer"
                       loading={revokeSession.isPending}
                       onClick={() => revokeSession.mutate(sess.id)}
                     >

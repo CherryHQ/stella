@@ -334,7 +334,7 @@ export function CredentialsPage() {
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
 
   const vaultDetail = (
-    <div className="rounded-xl border border-border bg-card p-6 shadow-none space-y-6">
+    <div className="rounded-xl border border-border bg-card p-6 space-y-6">
       {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
       {filteredVaultEntries.length > 0 && (
@@ -368,7 +368,7 @@ export function CredentialsPage() {
                     <Button
                       size="xs"
                       variant="destructive-outline"
-                      className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
+                      className="text-destructive hover:bg-destructive/10 cursor-pointer"
                       onClick={() => deleteVaultEntry(entry.name)}
                     >
                       {t("common.delete")}
@@ -386,7 +386,7 @@ export function CredentialsPage() {
       )}
 
       <div className="border-t border-border pt-5 space-y-4">
-        <h3 className="text-sm font-semibold text-foreground/90 font-sans">Add Secret</h3>
+        <h3 className="text-sm font-semibold text-foreground font-sans">Add Secret</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Name</label>
@@ -416,7 +416,7 @@ export function CredentialsPage() {
             size="sm"
             loading={vaultSaving}
             onClick={addVaultEntry}
-            className="cursor-pointer duration-120"
+            className="cursor-pointer"
           >
             Save Secret
           </Button>
@@ -457,7 +457,7 @@ export function CredentialsPage() {
         return (
           <div
             key={p.provider}
-            className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-none flex flex-col justify-between"
+            className="min-w-0 rounded-xl border border-border bg-card p-5 flex flex-col justify-between"
           >
             <div>
               <div className="flex min-w-0 items-start justify-between gap-3">
@@ -483,7 +483,7 @@ export function CredentialsPage() {
                     size="sm"
                     loading={oauthFlowActive[p.provider]}
                     onClick={() => connectOAuth(p.provider)}
-                    className="cursor-pointer duration-120"
+                    className="cursor-pointer"
                   >
                     Connect
                   </Button>
@@ -491,7 +491,7 @@ export function CredentialsPage() {
                   <Button
                     size="sm"
                     variant="destructive-outline"
-                    className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
+                    className="text-destructive hover:bg-destructive/10 cursor-pointer"
                     onClick={() => disconnectOAuth(p.provider)}
                   >
                     Disconnect
@@ -501,7 +501,7 @@ export function CredentialsPage() {
                   <Button
                     size="sm"
                     variant={needsSetup ? "default" : "outline"}
-                    className="cursor-pointer duration-120"
+                    className="cursor-pointer"
                     onClick={() =>
                       setConfigOpen((prev) => ({ ...prev, [p.provider]: !prev[p.provider] }))
                     }
@@ -566,7 +566,7 @@ export function CredentialsPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
+                      className="text-destructive hover:bg-destructive/10 cursor-pointer"
                       onClick={() => deleteProviderConfig(p.provider)}
                     >
                       Reset
@@ -576,7 +576,7 @@ export function CredentialsPage() {
                     size="sm"
                     loading={configSaving[p.provider]}
                     onClick={() => saveProviderConfig(p.provider)}
-                    className="cursor-pointer duration-120"
+                    className="cursor-pointer"
                   >
                     Save
                   </Button>
@@ -629,7 +629,7 @@ export function CredentialsPage() {
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
-                className="size-4 shrink-0 text-muted-foreground/80"
+                className="size-4 shrink-0 text-muted-foreground"
               >
                 <path
                   strokeLinecap="round"
@@ -637,9 +637,7 @@ export function CredentialsPage() {
                   d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
                 />
               </svg>
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                OAuth Providers
-              </h4>
+              <h4 className="font-mono text-[9px] text-muted-foreground">OAuth Providers</h4>
             </div>
             <div className="space-y-4">{oauthDetail}</div>
           </div>
@@ -652,7 +650,7 @@ export function CredentialsPage() {
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
-                className="size-4 shrink-0 text-muted-foreground/80"
+                className="size-4 shrink-0 text-muted-foreground"
               >
                 <path
                   strokeLinecap="round"
@@ -660,9 +658,7 @@ export function CredentialsPage() {
                   d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
                 />
               </svg>
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                Email Accounts
-              </h4>
+              <h4 className="font-mono text-[9px] text-muted-foreground">Email Accounts</h4>
             </div>
             <EmailAccountsPanel showToast={showToast} />
           </div>
@@ -675,7 +671,7 @@ export function CredentialsPage() {
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
-                className="size-4 shrink-0 text-muted-foreground/80"
+                className="size-4 shrink-0 text-muted-foreground"
               >
                 <path
                   strokeLinecap="round"
@@ -683,9 +679,7 @@ export function CredentialsPage() {
                   d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
                 />
               </svg>
-              <h4 className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                Vault Secrets
-              </h4>
+              <h4 className="font-mono text-[9px] text-muted-foreground">Vault Secrets</h4>
             </div>
             <div className="space-y-4">{vaultDetail}</div>
           </div>

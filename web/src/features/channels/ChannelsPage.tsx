@@ -1073,7 +1073,7 @@ export function ChannelsPage() {
                     size="sm"
                     className="group flex items-center gap-1.5"
                   >
-                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                    <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-150" />
                     Add channel
                   </Button>
                 }
@@ -1097,7 +1097,7 @@ export function ChannelsPage() {
                       size="sm"
                       className="group flex items-center gap-1.5"
                     >
-                      <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-300" />
+                      <Plus className="size-4 shrink-0 group-hover:rotate-90 transition-transform duration-150" />
                       Add channel
                     </Button>
                   }
@@ -1110,12 +1110,12 @@ export function ChannelsPage() {
                         {platform.icon ? (
                           <BrandIcon
                             path={platform.icon}
-                            className="size-4 shrink-0 text-muted-foreground/80"
+                            className="size-4 shrink-0 text-muted-foreground"
                           />
                         ) : (
                           <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/45" />
                         )}
-                        <h4 className="text-xs font-semibold text-muted-foreground/85 uppercase tracking-wider">
+                        <h4 className="text-xs font-semibold text-muted-foreground">
                           {platform.label}
                         </h4>
                         <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -1150,7 +1150,7 @@ export function ChannelsPage() {
                                         }`}
                                       />
                                     )}
-                                    <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                                    <h3 className="text-sm font-semibold text-foreground truncate">
                                       {ch.name || platformLabel}
                                     </h3>
                                   </div>
@@ -1290,12 +1290,12 @@ export function ChannelsPage() {
                       {platform.icon ? (
                         <BrandIcon
                           path={platform.icon}
-                          className="size-4 shrink-0 text-muted-foreground/85"
+                          className="size-4 shrink-0 text-muted-foreground"
                         />
                       ) : (
                         <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-muted-foreground/45" />
                       )}
-                      <h4 className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-wider">
+                      <h4 className="text-xs font-semibold text-muted-foreground">
                         {platform.label}
                       </h4>
                       <Badge variant="secondary" className="text-[10px] py-0 px-1.5 rounded-md">
@@ -1330,7 +1330,7 @@ export function ChannelsPage() {
                                       }`}
                                     />
                                   )}
-                                  <h3 className="text-sm font-semibold text-foreground/90 truncate">
+                                  <h3 className="text-sm font-semibold text-foreground truncate">
                                     {platformLabel}
                                   </h3>
                                 </div>
