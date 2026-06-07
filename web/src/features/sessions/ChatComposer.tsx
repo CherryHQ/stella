@@ -171,7 +171,7 @@ export function ChatComposer({
             <span
               className={cn(
                 "truncate text-xs leading-tight",
-                i === slashIndex ? "text-foreground/70" : "text-muted-foreground",
+                i === slashIndex ? "text-muted-foreground" : "text-muted-foreground",
               )}
             >
               {s.description}
@@ -201,7 +201,7 @@ export function ChatComposer({
       )}
       <div
         className={cn(
-          "relative mx-auto max-w-3xl rounded-xl border bg-card transition-all duration-120 flex flex-col p-1.5 shadow-none",
+          "relative mx-auto max-w-3xl rounded-xl border bg-card flex flex-col p-1.5",
           isStreaming
             ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
             : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
@@ -243,7 +243,7 @@ export function ChatComposer({
                   className={cn(
                     "inline-flex items-center gap-1.5 text-[11px] font-mono rounded-md px-3 py-1 max-w-48 border",
                     a.uploading
-                      ? "bg-muted/50 text-muted-foreground/50 border-border"
+                      ? "bg-muted/50 text-muted-foreground border-border"
                       : "bg-primary/5 text-primary border-primary/20",
                   )}
                 >
@@ -256,7 +256,7 @@ export function ChatComposer({
                   {!a.uploading && onRemoveAttachment && (
                     <button
                       onClick={() => onRemoveAttachment(i)}
-                      className="text-muted-foreground/50 hover:text-foreground cursor-pointer shrink-0 font-bold ml-0.5"
+                      className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0 font-bold ml-0.5"
                     >
                       ×
                     </button>
@@ -320,7 +320,7 @@ export function ChatComposer({
               }
             }}
             placeholder={placeholder}
-            className="w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1.5 pr-12 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground/60 text-foreground"
+            className="w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1.5 pr-12 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground text-foreground"
             style={{ minHeight: 40, maxHeight: 160 }}
             rows={1}
             disabled={disabled ?? isStreaming}
@@ -365,7 +365,7 @@ export function ChatComposer({
             </button>
           )}
           {!isStreaming && (
-            <span className="text-[9px] font-mono text-muted-foreground/30 select-none">
+            <span className="text-[9px] font-mono text-muted-foreground select-none">
               ↵ send · ⇧↵ new line{skills && skills.length > 0 ? " · / skills" : ""}
             </span>
           )}

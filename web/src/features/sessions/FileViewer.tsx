@@ -210,11 +210,11 @@ export function FileViewer({
         >
           <ArrowLeft className="w-3.5 h-3.5" />
         </button>
-        <span className="text-[11px] font-mono text-foreground/80 truncate flex-1 min-w-0">
+        <span className="text-[11px] font-mono text-foreground truncate flex-1 min-w-0">
           {fileName}
         </span>
         {language && (
-          <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">{language}</span>
+          <span className="text-[9px] font-mono text-muted-foreground shrink-0">{language}</span>
         )}
         {!loading && (
           <a
@@ -292,7 +292,7 @@ export function FileViewer({
       <div className="flex-1 overflow-auto">
         {loading && (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
           </div>
         )}
 
@@ -315,7 +315,7 @@ export function FileViewer({
             <iframe src={viewBlobUrl} title={fileName} className="w-full h-full border-0" />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
             </div>
           ))}
 
@@ -332,12 +332,12 @@ export function FileViewer({
             />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
             </div>
           ))}
 
         {!loading && !isPdf(path) && isBinary(path) && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/50">
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
             <span className="text-xs font-mono">Binary file</span>
             <span className="text-[10px] font-mono">.{ext}</span>
             <a
@@ -386,11 +386,11 @@ export function FileViewer({
                   dangerouslySetInnerHTML={{ __html: highlighted }}
                 />
               ) : highlightReady ? (
-                <pre className="p-3 text-[12px] leading-relaxed text-foreground/80 whitespace-pre-wrap break-words font-mono">
+                <pre className="p-3 text-[12px] leading-relaxed text-foreground whitespace-pre-wrap break-words font-mono">
                   {content}
                 </pre>
               ) : (
-                <pre className="p-3 text-[12px] leading-relaxed text-foreground/60 whitespace-pre-wrap break-words font-mono">
+                <pre className="p-3 text-[12px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-words font-mono">
                   {content}
                 </pre>
               )}

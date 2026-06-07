@@ -83,9 +83,7 @@ export function TaskBoardPanel({
       >
         {/* Header */}
         <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            Tasks
-          </span>
+          <span className="font-mono text-[10px] font-semibold text-muted-foreground">Tasks</span>
           <Button
             onClick={() => {
               onSelectTask?.(null);
@@ -124,7 +122,7 @@ export function TaskBoardPanel({
               <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
             </div>
           ) : filtered.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground/50 py-12">No tasks</p>
+            <p className="text-center text-sm text-muted-foreground py-12">No tasks</p>
           ) : (
             <div className="space-y-1 p-2">
               {filtered.map((task) => (
@@ -136,7 +134,7 @@ export function TaskBoardPanel({
                     "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
                     selectedTask?.id === task.id
                       ? "bg-accent text-accent-foreground"
-                      : "text-foreground/85 hover:bg-foreground/[0.045] hover:text-foreground",
+                      : "text-foreground hover:bg-foreground/[0.045] hover:text-foreground",
                   )}
                 >
                   <div className="flex items-start gap-2.5">
@@ -144,12 +142,12 @@ export function TaskBoardPanel({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="text-sm font-medium truncate">{task.title}</span>
-                        <span className="text-[10px] font-mono text-muted-foreground/50 shrink-0">
+                        <span className="text-[10px] font-mono text-muted-foreground shrink-0">
                           {formatTime(task.updated_at)}
                         </span>
                       </div>
                       {task.description && (
-                        <p className="text-xs text-muted-foreground/60 truncate mt-0.5">
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {task.description}
                         </p>
                       )}
@@ -179,7 +177,7 @@ export function TaskBoardPanel({
               <div className="hidden md:block" />
               <button
                 onClick={() => setShowCreate(false)}
-                className="hidden md:block text-muted-foreground/50 hover:text-foreground text-lg leading-none"
+                className="hidden md:block text-muted-foreground hover:text-foreground text-lg leading-none"
               >
                 ×
               </button>
@@ -263,7 +261,7 @@ function TaskDetail({
           )}
           <button
             onClick={onBack}
-            className="hidden md:block text-muted-foreground/50 hover:text-foreground text-lg leading-none"
+            className="hidden md:block text-muted-foreground hover:text-foreground text-lg leading-none"
           >
             ×
           </button>
@@ -282,9 +280,7 @@ function TaskDetail({
           </div>
           <h2 className="font-serif text-xl tracking-tight">{task.title}</h2>
           {task.description && (
-            <p className="text-sm text-muted-foreground/80 mt-1 leading-relaxed">
-              {task.description}
-            </p>
+            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{task.description}</p>
           )}
         </div>
 
@@ -314,7 +310,7 @@ function TaskDetail({
           />
         ) : (
           <div className="flex-1 flex items-center justify-center px-4">
-            <p className="text-sm text-muted-foreground/50 text-center">No conversation session</p>
+            <p className="text-sm text-muted-foreground text-center">No conversation session</p>
           </div>
         )}
       </div>
@@ -335,7 +331,10 @@ function PropertyRow({
     <div className="flex items-center justify-between py-2">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span
-        className={cn("text-sm", highlight ? "text-destructive font-medium" : "text-foreground/70")}
+        className={cn(
+          "text-sm",
+          highlight ? "text-destructive font-medium" : "text-muted-foreground",
+        )}
       >
         {value}
       </span>
