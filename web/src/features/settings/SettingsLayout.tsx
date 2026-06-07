@@ -242,7 +242,7 @@ function SettingsNavContent({ isAdmin }: { isAdmin: boolean }) {
         if (visibleItems.length === 0) return null;
         return (
           <div key={group.section}>
-            <div className="px-2 pb-1.5 pt-4 font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
+            <div className="px-2 pb-1.5 pt-4 text-xs font-semibold text-muted-foreground">
               {group.section}
             </div>
             {visibleItems.map((item) => (
