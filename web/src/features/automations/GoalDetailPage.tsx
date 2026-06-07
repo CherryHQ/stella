@@ -116,7 +116,7 @@ export function GoalDetailPage() {
             {r.total > 0 && (
               <div className="mb-6 rounded-2xl border border-border bg-card p-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span className="font-mono text-[11px] font-semibold text-muted-foreground">
                     {t("goals.rollup")}
                   </span>
                   <span className="font-mono text-xs text-muted-foreground">
@@ -136,7 +136,7 @@ export function GoalDetailPage() {
             )}
 
             <div className="mb-3 flex items-center gap-2.5">
-              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="font-mono text-[11px] font-semibold text-muted-foreground">
                 {t("goals.dagTitle")}
               </span>
               <span className="h-px flex-1 bg-border" />
@@ -238,7 +238,7 @@ function DagCanvas({
   const edges = deps.filter((d) => layout.pos.has(d.task_id) && layout.pos.has(d.dep_task_id));
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-muted/30 p-6">
+    <div className="overflow-x-auto rounded-2xl border border-border p-6">
       <div className="relative" style={{ width: layout.width, height: layout.height }}>
         <svg
           className="absolute inset-0 overflow-visible"
@@ -332,7 +332,7 @@ function TaskDrawer({
         </div>
         <button
           onClick={onClose}
-          className="shrink-0 text-lg leading-none text-muted-foreground/60 hover:text-foreground"
+          className="shrink-0 text-lg leading-none text-muted-foreground hover:text-foreground"
         >
           ×
         </button>
@@ -371,7 +371,10 @@ function Meta({ label, value, highlight }: { label: string; value: string; highl
     <div className="flex items-center justify-between py-2">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span
-        className={cn("text-sm", highlight ? "font-medium text-destructive" : "text-foreground/70")}
+        className={cn(
+          "text-sm",
+          highlight ? "font-medium text-destructive" : "text-muted-foreground",
+        )}
       >
         {value}
       </span>
@@ -401,7 +404,7 @@ function OverviewTab({
       {readiness && (
         <div className="rounded-xl border border-border bg-background p-3.5">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-[11px] font-semibold text-muted-foreground">
               {t("goals.readiness")}
             </span>
             <span
@@ -418,7 +421,7 @@ function OverviewTab({
           {readiness.reasons && readiness.reasons.length > 0 ? (
             <ul className="mt-2 space-y-1.5">
               {readiness.reasons.map((reason, i) => (
-                <li key={i} className="text-[12.5px] text-foreground/80">
+                <li key={i} className="text-[12.5px] text-foreground">
                   <span className="font-mono text-muted-foreground">{reason.type}</span>
                   {reason.detail ? ` — ${reason.detail}` : ""}
                 </li>
@@ -442,7 +445,7 @@ function OverviewTab({
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="mb-2 font-mono text-[11px] font-semibold text-muted-foreground">
           {t("goals.deps")}
         </div>
         {deps.length === 0 ? (
@@ -529,12 +532,10 @@ function ReviewsTab({ task }: { task: ComponentsTask }) {
     <div className="space-y-4">
       {active && (
         <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-3.5">
-          <div className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-primary/80">
+          <div className="mb-2 font-mono text-[11px] font-semibold text-primary/80">
             {t("goals.reviewGate")}
           </div>
-          {active.summary && (
-            <p className="mb-3 text-[12.5px] text-foreground/80">{active.summary}</p>
-          )}
+          {active.summary && <p className="mb-3 text-[12.5px] text-foreground">{active.summary}</p>}
           <Textarea
             value={feedback}
             onChange={(e) => setFeedback((e.target as HTMLTextAreaElement).value)}
@@ -581,9 +582,7 @@ function ReviewsTab({ task }: { task: ComponentsTask }) {
                   {rv.status.replace(/_/g, " ")}
                 </span>
               </div>
-              {rv.feedback && (
-                <p className="mt-1.5 text-[12.5px] text-foreground/80">{rv.feedback}</p>
-              )}
+              {rv.feedback && <p className="mt-1.5 text-[12.5px] text-foreground">{rv.feedback}</p>}
               <span className="mt-1.5 block font-mono text-[10.5px] text-muted-foreground">
                 {formatTime(rv.updated_at)}
               </span>
@@ -618,7 +617,7 @@ function BlockerTab({ task }: { task: ComponentsTask }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-foreground/80">{t("tasks.blockedMessage")}</p>
+      <p className="text-sm text-foreground">{t("tasks.blockedMessage")}</p>
       <Textarea
         value={resolution}
         onChange={(e) => setResolution((e.target as HTMLTextAreaElement).value)}
@@ -642,7 +641,7 @@ function EventsTab({ task }: { task: ComponentsTask }) {
       {events.map((ev) => (
         <li key={ev.id} className="relative">
           <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-muted-foreground/40" />
-          <div className="text-[12.5px] text-foreground/85">
+          <div className="text-[12.5px] text-foreground">
             <span className="font-medium">{ev.event_type.replace(/_/g, " ")}</span>
             {ev.from_status && ev.to_status && (
               <span className="text-muted-foreground">

@@ -74,9 +74,7 @@ function runStatusVariant(status: string): "success" | "error" | "warning" | "ou
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="block text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
+      <span className="block text-[11px] font-mono font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
   );
@@ -84,7 +82,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function ScheduleSummary({ job }: { job: SchedulerJob }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/30 p-4">
+    <div className="rounded-xl border border-border p-4">
       <div className="flex flex-wrap gap-2">
         <Badge variant={job.enabled ? "success" : "outline"}>
           {job.enabled ? "enabled" : "disabled"}
@@ -99,7 +97,7 @@ function ScheduleSummary({ job }: { job: SchedulerJob }) {
 
 function PluginSchedule({ job, label }: { job: SchedulerJob; label: string }) {
   return (
-    <details className="rounded-xl border border-border bg-muted/30 p-4">
+    <details className="rounded-xl border border-border p-4">
       <summary className="cursor-pointer text-sm font-semibold">{label}</summary>
       <div className="mt-4 space-y-3">
         <MarkdownPreview
@@ -135,7 +133,7 @@ function ConversationPanel({
 }) {
   if (!sessionId) {
     return (
-      <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+      <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
         {emptyLabel}
       </div>
     );
@@ -296,7 +294,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="text-[11px] font-mono font-medium text-muted-foreground">
               {isNew
                 ? t("sessions.auto.eyebrowNew")
                 : isReadOnly
@@ -340,7 +338,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
 
         {/* User job or new: editable form in collapsible */}
         {!isReadOnly && (
-          <details className="rounded-xl border border-border bg-muted/30 p-4" open={isNew}>
+          <details className="rounded-xl border border-border p-4" open={isNew}>
             <summary className="cursor-pointer text-sm font-semibold">
               {isNew ? t("sessions.auto.settingsNew") : t("sessions.auto.settingsEdit")}
             </summary>
@@ -462,7 +460,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         {/* Run history */}
         {!isNew && runs.length > 0 && (
           <div className="pt-1">
-            <p className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground mb-3">
+            <p className="text-[11px] font-mono font-medium text-muted-foreground mb-3">
               {t("sessions.auto.recentRuns")}
             </p>
             <div className="divide-y divide-border rounded-xl border border-border overflow-hidden">
@@ -472,7 +470,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
                     {r.status}
                   </Badge>
                   <span className="text-muted-foreground">{formatTime(r.started_at)}</span>
-                  {r.duration && <span className="text-muted-foreground/60">{r.duration}</span>}
+                  {r.duration && <span className="text-muted-foreground">{r.duration}</span>}
                   {r.error && (
                     <span className="text-destructive truncate max-w-[180px]" title={r.error}>
                       {r.error}
@@ -495,7 +493,7 @@ export function AutomationPanel({ jobId, agentId, onSaved, onDeleted }: Props) {
         {/* Conversation panel */}
         {!isNew && (
           <div className="pt-1">
-            <p className="text-[11px] font-mono font-medium uppercase tracking-wider text-muted-foreground mb-3">
+            <p className="text-[11px] font-mono font-medium text-muted-foreground mb-3">
               {t("sessions.auto.conversation")}
             </p>
             <div
