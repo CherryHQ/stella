@@ -5,57 +5,12 @@ import { AppShell } from "@/layouts/AppShell";
 import { useRecallyFilters } from "./hooks/useRecallyFilters";
 import { useRecallyMutations } from "./hooks/useRecallyMutations";
 import { useRecallyFeeds } from "./hooks/useRecallyFeeds";
+import { RecallySourceNav } from "./components/RecallySourceNav";
 import { RecallyArticleList } from "./components/RecallyArticleList";
 import { DigestDetail } from "./components/DigestDetail";
 import { RecallyReader } from "./components/RecallyReader";
 import { RecallyChat } from "./components/RecallyChat";
 import { ToastAlert } from "./components/ToastAlert";
-
-function ArticleListProps(
-  t: ReturnType<typeof useI18n>["t"],
-  filters: ReturnType<typeof useRecallyFilters>,
-  feeds: ReturnType<typeof useRecallyFeeds>,
-  selectedId: string | null,
-  setSelectedId: (id: string | null) => void,
-  handleSelectDigest: (date: string) => void,
-) {
-  return {
-    t,
-    displayArticles: filters.displayArticles,
-    articlesQuery: filters.articlesQuery,
-    selectedId,
-    setSelectedId,
-    searchText: filters.searchText,
-    setSearchText: filters.setSearchText,
-    statusFilter: filters.statusFilter,
-    setStatusFilter: filters.setStatusFilter,
-    starredFilter: filters.starredFilter,
-    setStarredFilter: filters.setStarredFilter,
-    sourceTypeFilter: filters.sourceTypeFilter,
-    setSourceTypeFilter: filters.setSourceTypeFilter,
-    tagFilter: filters.tagFilter,
-    setTagFilter: filters.setTagFilter,
-    digest: filters.digest,
-    digestView: filters.digestView,
-    setDigestView: filters.setDigestView,
-    storedDigests: filters.storedDigests,
-    storedDigestsLoading: filters.storedDigestsQuery.isLoading,
-    selectedDigestDate: filters.selectedDigestDate,
-    onSelectDigest: handleSelectDigest,
-    clearFilters: filters.clearFilters,
-    sortedTags: filters.sortedTags,
-    visibleTags: filters.visibleTags,
-    showAllTags: filters.showAllTags,
-    setShowAllTags: filters.setShowAllTags,
-    tagCounts: filters.tagCounts,
-    feeds: feeds.feeds,
-    feedUrl: feeds.feedUrl,
-    setFeedUrl: feeds.setFeedUrl,
-    createFeedMut: feeds.createFeedMut,
-    pollFeedMut: feeds.pollFeedMut,
-    feedPollResults: feeds.feedPollResults,
-  };
-}
 
 export function RecallyPage() {
   const { t } = useI18n();
@@ -74,14 +29,38 @@ export function RecallyPage() {
   const showDigestDetail =
     filters.digestView && !!filters.selectedDigestDate && !selectedId && !!filters.selectedDigest;
 
-  const listProps = ArticleListProps(
-    t,
-    filters,
-    feeds,
-    selectedId,
-    setSelectedId,
-    handleSelectDigest,
-  );
+  const selectInbox = () => {
+    filters.setDigestView(false);
+    filters.clearFilters();
+  };
+  const selectStarred = () => {
+    filters.setDigestView(false);
+    filters.setStarredFilter(true);
+    filters.setStatusFilter(null);
+    filters.setSourceTypeFilter(null);
+    filters.setTagFilter(null);
+  };
+  const selectArchive = () => {
+    filters.setDigestView(false);
+    filters.setStatusFilter("archived");
+    filters.setStarredFilter(null);
+    filters.setSourceTypeFilter(null);
+    filters.setTagFilter(null);
+  };
+  const selectDigest = () => {
+    filters.setDigestView(true);
+    filters.setStatusFilter(null);
+    filters.setStarredFilter(null);
+    filters.setSourceTypeFilter(null);
+    filters.setTagFilter(null);
+  };
+  const selectTag = (tag: string | null) => {
+    filters.setTagFilter(tag);
+    filters.setDigestView(false);
+    filters.setStarredFilter(null);
+    filters.setStatusFilter(null);
+    filters.setSourceTypeFilter(null);
+  };
 
   const headerTitle = (
     <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
@@ -106,33 +85,109 @@ export function RecallyPage() {
     </button>
   ) : undefined;
 
+  const sourceNav = (
+    <RecallySourceNav
+      t={t}
+      digest={filters.digest}
+      digestView={filters.digestView}
+      starredFilter={filters.starredFilter}
+      statusFilter={filters.statusFilter}
+      tagFilter={filters.tagFilter}
+      selectInbox={selectInbox}
+      selectStarred={selectStarred}
+      selectArchive={selectArchive}
+      selectDigest={selectDigest}
+      selectTag={selectTag}
+      sortedTags={filters.sortedTags}
+      visibleTags={filters.visibleTags}
+      showAllTags={filters.showAllTags}
+      setShowAllTags={filters.setShowAllTags}
+      tagCounts={filters.tagCounts}
+      feeds={feeds.feeds}
+      feedUrl={feeds.feedUrl}
+      setFeedUrl={feeds.setFeedUrl}
+      createFeedMut={feeds.createFeedMut}
+      pollFeedMut={feeds.pollFeedMut}
+      feedPollResults={feeds.feedPollResults}
+    />
+  );
+
   return (
-    <AppShell
-      sidebar={<RecallyArticleList {...listProps} />}
-      title={headerTitle}
-      headerActions={headerActions}
-    >
+    <AppShell sidebar={sourceNav} title={headerTitle} headerActions={headerActions}>
+      {/* Desktop: three-column layout */}
       <div className="flex h-full min-h-0 overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {showDigestDetail ? (
-            <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
-          ) : (
-            <RecallyReader
-              t={t}
-              selectedId={selectedId}
-              chatOpen={chatOpen}
-              onToggleChat={() => setChatOpen(!chatOpen)}
-              updateArticleMut={mutations.updateArticleMut}
-              deleteArticleMut={mutations.deleteArticleMut}
-            />
-          )}
+        {/* Middle: Article list — hidden on mobile when reader is open */}
+        <div className="hidden w-80 shrink-0 md:flex md:flex-col lg:w-96">
+          <RecallyArticleList
+            t={t}
+            displayArticles={filters.displayArticles}
+            articlesQuery={filters.articlesQuery}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+            searchText={filters.searchText}
+            setSearchText={filters.setSearchText}
+            statusFilter={filters.statusFilter}
+            setStatusFilter={filters.setStatusFilter}
+            sourceTypeFilter={filters.sourceTypeFilter}
+            setSourceTypeFilter={filters.setSourceTypeFilter}
+            digestView={filters.digestView}
+            storedDigests={filters.storedDigests}
+            storedDigestsLoading={filters.storedDigestsQuery.isLoading}
+            selectedDigestDate={filters.selectedDigestDate}
+            onSelectDigest={handleSelectDigest}
+          />
         </div>
 
-        {chatOpen && selectedId && !showDigestDetail && (
-          <aside className="hidden w-[340px] shrink-0 border-l border-border md:flex">
-            <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
-          </aside>
-        )}
+        {/* Right: Reader / Digest detail */}
+        <div className="hidden flex-1 min-h-0 min-w-0 md:flex md:flex-col">
+          <div className="flex h-full min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {showDigestDetail ? (
+                <DigestDetail
+                  t={t}
+                  digest={filters.selectedDigest!}
+                  onSelectArticle={setSelectedId}
+                />
+              ) : (
+                <RecallyReader
+                  t={t}
+                  selectedId={selectedId}
+                  chatOpen={chatOpen}
+                  onToggleChat={() => setChatOpen(!chatOpen)}
+                  updateArticleMut={mutations.updateArticleMut}
+                  deleteArticleMut={mutations.deleteArticleMut}
+                />
+              )}
+            </div>
+            {chatOpen && selectedId && !showDigestDetail && (
+              <aside className="w-[340px] shrink-0 border-l border-border flex">
+                <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />
+              </aside>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile: article list is shown inline */}
+        <div className="flex flex-1 flex-col min-h-0 md:hidden">
+          <RecallyArticleList
+            t={t}
+            displayArticles={filters.displayArticles}
+            articlesQuery={filters.articlesQuery}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+            searchText={filters.searchText}
+            setSearchText={filters.setSearchText}
+            statusFilter={filters.statusFilter}
+            setStatusFilter={filters.setStatusFilter}
+            sourceTypeFilter={filters.sourceTypeFilter}
+            setSourceTypeFilter={filters.setSourceTypeFilter}
+            digestView={filters.digestView}
+            storedDigests={filters.storedDigests}
+            storedDigestsLoading={filters.storedDigestsQuery.isLoading}
+            selectedDigestDate={filters.selectedDigestDate}
+            onSelectDigest={handleSelectDigest}
+          />
+        </div>
       </div>
 
       {/* Mobile digest detail overlay */}
