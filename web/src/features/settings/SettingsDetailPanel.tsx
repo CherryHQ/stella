@@ -89,7 +89,7 @@ export function DetailPanelHeader({
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="space-y-1">
-        <h2 className="text-lg font-bold tracking-tight leading-snug text-foreground/90 font-sans">
+        <h2 className="text-lg font-bold tracking-tight leading-snug text-foreground font-sans">
           {title}
         </h2>
         {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
@@ -100,9 +100,5 @@ export function DetailPanelHeader({
 }
 
 export function FormSectionTitle({ children }: { children: ReactNode }) {
-  return (
-    <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60">
-      {children}
-    </p>
-  );
+  return <p className="font-mono text-[9px] text-muted-foreground">{children}</p>;
 }

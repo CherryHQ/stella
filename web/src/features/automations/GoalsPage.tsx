@@ -47,7 +47,7 @@ export function GoalsPage() {
   useEffect(() => {
     setHeaderTitle(
       <div className="min-w-0">
-        <div className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+        <div className="truncate font-mono text-[10px] font-semibold text-muted-foreground">
           {t("goals.eyebrow")}
         </div>
         <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
@@ -109,7 +109,7 @@ function Empty() {
   const { t } = useI18n();
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <p className="text-sm font-medium text-foreground/70">{t("goals.empty")}</p>
+      <p className="text-sm font-medium text-muted-foreground">{t("goals.empty")}</p>
       <p className="mt-1 max-w-xs text-xs text-muted-foreground">{t("goals.emptyDesc")}</p>
     </div>
   );
@@ -143,9 +143,7 @@ function Triage({ goals, onOpen }: ViewProps) {
     arr.length ? (
       <section className="mb-7">
         <div className="mb-3 flex items-center gap-2.5">
-          <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {label}
-          </span>
+          <span className="font-mono text-[11px] font-semibold text-muted-foreground">{label}</span>
           <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
             {arr.length}
           </span>
@@ -249,9 +247,7 @@ function Board({ goals, onOpen }: ViewProps) {
           <div key={col.labelKey} className="min-h-[180px] rounded-2xl bg-muted p-2.5">
             <div className="flex items-center gap-2 px-1.5 pb-2.5 pt-1">
               <StatusDot status={col.status} />
-              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider">
-                {t(col.labelKey)}
-              </span>
+              <span className="font-mono text-[11px] font-semibold">{t(col.labelKey)}</span>
               <span className="ml-auto font-mono text-[11px] text-muted-foreground">
                 {items.length}
               </span>
@@ -283,7 +279,7 @@ function Board({ goals, onOpen }: ViewProps) {
                 </button>
               ))}
               {!items.length && (
-                <div className="py-5 text-center text-xs text-muted-foreground/40">—</div>
+                <div className="py-5 text-center text-xs text-muted-foreground">—</div>
               )}
             </div>
           </div>
@@ -313,7 +309,7 @@ function Table({ goals, onOpen }: ViewProps) {
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-border bg-muted/50 text-left font-mono text-[10.5px] uppercase tracking-wider text-muted-foreground">
+          <tr className="border-b border-border bg-muted/50 text-left font-mono text-[10.5px] text-muted-foreground">
             <th className="w-[120px] px-3.5 py-2.5 font-semibold">{t("goals.colStatus")}</th>
             <th className="px-3.5 py-2.5 font-semibold">{t("goals.colGoal")}</th>
             <th className="w-[120px] px-3.5 py-2.5 font-semibold">{t("goals.colAttention")}</th>

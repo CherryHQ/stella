@@ -64,12 +64,12 @@ export function GroupSection() {
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60 hover:bg-foreground/[0.045] hover:text-muted-foreground"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
           >
             <span>Groups</span>
             <ChevRight
               className={cn(
-                "size-2.5 text-muted-foreground/40 transition-transform duration-150",
+                "size-2.5 text-muted-foreground transition-transform duration-150",
                 open && "rotate-90",
               )}
             />
@@ -77,7 +77,7 @@ export function GroupSection() {
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="grid size-6 place-items-center rounded-lg text-muted-foreground/40 opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+            className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
             title="New group"
           >
             <IconPlus />
@@ -98,8 +98,8 @@ export function GroupSection() {
                   className={cn(
                     "grid min-h-[32px] w-full grid-cols-[18px_minmax(0,1fr)] items-center gap-2 rounded-xl px-[7px] text-left text-[13px] font-medium tracking-[-0.016em] transition-colors border",
                     isActive
-                      ? "bg-muted text-foreground border-border shadow-none"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
+                      ? "bg-muted text-foreground border-border"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground border-transparent",
                   )}
                 >
                   <span className={cn("opacity-90", isActive && "text-foreground")}>

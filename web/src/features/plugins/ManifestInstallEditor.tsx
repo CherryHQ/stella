@@ -79,7 +79,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
   }
 
   return (
-    <div className="border-t border-border bg-muted/30 px-6 py-5 space-y-6">
+    <div className="border-t border-border px-6 py-5 space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -175,7 +175,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                 className="rounded-lg border border-border bg-background p-4 space-y-3"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <span className="text-xs font-semibold text-muted-foreground">
                     Binary {index + 1}
                     {binary.name && (
                       <span className="ml-2 font-mono font-normal normal-case text-foreground">
@@ -287,7 +287,7 @@ export function ManifestInstallEditor({ draft, oauthProviders, onChange, onSave,
                 className="rounded-lg border border-border bg-background p-4 space-y-3"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <span className="text-xs font-semibold text-muted-foreground">
                     Variable {index + 1}
                     {env.env_var && (
                       <span className="ml-2 font-mono font-normal normal-case text-foreground">

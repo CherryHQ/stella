@@ -84,7 +84,7 @@ export function RecallyPage() {
   );
 
   const headerTitle = (
-    <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground/80">
+    <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
       {showDigestDetail
         ? `${t("recally.nav.digest")} — ${filters.selectedDigestDate}`
         : t("recally.title")}

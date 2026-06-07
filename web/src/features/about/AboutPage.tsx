@@ -50,10 +50,8 @@ export function AboutPage() {
         <SettingsPageHeader title={t("about.title")} description={t("about.description")} />
 
         <section>
-          <h2 className="text-base font-semibold text-foreground/90 mb-3">
-            {t("about.versionInfo")}
-          </h2>
-          <div className="rounded-xl border border-border bg-card p-6 shadow-none">
+          <h2 className="text-base font-semibold text-foreground mb-3">{t("about.versionInfo")}</h2>
+          <div className="rounded-xl border border-border bg-card p-6">
             <dl className="divide-y divide-border">
               <InfoRow
                 label={t("about.status")}
@@ -72,10 +70,8 @@ export function AboutPage() {
 
         {(status?.runtime || status?.database || status?.plugins) && (
           <section>
-            <h2 className="text-base font-semibold text-foreground/90 mb-3">
-              {t("about.adminInfo")}
-            </h2>
-            <div className="rounded-xl border border-border bg-card p-6 shadow-none">
+            <h2 className="text-base font-semibold text-foreground mb-3">{t("about.adminInfo")}</h2>
+            <div className="rounded-xl border border-border bg-card p-6">
               <dl className="divide-y divide-border">
                 {status.database && (
                   <InfoRow

@@ -105,10 +105,10 @@ export function ConstraintsSection({ agentId }: Props) {
             {(constraints as ConstraintEntry[]).map((c) => (
               <div
                 key={c.id}
-                className="group flex items-start gap-2 rounded-xl bg-muted/30 px-3 py-2.5 transition-colors hover:bg-muted/50"
+                className="group flex items-start gap-2 rounded-xl bg-muted px-3 py-2.5 transition-colors hover:bg-muted"
               >
                 <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-amber-500/60" />
-                <span className="flex-1 text-sm text-foreground/90 leading-relaxed">{c.text}</span>
+                <span className="flex-1 text-sm text-foreground leading-relaxed">{c.text}</span>
                 <Button
                   variant="ghost"
                   size="icon-xs"
