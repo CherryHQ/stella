@@ -434,7 +434,14 @@ These patterns are inconsistent with the Perplexity visual language and are bann
 
 To switch to a different visual direction in the future:
 
-1. **Colors:** Pick a new tweakcn preset and run `pnpm dlx shadcn@latest add <url>`. This overwrites `globals.css` token values. `--stella-os-*` aliases follow automatically.
+1. **Colors:** Pick a new tweakcn preset and run the shadcn command. This overwrites `globals.css` token values. `--stella-os-*` aliases follow automatically.
+
+   Current preset:
+
+   ```bash
+   pnpm dlx shadcn@latest add https://tweakcn.com/r/themes/cmlk6zefr000004lbe9jygsqc
+   ```
+
 2. **Visual direction:** Update the "Visual direction" section of this file.
 3. **Elevation:** If the new style uses shadows, update the `--shadow-*` values in `globals.css` and revise "Elevation & depth".
 4. **Radius:** Adjust `--radius` base in `globals.css` and update the radius table.
