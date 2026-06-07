@@ -6,7 +6,7 @@ React SPA embedded by Go. Go serves built assets and falls back to `index.html`;
 
 > **Agent note:** When building or editing UI, read `.agents/skills/coss/SKILL.md` for CossUI component patterns, imports, composition rules, and particle examples.
 
-**CossUI first:** Always use CossUI components (`src/components/ui/`) before hand-writing UI primitives. If a CossUI component exists for the pattern (sidebar, dialog, sheet, popover, etc.), use it. Only hand-write a component when no CossUI equivalent exists, and get explicit approval first.
+**CossUI first, zero custom styling:** Always use CossUI components (`src/components/ui/`) before hand-writing UI primitives. Never override CossUI visual styles (colors, radius, shadows, padding, font) at the call site — use variant/size props. Feature components in `src/features/` should only add layout Tailwind classes (`flex`, `grid`, `gap-*`, `p-*`, `w-*`); all visual identity comes from CossUI + the theme. See `DESIGN.md` § Components for the full rules and examples.
 
 ### Structure
 
@@ -47,6 +47,51 @@ import { MyPage } from "@/features/mypage/MyPage";
 
 export const Route = createFileRoute("/_app/mypage")({ component: MyPage });
 ```
+
+### Design system
+
+**Read `DESIGN.md` before building or reviewing any UI.** It defines the visual direction (Perplexity-based), token usage rules, layout patterns, component conventions, overlay decision tree, toast/loading/empty state patterns, z-index layers, and anti-patterns.
+
+### I18n
+
+All user-facing strings must use the `useI18n()` hook. Never hardcode display text.
+
+```tsx
+const { t } = useI18n();
+<Button>{t("common.save")}</Button>;
+```
+
+- Supported locales: `en`, `zh`. Config in `src/lib/i18n/config.ts`.
+- Locale is stored in localStorage.
+- When adding new UI text, add keys to both locale files.
+
+### API client
+
+The API client in `src/lib/api-client/` is **auto-generated from OpenAPI**. Never write custom `fetch()` calls.
+
+```tsx
+import { listAgents, createGroup } from "@/lib/api-client/sdk.gen";
+const { data } = await createGroup({ body: { group_name, agent_ids }, throwOnError: true });
+```
+
+### Query patterns
+
+- Define query options as `<resource>QueryOptions` or `<resource>InfiniteQueryOptions` in `src/lib/queries/`.
+- Use `infiniteQueryOptions` with `page_token` / `next_page_token` for paginated APIs.
+- Batch helpers in `src/lib/paginated.ts` (e.g., `fetchAllTasks()`) auto-fetch all pages — use these for non-UI data fetching.
+- State hierarchy: **URL params > TanStack Query cache > React Context > useState**. Only use `useState` for ephemeral UI state (form drafts, open/closed toggles).
+
+### File naming
+
+| Kind          | Convention                 | Example                                  |
+| ------------- | -------------------------- | ---------------------------------------- |
+| Components    | PascalCase                 | `AgentForm.tsx`, `SkillInstallModal.tsx` |
+| Hooks         | kebab-case with `use-`     | `use-toast.tsx`, `use-media-query.ts`    |
+| Utils / types | kebab-case                 | `agent-colors.ts`, `auth-error.ts`       |
+| Routes        | kebab-case with `$` params | `agents.$agentId.tsx`                    |
+| Lazy routes   | `.lazy.tsx` suffix         | `agents.$agentId.lazy.tsx`               |
+
+Import alias: always use `@/` for `src/`. Never use relative paths like `../../../lib/`.
 
 ### Theming
 
