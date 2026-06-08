@@ -473,7 +473,9 @@ func (b *Bot) resolveUnionID(openID string) string {
 	if v, ok := b.unionIDs.Load(openID); ok {
 		return v.(string)
 	}
-	profile := b.fetchTenantProfile(context.Background(), openID)
+	ctx, cancel := b.apiContext()
+	defer cancel()
+	profile := b.fetchTenantProfile(ctx, openID)
 	if profile == nil || profile.UnionID == "" {
 		return ""
 	}
@@ -485,7 +487,7 @@ func (b *Bot) resolveUnionID(openID string) string {
 // group. Feishu P2P chats also use oc_ prefixed IDs, so prefix-based guessing
 // is unreliable.
 func (b *Bot) getChatType(chatID string) string {
-	if chatID == "" {
+	if chatID == "" || b.client == nil {
 		return "p2p"
 	}
 	if v, ok := b.chatTypes.Load(chatID); ok {
