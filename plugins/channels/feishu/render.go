@@ -11,6 +11,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/goldmark/feishucard"
 )
 
 // textContent builds the JSON content string for a Feishu text message.
@@ -19,18 +20,14 @@ func textContent(text string) string {
 	return string(data)
 }
 
-// cardContent builds a Feishu Interactive Card JSON 2.0 string with markdown content.
-// Cards support the Patch API for in-place editing (plain text messages do not).
+// cardContent builds a Feishu Interactive Card JSON 2.0 string.
+// GFM tables become native table components; all other content is rendered
+// as markdown elements. Cards support the Patch API for in-place editing.
 func cardContent(text string) string {
 	card := map[string]any{
 		"schema": "2.0",
 		"body": map[string]any{
-			"elements": []map[string]any{
-				{
-					"tag":     "markdown",
-					"content": text,
-				},
-			},
+			"elements": feishucard.Render(text),
 		},
 	}
 	data, _ := json.Marshal(card)
