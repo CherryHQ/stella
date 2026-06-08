@@ -101,7 +101,7 @@ func (b *Bot) syncGroups() {
 			reqBuilder.PageToken(pageToken)
 		}
 		ctx, cancel := b.apiContext()
-		resp, err := b.client.Im.Chat.List(ctx, reqBuilder.Build())
+		resp, err := b.listChats(ctx, reqBuilder.Build())
 		cancel()
 		if err != nil {
 			logger().Error("sync groups: list chats failed", "error", err)
