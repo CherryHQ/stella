@@ -77,6 +77,23 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		if err != nil {
 			return fmt.Errorf("list group members: %w", err)
 		}
+		// Auto-provision: for platform groups with no members, register the
+		// source channel's agent so the bot can respond.
+		if len(members) == 0 && channelID != "" && channelID != msg.Platform {
+			ch, chErr := q.GetChannel(ctx, channelID)
+			if chErr == nil && ch.AgentID.Valid && ch.AgentID.String != "" {
+				if _, addErr := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{
+					GroupID:        result.GroupID,
+					AgentID:        ch.AgentID.String,
+					ReplyChannelID: channelID,
+				}); addErr != nil {
+					slog.Warn("auto-provision group member failed", "group_id", result.GroupID, "agent_id", ch.AgentID.String, "error", addErr)
+				} else {
+					slog.Info("auto-provisioned group member", "group_id", result.GroupID, "agent_id", ch.AgentID.String, "channel_id", channelID)
+					members, _ = q.ListGroupMembers(ctx, result.GroupID)
+				}
+			}
+		}
 		groupMembers := make([]GroupMember, len(members))
 		for i, m := range members {
 			groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
