@@ -134,12 +134,16 @@ func (b *Bot) Start(ctx context.Context) error {
 		OnP2MessageReceiveV1(b.onMessage).
 		OnP2MessageReactionCreatedV1(b.onReaction).
 		OnP2MessageReactionDeletedV1(b.onReactionDeleted).
-		OnP2MessageReadV1(b.onMessageRead)
+		OnP2MessageReadV1(b.onMessageRead).
+		OnP2ChatMemberBotAddedV1(b.onBotAdded).
+		OnP2ChatMemberBotDeletedV1(b.onBotDeleted)
 
 	b.wsClient = larkws.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		larkws.WithEventHandler(eventHandler),
 		larkws.WithLogLevel(larkcore.LogLevelInfo),
 	)
+
+	go b.syncGroups()
 
 	logger().Info("feishu bot starting (WebSocket mode)")
 
