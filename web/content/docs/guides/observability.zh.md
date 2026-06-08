@@ -9,7 +9,7 @@ title: 可观测性
 追踪是内置在服务里的——不需要在插件页面启用任何东西。它有两种模式：
 
 - **日志模式**（始终开启）——通过 Go 的 `slog` 输出结构化日志行，可在 stderr 中查看。无需任何配置。
-- **OpenTelemetry 模式**（可选）——通过标准 OTLP 环境变量导出分布式追踪。支持 OTLP/gRPC 和 OTLP/HTTP，包括需要认证的后端。设置 OTLP 端点即可启用。
+- **OpenTelemetry 模式**（可选）——通过标准 OTLP 环境变量导出分布式追踪和日志。支持 OTLP/gRPC 和 OTLP/HTTP，包括需要认证的后端。设置 OTLP 端点即可启用。
 
 ## 配置
 
@@ -41,19 +41,24 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 
 ### OpenTelemetry 模式
 
-设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 即可启用。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
+设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪和日志；也可以用信号专用导出器变量只启用其中一种信号。如果后端不支持日志服务（如 Jaeger），Stella 会在首次失败后自动禁用日志导出。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
 
-| 环境变量                            | 默认值              | 说明                                                                                                                                                             |
-| ----------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`       | _(空 —— OTel 关闭)_ | OTLP 基础端点。OTLP/HTTP 使用完整 URL，如 `https://collector.example.com/api/default`；OTLP/gRPC 使用带 scheme 的 URL，如 `https://collector.example.com:4317`。 |
-| `OTEL_EXPORTER_OTLP_PROTOCOL`       | SDK 默认            | 导出协议。常见值：`grpc` 或 `http/protobuf`。                                                                                                                    |
-| `OTEL_EXPORTER_OTLP_HEADERS`        | _(空)_              | 应用于所有 OTLP 信号的逗号分隔请求头，例如 `authorization=Bearer <token>`。                                                                                      |
-| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(空)_              | 仅应用于 traces 的逗号分隔请求头。会覆盖针对 traces 的通用 OTLP 请求头。                                                                                         |
-| `OTEL_SERVICE_NAME`                 | `stella`            | 在追踪后端显示的服务名。                                                                                                                                         |
-| `OTEL_EXPORTER_OTLP_INSECURE`       | SDK 默认            | 设为 `false` 以要求 TLS。HTTPS 或安全 gRPC 端点请使用 `false`。                                                                                                  |
-| `OTEL_STELLA_RECORD_TOOL_IO`        | `false`             | 设为 `true` 才会把工具输入(如 bash 命令)和结果文本记录到 span。默认关闭,因此这些内容永不导出;span 始终携带工具名、参数数量与结果长度。                           |
+| 环境变量                             | 默认值              | 说明                                                                                                                                                                            |
+| ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`        | _(空 —— OTel 关闭)_ | 所有信号共用的 OTLP 基础端点。OTLP/HTTP 使用完整 URL，如 `https://collector.example.com/api/default`；OTLP/gRPC 使用带 scheme 的 URL，如 `https://collector.example.com:4317`。 |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | _(空)_              | Trace 专用 OTLP 端点。会覆盖 trace 使用的通用端点。                                                                                                                             |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`   | _(空)_              | Log 专用 OTLP 端点。会覆盖 log 使用的通用端点。                                                                                                                                 |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`        | SDK 默认            | 导出协议。常见值：`grpc` 或 `http/protobuf`。                                                                                                                                   |
+| `OTEL_EXPORTER_OTLP_HEADERS`         | _(空)_              | 应用于所有 OTLP 信号的逗号分隔请求头，例如 `authorization=Bearer <token>`。                                                                                                     |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS`  | _(空)_              | 仅应用于 traces 的逗号分隔请求头。会覆盖针对 traces 的通用 OTLP 请求头。                                                                                                        |
+| `OTEL_EXPORTER_OTLP_LOGS_HEADERS`    | _(空)_              | 仅应用于 logs 的逗号分隔请求头。会覆盖针对 logs 的通用 OTLP 请求头。                                                                                                            |
+| `OTEL_TRACES_EXPORTER`               | SDK 默认            | Trace 导出器。设为 `none` 可只关闭 trace 导出，保留其他 OTel 信号。                                                                                                             |
+| `OTEL_LOGS_EXPORTER`                 | SDK 默认            | Log 导出器。设为 `none` 可只关闭 log 导出，保留 trace。                                                                                                                         |
+| `OTEL_SERVICE_NAME`                  | `stella`            | 在可观测性后端显示的服务名。                                                                                                                                                    |
+| `OTEL_EXPORTER_OTLP_INSECURE`        | SDK 默认            | 设为 `false` 以要求 TLS。HTTPS 或安全 gRPC 端点请使用 `false`。                                                                                                                 |
+| `OTEL_STELLA_RECORD_TOOL_IO`         | `false`             | 设为 `true` 才会把工具输入(如 bash 命令)和结果文本记录到 span。默认关闭,因此这些内容永不导出;span 始终携带工具名、参数数量与结果长度。                                          |
 
-启用 OTel 后，两种模式会同时运行——你既能看到日志行，也能导出追踪。
+启用 OTel 后，两种模式会同时运行——你既能看到 stderr 日志行，也能导出追踪和日志。
 
 ### 常见陷阱
 
@@ -75,13 +80,38 @@ docker run -d --name jaeger \
   -p 4317:4317 \
   jaegertracing/jaeger:latest
 
-# 通过 OTLP/gRPC 启动带追踪的 stella
+# 通过 OTLP/gRPC 启动带追踪和日志导出的 stella
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 stellad server
 ```
 
-打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。
+打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。Jaeger 主要面向追踪；如果还要检索导出的日志，请使用支持日志的后端或采集器管道。
+
+### 配合 GreptimeDB 使用
+
+[GreptimeDB](https://greptime.com/) 是一个统一的时序数据库，原生支持 OTLP 追踪和日志。它在同一端点接收所有信号，只需设置通用的 `OTEL_EXPORTER_OTLP_ENDPOINT` 即可。
+
+```bash
+# 创建持久化卷并启动 GreptimeDB
+docker volume create greptimedb_data
+docker run -d --name greptimedb \
+  -p 4000:4000 \
+  -p 4001:4001 \
+  -p 4317:4317 \
+  -v greptimedb_data:/tmp/greptimedb \
+  greptime/greptimedb:latest standalone start \
+    --http-addr 0.0.0.0:4000 \
+    --mysql-addr 0.0.0.0:4001 \
+    --rpc-addr 0.0.0.0:4317
+
+# 通过 OTLP/gRPC 启动带追踪和日志的 stella
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+stellad server
+```
+
+打开 GreptimeDB 仪表盘 `http://localhost:4000/dashboard`，通过 SQL 查询追踪和日志。
 
 ### 配合其他后端使用
 
@@ -241,4 +271,4 @@ LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemet
 
 ## 如何关闭
 
-没有可禁用的插件。日志模式跟随 `LOG_LEVEL`，设为 `WARN` 或 `ERROR` 即可静默每次调用的 INFO 行。除非设置了 `OTEL_EXPORTER_OTLP_ENDPOINT`，否则 OTel 导出默认关闭，因此留空该变量即可完全停用分布式追踪。
+没有可禁用的插件。日志模式跟随 `LOG_LEVEL`，设为 `WARN` 或 `ERROR` 即可静默每次调用的 INFO 行。除非设置了 `OTEL_EXPORTER_OTLP_ENDPOINT` 或信号专用导出器，否则 OTel 导出默认关闭；留空这些变量即可完全停用分布式遥测。设 `OTEL_TRACES_EXPORTER=none` 或 `OTEL_LOGS_EXPORTER=none` 可以只关闭其中一种信号。

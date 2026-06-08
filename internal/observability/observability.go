@@ -1,48 +1,53 @@
-// Package observability owns the process-global OpenTelemetry tracer provider.
-// It is initialized once during server startup and shut down once at exit, so
-// tracing is server-level infrastructure rather than a toggleable plugin.
+// Package observability owns the process-global OpenTelemetry providers (tracer
+// and logger). They are initialized once during server startup and shut down
+// once at exit, so telemetry is server-level infrastructure rather than a
+// toggleable plugin.
 //
-// When OTEL_EXPORTER_OTLP_ENDPOINT is unset (or OTEL_SDK_DISABLED=true), Init is
-// a no-op: the global provider stays the SDK default (no-op), and Shutdown does
-// nothing. Exporter transport details (protocol, headers, TLS) are resolved
-// by the OTel exporter from its standard environment variables.
+// When no OTLP endpoint or signal-specific exporter is configured (or
+// OTEL_SDK_DISABLED=true), Init is a no-op: the global providers stay the SDK
+// defaults (no-op), and Shutdown does nothing. Exporter transport details
+// (protocol, headers, TLS) are resolved by the OTel exporters from their
+// standard environment variables.
 package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
+	"sync/atomic"
 
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
+	otellog "go.opentelemetry.io/otel/log"
+	otellogglobal "go.opentelemetry.io/otel/log/global"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
-// Config holds tracer settings derived from standard OTel environment
-// variables. Exporter-level vars (endpoint, protocol, headers, TLS) are
-// consumed by the auto exporter and are not duplicated here.
+// Config holds OTel settings derived from standard environment variables.
+// Exporter-level vars (endpoint, protocol, headers, TLS) are consumed by the
+// auto exporters and are not duplicated here.
 type Config struct {
-	Enabled     bool   // true when an endpoint is set and the SDK is not disabled
+	Enabled     bool   // true when trace export is configured and the SDK is not disabled
 	ServiceName string // OTel service name, defaults to "stella"
 }
 
 // LoadConfig reads OTel settings from the environment. Tracing is enabled when
-// the auto exporter has something to export to — either an OTLP endpoint (the
+// the span exporter has something to export to — either an OTLP endpoint (the
 // generic or traces-specific variable) or an explicit OTEL_TRACES_EXPORTER such
 // as "console" — and the operator has not opted out. OTEL_SDK_DISABLED=true and
-// OTEL_TRACES_EXPORTER=none are the standard kill switches; either silences all
+// OTEL_TRACES_EXPORTER=none are the standard kill switches; either silences
 // trace export even when an endpoint is present.
 func LoadConfig() Config {
-	tracesExporter := os.Getenv("OTEL_TRACES_EXPORTER")
-	endpointSet := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
-		os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != ""
-	disabled := os.Getenv("OTEL_SDK_DISABLED") == "true" || tracesExporter == "none"
-
 	cfg := Config{
-		Enabled:     !disabled && (endpointSet || tracesExporter != ""),
+		Enabled:     signalEnabled("OTEL_TRACES_EXPORTER", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
 		ServiceName: "stella",
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
@@ -51,43 +56,85 @@ func LoadConfig() Config {
 	return cfg
 }
 
-// Provider is the lifecycle handle for the global tracer provider. The zero
-// value (and any Provider returned when OTel is disabled) is a valid no-op:
-// Shutdown returns nil without touching anything.
+func signalEnabled(exporterKey, endpointKey string) bool {
+	if os.Getenv("OTEL_SDK_DISABLED") == "true" {
+		return false
+	}
+	exporter := os.Getenv(exporterKey)
+	if exporter == "none" {
+		return false
+	}
+	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv(endpointKey) != "" || exporter != ""
+}
+
+// Provider is the lifecycle handle for global OTel providers. The zero value
+// (and any Provider returned when OTel is disabled) is a valid no-op: Shutdown
+// returns nil without touching anything.
 type Provider struct {
-	tp *sdktrace.TracerProvider // nil when OTel is disabled
+	tp *sdktrace.TracerProvider // nil when trace export is disabled
+	lp *sdklog.LoggerProvider   // nil when log export is disabled
+
+	previousTracerProvider trace.TracerProvider
+	previousLoggerProvider otellog.LoggerProvider
+	previousSlog           *slog.Logger
 }
 
 // Init loads OTel config and, when an exporter endpoint is configured, builds
-// the tracer provider, installs it as the global provider, and returns a
-// Provider whose Shutdown flushes pending spans. When disabled it returns a
-// no-op Provider and leaves the global provider as the SDK default.
+// the enabled providers, installs them as globals, and returns a Provider whose
+// Shutdown flushes pending telemetry. When disabled it returns a no-op Provider
+// and leaves the global providers as the SDK defaults.
 func Init(ctx context.Context) (*Provider, error) {
 	cfg := LoadConfig()
-	if !cfg.Enabled {
+	logsEnabled := signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+	if !cfg.Enabled && !logsEnabled {
 		return &Provider{}, nil
 	}
 
-	tp, err := newTracerProvider(ctx, cfg)
+	res, err := newResource(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	otel.SetTracerProvider(tp)
-	slog.Info("otel tracing enabled",
-		"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		"service", cfg.ServiceName)
-	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
-		slog.Warn("otel exporter transport is insecure; spans are sent without TLS")
+
+	p := &Provider{}
+	if cfg.Enabled {
+		p.tp, err = newTracerProvider(ctx, res)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return &Provider{tp: tp}, nil
+	if logsEnabled {
+		p.lp, err = newLoggerProvider(ctx, res)
+		if err != nil {
+			if p.tp != nil {
+				_ = p.tp.Shutdown(ctx)
+			}
+			return nil, err
+		}
+	}
+
+	if p.tp != nil {
+		p.previousTracerProvider = otel.GetTracerProvider()
+		otel.SetTracerProvider(p.tp)
+		slog.Info("otel tracing enabled",
+			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"service", cfg.ServiceName)
+	}
+	if p.lp != nil {
+		p.previousLoggerProvider = otellogglobal.GetLoggerProvider()
+		p.previousSlog = slog.Default()
+		otellogglobal.SetLoggerProvider(p.lp)
+		slog.SetDefault(slog.New(newTeeHandler(currentSlogHandler(), otelslog.NewHandler("stella"))))
+		slog.Info("otel logs enabled",
+			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"service", cfg.ServiceName)
+	}
+	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
+		slog.Warn("otel exporter transport is insecure; telemetry is sent without TLS")
+	}
+	return p, nil
 }
 
-func newTracerProvider(ctx context.Context, cfg Config) (*sdktrace.TracerProvider, error) {
-	exporter, err := autoexport.NewSpanExporter(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("otel: create exporter: %w", err)
-	}
-
+func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(semconv.ServiceName(cfg.ServiceName)),
 		resource.WithProcessRuntimeDescription(),
@@ -95,6 +142,14 @@ func newTracerProvider(ctx context.Context, cfg Config) (*sdktrace.TracerProvide
 	)
 	if err != nil {
 		return nil, fmt.Errorf("otel: create resource: %w", err)
+	}
+	return res, nil
+}
+
+func newTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+	exporter, err := autoexport.NewSpanExporter(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("otel: create span exporter: %w", err)
 	}
 
 	// No WithSampler: Stella uses the SDK default ParentBased(AlwaysSample).
@@ -104,11 +159,72 @@ func newTracerProvider(ctx context.Context, cfg Config) (*sdktrace.TracerProvide
 	), nil
 }
 
-// Shutdown flushes pending spans and stops the provider. It is a no-op when
-// OTel is disabled. The caller controls the deadline via ctx.
-func (p *Provider) Shutdown(ctx context.Context) error {
-	if p == nil || p.tp == nil {
+func newLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog.LoggerProvider, error) {
+	exporter, err := autoexport.NewLogExporter(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("otel: create log exporter: %w", err)
+	}
+
+	return sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(&gracefulExporter{inner: exporter})),
+		sdklog.WithResource(res),
+	), nil
+}
+
+// gracefulExporter wraps a log exporter and auto-disables on the first
+// "Unimplemented" gRPC error, which means the backend does not support the
+// logs service (e.g. Jaeger). A single warning is logged; subsequent exports
+// become no-ops.
+type gracefulExporter struct {
+	inner    sdklog.Exporter
+	disabled atomic.Bool
+}
+
+func (e *gracefulExporter) Export(ctx context.Context, records []sdklog.Record) error {
+	if e.disabled.Load() {
 		return nil
 	}
-	return p.tp.Shutdown(ctx)
+	err := e.inner.Export(ctx, records)
+	if err != nil && strings.Contains(err.Error(), "Unimplemented") {
+		slog.Warn("otel log export not supported by backend, disabling log export")
+		e.disabled.Store(true)
+		return nil
+	}
+	return err
+}
+
+func (e *gracefulExporter) Shutdown(ctx context.Context) error {
+	return e.inner.Shutdown(ctx)
+}
+
+func (e *gracefulExporter) ForceFlush(ctx context.Context) error {
+	if e.disabled.Load() {
+		return nil
+	}
+	return e.inner.ForceFlush(ctx)
+}
+
+// Shutdown flushes pending telemetry and stops the providers. It is a no-op
+// when OTel is disabled. The caller controls the deadline via ctx.
+func (p *Provider) Shutdown(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+	var err error
+	if p.lp != nil {
+		if p.previousSlog != nil {
+			slog.SetDefault(p.previousSlog)
+		}
+		if p.previousLoggerProvider != nil {
+			otellogglobal.SetLoggerProvider(p.previousLoggerProvider)
+		}
+		err = errors.Join(err, p.lp.Shutdown(ctx))
+	}
+	if p.tp != nil {
+		if p.previousTracerProvider != nil {
+			otel.SetTracerProvider(p.previousTracerProvider)
+		}
+		err = errors.Join(err, p.tp.Shutdown(ctx))
+	}
+	return err
 }
