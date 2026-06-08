@@ -129,6 +129,14 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=your_tenant_key
 
 Stella requests `contact:user.email:readonly` by default so it can fetch the user's email from Feishu. Feishu user email fields are directory data, not a live mailbox verification proof, so `AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS` is required. If Feishu does not return an email, Stella creates the account with a stable internal email like `union_id@tenant_key.feishu.local`. Email-domain allowlisting is useful as an extra filter, but if you enable it, Feishu must return a matching email.
 
+#### Automatic tool authorization
+
+When your Feishu login app and your Feishu tool app (configured on the Credentials page or in `plugins.yaml`) use the **same App ID**, Stella automatically reuses the login token for tool access. You get immediate access to Feishu tools (documents, calendar, mail, etc.) without a second authorization step.
+
+Stella detects the matching App ID at startup and expands the login scope to include tool permissions. The consent screen during login covers both authentication and tool access in one step.
+
+If the login app and tool app use **different App IDs**, this does not apply — users connect their tool account separately through the Credentials page or by asking Stella in chat, as described in the [OAuth Connections](./oauth-connections) guide.
+
 ### Custom OAuth provider
 
 For a non-preset provider, provide the endpoints explicitly:
