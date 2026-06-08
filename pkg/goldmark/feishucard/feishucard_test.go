@@ -386,6 +386,152 @@ func TestButtonMixedWithTable(t *testing.T) {
 	}
 }
 
+// TestRenderFullDocument is an end-to-end golden test that feeds a complete
+// markdown document through Render() and verifies the full element structure.
+func TestRenderFullDocument(t *testing.T) {
+	input := "# Summary Report\n\n" +
+		"Here is **bold**, *italic*, ~~strikethrough~~, and `inline code`.\n\n" +
+		"| Name  | Score |\n|-------|-------|\n| Alice | 95    |\n| Bob   | 87    |\n\n" +
+		"> Important note here.\n\n" +
+		"- Item one\n- Item two\n    - Nested item\n\n" +
+		"1. First\n2. Second\n\n" +
+		"- [x] Completed\n- [ ] Pending\n\n" +
+		"[Visit](https://example.com) and ![logo](img_key)\n\n" +
+		"```python\nprint(\"hello\")\n```\n\n" +
+		"---\n\n" +
+		"Results are ready.\n\n" +
+		"{{button value=\"export\" type=\"primary\" label=\"Export\"}}\n\n" +
+		"Choose an option:\n\n" +
+		"{{button value=\"yes\" label=\"Yes\"}}\n" +
+		"{{button value=\"no\" label=\"No\"}}\n"
+
+	elems := feishucard.Render(input)
+
+	// 6 elements: md (heading+para), table, md (blockquote..text), button, md (separator), column_set
+	wantTags := []string{"markdown", "table", "markdown", "button", "markdown", "column_set"}
+	gotTags := elemTags(elems)
+	if len(elems) != len(wantTags) {
+		t.Fatalf("element count: got %d %v, want %d %v", len(elems), gotTags, len(wantTags), wantTags)
+	}
+	for i, want := range wantTags {
+		if gotTags[i] != want {
+			t.Errorf("elem[%d] tag: got %q, want %q", i, gotTags[i], want)
+		}
+	}
+
+	// --- elem[0]: markdown with heading + inline formatting ---
+	md0 := elems[0]["content"].(string)
+	for _, sub := range []string{
+		"# Summary Report",
+		"**bold**",
+		"*italic*",
+		"~~strikethrough~~",
+		"`inline code`",
+	} {
+		if !strings.Contains(md0, sub) {
+			t.Errorf("elem[0] missing %q in:\n%s", sub, md0)
+		}
+	}
+
+	// --- elem[1]: native table ---
+	cols := elems[1]["columns"].([]map[string]any)
+	if len(cols) != 2 {
+		t.Fatalf("table: got %d columns, want 2", len(cols))
+	}
+	if cols[0]["display_name"] != "Name" {
+		t.Errorf("table col[0] display_name: got %q, want Name", cols[0]["display_name"])
+	}
+	if cols[1]["display_name"] != "Score" {
+		t.Errorf("table col[1] display_name: got %q, want Score", cols[1]["display_name"])
+	}
+	rows := elems[1]["rows"].([]map[string]any)
+	if len(rows) != 2 {
+		t.Fatalf("table: got %d rows, want 2", len(rows))
+	}
+	if rows[0]["c0"] != "Alice" || rows[0]["c1"] != "95" {
+		t.Errorf("table row[0]: got %v, want Alice/95", rows[0])
+	}
+	if rows[1]["c0"] != "Bob" || rows[1]["c1"] != "87" {
+		t.Errorf("table row[1]: got %v, want Bob/87", rows[1])
+	}
+	if elems[1]["page_size"] != 2 {
+		t.Errorf("table page_size: got %v, want 2", elems[1]["page_size"])
+	}
+	headerStyle := elems[1]["header_style"].(map[string]any)
+	if headerStyle["bold"] != true {
+		t.Errorf("table header_style.bold: got %v", headerStyle["bold"])
+	}
+
+	// --- elem[2]: markdown with blockquote, lists, code block, hr, text ---
+	md2 := elems[2]["content"].(string)
+	for _, sub := range []string{
+		"> Important note here.",
+		"- Item one",
+		"    - Nested item",
+		"1. First",
+		"2. Second",
+		"✅ Completed",
+		"☐ Pending",
+		"[Visit](https://example.com)",
+		"![logo](img_key)",
+		"```python",
+		"print(\"hello\")",
+		"---",
+		"Results are ready.",
+	} {
+		if !strings.Contains(md2, sub) {
+			t.Errorf("elem[2] missing %q in:\n%s", sub, md2)
+		}
+	}
+
+	// --- elem[3]: standalone export button ---
+	if elems[3]["type"] != "primary" {
+		t.Errorf("export button type: got %v, want primary", elems[3]["type"])
+	}
+	btnText := elems[3]["text"].(map[string]any)
+	if btnText["content"] != "Export" {
+		t.Errorf("export button label: got %q, want Export", btnText["content"])
+	}
+	behaviors := elems[3]["behaviors"].([]map[string]any)
+	if val := behaviors[0]["value"].(map[string]any)["action"]; val != "export" {
+		t.Errorf("export button action: got %v, want export", val)
+	}
+
+	// --- elem[4]: markdown separator between button groups ---
+	md4 := elems[4]["content"].(string)
+	if !strings.Contains(md4, "Choose an option") {
+		t.Errorf("elem[4] expected separator text, got: %q", md4)
+	}
+
+	// --- elem[5]: column_set with yes/no buttons ---
+	csCols := elems[5]["columns"].([]map[string]any)
+	if len(csCols) != 2 {
+		t.Fatalf("column_set: got %d columns, want 2", len(csCols))
+	}
+	wantButtons := []struct{ label, action string }{
+		{"Yes", "yes"},
+		{"No", "no"},
+	}
+	for i, want := range wantButtons {
+		colElems := csCols[i]["elements"].([]map[string]any)
+		if len(colElems) != 1 || colElems[0]["tag"] != "button" {
+			t.Errorf("column[%d]: expected 1 button, got %v", i, colElems)
+			continue
+		}
+		btn := colElems[0]
+		if txt := btn["text"].(map[string]any); txt["content"] != want.label {
+			t.Errorf("column[%d] button label: got %q, want %q", i, txt["content"], want.label)
+		}
+		bvs := btn["behaviors"].([]map[string]any)
+		if val := bvs[0]["value"].(map[string]any)["action"]; val != want.action {
+			t.Errorf("column[%d] button action: got %v, want %q", i, val, want.action)
+		}
+		if btn["type"] != "default" {
+			t.Errorf("column[%d] button type: got %v, want default", i, btn["type"])
+		}
+	}
+}
+
 func elemTags(elems []map[string]any) []string {
 	tags := make([]string, len(elems))
 	for i, e := range elems {
