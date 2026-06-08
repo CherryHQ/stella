@@ -45,25 +45,6 @@ Stella 可以从多个来源安装技能：
 2. 进入 Settings，然后 API Tokens，创建一个令牌。
 3. 在聊天中发送：`/config CLAWHUB_TOKEN your-token`
 
-### 从 CLI 安装
-
-```bash
-# 搜索技能
-stella skill search "git"
-
-# 为当前代理从 clawhub.ai 安装
-stella skill install "clawhub:git-helper"
-
-# 安装特定版本
-stella skill install "clawhub:git-helper@1.2.0"
-
-# 从 GitHub 安装
-stella skill install "owner/repo@skill-name"
-
-# 从本地路径安装
-stella skill install "/path/to/skill"
-```
-
 ## 管理技能
 
 ### 从对话中管理
@@ -72,20 +53,9 @@ stella skill install "/path/to/skill"
 - **"移除 git-helper 技能。"**
 - **"加载部署技能。"** — Stella 读取该技能的指令用于当前任务。
 
-### 从 CLI 管理
+### 从 Web UI 管理
 
-```bash
-# 列出当前代理可见的技能
-stella skill list
-
-# 包含当前项目会话中的项目技能
-stella skill list
-
-# 从当前代理下移除一个用户技能
-stella skill remove "git-helper"
-```
-
-技能命令使用 Stella 注入到代理会话中的 scoped `STELLA_TOKEN`。该 token 携带当前代理和会话上下文，服务端会在每次请求时校验这个作用域。
+在技能页面浏览、安装和移除各代理的技能。
 
 ## 创建自定义技能
 
@@ -125,13 +95,7 @@ Always ask the user for confirmation before pushing to production.
 
 - **"创建一个叫 'deploy' 的技能，描述我们的部署流程。"**
 
-或者通过 CLI：
-
-```bash
-stella skill create --name "my-skill" --description "What this skill does"
-```
-
-技能正文是 frontmatter 之后的 Markdown 内容。编写清晰的分步指令——Stella 会按字面意思执行。
+Stella 通过内置的 skills 工具直接创建和管理技能，无需 CLI。
 
 ## 小贴士
 
