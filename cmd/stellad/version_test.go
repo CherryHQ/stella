@@ -401,6 +401,14 @@ func TestFindChecksumAsset(t *testing.T) {
 		t.Fatalf("got %q, want checksums.txt", got.Name)
 	}
 
+	got, ok = findChecksumAsset([]githubReleaseAsset{{Name: "stella_0.43.1_checksums.txt"}})
+	if !ok {
+		t.Fatal("expected to find prefixed GoReleaser checksums asset")
+	}
+	if got.Name != "stella_0.43.1_checksums.txt" {
+		t.Fatalf("got %q, want stella_0.43.1_checksums.txt", got.Name)
+	}
+
 	_, ok = findChecksumAsset([]githubReleaseAsset{{Name: "archive.tar.gz"}})
 	if ok {
 		t.Fatal("expected not found when checksums.txt missing")

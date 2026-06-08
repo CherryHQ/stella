@@ -28,8 +28,9 @@ const (
 	githubRepo  = "stella"
 
 	// maxArchiveBytes caps the total decompressed size of a release archive
-	// to defend against decompression bombs or CDN compromise.
-	maxArchiveBytes = 100 << 20 // 100 MB
+	// to defend against decompression bombs or CDN compromise. Release archives
+	// include both stella and stellad; stellad can exceed 100 MB by itself.
+	maxArchiveBytes = 200 << 20 // 200 MB
 )
 
 var (
@@ -412,7 +413,8 @@ func verifyChecksum(ctx context.Context, release *githubRelease, archiveName, ar
 
 func findChecksumAsset(assets []githubReleaseAsset) (githubReleaseAsset, bool) {
 	for _, a := range assets {
-		if strings.EqualFold(filepath.Base(a.Name), "checksums.txt") {
+		name := filepath.Base(a.Name)
+		if strings.EqualFold(name, "checksums.txt") || strings.HasSuffix(strings.ToLower(name), "_checksums.txt") {
 			return a, true
 		}
 	}
