@@ -246,11 +246,32 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		}
 	}
 
-	prefix := ""
+	var out strings.Builder
 	if skillDir != "" {
-		prefix = fmt.Sprintf("<skill_dir>%s</skill_dir>\n", skillDir)
+		fmt.Fprintf(&out, "<skill_dir>%s</skill_dir>\n", skillDir)
 	}
-	return prefix + fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data), nil
+	fmt.Fprintf(&out, "<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data)
+
+	if path == pkgplugins.SkillMainFile {
+		projectRoot := projectRootFromContext(ctx, t.projectRoot)
+		vc := t.viewContext(ctx)
+		if files, _, err := t.svc.ListFiles(ctx, name, vc, projectRoot); err == nil {
+			var refs []string
+			for _, f := range files {
+				if f != pkgplugins.SkillMainFile {
+					refs = append(refs, f)
+				}
+			}
+			if len(refs) > 0 {
+				out.WriteString("\n\nThis skill has referenced files. Load each one before acting:\n")
+				for _, ref := range refs {
+					fmt.Fprintf(&out, "  skills tool action=load name=%q path=%q\n", name, ref)
+				}
+			}
+		}
+	}
+
+	return out.String(), nil
 }
 
 type installedSkill struct {

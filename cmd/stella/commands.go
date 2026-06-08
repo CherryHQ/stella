@@ -15,7 +15,6 @@ Use these commands to manage tasks, schedules, content, secrets, and more.
 Start the server with "stellad server".`,
 		Version: version.DisplayVersion(),
 		Commands: []*ucli.Command{
-			skillsCommand(),
 			versionCommand(),
 			recallyCommand(),
 			schedulerCommand(),

@@ -89,6 +89,18 @@ func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins
 	return &sk, nil
 }
 
+func (s *testSkillStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
+	rows, err := s.q.ListSkillFiles(ctx, skillID)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(rows))
+	for _, r := range rows {
+		paths = append(paths, r.Path)
+	}
+	return paths, nil
+}
+
 func (s *testSkillStore) LoadFile(ctx context.Context, skillID, path string) (string, error) {
 	f, err := s.q.GetSkillFile(ctx, sqlc.GetSkillFileParams{SkillID: skillID, Path: path})
 	if err != nil {
