@@ -2,8 +2,10 @@ package channel
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"filippo.io/age"
@@ -15,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // channelAuthStore is the subset of auth store interfaces needed by the channel coordinator.
@@ -57,6 +60,7 @@ type Coordinator struct {
 	semanticGroupArbiter SemanticGroupArbiter
 	publisherRegistry    *PublisherRegistry
 	groupDispatcher      *GroupDispatcher
+	db                   *sql.DB
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -180,6 +184,69 @@ func WithGroupDispatcher(dispatcher *GroupDispatcher) CoordinatorOption {
 
 func (c *Coordinator) SetGroupDispatcher(dispatcher *GroupDispatcher) {
 	c.groupDispatcher = dispatcher
+}
+
+// WithDB gives the coordinator direct DB access for group member management.
+func WithDB(db *sql.DB) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.db = db
+	}
+}
+
+// EnsurePlatformGroupMember resolves the internal group ID for a platform group
+// and registers the channel's agent as a member. Safe to call repeatedly.
+func (c *Coordinator) EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {
+	if c.eventLog == nil || c.db == nil {
+		return errors.New("group member provisioning not configured")
+	}
+	groupID, err := c.eventLog.ResolveGroupID(ctx, platform, platformGroupID, "")
+	if err != nil {
+		return fmt.Errorf("resolve group: %w", err)
+	}
+	ch, err := c.store.GetChannel(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("get channel %q: %w", channelID, err)
+	}
+	if ch.AgentID == "" {
+		return fmt.Errorf("channel %q has no agent", channelID)
+	}
+	q := sqlc.New(c.db)
+	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{
+		GroupID:        groupID,
+		AgentID:        ch.AgentID,
+		ReplyChannelID: channelID,
+	}); err != nil {
+		return fmt.Errorf("add group member: %w", err)
+	}
+	slog.Info("ensured platform group member", "platform", platform, "platform_group_id", platformGroupID, "group_id", groupID, "agent_id", ch.AgentID, "channel_id", channelID)
+	return nil
+}
+
+// RemovePlatformGroupMember removes the channel's agent from a platform group.
+func (c *Coordinator) RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {
+	if c.eventLog == nil || c.db == nil {
+		return errors.New("group member provisioning not configured")
+	}
+	groupID, err := c.eventLog.ResolveGroupID(ctx, platform, platformGroupID, "")
+	if err != nil {
+		return fmt.Errorf("resolve group: %w", err)
+	}
+	ch, err := c.store.GetChannel(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("get channel %q: %w", channelID, err)
+	}
+	if ch.AgentID == "" {
+		return nil
+	}
+	q := sqlc.New(c.db)
+	if err := q.RemoveGroupMember(ctx, sqlc.RemoveGroupMemberParams{
+		GroupID: groupID,
+		AgentID: ch.AgentID,
+	}); err != nil {
+		return fmt.Errorf("remove group member: %w", err)
+	}
+	slog.Info("removed platform group member", "platform", platform, "platform_group_id", platformGroupID, "group_id", groupID, "agent_id", ch.AgentID)
+	return nil
 }
 
 // RegisterBotIdentity records a bot's platform identity for mention resolution.

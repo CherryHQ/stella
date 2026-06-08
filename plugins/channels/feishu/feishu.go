@@ -57,10 +57,13 @@ type Config struct {
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
+type listChatsFunc func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
+
 type Bot struct {
-	client   *lark.Client
-	wsClient *larkws.Client
-	handler  channel.Handler
+	client    *lark.Client
+	wsClient  *larkws.Client
+	listChats listChatsFunc
+	handler   channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
@@ -132,12 +135,23 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	eventHandler := dispatcher.NewEventDispatcher(b.cfg.VerificationToken, b.cfg.EncryptKey).
 		OnP2MessageReceiveV1(b.onMessage).
-		OnP2MessageReactionCreatedV1(b.onReaction)
+		OnP2MessageReactionCreatedV1(b.onReaction).
+		OnP2MessageReactionDeletedV1(b.onReactionDeleted).
+		OnP2MessageReadV1(b.onMessageRead).
+		OnP2ChatMemberBotAddedV1(b.onBotAdded).
+		OnP2ChatMemberBotDeletedV1(b.onBotDeleted)
 
 	b.wsClient = larkws.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		larkws.WithEventHandler(eventHandler),
 		larkws.WithLogLevel(larkcore.LogLevelInfo),
 	)
+	if b.listChats == nil {
+		b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
+			return b.client.Im.Chat.List(ctx, req)
+		}
+	}
+
+	go b.syncGroups()
 
 	logger().Info("feishu bot starting (WebSocket mode)")
 
