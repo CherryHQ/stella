@@ -117,6 +117,55 @@ The bot streams responses by editing messages in place:
 
 Tool activity from the assistant is summarized inline during streaming.
 
+## Rich Card Rendering
+
+Responses from the AI are rendered as [Feishu Card JSON 2.0](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/feishu-cards-v2/introduction-to-feishu-card-json-structure) messages, not plain text. This gives you native formatting inside Feishu.
+
+### Supported markdown
+
+Most standard markdown passes through to the card natively:
+
+| Syntax                    | Example                    | Supported                |
+| ------------------------- | -------------------------- | ------------------------ |
+| Headings                  | `# H1` through `###### H6` | Yes                      |
+| Bold / italic             | `**bold**` `*italic*`      | Yes                      |
+| Strikethrough             | `~~text~~`                 | Yes                      |
+| Inline code               | `` `code` ``               | Yes                      |
+| Fenced code blocks        | ` ```go ... ``` `          | Yes                      |
+| Links                     | `[text](url)`              | Yes                      |
+| Blockquotes               | `> text`                   | Yes                      |
+| Ordered / unordered lists | `1.` / `-`                 | Yes                      |
+| Nested lists              | Indented sub-items         | Yes                      |
+| Thematic break            | `---`                      | Yes                      |
+| Task checkboxes           | `- [x]` / `- [ ]`          | Yes (rendered as ✅ / ☐) |
+| Images                    | `![alt](img_key)`          | Partial (see below)      |
+
+### Tables
+
+GFM tables are rendered as native Feishu table components with full pagination — no row limit. Column alignment (`:--`, `:-:`, `--:`) is preserved. Up to 5 tables per card use native components; any additional tables fall back to code-block formatting.
+
+### Interactive buttons
+
+Agents can include clickable buttons in their responses using a double-curly-brace syntax. The format is:
+
+<pre>{'{{'}button value="retry" type="primary" label="Retry"{'}}'}</pre>
+
+| Attribute | Required | Description                                             |
+| --------- | -------- | ------------------------------------------------------- |
+| `value`   | Yes      | Callback identifier sent back when clicked              |
+| `label`   | Yes      | Button display text                                     |
+| `type`    | No       | Style: `default`, `primary`, `danger`                   |
+| `confirm` | No       | Confirmation dialog text shown before the click is sent |
+
+When you click a button, Stella forwards the action to the agent as a message (e.g. `[User clicked: retry]`), so the agent can decide what to do in context. A toast notification ("Processing...") appears immediately while the agent processes the action.
+
+Consecutive buttons are grouped horizontally. A single button takes a full row.
+
+### Known limitations
+
+- **Images require a Feishu image key.** The `![alt](img_key)` syntax works only when the source is an `img_key` uploaded via the Feishu API. External URLs (e.g. `https://example.com/photo.png`) are silently ignored by Feishu. Image upload is not yet implemented.
+- **HTML tags in markdown** (e.g. `<font>`, `<text_tag>`) are passed through but not validated. Use them only if you know the Feishu card renderer supports them.
+
 ## Supported Message Types
 
 | Type               | Behavior                                                                            |
