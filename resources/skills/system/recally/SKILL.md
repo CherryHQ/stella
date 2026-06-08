@@ -24,35 +24,43 @@ open the SQLite database directly.
 | Twitter/X feed discovery                    | [references/twitter-workflow.md](references/twitter-workflow.md) |
 | Website (no-RSS) feed discovery             | [references/website-workflow.md](references/website-workflow.md) |
 
+## CLI syntax
+
+The `stella recally` CLI is the source of truth for command syntax and examples. Before running a Recally command, read that command's help output.
+
 ## Search and Retrieve
 
-```bash
-stella recally search "query" --limit 20 --json
-stella recally list --status unread --starred --source-type web --limit 20 --json
-stella recally read <id>
-```
+Read these first:
 
-`list` filters: `--status` (unread/read/archived), `--source-type` (web/twitter/youtube/github/rss/pdf), `--starred`, `--limit`.
+```bash
+stella recally search --help
+stella recally list --help
+stella recally read --help
+```
 
 **Workflow**: `search` → `read` for details. Never assume content without reading.
 
 ## Manage Articles
 
+Read these first:
+
 ```bash
-stella recally update <id> --status read --starred
-stella recally update <id> --tags "tag1" --tags "tag2"   # replaces existing tags
-stella recally update <id> --summary "..."
-stella recally delete <id>
+stella recally save --help
+stella recally update --help
+stella recally delete --help
 ```
 
 ## Feeds
 
+Read these first:
+
 ```bash
-stella recally feed add <feed-url>             # kind sniffed from URL (x.com → twitter, else rss); override with --kind
-stella recally feed poll --limit 20 --json     # rss fast-path; non-rss feeds are skipped server-side
-stella recally feed list --json                # includes each feed's kind
-stella recally feed remove <feed-id>
-stella recally feed entry add --feed-id <id> --guid <guid> --url <url> --title <title>   # source-agnostic; prints new/dup
+stella recally feed add --help
+stella recally feed poll --help
+stella recally feed list --help
+stella recally feed remove --help
+stella recally feed entry add --help
+stella recally feed mark --help
 ```
 
 `feed add` sniffs the kind from the URL: `x.com` / `twitter.com` hosts become
@@ -69,8 +77,10 @@ to the channel's RSS feed (`https://www.youtube.com/feeds/videos.xml?channel_id=
 
 ## Daily Digest
 
+Read this first:
+
 ```bash
-stella recally digest
+stella recally digest --help
 ```
 
 Format for user:

@@ -88,21 +88,25 @@ Potential biases, assumptions, strengths, or weaknesses. Any limitations or area
 
 ## 3. Save
 
+Before saving, read the command help:
+
 ```bash
-stella recally save "<url>" --json \
-    --content-file "$f" \
-    --title "..." --author "..." --summary "$(cat "$sf")" \
-    --tags "tag1" --tags "tag2" \
-    --source-type web \
-    --published-at "2024-01-01T00:00:00Z" \
-    --metadata '{"worth_reading":"<tier-text-only>"}'
+stella recally save --help
 ```
 
-- Positional `<url>` is required.
-- `--published-at` is RFC3339 (use `.published` from `--json`; omit if not available).
-- `tier-text-only` is `Top pick`, `Good read`, or `Skim` — no emoji.
-- `--source-type`: web / twitter / youtube / github / rss / pdf.
+Then save with the fetched content file, generated title, author, structured summary, tags, source type, published time when available, and `worth_reading` metadata. The CLI help is the source of truth for exact syntax and examples.
+
+Required values for this workflow:
+
+- URL
+- content file path (`$f`)
+- title
+- author when known
+- structured summary from `$sf`
+- 3-7 tags
+- source type (`web`, `twitter`, `youtube`, `github`, `rss`, or `pdf`)
+- `worth_reading` metadata value: `Top pick`, `Good read`, or `Skim` — no emoji
 
 **Output** (`--json`): the saved article resource, including `id`, `file_path`, `url`, `title`, `status`, `source_type`, and `saved_at`.
 
-To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, then re-run save with `--content-file $f`.
+To re-fetch and refresh an existing article: recompute `$f` from the URL hash, re-fetch, read `stella recally save --help`, then save again with the refreshed content file.

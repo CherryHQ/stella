@@ -100,35 +100,4 @@ Stella 可以给你一份每日阅读总结：
 
 所有阅读助手命令都通过 `stella recally` 子命令使用。你通常通过对话交互，但 CLI 也可用于脚本。
 
-```bash
-# 保存文章
-stella recally save "https://example.com/article" \
-  --title "Article Title" \
-  --summary "Brief summary" \
-  --tags "go,concurrency"
-
-# 列出文章
-stella recally list
-stella recally list --status unread --json
-
-# 搜索文章
-stella recally search "concurrency patterns"
-
-# 读取完整文章内容
-stella recally read <article-id>
-
-# 更新文章
-stella recally update <article-id> --status read --starred
-
-# 删除文章
-stella recally delete <article-id>
-
-# RSS 订阅源管理
-stella recally feed add <feed-url>
-stella recally feed list
-stella recally feed remove <feed-id>
-stella recally feed poll
-
-# 每日摘要
-stella recally digest
-```
+使用 [Recally CLI 参考](/docs/recally/cli) 先找到对应 help 命令。例如，从脚本保存文章前，先阅读 `stella recally save --help`。

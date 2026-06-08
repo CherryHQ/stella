@@ -19,6 +19,11 @@ func recallySaveCommand() *ucli.Command {
 		Name:      "save",
 		Usage:     "Save an article to your library",
 		ArgsUsage: "<url>",
+		Description: `Examples:
+  stella recally save --title "Article Title" --summary "Brief summary" --tags go --tags concurrency "https://example.com/article"
+  stella recally save --json --content-file article.md --source-type twitter --title "Tweet title" "https://x.com/user/status/123"
+
+Options must be placed before the URL. Trailing options are rejected.`,
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "canonical-url", Usage: "Canonical URL (optional, overrides computed canonical URL for deduplication)"},
 			&ucli.StringFlag{Name: "title", Usage: "Article title"},
@@ -32,9 +37,12 @@ func recallySaveCommand() *ucli.Command {
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally save [options] <url>"); err != nil {
+				return err
+			}
 			url := c.Args().First()
 			if url == "" {
-				return fmt.Errorf("usage: stella recally save <url>")
+				return fmt.Errorf("usage: stella recally save [options] <url>")
 			}
 			api, err := apiclient.NewAPIClient()
 			if err != nil {
@@ -109,6 +117,9 @@ func recallyListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
 		Usage: "List saved articles",
+		Description: `Examples:
+  stella recally list
+  stella recally list --status unread --source-type twitter --limit 20 --json`,
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "status", Usage: "Filter by status: unread, read, archived"},
 			&ucli.StringFlag{Name: "source-type", Usage: "Filter by source type: web, twitter, youtube, github, rss, pdf"},
@@ -159,14 +170,20 @@ func recallySearchCommand() *ucli.Command {
 		Name:      "search",
 		Usage:     "Search articles by title, summary, tags, or author",
 		ArgsUsage: "<query>",
+		Description: `Examples:
+  stella recally search "concurrency patterns"
+  stella recally search --limit 20 "semiconductors"`,
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum number of results", Value: 50},
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally search [options] <query>"); err != nil {
+				return err
+			}
 			query := c.Args().First()
 			if query == "" {
-				return fmt.Errorf("usage: stella recally search <query>")
+				return fmt.Errorf("usage: stella recally search [options] <query>")
 			}
 			list, err := apiclient.Call[apiclient.ArticleList](func(api *apiclient.Client) (*http.Response, error) {
 				return api.ListArticles(c.Context, &apiclient.ListArticlesParams{
@@ -199,7 +216,12 @@ func recallyReadCommand() *ucli.Command {
 		Name:      "read",
 		Usage:     "Read full article content",
 		ArgsUsage: "<article-id>",
+		Description: `Example:
+  stella recally read <article-id>`,
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally read <article-id>"); err != nil {
+				return err
+			}
 			articleID := c.Args().First()
 			if articleID == "" {
 				return fmt.Errorf("usage: stella recally read <article-id>")
@@ -228,6 +250,11 @@ func recallyUpdateCommand() *ucli.Command {
 		Name:      "update",
 		Usage:     "Update article metadata",
 		ArgsUsage: "<article-id>",
+		Description: `Examples:
+  stella recally update --status read --starred <article-id>
+  stella recally update --summary "New summary" --tags ai --tags infra <article-id>
+
+Options must be placed before the article ID. Trailing options are rejected.`,
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "status", Usage: "New status: unread, read, archived"},
 			&ucli.BoolFlag{Name: "starred", Usage: "Star or unstar the article"},
@@ -236,9 +263,12 @@ func recallyUpdateCommand() *ucli.Command {
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally update [options] <article-id>"); err != nil {
+				return err
+			}
 			articleID := c.Args().First()
 			if articleID == "" {
-				return fmt.Errorf("usage: stella recally update <article-id>")
+				return fmt.Errorf("usage: stella recally update [options] <article-id>")
 			}
 			body := apiclient.UpdateArticleJSONRequestBody{}
 			if c.IsSet("status") {
@@ -279,11 +309,16 @@ func recallyDeleteCommand() *ucli.Command {
 		Name:      "delete",
 		Usage:     "Delete an article from library",
 		ArgsUsage: "<article-id>",
-		Flags:     []ucli.Flag{cli.JSONFlag()},
+		Description: `Example:
+  stella recally delete <article-id>`,
+		Flags: []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally delete [options] <article-id>"); err != nil {
+				return err
+			}
 			articleID := c.Args().First()
 			if articleID == "" {
-				return fmt.Errorf("usage: stella recally delete <article-id>")
+				return fmt.Errorf("usage: stella recally delete [options] <article-id>")
 			}
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteArticle(c.Context, articleID)

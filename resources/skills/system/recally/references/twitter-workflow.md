@@ -7,11 +7,13 @@ re-lists and Go drops the duplicates.
 
 ## 1. Identify Twitter feeds
 
+Before listing feeds, read the command help:
+
 ```bash
-stella recally feed list --json
+stella recally feed list --help
 ```
 
-Process each feed whose `kind` is `twitter`. The feed's `metadata.external_id`
+List feeds with JSON output. Process each feed whose `kind` is `twitter`. The feed's `metadata.external_id`
 holds the stable numeric X user id (rename-proof); fall back to the handle in the
 feed `url` if it is missing.
 
@@ -35,11 +37,13 @@ For each returned status:
 
 ## 3. Push entries (Go dedups)
 
+Before adding feed entries, read the command help:
+
 ```bash
-stella recally feed entry add --feed-id <feed-id> --guid <tweet-id> --url <tweet-url> --title "<text>"
+stella recally feed entry add --help
 ```
 
-Prints `new` (inserted) or `dup` (guid already existed). Pinned and edited tweets
+Add one feed entry per tweet using the feed ID, tweet ID as `guid`, tweet URL, and tweet text as title. Prints `new` (inserted) or `dup` (guid already existed). Pinned and edited tweets
 are handled automatically by guid dedup — just push them all. Stop pushing a feed
 once you hit a run of `dup` results if you want to save calls, but pushing extras
 is harmless.
@@ -47,7 +51,7 @@ is harmless.
 ## 4. Process pending entries
 
 New entries land as `pending`, exactly like RSS entries. Process them with the
-standard [save-workflow.md](save-workflow.md) using `--source-type twitter`
+standard [save-workflow.md](save-workflow.md) using `source_type=twitter`
 (fetch tweet content via `tap site twitter/fxembed-status id=<tweet-id>`), then
 mark each entry saved / skipped / error as described in
 [rss-workflow.md](rss-workflow.md).

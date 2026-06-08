@@ -8,11 +8,13 @@ nothing, and the next run re-lists and Go drops the duplicates.
 
 ## 1. Identify website feeds
 
+Before listing feeds, read the command help:
+
 ```bash
-stella recally feed list --json
+stella recally feed list --help
 ```
 
-Process each feed whose `kind` is `website`. The `url` is the index page to scan.
+List feeds with JSON output. Process each feed whose `kind` is `website`. The `url` is the index page to scan.
 
 ## 2. Fetch the index page
 
@@ -49,17 +51,19 @@ Use the same normalized URL for both `--guid` and `--url`.
 
 ## 5. Push entries (Go dedups)
 
+Before adding feed entries, read the command help:
+
 ```bash
-stella recally feed entry add --feed-id <feed-id> --guid <item-url> --url <item-url> --title "<title>"
+stella recally feed entry add --help
 ```
 
-Prints `new` (inserted) or `dup` (guid already existed). Pushing extras is harmless;
+Add one feed entry per item using the feed ID, normalized item URL as both `guid` and URL, and the link text or heading as title. Prints `new` (inserted) or `dup` (guid already existed). Pushing extras is harmless;
 stop once you hit a run of `dup` if you want to save calls. `title` = the link text
 or the item's heading.
 
 ## 6. Process pending entries
 
 New entries land as `pending`, exactly like RSS entries. Process them with the
-standard [save-workflow.md](save-workflow.md) using `--source-type web` (fetch each
+standard [save-workflow.md](save-workflow.md) using `source_type=web` (fetch each
 item URL), then mark each entry saved / skipped / error as described in
 [rss-workflow.md](rss-workflow.md).

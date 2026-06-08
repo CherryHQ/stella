@@ -100,35 +100,4 @@ You can schedule this as an automatic morning briefing — just ask Stella to "g
 
 All reading assistant commands are available through the `stella recally` subcommand. You typically interact through conversation, but the CLI is available for scripting.
 
-```bash
-# Save an article
-stella recally save "https://example.com/article" \
-  --title "Article Title" \
-  --summary "Brief summary" \
-  --tags "go,concurrency"
-
-# List articles
-stella recally list
-stella recally list --status unread --json
-
-# Search articles
-stella recally search "concurrency patterns"
-
-# Read full article content
-stella recally read <article-id>
-
-# Update an article
-stella recally update <article-id> --status read --starred
-
-# Delete an article
-stella recally delete <article-id>
-
-# RSS feed management
-stella recally feed add <feed-url>
-stella recally feed list
-stella recally feed remove <feed-id>
-stella recally feed poll
-
-# Daily digest
-stella recally digest
-```
+Use the [Recally CLI reference](/docs/recally/cli) to find the right help command first. For example, read `stella recally save --help` before saving from a script.

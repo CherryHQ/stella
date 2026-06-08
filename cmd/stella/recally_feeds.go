@@ -34,14 +34,23 @@ func recallyFeedAddCommand() *ucli.Command {
 		Name:      "add",
 		Usage:     "Subscribe to a feed (kind is sniffed from the URL unless --kind is set)",
 		ArgsUsage: "<feed-url>",
+		Description: `Examples:
+  stella recally feed add "https://example.com/feed.xml"
+  stella recally feed add --kind twitter "https://x.com/aleabitoreddit"
+  stella recally feed add --kind website "https://example.com/blog"
+
+Options must be placed before the feed URL. Trailing options are rejected.`,
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "kind", Usage: "Force feed kind: rss, twitter, website (default: sniff from URL)"},
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally feed add [options] <feed-url>"); err != nil {
+				return err
+			}
 			feedURL := c.Args().First()
 			if feedURL == "" {
-				return fmt.Errorf("usage: stella recally feed add <feed-url>")
+				return fmt.Errorf("usage: stella recally feed add [options] <feed-url>")
 			}
 			body := apiclient.CreateFeedJSONRequestBody{Url: feedURL}
 			if v := c.String("kind"); v != "" {
@@ -83,7 +92,10 @@ func recallyFeedEntryAddCommand() *ucli.Command {
 		Usage: "Add an entry by guid (source-agnostic; dedups on guid)",
 		Description: `Push a discovered item into a feed. Idempotent on (feed-id, guid):
 prints "new" when inserted, "dup" when the guid already existed. This is
-how skill-driven extraction (e.g. Twitter) feeds items into the library.`,
+how skill-driven extraction (e.g. Twitter) feeds items into the library.
+
+Example:
+  stella recally feed entry add --feed-id <feed-id> --guid <guid> --url <url> --title "Entry title"`,
 		Flags: []ucli.Flag{
 			&ucli.StringFlag{Name: "feed-id", Usage: "Feed ID", Required: true},
 			&ucli.StringFlag{Name: "guid", Usage: "Stable per-source item id (dedup key)", Required: true},
@@ -123,7 +135,10 @@ how skill-driven extraction (e.g. Twitter) feeds items into the library.`,
 func recallyFeedListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
-		Usage: "List subscribed RSS feeds",
+		Usage: "List subscribed feeds",
+		Description: `Examples:
+  stella recally feed list
+  stella recally feed list --json`,
 		Flags: []ucli.Flag{
 			cli.JSONFlag(),
 		},
@@ -163,13 +178,18 @@ func recallyFeedListCommand() *ucli.Command {
 func recallyFeedRemoveCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "remove",
-		Usage:     "Unsubscribe from an RSS feed",
+		Usage:     "Unsubscribe from a feed",
 		ArgsUsage: "<feed-id>",
-		Flags:     []ucli.Flag{cli.JSONFlag()},
+		Description: `Example:
+  stella recally feed remove <feed-id>`,
+		Flags: []ucli.Flag{cli.JSONFlag()},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally feed remove [options] <feed-id>"); err != nil {
+				return err
+			}
 			feedID := c.Args().First()
 			if feedID == "" {
-				return fmt.Errorf("usage: stella recally feed remove <feed-id>")
+				return fmt.Errorf("usage: stella recally feed remove [options] <feed-id>")
 			}
 			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
 				return api.DeleteFeed(c.Context, feedID)
@@ -191,11 +211,19 @@ func recallyFeedPollCommand() *ucli.Command {
 		Name:      "poll",
 		Usage:     "Poll feed(s) for new entries (server-side fetch)",
 		ArgsUsage: "[feed-id]",
+		Description: `Examples:
+  stella recally feed poll --limit 20 --json
+  stella recally feed poll --limit 10 <feed-id>
+
+Options must be placed before the optional feed ID. Trailing options are rejected.`,
 		Flags: []ucli.Flag{
 			&ucli.IntFlag{Name: "limit", Usage: "Maximum new entries to return per feed", Value: 20},
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally feed poll [options] [feed-id]"); err != nil {
+				return err
+			}
 			api, err := apiclient.NewAPIClient()
 			if err != nil {
 				return err
@@ -264,20 +292,32 @@ func recallyFeedMarkCommand() *ucli.Command {
 		Name:      "mark",
 		Usage:     "Mark a feed entry as saved, skipped, or error",
 		ArgsUsage: "<feed-id> <entry-id>",
+		Description: `Examples:
+  stella recally feed mark --status saved --article-id <article-id> <feed-id> <entry-id>
+  stella recally feed mark --status skipped <feed-id> <entry-id>
+  stella recally feed mark --status error --error "fetch failed" <feed-id> <entry-id>
+
+Options must be placed before the feed and entry IDs. Trailing options are rejected.`,
 		Flags: []ucli.Flag{
-			&ucli.StringFlag{Name: "status", Usage: "New status: saved, skipped, error", Required: true},
+			&ucli.StringFlag{Name: "status", Usage: "New status: saved, skipped, error"},
 			&ucli.StringFlag{Name: "article-id", Usage: "Article ID (required when status=saved)"},
 			&ucli.StringFlag{Name: "error", Usage: "Error message (when status=error)"},
 			cli.JSONFlag(),
 		},
 		Action: func(c *ucli.Context) error {
+			if err := rejectFlagsAfterArgs(c, "stella recally feed mark [options] <feed-id> <entry-id>"); err != nil {
+				return err
+			}
 			args := c.Args().Slice()
 			if len(args) < 2 {
-				return fmt.Errorf("usage: stella recally feed mark <feed-id> <entry-id> --status <status>")
+				return fmt.Errorf("usage: stella recally feed mark [options] <feed-id> <entry-id>")
 			}
 			feedID, entryID := args[0], args[1]
 
 			status := apiclient.FeedEntryStatus(c.String("status"))
+			if status == "" {
+				return fmt.Errorf("--status is required")
+			}
 			switch status {
 			case apitypes.FeedEntryStatusSaved, apitypes.FeedEntryStatusSkipped, apitypes.FeedEntryStatusError:
 			default:

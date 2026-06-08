@@ -2,33 +2,25 @@
 
 ## 1. Poll Feeds
 
+Before polling, read the command help:
+
 ```bash
-stella recally feed poll --limit 20 --json
+stella recally feed poll --help
 ```
 
-Returns an array of feed results, each with a `new_entries` array of pending entries.
+Poll enabled feeds with JSON output. The response contains feed results; each result has a `new_entries` array of pending entries.
 
 ## 2. Process Entries in Parallel
 
-Use the `delegate` tool to spawn one delegate per pending entry. Each delegate independently runs the full save workflow from [save-workflow.md](save-workflow.md) with `--source-type rss`, then marks the entry:
+Use the `delegate` tool to spawn one delegate per pending entry. Each delegate independently runs the full save workflow from [save-workflow.md](save-workflow.md) with `source_type=rss`, then marks the entry.
 
-**On success:**
-
-```bash
-stella recally feed mark <feed-id> <entry-id> --status saved --article-id <article-id>
-```
-
-**On failure:**
+Before marking, read the command help:
 
 ```bash
-stella recally feed mark <feed-id> <entry-id> --status error --error "<reason>"
+stella recally feed mark --help
 ```
 
-**To skip** (duplicate, off-topic, paywalled):
-
-```bash
-stella recally feed mark <feed-id> <entry-id> --status skipped
-```
+Mark entries as `saved` with the saved article ID, `error` with a reason, or `skipped` for duplicates, off-topic items, or paywalled content.
 
 Each delegate is self-contained — on failure it marks its own entry as error and exits without affecting others. Wait for all delegates to finish before counting results.
 

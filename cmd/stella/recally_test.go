@@ -77,6 +77,42 @@ func TestRecallySaveRequiresURL(t *testing.T) {
 	}
 }
 
+func TestRecallySaveRejectsFlagsAfterURL(t *testing.T) {
+	app := ucli.NewApp()
+	app.Commands = []*ucli.Command{recallyCommand()}
+	err := app.Run([]string{"stella", "recally", "save", "https://example.com", "--title", "Example"})
+	if err == nil {
+		t.Fatal("expected error for flags after url")
+	}
+	if got := err.Error(); got != "flags must be placed before positional arguments; usage: stella recally save [options] <url>" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestRecallyFeedMarkRejectsFlagsAfterArgs(t *testing.T) {
+	app := ucli.NewApp()
+	app.Commands = []*ucli.Command{recallyCommand()}
+	err := app.Run([]string{"stella", "recally", "feed", "mark", "feed-1", "entry-1", "--status", "saved"})
+	if err == nil {
+		t.Fatal("expected error for flags after feed entry args")
+	}
+	if got := err.Error(); got != "flags must be placed before positional arguments; usage: stella recally feed mark [options] <feed-id> <entry-id>" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestRecallyFeedMarkRequiresStatus(t *testing.T) {
+	app := ucli.NewApp()
+	app.Commands = []*ucli.Command{recallyCommand()}
+	err := app.Run([]string{"stella", "recally", "feed", "mark", "feed-1", "entry-1"})
+	if err == nil {
+		t.Fatal("expected error when status is missing")
+	}
+	if got := err.Error(); got != "--status is required" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
 func TestRecallyDigestSaveRouting(t *testing.T) {
 	t.Setenv("STELLA_TOKEN", "test-token")
 	var hitPath, hitMethod string
