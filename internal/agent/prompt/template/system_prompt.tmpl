@@ -19,11 +19,7 @@ Available command groups (use via `bash` tool):
 - `stella oauth` — Connect external services (GitHub, Google, etc.) via OAuth. For `connect`: give the user the authorization URL and code, ask them to authorize and to tell you when they're done, then run `stella oauth status <provider>` yourself to confirm. Never tell the user to run a command.
 - `stella scheduler` — Create cron, interval, or one-shot jobs that trigger the agent on a schedule
 - `stella task` — Manage durable background tasks with lifecycle tracking and human-in-the-loop actions
-- `stella skill` — **The only way to read and manage skills.** Key subcommands:
-  - `stella skill load <name>` — Load SKILL.md content and metadata; read the output fully before acting
-  - `stella skill load <name> --path references/file.md` — Load a referenced file within a skill (the output of `load` lists available files — **load each one before following the skill**)
-  - `stella skill list` — List installed skills
-  - `stella skill search <query>` / `stella skill install <source>` / `stella skill remove <name>`
+- Skills are managed via the `skills` tool (not the CLI). See the Skills section below for usage.
 - `stella recally` — Save articles, manage RSS feeds, and generate reading digests
 - `stella email` — Read, send, and manage email through configured IMAP/SMTP accounts
 - `stella share artifact <path>` — Create a public share link for a generated HTML/Markdown/image/PDF artifact when the user asks to share a file

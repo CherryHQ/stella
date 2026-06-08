@@ -59,13 +59,7 @@ You can bind a channel to a specific agent, or let users switch agents with `/ag
 
 ## Skills
 
-Search, install, and manage skills from the CLI:
-
-```bash
-stella skill search "web scraping"
-stella skill install owner/repo@skill-name
-stella skill list
-```
+Skills are reusable playbooks that teach Stella how to perform specific tasks. Stella manages skills through a built-in tool — ask her to search, install, or load skills directly in conversation.
 
 ## Documentation
 
@@ -82,9 +76,6 @@ stella skill list
 stellad server                          # Start server; Web UI at http://localhost:25678
 stellad server --port 8080              # Custom port
 stellad upgrade                         # Self-update to latest release
-stella skill search <query>             # Search skills.sh
-stella skill install <name>             # Install a skill for the current agent
-stella skill list                       # List skills visible to the current agent
 stella scheduler list                   # List scheduled jobs
 stella vault list                       # List stored secrets
 stella version                          # Print version

@@ -76,7 +76,6 @@ The `stella` CLI is self-documenting. These are the command groups and their sub
 ```
 stellad server                  # Start server (channels + scheduler); web UI at http://localhost:25678
 stellad upgrade                 # Self-update to latest release
-stella skill      list/search/install/remove
 stella vault      list/get/set/delete
 stella oauth      providers/connect/status/disconnect
 stella share      artifact/article

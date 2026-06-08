@@ -45,25 +45,6 @@ If you hit rate limits on clawhub.ai, you can set a free API token:
 2. Go to Settings, then API Tokens, and create a token.
 3. In chat, send: `/config CLAWHUB_TOKEN your-token`
 
-### From the CLI
-
-```bash
-# Search for skills
-stella skill search "git"
-
-# Install from clawhub.ai for the current agent
-stella skill install "clawhub:git-helper"
-
-# Install a specific version
-stella skill install "clawhub:git-helper@1.2.0"
-
-# Install from GitHub
-stella skill install "owner/repo@skill-name"
-
-# Install from a local path
-stella skill install "/path/to/skill"
-```
-
 ## Managing Skills
 
 ### From a Conversation
@@ -72,20 +53,9 @@ stella skill install "/path/to/skill"
 - **"Remove the git-helper skill."**
 - **"Load the deployment skill."** — Stella reads the skill's instructions for the current task.
 
-### From the CLI
+### From the Web UI
 
-```bash
-# List skills visible to the current agent
-stella skill list
-
-# Include project skills from the current project session
-stella skill list
-
-# Remove a user skill from the current agent
-stella skill remove "git-helper"
-```
-
-Skill commands use the scoped `STELLA_TOKEN` injected into Stella agent sessions. The token carries the current agent and session context, and the server verifies that scope on every request.
+Use the Skills page to browse, install, and remove skills for each agent.
 
 ## Creating Your Own Skills
 
@@ -125,13 +95,7 @@ You can create skills in conversation:
 
 - **"Create a skill called 'deploy' that describes our deployment process."**
 
-Or from the CLI:
-
-```bash
-stella skill create --name "my-skill" --description "What this skill does"
-```
-
-The skill body is the markdown content after the frontmatter. Write clear, step-by-step instructions — Stella follows them literally.
+Stella uses the skills tool to create and manage skills directly — no CLI needed.
 
 ## Tips
 

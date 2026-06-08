@@ -52,6 +52,9 @@ type SkillStore interface {
 	// LoadFile fetches a single file by path. Pass SkillMainFile ("SKILL.md") for the body.
 	LoadFile(ctx context.Context, skillID, path string) (string, error)
 
+	// ListFiles returns all file paths for a skill (no content).
+	ListFiles(ctx context.Context, skillID string) ([]string, error)
+
 	// Create inserts the skill row and all its files (must include "SKILL.md").
 	Create(ctx context.Context, s Skill, files map[string]string) (string, error)
 

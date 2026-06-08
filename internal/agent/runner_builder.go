@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -152,6 +153,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		runnerTools := append([]tools.Tool{}, cfg.BuiltinTools...)
 		runnerTools = append(runnerTools, params.ExtraTools...)
+		if cfg.SkillStore != nil {
+			runnerTools = append(runnerTools, skillstool.NewTool(
+				cfg.SkillStore,
+				config.StellaHome(),
+				cfg.Snap.Workspace,
+				projectRoot,
+				filepath.Join(userRoot, ".agents", "skills"),
+			))
+		}
 
 		return newRunner(ctx, runnerConfig{
 			Provider: providerConfig{

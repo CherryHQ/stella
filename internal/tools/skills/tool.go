@@ -60,7 +60,7 @@ var skillsInputSchema = func() map[string]any {
     },
     "path": {
       "type": "string",
-      "description": "File path within the skill to load (optional for load, defaults to SKILL.md)"
+      "description": "Relative path within the skill to load (e.g. references/api.md). Defaults to SKILL.md"
     },
     "knowledge_type": {
       "type": "string",
@@ -246,11 +246,13 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		}
 	}
 
-	prefix := ""
+	var out strings.Builder
 	if skillDir != "" {
-		prefix = fmt.Sprintf("<skill_dir>%s</skill_dir>\n", skillDir)
+		fmt.Fprintf(&out, "<skill_dir>%s</skill_dir>\n", skillDir)
 	}
-	return prefix + fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data), nil
+	fmt.Fprintf(&out, "<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data)
+
+	return out.String(), nil
 }
 
 type installedSkill struct {

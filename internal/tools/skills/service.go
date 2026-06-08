@@ -208,9 +208,10 @@ func (s *Service) ListFiles(ctx context.Context, name string, vc pkgplugins.Skil
 		files, err := ListDirFiles(rs.Dir)
 		return files, rs.Dir, err
 	}
-	// DB skill — delegate to store's ListFiles (needs skill ID).
-	// The store interface doesn't expose ListFiles with paths only, so we
-	// go through the underlying store if available.
+	if s.store != nil && rs.ID != "" {
+		files, err := s.store.ListFiles(ctx, rs.ID)
+		return files, "", err
+	}
 	return nil, "", nil
 }
 

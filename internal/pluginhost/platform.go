@@ -48,6 +48,10 @@ func (a skillStoreAdapter) LoadFile(ctx context.Context, skillID, path string) (
 	return a.s.LoadFile(ctx, skillID, path)
 }
 
+func (a skillStoreAdapter) ListFiles(ctx context.Context, skillID string) ([]string, error) {
+	return a.s.ListFiles(ctx, skillID)
+}
+
 func (a skillStoreAdapter) Create(ctx context.Context, s pkgplugins.Skill, files map[string]string) (string, error) {
 	return a.s.Create(ctx, skillFromPlugin(s), files)
 }

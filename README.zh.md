@@ -59,13 +59,7 @@ stellad server
 
 ## 技能
 
-通过 CLI 搜索、安装和管理技能：
-
-```bash
-stella skill search "web scraping"
-stella skill install owner/repo@skill-name
-stella skill list
-```
+技能是可复用的操作手册，教会 Stella 如何执行特定任务。Stella 通过内置工具管理技能——直接在对话中让她搜索、安装或加载技能。
 
 ## 文档
 
@@ -82,9 +76,6 @@ stella skill list
 stellad server                          # 启动服务器；Web UI 位于 http://localhost:25678
 stellad server --port 8080              # 自定义端口
 stellad upgrade                         # 自升级到最新版本
-stella skill search <query>             # 搜索 skills.sh
-stella skill install <name>             # 安装技能
-stella skill list                       # 列出已安装技能
 stella scheduler list                   # 列出定时任务
 stella vault list                       # 列出已保存的密钥
 stella version                          # 打印版本
