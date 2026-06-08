@@ -40,8 +40,8 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 
 	var content strings.Builder
 	content.WriteString("Load a skill with the skills tool before following its instructions: action=\"load\", name=\"<skill-name>\". " +
-		"The output includes the SKILL.md content. If it lists referenced files, " +
-		"load each one with action=\"load\", name=\"<skill-name>\", path=\"<file>\" before acting.")
+		"To load a specific file within a skill, use action=\"load\", name=\"<skill-name>\", path=\"<relative-path>\" " +
+		"(path is relative to the skill root, e.g. \"references/api.md\").")
 	content.WriteString("\n\n<available_skills>\n")
 	for _, skill := range all {
 		content.WriteString("  <skill>\n")
