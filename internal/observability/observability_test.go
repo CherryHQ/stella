@@ -119,30 +119,28 @@ func TestLoadConfigDisabledViaExporterNone(t *testing.T) {
 	}
 }
 
-func TestLoadConfigLogsEnabledViaLogsExporter(t *testing.T) {
+func TestSignalEnabledLogsViaExporter(t *testing.T) {
 	clearOTelEnv(t)
 	t.Setenv("OTEL_LOGS_EXPORTER", "console")
 
-	cfg := LoadConfig()
-	if cfg.TracesEnabled {
-		t.Error("TracesEnabled = true, want false when only OTEL_LOGS_EXPORTER is set")
+	if LoadConfig().Enabled {
+		t.Error("Enabled = true, want false when only OTEL_LOGS_EXPORTER is set")
 	}
-	if !cfg.LogsEnabled {
-		t.Error("LogsEnabled = false, want true when OTEL_LOGS_EXPORTER is set")
+	if !signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") {
+		t.Error("logs signalEnabled = false, want true when OTEL_LOGS_EXPORTER is set")
 	}
 }
 
-func TestLoadConfigLogsDisabledViaExporterNone(t *testing.T) {
+func TestSignalEnabledLogsDisabledViaExporterNone(t *testing.T) {
 	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	t.Setenv("OTEL_LOGS_EXPORTER", "none")
 
-	cfg := LoadConfig()
-	if !cfg.TracesEnabled {
-		t.Error("TracesEnabled = false, want true when generic endpoint is set")
+	if !LoadConfig().Enabled {
+		t.Error("Enabled = false, want true when generic endpoint is set")
 	}
-	if cfg.LogsEnabled {
-		t.Error("LogsEnabled = true, want false when OTEL_LOGS_EXPORTER=none")
+	if signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") {
+		t.Error("logs signalEnabled = true, want false when OTEL_LOGS_EXPORTER=none")
 	}
 }
 

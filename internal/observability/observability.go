@@ -1,11 +1,13 @@
-// Package observability owns the process-global OpenTelemetry tracer provider.
-// It is initialized once during server startup and shut down once at exit, so
-// tracing is server-level infrastructure rather than a toggleable plugin.
+// Package observability owns the process-global OpenTelemetry providers (tracer
+// and logger). They are initialized once during server startup and shut down
+// once at exit, so telemetry is server-level infrastructure rather than a
+// toggleable plugin.
 //
-// When OTEL_EXPORTER_OTLP_ENDPOINT is unset (or OTEL_SDK_DISABLED=true), Init is
-// a no-op: the global provider stays the SDK default (no-op), and Shutdown does
-// nothing. Exporter transport details (protocol, headers, TLS) are resolved
-// by the OTel exporter from its standard environment variables.
+// When no OTLP endpoint or signal-specific exporter is configured (or
+// OTEL_SDK_DISABLED=true), Init is a no-op: the global providers stay the SDK
+// defaults (no-op), and Shutdown does nothing. Exporter transport details
+// (protocol, headers, TLS) are resolved by the OTel exporters from their
+// standard environment variables.
 package observability
 
 import (
@@ -31,38 +33,36 @@ import (
 // Exporter-level vars (endpoint, protocol, headers, TLS) are consumed by the
 // auto exporters and are not duplicated here.
 type Config struct {
-	Enabled       bool   // legacy alias for TracesEnabled
-	TracesEnabled bool   // true when trace export is configured and the SDK is not disabled
-	LogsEnabled   bool   // true when log export is configured and the SDK is not disabled
-	ServiceName   string // OTel service name, defaults to "stella"
+	Enabled     bool   // true when trace export is configured and the SDK is not disabled
+	ServiceName string // OTel service name, defaults to "stella"
 }
 
 // LoadConfig reads OTel settings from the environment. Tracing is enabled when
 // the span exporter has something to export to — either an OTLP endpoint (the
 // generic or traces-specific variable) or an explicit OTEL_TRACES_EXPORTER such
-// as "console". Logs follow the equivalent generic/logs endpoint and
-// OTEL_LOGS_EXPORTER settings. OTEL_SDK_DISABLED=true silences every signal;
-// OTEL_TRACES_EXPORTER=none and OTEL_LOGS_EXPORTER=none silence their respective
-// signals even when a generic endpoint is present.
+// as "console" — and the operator has not opted out. OTEL_SDK_DISABLED=true and
+// OTEL_TRACES_EXPORTER=none are the standard kill switches; either silences
+// trace export even when an endpoint is present.
 func LoadConfig() Config {
-	tracesExporter := os.Getenv("OTEL_TRACES_EXPORTER")
-	logsExporter := os.Getenv("OTEL_LOGS_EXPORTER")
-	genericEndpointSet := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != ""
-	tracesEndpointSet := genericEndpointSet || os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != ""
-	logsEndpointSet := genericEndpointSet || os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != ""
-	disabled := os.Getenv("OTEL_SDK_DISABLED") == "true"
-	tracesEnabled := !disabled && tracesExporter != "none" && (tracesEndpointSet || tracesExporter != "")
-
 	cfg := Config{
-		Enabled:       tracesEnabled,
-		TracesEnabled: tracesEnabled,
-		LogsEnabled:   !disabled && logsExporter != "none" && (logsEndpointSet || logsExporter != ""),
-		ServiceName:   "stella",
+		Enabled:     signalEnabled("OTEL_TRACES_EXPORTER", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+		ServiceName: "stella",
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
 		cfg.ServiceName = v
 	}
 	return cfg
+}
+
+func signalEnabled(exporterKey, endpointKey string) bool {
+	if os.Getenv("OTEL_SDK_DISABLED") == "true" {
+		return false
+	}
+	exporter := os.Getenv(exporterKey)
+	if exporter == "none" {
+		return false
+	}
+	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv(endpointKey) != "" || exporter != ""
 }
 
 // Provider is the lifecycle handle for global OTel providers. The zero value
@@ -83,7 +83,8 @@ type Provider struct {
 // and leaves the global providers as the SDK defaults.
 func Init(ctx context.Context) (*Provider, error) {
 	cfg := LoadConfig()
-	if !cfg.TracesEnabled && !cfg.LogsEnabled {
+	logsEnabled := signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+	if !cfg.Enabled && !logsEnabled {
 		return &Provider{}, nil
 	}
 
@@ -93,13 +94,13 @@ func Init(ctx context.Context) (*Provider, error) {
 	}
 
 	p := &Provider{}
-	if cfg.TracesEnabled {
+	if cfg.Enabled {
 		p.tp, err = newTracerProvider(ctx, res)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if cfg.LogsEnabled {
+	if logsEnabled {
 		p.lp, err = newLoggerProvider(ctx, res)
 		if err != nil {
 			if p.tp != nil {
