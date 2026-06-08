@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-06-09
+
+### ✨ Features
+
+- Web: redesign `/memories` page with collapsible sections and diff view.
+- Web: redesign `/skills` page with collapsible sections, inline details edit, and catalog dialog.
+- Feishu: add Goldmark extension for Feishu card markdown. ([#338](https://github.com/CherryHQ/stella/pull/338))
+- Agent skills: replace CLI with native tool for skill access, enabling agents to query skill catalog without shelling out. ([#336](https://github.com/CherryHQ/stella/pull/336))
+
+### 🐛 Bug Fixes
+
+- Reflect: skip no-op memory writes and inject user profile into review prompt.
+- Channel: use `system_prompt` instead of `soul` for semantic group routing.
+- Feishu: use Get Chat API to determine chat type instead of `oc_` prefix heuristic.
+- Feishu: resolve `union_id` for card action callbacks.
+- Feishu: harden `getChatType` and `resolveUnionID`.
+
+### ♻️ Refactoring
+
+- Skill: unify skill loading through CLI, remove inspect command.
+- Feishu: cache chat type lookups from Get Chat API.
+
+### 📝 Documentation
+
+- Replace GreptimeDB with Grafana LGTM in observability guide.
+- Reorganize docs sidebar with Diátaxis-inspired sections.
+- Canonicalize Recally CLI usage docs; document CLI help source policy.
+
+**Full Changelog**: [v0.43.2...v0.44.0](https://github.com/CherryHQ/stella/compare/v0.43.2...v0.44.0)
+
 ## [0.43.2] - 2026-06-08
 
 ### 🐛 Bug Fixes

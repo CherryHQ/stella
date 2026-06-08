@@ -11,6 +11,36 @@ icon: History
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-06-09
+
+### ✨ 功能
+
+- Web：重新设计 `/memories` 页面，支持折叠分组和差异对比视图。
+- Web：重新设计 `/skills` 页面，支持折叠分组、行内详情编辑和技能目录对话框。
+- 飞书：新增 Goldmark 扩展，支持飞书卡片 Markdown 渲染。([#338](https://github.com/CherryHQ/stella/pull/338))
+- Agent 技能：以原生工具替代 CLI 方式访问技能，Agent 无需 shell out 即可查询技能目录。([#336](https://github.com/CherryHQ/stella/pull/336))
+
+### 🐛 修复
+
+- Reflect：跳过无变化的记忆写入，并在复盘提示中注入用户画像。
+- Channel：语义群路由改用 `system_prompt` 字段，不再依赖 `soul`。
+- 飞书：改用 Get Chat API 判断会话类型，不再依赖 `oc_` 前缀启发式匹配。
+- 飞书：修复卡片动作回调中 `union_id` 解析失败的问题。
+- 飞书：加固 `getChatType` 和 `resolveUnionID` 的健壮性。
+
+### ♻️ 重构
+
+- Skill：统一通过 CLI 加载技能，移除 inspect 命令。
+- 飞书：对 Get Chat API 的会话类型查询结果进行缓存。
+
+### 📝 文档
+
+- 可观测性指南替换 GreptimeDB 为 Grafana LGTM。
+- 文档侧边栏按 Diátaxis 结构重新组织。
+- 规范化 Recally CLI 用法文档；补充 CLI 帮助文档策略说明。
+
+**完整变更日志**：[v0.43.2...v0.44.0](https://github.com/CherryHQ/stella/compare/v0.43.2...v0.44.0)
+
 ## [0.43.2] - 2026-06-08
 
 ### 🐛 修复
