@@ -17,11 +17,10 @@ func skillsCommand() *ucli.Command {
 		Name:     "skill",
 		Usage:    "Search, install, and manage reusable skill bundles",
 		Category: "Feature",
-		Description: `Skills are reusable prompt-and-tool bundles that extend what the agent
-can do. Use this command to search the skill registry, install new
-skills, and manage the ones already installed.`,
+		Description: `Skills are reusable instruction sets that extend what the agent can do.
+Use 'load' to read a skill before following it. Use 'search' and 'install'
+to add skills from the registry.`,
 		Subcommands: []*ucli.Command{
-			skillsInspectCommand(),
 			skillsLoadCommand(),
 			skillsSearchCommand(),
 			skillsInstallCommand(),
@@ -59,9 +58,11 @@ func resolveSkill(c *ucli.Context, name string) (string, apitypes.Skill, error) 
 	return "", apitypes.Skill{}, fmt.Errorf("skill %q not found", name)
 }
 
-func fetchSkillContent(c *ucli.Context, agentID, name string, scope apitypes.SkillScope) (string, error) {
+func fetchSkillFile(c *ucli.Context, agentID, name string, scope apitypes.SkillScope, path string) (string, error) {
 	s := apiclient.GetAgentSkillFileParamsScope(scope)
-	path := "SKILL.md"
+	if path == "" {
+		path = "SKILL.md"
+	}
 	file, err := apiclient.Call[apitypes.SkillFileResponse](func(api *apiclient.Client) (*http.Response, error) {
 		return api.GetAgentSkillFile(c.Context, agentID, name, &apiclient.GetAgentSkillFileParams{
 			Path:  path,
@@ -74,16 +75,22 @@ func fetchSkillContent(c *ucli.Context, agentID, name string, scope apitypes.Ski
 	return cli.DerefStr(file.Content), nil
 }
 
-func skillsInspectCommand() *ucli.Command {
+func skillsLoadCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:      "inspect",
-		Usage:     "Show skill metadata and SKILL.md content",
+		Name:      "load",
+		Usage:     "Load skill content (SKILL.md or a referenced file)",
 		ArgsUsage: "<name>",
-		Flags:     []ucli.Flag{cli.JSONFlag()},
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:  "path",
+				Usage: "File path within the skill to load (e.g. references/api.md)",
+			},
+			cli.JSONFlag(),
+		},
 		Action: func(c *ucli.Context) error {
 			name := c.Args().First()
 			if name == "" {
-				return fmt.Errorf("usage: stella skill inspect <name>")
+				return fmt.Errorf("usage: stella skill load <name> [--path references/file.md]")
 			}
 
 			agentID, skill, err := resolveSkill(c, name)
@@ -91,70 +98,72 @@ func skillsInspectCommand() *ucli.Command {
 				return err
 			}
 
-			content, err := fetchSkillContent(c, agentID, name, derefSkillScopeVal(skill.Scope))
+			path := c.String("path")
+			content, err := fetchSkillFile(c, agentID, name, derefSkillScopeVal(skill.Scope), path)
 			if err != nil {
-				return fmt.Errorf("failed to read SKILL.md: %w", err)
+				return err
 			}
 
 			if cli.IsJSON(c) {
-				return cli.PrintJSON(c, map[string]any{
-					"name":        cli.DerefStr(skill.Name),
-					"scope":       derefSkillScope(skill.Scope),
-					"description": cli.DerefStr(skill.Description),
-					"status":      cli.DerefStr(skill.Status),
-					"content":     content,
-				})
+				out := map[string]any{
+					"name":    name,
+					"content": content,
+				}
+				if path != "" {
+					out["path"] = path
+				}
+				return cli.PrintJSON(c, out)
 			}
 
 			o := cli.Stdout(c)
-			o.Printf("Name:        %s\n", cli.DerefStr(skill.Name))
-			o.Printf("Scope:       %s\n", derefSkillScope(skill.Scope))
-			o.Printf("Description: %s\n", cli.DerefStr(skill.Description))
-			if cli.DerefStr(skill.Status) != "" {
-				o.Printf("Status:      %s\n", cli.DerefStr(skill.Status))
+
+			// When loading SKILL.md (default), print metadata header and
+			// a hint about referenced files so the agent knows how to
+			// access them.
+			if path == "" {
+				o.Printf("[skill: %s | scope: %s", name, derefSkillScope(skill.Scope))
+				if cli.DerefStr(skill.Status) != "" {
+					o.Printf(" | status: %s", cli.DerefStr(skill.Status))
+				}
+				o.Println("]")
+				o.Println()
 			}
-			o.Println()
-			o.Println("--- SKILL.md ---")
+
 			o.Println(content)
+
+			if path == "" {
+				files := skillFiles(skill)
+				refs := filterReferences(files)
+				if len(refs) > 0 {
+					o.Println()
+					o.Println("---")
+					o.Printf("This skill has referenced files. Load them with:\n")
+					for _, ref := range refs {
+						o.Printf("  stella skill load %s --path %s\n", name, ref)
+					}
+				}
+			}
+
 			return o.Err()
 		},
 	}
 }
 
-func skillsLoadCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:      "load",
-		Usage:     "Load skill content for the agent to read and follow",
-		ArgsUsage: "<name>",
-		Flags:     []ucli.Flag{cli.JSONFlag()},
-		Action: func(c *ucli.Context) error {
-			name := c.Args().First()
-			if name == "" {
-				return fmt.Errorf("usage: stella skill load <name>")
-			}
-
-			agentID, skill, err := resolveSkill(c, name)
-			if err != nil {
-				return err
-			}
-
-			content, err := fetchSkillContent(c, agentID, name, derefSkillScopeVal(skill.Scope))
-			if err != nil {
-				return fmt.Errorf("failed to read SKILL.md: %w", err)
-			}
-
-			if cli.IsJSON(c) {
-				return cli.PrintJSON(c, map[string]string{
-					"name":    name,
-					"content": content,
-				})
-			}
-
-			o := cli.Stdout(c)
-			o.Println(content)
-			return o.Err()
-		},
+func skillFiles(s apitypes.Skill) []string {
+	if s.Files == nil {
+		return nil
 	}
+	return *s.Files
+}
+
+func filterReferences(files []string) []string {
+	var refs []string
+	for _, f := range files {
+		if f != "SKILL.md" {
+			refs = append(refs, f)
+		}
+	}
+	return refs
 }
 
 func derefSkillScopeVal(s *apitypes.SkillScope) apitypes.SkillScope {

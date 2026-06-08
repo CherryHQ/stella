@@ -39,7 +39,9 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	}
 
 	var content strings.Builder
-	content.WriteString(`Load a skill with the skills tool: action="load", name="<skill-name>". To read a referenced file under a skill, use action="load", name="<skill-name>", path="references/api.md". Draft skills can be enabled with action="patch", name="<skill-name>", status="active".`)
+	content.WriteString("Load a skill via CLI before following its instructions: `stella skill load <name>`. " +
+		"The output includes the SKILL.md content plus a list of referenced files. " +
+		"Load every referenced file with `stella skill load <name> --path <file>` before acting.")
 	content.WriteString("\n\n<available_skills>\n")
 	for _, skill := range all {
 		content.WriteString("  <skill>\n")
