@@ -11,6 +11,40 @@ icon: History
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-06-08
+
+### ✨ 功能
+
+- 新增 Web 群聊 UI 及富文本对话记录组件。([#292](https://github.com/CherryHQ/stella/pull/292))
+- 新增群聊后端：持久化调度器、发布者、发件箱、统一 Web 消息摄取、会话命令、无 @mention 语义仲裁器、当前发言人记忆。([#312](https://github.com/CherryHQ/stella/pull/312), [#313](https://github.com/CherryHQ/stella/pull/313))
+- 通过 fxembed 订阅 Twitter/X 用户 Feed。([#317](https://github.com/CherryHQ/stella/pull/317))
+- 添加 Feed 时拒绝非时间线 X URL。([#320](https://github.com/CherryHQ/stella/pull/320))
+- 新增网站 Feed 类型，支持无 RSS 页面。([#322](https://github.com/CherryHQ/stella/pull/322))
+- 复用飞书登录 Token 进行工具 OAuth 授权。([#329](https://github.com/CherryHQ/stella/pull/329))
+
+### 🐛 修复
+
+- 处理飞书 Post 消息中的内联图片。([#315](https://github.com/CherryHQ/stella/pull/315))
+- 加固群消息分发和记忆提交逻辑。
+- 修正 Recally Twitter tap JSON 命令。
+- 修正 notify 工具的频道列表和静默文档。
+
+### ♻️ 重构
+
+- 将 `cmd/stella` 拆分为 `stella`（CLI）和 `stellad`（守护进程）；升级加固、Email API 迁移、服务路径安全。([#295](https://github.com/CherryHQ/stella/pull/295), [#307](https://github.com/CherryHQ/stella/pull/307))
+- 以意图驱动主从布局统一自动化页面。([#324](https://github.com/CherryHQ/stella/pull/324))
+- Web 全面完成设计系统合规改造。([#326](https://github.com/CherryHQ/stella/pull/326))
+- 设置页面改为 URL 驱动，使用 `SettingsDetailLayout`。([#328](https://github.com/CherryHQ/stella/pull/328))
+- 重新设计聊天侧边栏：Skills/Memory 在左、Context Monitor 在右；Recally 改为 NNW 三栏布局。([#330](https://github.com/CherryHQ/stella/pull/330))
+
+### 📝 文档
+
+- 新增基于 Perplexity 的设计系统文档。([#325](https://github.com/CherryHQ/stella/pull/325))
+- 记录群聊数据流文档。
+- 精简 AGENTS.md，将 Skills 迁移到开发规则。
+
+**完整变更日志**：[v0.42.1...v0.43.0](https://github.com/CherryHQ/stella/compare/v0.42.1...v0.43.0)
+
 ## [0.42.1] - 2026-06-05
 
 ### ✨ 功能

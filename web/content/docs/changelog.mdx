@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-06-08
+
+### ✨ Features
+
+- Add web group chat UI with rich transcript components. ([#292](https://github.com/CherryHQ/stella/pull/292))
+- Add group chat backend: durable dispatcher, publishers, outbox, shared web ingestion, session commands, semantic arbiter for no-mention messages, and current-speaker memory. ([#312](https://github.com/CherryHQ/stella/pull/312), [#313](https://github.com/CherryHQ/stella/pull/313))
+- Subscribe to Twitter/X user feeds via fxembed. ([#317](https://github.com/CherryHQ/stella/pull/317))
+- Reject non-timeline X URLs on feed add. ([#320](https://github.com/CherryHQ/stella/pull/320))
+- Add website feed kind for no-RSS pages. ([#322](https://github.com/CherryHQ/stella/pull/322))
+- Reuse Feishu login token for tool OAuth access. ([#329](https://github.com/CherryHQ/stella/pull/329))
+
+### 🐛 Bug Fixes
+
+- Handle inline images in Feishu post messages. ([#315](https://github.com/CherryHQ/stella/pull/315))
+- Harden group dispatch and memory commits.
+- Correct Recally Twitter tap JSON command.
+- Correct notify tool channel list and silent docs.
+
+### ♻️ Refactoring
+
+- Split `cmd/stella` into `stella` (CLI) and `stellad` (daemon); upgrade hardening, email API migration, service path security. ([#295](https://github.com/CherryHQ/stella/pull/295), [#307](https://github.com/CherryHQ/stella/pull/307))
+- Unify automations page with intent-driven master-detail layout. ([#324](https://github.com/CherryHQ/stella/pull/324))
+- Full web design system compliance sweep. ([#326](https://github.com/CherryHQ/stella/pull/326))
+- URL-driven settings pages with `SettingsDetailLayout`. ([#328](https://github.com/CherryHQ/stella/pull/328))
+- Redesign chat sidebar: Skills/Memory on left, Context Monitor on right; Recally NNW-style three-column layout. ([#330](https://github.com/CherryHQ/stella/pull/330))
+
+### 📝 Documentation
+
+- Add design system docs based on Perplexity. ([#325](https://github.com/CherryHQ/stella/pull/325))
+- Document group chat dataflow.
+- Slim AGENTS.md and move skills to development rules.
+
+**Full Changelog**: [v0.42.1...v0.43.0](https://github.com/CherryHQ/stella/compare/v0.42.1...v0.43.0)
+
 ## [0.42.1] - 2026-06-05
 
 ### ✨ Features
