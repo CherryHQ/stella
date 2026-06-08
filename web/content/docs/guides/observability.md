@@ -9,7 +9,7 @@ Observability gives you visibility into what stella is doing under the hood. Eve
 Tracing is built into the server — there is nothing to enable on the Plugins page. It operates in two modes:
 
 - **Log mode** (always on) -- structured log lines via Go's `slog`, visible in stderr. Zero configuration needed.
-- **OpenTelemetry mode** (opt-in) -- exports distributed traces via standard OTLP environment variables. Both OTLP/gRPC and OTLP/HTTP are supported, including authenticated backends. Activate by setting an OTLP endpoint.
+- **OpenTelemetry mode** (opt-in) -- exports distributed traces and logs via standard OTLP environment variables. Both OTLP/gRPC and OTLP/HTTP are supported, including authenticated backends. Activate by setting an OTLP endpoint.
 
 ## Configuration
 
@@ -41,19 +41,24 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 
 ### OpenTelemetry Mode
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces and logs together, or use signal-specific exporter variables to enable only one signal. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
 
-| Environment Variable                | Default                    | Description                                                                                                                                                                                          |
-| ----------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`       | _(empty -- OTel disabled)_ | OTLP base endpoint. For OTLP/HTTP, use a full URL such as `https://collector.example.com/api/default`. For OTLP/gRPC, use a URL with scheme such as `https://collector.example.com:4317`.            |
-| `OTEL_EXPORTER_OTLP_PROTOCOL`       | SDK default                | Export protocol. Common values: `grpc` or `http/protobuf`.                                                                                                                                           |
-| `OTEL_EXPORTER_OTLP_HEADERS`        | _(empty)_                  | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`.                                                                                                     |
-| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(empty)_                  | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces.                                                                                                           |
-| `OTEL_SERVICE_NAME`                 | `stella`                   | Service name shown in your trace backend.                                                                                                                                                            |
-| `OTEL_EXPORTER_OTLP_INSECURE`       | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                                       |
-| `OTEL_STELLA_RECORD_TOOL_IO`        | `false`                    | Set to `true` to record tool input (e.g. bash commands) and result text on spans. Off by default so this content is never exported; spans always carry tool name, argument count, and result length. |
+| Environment Variable                 | Default                    | Description                                                                                                                                                                                               |
+| ------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`        | _(empty -- OTel disabled)_ | OTLP base endpoint for all signals. For OTLP/HTTP, use a full URL such as `https://collector.example.com/api/default`. For OTLP/gRPC, use a URL with scheme such as `https://collector.example.com:4317`. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | _(empty)_                  | Trace-specific OTLP endpoint. Overrides the generic endpoint for traces.                                                                                                                                  |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`   | _(empty)_                  | Log-specific OTLP endpoint. Overrides the generic endpoint for logs.                                                                                                                                      |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`        | SDK default                | Export protocol. Common values: `grpc` or `http/protobuf`.                                                                                                                                                |
+| `OTEL_EXPORTER_OTLP_HEADERS`         | _(empty)_                  | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`.                                                                                                          |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS`  | _(empty)_                  | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces.                                                                                                                |
+| `OTEL_EXPORTER_OTLP_LOGS_HEADERS`    | _(empty)_                  | Comma-separated headers applied to logs only. Overrides generic OTLP headers for logs.                                                                                                                    |
+| `OTEL_TRACES_EXPORTER`               | SDK default                | Trace exporter. Set to `none` to disable trace export while keeping other OTel signals available.                                                                                                         |
+| `OTEL_LOGS_EXPORTER`                 | SDK default                | Log exporter. Set to `none` to disable log export while keeping traces available.                                                                                                                         |
+| `OTEL_SERVICE_NAME`                  | `stella`                   | Service name shown in your observability backend.                                                                                                                                                         |
+| `OTEL_EXPORTER_OTLP_INSECURE`        | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                                            |
+| `OTEL_STELLA_RECORD_TOOL_IO`         | `false`                    | Set to `true` to record tool input (e.g. bash commands) and result text on spans. Off by default so this content is never exported; spans always carry tool name, argument count, and result length.      |
 
-When OTel is enabled, both modes run simultaneously -- you get log lines and exported traces.
+When OTel is enabled, both modes run simultaneously -- you get stderr log lines plus exported traces and logs.
 
 ### Common Pitfalls
 
@@ -75,13 +80,13 @@ docker run -d --name jaeger \
   -p 4317:4317 \
   jaegertracing/jaeger:latest
 
-# Start stella with tracing over OTLP/gRPC
+# Start stella with tracing and logs over OTLP/gRPC
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 stellad server
 ```
 
-Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations.
+Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations. Jaeger focuses on traces; use a logs-capable backend or collector pipeline when you also want to search exported log records.
 
 ### Using with Other Backends
 
@@ -241,4 +246,4 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 
 ## Turning It Off
 
-There is no plugin to disable. Log mode follows `LOG_LEVEL`; set it to `WARN` or `ERROR` to quiet the per-call INFO lines. OTel export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so leaving that variable empty disables distributed tracing entirely.
+There is no plugin to disable. Log mode follows `LOG_LEVEL`; set it to `WARN` or `ERROR` to quiet the per-call INFO lines. OTel export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` or a signal-specific exporter is set, so leaving those variables empty disables distributed telemetry entirely. Set `OTEL_TRACES_EXPORTER=none` or `OTEL_LOGS_EXPORTER=none` to disable only one signal.

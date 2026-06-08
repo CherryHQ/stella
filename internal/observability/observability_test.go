@@ -2,13 +2,32 @@ package observability
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
 	"go.opentelemetry.io/otel"
 )
 
+func clearOTelEnv(t *testing.T) {
+	for _, key := range []string{
+		"OTEL_SDK_DISABLED",
+		"OTEL_SERVICE_NAME",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+		"OTEL_TRACES_EXPORTER",
+		"OTEL_LOGS_EXPORTER",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
 func TestLoadConfigDisabled(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_SERVICE_NAME", "")
 
@@ -22,6 +41,7 @@ func TestLoadConfigDisabled(t *testing.T) {
 }
 
 func TestLoadConfigDisabledViaKillSwitch(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	t.Setenv("OTEL_SDK_DISABLED", "true")
 
@@ -31,6 +51,7 @@ func TestLoadConfigDisabledViaKillSwitch(t *testing.T) {
 }
 
 func TestLoadConfigServiceName(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_SERVICE_NAME", "custom-svc")
 
@@ -40,6 +61,7 @@ func TestLoadConfigServiceName(t *testing.T) {
 }
 
 func TestLoadConfigEnabled(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 
 	if !LoadConfig().Enabled {
@@ -48,6 +70,7 @@ func TestLoadConfigEnabled(t *testing.T) {
 }
 
 func TestLoadConfigEnabledViaTracesExporter(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_TRACES_EXPORTER", "console")
 
@@ -57,6 +80,7 @@ func TestLoadConfigEnabledViaTracesExporter(t *testing.T) {
 }
 
 func TestLoadConfigEnabledViaTracesEndpoint(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4317")
 
@@ -66,6 +90,7 @@ func TestLoadConfigEnabledViaTracesEndpoint(t *testing.T) {
 }
 
 func TestLoadConfigDisabledViaExporterNone(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	t.Setenv("OTEL_TRACES_EXPORTER", "none")
 
@@ -74,7 +99,35 @@ func TestLoadConfigDisabledViaExporterNone(t *testing.T) {
 	}
 }
 
+func TestLoadConfigLogsEnabledViaLogsExporter(t *testing.T) {
+	clearOTelEnv(t)
+	t.Setenv("OTEL_LOGS_EXPORTER", "console")
+
+	cfg := LoadConfig()
+	if cfg.TracesEnabled {
+		t.Error("TracesEnabled = true, want false when only OTEL_LOGS_EXPORTER is set")
+	}
+	if !cfg.LogsEnabled {
+		t.Error("LogsEnabled = false, want true when OTEL_LOGS_EXPORTER is set")
+	}
+}
+
+func TestLoadConfigLogsDisabledViaExporterNone(t *testing.T) {
+	clearOTelEnv(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+
+	cfg := LoadConfig()
+	if !cfg.TracesEnabled {
+		t.Error("TracesEnabled = false, want true when generic endpoint is set")
+	}
+	if cfg.LogsEnabled {
+		t.Error("LogsEnabled = true, want false when OTEL_LOGS_EXPORTER=none")
+	}
+}
+
 func TestInitDisabledIsNoOp(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
 	before := otel.GetTracerProvider()
@@ -94,8 +147,10 @@ func TestInitDisabledIsNoOp(t *testing.T) {
 }
 
 func TestInitEnabledInstallsAndShutsDown(t *testing.T) {
+	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
 
 	p, err := Init(context.Background())
 	if err != nil {
@@ -112,6 +167,39 @@ func TestInitEnabledInstallsAndShutsDown(t *testing.T) {
 	defer cancel()
 	if err := p.Shutdown(ctx); err != nil {
 		t.Errorf("Shutdown() error = %v, want nil", err)
+	}
+}
+
+func TestInitLogsOnlyInstallsAndShutsDown(t *testing.T) {
+	clearOTelEnv(t)
+	t.Setenv("OTEL_LOGS_EXPORTER", "console")
+
+	beforeTracer := otel.GetTracerProvider()
+	beforeSlog := slog.Default()
+	p, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v, want nil", err)
+	}
+	if p.tp != nil {
+		t.Fatal("Init() installed a tracer provider when only logs are enabled")
+	}
+	if p.lp == nil {
+		t.Fatal("Init() returned a no-op log provider while logs are enabled")
+	}
+	if otel.GetTracerProvider() != beforeTracer {
+		t.Error("Init() replaced the global tracer provider when only logs are enabled")
+	}
+	if slog.Default() == beforeSlog {
+		t.Error("Init() did not wrap the default slog logger")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Shutdown(ctx); err != nil {
+		t.Errorf("Shutdown() error = %v, want nil", err)
+	}
+	if slog.Default() != beforeSlog {
+		t.Error("Shutdown() did not restore the previous slog logger")
 	}
 }
 
