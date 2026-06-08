@@ -88,6 +88,31 @@ stellad server
 
 打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。Jaeger 主要面向追踪；如果还要检索导出的日志，请使用支持日志的后端或采集器管道。
 
+### 配合 GreptimeDB 使用
+
+[GreptimeDB](https://greptime.com/) 是一个统一的时序数据库，原生支持 OTLP 追踪和日志。它在同一端点接收所有信号，只需设置通用的 `OTEL_EXPORTER_OTLP_ENDPOINT` 即可。
+
+```bash
+# 创建持久化卷并启动 GreptimeDB
+docker volume create greptimedb_data
+docker run -d --name greptimedb \
+  -p 4000:4000 \
+  -p 4001:4001 \
+  -p 4317:4317 \
+  -v greptimedb_data:/tmp/greptimedb \
+  greptime/greptimedb:latest standalone start \
+    --http-addr 0.0.0.0:4000 \
+    --mysql-addr 0.0.0.0:4001 \
+    --rpc-addr 0.0.0.0:4317
+
+# 通过 OTLP/gRPC 启动带追踪和日志的 stella
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+stellad server
+```
+
+打开 GreptimeDB 仪表盘 `http://localhost:4000/dashboard`，通过 SQL 查询追踪和日志。
+
 ### 配合其他后端使用
 
 任何兼容 OTLP 的后端都可使用。示例：

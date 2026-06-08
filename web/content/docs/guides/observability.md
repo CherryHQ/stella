@@ -88,6 +88,31 @@ stellad server
 
 Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations. Jaeger focuses on traces; use a logs-capable backend or collector pipeline when you also want to search exported log records.
 
+### Using with GreptimeDB
+
+[GreptimeDB](https://greptime.com/) is a unified time-series database that natively ingests OTLP traces and logs. It accepts both signals on a single endpoint, so the generic `OTEL_EXPORTER_OTLP_ENDPOINT` enables everything with no extra configuration.
+
+```bash
+# Create a persistent volume and start GreptimeDB
+docker volume create greptimedb_data
+docker run -d --name greptimedb \
+  -p 4000:4000 \
+  -p 4001:4001 \
+  -p 4317:4317 \
+  -v greptimedb_data:/tmp/greptimedb \
+  greptime/greptimedb:latest standalone start \
+    --http-addr 0.0.0.0:4000 \
+    --mysql-addr 0.0.0.0:4001 \
+    --rpc-addr 0.0.0.0:4317
+
+# Start stella with traces and logs over OTLP/gRPC
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+stellad server
+```
+
+Open the GreptimeDB dashboard at `http://localhost:4000/dashboard` to query traces and logs via SQL.
+
 ### Using with Other Backends
 
 Any OTLP-compatible backend works. Examples:
