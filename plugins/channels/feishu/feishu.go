@@ -78,6 +78,8 @@ type Bot struct {
 	learnedTenantKeyMu sync.RWMutex
 	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
 
+	chatTypes sync.Map // chatID -> "p2p" | "group", cached from Get Chat API
+
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc

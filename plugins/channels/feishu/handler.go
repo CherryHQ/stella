@@ -116,6 +116,10 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	rootID := derefStr(msg.RootId)
 	mentions := msg.Mentions
 
+	if chatID != "" && chatType != "" {
+		b.chatTypes.Store(chatID, chatType)
+	}
+
 	if messageID != "" && b.markSeen(messageID) {
 		logger().Debug("duplicate message ignored", "message_id", messageID)
 		return nil
@@ -463,6 +467,9 @@ func (b *Bot) getChatType(chatID string) string {
 	if chatID == "" {
 		return "p2p"
 	}
+	if v, ok := b.chatTypes.Load(chatID); ok {
+		return v.(string)
+	}
 	apiCtx, cancel := b.apiContext()
 	defer cancel()
 
@@ -473,10 +480,12 @@ func (b *Bot) getChatType(chatID string) string {
 	if err != nil || !resp.Success() || resp.Data == nil {
 		return "p2p"
 	}
+	ct := "group"
 	if derefStr(resp.Data.ChatMode) == "p2p" {
-		return "p2p"
+		ct = "p2p"
 	}
-	return "group"
+	b.chatTypes.Store(chatID, ct)
+	return ct
 }
 
 // derefStr safely dereferences a string pointer, returning empty string if nil.
