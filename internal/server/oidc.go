@@ -356,6 +356,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.linkFeishuChannelIdentity(r.Context(), result.User.ID, *identity)
+	s.ensureUserVaultKeys(r.Context(), &result)
 	s.reuseOAuthToken(r.Context(), result.User.ID, *identity)
 	s.finalizeLogin(w, r, result)
 	http.Redirect(w, r, "/", http.StatusFound)
@@ -427,6 +428,25 @@ func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, i
 	slog.Info("feishu auth: linked channel identity from login", "external_id", identity.Subject, "user_id", userID)
 }
 
+// ensureUserVaultKeys provisions age encryption keys for a user who doesn't
+// have them yet (first login). Must be called before any vault writes for the
+// user (e.g. reuseOAuthToken).
+func (s *Server) ensureUserVaultKeys(ctx context.Context, result *auth.OIDCLoginResult) {
+	if result.User.AgePublicKey != "" || s.vaultRecipient == nil {
+		return
+	}
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
+	if err != nil {
+		slog.Warn("auth: generate age keys failed", "user_id", result.User.ID, "error", err)
+		return
+	}
+	if err := s.authSvc.UpdateUserAgeKeys(ctx, result.User.ID, pubKey, encPrivKey); err != nil {
+		slog.Warn("auth: store age keys failed", "user_id", result.User.ID, "error", err)
+		return
+	}
+	result.User.AgePublicKey = pubKey
+}
+
 func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result auth.OIDCLoginResult) {
 	// Ensure every user has an auto-generated API token (idempotent).
 	if s.tokenSvc != nil {
@@ -435,15 +455,7 @@ func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result au
 		}
 	}
 
-	// Provision vault age keys when the user doesn't have them yet.
-	if result.User.AgePublicKey == "" && s.vaultRecipient != nil {
-		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
-		if err != nil {
-			slog.Warn("auth: generate age keys failed", "user_id", result.User.ID, "error", err)
-		} else if err := s.authSvc.UpdateUserAgeKeys(r.Context(), result.User.ID, pubKey, encPrivKey); err != nil {
-			slog.Warn("auth: store age keys failed", "user_id", result.User.ID, "error", err)
-		}
-	}
+	s.ensureUserVaultKeys(r.Context(), &result)
 
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	s.sessionMgr.SetCookie(w, result.SessionToken, secure)
