@@ -212,6 +212,10 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	return nil
 }
 
+func (b *Bot) onMessageRead(_ context.Context, _ *larkim.P2MessageReadV1) error {
+	return nil
+}
+
 // prependSystemPrompt adds a system prompt prefix to message content.
 func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentBlock {
 	prefix := ai.TextContent{Text: fmt.Sprintf("[System: %s]", prompt)}

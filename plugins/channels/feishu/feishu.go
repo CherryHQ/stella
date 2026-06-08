@@ -132,7 +132,8 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	eventHandler := dispatcher.NewEventDispatcher(b.cfg.VerificationToken, b.cfg.EncryptKey).
 		OnP2MessageReceiveV1(b.onMessage).
-		OnP2MessageReactionCreatedV1(b.onReaction)
+		OnP2MessageReactionCreatedV1(b.onReaction).
+		OnP2MessageReadV1(b.onMessageRead)
 
 	b.wsClient = larkws.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		larkws.WithEventHandler(eventHandler),
