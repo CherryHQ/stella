@@ -38,7 +38,17 @@ You can disconnect at any time by clicking **Disconnect** on the Credentials pag
 
 Feishu and Lark require an admin to configure app credentials before users can connect.
 
-### Admin setup (one-time)
+### Automatic connection via Feishu login
+
+If your admin has configured [Feishu OAuth login](./oidc-authentication#feishu-login) and the login app uses the **same App ID** as the tool app, you are connected automatically when you log in. No extra steps needed -- Feishu tools work immediately after your first login.
+
+You can verify your connection status on the **Credentials** page in the Web UI.
+
+### Manual connection
+
+When the login app and tool app use different App IDs, or when Feishu login is not configured, you connect manually:
+
+#### Admin setup (one-time)
 
 An admin must configure the Lark CLI plugin in the Web UI with:
 
@@ -47,7 +57,7 @@ An admin must configure the Lark CLI plugin in the Web UI with:
 
 Once configured, all users can connect their accounts.
 
-### Connecting your account
+#### Connecting your account
 
 Follow the same steps as GitHub -- either ask Stella in chat or use the Credentials page in the Web UI. Stella walks you through the same device authorization flow.
 

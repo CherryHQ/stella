@@ -356,8 +356,48 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.linkFeishuChannelIdentity(r.Context(), result.User.ID, *identity)
+	s.ensureUserVaultKeys(r.Context(), &result)
+	s.reuseOAuthToken(r.Context(), result.User.ID, *identity)
 	s.finalizeLogin(w, r, result)
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// reuseOAuthToken saves the login OAuth token as a tool credential when the
+// login and tool providers share the same application (same client_id).
+func (s *Server) reuseOAuthToken(ctx context.Context, userID string, identity auth.ExternalIdentity) {
+	if identity.OAuthToken == nil || s.credSvc == nil || s.vaultSvc == nil {
+		return
+	}
+	providerID := identity.Provider
+	toolClientID, err := s.credSvc.ProviderClientID(ctx, providerID)
+	if err != nil {
+		return
+	}
+
+	type clientIDer interface{ ClientID() string }
+	loginProvider := s.findProvider(providerID)
+	if loginProvider == nil {
+		return
+	}
+	cp, ok := loginProvider.(clientIDer)
+	if !ok {
+		return
+	}
+	if cp.ClientID() != toolClientID {
+		slog.Info("oauth: login and tool client_id differ, skipping token reuse",
+			"provider", providerID)
+		return
+	}
+
+	tok := identity.OAuthToken
+	if err := s.credSvc.SaveLoginToken(ctx, providerID, userID, tok.AccessToken, tok.RefreshToken, tok.ExpiresIn, tok.RefreshTokenExpiresIn); err != nil {
+		slog.Warn("oauth: save login token for tool reuse failed",
+			"provider", providerID, "user_id", userID, "error", err)
+		return
+	}
+	_ = s.credSvc.InvalidateUser(userID)
+	slog.Info("oauth: reused login token for tool access",
+		"provider", providerID, "user_id", userID)
 }
 
 func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, identity auth.ExternalIdentity) {
@@ -388,6 +428,25 @@ func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, i
 	slog.Info("feishu auth: linked channel identity from login", "external_id", identity.Subject, "user_id", userID)
 }
 
+// ensureUserVaultKeys provisions age encryption keys for a user who doesn't
+// have them yet (first login). Must be called before any vault writes for the
+// user (e.g. reuseOAuthToken).
+func (s *Server) ensureUserVaultKeys(ctx context.Context, result *auth.OIDCLoginResult) {
+	if result.User.AgePublicKey != "" || s.vaultRecipient == nil {
+		return
+	}
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
+	if err != nil {
+		slog.Warn("auth: generate age keys failed", "user_id", result.User.ID, "error", err)
+		return
+	}
+	if err := s.authSvc.UpdateUserAgeKeys(ctx, result.User.ID, pubKey, encPrivKey); err != nil {
+		slog.Warn("auth: store age keys failed", "user_id", result.User.ID, "error", err)
+		return
+	}
+	result.User.AgePublicKey = pubKey
+}
+
 func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result auth.OIDCLoginResult) {
 	// Ensure every user has an auto-generated API token (idempotent).
 	if s.tokenSvc != nil {
@@ -396,15 +455,7 @@ func (s *Server) finalizeLogin(w http.ResponseWriter, r *http.Request, result au
 		}
 	}
 
-	// Provision vault age keys when the user doesn't have them yet.
-	if result.User.AgePublicKey == "" && s.vaultRecipient != nil {
-		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
-		if err != nil {
-			slog.Warn("auth: generate age keys failed", "user_id", result.User.ID, "error", err)
-		} else if err := s.authSvc.UpdateUserAgeKeys(r.Context(), result.User.ID, pubKey, encPrivKey); err != nil {
-			slog.Warn("auth: store age keys failed", "user_id", result.User.ID, "error", err)
-		}
-	}
+	s.ensureUserVaultKeys(r.Context(), &result)
 
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	s.sessionMgr.SetCookie(w, result.SessionToken, secure)

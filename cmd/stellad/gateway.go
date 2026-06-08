@@ -202,6 +202,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	adminSrv.SetSessionStore(oidcStore)
 	adminSrv.SetCredentialStore(oidcStore)
 	adminSrv.SetOIDCAuth(oidcResult)
+	adminSrv.MergeOAuthToolScopes(gctx)
 	slog.Info("oidc: authentication configured")
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)

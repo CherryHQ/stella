@@ -13,16 +13,26 @@ type AuthState struct {
 	ProviderName string
 }
 
+// OAuthToken carries the raw token from an OAuth login callback so the server
+// can reuse it for tool access when login and tool providers share the same app.
+type OAuthToken struct {
+	AccessToken           string
+	RefreshToken          string
+	ExpiresIn             int // seconds until access token expires
+	RefreshTokenExpiresIn int // seconds until refresh token expires
+}
+
 // ExternalIdentity is the normalised identity returned by an AuthProvider after
 // a successful callback. It contains all information needed to upsert a User,
 // LoginIdentity, and Membership in ProcessOIDCLogin.
 type ExternalIdentity struct {
-	Provider  string
-	Subject   string
-	Email     string
-	Name      string
-	AvatarURL string
-	Claims    map[string]any
+	Provider   string
+	Subject    string
+	Email      string
+	Name       string
+	AvatarURL  string
+	Claims     map[string]any
+	OAuthToken *OAuthToken // set by OAuth providers; nil for OIDC/local
 }
 
 // AuthProvider is the abstraction over all login methods (OIDC, LocalProvider,
