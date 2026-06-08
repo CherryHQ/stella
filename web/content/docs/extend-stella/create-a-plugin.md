@@ -261,6 +261,6 @@ Good examples already exist in:
 
 ## Next Reading
 
-- [Capabilities](/docs/plugins/capabilities)
-- [Platform API](/docs/plugins/platform)
-- [Examples](/docs/plugins/examples)
+- [Capabilities](/docs/extend-stella/capabilities)
+- [Platform API](/docs/extend-stella/platform)
+- [Examples](/docs/extend-stella/examples)

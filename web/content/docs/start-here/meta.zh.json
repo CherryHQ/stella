@@ -1,4 +1,12 @@
 {
   "title": "从这里开始",
-  "pages": ["index", "what-is-stella", "core-concepts", "first-shared-agent"]
+  "pages": [
+    "index",
+    "what-is-stella",
+    "core-concepts",
+    "quickstart",
+    "first-shared-agent",
+    "deployment",
+    "configuration"
+  ]
 }

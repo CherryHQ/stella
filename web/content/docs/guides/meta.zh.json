@@ -1,5 +1,5 @@
 {
-  "title": "使用指南",
+  "title": "功能",
   "pages": [
     "memory",
     "scheduling",
@@ -8,7 +8,6 @@
     "skills",
     "models",
     "agent-templates",
-    "tasks",
     "artifact-sharing",
     "notifications",
     "observability",

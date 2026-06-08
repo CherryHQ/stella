@@ -1,4 +1,12 @@
 {
   "title": "Start Here",
-  "pages": ["index", "what-is-stella", "core-concepts", "first-shared-agent"]
+  "pages": [
+    "index",
+    "what-is-stella",
+    "core-concepts",
+    "quickstart",
+    "first-shared-agent",
+    "deployment",
+    "configuration"
+  ]
 }

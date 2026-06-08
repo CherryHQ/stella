@@ -69,8 +69,8 @@ Stella is multi-tenant. Every plugin runtime, manifest override, OAuth provider 
 
 The feature overview is intentionally short. For the actual plugin API and authoring model, use the dedicated plugin docs:
 
-- [Plugin Overview](/docs/plugins/overview)
-- [Create a Plugin](/docs/plugins/create-a-plugin)
-- [Capabilities](/docs/plugins/capabilities)
-- [Platform API](/docs/plugins/platform)
-- [Examples](/docs/plugins/examples)
+- [Plugin Overview](/docs/extend-stella/overview)
+- [Create a Plugin](/docs/extend-stella/create-a-plugin)
+- [Capabilities](/docs/extend-stella/capabilities)
+- [Platform API](/docs/extend-stella/platform)
+- [Examples](/docs/extend-stella/examples)

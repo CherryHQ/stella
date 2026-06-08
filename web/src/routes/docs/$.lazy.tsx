@@ -28,7 +28,7 @@ function Page() {
       <SiteHeader />
       <div className="flex flex-1 overflow-hidden">
         <aside className="hidden md:block w-64 shrink-0 border-r border-border overflow-y-auto p-4">
-          <DocsSidebar groups={sidebar} />
+          <DocsSidebar sections={sidebar} />
         </aside>
 
         {sidebarOpen && (
@@ -43,7 +43,7 @@ function Page() {
                   <X className="size-5" />
                 </button>
               </div>
-              <DocsSidebar groups={sidebar} />
+              <DocsSidebar sections={sidebar} />
             </aside>
           </div>
         )}

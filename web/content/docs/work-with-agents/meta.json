@@ -1,4 +1,12 @@
 {
-  "title": "Work with Agents",
-  "pages": ["index", "give-an-agent-a-goal"]
+  "title": "Agents",
+  "pages": [
+    "index",
+    "give-an-agent-a-goal",
+    "build-shared-agents",
+    "create-professional-agent",
+    "finance-agent",
+    "hr-agent",
+    "engineering-agent"
+  ]
 }

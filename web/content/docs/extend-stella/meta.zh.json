@@ -1,4 +1,12 @@
 {
   "title": "扩展 Stella",
-  "pages": ["index"]
+  "pages": [
+    "index",
+    "overview",
+    "manifest-tools",
+    "create-a-plugin",
+    "capabilities",
+    "platform",
+    "examples"
+  ]
 }

@@ -10,7 +10,7 @@ Use this section when you are responsible for creating or maintaining an agent f
 
 ## Read next
 
-- [Create a Professional Agent](/docs/build-shared-agents/create-professional-agent)
-- [Finance Agent](/docs/build-shared-agents/finance-agent)
-- [HR Agent](/docs/build-shared-agents/hr-agent)
-- [Engineering Agent](/docs/build-shared-agents/engineering-agent)
+- [Create a Professional Agent](/docs/work-with-agents/create-professional-agent)
+- [Finance Agent](/docs/work-with-agents/finance-agent)
+- [HR Agent](/docs/work-with-agents/hr-agent)
+- [Engineering Agent](/docs/work-with-agents/engineering-agent)

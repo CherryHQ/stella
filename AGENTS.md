@@ -39,15 +39,15 @@ For new or changed HTTP APIs, also follow `api/CLAUDE.md` for the OpenAPI-first 
 
 ## Documentation
 
+Documentation follows the **Diátaxis four-quadrant model** (Tutorial / How-to / Reference / Explanation). Before writing or moving any doc page, decide which quadrant it belongs to and place it in the matching sidebar section. **Read `web/content/docs/development/rules/doc-style.md`** for the full quadrant table, writing conventions, and audience targeting.
+
 When behavior, APIs, config, commands, or architecture change:
 
 - Update `README.md` and/or `web/content/docs/` as appropriate.
-- Add new doc pages to the relevant folder's `meta.json`.
+- Add new doc pages to the relevant folder's `meta.json` and the matching `sections` entry in `web/content/docs/meta.json`.
 - Keep `resources/skills/system/stella/` and `internal/agent/prompt/template/system_prompt.tmpl` in sync with user-facing changes.
 - Maintain both English (`*.md`, `*.mdx`) and Chinese (`*.zh.md`, `*.zh.mdx`) versions.
 - For CLI usage, command help is the source of truth: put syntax and examples in the relevant `--help` output, and have user docs/skills point to the specific help command (for example, `stella recally save --help`) instead of duplicating full command examples.
-
-**Read `web/content/docs/development/rules/doc-style.md`** for writing conventions, doc structure, and audience targeting.
 
 ## Issue & PR tracking
 

@@ -69,8 +69,8 @@ Stella 是多租户系统。每个插件运行时、manifest override、OAuth pr
 
 功能概述有意保持简短。要了解实际的插件 API 和开发模型，请使用专门的插件文档：
 
-- [插件概述](/docs/plugins/overview)
-- [创建插件](/docs/plugins/create-a-plugin)
-- [能力](/docs/plugins/capabilities)
-- [平台 API](/docs/plugins/platform)
-- [示例](/docs/plugins/examples)
+- [插件概述](/docs/extend-stella/overview)
+- [创建插件](/docs/extend-stella/create-a-plugin)
+- [能力](/docs/extend-stella/capabilities)
+- [平台 API](/docs/extend-stella/platform)
+- [示例](/docs/extend-stella/examples)

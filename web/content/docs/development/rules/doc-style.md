@@ -1,17 +1,25 @@
 # Documentation Style
 
-## Doc structure
+## Diátaxis framework
 
-Docs are split by audience:
+All documentation follows the [Diátaxis](https://diataxis.fr/) four-quadrant model. Every page belongs to exactly one quadrant; place it accordingly.
 
-| Section         | Audience                    | Path                                |
-| --------------- | --------------------------- | ----------------------------------- |
-| Getting Started | Users                       | `web/content/docs/getting-started/` |
-| Guides          | Users                       | `web/content/docs/guides/`          |
-| Channels        | Users                       | `web/content/docs/channels/`        |
-| Development     | Contributors/plugin authors | `web/content/docs/development/`     |
+| Quadrant        | Purpose                         | Sidebar section | Path prefix                     |
+| --------------- | ------------------------------- | --------------- | ------------------------------- |
+| **Tutorial**    | Learning-oriented walkthrough   | Start Here      | `web/content/docs/start-here/`  |
+| **How-to**      | Task-oriented practical guide   | Guides          | `web/content/docs/{feature}/`   |
+| **Explanation** | Understanding-oriented concepts | Development     | `web/content/docs/development/` |
 
-Place new docs in the section matching the target reader. If a doc serves both audiences, write a user-facing version in `guides/` and a technical deep-dive in `development/`.
+Before writing a new page, decide which quadrant it belongs to:
+
+- **Tutorials** teach by doing — sequential steps that end with a working result. No prerequisites beyond the quickstart.
+- **How-to guides** solve a specific task — "How do I schedule an agent?" Assume the reader already understands core concepts.
+- **Reference** documents facts — plugin capabilities, platform API, manifest format. Terse, complete, structured for lookup.
+- **Explanation** builds understanding — architecture, data flow, design rationale. No steps; discusses _why_.
+
+The sidebar groups directories into these four quadrants via `sections` in `web/content/docs/meta.json`. When adding a new directory, add it to the matching section.
+
+If a doc serves both users and contributors, write a user-facing how-to in the Guides section and a technical deep-dive in Development.
 
 ## Writing for users
 

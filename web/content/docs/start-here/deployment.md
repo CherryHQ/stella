@@ -210,7 +210,7 @@ Running stella inside a Docker container (described above) is separate from usin
 - **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid the `docker` backend for heavy read/write workloads on those platforms.
 - **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
 
-See the [Configuration guide](/docs/getting-started/configuration) for `sandbox.docker` config keys and an example JSON payload.
+See the [Configuration guide](/docs/start-here/configuration) for `sandbox.docker` config keys and an example JSON payload.
 
 ## Volumes & Data
 

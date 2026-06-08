@@ -74,8 +74,8 @@ You have two options:
 
 ## Next steps
 
-- [Deploy Stella as a service](/docs/getting-started/deployment) so it runs in the background on startup
-- [Configure agents, models, and settings](/docs/getting-started/configuration) in the Web UI
+- [Deploy Stella as a service](/docs/start-here/deployment) so it runs in the background on startup
+- [Configure agents, models, and settings](/docs/start-here/configuration) in the Web UI
 - [Connect Telegram](/docs/channels/telegram), [QQ](/docs/channels/qq), [Feishu](/docs/channels/feishu), or [WeChat](/docs/channels/weixin) so you can chat from anywhere
 - [Set up reminders and scheduled tasks](/docs/guides/scheduling) to let Stella work on its own
 - [Browse and install skills](/docs/guides/skills) to extend what Stella can do

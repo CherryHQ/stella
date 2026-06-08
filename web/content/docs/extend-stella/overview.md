@@ -189,7 +189,7 @@ Do not add a plugin for generic internal helpers. Plugins are feature boundaries
 
 ## Next Reading
 
-- [Create a Plugin](/docs/plugins/create-a-plugin)
-- [Capabilities](/docs/plugins/capabilities)
-- [Platform API](/docs/plugins/platform)
-- [Examples](/docs/plugins/examples)
+- [Create a Plugin](/docs/extend-stella/create-a-plugin)
+- [Capabilities](/docs/extend-stella/capabilities)
+- [Platform API](/docs/extend-stella/platform)
+- [Examples](/docs/extend-stella/examples)

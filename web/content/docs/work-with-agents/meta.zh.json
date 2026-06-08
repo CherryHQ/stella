@@ -1,4 +1,12 @@
 {
-  "title": "使用 Agent 工作",
-  "pages": ["index", "give-an-agent-a-goal"]
+  "title": "Agent",
+  "pages": [
+    "index",
+    "give-an-agent-a-goal",
+    "build-shared-agents",
+    "create-professional-agent",
+    "finance-agent",
+    "hr-agent",
+    "engineering-agent"
+  ]
 }

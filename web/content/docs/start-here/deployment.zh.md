@@ -210,7 +210,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 - **绑定挂载性能**：在 macOS/Windows 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。在这些平台上，有大量读写操作的工作流应避免使用 `docker` 后端。
 - **无写时复制隔离**：与本地后端（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
 
-有关 `sandbox.docker` 配置键和 JSON 示例，请参阅[配置指南](/docs/getting-started/configuration)。
+有关 `sandbox.docker` 配置键和 JSON 示例，请参阅[配置指南](/docs/start-here/configuration)。
 
 ## 卷和数据
 

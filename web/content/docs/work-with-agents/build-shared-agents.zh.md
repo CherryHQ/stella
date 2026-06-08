@@ -10,7 +10,7 @@ title: 创建共享 Agent
 
 ## 下一步
 
-- [创建专业 Agent](/docs/build-shared-agents/create-professional-agent)
-- [财务 Agent](/docs/build-shared-agents/finance-agent)
-- [HR Agent](/docs/build-shared-agents/hr-agent)
-- [工程 Agent](/docs/build-shared-agents/engineering-agent)
+- [创建专业 Agent](/docs/work-with-agents/create-professional-agent)
+- [财务 Agent](/docs/work-with-agents/finance-agent)
+- [HR Agent](/docs/work-with-agents/hr-agent)
+- [工程 Agent](/docs/work-with-agents/engineering-agent)

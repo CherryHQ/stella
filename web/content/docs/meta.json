@@ -1,15 +1,20 @@
 {
   "title": "Documentation",
-  "pages": [
-    "index",
-    "start-here",
-    "work-with-agents",
-    "build-shared-agents",
-    "task-system",
-    "recally",
-    "channels",
-    "admin",
-    "extend-stella",
-    "changelog"
+  "sections": [
+    { "title": "Start Here", "pages": ["start-here"] },
+    {
+      "title": "Guides",
+      "pages": [
+        "work-with-agents",
+        "task-system",
+        "recally",
+        "guides",
+        "channels",
+        "extend-stella",
+        "admin"
+      ]
+    },
+    { "title": "Development", "pages": ["development"] },
+    { "pages": ["changelog"] }
   ]
 }
