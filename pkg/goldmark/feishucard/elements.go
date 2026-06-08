@@ -31,7 +31,13 @@ func Render(source string) []map[string]any {
 
 	flush := func() {
 		content := strings.TrimRight(mdBuf.String(), "\n")
-		if content != "" {
+		if content == "" {
+			mdBuf.Reset()
+			return
+		}
+		if extracted := extractButtons(content); extracted != nil {
+			elements = append(elements, extracted...)
+		} else {
 			elements = append(elements, map[string]any{
 				"tag":     "markdown",
 				"content": content,

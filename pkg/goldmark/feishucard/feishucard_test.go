@@ -245,6 +245,112 @@ func TestRenderTableOverflowFallback(t *testing.T) {
 	}
 }
 
+// --- Button tests ---
+
+func TestButtonSingle(t *testing.T) {
+	input := "Some text\n\n{{button value=\"retry\" type=\"primary\" label=\"Retry\"}}\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 2 {
+		t.Fatalf("expected 2 elements (md, button), got %d: %v", len(elems), elemTags(elems))
+	}
+	if elems[0]["tag"] != "markdown" {
+		t.Errorf("elem 0: want markdown, got %v", elems[0]["tag"])
+	}
+	if elems[1]["tag"] != "button" {
+		t.Errorf("elem 1: want button, got %v", elems[1]["tag"])
+	}
+	text := elems[1]["text"].(map[string]any)
+	if text["content"] != "Retry" {
+		t.Errorf("button label = %q, want Retry", text["content"])
+	}
+	if elems[1]["type"] != "primary" {
+		t.Errorf("button type = %v, want primary", elems[1]["type"])
+	}
+}
+
+func TestButtonGrouped(t *testing.T) {
+	input := "{{button value=\"yes\" label=\"Yes\"}}\n{{button value=\"no\" label=\"No\"}}\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 {
+		t.Fatalf("expected 1 element (column_set), got %d: %v", len(elems), elemTags(elems))
+	}
+	if elems[0]["tag"] != "column_set" {
+		t.Fatalf("expected column_set, got %v", elems[0]["tag"])
+	}
+	cols := elems[0]["columns"].([]map[string]any)
+	if len(cols) != 2 {
+		t.Errorf("expected 2 columns, got %d", len(cols))
+	}
+}
+
+func TestButtonWithConfirm(t *testing.T) {
+	input := "{{button value=\"delete\" type=\"danger\" confirm=\"Are you sure?\" label=\"Delete\"}}\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "button" {
+		t.Fatalf("expected 1 button element, got %v", elemTags(elems))
+	}
+	confirm, ok := elems[0]["confirm"].(map[string]any)
+	if !ok {
+		t.Fatalf("confirm missing")
+	}
+	confirmText := confirm["text"].(map[string]any)
+	if confirmText["content"] != "Are you sure?" {
+		t.Errorf("confirm text = %q, want 'Are you sure?'", confirmText["content"])
+	}
+}
+
+func TestButtonInlineWithText(t *testing.T) {
+	input := "Click {{button value=\"go\" label=\"Go\"}} to continue.\n"
+	elems := feishucard.Render(input)
+	// Should produce: markdown("Click"), button, markdown("to continue.")
+	if len(elems) != 3 {
+		t.Fatalf("expected 3 elements, got %d: %v", len(elems), elemTags(elems))
+	}
+	if elems[0]["tag"] != "markdown" || elems[1]["tag"] != "button" || elems[2]["tag"] != "markdown" {
+		t.Errorf("unexpected tags: %v", elemTags(elems))
+	}
+}
+
+func TestButtonNoButtons(t *testing.T) {
+	input := "Just plain text, no buttons.\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "markdown" {
+		t.Errorf("expected single markdown element, got %v", elemTags(elems))
+	}
+}
+
+func TestButtonMissingAttrs(t *testing.T) {
+	// Missing label — should be treated as plain text.
+	input := "{{button value=\"retry\"}}\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "markdown" {
+		t.Errorf("malformed button should stay as markdown, got %v", elemTags(elems))
+	}
+}
+
+func TestButtonDefaultType(t *testing.T) {
+	input := "{{button value=\"ok\" label=\"OK\"}}\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "button" {
+		t.Fatalf("expected 1 button, got %v", elemTags(elems))
+	}
+	if elems[0]["type"] != "default" {
+		t.Errorf("default type = %v, want 'default'", elems[0]["type"])
+	}
+}
+
+func TestButtonMixedWithTable(t *testing.T) {
+	input := "| A | B |\n|---|---|\n| 1 | 2 |\n\n{{button value=\"export\" type=\"primary\" label=\"Export\"}}\n"
+	elems := feishucard.Render(input)
+	tags := elemTags(elems)
+	if len(elems) != 2 {
+		t.Fatalf("expected 2 elements (table, button), got %d: %v", len(elems), tags)
+	}
+	if tags[0] != "table" || tags[1] != "button" {
+		t.Errorf("unexpected tags: %v", tags)
+	}
+}
+
 func elemTags(elems []map[string]any) []string {
 	tags := make([]string, len(elems))
 	for i, e := range elems {
