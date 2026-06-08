@@ -188,9 +188,10 @@ func TestSemanticDispatchPassesOwnerAndMembers(t *testing.T) {
 	}
 }
 
-func TestSemanticDispatchOmitsSystemPromptFromMemberSummary(t *testing.T) {
+func TestSemanticDispatchUsesSystemPromptAsSummary(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	if _, err := fx.db.ExecContext(context.Background(), `UPDATE agent SET system_prompt = 'secret routing must not see' WHERE id = 'agent-1'`); err != nil {
+	const prompt = "You are a helpful coding assistant"
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE agent SET system_prompt = ? WHERE id = 'agent-1'`, prompt); err != nil {
 		t.Fatalf("set system prompt: %v", err)
 	}
 	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: false}}
@@ -202,8 +203,8 @@ func TestSemanticDispatchOmitsSystemPromptFromMemberSummary(t *testing.T) {
 	if len(stub.gotReq.Members) != 1 {
 		t.Fatalf("members = %+v, want one member", stub.gotReq.Members)
 	}
-	if stub.gotReq.Members[0].Summary != "" {
-		t.Fatalf("member summary = %q, want empty when only system_prompt is set", stub.gotReq.Members[0].Summary)
+	if stub.gotReq.Members[0].Summary != prompt {
+		t.Fatalf("member summary = %q, want %q", stub.gotReq.Members[0].Summary, prompt)
 	}
 }
 
