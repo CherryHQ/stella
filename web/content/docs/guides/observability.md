@@ -88,30 +88,28 @@ stellad server
 
 Open `http://localhost:16686`, select the **stella** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations. Jaeger focuses on traces; use a logs-capable backend or collector pipeline when you also want to search exported log records.
 
-### Using with GreptimeDB
+### Using with Grafana LGTM
 
-[GreptimeDB](https://greptime.com/) is a unified time-series database that natively ingests OTLP traces and logs. It accepts both signals on a single endpoint, so the generic `OTEL_EXPORTER_OTLP_ENDPOINT` enables everything with no extra configuration.
+[grafana/otel-lgtm](https://grafana.com/docs/opentelemetry/docker-lgtm/) is Grafana's all-in-one OTel backend for local development and testing. A single Docker image bundles an OpenTelemetry Collector, Grafana, Loki (logs), Tempo (traces), and Mimir (metrics) — one container that can ingest and visualize everything.
 
 ```bash
-# Create a persistent volume and start GreptimeDB
-docker volume create greptimedb_data
-docker run -d --name greptimedb \
-  -p 4000:4000 \
-  -p 4001:4001 \
+# Start the all-in-one stack
+docker run --rm -d \
+  -p 3000:3000 \
   -p 4317:4317 \
-  -v greptimedb_data:/tmp/greptimedb \
-  greptime/greptimedb:latest standalone start \
-    --http-addr 0.0.0.0:4000 \
-    --mysql-addr 0.0.0.0:4001 \
-    --rpc-addr 0.0.0.0:4317
+  -p 4318:4318 \
+  --name otel-lgtm \
+  grafana/otel-lgtm
 
-# Start stella with traces and logs over OTLP/gRPC
-OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+# Start stella with traces and logs over OTLP/HTTP
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 stellad server
 ```
 
-Open the GreptimeDB dashboard at `http://localhost:4000/dashboard` to query traces and logs via SQL.
+Open `http://localhost:3000` (Grafana UI). Use **Explore → Tempo** for trace waterfalls and **Explore → Loki** for logs. If logs carry a `trace_id`, Grafana links them automatically.
+
+`grafana/otel-lgtm` is designed for local development — not production. For production deployments, use a dedicated OTel Collector or Grafana Alloy forwarding to standalone Loki, Tempo, and Mimir instances.
 
 ### Using with Other Backends
 

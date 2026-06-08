@@ -88,30 +88,28 @@ stellad server
 
 打开 `http://localhost:16686`，选择 **stella** 服务，点击 **Find Traces**。每个对话会话都会显示为一条追踪，并以瀑布图展示 LLM 调用、工具执行和记忆操作。Jaeger 主要面向追踪；如果还要检索导出的日志，请使用支持日志的后端或采集器管道。
 
-### 配合 GreptimeDB 使用
+### 配合 Grafana LGTM 使用
 
-[GreptimeDB](https://greptime.com/) 是一个统一的时序数据库，原生支持 OTLP 追踪和日志。它在同一端点接收所有信号，只需设置通用的 `OTEL_EXPORTER_OTLP_ENDPOINT` 即可。
+[grafana/otel-lgtm](https://grafana.com/docs/opentelemetry/docker-lgtm/) 是 Grafana 官方为本地开发和测试提供的一体化 OTel 后端。单个 Docker 镜像内包含 OpenTelemetry Collector、Grafana、Loki（日志）、Tempo（追踪）和 Mimir（指标）——一个容器就能接收并可视化所有信号。
 
 ```bash
-# 创建持久化卷并启动 GreptimeDB
-docker volume create greptimedb_data
-docker run -d --name greptimedb \
-  -p 4000:4000 \
-  -p 4001:4001 \
+# 启动一体化 stack
+docker run --rm -d \
+  -p 3000:3000 \
   -p 4317:4317 \
-  -v greptimedb_data:/tmp/greptimedb \
-  greptime/greptimedb:latest standalone start \
-    --http-addr 0.0.0.0:4000 \
-    --mysql-addr 0.0.0.0:4001 \
-    --rpc-addr 0.0.0.0:4317
+  -p 4318:4318 \
+  --name otel-lgtm \
+  grafana/otel-lgtm
 
-# 通过 OTLP/gRPC 启动带追踪和日志的 stella
-OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+# 通过 OTLP/HTTP 启动带追踪和日志的 stella
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 stellad server
 ```
 
-打开 GreptimeDB 仪表盘 `http://localhost:4000/dashboard`，通过 SQL 查询追踪和日志。
+打开 `http://localhost:3000`（Grafana UI）。使用 **Explore → Tempo** 查看追踪瀑布图，使用 **Explore → Loki** 查看日志。如果日志中包含 `trace_id`，Grafana 会自动关联追踪与日志。
+
+`grafana/otel-lgtm` 适合本地开发，不建议用于生产环境。生产部署请使用独立的 OTel Collector 或 Grafana Alloy，将数据转发到独立的 Loki、Tempo 和 Mimir 实例。
 
 ### 配合其他后端使用
 
