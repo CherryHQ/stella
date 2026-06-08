@@ -3,10 +3,13 @@ package feishu
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	lark "github.com/larksuite/oapi-sdk-go/v3"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -1447,9 +1450,27 @@ func TestCardActionReturnsToast(t *testing.T) {
 }
 
 func TestCardActionDisabledGroupIgnored(t *testing.T) {
+	// Mock the Get Chat API to return chat_mode=group so getChatType resolves correctly.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/im/v1/chats/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"data":{"chat_mode":"group"}}`))
+		case strings.Contains(r.URL.Path, "/im/v1/messages/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"chat_id":"oc_chat1","root_id":""}]}}`))
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0}`))
+		}
+	}))
+	defer srv.Close()
+
+	client := lark.NewClient("test", "test", lark.WithOpenBaseUrl(srv.URL))
 	bot := &Bot{
 		cfg:         Config{GroupMode: "disabled"},
 		handler:     &mockHandler{},
+		client:      client,
 		chatModels:  make(map[string]channel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),

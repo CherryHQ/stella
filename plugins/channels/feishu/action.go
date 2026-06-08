@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 
@@ -50,11 +49,7 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 		messageID = req.Context.OpenMessageID
 	}
 
-	// Resolve thread context for the card message.
 	chatType := "p2p"
-	if strings.HasPrefix(chatID, "oc_") {
-		chatType = "group"
-	}
 	rootID := ""
 	if b.client != nil && messageID != "" {
 		resolvedChatID, resolvedChatType, resolvedRootID := b.getMessageContext(messageID)
@@ -63,6 +58,8 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 			chatType = resolvedChatType
 			rootID = resolvedRootID
 		}
+	} else if b.client != nil && chatID != "" {
+		chatType = b.getChatType(chatID)
 	}
 	if chatType == "group" && !b.shouldIngestGroup(chatID) {
 		return nil, nil

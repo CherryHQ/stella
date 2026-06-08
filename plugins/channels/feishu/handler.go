@@ -452,13 +452,31 @@ func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID stri
 	msg := resp.Data.Items[0]
 	chatID = derefStr(msg.ChatId)
 	rootID = derefStr(msg.RootId)
-	// Message API doesn't return chat_type; derive from chat_id prefix.
-	if strings.HasPrefix(chatID, "oc_") {
-		chatType = "group"
-	} else {
-		chatType = "p2p"
-	}
+	chatType = b.getChatType(chatID)
 	return chatID, chatType, rootID
+}
+
+// getChatType queries the Get Chat API to determine whether a chat is p2p or
+// group. Feishu P2P chats also use oc_ prefixed IDs, so prefix-based guessing
+// is unreliable.
+func (b *Bot) getChatType(chatID string) string {
+	if chatID == "" {
+		return "p2p"
+	}
+	apiCtx, cancel := b.apiContext()
+	defer cancel()
+
+	resp, err := b.client.Im.Chat.Get(apiCtx,
+		larkim.NewGetChatReqBuilder().
+			ChatId(chatID).
+			Build())
+	if err != nil || !resp.Success() || resp.Data == nil {
+		return "p2p"
+	}
+	if derefStr(resp.Data.ChatMode) == "p2p" {
+		return "p2p"
+	}
+	return "group"
 }
 
 // derefStr safely dereferences a string pointer, returning empty string if nil.
