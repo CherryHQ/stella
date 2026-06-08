@@ -1156,6 +1156,48 @@ func TestGroupSystemPromptEmpty(t *testing.T) {
 	}
 }
 
+func TestSyncGroupsEnsuresMembersAcrossPages(t *testing.T) {
+	provisioner := &mockGroupProvisioner{}
+	calls := 0
+	bot := &Bot{
+		handler: provisioner,
+		cfg:     Config{InstanceID: "feishu-work"},
+		listChats: func(_ context.Context, _ *larkim.ListChatReq) (*larkim.ListChatResp, error) {
+			calls++
+			switch calls {
+			case 1:
+				return &larkim.ListChatResp{Data: &larkim.ListChatRespData{
+					Items: []*larkim.ListChat{
+						{ChatId: testStringPtr("oc_1")},
+						{},
+						{ChatId: testStringPtr("oc_2")},
+					},
+					HasMore:   testBoolPtr(true),
+					PageToken: testStringPtr("next"),
+				}}, nil
+			case 2:
+				return &larkim.ListChatResp{Data: &larkim.ListChatRespData{
+					Items:   []*larkim.ListChat{{ChatId: testStringPtr("oc_3")}},
+					HasMore: testBoolPtr(false),
+				}}, nil
+			default:
+				t.Fatalf("unexpected ListChat call %d", calls)
+				return nil, nil
+			}
+		},
+	}
+
+	bot.syncGroups()
+
+	if calls != 2 {
+		t.Fatalf("ListChat calls = %d, want 2", calls)
+	}
+	want := []string{"feishu:oc_1:feishu-work", "feishu:oc_2:feishu-work", "feishu:oc_3:feishu-work"}
+	if strings.Join(provisioner.ensured, ",") != strings.Join(want, ",") {
+		t.Fatalf("ensured = %v, want %v", provisioner.ensured, want)
+	}
+}
+
 func TestPrependSystemPromptText(t *testing.T) {
 	content := channel.TextContent("hello")
 	got := prependSystemPrompt(content, "Be concise.")
@@ -1263,6 +1305,26 @@ func TestHandleIncomingAbortDelegatesToCoordinator(t *testing.T) {
 }
 
 // --- mockHandler for tests ---
+
+type mockGroupProvisioner struct {
+	mockHandler
+	ensured []string
+	removed []string
+}
+
+func (m *mockGroupProvisioner) EnsurePlatformGroupMember(_ context.Context, platform, platformGroupID, channelID string) error {
+	m.ensured = append(m.ensured, strings.Join([]string{platform, platformGroupID, channelID}, ":"))
+	return nil
+}
+
+func (m *mockGroupProvisioner) RemovePlatformGroupMember(_ context.Context, platform, platformGroupID, channelID string) error {
+	m.removed = append(m.removed, strings.Join([]string{platform, platformGroupID, channelID}, ":"))
+	return nil
+}
+
+func testStringPtr(v string) *string { return &v }
+
+func testBoolPtr(v bool) *bool { return &v }
 
 type mockHandler struct {
 	handleIncomingFn func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
