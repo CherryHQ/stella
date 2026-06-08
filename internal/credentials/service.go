@@ -285,62 +285,50 @@ func (s *Service) ProviderScopes(providerID string) []string {
 // credential, enabling single-sign-on reuse between login and tool OAuth flows
 // when they share the same application (client_id).
 func (s *Service) SaveLoginToken(ctx context.Context, providerID, userID string, accessToken, refreshToken string, expiresIn, refreshExpiresIn int) error {
-	if s.vaultSvc == nil {
-		return fmt.Errorf("vault not configured")
-	}
-	providerCfg, ok := s.registry.Get(providerID)
-	if !ok {
-		return fmt.Errorf("unknown provider: %s", providerID)
-	}
-	clientID, clientSecret, _, err := s.providerCredentials(ctx, providerID)
-	if err != nil {
-		return err
-	}
-	bundle := oauth.OAuthBundle{
-		Version:      1,
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-	}
+	var accessExpiresAt, refreshExpiresAt time.Time
 	if expiresIn > 0 {
-		bundle.AccessExpiresAt = time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
+		accessExpiresAt = time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
 	}
 	if refreshExpiresIn > 0 {
-		bundle.RefreshExpiresAt = time.Now().UTC().Add(time.Duration(refreshExpiresIn) * time.Second)
+		refreshExpiresAt = time.Now().UTC().Add(time.Duration(refreshExpiresIn) * time.Second)
 	}
-	switch providerID {
-	case "lark":
-		bundle.Brand = "lark"
-	case "feishu":
-		bundle.Brand = "feishu"
-	}
-	return oauth.SaveOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey, bundle)
+	return s.saveBundle(ctx, providerID, userID, accessToken, refreshToken, accessExpiresAt, refreshExpiresAt)
 }
 
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
 // the provider's registered vault key.
 func (s *Service) saveToken(ctx context.Context, providerID string, userID string, tok *oauth2.Token) error {
+	var refreshExpiresAt time.Time
+	if ri, ok := tok.Extra("refresh_token_expires_in").(float64); ok && ri > 0 {
+		refreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
+	}
+	return s.saveBundle(ctx, providerID, userID, tok.AccessToken, tok.RefreshToken, tok.Expiry, refreshExpiresAt)
+}
+
+// saveBundle is the shared implementation for persisting an OAuth token bundle.
+func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToken, refreshToken string, accessExpiresAt, refreshExpiresAt time.Time) error {
+	if s.vaultSvc == nil {
+		return fmt.Errorf("vault not configured")
+	}
+	if s.registry == nil {
+		return fmt.Errorf("provider registry not set")
+	}
 	providerCfg, ok := s.registry.Get(providerID)
 	if !ok {
 		return fmt.Errorf("unknown provider: %s", providerID)
 	}
-
 	clientID, clientSecret, _, err := s.providerCredentials(ctx, providerID)
 	if err != nil {
 		return err
 	}
-
 	bundle := oauth.OAuthBundle{
-		Version:         1,
-		ClientID:        clientID,
-		ClientSecret:    clientSecret,
-		AccessToken:     tok.AccessToken,
-		RefreshToken:    tok.RefreshToken,
-		AccessExpiresAt: tok.Expiry,
-	}
-	if ri, ok := tok.Extra("refresh_token_expires_in").(float64); ok && ri > 0 {
-		bundle.RefreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
+		Version:          1,
+		ClientID:         clientID,
+		ClientSecret:     clientSecret,
+		AccessToken:      accessToken,
+		RefreshToken:     refreshToken,
+		AccessExpiresAt:  accessExpiresAt,
+		RefreshExpiresAt: refreshExpiresAt,
 	}
 	switch providerID {
 	case "lark":
@@ -348,7 +336,6 @@ func (s *Service) saveToken(ctx context.Context, providerID string, userID strin
 	case "feishu":
 		bundle.Brand = "feishu"
 	}
-
 	return oauth.SaveOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey, bundle)
 }
 

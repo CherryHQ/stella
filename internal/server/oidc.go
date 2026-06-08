@@ -394,6 +394,7 @@ func (s *Server) reuseOAuthToken(ctx context.Context, userID string, identity au
 			"provider", providerID, "user_id", userID, "error", err)
 		return
 	}
+	_ = s.credSvc.InvalidateUser(userID)
 	slog.Info("oauth: reused login token for tool access",
 		"provider", providerID, "user_id", userID)
 }
