@@ -1,9 +1,12 @@
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { Pencil, X } from "lucide-react";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { setProfileSoul } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
-import { MemoryCard } from "./MemoryCard";
+import { MemorySection } from "./MemorySection";
 
 interface Props {
   agentId: string;
@@ -15,39 +18,76 @@ export function SoulSection({ agentId, soul: initialSoul }: Props) {
   const queryClient = useQueryClient();
   const [soul, setSoul] = useState(initialSoul);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
 
-  // Sync from parent when data reloads
   const displaySoul = soul || initialSoul;
 
-  const handleSave = useCallback(
-    async (content: string) => {
-      setSaving(true);
-      try {
-        await setProfileSoul({
-          path: { agentId },
-          body: { soul: content },
-          throwOnError: true,
-        });
-        setSoul(content);
-        void queryClient.invalidateQueries({ queryKey: ["agent-memory", agentId] });
-        void queryClient.invalidateQueries({ queryKey: ["agent-changelog", agentId] });
-      } finally {
-        setSaving(false);
-      }
-    },
-    [agentId, queryClient],
-  );
+  const startEdit = useCallback(() => {
+    setDraft(displaySoul);
+    setEditing(true);
+  }, [displaySoul]);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      await setProfileSoul({
+        path: { agentId },
+        body: { soul: draft },
+        throwOnError: true,
+      });
+      setSoul(draft);
+      setEditing(false);
+      void queryClient.invalidateQueries({ queryKey: ["agent-memory", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-changelog", agentId] });
+    } finally {
+      setSaving(false);
+    }
+  }, [agentId, draft, queryClient]);
 
   return (
-    <MemoryCard
-      icon={<Sparkles className="size-4" />}
+    <MemorySection
       title={t("memories.soul.title")}
       description={t("memories.soul.description")}
-      content={displaySoul}
-      emptyText={t("memories.soul.empty")}
-      placeholder={t("memories.soul.placeholder")}
-      saving={saving}
-      onSave={handleSave}
-    />
+      defaultOpen
+      action={
+        !editing ? (
+          <Button variant="ghost" size="sm" onClick={startEdit}>
+            <Pencil className="size-3.5 mr-1.5" />
+            {t("common.edit")}
+          </Button>
+        ) : undefined
+      }
+    >
+      {editing ? (
+        <div className="space-y-3">
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+            rows={12}
+            placeholder={t("memories.soul.placeholder")}
+            className="font-mono text-sm"
+            autoFocus
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => void handleSave()}
+              disabled={saving || draft === displaySoul}
+              size="sm"
+            >
+              {saving ? t("common.saving") : t("common.save")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={saving}>
+              <X className="size-3.5 mr-1" />
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : displaySoul ? (
+        <MarkdownPreview content={displaySoul} variant="card" />
+      ) : (
+        <p className="text-sm text-muted-foreground italic">{t("memories.soul.empty")}</p>
+      )}
+    </MemorySection>
   );
 }

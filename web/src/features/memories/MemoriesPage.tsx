@@ -22,21 +22,18 @@ export function MemoriesPage() {
       setHeaderTitle(null);
       setHeaderActions(null);
     };
-  }, [setHeaderActions, setHeaderTitle]);
+  }, [setHeaderActions, setHeaderTitle, t]);
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10 space-y-6">
+      <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10">
         <SoulSection agentId={agentId} soul={memory?.soul ?? ""} />
-
         <ProfileSection
           agentId={agentId}
           content={memory?.content ?? ""}
           updatedAt={memory?.updated_at ?? ""}
         />
-
         <ConstraintsSection agentId={agentId} />
-
         <ChangelogSection agentId={agentId} />
       </div>
     </div>
