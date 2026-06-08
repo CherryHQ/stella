@@ -9,12 +9,19 @@ If you cannot answer that question concretely, skip the item. Vague justificatio
 
 ## Memory
 
+The user's current profile is provided below. Use it to decide whether an update is needed — do NOT call profile_get unless the profile below is empty.
+
+<current_profile>
+%s
+</current_profile>
+
 Save to memory only if the user has revealed something about themselves that would change how you interact with them in any future conversation — their persona, stated preferences, work style, or personal details they explicitly shared.
 
-Use the memory tool only when the above bar is met:
-1. First call action="profile_get" to read the current memory.
-2. Merge your new observations into the existing content — do NOT discard what is already there.
-3. Call action="profile_update" with the full merged content.
+When the bar is met:
+1. Merge your new observations into the existing profile — do NOT discard what is already there.
+2. Call action="profile_update" with the full merged content.
+
+If the merged content is identical to the current profile, do NOT call profile_update. A no-op write wastes a version bump and changelog entry.
 
 Do NOT update memory for:
 - Task-specific details that won't affect future interactions

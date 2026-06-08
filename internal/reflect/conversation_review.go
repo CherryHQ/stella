@@ -48,7 +48,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		return s.wm.set(ctx, c.session.ID, watermark)
 	}
 
-	reviewer, err := s.newConversationReviewer(snap, userID, model, stream)
+	reviewer, err := s.newConversationReviewer(ctx, snap, userID, model, stream)
 	if err != nil {
 		recordError(span, err)
 		return fmt.Errorf("create reviewer: %w", err)
@@ -87,13 +87,18 @@ func (s *Service) buildStreamFunc(api, apiKey, baseURL string) (providers.Stream
 	return s.providers(api, apiKey, baseURL)
 }
 
-func (s *Service) newConversationReviewer(snap *config.Snapshot, userID string, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
+func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snapshot, userID string, model ai.Model, stream providers.StreamFunc) (*reviewer, error) {
+	var profile string
+	if ps, ok := s.memory.(memory.ProfileStore); ok {
+		profile, _ = ps.GetProfile(ctx, userID, snap.AgentID)
+	}
 	return newReviewer(reviewerConfig{
 		Stream:         stream,
 		Model:          model,
 		SkillsTool:     skillstool.NewTool(s.skillStore, "", snap.Workspace, "", userSkillsDir(snap.Workspace, userID)),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillSummaries(context.Background(), s.skillStore, userID),
+		CurrentProfile: profile,
 	})
 }
 

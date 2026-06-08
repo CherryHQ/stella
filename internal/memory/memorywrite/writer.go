@@ -39,6 +39,10 @@ func SetProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID string,
 		return fmt.Errorf("read current profile: %w", err)
 	}
 
+	if beforeVersion > 0 && beforeText == content {
+		return tx.Commit()
+	}
+
 	row, err := qtx.UpsertUserAgentMemoryVersioned(ctx, sqlc.UpsertUserAgentMemoryVersionedParams{
 		UserID:  userID,
 		AgentID: agentID,
@@ -91,6 +95,10 @@ func SetAgentSoul(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID strin
 		beforeVersion = old.Version
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read current soul: %w", err)
+	}
+
+	if beforeVersion > 0 && beforeText == content {
+		return tx.Commit()
 	}
 
 	row, err := qtx.UpsertAgentSoulVersioned(ctx, sqlc.UpsertAgentSoulVersionedParams{

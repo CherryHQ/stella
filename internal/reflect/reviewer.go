@@ -30,6 +30,7 @@ type reviewerConfig struct {
 	SkillsTool     tools.Tool
 	MemoryTool     tools.Tool // nil if memory review is not available
 	ExistingSkills []string
+	CurrentProfile string // injected into system prompt so the LLM can skip profile_get
 }
 
 // reviewer runs the review agent against a single conversation.
@@ -48,7 +49,7 @@ func newReviewer(cfg reviewerConfig) (*reviewer, error) {
 	if len(cfg.ExistingSkills) > 0 {
 		skillList = strings.Join(cfg.ExistingSkills, ", ")
 	}
-	system := fmt.Sprintf(combinedReviewPrompt, skillList)
+	system := fmt.Sprintf(combinedReviewPrompt, cfg.CurrentProfile, skillList)
 
 	r, err := agent.NewRunner(agent.RunnerConfig{
 		Stream:          cfg.Stream,
