@@ -263,6 +263,61 @@ func (s *Service) DeleteOAuthProviderConfig(ctx context.Context, providerID stri
 	return s.q.DeleteAuthOAuthProvider(ctx, providerID)
 }
 
+// ProviderClientID returns the effective client_id for the given tool OAuth provider.
+func (s *Service) ProviderClientID(ctx context.Context, providerID string) (string, error) {
+	clientID, _, _, err := s.providerCredentials(ctx, providerID)
+	return clientID, err
+}
+
+// ProviderScopes returns the scopes registered for the given tool OAuth provider.
+func (s *Service) ProviderScopes(providerID string) []string {
+	if s.registry == nil {
+		return nil
+	}
+	cfg, ok := s.registry.Get(providerID)
+	if !ok {
+		return nil
+	}
+	return cfg.Scopes
+}
+
+// SaveLoginToken saves an OAuth token obtained during web login as a tool
+// credential, enabling single-sign-on reuse between login and tool OAuth flows
+// when they share the same application (client_id).
+func (s *Service) SaveLoginToken(ctx context.Context, providerID, userID string, accessToken, refreshToken string, expiresIn, refreshExpiresIn int) error {
+	if s.vaultSvc == nil {
+		return fmt.Errorf("vault not configured")
+	}
+	providerCfg, ok := s.registry.Get(providerID)
+	if !ok {
+		return fmt.Errorf("unknown provider: %s", providerID)
+	}
+	clientID, clientSecret, _, err := s.providerCredentials(ctx, providerID)
+	if err != nil {
+		return err
+	}
+	bundle := oauth.OAuthBundle{
+		Version:      1,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}
+	if expiresIn > 0 {
+		bundle.AccessExpiresAt = time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
+	}
+	if refreshExpiresIn > 0 {
+		bundle.RefreshExpiresAt = time.Now().UTC().Add(time.Duration(refreshExpiresIn) * time.Second)
+	}
+	switch providerID {
+	case "lark":
+		bundle.Brand = "lark"
+	case "feishu":
+		bundle.Brand = "feishu"
+	}
+	return oauth.SaveOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey, bundle)
+}
+
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
 // the provider's registered vault key.
 func (s *Service) saveToken(ctx context.Context, providerID string, userID string, tok *oauth2.Token) error {

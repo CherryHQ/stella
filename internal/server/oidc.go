@@ -356,8 +356,46 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.linkFeishuChannelIdentity(r.Context(), result.User.ID, *identity)
+	s.reuseOAuthToken(r.Context(), result.User.ID, *identity)
 	s.finalizeLogin(w, r, result)
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// reuseOAuthToken saves the login OAuth token as a tool credential when the
+// login and tool providers share the same application (same client_id).
+func (s *Server) reuseOAuthToken(ctx context.Context, userID string, identity auth.ExternalIdentity) {
+	if identity.OAuthToken == nil || s.credSvc == nil || s.vaultSvc == nil {
+		return
+	}
+	providerID := identity.Provider
+	toolClientID, err := s.credSvc.ProviderClientID(ctx, providerID)
+	if err != nil {
+		return
+	}
+
+	type clientIDer interface{ ClientID() string }
+	loginProvider := s.findProvider(providerID)
+	if loginProvider == nil {
+		return
+	}
+	cp, ok := loginProvider.(clientIDer)
+	if !ok {
+		return
+	}
+	if cp.ClientID() != toolClientID {
+		slog.Info("oauth: login and tool client_id differ, skipping token reuse",
+			"provider", providerID)
+		return
+	}
+
+	tok := identity.OAuthToken
+	if err := s.credSvc.SaveLoginToken(ctx, providerID, userID, tok.AccessToken, tok.RefreshToken, tok.ExpiresIn, tok.RefreshTokenExpiresIn); err != nil {
+		slog.Warn("oauth: save login token for tool reuse failed",
+			"provider", providerID, "user_id", userID, "error", err)
+		return
+	}
+	slog.Info("oauth: reused login token for tool access",
+		"provider", providerID, "user_id", userID)
 }
 
 func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, identity auth.ExternalIdentity) {

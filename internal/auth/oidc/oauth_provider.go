@@ -38,6 +38,23 @@ func NewOAuthProviderWithClient(cfg *OAuthConfig, client *http.Client) (*OAuthPr
 
 func (p *OAuthProvider) Name() string { return p.cfg.ProviderName }
 
+// ClientID returns the OAuth client_id used for this login provider.
+func (p *OAuthProvider) ClientID() string { return p.cfg.ClientID }
+
+// MergeScopes appends extra scopes that are not already present.
+func (p *OAuthProvider) MergeScopes(extra []string) {
+	seen := make(map[string]struct{}, len(p.cfg.Scopes))
+	for _, s := range p.cfg.Scopes {
+		seen[s] = struct{}{}
+	}
+	for _, s := range extra {
+		if _, ok := seen[s]; !ok {
+			p.cfg.Scopes = append(p.cfg.Scopes, s)
+			seen[s] = struct{}{}
+		}
+	}
+}
+
 func (p *OAuthProvider) LoginURL(_ context.Context, state auth.AuthState) (string, error) {
 	challenge, method, err := pkceChallenge(state.CodeVerifier)
 	if err != nil {
@@ -80,16 +97,29 @@ func (p *OAuthProvider) HandleCallback(ctx context.Context, r *http.Request, sta
 	if err := p.checkAllowed(profile); err != nil {
 		return nil, err
 	}
-	return profile.identity(p.cfg.ProviderName)
+	identity, err := profile.identity(p.cfg.ProviderName)
+	if err != nil {
+		return nil, err
+	}
+	identity.OAuthToken = &auth.OAuthToken{
+		AccessToken:           token.AccessToken,
+		RefreshToken:          token.RefreshToken,
+		ExpiresIn:             token.ExpiresIn,
+		RefreshTokenExpiresIn: token.RefreshTokenExpiresIn,
+	}
+	return identity, nil
 }
 
 type oauthTokenResponse struct {
-	Code             int    `json:"code"`
-	AccessToken      string `json:"access_token"`
-	TokenType        string `json:"token_type"`
-	Scope            string `json:"scope"`
-	Error            string `json:"error"`
-	ErrorDescription string `json:"error_description"`
+	Code                  int    `json:"code"`
+	AccessToken           string `json:"access_token"`
+	RefreshToken          string `json:"refresh_token"`
+	ExpiresIn             int    `json:"expires_in"`
+	RefreshTokenExpiresIn int    `json:"refresh_token_expires_in"`
+	TokenType             string `json:"token_type"`
+	Scope                 string `json:"scope"`
+	Error                 string `json:"error"`
+	ErrorDescription      string `json:"error_description"`
 }
 
 func (p *OAuthProvider) exchangeCode(ctx context.Context, code, verifier string) (*oauthTokenResponse, error) {

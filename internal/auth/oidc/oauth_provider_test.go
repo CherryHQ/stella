@@ -26,7 +26,10 @@ func TestOAuthProviderFeishuLoginAndCallback(t *testing.T) {
 			if body["code"] != "auth-code" || body["code_verifier"] != "verifier" {
 				t.Fatalf("token request = %#v", body)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "access_token": "user-token", "token_type": "Bearer"})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0, "access_token": "user-token", "token_type": "Bearer",
+				"refresh_token": "refresh-token", "expires_in": 7200, "refresh_token_expires_in": 2592000,
+			})
 		case userInfoPath:
 			if got := r.Header.Get("Authorization"); got != "Bearer user-token" {
 				t.Fatalf("Authorization = %q", got)
@@ -91,6 +94,21 @@ func TestOAuthProviderFeishuLoginAndCallback(t *testing.T) {
 	}
 	if identity.Provider != "feishu" || identity.Subject != "on_union" || identity.Email != "user@example.com" || identity.Name != "Feishu User" {
 		t.Fatalf("identity = %#v", identity)
+	}
+	if identity.OAuthToken == nil {
+		t.Fatal("OAuthToken is nil")
+	}
+	if identity.OAuthToken.AccessToken != "user-token" {
+		t.Fatalf("AccessToken = %q", identity.OAuthToken.AccessToken)
+	}
+	if identity.OAuthToken.RefreshToken != "refresh-token" {
+		t.Fatalf("RefreshToken = %q", identity.OAuthToken.RefreshToken)
+	}
+	if identity.OAuthToken.ExpiresIn != 7200 {
+		t.Fatalf("ExpiresIn = %d", identity.OAuthToken.ExpiresIn)
+	}
+	if identity.OAuthToken.RefreshTokenExpiresIn != 2592000 {
+		t.Fatalf("RefreshTokenExpiresIn = %d", identity.OAuthToken.RefreshTokenExpiresIn)
 	}
 }
 
@@ -239,5 +257,36 @@ func TestOAuthProviderRejectsDisallowedFeishuTenant(t *testing.T) {
 	err = p.checkAllowed(&oauthProfile{TenantKey: "tenant-2", Email: "user@example.com", EmailVerified: true})
 	if err == nil {
 		t.Fatal("expected disallowed tenant error")
+	}
+}
+
+func TestMergeScopesDeduplicates(t *testing.T) {
+	cfg := &OAuthConfig{
+		ProviderName:      "feishu",
+		Kind:              "feishu",
+		ClientID:          "client-id",
+		ClientSecret:      "client-secret",
+		RedirectURL:       "https://stella.example/auth/callback/feishu",
+		AuthURL:           "https://accounts.feishu.cn/open-apis/authen/v1/authorize",
+		TokenURL:          "https://open.feishu.cn/open-apis/authen/v2/oauth/token",
+		TokenRequestStyle: "json",
+		UserInfoURL:       "https://open.feishu.cn/open-apis/authen/v1/user_info",
+		Scopes:            []string{"contact:user.email:readonly"},
+		AllowedTenantKeys: []string{"tenant-1"},
+	}
+	p, err := NewOAuthProvider(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.MergeScopes([]string{"contact:user.email:readonly", "im:message", "docs:doc"})
+	want := []string{"contact:user.email:readonly", "im:message", "docs:doc"}
+	if len(p.cfg.Scopes) != len(want) {
+		t.Fatalf("scopes = %v, want %v", p.cfg.Scopes, want)
+	}
+	for i, s := range want {
+		if p.cfg.Scopes[i] != s {
+			t.Fatalf("scope[%d] = %q, want %q", i, p.cfg.Scopes[i], s)
+		}
 	}
 }
