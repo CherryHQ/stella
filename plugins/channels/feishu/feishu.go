@@ -139,7 +139,8 @@ func (b *Bot) Start(ctx context.Context) error {
 		OnP2MessageReactionDeletedV1(b.onReactionDeleted).
 		OnP2MessageReadV1(b.onMessageRead).
 		OnP2ChatMemberBotAddedV1(b.onBotAdded).
-		OnP2ChatMemberBotDeletedV1(b.onBotDeleted)
+		OnP2ChatMemberBotDeletedV1(b.onBotDeleted).
+		OnP2CardActionTrigger(b.onCardAction)
 
 	b.wsClient = larkws.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		larkws.WithEventHandler(eventHandler),

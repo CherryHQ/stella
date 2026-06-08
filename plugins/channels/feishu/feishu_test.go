@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -1353,4 +1354,94 @@ func (m *mockHandler) ListModels() []channel.ModelOption {
 
 func (m *mockHandler) SwitchModel(_, _ string) error {
 	return m.switchErr
+}
+
+// --- Card action tests ---
+
+func TestCardActionNilEvent(t *testing.T) {
+	bot := &Bot{}
+	resp, err := bot.onCardAction(context.Background(), nil)
+	if err != nil || resp != nil {
+		t.Errorf("nil event: resp=%v err=%v", resp, err)
+	}
+}
+
+func TestCardActionNilEventData(t *testing.T) {
+	bot := &Bot{}
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{})
+	if err != nil || resp != nil {
+		t.Errorf("nil event data: resp=%v err=%v", resp, err)
+	}
+}
+
+func TestCardActionNilAction(t *testing.T) {
+	bot := &Bot{}
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_user1"},
+		},
+	})
+	if err != nil || resp != nil {
+		t.Errorf("nil action: resp=%v err=%v", resp, err)
+	}
+}
+
+func TestCardActionNoOperator(t *testing.T) {
+	bot := &Bot{}
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Action: &callback.CallBackAction{
+				Value: map[string]any{"action": "test"},
+			},
+		},
+	})
+	if err != nil || resp != nil {
+		t.Errorf("no operator: resp=%v err=%v", resp, err)
+	}
+}
+
+func TestCardActionSelfClick(t *testing.T) {
+	bot := &Bot{}
+	bot.botOpenID.Store("ou_bot")
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_bot"},
+			Action: &callback.CallBackAction{
+				Value: map[string]any{"action": "test"},
+			},
+		},
+	})
+	if err != nil || resp != nil {
+		t.Errorf("self-click should be ignored: resp=%v err=%v", resp, err)
+	}
+}
+
+func TestCardActionReturnsToast(t *testing.T) {
+	bot := &Bot{
+		handler:     &mockHandler{},
+		chatModels:  make(map[string]channel.ModelOption),
+		seenMsgs:    make(map[string]time.Time),
+		provisioned: make(map[string]time.Time),
+	}
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_user1"},
+			Action: &callback.CallBackAction{
+				Value: map[string]any{"action": "retry"},
+			},
+			Context: &callback.Context{
+				OpenChatID:    "oc_chat1",
+				OpenMessageID: "om_msg1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp == nil || resp.Toast == nil {
+		t.Fatal("expected toast response")
+	}
+	if resp.Toast.Type != "info" {
+		t.Errorf("toast type = %q, want info", resp.Toast.Type)
+	}
 }
