@@ -102,6 +102,9 @@ func Init(ctx context.Context) (*Provider, error) {
 	if cfg.LogsEnabled {
 		p.lp, err = newLoggerProvider(ctx, res)
 		if err != nil {
+			if p.tp != nil {
+				_ = p.tp.Shutdown(ctx)
+			}
 			return nil, err
 		}
 	}

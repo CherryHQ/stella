@@ -26,6 +26,26 @@ func clearOTelEnv(t *testing.T) {
 	}
 }
 
+type levelHandler struct {
+	level slog.Level
+}
+
+func (h levelHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.level
+}
+
+func (levelHandler) Handle(context.Context, slog.Record) error { return nil }
+func (h levelHandler) WithAttrs([]slog.Attr) slog.Handler      { return h }
+func (h levelHandler) WithGroup(string) slog.Handler           { return h }
+
+func TestTeeHandlerEnabledUsesAnyHandler(t *testing.T) {
+	handler := newTeeHandler(levelHandler{level: slog.LevelWarn}, levelHandler{level: slog.LevelInfo})
+
+	if !handler.Enabled(context.Background(), slog.LevelInfo) {
+		t.Error("Enabled(INFO) = false, want true when any handler accepts INFO")
+	}
+}
+
 func TestLoadConfigDisabled(t *testing.T) {
 	clearOTelEnv(t)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")

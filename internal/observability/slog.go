@@ -29,10 +29,12 @@ func newTeeHandler(handlers ...slog.Handler) slog.Handler {
 }
 
 func (h teeHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	if len(h.handlers) == 0 {
-		return false
+	for _, handler := range h.handlers {
+		if handler.Enabled(ctx, level) {
+			return true
+		}
 	}
-	return h.handlers[0].Enabled(ctx, level)
+	return false
 }
 
 func (h teeHandler) Handle(ctx context.Context, record slog.Record) error {
