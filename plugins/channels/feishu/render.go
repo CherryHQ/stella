@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/yuin/goldmark"
 
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/goldmark/feishucard"
@@ -21,32 +20,14 @@ func textContent(text string) string {
 	return string(data)
 }
 
-var md goldmark.Markdown = feishucard.New()
-
-// renderMarkdown converts standard markdown to Feishu card-compatible markdown.
-func renderMarkdown(text string) string {
-	var buf bytes.Buffer
-	if err := md.Convert([]byte(text), &buf); err != nil {
-		return text
-	}
-	if result := buf.String(); result != "" {
-		return result
-	}
-	return text
-}
-
-// cardContent builds a Feishu Interactive Card JSON 2.0 string with markdown content.
-// Cards support the Patch API for in-place editing (plain text messages do not).
+// cardContent builds a Feishu Interactive Card JSON 2.0 string.
+// GFM tables become native table components; all other content is rendered
+// as markdown elements. Cards support the Patch API for in-place editing.
 func cardContent(text string) string {
 	card := map[string]any{
 		"schema": "2.0",
 		"body": map[string]any{
-			"elements": []map[string]any{
-				{
-					"tag":     "markdown",
-					"content": renderMarkdown(text),
-				},
-			},
+			"elements": feishucard.Render(text),
 		},
 	}
 	data, _ := json.Marshal(card)
