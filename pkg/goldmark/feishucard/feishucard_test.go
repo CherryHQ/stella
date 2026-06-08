@@ -339,6 +339,41 @@ func TestButtonDefaultType(t *testing.T) {
 	}
 }
 
+func TestButtonInsideCodeStaysMarkdown(t *testing.T) {
+	input := "```\n{{button value=\"retry\" label=\"Retry\"}}\n```\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "markdown" {
+		t.Fatalf("button in code should stay markdown, got %v", elemTags(elems))
+	}
+	content := elems[0]["content"].(string)
+	if !strings.Contains(content, "{{button") || !strings.Contains(content, "```") {
+		t.Errorf("code button not preserved: %q", content)
+	}
+}
+
+func TestButtonInsideInlineCodeStaysMarkdown(t *testing.T) {
+	input := "Use `{{button value=\"retry\" label=\"Retry\"}}` literally.\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "markdown" {
+		t.Fatalf("inline-code button should stay markdown, got %v", elemTags(elems))
+	}
+	if content := elems[0]["content"].(string); !strings.Contains(content, "{{button") {
+		t.Errorf("inline-code button not preserved: %q", content)
+	}
+}
+
+func TestButtonMalformedInlinePreserved(t *testing.T) {
+	input := "Before {{button value=\"retry\"}} after\n"
+	elems := feishucard.Render(input)
+	if len(elems) != 1 || elems[0]["tag"] != "markdown" {
+		t.Fatalf("malformed inline button should stay markdown, got %v", elemTags(elems))
+	}
+	content := elems[0]["content"].(string)
+	if !strings.Contains(content, "{{button value=\"retry\"}}") {
+		t.Errorf("malformed button not preserved: %q", content)
+	}
+}
+
 func TestButtonMixedWithTable(t *testing.T) {
 	input := "| A | B |\n|---|---|\n| 1 | 2 |\n\n{{button value=\"export\" type=\"primary\" label=\"Export\"}}\n"
 	elems := feishucard.Render(input)

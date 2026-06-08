@@ -24,9 +24,21 @@ func extractButtons(content string) []map[string]any {
 
 	var elements []map[string]any
 	prev := 0
+	converted := false
 
 	for _, loc := range matches {
-		// Text before this button.
+		if buttonInCode(content, loc[0]) {
+			continue
+		}
+
+		raw := content[loc[0]:loc[1]]
+		btn := parseButton(raw)
+		if btn == nil {
+			continue
+		}
+
+		// Text before this button. Invalid directives between prev and loc stay
+		// in this markdown segment instead of disappearing.
 		before := strings.TrimRight(content[prev:loc[0]], "\n ")
 		if before != "" {
 			elements = append(elements, map[string]any{
@@ -35,16 +47,16 @@ func extractButtons(content string) []map[string]any {
 			})
 		}
 
-		raw := content[loc[0]:loc[1]]
-		btn := parseButton(raw)
-		if btn != nil {
-			elements = append(elements, btn)
-		}
-
+		elements = append(elements, btn)
+		converted = true
 		prev = loc[1]
 	}
 
-	// Text after the last button.
+	if !converted {
+		return nil
+	}
+
+	// Text after the last converted button.
 	after := strings.TrimLeft(content[prev:], "\n ")
 	if after != "" {
 		elements = append(elements, map[string]any{
@@ -54,6 +66,33 @@ func extractButtons(content string) []map[string]any {
 	}
 
 	return groupButtons(elements)
+}
+
+func buttonInCode(content string, pos int) bool {
+	inFence := false
+	lineStart := 0
+	for lineStart < len(content) {
+		lineEnd := strings.IndexByte(content[lineStart:], '\n')
+		if lineEnd == -1 {
+			lineEnd = len(content)
+		} else {
+			lineEnd += lineStart
+		}
+
+		line := content[lineStart:lineEnd]
+		trimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(trimmed, "```") {
+			if pos >= lineStart && pos < lineEnd {
+				return true
+			}
+			inFence = !inFence
+		} else if pos >= lineStart && pos < lineEnd {
+			return inFence || strings.Count(content[lineStart:pos], "`")%2 == 1
+		}
+
+		lineStart = lineEnd + 1
+	}
+	return false
 }
 
 // parseButton extracts attributes from a {{button ...}} match and builds

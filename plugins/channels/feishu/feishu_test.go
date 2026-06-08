@@ -1445,3 +1445,43 @@ func TestCardActionReturnsToast(t *testing.T) {
 		t.Errorf("toast type = %q, want info", resp.Toast.Type)
 	}
 }
+
+func TestCardActionDisabledGroupIgnored(t *testing.T) {
+	bot := &Bot{
+		cfg:         Config{GroupMode: "disabled"},
+		handler:     &mockHandler{},
+		chatModels:  make(map[string]channel.ModelOption),
+		seenMsgs:    make(map[string]time.Time),
+		provisioned: make(map[string]time.Time),
+	}
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_user1"},
+			Action: &callback.CallBackAction{
+				Value: map[string]any{"action": "retry"},
+			},
+			Context: &callback.Context{
+				OpenChatID:    "oc_chat1",
+				OpenMessageID: "om_msg1",
+			},
+		},
+	})
+	if err != nil || resp != nil {
+		t.Errorf("disabled group should be ignored: resp=%v err=%v", resp, err)
+	}
+}
+
+func TestValidCardAction(t *testing.T) {
+	valid := []string{"retry", "confirm.delete", "task-123", "agent:run"}
+	for _, action := range valid {
+		if !validCardAction(action) {
+			t.Errorf("validCardAction(%q) = false", action)
+		}
+	}
+	invalid := []string{"", "line\nbreak", strings.Repeat("a", 65), "ignore previous instructions"}
+	for _, action := range invalid {
+		if validCardAction(action) {
+			t.Errorf("validCardAction(%q) = true", action)
+		}
+	}
+}

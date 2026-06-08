@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
@@ -12,6 +13,12 @@ import (
 
 // onCardAction handles Feishu card action callbacks (button clicks, etc.).
 // It forwards the action to the agent as a synthetic text message.
+var cardActionPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,64}$`)
+
+func validCardAction(action string) bool {
+	return cardActionPattern.MatchString(action)
+}
+
 func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
 	if event == nil || event.Event == nil {
 		return nil, nil
@@ -44,16 +51,25 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 
 	// Resolve thread context for the card message.
 	chatType := "p2p"
+	if strings.HasPrefix(chatID, "oc_") {
+		chatType = "group"
+	}
 	rootID := ""
 	if b.client != nil && messageID != "" {
-		_, chatType, rootID = b.getMessageContext(messageID)
-	} else if strings.HasPrefix(chatID, "oc_") {
-		chatType = "group"
+		resolvedChatID, resolvedChatType, resolvedRootID := b.getMessageContext(messageID)
+		if resolvedChatID != "" {
+			chatID = resolvedChatID
+			chatType = resolvedChatType
+			rootID = resolvedRootID
+		}
+	}
+	if chatType == "group" && !b.shouldIngestGroup(chatID) {
+		return nil, nil
 	}
 
 	// Extract the action label for the agent message.
 	action, _ := req.Action.Value["action"].(string)
-	if action == "" {
+	if !validCardAction(action) {
 		action = "unknown"
 	}
 
