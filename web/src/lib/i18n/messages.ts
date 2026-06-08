@@ -1110,6 +1110,13 @@ const en = {
   "sessions.inspector.noMemories": "No profile memories yet.",
   "sessions.inspector.available": "{{count}} available",
   "sessions.inspector.loading": "Loading",
+  "sessions.inspector.files": "Files",
+  "sessions.inspector.tokenBudget": "Token Budget",
+  "sessions.inspector.used": "used",
+  "sessions.inspector.breakdown": "Breakdown",
+  "sessions.inspector.systemPromptTokens": "System Prompt",
+  "sessions.inspector.messagesTokens": "Messages",
+  "sessions.inspector.toolsTokens": "Tools",
 
   // Sidebar (additions)
   "sessions.sidebar.projects": "Projects",
@@ -2358,6 +2365,13 @@ const zh: Record<MessageKey, string> = {
   "sessions.inspector.noMemories": "暂无档案记忆。",
   "sessions.inspector.available": "{{count}} 个可用",
   "sessions.inspector.loading": "加载中",
+  "sessions.inspector.files": "文件",
+  "sessions.inspector.tokenBudget": "Token 预算",
+  "sessions.inspector.used": "已用",
+  "sessions.inspector.breakdown": "用量分布",
+  "sessions.inspector.systemPromptTokens": "系统提示词",
+  "sessions.inspector.messagesTokens": "消息",
+  "sessions.inspector.toolsTokens": "工具",
 
   // Sidebar (additions)
   "sessions.sidebar.projects": "项目",

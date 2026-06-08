@@ -122,6 +122,23 @@ function IconFolderProject() {
   );
 }
 
+function IconSkills() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275z" />
+    </svg>
+  );
+}
+
+function IconMemory() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+      <path d="M10 21h4" />
+    </svg>
+  );
+}
+
 function relativeTime(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -577,6 +594,24 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
               onClick={() => {
                 closeMobile();
                 void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
+              }}
+            />
+            <NavItem
+              active={isActive(`/agents/${agentId}/skills`)}
+              icon={<IconSkills />}
+              label={t("sessions.sidebar.skills")}
+              onClick={() => {
+                closeMobile();
+                void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
+              }}
+            />
+            <NavItem
+              active={isActive(`/agents/${agentId}/memories`)}
+              icon={<IconMemory />}
+              label={t("sessions.sidebar.memory")}
+              onClick={() => {
+                closeMobile();
+                void navigate({ to: "/agents/$agentId/memories", params: { agentId } });
               }}
             />
           </div>
