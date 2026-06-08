@@ -20,6 +20,7 @@ func validCardAction(action string) bool {
 }
 
 func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
+	logger().Debug("card action callback received")
 	if event == nil || event.Event == nil {
 		return nil, nil
 	}
