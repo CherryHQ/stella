@@ -183,90 +183,11 @@ function ContextMonitor({ session }: { agentID: string; session: Session | null 
     [loadTools],
   );
 
-  const totalTokens = useMemo(
-    () => messages.reduce((sum, msg) => sum + (msg.token_count ?? 0), 0),
-    [messages],
-  );
   const promptTokens = useMemo(() => Math.round(systemPrompt.length / 4), [systemPrompt]);
-  const messagesTokens = useMemo(
-    () => Math.max(0, totalTokens - promptTokens),
-    [totalTokens, promptTokens],
-  );
-
-  const contextLimit = 128_000;
-  const usedPercent = Math.min(100, Math.round((totalTokens / contextLimit) * 100));
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       <div className="grid gap-3">
-        {/* Token Budget Visualization */}
-        <section className="rounded-xl border border-border bg-card p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              {t("sessions.inspector.tokenBudget")}
-            </span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {messagesLoading
-                ? "..."
-                : `${formatTokenCount(totalTokens)} / ${formatTokenCount(contextLimit)}`}
-            </span>
-          </div>
-
-          {/* Progress bar */}
-          <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted/60 border border-border/30">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                usedPercent > 85
-                  ? "bg-destructive/80"
-                  : usedPercent > 60
-                    ? "bg-amber-500/70"
-                    : "bg-primary/60",
-              )}
-              style={{ width: messagesLoading ? "0%" : `${usedPercent}%` }}
-            />
-          </div>
-          <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>
-              {messagesLoading ? "..." : `${usedPercent}% ${t("sessions.inspector.used")}`}
-            </span>
-            <span>
-              {messages.length} {t("sessions.inspector.msgs")}
-            </span>
-          </div>
-        </section>
-
-        {/* Token Breakdown */}
-        <section className="rounded-xl border border-border bg-card p-4">
-          <div className="mb-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            {t("sessions.inspector.breakdown")}
-          </div>
-          <div className="grid gap-2.5">
-            <TokenBreakdownRow
-              label={t("sessions.inspector.systemPromptTokens")}
-              tokens={promptTokens}
-              total={totalTokens || 1}
-              color="bg-blue-500/70"
-              loading={promptLoading}
-            />
-            <TokenBreakdownRow
-              label={t("sessions.inspector.messagesTokens")}
-              tokens={messagesTokens}
-              total={totalTokens || 1}
-              color="bg-emerald-500/70"
-              loading={messagesLoading}
-            />
-            <TokenBreakdownRow
-              label={t("sessions.inspector.toolsTokens")}
-              tokens={tools.length > 0 ? Math.round(tools.length * 120) : 0}
-              total={totalTokens || 1}
-              color="bg-violet-500/70"
-              loading={toolsLoading}
-            />
-          </div>
-        </section>
-
-        {/* Collapsible sections */}
         <ContextSectionCard
           title={t("sessions.inspector.prompt")}
           detail={
@@ -312,42 +233,6 @@ function ContextMonitor({ session }: { agentID: string; session: Session | null 
             />
           )}
         </ContextSectionCard>
-      </div>
-    </div>
-  );
-}
-
-// ── Token Breakdown Row ─────────────────────────────────────────────────────
-
-function TokenBreakdownRow({
-  label,
-  tokens,
-  total,
-  color,
-  loading,
-}: {
-  label: string;
-  tokens: number;
-  total: number;
-  color: string;
-  loading: boolean;
-}) {
-  const percent = Math.min(100, Math.round((tokens / total) * 100));
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-      <div className="min-w-0">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-foreground font-medium truncate">{label}</span>
-          <span className="font-mono text-[10px] text-muted-foreground shrink-0 ml-2">
-            {loading ? "..." : formatTokenCount(tokens)}
-          </span>
-        </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/50">
-          <div
-            className={cn("h-full rounded-full transition-all duration-300", color)}
-            style={{ width: loading ? "0%" : `${percent}%` }}
-          />
-        </div>
       </div>
     </div>
   );
