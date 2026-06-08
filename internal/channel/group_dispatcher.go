@@ -391,7 +391,7 @@ func (d *GroupDispatcher) semanticResponders(ctx context.Context, q *sqlc.Querie
 			d.log.Warn("semantic routing: get agent failed", "group_id", groupID, "agent_id", m.AgentID, "error", err)
 			continue
 		}
-		summary := a.Soul
+		summary := a.SystemPrompt
 		smembers = append(smembers, SemanticGroupMember{
 			AgentID:        m.AgentID,
 			Name:           a.Name,
