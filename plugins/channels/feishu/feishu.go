@@ -79,6 +79,7 @@ type Bot struct {
 	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
 
 	chatTypes sync.Map // chatID -> "p2p" | "group", cached from Get Chat API
+	unionIDs  sync.Map // openID -> unionID, populated by onMessage for card action lookups
 
 	cfg    Config
 	ctx    context.Context

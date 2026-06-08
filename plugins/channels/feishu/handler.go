@@ -105,6 +105,9 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	}
 
 	openID := derefStr(sender.SenderId.OpenId)
+	if unionID := derefStr(sender.SenderId.UnionId); openID != "" && unionID != "" {
+		b.unionIDs.Store(openID, unionID)
+	}
 
 	if botID, _ := b.botOpenID.Load().(string); botID != "" && openID == botID {
 		return nil
@@ -458,6 +461,24 @@ func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID stri
 	rootID = derefStr(msg.RootId)
 	chatType = b.getChatType(chatID)
 	return chatID, chatType, rootID
+}
+
+// resolveUnionID returns the union_id for an open_id. It checks the in-memory
+// cache first (populated by onMessage), then falls back to the Contact API.
+// Returns "" if the union_id cannot be resolved.
+func (b *Bot) resolveUnionID(openID string) string {
+	if openID == "" {
+		return ""
+	}
+	if v, ok := b.unionIDs.Load(openID); ok {
+		return v.(string)
+	}
+	profile := b.fetchTenantProfile(context.Background(), openID)
+	if profile == nil || profile.UnionID == "" {
+		return ""
+	}
+	b.unionIDs.Store(openID, profile.UnionID)
+	return profile.UnionID
 }
 
 // getChatType queries the Get Chat API to determine whether a chat is p2p or
