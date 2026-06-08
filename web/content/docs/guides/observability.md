@@ -41,7 +41,7 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 
 ### OpenTelemetry Mode
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces and logs together, or use signal-specific exporter variables to enable only one signal. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces and logs together, or use signal-specific exporter variables to enable only one signal. If the backend does not support the logs service (e.g. Jaeger), Stella detects the first failure and silently disables log export. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
 
 | Environment Variable                 | Default                    | Description                                                                                                                                                                                               |
 | ------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

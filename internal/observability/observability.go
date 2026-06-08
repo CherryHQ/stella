@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
+	"sync/atomic"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
@@ -164,9 +166,42 @@ func newLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog.Log
 	}
 
 	return sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(&gracefulExporter{inner: exporter})),
 		sdklog.WithResource(res),
 	), nil
+}
+
+// gracefulExporter wraps a log exporter and auto-disables on the first
+// "Unimplemented" gRPC error, which means the backend does not support the
+// logs service (e.g. Jaeger). A single warning is logged; subsequent exports
+// become no-ops.
+type gracefulExporter struct {
+	inner    sdklog.Exporter
+	disabled atomic.Bool
+}
+
+func (e *gracefulExporter) Export(ctx context.Context, records []sdklog.Record) error {
+	if e.disabled.Load() {
+		return nil
+	}
+	err := e.inner.Export(ctx, records)
+	if err != nil && strings.Contains(err.Error(), "Unimplemented") {
+		slog.Warn("otel log export not supported by backend, disabling log export")
+		e.disabled.Store(true)
+		return nil
+	}
+	return err
+}
+
+func (e *gracefulExporter) Shutdown(ctx context.Context) error {
+	return e.inner.Shutdown(ctx)
+}
+
+func (e *gracefulExporter) ForceFlush(ctx context.Context) error {
+	if e.disabled.Load() {
+		return nil
+	}
+	return e.inner.ForceFlush(ctx)
 }
 
 // Shutdown flushes pending telemetry and stops the providers. It is a no-op

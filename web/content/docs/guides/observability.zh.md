@@ -41,7 +41,7 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 
 ### OpenTelemetry 模式
 
-设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪和日志；也可以用信号专用导出器变量只启用其中一种信号。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
+设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪和日志；也可以用信号专用导出器变量只启用其中一种信号。如果后端不支持日志服务（如 Jaeger），Stella 会在首次失败后自动禁用日志导出。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
 
 | 环境变量                             | 默认值              | 说明                                                                                                                                                                            |
 | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
