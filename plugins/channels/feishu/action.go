@@ -74,7 +74,7 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	// Build synthetic message text.
 	text := fmt.Sprintf("[User clicked: %s]", action)
 
-	senderIDs := feishuSenderIDs(b.resolveUnionID(openID), openID)
+	senderIDs := feishuSenderIDs(b.resolveUnionID(ctx, openID), openID)
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(text))
 
 	replyFn := func(reply string) {

@@ -473,15 +473,13 @@ func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID stri
 // resolveUnionID returns the union_id for an open_id. It checks the in-memory
 // cache first (populated by onMessage), then falls back to the Contact API.
 // Returns "" if the union_id cannot be resolved.
-func (b *Bot) resolveUnionID(openID string) string {
+func (b *Bot) resolveUnionID(ctx context.Context, openID string) string {
 	if openID == "" {
 		return ""
 	}
 	if v, ok := b.unionIDs.Load(openID); ok {
 		return v.(string)
 	}
-	ctx, cancel := b.apiContext()
-	defer cancel()
 	profile := b.fetchTenantProfile(ctx, openID)
 	if profile == nil || profile.UnionID == "" {
 		return ""

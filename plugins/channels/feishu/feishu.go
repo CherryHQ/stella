@@ -226,7 +226,8 @@ func (b *Bot) Name() string {
 func (b *Bot) Platform() string { return channel.PlatformFeishu }
 
 // Notify sends a notification message. Implements channel.Channel.
-// Supports both chat IDs (oc_ prefix) and user open IDs (ou_ prefix).
+// Supports chat IDs (oc_ prefix), union IDs (on_ prefix), and open IDs (ou_ prefix).
+// Open IDs are promoted to union IDs via the Contact API before sending.
 // When the text contains {{button ...}} directives, sends an interactive card
 // so buttons render as clickable elements; otherwise sends plain text.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
@@ -237,6 +238,16 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 
 	// Strip channel prefix if present.
 	chatID = strings.TrimPrefix(chatID, "feishu:")
+
+	// Promote open_id to union_id when possible so we use the stable ID.
+	if strings.HasPrefix(chatID, "ou_") {
+		if unionID := b.resolveUnionID(ctx, chatID); unionID != "" {
+			logger().Debug("notify: promoted open_id to union_id", "open_id", chatID, "union_id", unionID)
+			chatID = unionID
+		} else {
+			logger().Debug("notify: failed to resolve union_id, falling back to open_id", "open_id", chatID)
+		}
+	}
 
 	receiveIDType := receiveIDTypeForChatID(chatID)
 
