@@ -669,8 +669,9 @@ func TestSanitizeToolPairs_OrphanCallInNonFinal(t *testing.T) {
 	}
 }
 
-func TestSanitizeToolPairs_InProgressCall(t *testing.T) {
-	// The final assistant message may have an in-progress tool_call — preserve it.
+func TestSanitizeToolPairs_FinalOrphanCallStripped(t *testing.T) {
+	// Assembled memory history is followed by the next live user message, so even
+	// the final assistant message must not keep a stale tool_call without a result.
 	tc := ai.ToolCall{ID: "call1", Name: "bash"}
 	asst := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
 	msgs := []ai.Message{ai.UserMessage{Content: "do something"}, asst}
@@ -683,10 +684,11 @@ func TestSanitizeToolPairs_InProgressCall(t *testing.T) {
 		t.Fatalf("expected AssistantMessage at 1, got %T", got[1])
 	}
 	if len(finalAsst.Content) != 1 {
-		t.Fatalf("expected 1 block preserved, got %d", len(finalAsst.Content))
+		t.Fatalf("expected 1 block (placeholder), got %d", len(finalAsst.Content))
 	}
-	if _, ok := finalAsst.Content[0].(ai.ToolCall); !ok {
-		t.Error("in-progress tool_call on final assistant message should be preserved")
+	text, ok := finalAsst.Content[0].(ai.TextContent)
+	if !ok || !strings.Contains(text.Text, "compacted") {
+		t.Errorf("expected placeholder, got %v", finalAsst.Content[0])
 	}
 }
 
