@@ -164,20 +164,6 @@ docker run -d \
 
 ### Docker Compose
 
-根据 Stella 的运行位置和 agent 使用的沙箱后端选择 compose 形态：
-
-| Stella 运行位置 | 沙箱后端 | 数据挂载                   | 额外设置                                                                                                                                          |
-| --------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Docker          | `local`  | bind mount 或 named volume | 添加 `seccomp=unconfined`，让 bubblewrap 能创建 namespace。                                                                                       |
-| Docker          | `none`   | bind mount 或 named volume | 不需要沙箱相关 Docker 选项；只适合完全可信工作负载。                                                                                              |
-| Docker          | `docker` | host bind mount            | 挂载 Docker socket，设置 `STELLA_DOCKER_SANDBOX_MODE=bind`，并设置 `STELLA_HOME_HOST` 为宿主机侧路径。                                            |
-| Docker          | `docker` | Docker named volume        | 挂载 Docker socket，设置 `STELLA_DOCKER_SANDBOX_MODE=volume`，并设置 `STELLA_HOME_VOLUME` 为 volume 名称；volume subpath 需要 Docker Engine 25+。 |
-| Host            | `docker` | 普通宿主机目录             | 设置 `STELLA_DOCKER_SANDBOX_MODE=host`；路径本来就对 Docker daemon 可见。                                                                         |
-
-#### 容器内使用 `local` 或 `none` 沙箱
-
-这是最简单的部署。agent 使用 `local` 沙箱时保留 `seccomp=unconfined`；如果你明确使用 `none`，可以移除它。
-
 ```yaml
 # docker-compose.yml
 services:
@@ -193,48 +179,7 @@ services:
       # - OPENAI_API_KEY=sk-...
 ```
 
-#### 容器内使用 `docker` 沙箱和 host bind mount
-
-当 `STELLA_HOME` 来自宿主机目录时使用这种方式。Docker daemon 看到的是宿主机路径，而不是 Stella 容器内的 `/home/nonroot/.stella`，所以需要声明 `bind` 模式，并让 `STELLA_HOME_HOST` 指向同一个目录在宿主机上的路径。
-
-```yaml
-# docker-compose.yml
-services:
-  stella:
-    image: ghcr.io/cherryhq/stella:latest
-    restart: unless-stopped
-    volumes:
-      - ./stella-data:/home/nonroot/.stella
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - ANTHROPIC_API_KEY=sk-...
-      - STELLA_DOCKER_SANDBOX_MODE=bind
-      - STELLA_HOME_HOST=${PWD}/stella-data
-```
-
-#### 容器内使用 `docker` 沙箱和 named volume
-
-当 `STELLA_HOME` 是 Docker named volume 时使用这种方式。声明 `volume` 模式后，Stella 会通过 volume subpath mount 让沙箱容器访问工作区和工具目录，不需要宿主机可见的 bind-mount 路径。
-
-```yaml
-# docker-compose.yml
-services:
-  stella:
-    image: ghcr.io/cherryhq/stella:latest
-    restart: unless-stopped
-    volumes:
-      - stella-data:/home/nonroot/.stella
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - ANTHROPIC_API_KEY=sk-...
-      - STELLA_DOCKER_SANDBOX_MODE=volume
-      - STELLA_HOME_VOLUME=stella-data
-
-volumes:
-  stella-data:
-```
-
-agent 使用 `docker` 沙箱时，始终显式设置 `STELLA_DOCKER_SANDBOX_MODE`：`host`、`bind` 或 `volume`。`bind` 模式只设置 `STELLA_HOME_HOST`；`volume` 模式只设置 `STELLA_HOME_VOLUME`；`host` 模式两者都不设置。agent 使用 `local` 或 `none` 时，这些 Docker-sandbox 变量都不需要。
+`seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。如果 agent 使用 `docker` 沙箱后端，需要额外挂载 Docker socket 和设置模式相关的环境变量——请参阅[沙箱指南](/docs/guides/sandbox#docker-compose-示例)了解所有 compose 变体。
 
 ```bash
 docker compose up -d
@@ -252,23 +197,9 @@ docker build -t stella .
 docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 ```
 
-## 使用 Docker 作为沙盒后端
+## 沙箱后端
 
-将 stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。两者可以结合使用（Docker-in-Docker 或挂载 socket），但各自独立也有价值。
-
-### 何时优先选择 `docker` 沙箱后端
-
-- **Windows**：本地沙箱后端仅支持 Linux/macOS。`docker` 后端通过 Docker Desktop 为 Windows 用户提供真正的隔离边界。
-- **自定义工具链**：需要与宿主机不同的特定 Python/Node/Go 版本，或需要干净的 Linux 用户空间。
-- **副作用隔离**：需要可复现的文件系统状态，不希望 agent 脚本产生宿主机级别的副作用。
-
-### 权衡取舍
-
-- **启动延迟**：容器热启动约 200ms；首次拉取镜像约 1–3s。
-- **绑定挂载性能**：在 macOS/Windows 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。在这些平台上，有大量读写操作的工作流应避免使用 `docker` 后端。
-- **无写时复制隔离**：与本地后端（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
-
-有关支持的环境变量，请参阅[配置指南](/docs/start-here/configuration)。
+将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。请参阅[沙箱指南](/docs/guides/sandbox)了解如何选择后端、配置 Docker 沙箱模式和排查常见问题。
 
 ## 卷和数据
 

@@ -11,6 +11,7 @@
     "artifact-sharing",
     "notifications",
     "observability",
+    "sandbox",
     "oauth-connections",
     "oidc-authentication"
   ]

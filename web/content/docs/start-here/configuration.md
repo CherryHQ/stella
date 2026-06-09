@@ -96,4 +96,6 @@ Only a small set of environment variables is recognized:
 | `STELLA_HOME_HOST`           | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                            |
 | `STELLA_HOME_VOLUME`         | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
 
+See the [Sandbox guide](/docs/guides/sandbox) for how to choose a sandbox backend and configure Docker sandbox modes.
+
 All other configuration is managed through the Web UI.

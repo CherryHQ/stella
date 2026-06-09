@@ -164,20 +164,6 @@ The container runs as `nonroot` user. Mount `~/.stella` to persist the database,
 
 ### Docker Compose
 
-Choose the compose shape based on where Stella runs and which sandbox backend agents use:
-
-| Stella runtime | Sandbox backend | Data mount                 | Extra setup                                                                                                                                                        |
-| -------------- | --------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Docker         | `local`         | bind mount or named volume | Add `seccomp=unconfined` so bubblewrap can create namespaces.                                                                                                      |
-| Docker         | `none`          | bind mount or named volume | No sandbox-specific Docker option. Use only for trusted workloads.                                                                                                 |
-| Docker         | `docker`        | host bind mount            | Mount the Docker socket, set `STELLA_DOCKER_SANDBOX_MODE=bind`, and set `STELLA_HOME_HOST` to the host-side path.                                                  |
-| Docker         | `docker`        | Docker named volume        | Mount the Docker socket, set `STELLA_DOCKER_SANDBOX_MODE=volume`, and set `STELLA_HOME_VOLUME` to the volume name. Requires Docker Engine 25+ for volume subpaths. |
-| Host           | `docker`        | normal host directory      | Set `STELLA_DOCKER_SANDBOX_MODE=host`; paths are already daemon-visible.                                                                                           |
-
-#### Container with `local` or `none` sandbox
-
-This is the simplest deployment. Keep `seccomp=unconfined` if agents use the `local` sandbox; remove it if you deliberately use `none`.
-
 ```yaml
 # docker-compose.yml
 services:
@@ -193,48 +179,7 @@ services:
       # - OPENAI_API_KEY=sk-...
 ```
 
-#### Container with `docker` sandbox and a host bind mount
-
-Use this when `STELLA_HOME` is mounted from a host directory. The Docker daemon sees the host path, not `/home/nonroot/.stella` inside the Stella container, so declare `bind` mode and point `STELLA_HOME_HOST` at the same directory from the host's view.
-
-```yaml
-# docker-compose.yml
-services:
-  stella:
-    image: ghcr.io/cherryhq/stella:latest
-    restart: unless-stopped
-    volumes:
-      - ./stella-data:/home/nonroot/.stella
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - ANTHROPIC_API_KEY=sk-...
-      - STELLA_DOCKER_SANDBOX_MODE=bind
-      - STELLA_HOME_HOST=${PWD}/stella-data
-```
-
-#### Container with `docker` sandbox and a named volume
-
-Use this when `STELLA_HOME` is a Docker named volume. Declare `volume` mode; Stella then uses volume subpath mounts so sandbox containers can access workspaces and tool directories without a host-visible bind-mount path.
-
-```yaml
-# docker-compose.yml
-services:
-  stella:
-    image: ghcr.io/cherryhq/stella:latest
-    restart: unless-stopped
-    volumes:
-      - stella-data:/home/nonroot/.stella
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - ANTHROPIC_API_KEY=sk-...
-      - STELLA_DOCKER_SANDBOX_MODE=volume
-      - STELLA_HOME_VOLUME=stella-data
-
-volumes:
-  stella-data:
-```
-
-When agents use the `docker` sandbox, always set `STELLA_DOCKER_SANDBOX_MODE` explicitly: `host`, `bind`, or `volume`. In `bind` mode set only `STELLA_HOME_HOST`; in `volume` mode set only `STELLA_HOME_VOLUME`; in `host` mode set neither. If agents use `local` or `none`, none of these Docker-sandbox variables are needed.
+The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). If agents use the `docker` sandbox backend, you need additional Docker socket mounts and mode-specific environment variables — see the [Sandbox guide](/docs/guides/sandbox#docker-compose-examples) for all compose variants.
 
 ```bash
 docker compose up -d
@@ -252,23 +197,9 @@ docker build -t stella .
 docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 ```
 
-## Docker as a Sandbox Backend
+## Sandbox Backends
 
-Running stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. The two can be combined (Docker-in-Docker or a mounted socket), but each is independently useful.
-
-### When to prefer the `docker` sandbox backend
-
-- **Windows**: The local sandbox backend is Linux/macOS only. The `docker` backend gives Windows users a real isolation boundary via Docker Desktop.
-- **Custom toolchain**: You need a specific Python/Node/Go version or a clean Linux userspace that differs from the host.
-- **Side-effect isolation**: You want reproducible filesystem state and do not want host-level side effects from agent scripts.
-
-### Tradeoffs
-
-- **Startup latency**: ~200ms for a warm container start; ~1–3s on first pull.
-- **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid the `docker` backend for heavy read/write workloads on those platforms.
-- **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
-
-See the [Configuration guide](/docs/start-here/configuration) for supported environment variables.
+Running Stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. Stella supports three sandbox backends: `docker`, `local`, and `none`. See the [Sandbox guide](/docs/guides/sandbox) for how to choose a backend, configure Docker sandbox modes, and troubleshoot common issues.
 
 ## Volumes & Data
 

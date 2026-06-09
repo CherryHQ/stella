@@ -2,17 +2,11 @@
 title: Sandbox Backend Abstraction
 ---
 
-> This section is for developers contributing to Stella.
+> This section is for developers contributing to Stella. For choosing and configuring a sandbox backend, see the [Sandbox guide](/docs/guides/sandbox).
 
-## Status
+## Core Model
 
-Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments; Linux keeps OS-level hardening, while macOS currently runs local commands directly on the host without additional sandboxing. A `none` backend is also available for fully trusted workloads — it runs the agent directly on the host with the current user's permissions and no isolation of any kind. Stella's execution boundary is described by `pkg/sandbox` contracts; backend dispatch lives in `internal/agent/sandbox/session.go`.
-
-## Purpose
-
-The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types. Execution always runs through the active backend selected by the runner. Docker provides the strongest isolation; the local backend is a fallback for environments where Docker is unavailable or undesirable; the none backend skips all isolation for fully trusted single-user workloads.
-
-The top-level model is:
+The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types. Execution always runs through the active backend selected by the runner.
 
 - `pkg/sandbox.Policy` — immutable backend-agnostic execution policy (filesystem root, working dir, network mode, env, timeout)
 - `pkg/sandbox.Session` — per-run execution boundary and lifecycle owner; combines lifecycle and host-access into one interface
@@ -36,82 +30,6 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 | `Done() <-chan struct{}`                                   | Channel closed when the session terminates                        |
 
 File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
-
-## Backends
-
-### Docker (recommended)
-
-Docker provides full container-level process, filesystem, and network isolation. The Docker daemon must be running and reachable. Stella contacts it at session-create time and fails closed if it is unavailable:
-
-- missing or unreachable Docker daemon → session creation fails, runner does not start
-- unsupported policy → `PolicyCompatibilityError`, runner does not start
-- no silent downgrade path exists
-
-All platforms (Linux, macOS, Windows) support the Docker backend. There is no `auto` or `Relaxed` mode.
-
-### Local (Docker-free)
-
-The local backend runs commands directly on the host OS. It is intended for environments where Docker is unavailable (CI without Docker, embedded deployments, developer machines that prefer not to run a daemon).
-
-**This backend does not provide container-level isolation.** It applies OS-level hardening layers instead:
-
-| Layer                          | Platform | Mechanism                                                                                                                                                                                                                                                                                        |
-| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Process group kill + rlimits   | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)`                                                                                                                                                                                                       |
-| Filesystem + network isolation | Linux    | `bwrap` (required) — minimal usable Linux root with `/workspace` read-write, user-scoped host `/tmp/{user_id}` mounted at `/tmp`, `/var/tmp` and `/dev/shm` writable tmpfs, selected runtime/tool directories and DNS resolver config read-only; `--unshare-net` when network mode is `disabled` |
-| No additional local isolation  | macOS    | Commands run directly on the host OS; filesystem and network policy are not enforced                                                                                                                                                                                                             |
-
-The local backend uses a **fail-closed** strategy on Linux: `bwrap` (bubblewrap) is mandatory. Session creation fails with an actionable error if bwrap is absent or non-functional (e.g. inside Docker without `--privileged`). There is no fallback to `unshare`-only or unconfined execution. Local sandbox processes do not inherit the full host environment; Stella injects only runner-managed session variables plus a small locale/terminal/proxy allowlist. On macOS, no extra sandboxing tool is currently applied.
-
-#### Installing dependencies
-
-**Linux — bubblewrap (required):**
-
-```bash
-# Debian / Ubuntu
-apt install bubblewrap
-
-# Fedora / RHEL
-dnf install bubblewrap
-
-# Arch
-pacman -S bubblewrap
-```
-
-bwrap must be functional, not just installed. Inside Docker containers without `--privileged`, the kernel seccomp profile typically blocks namespace creation even when bwrap is present — use the Docker backend in that environment instead.
-
-**macOS:**
-No additional dependency is required. The current local backend runs commands directly on the host OS without applying a macOS-specific sandbox.
-
-**Windows:** Not supported. Use the Docker backend.
-
-#### Path presentation
-
-On Linux the agent always sees its workspace at `/workspace` regardless of the real host path (bwrap bind-mounts it). This mirrors Docker's bind-mount behaviour. Docker and Linux local sessions mount the host `/tmp/{user_id}` directory as sandbox `/tmp`, so normal temporary-file paths work inside the sandbox while remaining scoped per user. This `/tmp` directory is intentionally shared by that user's sessions and is not deleted on session close; store only temporary data there and rely on OS temp retention or admin cleanup for pruning. On macOS the agent sees the real host path.
-
-### None (host execution)
-
-The none backend runs the agent directly on the host OS with the current user's permissions. It imposes no isolation of any kind — no filesystem confinement, no network restrictions, no process group kill, and no rlimits. The agent inherits the full host environment merged with any runner-injected session variables.
-
-**Use only for fully trusted agents in single-user local deployments.** This backend is not safe for untrusted agents or multi-user environments.
-
-- No external dependencies — works on all platforms
-- `ResolvePath` resolves relative paths against the working directory; absolute paths pass through unchanged
-- Network policy is always `allow_all`; the configured per-agent network mode is ignored
-- Session creation never fails due to missing tooling
-
-## Configuration
-
-Per-agent sandbox configuration is limited to network policy (mode and allowlist). Each agent independently controls whether its sandbox allows outbound network access and which hosts are reachable.
-
-Network modes supported by Docker and by the Linux local backend:
-
-| Mode        | Description                          |
-| ----------- | ------------------------------------ |
-| `disabled`  | No outbound network access (default) |
-| `allow_all` | Unrestricted outbound access         |
-
-The `whitelist` mode is removed. Docker and the Linux local backend validate the configured mode at session-create time and fail closed if the backend cannot enforce it. The macOS local backend currently ignores network policy and runs with host network access.
 
 ## Current Architecture
 
@@ -182,8 +100,9 @@ Every new sandbox backend requires changes in all of the following locations —
 | 4    | `plugins/sandbox/plugin.go`                                                              | Add entry to the `backends` slice in `init()` to register `AdminVisible` plugin metadata                         |
 | 5    | `internal/agent/sandbox/session.go`                                                      | Add a `case config.SandboxBackend<Name>:` branch in `createSessionForBackend` and implement the factory function |
 | 6    | `web/src/features/plugins/PluginsPage.tsx` and `web/src/features/plugins/pluginUtils.ts` | Add `"sandbox/<name>"` to `validSandboxBackends` and a `sandboxMeta` entry with features/limitations             |
-| 7    | Docs                                                                                     | Update this file and `sandbox.zh.md`                                                                             |
+| 7    | Docs                                                                                     | Update the [Sandbox guide](/docs/guides/sandbox) and this file                                                   |
 
 ## Related Docs
 
+- [Sandbox guide](/docs/guides/sandbox) — choosing and configuring backends
 - [Architecture](/docs/development/architecture)
