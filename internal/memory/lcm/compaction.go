@@ -121,34 +121,53 @@ type messageRun struct {
 }
 
 // findMessageRuns finds contiguous sequences of message items with at least minSize messages.
+// Runs are trimmed so they never start with an orphan tool_result or end with an orphan
+// tool_call — this prevents compaction from splitting tool_call/tool_result pairs.
 func findMessageRuns(items []sqlc.CtxItem, minSize int) []messageRun {
 	var runs []messageRun
 	var current []sqlc.CtxItem
+
+	flush := func() {
+		current = trimOrphanedToolPairs(current)
+		if len(current) >= minSize {
+			runs = append(runs, messageRun{
+				items:    current,
+				startOrd: current[0].Ordinal,
+				endOrd:   current[len(current)-1].Ordinal,
+			})
+		}
+		current = nil
+	}
 
 	for _, item := range items {
 		if item.ItemType == itemTypeMessage {
 			current = append(current, item)
 		} else {
-			if len(current) >= minSize {
-				runs = append(runs, messageRun{
-					items:    current,
-					startOrd: current[0].Ordinal,
-					endOrd:   current[len(current)-1].Ordinal,
-				})
-			}
-			current = nil
+			flush()
 		}
 	}
-	// Don't forget the last run.
-	if len(current) >= minSize {
-		runs = append(runs, messageRun{
-			items:    current,
-			startOrd: current[0].Ordinal,
-			endOrd:   current[len(current)-1].Ordinal,
-		})
-	}
+	flush()
 
 	return runs
+}
+
+// trimOrphanedToolPairs removes leading tool_results (whose tool_call is outside
+// this run) and trailing tool_calls (whose tool_result is outside this run).
+// The trimmed items stay as raw context items and will be handled in a future
+// compaction pass when they naturally pair with their counterparts.
+func trimOrphanedToolPairs(items []sqlc.CtxItem) []sqlc.CtxItem {
+	if len(items) == 0 {
+		return items
+	}
+	start := 0
+	for start < len(items) && items[start].EventType == eventTypeToolResult {
+		start++
+	}
+	end := len(items)
+	for end > start && items[end-1].EventType == eventTypeToolCall {
+		end--
+	}
+	return items[start:end]
 }
 
 // formatMessageForSummarizer formats a CtxMessage for compaction summarization.

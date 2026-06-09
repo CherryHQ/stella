@@ -448,6 +448,7 @@ type CtxItem struct {
 	ItemType       string         `json:"item_type"`
 	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
+	EventType      string         `json:"event_type"`
 	CreatedAt      string         `json:"created_at"`
 }
 

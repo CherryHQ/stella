@@ -1,4 +1,4 @@
-h1:brdgaO0d76dmsdmTKLjrCqhbgyp+oucok4Kq5w2DPJc=
+h1:chiCE/TIQQ8rrfQPjZwcIZcGyqSLSKFd+dsjXqCkQSM=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
@@ -15,3 +15,4 @@ h1:brdgaO0d76dmsdmTKLjrCqhbgyp+oucok4Kq5w2DPJc=
 20260605174634_add_group_dispatch_tables.sql h1:Q2/OVyqgQR7O21FB0kHg/TO1AZVXmes5Hv06ns9rqDA=
 20260606092158_add_recally_feed_kind_metadata.sql h1:HBJAVIFYvAuVoCB7lrb7WGrvK7aS7TO8yOtpRCyxvzc=
 20260606104642_rename_recally_feed.sql h1:4fOp9kKwEa8qGluJlEAwIP/fdBwzOg0WhpLL+l3dnSA=
+20260609105345_add_ctx_item_event_type.sql h1:rmEX/gK/MPDOpRkAXUZ10n/+urqRfgN7a/XUWsN1byc=

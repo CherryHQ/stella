@@ -4,6 +4,7 @@ CREATE TABLE ctx_item (
     item_type TEXT NOT NULL,
     message_id TEXT REFERENCES ctx_message(id) ON DELETE RESTRICT,
     summary_id TEXT REFERENCES ctx_summary(id) ON DELETE RESTRICT,
+    event_type TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (conversation_id, ordinal),
     CHECK (
