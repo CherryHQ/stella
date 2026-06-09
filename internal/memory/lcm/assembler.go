@@ -101,6 +101,7 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 	var result []ai.Message
 	result = append(result, olderMsgs...)
 	result = append(result, tailMsgs...)
+	result = sanitizeToolPairs(result)
 	return result, nil
 }
 
@@ -154,6 +155,7 @@ func compactOversizedTailResults(msgs []ai.Message) ([]ai.Message, int) {
 }
 
 // splitFreshTail separates the last freshTail message-type items from the rest.
+// The split point is adjusted so it never lands inside a tool_call/tool_result pair.
 func splitFreshTail(items []sqlc.CtxItem, freshTail int) (tail []sqlc.CtxItem, older []sqlc.CtxItem) {
 	// Count message items from the end.
 	msgCount := 0
@@ -166,6 +168,19 @@ func splitFreshTail(items []sqlc.CtxItem, freshTail int) (tail []sqlc.CtxItem, o
 				break
 			}
 		}
+	}
+	// Pull tool_results at the split boundary into the tail so they stay
+	// with their tool_calls (which are at lower ordinals, already in tail).
+	// Conversely, if the last item in "older" is a tool_call whose result
+	// is in the tail, pull it into the tail too.
+	for splitIdx > 0 && splitIdx < len(items) &&
+		items[splitIdx].ItemType == itemTypeMessage &&
+		items[splitIdx].EventType == eventTypeToolResult {
+		splitIdx--
+	}
+	for splitIdx > 0 && items[splitIdx-1].ItemType == itemTypeMessage &&
+		items[splitIdx-1].EventType == eventTypeToolCall {
+		splitIdx--
 	}
 	return items[splitIdx:], items[:splitIdx]
 }
@@ -194,6 +209,7 @@ func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.C
 				tokens += estimateMessageTokens(m)
 			}
 			if tokens > remaining {
+				olderMsgs = stripTrailingOrphanResults(olderMsgs)
 				return olderMsgs, nil
 			}
 			remaining -= tokens
@@ -202,6 +218,34 @@ func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.C
 		end = start
 	}
 	return olderMsgs, nil
+}
+
+// stripTrailingOrphanResults removes ToolResultMessages from the end of msgs
+// that have no matching ToolCall earlier in the slice. Since olderMsgs is built
+// newest-first (later reversed), trailing items are the most recent — which are
+// tool_results whose tool_calls we failed to include due to budget exhaustion.
+func stripTrailingOrphanResults(msgs []ai.Message) []ai.Message {
+	callIDs := make(map[string]struct{})
+	for _, m := range msgs {
+		if am, ok := m.(ai.AssistantMessage); ok {
+			for _, b := range am.Content {
+				if tc, ok := b.(ai.ToolCall); ok {
+					callIDs[tc.ID] = struct{}{}
+				}
+			}
+		}
+	}
+	for len(msgs) > 0 {
+		tr, ok := msgs[len(msgs)-1].(ai.ToolResultMessage)
+		if !ok {
+			break
+		}
+		if _, found := callIDs[tr.ToolCallID]; found {
+			break
+		}
+		msgs = msgs[:len(msgs)-1]
+	}
+	return msgs
 }
 
 // resolveItemsFromCaches resolves a slice of context items to ai.Messages.
@@ -289,6 +333,69 @@ func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxIte
 		}
 	}
 	return out, nil
+}
+
+// sanitizeToolPairs is a defense-in-depth pass that enforces the tool pairing
+// contract: every ToolResultMessage must have a *preceding* AssistantMessage
+// containing a ToolCall with the same ID. Orphan tool_results are dropped
+// (not promoted to UserMessage — tool output is untrusted and must not gain
+// user-role privilege). Orphan tool_calls are stripped from assembled history;
+// memory assembly always runs before the next live user message is appended.
+func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
+	// Forward scan: track call IDs as they appear, validate results against
+	// only previously-seen calls.
+	seenCalls := make(map[string]struct{})
+	result := make([]ai.Message, 0, len(msgs))
+	for _, m := range msgs {
+		switch msg := m.(type) {
+		case ai.AssistantMessage:
+			for _, b := range msg.Content {
+				if tc, ok := b.(ai.ToolCall); ok {
+					seenCalls[tc.ID] = struct{}{}
+				}
+			}
+			result = append(result, m)
+		case ai.ToolResultMessage:
+			if _, found := seenCalls[msg.ToolCallID]; found {
+				result = append(result, m)
+			}
+			// Orphan tool_result: drop silently.
+		default:
+			result = append(result, m)
+		}
+	}
+
+	// Strip orphan tool_calls from assistant messages. Although a final assistant
+	// tool_call can be valid while a model turn is in progress, assembled memory
+	// history is always followed by the next live user message before provider IO.
+	resultIDs := make(map[string]struct{})
+	for _, m := range result {
+		if tr, ok := m.(ai.ToolResultMessage); ok {
+			resultIDs[tr.ToolCallID] = struct{}{}
+		}
+	}
+	for i, m := range result {
+		am, ok := m.(ai.AssistantMessage)
+		if !ok {
+			continue
+		}
+		var filtered []ai.ContentBlock
+		for _, b := range am.Content {
+			if tc, isTC := b.(ai.ToolCall); isTC {
+				if _, found := resultIDs[tc.ID]; !found {
+					continue
+				}
+			}
+			filtered = append(filtered, b)
+		}
+		if len(filtered) == 0 {
+			filtered = []ai.ContentBlock{ai.TextContent{Text: "[tool calls compacted]"}}
+		}
+		am.Content = filtered
+		result[i] = am
+	}
+
+	return result
 }
 
 // FormatSummaryXML formats a summary as XML for model consumption.

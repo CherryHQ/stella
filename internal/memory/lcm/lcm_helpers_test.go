@@ -3,6 +3,7 @@ package lcm
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -406,4 +407,363 @@ func TestCompactOversizedTailResults(t *testing.T) {
 		t.Errorf("expected 0 compacted when user is first element, got %d", n)
 	}
 	_ = got
+}
+
+// --- Tool pair integrity tests ---
+
+func makeCtxItem(ord int64, itemType, eventType string) sqlc.CtxItem {
+	return sqlc.CtxItem{
+		ConversationID: "conv1",
+		Ordinal:        ord,
+		ItemType:       itemType,
+		EventType:      eventType,
+		MessageID:      sql.NullString{String: "msg" + fmt.Sprintf("%d", ord), Valid: itemType == itemTypeMessage},
+	}
+}
+
+func TestSplitFreshTail_ToolPairIntegrity(t *testing.T) {
+	// Items: user(1), asst-text(2), asst-tool_call(3), tool_result(4), user(5), asst-text(6)
+	// With freshTail=2, naive split would put items 5,6 in tail, leaving
+	// tool_call(3) in older and tool_result(4) in tail — broken pair.
+	items := []sqlc.CtxItem{
+		makeCtxItem(1, itemTypeMessage, eventTypeText),
+		makeCtxItem(2, itemTypeMessage, eventTypeText),
+		makeCtxItem(3, itemTypeMessage, eventTypeToolCall),
+		makeCtxItem(4, itemTypeMessage, eventTypeToolResult),
+		makeCtxItem(5, itemTypeMessage, eventTypeText),
+		makeCtxItem(6, itemTypeMessage, eventTypeText),
+	}
+	tail, older := splitFreshTail(items, 2)
+
+	// tool_call(3) and tool_result(4) must be in the same partition.
+	tailOrdinals := make(map[int64]bool)
+	for _, item := range tail {
+		tailOrdinals[item.Ordinal] = true
+	}
+	olderOrdinals := make(map[int64]bool)
+	for _, item := range older {
+		olderOrdinals[item.Ordinal] = true
+	}
+	// Both 3 and 4 should be in tail (pulled in to preserve the pair).
+	if olderOrdinals[3] && tailOrdinals[4] {
+		t.Error("splitFreshTail split tool_call(3) into older and tool_result(4) into tail")
+	}
+	if olderOrdinals[4] && tailOrdinals[3] {
+		t.Error("splitFreshTail split tool_result(4) into older and tool_call(3) into tail")
+	}
+	// Verify they ended up together.
+	if tailOrdinals[3] != tailOrdinals[4] {
+		t.Errorf("tool_call and tool_result not in same partition: tail has 3=%v 4=%v", tailOrdinals[3], tailOrdinals[4])
+	}
+}
+
+func TestSplitFreshTail_MultipleToolCalls(t *testing.T) {
+	// Items: user(1), asst-tc1(2), asst-tc2(3), result1(4), result2(5), user(6)
+	// freshTail=2 would naively land on item 5, splitting the tool pairs.
+	items := []sqlc.CtxItem{
+		makeCtxItem(1, itemTypeMessage, eventTypeText),
+		makeCtxItem(2, itemTypeMessage, eventTypeToolCall),
+		makeCtxItem(3, itemTypeMessage, eventTypeToolCall),
+		makeCtxItem(4, itemTypeMessage, eventTypeToolResult),
+		makeCtxItem(5, itemTypeMessage, eventTypeToolResult),
+		makeCtxItem(6, itemTypeMessage, eventTypeText),
+	}
+	tail, older := splitFreshTail(items, 2)
+
+	tailOrdinals := make(map[int64]bool)
+	for _, item := range tail {
+		tailOrdinals[item.Ordinal] = true
+	}
+	// All tool calls and results should be in the same partition.
+	for _, ord := range []int64{2, 3, 4, 5} {
+		if !tailOrdinals[ord] {
+			t.Errorf("expected ordinal %d in tail, but it's in older", ord)
+		}
+	}
+	_ = older
+}
+
+func TestTrimOrphanedToolPairs(t *testing.T) {
+	tests := []struct {
+		name     string
+		items    []sqlc.CtxItem
+		wantLen  int
+		wantOrds []int64
+	}{
+		{
+			name:     "empty",
+			items:    nil,
+			wantLen:  0,
+			wantOrds: nil,
+		},
+		{
+			name: "no orphans",
+			items: []sqlc.CtxItem{
+				makeCtxItem(1, itemTypeMessage, eventTypeText),
+				makeCtxItem(2, itemTypeMessage, eventTypeToolCall),
+				makeCtxItem(3, itemTypeMessage, eventTypeToolResult),
+			},
+			wantLen:  3,
+			wantOrds: []int64{1, 2, 3},
+		},
+		{
+			name: "leading orphan tool_result",
+			items: []sqlc.CtxItem{
+				makeCtxItem(1, itemTypeMessage, eventTypeToolResult),
+				makeCtxItem(2, itemTypeMessage, eventTypeText),
+				makeCtxItem(3, itemTypeMessage, eventTypeToolCall),
+				makeCtxItem(4, itemTypeMessage, eventTypeToolResult),
+			},
+			wantLen:  3,
+			wantOrds: []int64{2, 3, 4},
+		},
+		{
+			name: "trailing orphan tool_call",
+			items: []sqlc.CtxItem{
+				makeCtxItem(1, itemTypeMessage, eventTypeText),
+				makeCtxItem(2, itemTypeMessage, eventTypeToolCall),
+				makeCtxItem(3, itemTypeMessage, eventTypeToolResult),
+				makeCtxItem(4, itemTypeMessage, eventTypeToolCall),
+			},
+			wantLen:  3,
+			wantOrds: []int64{1, 2, 3},
+		},
+		{
+			name: "both ends orphaned",
+			items: []sqlc.CtxItem{
+				makeCtxItem(1, itemTypeMessage, eventTypeToolResult),
+				makeCtxItem(2, itemTypeMessage, eventTypeToolResult),
+				makeCtxItem(3, itemTypeMessage, eventTypeText),
+				makeCtxItem(4, itemTypeMessage, eventTypeToolCall),
+				makeCtxItem(5, itemTypeMessage, eventTypeToolCall),
+			},
+			wantLen:  1,
+			wantOrds: []int64{3},
+		},
+		{
+			name: "all orphans",
+			items: []sqlc.CtxItem{
+				makeCtxItem(1, itemTypeMessage, eventTypeToolResult),
+				makeCtxItem(2, itemTypeMessage, eventTypeToolCall),
+			},
+			wantLen:  0,
+			wantOrds: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trimOrphanedToolPairs(tc.items)
+			if len(got) != tc.wantLen {
+				t.Fatalf("len = %d, want %d", len(got), tc.wantLen)
+			}
+			for i, want := range tc.wantOrds {
+				if got[i].Ordinal != want {
+					t.Errorf("got[%d].Ordinal = %d, want %d", i, got[i].Ordinal, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFindMessageRuns_ToolPairBoundary(t *testing.T) {
+	// Items: [msg, msg, ..., tool_call, summary, tool_result, msg, msg, ...]
+	// The summary breaks the run. The first run should not end with orphan tool_call,
+	// and the second run should not start with orphan tool_result.
+	var items []sqlc.CtxItem
+	for i := int64(1); i <= 10; i++ {
+		items = append(items, makeCtxItem(i, itemTypeMessage, eventTypeText))
+	}
+	items[8].EventType = eventTypeToolCall // item at ordinal 9
+	// Insert a summary between ordinals 9 and 10.
+	items = append(items[:9], append([]sqlc.CtxItem{
+		{ConversationID: "conv1", Ordinal: 10, ItemType: itemTypeSummary, SummaryID: sql.NullString{String: "sum1", Valid: true}},
+	}, sqlc.CtxItem{ConversationID: "conv1", Ordinal: 11, ItemType: itemTypeMessage, EventType: eventTypeToolResult, MessageID: sql.NullString{String: "msg11", Valid: true}})...)
+	for i := int64(12); i <= 20; i++ {
+		items = append(items, makeCtxItem(i, itemTypeMessage, eventTypeText))
+	}
+
+	runs := findMessageRuns(items, 3)
+	for _, run := range runs {
+		first := run.items[0]
+		last := run.items[len(run.items)-1]
+		if first.EventType == eventTypeToolResult {
+			t.Errorf("run starting at ordinal %d begins with orphan tool_result", run.startOrd)
+		}
+		if last.EventType == eventTypeToolCall {
+			t.Errorf("run ending at ordinal %d ends with orphan tool_call", run.endOrd)
+		}
+	}
+}
+
+func TestStripTrailingOrphanResults(t *testing.T) {
+	tc1 := ai.ToolCall{ID: "call1", Name: "bash", Arguments: nil}
+	tc2 := ai.ToolCall{ID: "call2", Name: "read", Arguments: nil}
+	asst := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "thinking"}, tc1}}
+	tr1 := ai.ToolResultMessage{ToolCallID: "call1", ToolName: "bash", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}}}
+	tr2 := ai.ToolResultMessage{ToolCallID: "call2", ToolName: "read", Content: []ai.ContentBlock{ai.TextContent{Text: "data"}}}
+
+	// tr2 is orphan (call2 not in any assistant message).
+	msgs := []ai.Message{asst, tr1, tr2}
+	got := stripTrailingOrphanResults(msgs)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages after strip, got %d", len(got))
+	}
+
+	// Both have matching calls — nothing stripped.
+	asst2 := ai.AssistantMessage{Content: []ai.ContentBlock{tc1, tc2}}
+	msgs = []ai.Message{asst2, tr1, tr2}
+	got = stripTrailingOrphanResults(msgs)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 messages (no orphans), got %d", len(got))
+	}
+
+	// Empty input.
+	got = stripTrailingOrphanResults(nil)
+	if len(got) != 0 {
+		t.Fatalf("expected 0 for nil input, got %d", len(got))
+	}
+}
+
+func TestSanitizeToolPairs_OrphanResult(t *testing.T) {
+	// A tool_result with no matching tool_call should be dropped.
+	msgs := []ai.Message{
+		ai.UserMessage{Content: "hello"},
+		ai.ToolResultMessage{
+			ToolCallID: "orphan_call",
+			ToolName:   "bash",
+			Content:    []ai.ContentBlock{ai.TextContent{Text: "some output"}},
+		},
+	}
+	got := sanitizeToolPairs(msgs)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 message (orphan dropped), got %d", len(got))
+	}
+	if _, ok := got[0].(ai.UserMessage); !ok {
+		t.Fatalf("expected UserMessage, got %T", got[0])
+	}
+}
+
+func TestSanitizeToolPairs_OrphanCallInNonFinal(t *testing.T) {
+	tc := ai.ToolCall{ID: "call1", Name: "bash"}
+	asst1 := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
+	asst2 := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "final"}}}
+
+	// asst1 has a tool_call with no result, and it's not the last message.
+	msgs := []ai.Message{asst1, ai.UserMessage{Content: "next"}, asst2}
+	got := sanitizeToolPairs(msgs)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(got))
+	}
+	// The orphan call in asst1 should be stripped, replaced with placeholder.
+	cleaned, ok := got[0].(ai.AssistantMessage)
+	if !ok {
+		t.Fatalf("expected AssistantMessage at 0, got %T", got[0])
+	}
+	if len(cleaned.Content) != 1 {
+		t.Fatalf("expected 1 block (placeholder), got %d", len(cleaned.Content))
+	}
+	text, ok := cleaned.Content[0].(ai.TextContent)
+	if !ok || !strings.Contains(text.Text, "compacted") {
+		t.Errorf("expected placeholder text, got %v", cleaned.Content[0])
+	}
+}
+
+func TestSanitizeToolPairs_FinalOrphanCallStripped(t *testing.T) {
+	// Assembled memory history is followed by the next live user message, so even
+	// the final assistant message must not keep a stale tool_call without a result.
+	tc := ai.ToolCall{ID: "call1", Name: "bash"}
+	asst := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
+	msgs := []ai.Message{ai.UserMessage{Content: "do something"}, asst}
+	got := sanitizeToolPairs(msgs)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(got))
+	}
+	finalAsst, ok := got[1].(ai.AssistantMessage)
+	if !ok {
+		t.Fatalf("expected AssistantMessage at 1, got %T", got[1])
+	}
+	if len(finalAsst.Content) != 1 {
+		t.Fatalf("expected 1 block (placeholder), got %d", len(finalAsst.Content))
+	}
+	text, ok := finalAsst.Content[0].(ai.TextContent)
+	if !ok || !strings.Contains(text.Text, "compacted") {
+		t.Errorf("expected placeholder, got %v", finalAsst.Content[0])
+	}
+}
+
+func TestSanitizeToolPairs_NoOrphans(t *testing.T) {
+	tc := ai.ToolCall{ID: "call1", Name: "bash"}
+	asst := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "let me check"}, tc}}
+	tr := ai.ToolResultMessage{ToolCallID: "call1", ToolName: "bash", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}}}
+	asst2 := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "done"}}}
+
+	msgs := []ai.Message{ai.UserMessage{Content: "hi"}, asst, tr, asst2}
+	got := sanitizeToolPairs(msgs)
+	if len(got) != 4 {
+		t.Fatalf("expected 4 messages unchanged, got %d", len(got))
+	}
+	// Verify types preserved.
+	if _, ok := got[1].(ai.AssistantMessage); !ok {
+		t.Error("message 1 should remain AssistantMessage")
+	}
+	if _, ok := got[2].(ai.ToolResultMessage); !ok {
+		t.Error("message 2 should remain ToolResultMessage")
+	}
+}
+
+func TestSanitizeToolPairs_EmptyOrphanResultDropped(t *testing.T) {
+	msgs := []ai.Message{
+		ai.ToolResultMessage{
+			ToolCallID: "orphan",
+			ToolName:   "bash",
+			Content:    []ai.ContentBlock{ai.TextContent{Text: ""}},
+		},
+	}
+	got := sanitizeToolPairs(msgs)
+	if len(got) != 0 {
+		t.Fatalf("expected empty orphan result to be dropped, got %d messages", len(got))
+	}
+}
+
+func TestSanitizeToolPairs_ResultBeforeCallIsOrphan(t *testing.T) {
+	// Forward scan: tool_result appearing before its tool_call is an orphan.
+	tc := ai.ToolCall{ID: "call1", Name: "bash"}
+	tr := ai.ToolResultMessage{ToolCallID: "call1", ToolName: "bash", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}}}
+	asst := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
+
+	msgs := []ai.Message{tr, asst} // result before call
+	got := sanitizeToolPairs(msgs)
+	// tool_result should be dropped (call not yet seen at that point).
+	if len(got) != 1 {
+		t.Fatalf("expected 1 message (result dropped), got %d", len(got))
+	}
+	if _, ok := got[0].(ai.AssistantMessage); !ok {
+		t.Fatalf("expected AssistantMessage, got %T", got[0])
+	}
+}
+
+func TestSanitizeToolPairs_InProgressCallNotFinal(t *testing.T) {
+	// In-progress tool_call on a non-final assistant message (followed by user)
+	// should be stripped — it's not truly in-progress.
+	tc := ai.ToolCall{ID: "call1", Name: "bash"}
+	asst := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
+	user := ai.UserMessage{Content: "next question"}
+
+	msgs := []ai.Message{asst, user}
+	got := sanitizeToolPairs(msgs)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(got))
+	}
+	cleaned, ok := got[0].(ai.AssistantMessage)
+	if !ok {
+		t.Fatalf("expected AssistantMessage at 0, got %T", got[0])
+	}
+	if len(cleaned.Content) != 1 {
+		t.Fatalf("expected 1 block (placeholder), got %d", len(cleaned.Content))
+	}
+	text, ok := cleaned.Content[0].(ai.TextContent)
+	if !ok || !strings.Contains(text.Text, "compacted") {
+		t.Errorf("expected placeholder, got %v", cleaned.Content[0])
+	}
 }

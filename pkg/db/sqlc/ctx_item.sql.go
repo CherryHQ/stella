@@ -11,8 +11,8 @@ import (
 )
 
 const appendContextItem = `-- name: AppendContextItem :exec
-INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type)
+VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type AppendContextItemParams struct {
@@ -21,6 +21,7 @@ type AppendContextItemParams struct {
 	ItemType       string         `json:"item_type"`
 	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
+	EventType      string         `json:"event_type"`
 }
 
 func (q *Queries) AppendContextItem(ctx context.Context, arg AppendContextItemParams) error {
@@ -30,6 +31,7 @@ func (q *Queries) AppendContextItem(ctx context.Context, arg AppendContextItemPa
 		arg.ItemType,
 		arg.MessageID,
 		arg.SummaryID,
+		arg.EventType,
 	)
 	return err
 }
@@ -71,7 +73,7 @@ func (q *Queries) GetContextItemCount(ctx context.Context, conversationID string
 }
 
 const getContextItems = `-- name: GetContextItems :many
-SELECT conversation_id, ordinal, item_type, message_id, summary_id, created_at FROM ctx_item
+SELECT conversation_id, ordinal, item_type, message_id, summary_id, event_type, created_at FROM ctx_item
 WHERE conversation_id = ?
 ORDER BY ordinal ASC
 `
@@ -91,6 +93,7 @@ func (q *Queries) GetContextItems(ctx context.Context, conversationID string) ([
 			&i.ItemType,
 			&i.MessageID,
 			&i.SummaryID,
+			&i.EventType,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -107,7 +110,7 @@ func (q *Queries) GetContextItems(ctx context.Context, conversationID string) ([
 }
 
 const getContextMessageItems = `-- name: GetContextMessageItems :many
-SELECT ci.conversation_id, ci.ordinal, ci.item_type, ci.message_id, ci.summary_id, ci.created_at, m.token_count as msg_token_count
+SELECT ci.conversation_id, ci.ordinal, ci.item_type, ci.message_id, ci.summary_id, ci.event_type, ci.created_at, m.token_count as msg_token_count
 FROM ctx_item ci
 JOIN ctx_message m ON ci.message_id = m.id
 WHERE ci.conversation_id = ? AND ci.item_type = 'message'
@@ -120,6 +123,7 @@ type GetContextMessageItemsRow struct {
 	ItemType       string         `json:"item_type"`
 	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
+	EventType      string         `json:"event_type"`
 	CreatedAt      string         `json:"created_at"`
 	MsgTokenCount  int64          `json:"msg_token_count"`
 }
@@ -139,6 +143,7 @@ func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID str
 			&i.ItemType,
 			&i.MessageID,
 			&i.SummaryID,
+			&i.EventType,
 			&i.CreatedAt,
 			&i.MsgTokenCount,
 		); err != nil {
