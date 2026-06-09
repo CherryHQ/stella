@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.2] - 2026-06-09
+
+### 🐛 Bug Fixes
+
+- Notify: route to agent-dedicated channel when explicit channel type matches, fixing notifications sent via the wrong bot.
+- Feishu: render `{{button ...}}` directives as interactive card buttons in `Notify` and `replyText` paths (previously sent as plain text).
+
+### ✨ Features
+
+- Feishu: all message-sending paths now auto-detect `{{button ...}}` syntax and send interactive cards instead of plain text.
+- Notify tool: document Feishu button syntax (`{{button value="..." label="..." type="..." confirm="..."}}`) in tool description.
+
+**Full Changelog**: [v0.44.1...v0.44.2](https://github.com/CherryHQ/stella/compare/v0.44.1...v0.44.2)
+
 ## [0.44.1] - 2026-06-09
 
 ### ✨ Features

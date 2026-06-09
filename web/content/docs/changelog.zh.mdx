@@ -11,6 +11,20 @@ icon: History
 
 ## [Unreleased]
 
+## [0.44.2] - 2026-06-09
+
+### 🐛 修复
+
+- Notify：当 agent 有专属 channel 且类型匹配时优先路由到专属 channel，修复通知走错 bot 的问题。
+- 飞书：`Notify` 和 `replyText` 路径支持 `{{button ...}}` 渲染为交互式卡片按钮（此前作为纯文本发送）。
+
+### ✨ 功能
+
+- 飞书：所有消息发送路径自动检测 `{{button ...}}` 语法，自动发送交互式卡片。
+- Notify 工具：工具描述中补充飞书按钮语法说明（`{{button value="..." label="..." type="..." confirm="..."}}`）。
+
+**完整变更日志**：[v0.44.1...v0.44.2](https://github.com/CherryHQ/stella/compare/v0.44.1...v0.44.2)
+
 ## [0.44.1] - 2026-06-09
 
 ### ✨ 功能
