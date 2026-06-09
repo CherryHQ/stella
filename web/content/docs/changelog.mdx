@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-06-09
+
+### ✨ Features
+
+- Docker sandbox backend now requires explicit `STELLA_DOCKER_SANDBOX_MODE` env var (`host`, `bind`, or `volume`). ([#340](https://github.com/CherryHQ/stella/pull/340))
+- New `STELLA_SANDBOX_BACKEND` env var to lock sandbox backend selection; UI becomes read-only when set.
+- Dockerfile: bind to `0.0.0.0` by default so the container is reachable from the host network.
+
+**Full Changelog**: [v0.44.0...v0.44.1](https://github.com/CherryHQ/stella/compare/v0.44.0...v0.44.1)
+
 ## [0.44.0] - 2026-06-09
 
 ### ✨ Features

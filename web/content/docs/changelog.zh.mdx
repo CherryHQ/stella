@@ -11,6 +11,16 @@ icon: History
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-06-09
+
+### ✨ 功能
+
+- Docker 沙盒后端现在要求显式设置 `STELLA_DOCKER_SANDBOX_MODE` 环境变量（`host`、`bind` 或 `volume`）。([#340](https://github.com/CherryHQ/stella/pull/340))
+- 新增 `STELLA_SANDBOX_BACKEND` 环境变量，可锁定沙盒后端选择；设置后 UI 变为只读。
+- Dockerfile：默认绑定 `0.0.0.0`，使容器可从宿主机网络访问。
+
+**完整变更日志**：[v0.44.0...v0.44.1](https://github.com/CherryHQ/stella/compare/v0.44.0...v0.44.1)
+
 ## [0.44.0] - 2026-06-09
 
 ### ✨ 功能
