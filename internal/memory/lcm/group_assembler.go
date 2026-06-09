@@ -89,7 +89,7 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		cutIdx++
 	}
 
-	return merged[cutIdx:], nil
+	return sanitizeToolPairs(merged[cutIdx:]), nil
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {

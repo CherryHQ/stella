@@ -335,61 +335,52 @@ func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxIte
 	return out, nil
 }
 
-// sanitizeToolPairs is a defense-in-depth pass that ensures every ToolResultMessage
-// has a preceding ToolCall with a matching ID. Orphan tool_results are converted to
-// UserMessages to preserve context. Orphan tool_calls on non-final assistant messages
-// are stripped.
+// sanitizeToolPairs is a defense-in-depth pass that enforces the tool pairing
+// contract: every ToolResultMessage must have a *preceding* AssistantMessage
+// containing a ToolCall with the same ID. Orphan tool_results are dropped
+// (not promoted to UserMessage — tool output is untrusted and must not gain
+// user-role privilege). Orphan tool_calls are stripped from non-final assistant
+// messages; in-progress calls are only preserved on the actual last message.
 func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
-	callIDs := make(map[string]struct{})
-	for _, m := range msgs {
-		am, ok := m.(ai.AssistantMessage)
-		if !ok {
-			continue
-		}
-		for _, b := range am.Content {
-			if tc, ok := b.(ai.ToolCall); ok {
-				callIDs[tc.ID] = struct{}{}
-			}
-		}
-	}
-
+	// Forward scan: track call IDs as they appear, validate results against
+	// only previously-seen calls.
+	seenCalls := make(map[string]struct{})
 	result := make([]ai.Message, 0, len(msgs))
 	for _, m := range msgs {
-		tr, ok := m.(ai.ToolResultMessage)
-		if !ok {
+		switch msg := m.(type) {
+		case ai.AssistantMessage:
+			for _, b := range msg.Content {
+				if tc, ok := b.(ai.ToolCall); ok {
+					seenCalls[tc.ID] = struct{}{}
+				}
+			}
 			result = append(result, m)
-			continue
-		}
-		if _, found := callIDs[tr.ToolCallID]; found {
+		case ai.ToolResultMessage:
+			if _, found := seenCalls[msg.ToolCallID]; found {
+				result = append(result, m)
+			}
+			// Orphan tool_result: drop silently.
+		default:
 			result = append(result, m)
-			continue
 		}
-		text := ai.FlattenText(tr.Content)
-		if text == "" {
-			continue
-		}
-		result = append(result, ai.UserMessage{
-			Content:   fmt.Sprintf("[Previous tool result from %s]: %s", tr.ToolName, truncateUTF8(text, 500)),
-			Timestamp: tr.Timestamp,
-		})
 	}
 
+	// Strip orphan tool_calls from non-final assistant messages. The final
+	// message is only exempt if nothing follows it (truly in-progress).
 	resultIDs := make(map[string]struct{})
 	for _, m := range result {
 		if tr, ok := m.(ai.ToolResultMessage); ok {
 			resultIDs[tr.ToolCallID] = struct{}{}
 		}
 	}
-	lastAssistantIdx := -1
-	for i := len(result) - 1; i >= 0; i-- {
-		if _, ok := result[i].(ai.AssistantMessage); ok {
-			lastAssistantIdx = i
-			break
-		}
-	}
+	lastIdx := len(result) - 1
 	for i, m := range result {
 		am, ok := m.(ai.AssistantMessage)
-		if !ok || i == lastAssistantIdx {
+		if !ok {
+			continue
+		}
+		// Only the very last message in the slice may keep in-progress calls.
+		if i == lastIdx {
 			continue
 		}
 		var filtered []ai.ContentBlock

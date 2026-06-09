@@ -626,7 +626,7 @@ func TestStripTrailingOrphanResults(t *testing.T) {
 }
 
 func TestSanitizeToolPairs_OrphanResult(t *testing.T) {
-	// A tool_result with no matching tool_call should become a UserMessage.
+	// A tool_result with no matching tool_call should be dropped.
 	msgs := []ai.Message{
 		ai.UserMessage{Content: "hello"},
 		ai.ToolResultMessage{
@@ -636,16 +636,11 @@ func TestSanitizeToolPairs_OrphanResult(t *testing.T) {
 		},
 	}
 	got := sanitizeToolPairs(msgs)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(got))
+	if len(got) != 1 {
+		t.Fatalf("expected 1 message (orphan dropped), got %d", len(got))
 	}
-	um, ok := got[1].(ai.UserMessage)
-	if !ok {
-		t.Fatalf("expected UserMessage, got %T", got[1])
-	}
-	content, _ := um.Content.(string)
-	if !strings.Contains(content, "bash") || !strings.Contains(content, "some output") {
-		t.Errorf("converted UserMessage should mention tool name and content, got %q", content)
+	if _, ok := got[0].(ai.UserMessage); !ok {
+		t.Fatalf("expected UserMessage, got %T", got[0])
 	}
 }
 
@@ -654,7 +649,7 @@ func TestSanitizeToolPairs_OrphanCallInNonFinal(t *testing.T) {
 	asst1 := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
 	asst2 := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "final"}}}
 
-	// asst1 has a tool_call with no result, and it's not the final assistant message.
+	// asst1 has a tool_call with no result, and it's not the last message.
 	msgs := []ai.Message{asst1, ai.UserMessage{Content: "next"}, asst2}
 	got := sanitizeToolPairs(msgs)
 	if len(got) != 3 {
@@ -726,5 +721,47 @@ func TestSanitizeToolPairs_EmptyOrphanResultDropped(t *testing.T) {
 	got := sanitizeToolPairs(msgs)
 	if len(got) != 0 {
 		t.Fatalf("expected empty orphan result to be dropped, got %d messages", len(got))
+	}
+}
+
+func TestSanitizeToolPairs_ResultBeforeCallIsOrphan(t *testing.T) {
+	// Forward scan: tool_result appearing before its tool_call is an orphan.
+	tc := ai.ToolCall{ID: "call1", Name: "bash"}
+	tr := ai.ToolResultMessage{ToolCallID: "call1", ToolName: "bash", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}}}
+	asst := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
+
+	msgs := []ai.Message{tr, asst} // result before call
+	got := sanitizeToolPairs(msgs)
+	// tool_result should be dropped (call not yet seen at that point).
+	if len(got) != 1 {
+		t.Fatalf("expected 1 message (result dropped), got %d", len(got))
+	}
+	if _, ok := got[0].(ai.AssistantMessage); !ok {
+		t.Fatalf("expected AssistantMessage, got %T", got[0])
+	}
+}
+
+func TestSanitizeToolPairs_InProgressCallNotFinal(t *testing.T) {
+	// In-progress tool_call on a non-final assistant message (followed by user)
+	// should be stripped — it's not truly in-progress.
+	tc := ai.ToolCall{ID: "call1", Name: "bash"}
+	asst := ai.AssistantMessage{Content: []ai.ContentBlock{tc}}
+	user := ai.UserMessage{Content: "next question"}
+
+	msgs := []ai.Message{asst, user}
+	got := sanitizeToolPairs(msgs)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(got))
+	}
+	cleaned, ok := got[0].(ai.AssistantMessage)
+	if !ok {
+		t.Fatalf("expected AssistantMessage at 0, got %T", got[0])
+	}
+	if len(cleaned.Content) != 1 {
+		t.Fatalf("expected 1 block (placeholder), got %d", len(cleaned.Content))
+	}
+	text, ok := cleaned.Content[0].(ai.TextContent)
+	if !ok || !strings.Contains(text.Text, "compacted") {
+		t.Errorf("expected placeholder, got %v", cleaned.Content[0])
 	}
 }
