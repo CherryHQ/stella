@@ -21,8 +21,6 @@ services:
     restart: unless-stopped
     ports:
       - "25678:25678"
-    security_opt:
-      - seccomp=unconfined
     volumes:
       # Named volume for STELLA_HOME — required when using the docker sandbox backend
       - stella-data:/home/nonroot/.stella

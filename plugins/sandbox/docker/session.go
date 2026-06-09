@@ -47,9 +47,10 @@ type dockerFactory struct {
 // NewFactory returns a Factory backed by a Docker container-per-session strategy.
 //
 // When cfg.StellaHome is non-empty, construction performs I/O:
-//   - Container detection: reads /.dockerenv / /run/.containerenv and
-//     $STELLA_HOME_VOLUME to populate StellaHomeVolume. Fails if stella is
-//     inside a container but STELLA_HOME_VOLUME is not set.
+//   - DooD detection: reads /.dockerenv, /run/.containerenv, $STELLA_HOME_HOST,
+//     and $STELLA_HOME_VOLUME to select bind-mount path translation or named
+//     volume subpath mounts. Fails if stella is inside a container and neither
+//     in-container docker-sandbox mode is configured.
 //   - User tool resolution: loads the builtin and user plugin manifests
 //     ($STELLA_HOME/plugins.yaml) to populate UserToolBinaries.
 //
@@ -58,7 +59,7 @@ type dockerFactory struct {
 func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
 	if cfg.StellaHome != "" {
 		var err error
-		cfg, err = applyVolumeDefaults(cfg, cfg.StellaHome)
+		cfg, err = applyDooDDefaults(cfg, cfg.StellaHome)
 		if err != nil {
 			return nil, err
 		}
@@ -110,14 +111,15 @@ func (f *dockerFactory) EnsureReady(ctx context.Context) error {
 		return err
 	}
 	f.cleanupOrphansOnce.Do(func() {
-		if f.cfg.StellaHome == "" {
+		scope := f.cfg.cleanupScope(f.cfg.StellaHome)
+		if scope == "" {
 			return
 		}
 		client, err := getSharedClient()
 		if err != nil {
 			return
 		}
-		dockerclient.CleanupOrphanedContainers(ctx, client, f.cfg.StellaHome)
+		dockerclient.CleanupOrphanedContainers(ctx, client, scope)
 	})
 	return nil
 }
@@ -161,6 +163,9 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}
 
 	stellaHome := policy.Env["STELLA_HOME"]
+	cleanupScope := f.cfg.cleanupScope(stellaHome)
+	mountedExtraReadOnly := []string{}
+	mountedTempDirHost := ""
 
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
@@ -170,7 +175,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		Env:            mergeEnv(policy.Env, nil),
 		Labels: map[string]string{
 			dockerclient.LabelSessionID:  sessionID,
-			dockerclient.LabelStellaHome: stellaHome,
+			dockerclient.LabelStellaHome: cleanupScope,
 			dockerclient.LabelCreatedAt:  time.Now().UTC().Format(time.RFC3339),
 			dockerclient.LabelOwnerPID:   strconv.Itoa(os.Getpid()),
 		},
@@ -221,6 +226,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 				Type:          dockerclient.MountTypeVolume,
 				VolumeSubpath: filepath.ToSlash(subpath),
 			})
+			mountedExtraReadOnly = append(mountedExtraReadOnly, hostPath)
 			rel, relErr := filepath.Rel(workspaceHost, hostPath)
 			if relErr == nil && !strings.HasPrefix(rel, "..") && rel != "." {
 				opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
@@ -236,40 +242,62 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		// buildContainerCreateOptions skips the conflicting bind mount.
 		opts.WorkspaceHost = ""
 	} else {
-		// Native host mode: use bind mounts directly (no path translation needed).
+		// Host/bind mode: bind sources must be daemon-visible. On the host this is
+		// the same path; in DooD bind mode paths under STELLA_HOME are translated
+		// from container-view to host-view paths via STELLA_HOME_HOST.
+		daemonWorkspaceHost, ok := f.cfg.daemonPath(workspaceHost)
+		if !ok {
+			recordError(span, fmt.Errorf("workspace outside daemon-visible path"))
+			span.End()
+			return nil, fmt.Errorf("docker session: workspace %q is not under STELLA_HOME %q; cannot use bind-mount mode", workspaceHost, f.cfg.StellaHome)
+		}
+		opts.WorkspaceHost = daemonWorkspaceHost
 		if stellaHome != "" {
 			for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
 				hostPath := filepath.Join(stellaHome, name)
 				if _, err := os.Stat(hostPath); err != nil {
 					continue
 				}
+				daemonPath, ok := f.cfg.daemonPath(hostPath)
+				if !ok {
+					continue
+				}
 				opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
-					HostPath:      hostPath,
+					HostPath:      daemonPath,
 					ContainerPath: filepath.Join(stellaHomeMount, name),
 					ReadOnly:      true,
 				})
 			}
 		}
 		if policy.Filesystem.TempDirHost != "" {
-			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
-				HostPath:      policy.Filesystem.TempDirHost,
-				ContainerPath: "/tmp",
-			})
+			if daemonPath, ok := f.cfg.daemonPath(policy.Filesystem.TempDirHost); ok {
+				opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+					HostPath:      daemonPath,
+					ContainerPath: "/tmp",
+				})
+				mountedTempDirHost = policy.Filesystem.TempDirHost
+			}
 		}
-		// Mount extra read-only paths (e.g. skill dirs) at their host path inside
-		// the container (same-path strategy).
+		// Mount extra read-only paths (e.g. skill dirs) at their stella-process-view
+		// path inside the container (same-path strategy), using daemon-visible bind
+		// sources.
 		for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
+			daemonPath, ok := f.cfg.daemonPath(hostPath)
+			if !ok {
+				continue
+			}
 			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
-				HostPath:      hostPath,
+				HostPath:      daemonPath,
 				ContainerPath: hostPath,
 				ReadOnly:      true,
 			})
+			mountedExtraReadOnly = append(mountedExtraReadOnly, hostPath)
 			// Also mount read-only at workspace-relative container path to prevent
 			// bash from overwriting via the writable workspace mount.
 			rel, relErr := filepath.Rel(workspaceHost, hostPath)
 			if relErr == nil && !strings.HasPrefix(rel, "..") && rel != "." {
 				opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
-					HostPath:      hostPath,
+					HostPath:      daemonPath,
 					ContainerPath: filepath.Join(workspaceMount, rel),
 					ReadOnly:      true,
 				})
@@ -311,8 +339,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		WorkspaceMount:      workspaceMount,
 		StellaHomeHost:      policy.Env["STELLA_HOME"],
 		StellaHomeContainer: stellaHomeMount,
-		ExtraReadOnlyMounts: policy.Filesystem.ExtraReadOnlyMounts,
-		TempDirHost:         policy.Filesystem.TempDirHost,
+		ExtraReadOnlyMounts: mountedExtraReadOnly,
+		TempDirHost:         mountedTempDirHost,
 	})
 
 	var envMaps []envPathMap

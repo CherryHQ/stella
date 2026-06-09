@@ -154,6 +154,7 @@ docker run -d \
   --name stella \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
+  -p 25678:25678 \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
@@ -163,7 +164,19 @@ The container runs as `nonroot` user. Mount `~/.stella` to persist the database,
 
 ### Docker Compose
 
-#### Bind mount (recommended)
+Choose the compose shape based on where Stella runs and which sandbox backend agents use:
+
+| Stella runtime | Sandbox backend | Data mount                 | Extra setup                                                                                                              |
+| -------------- | --------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Docker         | `local`         | bind mount or named volume | Add `seccomp=unconfined` so bubblewrap can create namespaces.                                                            |
+| Docker         | `none`          | bind mount or named volume | No sandbox-specific Docker option. Use only for trusted workloads.                                                       |
+| Docker         | `docker`        | host bind mount            | Mount the Docker socket and set `STELLA_HOME_HOST` to the host-side path.                                                |
+| Docker         | `docker`        | Docker named volume        | Mount the Docker socket and set `STELLA_HOME_VOLUME` to the volume name. Requires Docker Engine 25+ for volume subpaths. |
+| Host           | `docker`        | normal host directory      | No `STELLA_HOME_HOST` or `STELLA_HOME_VOLUME`; paths are already daemon-visible.                                         |
+
+#### Container with `local` or `none` sandbox
+
+This is the simplest deployment. Keep `seccomp=unconfined` if agents use the `local` sandbox; remove it if you deliberately use `none`.
 
 ```yaml
 # docker-compose.yml
@@ -180,9 +193,9 @@ services:
       # - OPENAI_API_KEY=sk-...
 ```
 
-#### Named volume with Docker sandbox backend
+#### Container with `docker` sandbox and a host bind mount
 
-If you prefer a named Docker volume for data storage and also use the `docker` sandbox backend for agent execution, set `STELLA_HOME_VOLUME` to the volume name. Stella then uses volume subpath mounts (requires Docker Engine 25+) to give sandbox containers access to the workspace and tools without needing a host-visible bind-mount path.
+Use this when `STELLA_HOME` is mounted from a host directory. The Docker daemon sees the host path, not `/home/nonroot/.stella` inside the Stella container, so `STELLA_HOME_HOST` must point at the same directory from the host's view.
 
 ```yaml
 # docker-compose.yml
@@ -190,8 +203,24 @@ services:
   stella:
     image: ghcr.io/cherryhq/stella:latest
     restart: unless-stopped
-    security_opt:
-      - seccomp=unconfined
+    volumes:
+      - ./stella-data:/home/nonroot/.stella
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ANTHROPIC_API_KEY=sk-...
+      - STELLA_HOME_HOST=${PWD}/stella-data
+```
+
+#### Container with `docker` sandbox and a named volume
+
+Use this when `STELLA_HOME` is a Docker named volume. Stella uses volume subpath mounts so sandbox containers can access workspaces and tool directories without a host-visible bind-mount path.
+
+```yaml
+# docker-compose.yml
+services:
+  stella:
+    image: ghcr.io/cherryhq/stella:latest
+    restart: unless-stopped
     volumes:
       - stella-data:/home/nonroot/.stella
       - /var/run/docker.sock:/var/run/docker.sock
@@ -203,7 +232,7 @@ volumes:
   stella-data:
 ```
 
-If you use a named volume but the `local` sandbox backend (not docker), `STELLA_HOME_VOLUME` is not needed.
+Set exactly one of `STELLA_HOME_HOST` or `STELLA_HOME_VOLUME` when Stella runs in Docker and agents use the `docker` sandbox. If agents use `local` or `none`, neither variable is needed.
 
 ```bash
 docker compose up -d
@@ -237,7 +266,7 @@ Running stella inside a Docker container (described above) is separate from usin
 - **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid the `docker` backend for heavy read/write workloads on those platforms.
 - **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
 
-See the [Configuration guide](/docs/start-here/configuration) for `sandbox.docker` config keys and an example JSON payload.
+See the [Configuration guide](/docs/start-here/configuration) for supported environment variables.
 
 ## Volumes & Data
 
@@ -256,19 +285,20 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
-| Variable             | Required | Description                                                                                                  |
-| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `STELLA_HOME`        | No       | Stella home directory (default `~/.stella`)                                                                  |
-| `ANTHROPIC_API_KEY`  | Yes\*    | Anthropic provider key                                                                                       |
-| `OPENAI_API_KEY`     | Yes\*    | OpenAI provider key                                                                                          |
-| `STELLA_VAULT_KEY`   | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                |
-| `STELLA_HOME_VOLUME` | No‡      | Docker named volume backing `STELLA_HOME` — required when running inside a container with the docker sandbox |
+| Variable             | Required | Description                                                                                                |
+| -------------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`        | No       | Stella home directory (default `~/.stella`)                                                                |
+| `ANTHROPIC_API_KEY`  | Yes\*    | Anthropic provider key                                                                                     |
+| `OPENAI_API_KEY`     | Yes\*    | OpenAI provider key                                                                                        |
+| `STELLA_VAULT_KEY`   | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens                              |
+| `STELLA_HOME_HOST`   | No‡      | Host-side path backing `STELLA_HOME` — required for Docker-in-Docker sandbox mode with a host bind mount   |
+| `STELLA_HOME_VOLUME` | No‡      | Docker named volume backing `STELLA_HOME` — required for Docker-in-Docker sandbox mode with a named volume |
 
 \* At least one provider key is required. API keys can also be configured via the Web UI.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
-‡ Required only when stellad runs inside a container and uses the `docker` sandbox backend. Set to the Docker named volume name that is mounted at `STELLA_HOME` (e.g. `stella-data`). See [Named volume with Docker sandbox backend](#named-volume-with-docker-sandbox-backend).
+‡ Required only when stellad runs inside a container and agents use the `docker` sandbox backend. Set exactly one: `STELLA_HOME_HOST` for a host bind mount, or `STELLA_HOME_VOLUME` for a Docker named volume.
 
 ## Health Check
 
