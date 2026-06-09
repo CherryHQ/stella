@@ -28,7 +28,7 @@ var notifyInputSchema = map[string]any{
 	"properties": map[string]any{
 		"message": map[string]any{
 			"type":        "string",
-			"description": "The notification message to send (supports markdown)",
+			"description": "The notification message to send (supports markdown). For Feishu channels, use {{button value=\"action_id\" type=\"primary\" label=\"Button Text\"}} to render interactive card buttons (must NOT be inside code blocks). Supported button attributes: value (required), label (required), type (\"default\"|\"primary\"|\"danger\"), confirm (optional confirmation text).",
 		},
 		"channel": map[string]any{
 			"type":        "string",

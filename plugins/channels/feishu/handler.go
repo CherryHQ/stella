@@ -422,14 +422,21 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	logger().Debug("response sent", "sender_id", senderID, "response_len", len(response), "images", len(images))
 }
 
-// replyText sends a text reply to a message.
+// replyText sends a text reply to a message. When the text contains
+// {{button ...}} directives, sends an interactive card instead.
 func (b *Bot) replyText(ctx context.Context, messageID, text string) {
+	msgType := larkim.MsgTypeText
 	content := textContent(text)
+	if strings.Contains(text, "{{button ") {
+		msgType = larkim.MsgTypeInteractive
+		content = cardContent(text)
+	}
+
 	resp, err := b.client.Im.Message.Reply(ctx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(messageID).
 			Body(larkim.NewReplyMessageReqBodyBuilder().
-				MsgType(larkim.MsgTypeText).
+				MsgType(msgType).
 				Content(content).
 				Build()).
 			Build())
