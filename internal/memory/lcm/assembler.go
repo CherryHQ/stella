@@ -339,8 +339,8 @@ func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxIte
 // contract: every ToolResultMessage must have a *preceding* AssistantMessage
 // containing a ToolCall with the same ID. Orphan tool_results are dropped
 // (not promoted to UserMessage — tool output is untrusted and must not gain
-// user-role privilege). Orphan tool_calls are stripped from non-final assistant
-// messages; in-progress calls are only preserved on the actual last message.
+// user-role privilege). Orphan tool_calls are stripped from assembled history;
+// memory assembly always runs before the next live user message is appended.
 func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
 	// Forward scan: track call IDs as they appear, validate results against
 	// only previously-seen calls.
@@ -365,22 +365,18 @@ func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
 		}
 	}
 
-	// Strip orphan tool_calls from non-final assistant messages. The final
-	// message is only exempt if nothing follows it (truly in-progress).
+	// Strip orphan tool_calls from assistant messages. Although a final assistant
+	// tool_call can be valid while a model turn is in progress, assembled memory
+	// history is always followed by the next live user message before provider IO.
 	resultIDs := make(map[string]struct{})
 	for _, m := range result {
 		if tr, ok := m.(ai.ToolResultMessage); ok {
 			resultIDs[tr.ToolCallID] = struct{}{}
 		}
 	}
-	lastIdx := len(result) - 1
 	for i, m := range result {
 		am, ok := m.(ai.AssistantMessage)
 		if !ok {
-			continue
-		}
-		// Only the very last message in the slice may keep in-progress calls.
-		if i == lastIdx {
 			continue
 		}
 		var filtered []ai.ContentBlock
@@ -395,7 +391,8 @@ func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
 		if len(filtered) == 0 {
 			filtered = []ai.ContentBlock{ai.TextContent{Text: "[tool calls compacted]"}}
 		}
-		result[i] = ai.AssistantMessage{Content: filtered}
+		am.Content = filtered
+		result[i] = am
 	}
 
 	return result
