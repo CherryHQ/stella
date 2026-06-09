@@ -1,0 +1,38 @@
+# Stella — Docker Compose example
+#
+# Named volume mode with Docker sandbox backend (DooD):
+#   stellad runs inside the container; sandbox containers are created via the
+#   host Docker socket. STELLA_HOME is backed by a named volume so the host
+#   daemon can mount workspace subdirectories into sandbox containers via
+#   volume subpath mounts (requires Docker Engine 25+).
+#
+# Quick start:
+#   1. Set your API key in the environment or a .env file.
+#   2. docker compose up -d
+#   3. Open http://localhost:25678 to configure agents and channels.
+#
+# First-run setup (before running in the background):
+#   docker compose run --rm -p 8080:8080 stella stellad server --port 8080
+#   Then open http://localhost:8080 to finish setup.
+
+services:
+  stella:
+    image: ghcr.io/cherryhq/stella:latest
+    restart: unless-stopped
+    ports:
+      - "25678:25678"
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      # Named volume for STELLA_HOME — required when using the docker sandbox backend
+      - stella-data:/home/nonroot/.stella
+      # Host Docker socket so stellad can create sandbox containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Tell the docker sandbox backend which named volume backs STELLA_HOME
+      - STELLA_HOME_VOLUME=stella-data
+
+volumes:
+  stella-data:

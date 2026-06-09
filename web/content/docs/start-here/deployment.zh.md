@@ -256,16 +256,19 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                | 必需 | 描述                                                            |
-| ------------------- | ---- | --------------------------------------------------------------- |
-| `STELLA_HOME`       | 否   | Stella 主目录（默认 `~/.stella`）                               |
-| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥                                            |
-| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                                               |
-| `STELLA_VAULT_KEY`  | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需 |
+| 变量                 | 必需 | 描述                                                                             |
+| -------------------- | ---- | -------------------------------------------------------------------------------- |
+| `STELLA_HOME`        | 否   | Stella 主目录（默认 `~/.stella`）                                                |
+| `ANTHROPIC_API_KEY`  | 是\* | Anthropic 提供商密钥                                                             |
+| `OPENAI_API_KEY`     | 是\* | OpenAI 提供商密钥                                                                |
+| `STELLA_VAULT_KEY`   | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                  |
+| `STELLA_HOME_VOLUME` | 否‡  | 挂载到 `STELLA_HOME` 的 Docker named volume 名称 —— 容器内使用 docker 沙箱时必需 |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
+
+‡ 仅当 stellad 运行在容器内且使用 `docker` 沙箱后端时需要。设置为挂载在 `STELLA_HOME` 的 Docker named volume 名称（例如 `stella-data`）。
 
 ## 健康检查
 

@@ -256,16 +256,19 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
-| Variable            | Required | Description                                                                   |
-| ------------------- | -------- | ----------------------------------------------------------------------------- |
-| `STELLA_HOME`       | No       | Stella home directory (default `~/.stella`)                                   |
-| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                                                        |
-| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                                                           |
-| `STELLA_VAULT_KEY`  | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens |
+| Variable             | Required | Description                                                                                                  |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `STELLA_HOME`        | No       | Stella home directory (default `~/.stella`)                                                                  |
+| `ANTHROPIC_API_KEY`  | Yes\*    | Anthropic provider key                                                                                       |
+| `OPENAI_API_KEY`     | Yes\*    | OpenAI provider key                                                                                          |
+| `STELLA_VAULT_KEY`   | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                |
+| `STELLA_HOME_VOLUME` | No‡      | Docker named volume backing `STELLA_HOME` — required when running inside a container with the docker sandbox |
 
 \* At least one provider key is required. API keys can also be configured via the Web UI.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
+
+‡ Required only when stellad runs inside a container and uses the `docker` sandbox backend. Set to the Docker named volume name that is mounted at `STELLA_HOME` (e.g. `stella-data`). See [Named volume with Docker sandbox backend](#named-volume-with-docker-sandbox-backend).
 
 ## Health Check
 

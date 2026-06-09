@@ -28,14 +28,14 @@ func TestNewFactory_NoStellaHome_Infallible(t *testing.T) {
 	}
 }
 
-func TestNewFactory_DooDError_Propagated(t *testing.T) {
-	withDooDEnv(t, true, "")
+func TestNewFactory_VolumeError_Propagated(t *testing.T) {
+	withVolumeEnv(t, true, "")
 	_, err := NewFactory(Config{StellaHome: "/fake/stella"})
 	if err == nil {
-		t.Fatal("expected error when in-container and STELLA_HOME_HOST unset")
+		t.Fatal("expected error when in-container and STELLA_HOME_VOLUME unset")
 	}
-	if !strings.Contains(err.Error(), "STELLA_HOME_HOST") {
-		t.Fatalf("error should mention STELLA_HOME_HOST, got: %v", err)
+	if !strings.Contains(err.Error(), "STELLA_HOME_VOLUME") {
+		t.Fatalf("error should mention STELLA_HOME_VOLUME, got: %v", err)
 	}
 }
 
