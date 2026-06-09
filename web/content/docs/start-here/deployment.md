@@ -163,6 +163,8 @@ The container runs as `nonroot` user. Mount `~/.stella` to persist the database,
 
 ### Docker Compose
 
+#### Bind mount (recommended)
+
 ```yaml
 # docker-compose.yml
 services:
@@ -177,6 +179,31 @@ services:
       - ANTHROPIC_API_KEY=sk-...
       # - OPENAI_API_KEY=sk-...
 ```
+
+#### Named volume with Docker sandbox backend
+
+If you prefer a named Docker volume for data storage and also use the `docker` sandbox backend for agent execution, set `STELLA_HOME_VOLUME` to the volume name. Stella then uses volume subpath mounts (requires Docker Engine 25+) to give sandbox containers access to the workspace and tools without needing a host-visible bind-mount path.
+
+```yaml
+# docker-compose.yml
+services:
+  stella:
+    image: ghcr.io/cherryhq/stella:latest
+    restart: unless-stopped
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - stella-data:/home/nonroot/.stella
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ANTHROPIC_API_KEY=sk-...
+      - STELLA_HOME_VOLUME=stella-data
+
+volumes:
+  stella-data:
+```
+
+If you use a named volume but the `local` sandbox backend (not docker), `STELLA_HOME_VOLUME` is not needed.
 
 ```bash
 docker compose up -d

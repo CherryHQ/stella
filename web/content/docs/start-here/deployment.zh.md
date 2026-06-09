@@ -163,6 +163,8 @@ docker run -d \
 
 ### Docker Compose
 
+#### Bind mount（推荐）
+
 ```yaml
 # docker-compose.yml
 services:
@@ -177,6 +179,31 @@ services:
       - ANTHROPIC_API_KEY=sk-...
       # - OPENAI_API_KEY=sk-...
 ```
+
+#### Named volume 配合 Docker 沙箱后端
+
+如果你使用 Docker named volume 存储数据，同时也使用 `docker` 沙箱后端执行 Agent 代码，需要设置 `STELLA_HOME_VOLUME` 为 volume 名称。Stella 会通过 volume subpath mount（需要 Docker Engine 25+）让沙箱容器访问工作区和工具，无需宿主机可见的 bind-mount 路径。
+
+```yaml
+# docker-compose.yml
+services:
+  stella:
+    image: ghcr.io/cherryhq/stella:latest
+    restart: unless-stopped
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - stella-data:/home/nonroot/.stella
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ANTHROPIC_API_KEY=sk-...
+      - STELLA_HOME_VOLUME=stella-data
+
+volumes:
+  stella-data:
+```
+
+如果使用 named volume 但沙箱后端是 `local`（非 docker），则不需要设置 `STELLA_HOME_VOLUME`。
 
 ```bash
 docker compose up -d

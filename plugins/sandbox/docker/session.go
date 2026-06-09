@@ -182,7 +182,41 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		Name: "stella-sandbox-" + sessionID,
 	}
 
-	if stellaHome != "" {
+	switch {
+	case f.cfg.StellaHomeVolume != "":
+		// Volume mode: STELLA_HOME is a named Docker volume.
+		// Workspace and STELLA_HOME subdirs are mounted as volume subpath mounts
+		// so the host daemon never needs a bind-mount-visible filesystem path.
+		workspaceSubpath, subErr := filepath.Rel(f.cfg.StellaHome, workspaceHost)
+		if subErr != nil || strings.HasPrefix(workspaceSubpath, "..") {
+			recordError(span, fmt.Errorf("workspace outside STELLA_HOME"))
+			span.End()
+			return nil, fmt.Errorf("docker session: workspace %q is not inside STELLA_HOME %q; cannot use volume mode", workspaceHost, f.cfg.StellaHome)
+		}
+		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+			HostPath:      f.cfg.StellaHomeVolume,
+			ContainerPath: workspaceMount,
+			ReadOnly:      false,
+			Type:          dockerclient.MountTypeVolume,
+			VolumeSubpath: filepath.ToSlash(workspaceSubpath),
+		})
+		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
+			hostPath := filepath.Join(f.cfg.StellaHome, name)
+			if _, err := os.Stat(hostPath); err != nil {
+				continue
+			}
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath:      f.cfg.StellaHomeVolume,
+				ContainerPath: filepath.Join(stellaHomeMount, name),
+				ReadOnly:      true,
+				Type:          dockerclient.MountTypeVolume,
+				VolumeSubpath: filepath.ToSlash(name),
+			})
+		}
+		// Workspace is covered by the ExtraMounts above; clear WorkspaceHost so
+		// buildContainerCreateOptions skips the conflicting bind mount.
+		opts.WorkspaceHost = ""
+	case stellaHome != "":
 		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
 			hostPath := filepath.Join(stellaHome, name)
 			if _, err := os.Stat(hostPath); err != nil {

@@ -19,6 +19,15 @@ type Config struct {
 	ContainerPathPrefix string
 	HostPathPrefix      string
 
+	// StellaHomeVolume is the Docker named volume that backs STELLA_HOME.
+	// Set this (via STELLA_HOME_VOLUME env) when stella runs inside a container
+	// whose STELLA_HOME is a Docker named volume rather than a bind mount.
+	// In this mode sandbox sessions mount workspace and skill/tool subdirs as
+	// volume subpath mounts (requires Docker Engine 25+) instead of bind mounts.
+	// Mutually exclusive with ContainerPathPrefix/HostPathPrefix (DooD bind mode).
+	// Normally auto-derived from STELLA_HOME_VOLUME by NewFactory.
+	StellaHomeVolume string
+
 	// UserToolBinaries are manifest-declared, user-configured CLIs that are not
 	// baked into the versioned sandbox image. They are installed in a Linux
 	// helper container and exposed to sessions through a Docker-managed tool

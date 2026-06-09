@@ -7,13 +7,21 @@ import (
 
 func withDooDEnv(t *testing.T, inContainer bool, stellaHomeHost string) {
 	t.Helper()
+	withDooDEnvFull(t, inContainer, stellaHomeHost, "")
+}
+
+func withDooDEnvFull(t *testing.T, inContainer bool, stellaHomeHost, stellaHomeVolume string) {
+	t.Helper()
 	prevContainer := runningInContainer
 	prevHost := lookupStellaHomeHost
+	prevVolume := lookupStellaHomeVolume
 	runningInContainer = func() bool { return inContainer }
 	lookupStellaHomeHost = func() string { return stellaHomeHost }
+	lookupStellaHomeVolume = func() string { return stellaHomeVolume }
 	t.Cleanup(func() {
 		runningInContainer = prevContainer
 		lookupStellaHomeHost = prevHost
+		lookupStellaHomeVolume = prevVolume
 	})
 }
 
@@ -50,13 +58,59 @@ func TestApplyDooDDefaults_InContainerWithoutEnvErrors(t *testing.T) {
 	withDooDEnv(t, true, "")
 	_, err := applyDooDDefaults(Config{}, "/workspace")
 	if err == nil {
-		t.Fatal("expected error when in-container and STELLA_HOME_HOST unset")
+		t.Fatal("expected error when in-container and neither STELLA_HOME_HOST nor STELLA_HOME_VOLUME set")
 	}
 	if !strings.Contains(err.Error(), "STELLA_HOME_HOST") {
 		t.Errorf("error should mention STELLA_HOME_HOST, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "STELLA_HOME_VOLUME") {
+		t.Errorf("error should mention STELLA_HOME_VOLUME, got: %v", err)
+	}
 	if !strings.Contains(err.Error(), "/workspace") {
 		t.Errorf("error should mention stellaHome, got: %v", err)
+	}
+}
+
+func TestApplyDooDDefaults_InContainerVolumeMode(t *testing.T) {
+	withDooDEnvFull(t, true, "", "stella-data")
+	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.StellaHomeVolume != "stella-data" {
+		t.Errorf("StellaHomeVolume: got %q, want stella-data", out.StellaHomeVolume)
+	}
+	if out.ContainerPathPrefix != "" || out.HostPathPrefix != "" {
+		t.Errorf("bind-mount prefixes should be empty in volume mode, got %+v", out)
+	}
+}
+
+func TestApplyDooDDefaults_InContainerBothSetHostWins(t *testing.T) {
+	withDooDEnvFull(t, true, "/host/stella", "stella-data")
+	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// STELLA_HOME_HOST wins; volume mode is cleared
+	if out.ContainerPathPrefix != "/home/nonroot/.stella" {
+		t.Errorf("ContainerPathPrefix: got %q, want /home/nonroot/.stella", out.ContainerPathPrefix)
+	}
+	if out.HostPathPrefix != "/host/stella" {
+		t.Errorf("HostPathPrefix: got %q, want /host/stella", out.HostPathPrefix)
+	}
+	if out.StellaHomeVolume != "" {
+		t.Errorf("StellaHomeVolume should be cleared when STELLA_HOME_HOST wins, got %q", out.StellaHomeVolume)
+	}
+}
+
+func TestApplyDooDDefaults_NotInContainerVolumeIgnored(t *testing.T) {
+	withDooDEnvFull(t, false, "", "stella-data")
+	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.StellaHomeVolume != "" {
+		t.Errorf("StellaHomeVolume should be cleared when not in container, got %q", out.StellaHomeVolume)
 	}
 }
 
