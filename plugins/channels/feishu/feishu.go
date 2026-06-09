@@ -227,6 +227,8 @@ func (b *Bot) Platform() string { return channel.PlatformFeishu }
 
 // Notify sends a notification message. Implements channel.Channel.
 // Supports both chat IDs (oc_ prefix) and user open IDs (ou_ prefix).
+// When the text contains {{button ...}} directives, sends an interactive card
+// so buttons render as clickable elements; otherwise sends plain text.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	chatID := n.ChatID
 	if chatID == "" {
@@ -238,12 +240,21 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 
 	receiveIDType := receiveIDTypeForChatID(chatID)
 
+	msgType := larkim.MsgTypeText
 	content := textContent(n.Text)
+	if strings.Contains(n.Text, "{{button ") {
+		msgType = larkim.MsgTypeInteractive
+		content = cardContent(n.Text)
+	}
+
+	logger().Debug("notify sending message",
+		"instance", b.Name(), "chat_id", chatID, "msg_type", msgType)
+
 	resp, err := b.client.Im.Message.Create(ctx,
 		larkim.NewCreateMessageReqBuilder().
 			ReceiveIdType(receiveIDType).
 			Body(larkim.NewCreateMessageReqBodyBuilder().
-				MsgType(larkim.MsgTypeText).
+				MsgType(msgType).
 				ReceiveId(chatID).
 				Content(content).
 				Build()).

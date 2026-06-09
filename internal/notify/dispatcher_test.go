@@ -78,6 +78,36 @@ func TestDispatcherAgentBoundBroadcastUsesDedicatedChannel(t *testing.T) {
 	}
 }
 
+func TestDispatcherAgentBoundExplicitChannelTypeUsesDedicated(t *testing.T) {
+	d := NewDispatcher()
+	general := &mockChannel{name: "feishu", typ: "feishu"}
+	dedicated := &mockChannel{name: "feishu-coder", typ: "feishu"}
+	d.Register(general)
+	d.Register(dedicated)
+	d.SetChannelStore(mockChannelStore{channels: []config.Channel{
+		{ID: "feishu", Type: "feishu", Enabled: true},
+		{ID: "feishu-coder", Type: "feishu", AgentID: "coder", Enabled: true},
+	}})
+
+	// Agent "coder" sends with explicit channel="feishu" — should still
+	// route to its dedicated channel, not the general feishu instance.
+	err := d.Notify(context.Background(), pkgchannel.Notification{
+		Channel: "feishu",
+		ChatID:  "ou_abc",
+		AgentID: "coder",
+		Text:    "hello",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dedicated.calls) != 1 {
+		t.Fatalf("dedicated got %d calls, want 1", len(dedicated.calls))
+	}
+	if len(general.calls) != 0 {
+		t.Fatalf("general got %d calls, want 0", len(general.calls))
+	}
+}
+
 func TestDispatcherBroadcastSkipsDedicatedChannels(t *testing.T) {
 	d := NewDispatcher()
 	general := &mockChannel{name: "feishu", typ: "feishu"}

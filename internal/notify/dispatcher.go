@@ -73,25 +73,43 @@ func (d *Dispatcher) Unregister(name string) {
 	d.mu.Unlock()
 }
 
-// Notify routes a notification to channels. If Notification.Channel is set,
-// only that channel receives it. Otherwise all registered channels receive it.
+// Notify routes a notification to channels.
+//
+// Resolution order:
+//  1. If the agent has a dedicated channel that matches the requested channel
+//     type (or no channel type is specified), use the dedicated channel.
+//  2. If Notification.Channel is set, route to that specific channel.
+//  3. Otherwise broadcast to all non-dedicated channels.
 func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) error {
 	table, err := d.routingTable(ctx)
 	if err != nil {
 		return err
 	}
 
+	if n.AgentID != "" {
+		if dedicated, ok := table.dedicatedByAgent[n.AgentID]; ok {
+			dType := resolvedChannelType(dedicated)
+			dName := dedicated.entry.channel.Name()
+			if n.Channel == "" || n.Channel == dName || n.Channel == dType {
+				slog.Debug("notify: routing to agent-dedicated channel",
+					"agent_id", n.AgentID, "channel", dName, "type", dType)
+				return dedicated.entry.channel.Notify(ctx, n)
+			}
+			slog.Debug("notify: agent has dedicated channel but type mismatch",
+				"agent_id", n.AgentID, "dedicated_type", dType, "requested", n.Channel)
+		}
+	}
+
 	if n.Channel != "" {
 		if entry, ok := table.entryForNotificationChannel(n.Channel); ok {
+			slog.Debug("notify: routing to explicit channel",
+				"channel", n.Channel, "resolved", entry.channel.Name())
 			return entry.channel.Notify(ctx, n)
 		}
 		return fmt.Errorf("unknown notification channel %q", n.Channel)
 	}
 
-	if dedicated, ok := table.dedicatedByAgent[n.AgentID]; ok {
-		return dedicated.entry.channel.Notify(ctx, n)
-	}
-
+	slog.Debug("notify: broadcasting", "agent_id", n.AgentID, "targets", len(table.broadcast))
 	return notifyEntries(ctx, table.broadcast, n, "no non-dedicated notification channels registered")
 }
 
