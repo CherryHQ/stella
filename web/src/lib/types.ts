@@ -88,6 +88,7 @@ export type Plugin = ComponentsPluginView & {
   has_config: boolean;
   has_status: boolean;
   supports_notifications?: boolean;
+  env_locked?: boolean;
 };
 
 // ── Local types (no SDK equivalent) ───────────────────────────────────────────

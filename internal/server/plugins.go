@@ -38,16 +38,24 @@ type pluginView struct {
 	Capabilities []string       `json:"capabilities"`
 	Persisted    bool           `json:"persisted"`
 	PersistedID  string         `json:"persisted_id"`
+	EnvLocked    bool           `json:"env_locked,omitempty"`
 }
 
 func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) []pluginView {
+	envBackend := config.SandboxBackendEnvOverride()
 	out := make([]pluginView, 0, len(plugins))
 	for _, plugin := range plugins {
+		enabled := plugin.State.Enabled
+		envLocked := false
+		if envBackend != "" && plugin.Kind == config.PluginKindSandbox {
+			envLocked = true
+			enabled = plugin.Name == envBackend
+		}
 		out = append(out, pluginView{
 			ID:           plugin.Info.ID,
 			Kind:         plugin.Kind,
 			Name:         plugin.Name,
-			Enabled:      plugin.State.Enabled,
+			Enabled:      enabled,
 			Config:       s.pluginHost.RedactConfig(plugin.Info.ID, plugin.State.Config),
 			DisplayName:  plugin.Info.DisplayName,
 			Description:  plugin.Info.Description,
@@ -58,6 +66,7 @@ func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) 
 			Capabilities: plugin.SortedCapabilities(),
 			Persisted:    plugin.Persisted,
 			PersistedID:  plugin.PersistedID,
+			EnvLocked:    envLocked,
 		})
 	}
 	return out
@@ -103,6 +112,10 @@ func (s *Server) GetPluginConfigSchema(w http.ResponseWriter, r *http.Request, k
 
 func (s *Server) TogglePlugin(w http.ResponseWriter, r *http.Request, kind string, name string) {
 	if requireAdmin(w, r) == nil {
+		return
+	}
+	if kind == config.PluginKindSandbox && config.SandboxBackendEnvOverride() != "" {
+		writeError(w, http.StatusForbidden, "sandbox backend is locked by STELLA_SANDBOX_BACKEND environment variable")
 		return
 	}
 	id := pluginRouteID(kind, name)

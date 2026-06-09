@@ -117,9 +117,13 @@ func BuiltinPluginByID(id string) (BuiltinPlugin, bool) {
 	return b, ok
 }
 
-// ActiveSandboxBackend returns the name of the enabled sandbox backend plugin,
-// or SandboxBackendLocal if none is explicitly enabled.
+// ActiveSandboxBackend returns the name of the enabled sandbox backend plugin.
+// STELLA_SANDBOX_BACKEND takes precedence; otherwise the DB-enabled plugin wins,
+// defaulting to SandboxBackendLocal.
 func ActiveSandboxBackend(plugins []Plugin) string {
+	if override := SandboxBackendEnvOverride(); override != "" {
+		return override
+	}
 	for _, p := range plugins {
 		if p.Kind == PluginKindSandbox && p.Enabled {
 			return p.Name

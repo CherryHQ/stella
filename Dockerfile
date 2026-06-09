@@ -54,4 +54,4 @@ USER stella
 COPY --from=builder /go/src/app/dist/bin/stella /usr/local/bin/stella
 COPY --from=builder /go/src/app/dist/bin/stellad /usr/local/bin/stellad
 
-CMD ["stellad", "server"]
+CMD ["stellad", "server", "--host", "0.0.0.0"]

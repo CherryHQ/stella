@@ -27,8 +27,11 @@ services:
       # Host Docker socket so stellad can create sandbox containers
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      - STELLA_VAULT_KEY=AGE-SECRET-KEY-xxx # stella vault keygen
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Lock sandbox backend via env (docker | local | none); UI becomes read-only
+      - STELLA_SANDBOX_BACKEND=docker
       # Explicit Docker sandbox mode: host | bind | volume
       - STELLA_DOCKER_SANDBOX_MODE=volume
       # Tell volume mode which named volume backs STELLA_HOME

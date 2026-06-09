@@ -25,6 +25,8 @@ export function SandboxPage() {
     [allPlugins],
   );
 
+  const envLocked = sandboxPlugins.some((p) => p.env_locked);
+
   async function toggleSandbox(plugin: Plugin, enabled: boolean) {
     try {
       if (enabled) {
@@ -68,6 +70,11 @@ export function SandboxPage() {
             <p className="text-xs text-muted-foreground">
               Choose how agent code execution is isolated.
             </p>
+            {envLocked && (
+              <p className="text-xs text-warning-foreground">
+                Locked by STELLA_SANDBOX_BACKEND environment variable.
+              </p>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -109,6 +116,7 @@ export function SandboxPage() {
                     </div>
                     <Switch
                       checked={active}
+                      disabled={envLocked}
                       onCheckedChange={(checked) => void toggleSandbox(p, checked)}
                     />
                   </div>
