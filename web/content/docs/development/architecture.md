@@ -139,64 +139,9 @@ type Tool interface {
 
 The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use `Session.ResolvePath` to obtain the host path and then call `os.*` directly. Runner startup fails closed when Docker is unavailable.
 
-### Sandbox Architecture
+### Sandbox
 
-The sandbox system uses Docker for process and filesystem isolation:
-
-- **Session**: A per-run Docker container created when the runner starts, torn down on close.
-- **Workspace root**: The agent workspace directory mounted into the container.
-- **Working Directory**: Logical working directory inside the container, resolved via `Session.WorkingDir`.
-
-All core tools share the same container session per runner:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Go Runner                               │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
-│  │  bash   │ │  read   │ │  write  │ │  edit   │           │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
-│       │           └───────────┘                             │
-│       │ Exec              ResolvePath + os.*                │
-│       ▼                                                     │
-│  ┌──────────────────┐                                       │
-│  │  sandbox.Session │                                       │
-│  │  (Docker)        │                                       │
-│  └──────────────────┘                                       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Platform Requirements
-
-Docker is the only backend and is required on all platforms (Linux, macOS, Windows). The Docker daemon must be running and reachable. Stella contacts the Docker daemon at session-create time and fails closed if it is unavailable. There is no `auto` or `Relaxed` mode.
-
-### Network Policy Configuration
-
-Per-agent sandbox network policy is configured via the admin API or database:
-
-| Mode        | Description                          | Use Case                              |
-| ----------- | ------------------------------------ | ------------------------------------- |
-| `disabled`  | No outbound network access (default) | Maximum security for untrusted code   |
-| `allow_all` | Unrestricted outbound access         | Trusted agents requiring full network |
-
-Stella validates the network mode at session-create time and fails closed if the Docker backend cannot enforce it.
-
-### Failure Behavior
-
-Runner startup fails closed when:
-
-- Docker daemon is unavailable or unreachable
-- Network policy configuration is invalid
-- Network policy is valid but not supported by the Docker backend
-
-This ensures that sandboxed execution is either fully functional or does not run at all, preventing silent security downgrades.
-
-### Explicit Exception Boundary
-
-Sandbox guarantees apply to local execution paths owned by Stella. Remote MCP transports are currently treated as a separate trust boundary:
-
-- local MCP stdio spawning uses `Session.StartProcess`, mediated through the active runner session
-- remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `ToolRuntime`
-- that exception is explicit, observable, and logged as `runtime.exception_path` with `exception_id=EX-009`
+The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `read`/`write`/`edit` use `Session.ResolvePath` + `os.*`. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
 Builtin tools (bash, read, write, edit, delegate, notify, skills, coretools) live in `internal/tools/` and are wired directly into the agent. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 

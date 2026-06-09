@@ -86,11 +86,16 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 
 Only a small set of environment variables is recognized:
 
-| Variable            | Description                                                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`       | Override the home directory (default `~/.stella`)                                                                 |
-| `ANTHROPIC_API_KEY` | Fallback API key for Anthropic                                                                                    |
-| `OPENAI_API_KEY`    | Fallback API key for OpenAI                                                                                       |
-| `STELLA_VAULT_KEY`  | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
+| Variable                     | Description                                                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | Override the home directory (default `~/.stella`)                                                                 |
+| `ANTHROPIC_API_KEY`          | Fallback API key for Anthropic                                                                                    |
+| `OPENAI_API_KEY`             | Fallback API key for OpenAI                                                                                       |
+| `STELLA_VAULT_KEY`           | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
+| `STELLA_DOCKER_SANDBOX_MODE` | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                       |
+| `STELLA_HOME_HOST`           | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                            |
+| `STELLA_HOME_VOLUME`         | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
+
+See the [Sandbox guide](/docs/guides/sandbox) for how to choose a sandbox backend and configure Docker sandbox modes.
 
 All other configuration is managed through the Web UI.

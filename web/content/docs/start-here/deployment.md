@@ -154,6 +154,7 @@ docker run -d \
   --name stella \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
+  -p 25678:25678 \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
@@ -178,6 +179,8 @@ services:
       # - OPENAI_API_KEY=sk-...
 ```
 
+The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). If agents use the `docker` sandbox backend, you need additional Docker socket mounts and mode-specific environment variables — see the [Sandbox guide](/docs/guides/sandbox#docker-compose-examples) for all compose variants.
+
 ```bash
 docker compose up -d
 ```
@@ -194,23 +197,9 @@ docker build -t stella .
 docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 ```
 
-## Docker as a Sandbox Backend
+## Sandbox Backends
 
-Running stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. The two can be combined (Docker-in-Docker or a mounted socket), but each is independently useful.
-
-### When to prefer the `docker` sandbox backend
-
-- **Windows**: The local sandbox backend is Linux/macOS only. The `docker` backend gives Windows users a real isolation boundary via Docker Desktop.
-- **Custom toolchain**: You need a specific Python/Node/Go version or a clean Linux userspace that differs from the host.
-- **Side-effect isolation**: You want reproducible filesystem state and do not want host-level side effects from agent scripts.
-
-### Tradeoffs
-
-- **Startup latency**: ~200ms for a warm container start; ~1–3s on first pull.
-- **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid the `docker` backend for heavy read/write workloads on those platforms.
-- **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
-
-See the [Configuration guide](/docs/start-here/configuration) for `sandbox.docker` config keys and an example JSON payload.
+Running Stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. Stella supports three sandbox backends: `docker`, `local`, and `none`. See the [Sandbox guide](/docs/guides/sandbox) for how to choose a backend, configure Docker sandbox modes, and troubleshoot common issues.
 
 ## Volumes & Data
 
@@ -229,16 +218,21 @@ The `stella.db` file is the only critical data to back up. It contains all confi
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
-| Variable            | Required | Description                                                                   |
-| ------------------- | -------- | ----------------------------------------------------------------------------- |
-| `STELLA_HOME`       | No       | Stella home directory (default `~/.stella`)                                   |
-| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                                                        |
-| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                                                           |
-| `STELLA_VAULT_KEY`  | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens |
+| Variable                     | Required | Description                                                                                        |
+| ---------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | No       | Stella home directory (default `~/.stella`)                                                        |
+| `ANTHROPIC_API_KEY`          | Yes\*    | Anthropic provider key                                                                             |
+| `OPENAI_API_KEY`             | Yes\*    | OpenAI provider key                                                                                |
+| `STELLA_VAULT_KEY`           | Yes†     | age secret key for the vault — required for secrets, OAuth, and bearer tokens                      |
+| `STELLA_DOCKER_SANDBOX_MODE` | No‡      | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                        |
+| `STELLA_HOME_HOST`           | No‡      | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`        |
+| `STELLA_HOME_VOLUME`         | No‡      | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume` |
 
 \* At least one provider key is required. API keys can also be configured via the Web UI.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
+
+‡ Required only when agents use the `docker` sandbox backend. Use `host` when stellad runs on the host, `bind` when stellad runs in Docker with a host bind mount, and `volume` when stellad runs in Docker with a named volume.
 
 ## Health Check
 

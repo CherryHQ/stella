@@ -3,6 +3,7 @@ package docker
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -182,4 +183,149 @@ func TestInjectToolPaths_NoOpWhenEmpty(t *testing.T) {
 	if got["PATH"] != "/usr/bin:/bin" {
 		t.Errorf("PATH changed when tool paths absent: %q", got["PATH"])
 	}
+}
+
+func TestConfigureSessionMounts_HostMode(t *testing.T) {
+	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
+	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
+	opts := dockerModeCreateOptions(workspace)
+	mountedExtra, mountedTmp, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace)
+	if err != nil {
+		t.Fatalf("configureSessionMounts: %v", err)
+	}
+	if opts.WorkspaceHost != workspace {
+		t.Fatalf("WorkspaceHost = %q, want %q", opts.WorkspaceHost, workspace)
+	}
+	if mountedTmp != tmp {
+		t.Fatalf("mounted tmp = %q, want %q", mountedTmp, tmp)
+	}
+	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
+		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
+	}
+	assertMount(t, opts.ExtraMounts, filepath.Join(stellaHome, "bin"), filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
+	assertMount(t, opts.ExtraMounts, tmp, "/tmp", false, dockerclient.MountType(""), "")
+	assertMount(t, opts.ExtraMounts, extra, extra, true, dockerclient.MountType(""), "")
+	assertMount(t, opts.ExtraMounts, extra, filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
+}
+
+func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
+	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
+	f := &dockerFactory{cfg: Config{
+		RuntimeMode:         DockerSandboxModeBind,
+		StellaHome:          stellaHome,
+		ContainerPathPrefix: stellaHome,
+		HostPathPrefix:      "/daemon/stella",
+	}}
+	opts := dockerModeCreateOptions(workspace)
+	mountedExtra, mountedTmp, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace)
+	if err != nil {
+		t.Fatalf("configureSessionMounts: %v", err)
+	}
+	if opts.WorkspaceHost != "/daemon/stella/workspaces/agent/users/user" {
+		t.Fatalf("WorkspaceHost = %q", opts.WorkspaceHost)
+	}
+	if mountedTmp != "" {
+		t.Fatalf("tmp outside STELLA_HOME should be skipped in bind mode, got %q", mountedTmp)
+	}
+	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
+		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
+	}
+	assertMount(t, opts.ExtraMounts, "/daemon/stella/bin", filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
+	assertMount(t, opts.ExtraMounts, "/daemon/stella/workspaces/agent/users/user/skills", extra, true, dockerclient.MountType(""), "")
+	assertMount(t, opts.ExtraMounts, "/daemon/stella/workspaces/agent/users/user/skills", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
+}
+
+func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
+	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
+	outsideExtra := t.TempDir()
+	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
+	opts := dockerModeCreateOptions(workspace)
+	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
+	policy.Filesystem.ExtraReadOnlyMounts = append(policy.Filesystem.ExtraReadOnlyMounts, outsideExtra)
+	mountedExtra, mountedTmp, err := f.configureSessionMounts(&opts, policy, workspace)
+	if err != nil {
+		t.Fatalf("configureSessionMounts: %v", err)
+	}
+	if opts.WorkspaceHost != "" {
+		t.Fatalf("WorkspaceHost = %q, want empty in volume mode", opts.WorkspaceHost)
+	}
+	if mountedTmp != "" {
+		t.Fatalf("volume mode should not mount process-view tmp, got %q", mountedTmp)
+	}
+	if len(mountedExtra) != 1 || mountedExtra[0] != extra {
+		t.Fatalf("mounted extra = %v, want only [%q]", mountedExtra, extra)
+	}
+	assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "workspaces/agent/users/user")
+	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountTypeVolume, "bin")
+	assertMount(t, opts.ExtraMounts, "stella-data", extra, true, dockerclient.MountTypeVolume, "workspaces/agent/users/user/skills")
+	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeVolume, "workspaces/agent/users/user/skills")
+}
+
+func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testing.T) {
+	stellaHome, _, extra, tmp := dockerModeTestDirs(t)
+	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
+	opts := dockerModeCreateOptions(stellaHome)
+	_, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, stellaHome, extra, tmp), stellaHome)
+	if err == nil {
+		t.Fatal("expected error when volume workspace is STELLA_HOME itself")
+	}
+	if !strings.Contains(err.Error(), "not STELLA_HOME itself") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestConfigureSessionMounts_BindModeUsesConfigStellaHome(t *testing.T) {
+	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
+	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
+	opts := dockerModeCreateOptions(workspace)
+	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
+	policy.Env = nil
+	_, _, err := f.configureSessionMounts(&opts, policy, workspace)
+	if err != nil {
+		t.Fatalf("configureSessionMounts: %v", err)
+	}
+	assertMount(t, opts.ExtraMounts, filepath.Join(stellaHome, "bin"), filepath.Join(stellaHomeMount, "bin"), true, dockerclient.MountType(""), "")
+}
+
+func dockerModeTestDirs(t *testing.T) (stellaHome, workspace, extra, tmp string) {
+	t.Helper()
+	stellaHome = t.TempDir()
+	workspace = filepath.Join(stellaHome, "workspaces", "agent", "users", "user")
+	extra = filepath.Join(workspace, "skills")
+	tmp = t.TempDir()
+	for _, dir := range []string{filepath.Join(stellaHome, "bin"), workspace, extra} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return stellaHome, workspace, extra, tmp
+}
+
+func dockerModeCreateOptions(workspace string) dockerclient.CreateOptions {
+	return dockerclient.CreateOptions{WorkspaceHost: workspace, WorkspaceMount: workspaceMount}
+}
+
+func dockerModePolicy(stellaHome, workspace, extra, tmp string) sandboxpkg.Policy {
+	return sandboxpkg.Policy{
+		Env: map[string]string{"STELLA_HOME": stellaHome},
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot:       workspace,
+			WorkingDir:          workspace,
+			ExtraReadOnlyMounts: []string{extra},
+			TempDirHost:         tmp,
+		},
+	}
+}
+
+func assertMount(t *testing.T, mounts []dockerclient.Mount, source, target string, readOnly bool, mountType dockerclient.MountType, volumeSubpath string) {
+	t.Helper()
+	for _, m := range mounts {
+		if m.HostPath == source && m.ContainerPath == target {
+			if m.ReadOnly != readOnly || m.Type != mountType || m.VolumeSubpath != volumeSubpath {
+				t.Fatalf("mount %+v flags mismatch; want readOnly=%v type=%q subpath=%q", m, readOnly, mountType, volumeSubpath)
+			}
+			return
+		}
+	}
+	t.Fatalf("mount %q -> %q not found in %+v", source, target, mounts)
 }

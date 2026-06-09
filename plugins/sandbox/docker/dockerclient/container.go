@@ -37,6 +37,9 @@ type Mount struct {
 	ContainerPath string
 	ReadOnly      bool
 	Type          MountType
+	// VolumeSubpath selects a sub-path within the named volume to mount.
+	// Only valid when Type is MountTypeVolume. Requires Docker Engine 25+.
+	VolumeSubpath string
 }
 
 // CreateOptions configures a new sandbox container.
@@ -197,12 +200,16 @@ func buildMounts(opts CreateOptions) []mount.Mount {
 		})
 	}
 	for _, m := range opts.ExtraMounts {
-		mounts = append(mounts, mount.Mount{
+		mm := mount.Mount{
 			Type:     dockerMountType(m.Type),
 			Source:   m.HostPath,
 			Target:   m.ContainerPath,
 			ReadOnly: m.ReadOnly,
-		})
+		}
+		if m.Type == MountTypeVolume && m.VolumeSubpath != "" {
+			mm.VolumeOptions = &mount.VolumeOptions{Subpath: m.VolumeSubpath}
+		}
+		mounts = append(mounts, mm)
 	}
 	return mounts
 }

@@ -154,6 +154,7 @@ docker run -d \
   --name stella \
   --security-opt seccomp=unconfined \
   -v ~/.stella:/home/nonroot/.stella \
+  -p 25678:25678 \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
@@ -178,6 +179,8 @@ services:
       # - OPENAI_API_KEY=sk-...
 ```
 
+`seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。如果 agent 使用 `docker` 沙箱后端，需要额外挂载 Docker socket 和设置模式相关的环境变量——请参阅[沙箱指南](/docs/guides/sandbox#docker-compose-示例)了解所有 compose 变体。
+
 ```bash
 docker compose up -d
 ```
@@ -194,23 +197,9 @@ docker build -t stella .
 docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 ```
 
-## 使用 Docker 作为沙盒后端
+## 沙箱后端
 
-将 stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。两者可以结合使用（Docker-in-Docker 或挂载 socket），但各自独立也有价值。
-
-### 何时优先选择 `docker` 沙箱后端
-
-- **Windows**：本地沙箱后端仅支持 Linux/macOS。`docker` 后端通过 Docker Desktop 为 Windows 用户提供真正的隔离边界。
-- **自定义工具链**：需要与宿主机不同的特定 Python/Node/Go 版本，或需要干净的 Linux 用户空间。
-- **副作用隔离**：需要可复现的文件系统状态，不希望 agent 脚本产生宿主机级别的副作用。
-
-### 权衡取舍
-
-- **启动延迟**：容器热启动约 200ms；首次拉取镜像约 1–3s。
-- **绑定挂载性能**：在 macOS/Windows 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。在这些平台上，有大量读写操作的工作流应避免使用 `docker` 后端。
-- **无写时复制隔离**：与本地后端（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
-
-有关 `sandbox.docker` 配置键和 JSON 示例，请参阅[配置指南](/docs/start-here/configuration)。
+将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。请参阅[沙箱指南](/docs/guides/sandbox)了解如何选择后端、配置 Docker 沙箱模式和排查常见问题。
 
 ## 卷和数据
 
@@ -229,16 +218,21 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                | 必需 | 描述                                                            |
-| ------------------- | ---- | --------------------------------------------------------------- |
-| `STELLA_HOME`       | 否   | Stella 主目录（默认 `~/.stella`）                               |
-| `ANTHROPIC_API_KEY` | 是\* | Anthropic 提供商密钥                                            |
-| `OPENAI_API_KEY`    | 是\* | OpenAI 提供商密钥                                               |
-| `STELLA_VAULT_KEY`  | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需 |
+| 变量                         | 必需 | 描述                                                                                     |
+| ---------------------------- | ---- | ---------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | 否   | Stella 主目录（默认 `~/.stella`）                                                        |
+| `ANTHROPIC_API_KEY`          | 是\* | Anthropic 提供商密钥                                                                     |
+| `OPENAI_API_KEY`             | 是\* | OpenAI 提供商密钥                                                                        |
+| `STELLA_VAULT_KEY`           | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                          |
+| `STELLA_DOCKER_SANDBOX_MODE` | 否‡  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
+| `STELLA_HOME_HOST`           | 否‡  | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
+| `STELLA_HOME_VOLUME`         | 否‡  | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
+
+‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
 
 ## 健康检查
 

@@ -139,64 +139,9 @@ type Tool interface {
 
 核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行；`read`、`write` 和 `edit` 工具使用 `Session.ResolvePath` 获取主机路径，然后直接调用 `os.*`。Runner 启动时如果 Docker 不可用则失败关闭。
 
-### 沙盒架构
+### 沙箱
 
-沙盒系统使用 Docker 进行进程和文件系统隔离：
-
-- **Session**：Runner 启动时创建的每次运行 Docker 容器，关闭时销毁。
-- **Workspace root**：挂载到容器中的代理工作区目录。
-- **Working Directory**：容器内的逻辑工作目录，通过 `Session.WorkingDir` 解析。
-
-所有核心工具在每个 Runner 中共享同一个容器会话：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Go Runner                               │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
-│  │  bash   │ │  read   │ │  write  │ │  edit   │           │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
-│       │           └───────────┘                             │
-│       │ Exec              ResolvePath + os.*                │
-│       ▼                                                     │
-│  ┌──────────────────┐                                       │
-│  │  sandbox.Session │                                       │
-│  │  (Docker)        │                                       │
-│  └──────────────────┘                                       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 平台要求
-
-Docker 是唯一的后端，在所有平台（Linux、macOS、Windows）上都是必需的。Docker 守护进程必须正在运行并可访问。Stella 在会话创建时联系 Docker 守护进程，如果不可用则失败关闭。没有 `auto` 或 `Relaxed` 模式。
-
-### 网络策略配置
-
-每个代理的沙盒网络策略通过 admin API 或数据库配置：
-
-| 模式        | 描述                   | 使用场景               |
-| ----------- | ---------------------- | ---------------------- |
-| `disabled`  | 无出站网络访问（默认） | 不可信代码的最大安全性 |
-| `allow_all` | 无限制的出站访问       | 需要完整网络的可信代理 |
-
-Stella 在会话创建时验证网络模式，如果 Docker 后端无法强制执行则失败关闭。
-
-### 失败行为
-
-Runner 启动在以下情况下失败关闭：
-
-- Docker 守护进程不可用或无法访问
-- 网络策略配置无效
-- 网络策略有效但 Docker 后端不支持
-
-这确保沙盒执行要么完全正常运行，要么根本不运行，防止安全降级。
-
-### 显式例外边界
-
-沙盒保证适用于 Stella 拥有的本地执行路径。远程 MCP 传输目前被视为独立的信任边界：
-
-- 本地 MCP stdio 生成使用 `Session.StartProcess`，通过活跃的 Runner 会话进行调解
-- 远程 MCP HTTP/SSE/StreamableHTTP 拨号目前不由 `ToolRuntime` 调解
-- 该例外是显式的、可观察的，并记录为 `runtime.exception_path`，`exception_id=EX-009`
+沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`read`/`write`/`edit` 使用 `Session.ResolvePath` + `os.*`。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
 内置工具（bash、read、write、edit、delegate、notify、skills、coretools）位于 `internal/tools/`，直接集成到代理中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
 

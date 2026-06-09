@@ -297,6 +297,11 @@ func channelTypeForEntry(ch config.Channel, entry channelEntry, hasConfig bool) 
 }
 
 func resolvedChannelType(ch resolvedChannel) string {
+	if typed, ok := ch.entry.channel.(platformNamedChannel); ok {
+		if platform := typed.Platform(); platform != "" {
+			return platform
+		}
+	}
 	return channelTypeForEntry(ch.cfg, ch.entry, true)
 }
 
