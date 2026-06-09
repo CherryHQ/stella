@@ -5,41 +5,65 @@ import (
 	"testing"
 )
 
-func withDooDEnv(t *testing.T, inContainer bool, stellaHomeHost, stellaHomeVolume string) {
+func withDockerModeEnv(t *testing.T, mode, stellaHomeHost, stellaHomeVolume string) {
 	t.Helper()
-	prevContainer := runningInContainer
+	prevMode := lookupDockerSandboxMode
 	prevHost := lookupStellaHomeHost
 	prevVolume := lookupStellaHomeVolume
-	runningInContainer = func() bool { return inContainer }
+	lookupDockerSandboxMode = func() string { return mode }
 	lookupStellaHomeHost = func() string { return stellaHomeHost }
 	lookupStellaHomeVolume = func() string { return stellaHomeVolume }
 	t.Cleanup(func() {
-		runningInContainer = prevContainer
+		lookupDockerSandboxMode = prevMode
 		lookupStellaHomeHost = prevHost
 		lookupStellaHomeVolume = prevVolume
 	})
 }
 
-func TestApplyDooDDefaults_ExplicitBindPrefixWins(t *testing.T) {
-	withDooDEnv(t, true, "/host/stella", "")
-	in := Config{
-		ContainerPathPrefix: "/explicit/container",
-		HostPathPrefix:      "/explicit/host",
-	}
-	out, err := applyDooDDefaults(in, "/home/nonroot/.stella")
+func TestApplyDockerMode_Host(t *testing.T) {
+	withDockerModeEnv(t, "host", "", "")
+	out, err := applyDockerMode(Config{}, "/Users/v/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out.ContainerPathPrefix != "/explicit/container" || out.HostPathPrefix != "/explicit/host" {
-		t.Errorf("explicit prefixes should be preserved, got %+v", out)
+	if out.RuntimeMode != DockerSandboxModeHost {
+		t.Errorf("RuntimeMode: got %q, want host", out.RuntimeMode)
+	}
+	if out.ContainerPathPrefix != "" || out.HostPathPrefix != "" || out.StellaHomeVolume != "" {
+		t.Errorf("host mode should not set path translation fields, got %+v", out)
 	}
 }
 
-func TestApplyDooDDefaults_InContainerBindMount(t *testing.T) {
-	withDooDEnv(t, true, "/Users/v/.stella-dev", "")
-	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
+func TestApplyDockerMode_HostRejectsModeSpecificEnv(t *testing.T) {
+	withDockerModeEnv(t, "host", "/host/stella", "")
+	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	if err == nil {
+		t.Fatal("expected error when host mode sets STELLA_HOME_HOST")
+	}
+	if !strings.Contains(err.Error(), "must not set") {
+		t.Errorf("error should reject extra env, got: %v", err)
+	}
+}
+
+func TestApplyDockerMode_ExplicitModeWins(t *testing.T) {
+	withDockerModeEnv(t, "volume", "", "")
+	out, err := applyDockerMode(Config{RuntimeMode: DockerSandboxModeHost}, "/Users/v/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.RuntimeMode != DockerSandboxModeHost {
+		t.Errorf("explicit RuntimeMode should win, got %q", out.RuntimeMode)
+	}
+}
+
+func TestApplyDockerMode_BindUsesStellaHomeHost(t *testing.T) {
+	withDockerModeEnv(t, "bind", "/Users/v/.stella-dev", "")
+	out, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.RuntimeMode != DockerSandboxModeBind {
+		t.Errorf("RuntimeMode: got %q, want bind", out.RuntimeMode)
 	}
 	if out.ContainerPathPrefix != "/home/nonroot/.stella" {
 		t.Errorf("ContainerPathPrefix: got %q, want /home/nonroot/.stella", out.ContainerPathPrefix)
@@ -49,10 +73,60 @@ func TestApplyDooDDefaults_InContainerBindMount(t *testing.T) {
 	}
 }
 
-func TestApplyDooDDefaults_ExplicitVolumeWins(t *testing.T) {
-	withDooDEnv(t, true, "", "env-volume")
-	in := Config{StellaHomeVolume: "explicit-volume"}
-	out, err := applyDooDDefaults(in, "/home/nonroot/.stella")
+func TestApplyDockerMode_BindPreservesExplicitPrefixes(t *testing.T) {
+	withDockerModeEnv(t, "bind", "/env/host", "")
+	in := Config{
+		ContainerPathPrefix: "/explicit/container",
+		HostPathPrefix:      "/explicit/host",
+	}
+	out, err := applyDockerMode(in, "/home/nonroot/.stella")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.ContainerPathPrefix != "/explicit/container" || out.HostPathPrefix != "/explicit/host" {
+		t.Errorf("explicit prefixes should be preserved, got %+v", out)
+	}
+}
+
+func TestApplyDockerMode_BindRequiresHostPath(t *testing.T) {
+	withDockerModeEnv(t, "bind", "", "")
+	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	if err == nil {
+		t.Fatal("expected error when bind mode has no STELLA_HOME_HOST")
+	}
+	if !strings.Contains(err.Error(), "STELLA_HOME_HOST") {
+		t.Errorf("error should mention STELLA_HOME_HOST, got: %v", err)
+	}
+}
+
+func TestApplyDockerMode_BindRejectsVolume(t *testing.T) {
+	withDockerModeEnv(t, "bind", "/host/stella", "stella-data")
+	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	if err == nil {
+		t.Fatal("expected error when bind mode also sets STELLA_HOME_VOLUME")
+	}
+	if !strings.Contains(err.Error(), "STELLA_HOME_VOLUME") {
+		t.Errorf("error should mention STELLA_HOME_VOLUME, got: %v", err)
+	}
+}
+
+func TestApplyDockerMode_VolumeUsesStellaHomeVolume(t *testing.T) {
+	withDockerModeEnv(t, "volume", "", "stella-data")
+	out, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.RuntimeMode != DockerSandboxModeVolume {
+		t.Errorf("RuntimeMode: got %q, want volume", out.RuntimeMode)
+	}
+	if out.StellaHomeVolume != "stella-data" {
+		t.Errorf("StellaHomeVolume: got %q, want stella-data", out.StellaHomeVolume)
+	}
+}
+
+func TestApplyDockerMode_VolumePreservesExplicitVolume(t *testing.T) {
+	withDockerModeEnv(t, "volume", "", "env-volume")
+	out, err := applyDockerMode(Config{StellaHomeVolume: "explicit-volume"}, "/home/nonroot/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,82 +135,46 @@ func TestApplyDooDDefaults_ExplicitVolumeWins(t *testing.T) {
 	}
 }
 
-func TestApplyDooDDefaults_InContainerVolumeSet(t *testing.T) {
-	withDooDEnv(t, true, "", "stella-data")
-	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.StellaHomeVolume != "stella-data" {
-		t.Errorf("StellaHomeVolume: got %q, want stella-data", out.StellaHomeVolume)
-	}
-}
-
-func TestApplyDooDDefaults_InContainerWithoutModeErrors(t *testing.T) {
-	withDooDEnv(t, true, "", "")
-	_, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
+func TestApplyDockerMode_VolumeRequiresVolume(t *testing.T) {
+	withDockerModeEnv(t, "volume", "", "")
+	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
 	if err == nil {
-		t.Fatal("expected error when in-container and no docker-sandbox mount mode is set")
+		t.Fatal("expected error when volume mode has no STELLA_HOME_VOLUME")
 	}
-	if !strings.Contains(err.Error(), "STELLA_HOME_HOST") || !strings.Contains(err.Error(), "STELLA_HOME_VOLUME") {
-		t.Errorf("error should mention both docker-sandbox modes, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "/home/nonroot/.stella") {
-		t.Errorf("error should mention stellaHome, got: %v", err)
+	if !strings.Contains(err.Error(), "STELLA_HOME_VOLUME") {
+		t.Errorf("error should mention STELLA_HOME_VOLUME, got: %v", err)
 	}
 }
 
-func TestApplyDooDDefaults_InContainerBothModesError(t *testing.T) {
-	withDooDEnv(t, true, "/host/stella", "stella-data")
-	_, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
+func TestApplyDockerMode_VolumeRejectsHostPath(t *testing.T) {
+	withDockerModeEnv(t, "volume", "/host/stella", "stella-data")
+	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
 	if err == nil {
-		t.Fatal("expected error when both STELLA_HOME_HOST and STELLA_HOME_VOLUME are set")
+		t.Fatal("expected error when volume mode also sets STELLA_HOME_HOST")
 	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Errorf("error should mention mutual exclusion, got: %v", err)
-	}
-}
-
-func TestApplyDooDDefaults_NotInContainerVolumeSetIgnored(t *testing.T) {
-	withDooDEnv(t, false, "", "stella-data")
-	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.StellaHomeVolume != "" {
-		t.Errorf("StellaHomeVolume should be cleared when not in container, got %q", out.StellaHomeVolume)
+	if !strings.Contains(err.Error(), "STELLA_HOME_HOST") {
+		t.Errorf("error should mention STELLA_HOME_HOST, got: %v", err)
 	}
 }
 
-func TestApplyDooDDefaults_NotInContainerBindSetIgnored(t *testing.T) {
-	withDooDEnv(t, false, "/host/stella", "")
-	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestApplyDockerMode_MissingModeErrors(t *testing.T) {
+	withDockerModeEnv(t, "", "", "")
+	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	if err == nil {
+		t.Fatal("expected error when STELLA_DOCKER_SANDBOX_MODE is unset")
 	}
-	if out.ContainerPathPrefix != "" || out.HostPathPrefix != "" {
-		t.Errorf("prefixes should be cleared when not in container, got %+v", out)
-	}
-}
-
-func TestApplyDooDDefaults_NotInContainerBothModesIgnored(t *testing.T) {
-	withDooDEnv(t, false, "/host/stella", "stella-data")
-	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.StellaHomeVolume != "" || out.ContainerPathPrefix != "" || out.HostPathPrefix != "" {
-		t.Errorf("docker-sandbox mode fields should be cleared on native host, got %+v", out)
+	if !strings.Contains(err.Error(), dockerSandboxModeEnv) {
+		t.Errorf("error should mention %s, got: %v", dockerSandboxModeEnv, err)
 	}
 }
 
-func TestApplyDooDDefaults_NotInContainerNoMode(t *testing.T) {
-	withDooDEnv(t, false, "", "")
-	out, err := applyDooDDefaults(Config{}, "/home/nonroot/.stella")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestApplyDockerMode_InvalidModeErrors(t *testing.T) {
+	withDockerModeEnv(t, "container", "", "")
+	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	if err == nil {
+		t.Fatal("expected error for invalid mode")
 	}
-	if out.StellaHomeVolume != "" || out.ContainerPathPrefix != "" || out.HostPathPrefix != "" {
-		t.Errorf("docker-sandbox mode fields should be empty on native host, got %+v", out)
+	if !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("error should mention invalid mode, got: %v", err)
 	}
 }

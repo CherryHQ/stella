@@ -2,6 +2,21 @@ package docker
 
 import "strings"
 
+// DockerSandboxMode describes how the Docker daemon sees STELLA_HOME.
+type DockerSandboxMode string
+
+const (
+	// DockerSandboxModeHost means stellad runs on the same host namespace as the
+	// Docker daemon, so stella-process paths are already daemon-visible.
+	DockerSandboxModeHost DockerSandboxMode = "host"
+	// DockerSandboxModeBind means stellad runs in a container and STELLA_HOME is a
+	// host bind mount. STELLA_HOME_HOST provides the daemon-visible host path.
+	DockerSandboxModeBind DockerSandboxMode = "bind"
+	// DockerSandboxModeVolume means stellad runs in a container and STELLA_HOME is
+	// backed by a Docker named volume. STELLA_HOME_VOLUME provides the volume name.
+	DockerSandboxModeVolume DockerSandboxMode = "volume"
+)
+
 // Config configures the docker sandbox factory.
 type Config struct {
 	// Image is the container image to use. Required.
@@ -13,6 +28,10 @@ type Config struct {
 	// DooD path translation, and resolving user tool binaries from the plugins
 	// manifest.
 	StellaHome string
+
+	// RuntimeMode declares how the Docker daemon can access STELLA_HOME. Normally
+	// auto-derived from STELLA_DOCKER_SANDBOX_MODE by NewFactory.
+	RuntimeMode DockerSandboxMode
 
 	// ContainerPathPrefix / HostPathPrefix enable bind-mount path alignment when
 	// stella runs inside a container and talks to the daemon on the host (DooD).

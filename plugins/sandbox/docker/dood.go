@@ -7,22 +7,11 @@ import (
 	"strings"
 )
 
-// containerFilesystemMarkers are the well-known files created by container
-// runtimes inside the container rootfs.
-var containerFilesystemMarkers = []string{
-	"/.dockerenv",        // Docker / Moby
-	"/run/.containerenv", // Podman
-}
+const dockerSandboxModeEnv = "STELLA_DOCKER_SANDBOX_MODE"
 
-// runningInContainer reports whether stella is executing inside a container.
-// Overridden in tests.
-var runningInContainer = func() bool {
-	for _, m := range containerFilesystemMarkers {
-		if _, err := os.Stat(m); err == nil {
-			return true
-		}
-	}
-	return false
+// lookupDockerSandboxMode reads STELLA_DOCKER_SANDBOX_MODE. Overridden in tests.
+var lookupDockerSandboxMode = func() string {
+	return strings.TrimSpace(os.Getenv(dockerSandboxModeEnv))
 }
 
 // lookupStellaHomeHost reads the STELLA_HOME_HOST env. Overridden in tests.
@@ -35,76 +24,66 @@ var lookupStellaHomeVolume = func() string {
 	return strings.TrimSpace(os.Getenv("STELLA_HOME_VOLUME"))
 }
 
-// applyDooDDefaults augments cfg when stella runs inside a container and uses
-// the host Docker daemon for sandbox containers.
+// applyDockerMode fills and validates the explicit docker sandbox runtime mode.
 //
-// Supported in-container docker-sandbox modes:
-//   - STELLA_HOME_HOST: STELLA_HOME is a host bind mount; bind sources are
-//     translated from the stella container path to the daemon-visible host path.
-//   - STELLA_HOME_VOLUME: STELLA_HOME is a Docker named volume; sandbox sessions
-//     use volume subpath mounts and do not need a host-visible path.
+// STELLA_DOCKER_SANDBOX_MODE is required when NewFactory receives StellaHome:
+//   - host: stellad runs on the host; stella-process paths are daemon-visible.
+//   - bind: stellad runs in a container; STELLA_HOME_HOST is the host-side path.
+//   - volume: stellad runs in a container; STELLA_HOME_VOLUME is the volume name.
 //
-// STELLA_HOME_HOST and STELLA_HOME_VOLUME are mutually exclusive. When stella is
-// already running on the host, both are ignored because daemon paths are already
-// host paths.
-func applyDooDDefaults(cfg Config, stellaHome string) (Config, error) {
-	inContainer := runningInContainer()
-	hostPath := lookupStellaHomeHost()
-	volume := lookupStellaHomeVolume()
-
-	if cfg.StellaHomeVolume == "" {
-		cfg.StellaHomeVolume = volume
+// This intentionally does not inspect /.dockerenv or other runtime markers.
+// The caller describes the deployment; the backend validates that the mode has
+// exactly the env needed for that mode and no conflicting mode env.
+func applyDockerMode(cfg Config, stellaHome string) (Config, error) {
+	if cfg.RuntimeMode == "" {
+		cfg.RuntimeMode = DockerSandboxMode(lookupDockerSandboxMode())
 	}
-	if cfg.ContainerPathPrefix == "" && cfg.HostPathPrefix == "" && hostPath != "" {
-		cfg.ContainerPathPrefix = stellaHome
-		cfg.HostPathPrefix = hostPath
+	if cfg.StellaHomeVolume == "" {
+		cfg.StellaHomeVolume = lookupStellaHomeVolume()
+	}
+	if cfg.ContainerPathPrefix == "" && cfg.HostPathPrefix == "" {
+		if hostPath := lookupStellaHomeHost(); hostPath != "" {
+			cfg.ContainerPathPrefix = stellaHome
+			cfg.HostPathPrefix = hostPath
+		}
 	}
 
 	bindConfigured := cfg.ContainerPathPrefix != "" || cfg.HostPathPrefix != ""
-	if !inContainer {
-		if cfg.StellaHomeVolume != "" {
-			slog.Warn("docker backend: STELLA_HOME_VOLUME is set but stella is not running in a container; ignoring",
-				"component", "runner_sandbox",
-				"stella_home_volume", cfg.StellaHomeVolume,
-			)
-			cfg.StellaHomeVolume = ""
+	switch cfg.RuntimeMode {
+	case DockerSandboxModeHost:
+		if bindConfigured || cfg.StellaHomeVolume != "" {
+			return cfg, fmt.Errorf("docker backend: mode %q must not set STELLA_HOME_HOST or STELLA_HOME_VOLUME", cfg.RuntimeMode)
 		}
-		if bindConfigured {
-			slog.Warn("docker backend: STELLA_HOME_HOST is set but stella is not running in a container; ignoring",
-				"component", "runner_sandbox",
-				"stella_home_host", cfg.HostPathPrefix,
-			)
-			cfg.ContainerPathPrefix = ""
-			cfg.HostPathPrefix = ""
-		}
-		return cfg, nil
-	}
-	if cfg.StellaHomeVolume != "" && bindConfigured {
-		return cfg, fmt.Errorf("docker backend: STELLA_HOME_HOST and STELLA_HOME_VOLUME are mutually exclusive; set only one")
-	}
-	if bindConfigured && (cfg.ContainerPathPrefix == "" || cfg.HostPathPrefix == "") {
-		return cfg, fmt.Errorf("docker backend: container_path_prefix and host_path_prefix must be set together")
-	}
-
-	switch {
-	case cfg.StellaHomeVolume != "":
-		slog.Info("docker backend: volume mode — STELLA_HOME is backed by a named Docker volume",
+		slog.Info("docker backend: host mode — STELLA_HOME paths are daemon-visible",
 			"component", "runner_sandbox",
-			"volume", cfg.StellaHomeVolume,
 		)
-	case bindConfigured:
-		slog.Info("docker backend: bind-mount mode — applying DooD path translation from STELLA_HOME_HOST",
+	case DockerSandboxModeBind:
+		if cfg.StellaHomeVolume != "" {
+			return cfg, fmt.Errorf("docker backend: mode %q must not set STELLA_HOME_VOLUME", cfg.RuntimeMode)
+		}
+		if !bindConfigured || cfg.ContainerPathPrefix == "" || cfg.HostPathPrefix == "" {
+			return cfg, fmt.Errorf("docker backend: mode %q requires STELLA_HOME_HOST to point at the host-side path of STELLA_HOME (%q)", cfg.RuntimeMode, stellaHome)
+		}
+		slog.Info("docker backend: bind mode — translating STELLA_HOME paths for Docker-outside-of-Docker",
 			"component", "runner_sandbox",
 			"container_path_prefix", cfg.ContainerPathPrefix,
 			"host_path_prefix", cfg.HostPathPrefix,
 		)
-	default:
-		return cfg, fmt.Errorf(
-			"docker backend: stella is running inside a container but neither STELLA_HOME_HOST nor STELLA_HOME_VOLUME is set; "+
-				"set STELLA_HOME_HOST to the host-side path of STELLA_HOME (%q) for a bind mount, "+
-				"or STELLA_HOME_VOLUME to the Docker volume name backing STELLA_HOME",
-			stellaHome,
+	case DockerSandboxModeVolume:
+		if bindConfigured {
+			return cfg, fmt.Errorf("docker backend: mode %q must not set STELLA_HOME_HOST", cfg.RuntimeMode)
+		}
+		if cfg.StellaHomeVolume == "" {
+			return cfg, fmt.Errorf("docker backend: mode %q requires STELLA_HOME_VOLUME to name the Docker volume backing STELLA_HOME (%q)", cfg.RuntimeMode, stellaHome)
+		}
+		slog.Info("docker backend: volume mode — STELLA_HOME is backed by a named Docker volume",
+			"component", "runner_sandbox",
+			"volume", cfg.StellaHomeVolume,
 		)
+	case "":
+		return cfg, fmt.Errorf("docker backend: %s is required and must be one of %q, %q, or %q", dockerSandboxModeEnv, DockerSandboxModeHost, DockerSandboxModeBind, DockerSandboxModeVolume)
+	default:
+		return cfg, fmt.Errorf("docker backend: invalid %s=%q; expected %q, %q, or %q", dockerSandboxModeEnv, cfg.RuntimeMode, DockerSandboxModeHost, DockerSandboxModeBind, DockerSandboxModeVolume)
 	}
 	return cfg, nil
 }

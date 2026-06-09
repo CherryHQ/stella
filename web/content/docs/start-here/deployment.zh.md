@@ -166,13 +166,13 @@ docker run -d \
 
 根据 Stella 的运行位置和 agent 使用的沙箱后端选择 compose 形态：
 
-| Stella 运行位置 | 沙箱后端 | 数据挂载                   | 额外设置                                                                                                |
-| --------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Docker          | `local`  | bind mount 或 named volume | 添加 `seccomp=unconfined`，让 bubblewrap 能创建 namespace。                                             |
-| Docker          | `none`   | bind mount 或 named volume | 不需要沙箱相关 Docker 选项；只适合完全可信工作负载。                                                    |
-| Docker          | `docker` | host bind mount            | 挂载 Docker socket，并设置 `STELLA_HOME_HOST` 为宿主机侧路径。                                          |
-| Docker          | `docker` | Docker named volume        | 挂载 Docker socket，并设置 `STELLA_HOME_VOLUME` 为 volume 名称；volume subpath 需要 Docker Engine 25+。 |
-| Host            | `docker` | 普通宿主机目录             | 不设置 `STELLA_HOME_HOST` 或 `STELLA_HOME_VOLUME`；路径本来就对 Docker daemon 可见。                    |
+| Stella 运行位置 | 沙箱后端 | 数据挂载                   | 额外设置                                                                                                                                          |
+| --------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker          | `local`  | bind mount 或 named volume | 添加 `seccomp=unconfined`，让 bubblewrap 能创建 namespace。                                                                                       |
+| Docker          | `none`   | bind mount 或 named volume | 不需要沙箱相关 Docker 选项；只适合完全可信工作负载。                                                                                              |
+| Docker          | `docker` | host bind mount            | 挂载 Docker socket，设置 `STELLA_DOCKER_SANDBOX_MODE=bind`，并设置 `STELLA_HOME_HOST` 为宿主机侧路径。                                            |
+| Docker          | `docker` | Docker named volume        | 挂载 Docker socket，设置 `STELLA_DOCKER_SANDBOX_MODE=volume`，并设置 `STELLA_HOME_VOLUME` 为 volume 名称；volume subpath 需要 Docker Engine 25+。 |
+| Host            | `docker` | 普通宿主机目录             | 设置 `STELLA_DOCKER_SANDBOX_MODE=host`；路径本来就对 Docker daemon 可见。                                                                         |
 
 #### 容器内使用 `local` 或 `none` 沙箱
 
@@ -195,7 +195,7 @@ services:
 
 #### 容器内使用 `docker` 沙箱和 host bind mount
 
-当 `STELLA_HOME` 来自宿主机目录时使用这种方式。Docker daemon 看到的是宿主机路径，而不是 Stella 容器内的 `/home/nonroot/.stella`，所以 `STELLA_HOME_HOST` 必须填写同一个目录在宿主机上的路径。
+当 `STELLA_HOME` 来自宿主机目录时使用这种方式。Docker daemon 看到的是宿主机路径，而不是 Stella 容器内的 `/home/nonroot/.stella`，所以需要声明 `bind` 模式，并让 `STELLA_HOME_HOST` 指向同一个目录在宿主机上的路径。
 
 ```yaml
 # docker-compose.yml
@@ -208,12 +208,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - ANTHROPIC_API_KEY=sk-...
+      - STELLA_DOCKER_SANDBOX_MODE=bind
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
 
 #### 容器内使用 `docker` 沙箱和 named volume
 
-当 `STELLA_HOME` 是 Docker named volume 时使用这种方式。Stella 会通过 volume subpath mount 让沙箱容器访问工作区和工具目录，不需要宿主机可见的 bind-mount 路径。
+当 `STELLA_HOME` 是 Docker named volume 时使用这种方式。声明 `volume` 模式后，Stella 会通过 volume subpath mount 让沙箱容器访问工作区和工具目录，不需要宿主机可见的 bind-mount 路径。
 
 ```yaml
 # docker-compose.yml
@@ -226,13 +227,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - ANTHROPIC_API_KEY=sk-...
+      - STELLA_DOCKER_SANDBOX_MODE=volume
       - STELLA_HOME_VOLUME=stella-data
 
 volumes:
   stella-data:
 ```
 
-Stella 运行在 Docker 内且 agent 使用 `docker` 沙箱时，`STELLA_HOME_HOST` 和 `STELLA_HOME_VOLUME` 必须二选一。agent 使用 `local` 或 `none` 时，两者都不需要。
+agent 使用 `docker` 沙箱时，始终显式设置 `STELLA_DOCKER_SANDBOX_MODE`：`host`、`bind` 或 `volume`。`bind` 模式只设置 `STELLA_HOME_HOST`；`volume` 模式只设置 `STELLA_HOME_VOLUME`；`host` 模式两者都不设置。agent 使用 `local` 或 `none` 时，这些 Docker-sandbox 变量都不需要。
 
 ```bash
 docker compose up -d
@@ -285,20 +287,21 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 配置通过Web UI管理（默认 `http://localhost:25678`；使用 `--port` 自定义端口）。还支持使用 `HOST` 和 `PORT` 绑定服务，其余仅支持少量环境变量：
 
-| 变量                 | 必需 | 描述                                                                                                           |
-| -------------------- | ---- | -------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`        | 否   | Stella 主目录（默认 `~/.stella`）                                                                              |
-| `ANTHROPIC_API_KEY`  | 是\* | Anthropic 提供商密钥                                                                                           |
-| `OPENAI_API_KEY`     | 是\* | OpenAI 提供商密钥                                                                                              |
-| `STELLA_VAULT_KEY`   | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                |
-| `STELLA_HOME_HOST`   | 否‡  | `STELLA_HOME` 的宿主机侧路径 —— Stella 在 Docker 内运行并通过 bind mount 使用 `docker` 沙箱时需要              |
-| `STELLA_HOME_VOLUME` | 否‡  | `STELLA_HOME` 的 Docker named volume 名称 —— Stella 在 Docker 内运行并用 named volume 使用 `docker` 沙箱时需要 |
+| 变量                         | 必需 | 描述                                                                                     |
+| ---------------------------- | ---- | ---------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | 否   | Stella 主目录（默认 `~/.stella`）                                                        |
+| `ANTHROPIC_API_KEY`          | 是\* | Anthropic 提供商密钥                                                                     |
+| `OPENAI_API_KEY`             | 是\* | OpenAI 提供商密钥                                                                        |
+| `STELLA_VAULT_KEY`           | 是†  | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                          |
+| `STELLA_DOCKER_SANDBOX_MODE` | 否‡  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
+| `STELLA_HOME_HOST`           | 否‡  | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
+| `STELLA_HOME_VOLUME`         | 否‡  | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
 
 \* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 
-‡ 仅当 stellad 运行在容器内且 agent 使用 `docker` 沙箱后端时需要。二选一：host bind mount 设置 `STELLA_HOME_HOST`，Docker named volume 设置 `STELLA_HOME_VOLUME`。
+‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
 
 ## 健康检查
 

@@ -28,14 +28,14 @@ func TestNewFactory_NoStellaHome_Infallible(t *testing.T) {
 	}
 }
 
-func TestNewFactory_DooDError_Propagated(t *testing.T) {
-	withDooDEnv(t, true, "", "")
+func TestNewFactory_DockerModeError_Propagated(t *testing.T) {
+	withDockerModeEnv(t, "", "", "")
 	_, err := NewFactory(Config{StellaHome: "/fake/stella"})
 	if err == nil {
-		t.Fatal("expected error when in-container docker sandbox has no mount mode")
+		t.Fatal("expected error when docker sandbox mode is unset")
 	}
-	if !strings.Contains(err.Error(), "STELLA_HOME_HOST") || !strings.Contains(err.Error(), "STELLA_HOME_VOLUME") {
-		t.Fatalf("error should mention both docker-sandbox modes, got: %v", err)
+	if !strings.Contains(err.Error(), dockerSandboxModeEnv) {
+		t.Fatalf("error should mention %s, got: %v", dockerSandboxModeEnv, err)
 	}
 }
 

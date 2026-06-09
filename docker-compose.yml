@@ -29,7 +29,9 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # Tell the docker sandbox backend which named volume backs STELLA_HOME
+      # Explicit Docker sandbox mode: host | bind | volume
+      - STELLA_DOCKER_SANDBOX_MODE=volume
+      # Tell volume mode which named volume backs STELLA_HOME
       - STELLA_HOME_VOLUME=stella-data
 
 volumes:

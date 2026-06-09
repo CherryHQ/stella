@@ -86,13 +86,14 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 
 仅识别少量环境变量：
 
-| 变量                 | 描述                                                                                                       |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`        | 覆盖主目录（默认 `~/.stella`）                                                                             |
-| `ANTHROPIC_API_KEY`  | Anthropic 的备用 API 密钥                                                                                  |
-| `OPENAI_API_KEY`     | OpenAI 的备用 API 密钥                                                                                     |
-| `STELLA_VAULT_KEY`   | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需                   |
-| `STELLA_HOME_HOST`   | Stella 在 Docker 内运行，并通过 host bind mount 使用 `docker` 沙箱时，`STELLA_HOME` 对应的宿主机侧路径     |
-| `STELLA_HOME_VOLUME` | Stella 在 Docker 内运行，并通过 Docker named volume 使用 `docker` 沙箱时，`STELLA_HOME` 对应的 volume 名称 |
+| 变量                         | 描述                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                | 覆盖主目录（默认 `~/.stella`）                                                           |
+| `ANTHROPIC_API_KEY`          | Anthropic 的备用 API 密钥                                                                |
+| `OPENAI_API_KEY`             | OpenAI 的备用 API 密钥                                                                   |
+| `STELLA_VAULT_KEY`           | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
+| `STELLA_DOCKER_SANDBOX_MODE` | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
+| `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
+| `STELLA_HOME_VOLUME`         | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
 
 所有其他配置通过Web UI进行管理。
