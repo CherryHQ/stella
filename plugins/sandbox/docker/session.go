@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -263,6 +264,9 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 	if !ok {
 		return nil, fmt.Errorf("docker session: workspace %q is not inside STELLA_HOME %q; cannot use volume mode", workspaceHost, f.cfg.StellaHome)
 	}
+	if workspaceSubpath == "." {
+		return nil, fmt.Errorf("docker session: workspace must be a subdirectory of STELLA_HOME, not STELLA_HOME itself")
+	}
 	opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 		HostPath:      f.cfg.StellaHomeVolume,
 		ContainerPath: workspaceMount,
@@ -287,6 +291,7 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 	for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
 		subpath, ok := relativePathWithin(f.cfg.StellaHome, hostPath)
 		if !ok {
+			logSkippedSandboxMount(DockerSandboxModeVolume, hostPath, "path is outside STELLA_HOME and cannot be mounted from the named volume")
 			continue
 		}
 		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
@@ -312,7 +317,7 @@ func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, po
 		return nil, "", fmt.Errorf("docker session: workspace %q is not under STELLA_HOME %q; cannot use bind-mount mode", workspaceHost, f.cfg.StellaHome)
 	}
 	opts.WorkspaceHost = daemonWorkspaceHost
-	stellaHome := policy.Env["STELLA_HOME"]
+	stellaHome := f.cfg.StellaHome
 	if stellaHome != "" {
 		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
 			hostPath := filepath.Join(stellaHome, name)
@@ -338,12 +343,15 @@ func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, po
 				ContainerPath: "/tmp",
 			})
 			mountedTempDirHost = policy.Filesystem.TempDirHost
+		} else {
+			logSkippedSandboxMount(f.cfg.RuntimeMode, policy.Filesystem.TempDirHost, "path is not visible to the Docker daemon")
 		}
 	}
 	mountedExtraReadOnly := []string{}
 	for _, hostPath := range policy.Filesystem.ExtraReadOnlyMounts {
 		daemonPath, ok := f.cfg.daemonPath(hostPath)
 		if !ok {
+			logSkippedSandboxMount(f.cfg.RuntimeMode, hostPath, "path is not visible to the Docker daemon")
 			continue
 		}
 		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
@@ -355,6 +363,15 @@ func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, po
 		appendWorkspaceRelativeReadOnlyMount(opts, daemonPath, hostPath, workspaceHost, "", dockerclient.MountTypeBind)
 	}
 	return mountedExtraReadOnly, mountedTempDirHost, nil
+}
+
+func logSkippedSandboxMount(mode DockerSandboxMode, path, reason string) {
+	slog.Warn("docker backend: skipping sandbox mount",
+		"component", "runner_sandbox",
+		"mode", mode,
+		"path", path,
+		"reason", reason,
+	)
 }
 
 func relativePathWithin(root, path string) (string, bool) {
