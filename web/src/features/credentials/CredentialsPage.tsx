@@ -516,7 +516,7 @@ export function CredentialsPage() {
                 let primary: React.ReactNode = undefined;
                 if (needsSetup && isAdmin) {
                   primary = (
-                    <Button size="sm" onClick={() => setSheetProvider(p.provider)}>
+                    <Button size="sm" variant="ghost" onClick={() => setSheetProvider(p.provider)}>
                       Set up
                     </Button>
                   );
@@ -524,6 +524,7 @@ export function CredentialsPage() {
                   primary = (
                     <Button
                       size="sm"
+                      variant="ghost"
                       loading={oauthFlowActive[p.provider]}
                       onClick={() => {
                         setSheetProvider(p.provider);
@@ -544,6 +545,7 @@ export function CredentialsPage() {
                     status={statusBadge(p)}
                     primary={primary}
                     menu={menu}
+                    onClick={() => setSheetProvider(p.provider)}
                   />
                 );
               })}
@@ -572,49 +574,25 @@ export function CredentialsPage() {
           {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
           {filteredVaultEntries.length > 0 && (
-            <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40 text-left">
-                    <th className="px-4 py-2.5 font-mono text-xs font-semibold text-muted-foreground">
-                      Name
-                    </th>
-                    <th className="px-4 py-2.5 font-mono text-xs font-semibold text-muted-foreground">
-                      Created
-                    </th>
-                    <th className="px-4 py-2.5 font-mono text-xs font-semibold text-muted-foreground">
-                      Updated
-                    </th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filteredVaultEntries.map((entry) => (
-                    <tr key={entry.name}>
-                      <td className="px-4 py-2.5 font-mono font-medium text-foreground">
-                        {entry.name}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                        {formatTime(entry.created_at)}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                        {formatTime(entry.updated_at)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        <Button
-                          size="xs"
-                          variant="destructive-outline"
-                          className="text-destructive hover:bg-destructive/10 cursor-pointer"
-                          onClick={() => deleteVaultEntry(entry.name)}
-                        >
-                          {t("common.delete")}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <SettingsList>
+              {filteredVaultEntries.map((entry) => (
+                <SettingsRow
+                  key={entry.name}
+                  icon={<KeyRound className="size-4" />}
+                  title={<span className="font-mono">{entry.name}</span>}
+                  subtitle={`Updated ${formatTime(entry.updated_at)} · created ${formatTime(
+                    entry.created_at,
+                  )}`}
+                  menu={[
+                    {
+                      label: t("common.delete"),
+                      destructive: true,
+                      onClick: () => void deleteVaultEntry(entry.name),
+                    },
+                  ]}
+                />
+              ))}
+            </SettingsList>
           )}
 
           {filteredVaultEntries.length === 0 && !vaultLoading && (
