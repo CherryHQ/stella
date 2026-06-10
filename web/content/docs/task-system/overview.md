@@ -62,7 +62,9 @@ Some work should stop for a human decision. Use human review for:
 
 ## Task UI
 
-The task UI exists because chat history is a bad project tracker. Use it to inspect:
+The task UI exists because chat history is a bad project tracker. In the Web UI, open an agent and choose the **Tasks** facet to see one-time tasks, scheduled work, and goals in one place. Project pages also open on their project task list first.
+
+Use the task UI to inspect:
 
 - Current task status.
 - Dependencies and readiness.
@@ -70,5 +72,6 @@ The task UI exists because chat history is a bad project tracker. Use it to insp
 - Events and runs.
 - Review state.
 - Goal child tasks and rollup.
+- The conversation session attached to a task or run.
 
 The practical rule: use chat to describe goals and decisions; use tasks to track execution.

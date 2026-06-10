@@ -8,7 +8,7 @@ interface Props {
 
 export function ChatPane({ transcript, composer, banner }: Props) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       {banner}
       {transcript}
       {composer}

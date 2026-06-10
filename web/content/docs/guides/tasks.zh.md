@@ -39,9 +39,11 @@ Task 是当前对话之外的一个可执行工作单元。当工作需要时间
 
 你可以随时查看工作状态：
 
-- **任务列表** -- 查看 task 状态并按条件筛选。
+- **任务 facet** -- 打开某个 Agent 后选择**任务**，在同一处查看 tasks、定时工作和 goals。
 - **任务详情** -- 查看 readiness、事件历史、runs、blockers、reviews 和依赖。
 - **Goal 详情** -- 查看 child tasks 和 goal 的汇总状态。
+- **Project 任务列表** -- 打开 project 会先看到该 project 的 tasks；需要项目级持久对话或 workspace 时，再进入对话和文件 facet。
+- **Task sessions** -- 需要查看执行背后的 worker 对话时，从 task 或 run 的 session 链接进入。
 
 根据你的渠道设置，任务完成、失败、阻塞或需要 review 时，Stella 可以通知你。
 

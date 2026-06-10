@@ -52,7 +52,7 @@ export function UserMessage({
       )}
       <div className="pl-7 w-full min-w-0 flex flex-col items-start gap-3">
         {text && (
-          <div className="text-lg sm:text-xl font-medium tracking-tight text-foreground/90 leading-normal whitespace-pre-wrap">
+          <div className="min-w-0 break-words text-lg font-medium leading-normal tracking-tight whitespace-pre-wrap text-foreground/90 sm:text-xl">
             {renderMentionedText(text, agentNames)}
           </div>
         )}

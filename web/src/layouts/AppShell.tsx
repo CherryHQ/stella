@@ -67,7 +67,7 @@ export function AppShell({
             <AppSidebarFooter />
           </SidebarFooter>
         </Sidebar>
-        <SidebarInset>
+        <SidebarInset className="min-w-0 overflow-hidden">
           <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/65 px-4 backdrop-blur-xl">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-1 h-4" />
@@ -77,7 +77,7 @@ export function AppShell({
             )}
           </header>
           {subnav}
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
         </SidebarInset>
       </SidebarProvider>
     </AppShellContext.Provider>

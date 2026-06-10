@@ -237,7 +237,7 @@ export function WorkspacePanel({
 
   if (!sessionID) {
     return (
-      <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
+      <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
         <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 px-4">
           <span className="text-[9px] font-mono text-muted-foreground">
             {t("sessions.workspace.title")}
@@ -269,9 +269,9 @@ export function WorkspacePanel({
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-sidebar/80">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
       {/* Header */}
-      <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 border-b border-border/70 py-1.5 px-4">
+      <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border/70 py-1.5 px-4">
         <div className="min-w-0 flex-1 pl-1">
           <span
             className="block truncate font-mono text-[10px] font-medium text-muted-foreground"
@@ -353,13 +353,13 @@ export function WorkspacePanel({
 
       {/* New item form */}
       {newItemType !== null && (
-        <div className="px-2 py-1.5 border-b border-border flex-shrink-0">
+        <div className="min-w-0 flex-shrink-0 border-b border-border px-2 py-1.5">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               createItem().catch(console.error);
             }}
-            className="flex items-center gap-1.5"
+            className="flex min-w-0 items-center gap-1.5"
           >
             <span className="text-[10px] font-mono text-muted-foreground">
               {newItemType === "dir" ? "dir" : "file"}:
@@ -369,7 +369,7 @@ export function WorkspacePanel({
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && (setNewItemType(null), setNewItemName(""))}
-              className="flex-1 text-[11px] font-mono border border-border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:border-primary/60 h-6"
+              className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] focus:border-primary/60 focus:outline-none"
               placeholder="name..."
               autoComplete="off"
             />
@@ -399,7 +399,7 @@ export function WorkspacePanel({
 
       {/* File tree */}
       {!workspaceLoading && workspace && entryCount > 0 && (
-        <div className="flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <TreeWithSearch
             agentID={agentID}
             sessionID={sessionID}
@@ -729,16 +729,17 @@ function TreeWithSearch({
   }, [firstSelectedApi, onSelectedPath]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <ArtifactShareDialog
         path={sharePath}
         agentID={agentID}
         sessionID={sessionID}
         onClose={() => setSharePath(null)}
       />
-      <div className="flex-1 overflow-hidden">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <FileTreeComponent
           model={model}
+          className="min-w-0 max-w-full overflow-hidden"
           style={{ ...themeStyles, width: "100%", height: "100%" }}
           renderContextMenu={(item, context) => {
             const MENU_W = 160;

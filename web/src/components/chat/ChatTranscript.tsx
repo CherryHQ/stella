@@ -54,7 +54,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
   return (
     <div
       ref={ref}
-      className="stella-transcript-scroll flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-8 sm:py-8"
+      className="stella-transcript-scroll min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-8 sm:py-8"
       onScroll={onScroll}
     >
       {loading && messages.length > 0 && (
@@ -73,11 +73,12 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
           </p>
         </div>
       )}
-      <div className="mx-auto max-w-3xl space-y-8">
+      <div className="mx-auto w-full min-w-0 max-w-3xl space-y-8">
         {processed.map((msg, idx) => (
           <div
             key={msg.id}
             className={cn(
+              "min-w-0",
               msg.sameRoleAsPrev ? "-mt-2" : "",
               idx > 0 && msg.role === "user" && !msg.sameRoleAsPrev
                 ? "border-t border-border/40 pt-8 mt-8"

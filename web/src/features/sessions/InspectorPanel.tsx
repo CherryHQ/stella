@@ -49,9 +49,9 @@ export function InspectorPanel({
   );
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-card">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-card">
       <div className="flex h-12 shrink-0 items-end border-b border-border px-4">
-        <div className="flex w-full gap-4 text-xs">
+        <div className="flex w-full min-w-0 gap-4 overflow-hidden text-xs">
           <InspectorTabButton active={tab === "files"} onClick={() => selectTab("files")}>
             {t("sessions.inspector.files")}
           </InspectorTabButton>
@@ -91,7 +91,7 @@ function InspectorTabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "pb-2 px-1 font-medium transition-colors border-b-2 outline-none cursor-pointer text-xs",
+        "min-w-0 truncate pb-2 px-1 font-medium transition-colors border-b-2 outline-none cursor-pointer text-xs",
         active
           ? "border-primary text-foreground font-semibold"
           : "border-transparent text-muted-foreground hover:text-foreground",

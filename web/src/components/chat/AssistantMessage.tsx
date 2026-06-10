@@ -59,7 +59,7 @@ export function AssistantMessage({
           )}
         </div>
       )}
-      <div className="pl-7 space-y-4">
+      <div className="min-w-0 space-y-4 pl-7">
         {grouped.map((item, gi) => {
           if (item.type === "text") {
             return <BlockRenderer key={gi} block={item.block} />;

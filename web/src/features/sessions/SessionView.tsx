@@ -12,7 +12,7 @@ import { useI18n } from "@/lib/i18n";
 import { InspectorPanel } from "./InspectorPanel";
 import { SessionDetail } from "./SessionDetail";
 
-const RIGHT_MIN = 280;
+const RIGHT_MIN = 360;
 const RIGHT_MAX_RATIO = 0.45;
 const RIGHT_DEFAULT = 360;
 const RIGHT_AUTO_HIDE_WIDTH = 1180;
@@ -44,6 +44,7 @@ export function SessionView() {
 
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
   const [rightOpen, setRightOpen] = useState(true);
+  const [compactWorkspace, setCompactWorkspace] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
@@ -58,8 +59,21 @@ export function SessionView() {
     if (initializedRightPanel.current) return;
     initializedRightPanel.current = true;
     const viewportWidth = window.innerWidth;
+    const compact = viewportWidth < RIGHT_AUTO_HIDE_WIDTH;
+    setCompactWorkspace(compact);
     setRightWidth(defaultRightWidth(viewportWidth));
-    setRightOpen(viewportWidth >= RIGHT_AUTO_HIDE_WIDTH);
+    setRightOpen(!compact);
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      const compact = window.innerWidth < RIGHT_AUTO_HIDE_WIDTH;
+      setCompactWorkspace(compact);
+      if (compact) setRightOpen(false);
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   useEffect(() => {
@@ -111,10 +125,10 @@ export function SessionView() {
   );
 
   useEffect(() => {
-    if (rightOpen && sessionDetail) {
+    if ((rightOpen || mobileSheetOpen) && sessionDetail) {
       void loadWorkspace(sessionDetail.id, projectDir || undefined);
     }
-  }, [rightOpen, sessionDetail?.id, loadWorkspace, projectDir, sessionDetail]);
+  }, [rightOpen, mobileSheetOpen, sessionDetail?.id, loadWorkspace, projectDir, sessionDetail]);
 
   const onResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -167,14 +181,14 @@ export function SessionView() {
       ? "Main thread"
       : `${sessionDetail?.kind ?? "chat"} session`;
 
-  const showWorkspace = rightOpen;
+  const showWorkspace = rightOpen && !compactWorkspace;
   const toggleInspector = useCallback(() => {
-    if (window.innerWidth < 768) {
+    if (compactWorkspace) {
       setMobileSheetOpen(true);
       return;
     }
     setRightOpen((v) => !v);
-  }, []);
+  }, [compactWorkspace]);
 
   return (
     <div ref={containerRef} className="relative flex h-full min-w-0 overflow-hidden bg-background">
@@ -195,7 +209,7 @@ export function SessionView() {
         className={cn(
           "stella-right-panel relative hidden flex-shrink-0 bg-card transition-[width,min-width,opacity] duration-200 ease-out md:block",
           showWorkspace
-            ? "border-l border-border"
+            ? "min-w-0 overflow-hidden border-l border-border"
             : "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none",
         )}
         style={showWorkspace ? { width: rightWidth, minWidth: RIGHT_MIN } : undefined}
@@ -221,7 +235,7 @@ export function SessionView() {
         <SheetPopup
           side="right"
           showCloseButton={false}
-          className="w-[85%] max-w-sm md:hidden bg-card border-l border-border"
+          className="w-[85%] max-w-sm border-l border-border bg-card"
         >
           <SheetTitle className="sr-only">{t("sessions.inspector.inspector")}</SheetTitle>
           <SheetDescription className="sr-only">
