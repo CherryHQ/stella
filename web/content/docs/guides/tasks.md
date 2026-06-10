@@ -39,9 +39,11 @@ Stella does not automatically split a goal into child tasks yet. If you want a m
 
 You can check on work at any time:
 
-- **Task list** -- see task status and filters.
+- **Tasks facet** -- open an agent and choose **Tasks** to see tasks, scheduled work, and goals together.
 - **Task detail** -- inspect readiness, event history, runs, blockers, reviews, and dependencies.
 - **Goal detail** -- inspect the child tasks and the goal's rollup status.
+- **Project task list** -- open a project to see project-scoped tasks first; use the conversation and files facets for the durable project chat and workspace.
+- **Task sessions** -- follow the session link from a task or run when you need the worker conversation behind the execution.
 
 Stella can notify you when a task finishes, fails, blocks, or needs review, depending on your channel setup.
 

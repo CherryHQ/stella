@@ -79,13 +79,15 @@ All commands are `stella task ...` or `stella task goal ...`.
 
 **Create one background task.** Use `stella task create ... --activate`. Add `--project-id <project-id>` for project-scoped work. Without `--activate`, the task stays `draft` and never runs.
 
-**Build a goal.** Create the goal first, optionally with `--project-id`, then create child tasks with `stella task create --goal-id <goal-id> ...`. A task created without `--goal-id` is standalone and will not appear under `stella task goal tasks <goal-id>` or the Automations goal detail page.
+**Build a goal.** Create the goal first, optionally with `--project-id`, then create child tasks with `stella task create --goal-id <goal-id> ...`. A task created without `--goal-id` is standalone and will not appear under `stella task goal tasks <goal-id>` or the Web UI goal detail page.
 
 **Build a dependency graph.** Create upstream tasks first, note their IDs, then create downstream tasks with `--dep <upstream-id>` or add edges later with `stella task dep add`. Default dependency behavior is `hard` + `block`: downstream waits for upstream success.
 
 **Activate after wiring.** For multi-task work, wire the goal/tasks/deps first, then activate. Draft child tasks under an activated goal are promoted to ready.
 
 **Check status.** Use `list` to scan, `get <id>` for detail, `events <id>` for audit history, and `runs <id>` for attempts.
+
+**Use the Web UI when the user asks to inspect work visually.** The agent **Tasks** facet shows one-time tasks, scheduled work, and goals together. Project pages open task-first and keep project task rows, the project main conversation, task sessions, and workspace files adjacent.
 
 **Explain why a task is not running.** Use `readiness <id>`. It distinguishes waiting dependencies, blockers, future `not_before`, throttling, terminal state, and missing executor context.
 
