@@ -274,13 +274,14 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	}
 
 	cfg := agentruntime.Config{
-		NewRunner:      factory,
-		Memory:         pm.mem,
-		IdleTimeout:    pm.idleTimeout,
-		DefaultModel:   snap.ResolveModelID(config.ModelTierStrong),
-		HooksFn:        pm.HookPlugins,
-		BeforeRun:      pm.runtimeBeforeRunFunc(snap),
-		SnapshotPrompt: pm.buildSnapshotPromptFunc(snap),
+		NewRunner:       factory,
+		Memory:          pm.mem,
+		IdleTimeout:     pm.idleTimeout,
+		DefaultModel:    snap.ResolveModelID(config.ModelTierStrong),
+		DefaultThinking: snap.ResolveThinkingLevel(config.ModelTierStrong),
+		HooksFn:         pm.HookPlugins,
+		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
+		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -516,7 +517,7 @@ func (pm *PoolManager) rebuildRunnerFunc(ctx context.Context, agentID string) er
 	pm.mu.RUnlock()
 	if svc != nil {
 		svc.Runtime.SetNewRunner(factory)
-		svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong))
+		svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong), snap.ResolveThinkingLevel(config.ModelTierStrong))
 		svc.Runtime.SetHooks(pm.HookPlugins)
 	}
 	return nil

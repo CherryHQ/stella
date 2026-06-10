@@ -24,10 +24,6 @@ func (commandTestProvider) Stream(context.Context, ai.Model, ai.Context, ai.Stre
 	return nil, errors.New("not implemented")
 }
 
-func (commandTestProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return nil, errors.New("not implemented")
-}
-
 func TestIntentClassifierStreamFuncBuilderUsesProvidedProviderType(t *testing.T) {
 	ph := pluginhost.New(commandTestStore{})
 	ph.AddProvider(pkgplugins.ProviderSpec{

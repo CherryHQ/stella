@@ -12,8 +12,11 @@ type Agent struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
 	Model                string `json:"model"`
+	ModelThinking        string `json:"model_thinking"`
 	ModelStrong          string `json:"model_strong"`
+	ModelStrongThinking  string `json:"model_strong_thinking"`
 	ModelFast            string `json:"model_fast"`
+	ModelFastThinking    string `json:"model_fast_thinking"`
 	SystemPrompt         string `json:"system_prompt"`
 	Soul                 string `json:"soul"`
 	Workspace            string `json:"workspace"`

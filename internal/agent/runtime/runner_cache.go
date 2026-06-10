@@ -10,28 +10,31 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
 // cachedSession holds one active runner and its metadata.
 type cachedSession struct {
-	info  session.Info
-	r     Runner
-	model string
+	info     session.Info
+	r        Runner
+	model    string
+	thinking ai.ThinkingLevel
 }
 
 // runnerCache manages active runners keyed by session ID.
 // It is an implementation detail of Runtime.
 type runnerCache struct {
-	sessions       map[string]*cachedSession
-	newRunner      NewRunnerFunc
-	hooksFn        func() []hooks.HookPlugin
-	defaultModel   string
-	delegateRunner delegatetool.SessionRunner
-	mem            memory.Provider
-	idleTimeout    time.Duration
-	mu             sync.Mutex
-	log            *slog.Logger
+	sessions        map[string]*cachedSession
+	newRunner       NewRunnerFunc
+	hooksFn         func() []hooks.HookPlugin
+	defaultModel    string
+	defaultThinking ai.ThinkingLevel
+	delegateRunner  delegatetool.SessionRunner
+	mem             memory.Provider
+	idleTimeout     time.Duration
+	mu              sync.Mutex
+	log             *slog.Logger
 }
 
 func newRunnerCache(
@@ -51,7 +54,7 @@ func newRunnerCache(
 
 // getOrCreate returns an existing runner or creates one.
 // info must be fully populated; this method does NOT repair missing fields.
-func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model string) (*cachedSession, Runner, error) {
+func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel) (*cachedSession, Runner, error) {
 	if info.ID == "" {
 		return nil, nil, fmt.Errorf("session.Info.ID is required")
 	}
@@ -80,6 +83,10 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 			c.log.Info("switching model", "session_id", info.ID, "from", cs.model, "to", model)
 			stale = cs.r
 			cs.r = nil
+		case thinking != "" && cs.thinking != thinking:
+			c.log.Info("switching thinking level", "session_id", info.ID, "from", cs.thinking, "to", thinking)
+			stale = cs.r
+			cs.r = nil
 		default:
 			r := cs.r
 			c.mu.Unlock()
@@ -90,8 +97,10 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	newRunner := c.newRunner
 	hooksFn := c.hooksFn
 	defaultModel := c.defaultModel
+	defaultThinking := c.defaultThinking
 	delegateRunner := c.delegateRunner
 	cachedModel := cs.model
+	cachedThinking := cs.thinking
 	c.mu.Unlock()
 
 	if stale != nil {
@@ -105,9 +114,17 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	if effectiveModel == "" {
 		effectiveModel = defaultModel
 	}
+	effectiveThinking := thinking
+	if effectiveThinking == "" {
+		effectiveThinking = cachedThinking
+	}
+	if effectiveThinking == "" {
+		effectiveThinking = defaultThinking
+	}
 
 	r, err := newRunner(ctx, RunnerParams{
 		Model:          effectiveModel,
+		Thinking:       effectiveThinking,
 		Memory:         c.mem,
 		UserID:         info.UserID,
 		GroupID:        info.GroupID,
@@ -136,6 +153,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	}
 	cs.r = r
 	cs.model = effectiveModel
+	cs.thinking = effectiveThinking
 	c.mu.Unlock()
 
 	// Bootstrap memory for this session.
@@ -181,6 +199,7 @@ func (c *runnerCache) reset() error {
 			cs.r = nil
 		}
 		cs.model = ""
+		cs.thinking = ""
 	}
 	c.mu.Unlock()
 

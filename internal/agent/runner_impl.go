@@ -36,6 +36,7 @@ type providerConfig struct {
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
 	Provider        providerConfig
+	Thinking        ai.ThinkingLevel
 	Sandbox         sandbox.Config
 	System          string // optional system prompt override (bypasses default prompt building)
 	Sections        []pkgplugins.SystemPromptSection
@@ -76,7 +77,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	systemPrompt := cfg.System
 
-	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, BaseURL: cfg.Provider.BaseURL}
+	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL}
 
 	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
@@ -120,7 +121,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		DefaultTimeout: cfg.DelegateTimeout,
 	}))
 
-	streamOptions := ai.StreamOptions{}
+	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
 	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
 	if err != nil {
 		if session != nil {

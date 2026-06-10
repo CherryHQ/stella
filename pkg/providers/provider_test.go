@@ -127,7 +127,3 @@ func (m *mockProvider) API() string { return m.api }
 func (m *mockProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (AssistantEventStream, error) {
 	return nil, nil
 }
-
-func (m *mockProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (AssistantEventStream, error) {
-	return nil, nil
-}

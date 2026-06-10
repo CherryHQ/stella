@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -46,15 +47,16 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 
 // Config holds all dependencies for a Runtime instance.
 type Config struct {
-	NewRunner      NewRunnerFunc
-	Memory         memory.Provider
-	IdleTimeout    time.Duration
-	Compaction     CompactionConfig
-	DefaultModel   string
-	FastModel      string
-	HooksFn        func() []hooks.HookPlugin
-	BeforeRun      BeforeRunFunc
-	SnapshotPrompt SnapshotPromptFunc
+	NewRunner       NewRunnerFunc
+	Memory          memory.Provider
+	IdleTimeout     time.Duration
+	Compaction      CompactionConfig
+	DefaultModel    string
+	DefaultThinking ai.ThinkingLevel
+	FastModel       string
+	HooksFn         func() []hooks.HookPlugin
+	BeforeRun       BeforeRunFunc
+	SnapshotPrompt  SnapshotPromptFunc
 }
 
 // New creates a Runtime from the given config.
@@ -72,6 +74,7 @@ func New(cfg Config) (*Runtime, error) {
 	log := slog.With("component", "runtime")
 	cache := newRunnerCache(cfg.NewRunner, cfg.Memory, idleTimeout, log)
 	cache.defaultModel = cfg.DefaultModel
+	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
 		cache:          cache,
@@ -92,9 +95,10 @@ func (rt *Runtime) SetNewRunner(f NewRunnerFunc) {
 }
 
 // SetDefaultModel updates the default model for new runners.
-func (rt *Runtime) SetDefaultModel(model string) {
+func (rt *Runtime) SetDefaultModel(model string, thinking ai.ThinkingLevel) {
 	rt.cache.mu.Lock()
 	rt.cache.defaultModel = model
+	rt.cache.defaultThinking = thinking
 	rt.cache.mu.Unlock()
 }
 

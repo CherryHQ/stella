@@ -22,16 +22,19 @@ type Snapshot struct {
 
 	// Provider, APIKey, BaseURL are the default provider credentials derived
 	// from the Model field's provider prefix. Kept for backward compatibility.
-	Provider     string
-	Model        string
-	ModelStrong  string
-	ModelFast    string
-	Workspace    string
-	Sandbox      SandboxConfig
-	APIKey       string
-	BaseURL      string
-	SystemPrompt string // agent's base system prompt from DB
-	Soul         string // agent's default soul from DB (fallback for all users)
+	Provider            string
+	Model               string
+	ModelThinking       string
+	ModelStrong         string
+	ModelStrongThinking string
+	ModelFast           string
+	ModelFastThinking   string
+	Workspace           string
+	Sandbox             SandboxConfig
+	APIKey              string
+	BaseURL             string
+	SystemPrompt        string // agent's base system prompt from DB
+	Soul                string // agent's default soul from DB (fallback for all users)
 
 	Runner     RunnerConfig
 	Compaction CompactionConfig
@@ -67,6 +70,22 @@ func (s *Snapshot) ResolveModelID(tier string) string {
 		}
 	}
 	return s.Model
+}
+
+// ResolveThinkingLevel returns the thinking level for the given tier,
+// falling back to the default model's setting when a tier-specific setting is unset.
+func (s *Snapshot) ResolveThinkingLevel(tier string) ai.ThinkingLevel {
+	switch tier {
+	case ModelTierFast:
+		if s.ModelFastThinking != "" {
+			return s.ModelFastThinking
+		}
+	default: // strong or unknown tier
+		if s.ModelStrongThinking != "" {
+			return s.ModelStrongThinking
+		}
+	}
+	return s.ModelThinking
 }
 
 // ResolveModel returns the ai.Model for the default (strong) tier.

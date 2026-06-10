@@ -62,6 +62,7 @@ type MessageContent = any
 // RunnerParams holds dependencies for creating a new Runner.
 type RunnerParams struct {
 	Model          string
+	Thinking       ai.ThinkingLevel
 	Memory         any // memory.Provider — typed as any to avoid circular imports
 	UserID         string
 	GroupID        string // non-empty for group sessions; runtime uses this to isolate identity surfaces

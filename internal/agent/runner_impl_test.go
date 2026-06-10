@@ -31,10 +31,6 @@ func (s *stubProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOp
 	return nil, errors.New("stub")
 }
 
-func (s *stubProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return nil, errors.New("stub")
-}
-
 func testProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 	if api != "anthropic" {
 		return nil, providers.ErrProviderNotFound
@@ -137,10 +133,6 @@ func (f *runnerFakeProvider) Stream(_ context.Context, _ ai.Model, _ ai.Context,
 		out.Finish(nil)
 	}()
 	return out, nil
-}
-
-func (f *runnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return f.Stream(goCtx, ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
 // newTestRunner creates a runner wired to a fake provider.

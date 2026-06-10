@@ -6,6 +6,8 @@ import "time"
 type StreamOptions struct {
 	Temperature     *float64
 	MaxTokens       *int
+	Reasoning       ThinkingLevel
+	ThinkingBudgets *ThinkingBudgets
 	Transport       Transport
 	CacheRetention  CacheRetention
 	SessionID       string
@@ -13,13 +15,6 @@ type StreamOptions struct {
 	Metadata        map[string]any
 	MaxRetryDelayMS *int
 	Timeout         time.Duration
-}
-
-// SimpleStreamOptions extends StreamOptions with reasoning controls.
-type SimpleStreamOptions struct {
-	StreamOptions
-	Reasoning       ThinkingLevel
-	ThinkingBudgets *ThinkingBudgets
 }
 
 // CompleteOptions configures non-streaming requests.
