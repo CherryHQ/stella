@@ -13,10 +13,15 @@ RETURNING *;
 SELECT * FROM ctx_group_state WHERE id = ?;
 
 -- name: ListGroupsByUser :many
-SELECT * FROM ctx_group_state
-WHERE created_by_user_id = sqlc.arg(user_id)
-  AND platform = 'web'
-ORDER BY updated_at DESC
+SELECT
+  gs.*,
+  COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
+FROM ctx_group_state gs
+LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
+WHERE gs.created_by_user_id = sqlc.arg(user_id)
+  AND gs.platform = 'web'
+GROUP BY gs.id
+ORDER BY last_active DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: UpdateGroupName :one

@@ -27,6 +27,72 @@ WHERE user_id = sqlc.arg('user_id')
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
+-- name: ListBlockedInboxTasks :many
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  b.question,
+  b.detail,
+  b.created_at
+FROM agent_task t
+JOIN agent_task_blocker b ON b.id = t.active_blocker_id
+WHERE t.user_id = sqlc.arg(user_id)
+  AND b.status = 'open'
+  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+
+UNION ALL
+
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  b.question,
+  b.detail,
+  b.created_at
+FROM agent_task t
+JOIN agent_task_blocker b ON b.task_id = t.id AND b.status = 'open'
+WHERE t.user_id = sqlc.arg(user_id)
+  AND t.active_blocker_id IS NULL
+  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+ORDER BY 7 DESC
+LIMIT sqlc.arg(limit_count);
+
+-- name: ListReviewInboxTasks :many
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  r.id AS review_id,
+  r.summary,
+  r.created_at
+FROM agent_task t
+JOIN agent_review r ON r.id = t.active_review_id
+WHERE t.user_id = sqlc.arg(user_id)
+  AND r.status IN ('requested', 'in_progress')
+  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+
+UNION ALL
+
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  r.id AS review_id,
+  r.summary,
+  r.created_at
+FROM agent_task t
+JOIN agent_review r ON r.task_id = t.id AND r.status IN ('requested', 'in_progress')
+WHERE t.user_id = sqlc.arg(user_id)
+  AND t.active_review_id IS NULL
+  AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
+ORDER BY 7 DESC
+LIMIT sqlc.arg(limit_count);
+
 -- name: CountRunningAgentTasks :one
 SELECT count(*) FROM agent_task WHERE status = 'running';
 

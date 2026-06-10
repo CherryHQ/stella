@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/resources"
@@ -87,7 +90,33 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
 	for i := range agents {
 		fillAgentDefaults(&agents[i])
 	}
+	if err := s.fillAgentLastActive(ctx, info.UserID, agents); err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
 	writeData(w, http.StatusOK, map[string]any{"agents": agents})
+}
+
+func (s *Server) fillAgentLastActive(ctx context.Context, userID string, agents []config.Agent) error {
+	rows, err := s.q.ListAgentConversationLastActive(ctx, sql.NullString{String: userID, Valid: true})
+	if err != nil {
+		return err
+	}
+	byAgent := make(map[string]*time.Time, len(rows))
+	for _, row := range rows {
+		if !row.AgentID.Valid {
+			continue
+		}
+		t := parseSQLValueTime(row.LastActive)
+		if t.IsZero() {
+			continue
+		}
+		byAgent[row.AgentID.String] = &t
+	}
+	for i := range agents {
+		agents[i].LastActive = byAgent[agents[i].ID]
+	}
+	return nil
 }
 
 func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {

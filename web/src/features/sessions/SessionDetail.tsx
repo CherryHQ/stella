@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
-import { MessageCircleDashed, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { AlertCircle, MessageCircleDashed, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions } from "@/lib/queries/agents";
+import { inboxQueryOptions } from "@/lib/queries/inbox";
 import type { Message, Session } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -18,6 +20,12 @@ import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
+
+const inboxKindLabels = {
+  blocked: "inbox.kind.blocked",
+  review: "inbox.kind.review",
+  failed: "inbox.kind.failed",
+} as const;
 
 interface Props {
   session: Session | null;
@@ -40,6 +48,7 @@ export function SessionDetail({
   contextSubtitle,
 }: Props) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [userInput, setUserInput] = useState("");
 
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -65,6 +74,8 @@ export function SessionDetail({
     useFileAttachments(uploadFn);
 
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
+  const { data: inbox } = useQuery(inboxQueryOptions(agentId, 5));
+  const attentionItems = inbox?.items ?? [];
   const composerSkills = useMemo(
     () => [
       ...BUILTIN_COMMANDS,
@@ -291,6 +302,29 @@ export function SessionDetail({
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
       <div className="flex-1 min-h-0 flex overflow-hidden">
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          {attentionItems.length > 0 && (
+            <div className="border-b border-border/70 bg-muted/20 px-3 py-2">
+              <div className="flex items-center gap-2 overflow-x-auto">
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <AlertCircle className="size-3.5" />
+                  {t("inbox.needsYou")}
+                </span>
+                {attentionItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="inline-flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-left text-xs transition-colors hover:bg-muted"
+                    onClick={() => void navigate({ to: item.target_path })}
+                  >
+                    <span className="truncate">{item.title}</span>
+                    <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                      {t(inboxKindLabels[item.kind])}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Transcript */}
           <Transcript
             ref={transcriptRef}

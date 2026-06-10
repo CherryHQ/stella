@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Bell, Folder, MessageSquarePlus, MoreHorizontal, Users } from "lucide-react";
 import type { Agent, Project, Session } from "@/lib/types";
-import type { ComponentsSession, TaskList } from "@/lib/api-client/types.gen";
+import type { ComponentsSession } from "@/lib/api-client/types.gen";
 import {
   createProject,
   createSession as sdkCreateSession,
@@ -12,11 +12,11 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import { getAgentColor } from "@/lib/agent-colors";
-import { fetchAllTasks } from "@/lib/paginated";
 import { cn } from "@/lib/utils";
 import { mainSessionQueryOptions, sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions } from "@/lib/queries/groups";
+import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -269,20 +269,13 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
   const { data: homeSession = null } = useQuery(mainSessionQueryOptions(agentId));
   const { data: groups = [] } = useQuery(groupsQueryOptions);
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
-  const { data: taskList } = useQuery({
-    queryKey: ["tasks", agentId],
-    queryFn: async () => ({ tasks: await fetchAllTasks(agentId) }) as TaskList,
-    enabled: !!agentId,
-  });
-
+  const { data: inbox } = useQuery(inboxQueryOptions(undefined, 100));
   const activeAgentId = pathname.match(/\/agents\/([^/]+)/)?.[1] ?? agentId;
   const activeGroupId = pathname.match(/\/groups\/([^/]+)/)?.[1] ?? "";
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
 
-  const attentionCount =
-    taskList?.tasks?.filter((task) => ["blocked", "reviewing", "failed"].includes(task.status))
-      .length ?? 0;
+  const attentionCount = inbox?.items?.length ?? 0;
 
   const chatSessions = (chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? [])
     .filter((session) => !session.archived)
@@ -293,18 +286,16 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
       kind: "agent" as const,
       id: agent.id,
       label: agent.name,
-      updatedAt: "",
+      updatedAt: agent.last_active ?? "",
       index,
     }));
     const groupItems = groups.map((group) => ({
       kind: "group" as const,
       id: group.id,
       label: group.group_name || t("groups.unnamed"),
-      updatedAt: group.updated_at,
+      updatedAt: group.last_active ?? group.updated_at,
       index: 0,
     }));
-    // Degraded interim sort: agents carry no activity timestamp until the inbox
-    // phase adds last_active, so groups (updated_at) surface above agents (API order).
     return [...agentItems, ...groupItems].sort((a, b) => {
       if (!a.updatedAt && !b.updatedAt) return a.index - b.index;
       if (!a.updatedAt) return 1;
@@ -353,7 +344,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
       <div className="shrink-0 px-3">
         <SidebarSection title={t("inbox.needsYou")} className="mt-0">
           <SidebarItem
-            active={pathname.startsWith(`/agents/${agentId}/automations`)}
+            active={pathname.startsWith("/inbox")}
             icon={<Bell className="size-4" />}
             label={t("inbox.title")}
             badge={
@@ -365,11 +356,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
             }
             onClick={() => {
               closeMobile();
-              if (agentId) {
-                void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
-              } else {
-                void navigate({ to: "/agents" });
-              }
+              void navigate({ to: "/inbox" });
             }}
           />
         </SidebarSection>

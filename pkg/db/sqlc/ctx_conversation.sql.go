@@ -164,6 +164,43 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainC
 	return i, err
 }
 
+const listAgentConversationLastActive = `-- name: ListAgentConversationLastActive :many
+SELECT agent_id, MAX(last_active) AS last_active
+FROM ctx_conversation
+WHERE user_id = ?1
+  AND agent_id IS NOT NULL
+  AND archived = 0
+GROUP BY agent_id
+`
+
+type ListAgentConversationLastActiveRow struct {
+	AgentID    sql.NullString `json:"agent_id"`
+	LastActive interface{}    `json:"last_active"`
+}
+
+func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID sql.NullString) ([]ListAgentConversationLastActiveRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentConversationLastActive, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentConversationLastActiveRow{}
+	for rows.Next() {
+		var i ListAgentConversationLastActiveRow
+		if err := rows.Scan(&i.AgentID, &i.LastActive); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConversations = `-- name: ListConversations :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
 WHERE user_id = ?1

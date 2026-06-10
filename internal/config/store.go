@@ -1,6 +1,9 @@
 package config
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type ProviderModelCost struct {
 	Input      float64 `json:"input,omitempty"`
@@ -56,6 +59,7 @@ type Agent struct {
 	Scope               string        `json:"scope"`
 	CreatorID           string        `json:"creator_id"`
 	Enabled             bool          `json:"enabled"`
+	LastActive          *time.Time    `json:"last_active,omitempty"`
 }
 
 // Channel represents a platform channel configuration.

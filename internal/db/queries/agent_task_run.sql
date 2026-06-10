@@ -60,3 +60,22 @@ WHERE status IN ('queued','running')
   AND lease_expires_at IS NOT NULL
   AND lease_expires_at < ?
 LIMIT ?;
+
+-- name: ListFailedInboxTaskRuns :many
+SELECT
+  r.id AS run_id,
+  r.task_id,
+  r.agent_id,
+  r.error,
+  r.finished_at,
+  r.created_at,
+  t.title,
+  t.project_id
+FROM agent_task_run r
+LEFT JOIN agent_task t ON t.id = r.task_id
+WHERE r.user_id = sqlc.arg(user_id)
+  AND r.status = 'failed'
+  AND r.finished_at >= sqlc.arg(since)
+  AND (sqlc.narg(agent_id) IS NULL OR r.agent_id = sqlc.narg(agent_id))
+ORDER BY r.finished_at DESC, r.id DESC
+LIMIT sqlc.arg(limit_count);

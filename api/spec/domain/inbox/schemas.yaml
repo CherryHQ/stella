@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: Inbox Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    InboxItem:
+      type: object
+      required: [
+        id,
+        kind,
+        title,
+        source_type,
+        source_id,
+        target_path,
+        created_at,
+      ]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [blocked, review, failed]
+        title: { type: string }
+        detail: { type: string }
+        agent_id: { type: string, nullable: true }
+        project_id: { type: string, nullable: true }
+        source_type:
+          type: string
+          enum: [task, task_run, scheduler_run]
+        source_id: { type: string }
+        target_path: { type: string }
+        created_at: { type: string, format: date-time }
+
+    InboxList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/InboxItem" }
+        next_page_token: { type: string, nullable: true }

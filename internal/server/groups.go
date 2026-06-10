@@ -38,6 +38,25 @@ func groupToAPI(g sqlc.CtxGroupState) apitypes.Group {
 		CreatedAt: parseTime(g.CreatedAt),
 		UpdatedAt: parseTime(g.UpdatedAt),
 	}
+	resp.LastActive = &resp.UpdatedAt
+	if g.CreatedByUserID.Valid {
+		resp.CreatedByUserId = &g.CreatedByUserID.String
+	}
+	return resp
+}
+
+func groupListRowToAPI(g sqlc.ListGroupsByUserRow) apitypes.Group {
+	resp := apitypes.Group{
+		Id:        g.ID,
+		GroupName: g.GroupName,
+		Platform:  g.Platform,
+		CreatedAt: parseTime(g.CreatedAt),
+		UpdatedAt: parseTime(g.UpdatedAt),
+	}
+	lastActive := parseTime(g.LastActive)
+	if !lastActive.IsZero() {
+		resp.LastActive = &lastActive
+	}
 	if g.CreatedByUserID.Valid {
 		resp.CreatedByUserId = &g.CreatedByUserID.String
 	}
@@ -101,7 +120,7 @@ func (s *Server) ListGroups(w http.ResponseWriter, r *http.Request, params apise
 
 	apiGroups := make([]apitypes.Group, len(groups))
 	for i, g := range groups {
-		apiGroups[i] = groupToAPI(g)
+		apiGroups[i] = groupListRowToAPI(g)
 	}
 
 	writeData(w, http.StatusOK, apitypes.GroupList{

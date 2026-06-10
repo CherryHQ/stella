@@ -305,6 +305,81 @@ func (q *Queries) ListAgentTaskRunsByTask(ctx context.Context, arg ListAgentTask
 	return items, nil
 }
 
+const listFailedInboxTaskRuns = `-- name: ListFailedInboxTaskRuns :many
+SELECT
+  r.id AS run_id,
+  r.task_id,
+  r.agent_id,
+  r.error,
+  r.finished_at,
+  r.created_at,
+  t.title,
+  t.project_id
+FROM agent_task_run r
+LEFT JOIN agent_task t ON t.id = r.task_id
+WHERE r.user_id = ?1
+  AND r.status = 'failed'
+  AND r.finished_at >= ?2
+  AND (?3 IS NULL OR r.agent_id = ?3)
+ORDER BY r.finished_at DESC, r.id DESC
+LIMIT ?4
+`
+
+type ListFailedInboxTaskRunsParams struct {
+	UserID     string         `json:"user_id"`
+	Since      sql.NullString `json:"since"`
+	AgentID    interface{}    `json:"agent_id"`
+	LimitCount int64          `json:"limit_count"`
+}
+
+type ListFailedInboxTaskRunsRow struct {
+	RunID      string         `json:"run_id"`
+	TaskID     sql.NullString `json:"task_id"`
+	AgentID    sql.NullString `json:"agent_id"`
+	Error      string         `json:"error"`
+	FinishedAt sql.NullString `json:"finished_at"`
+	CreatedAt  string         `json:"created_at"`
+	Title      sql.NullString `json:"title"`
+	ProjectID  sql.NullString `json:"project_id"`
+}
+
+func (q *Queries) ListFailedInboxTaskRuns(ctx context.Context, arg ListFailedInboxTaskRunsParams) ([]ListFailedInboxTaskRunsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedInboxTaskRuns,
+		arg.UserID,
+		arg.Since,
+		arg.AgentID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFailedInboxTaskRunsRow{}
+	for rows.Next() {
+		var i ListFailedInboxTaskRunsRow
+		if err := rows.Scan(
+			&i.RunID,
+			&i.TaskID,
+			&i.AgentID,
+			&i.Error,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.Title,
+			&i.ProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStaleAgentTaskRuns = `-- name: ListStaleAgentTaskRuns :many
 SELECT id, task_id, goal_id, user_id, agent_id, executor_agent_id, kind, attempt_no, status, session_id, input, result, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at FROM agent_task_run
 WHERE status IN ('queued','running')
