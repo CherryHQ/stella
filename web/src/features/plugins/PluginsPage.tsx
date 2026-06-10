@@ -20,23 +20,18 @@ import type {
   PluginWithMeta,
 } from "@/lib/types";
 import {
-  buildManifestInstallDraft,
-  buildManifestPluginFromDraft,
   buildPluginConfigDraft,
   buildPluginConfigPayload,
   hasGenericConfigEditor,
-  isSimpleCliTool,
-  manifestInstallSummary,
   otherPlugins,
   pluginBucket,
   pluginDescription,
+  pluginHasBinaries,
   pluginIsEssential,
   pluginLabel,
   semanticPlugins,
 } from "./pluginUtils";
-import type { ManifestInstallDraft } from "./pluginUtils";
 import { GenericConfigEditor } from "./GenericConfigEditor";
-import { ManifestInstallEditor } from "./ManifestInstallEditor";
 import { CliToolAddForm, CliToolEditor } from "./CliToolPanel";
 import { PluginSection, bucketIcon } from "./PluginGrid";
 import { Button } from "@/components/ui/button";
@@ -73,10 +68,6 @@ export function PluginsPage() {
   );
   const [pluginConfigDrafts, setPluginConfigDrafts] = useState<
     Record<string, Record<string, unknown>>
-  >({});
-
-  const [manifestInstallDrafts, setManifestInstallDrafts] = useState<
-    Record<string, ManifestInstallDraft>
   >({});
 
   const { toasts, showToast } = useToast(4000);
@@ -166,12 +157,6 @@ export function PluginsPage() {
   useEffect(() => {
     if (selectedPlugin && selectedPlugin.has_config && !pluginConfigLoaded[selectedPlugin.id]) {
       void loadPluginConfig(selectedPlugin);
-    }
-    if (selectedPlugin?._manifest && !manifestInstallDrafts[selectedPlugin.id]) {
-      setManifestInstallDrafts((prev) => ({
-        ...prev,
-        [selectedPlugin.id]: buildManifestInstallDraft(selectedPlugin),
-      }));
     }
   }, [selectedPlugin?.id]);
 
@@ -288,36 +273,6 @@ export function PluginsPage() {
     }
   }
 
-  async function saveManifestInstall(plugin: PluginWithMeta) {
-    try {
-      const draft = manifestInstallDrafts[plugin.id];
-      if (!draft) throw new Error("manifest draft missing");
-      const next = buildManifestPluginFromDraft(draft);
-      const index = manifestPlugins.findIndex((p) => p.id === plugin.id);
-      let updated: ManifestPlugin[];
-      if (index >= 0) {
-        updated = [...manifestPlugins];
-        updated[index] = next;
-      } else {
-        updated = [...manifestPlugins, next];
-      }
-      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
-      await loadManifestPlugins();
-      await loadPlugins();
-      await syncManifest(true);
-      showToast(next.id + " install saved");
-    } catch (e) {
-      showToast((e as Error).message, "error");
-    }
-  }
-
-  function resetManifestInstallDraft(plugin: PluginWithMeta) {
-    setManifestInstallDrafts((prev) => ({
-      ...prev,
-      [plugin.id]: buildManifestInstallDraft(plugin),
-    }));
-  }
-
   // upsertManifestPlugin replaces (or appends) one manifest plugin, then persists,
   // reloads, and syncs. Preserves every other plugin's definition verbatim.
   async function upsertManifestPlugin(next: ManifestPlugin, successMsg: string) {
@@ -425,10 +380,6 @@ export function PluginsPage() {
           <p className="text-sm text-muted-foreground leading-relaxed">{pluginDescription(p)}</p>
         )}
 
-        {p._manifest && (
-          <p className="text-xs text-muted-foreground font-mono">{manifestInstallSummary(p)}</p>
-        )}
-
         {hasConfig && (
           <div className="border-t border-border pt-4 -mx-6 px-0">
             <GenericConfigEditor
@@ -449,24 +400,13 @@ export function PluginsPage() {
           </div>
         )}
 
-        {p._manifest && isSimpleCliTool(p) && (
+        {p._manifest && pluginHasBinaries(p) && (
           <div className="border-t border-border pt-4 -mx-6 px-0">
             <CliToolEditor
               plugin={p}
+              oauthProviders={oauthProviders}
               onSave={(next) => upsertManifestPlugin(next, next.id + " updated")}
               showToast={showToast}
-            />
-          </div>
-        )}
-
-        {p._manifest && !isSimpleCliTool(p) && manifestInstallDrafts[p.id] && (
-          <div className="border-t border-border pt-4 -mx-6 px-0">
-            <ManifestInstallEditor
-              draft={manifestInstallDrafts[p.id]}
-              oauthProviders={oauthProviders}
-              onChange={(draft) => setManifestInstallDrafts((prev) => ({ ...prev, [p.id]: draft }))}
-              onSave={() => saveManifestInstall(p)}
-              onReset={() => resetManifestInstallDraft(p)}
             />
           </div>
         )}

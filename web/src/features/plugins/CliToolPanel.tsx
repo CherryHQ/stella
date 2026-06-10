@@ -1,13 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { getCliToolLatest, searchCliToolRegistry } from "@/lib/api-client/sdk.gen";
 import type { CliToolRegistryItem } from "@/lib/api-client/types.gen";
-import type { ManifestBinary, ManifestPlugin, PluginWithMeta } from "@/lib/types";
+import type {
+  ManifestBinary,
+  ManifestOAuthProvider,
+  ManifestPlugin,
+  ManifestSessionEnv,
+  PluginWithMeta,
+} from "@/lib/types";
 import { deriveToolName } from "./pluginUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
+
+const SELECT_CLASS =
+  "h-8 w-full rounded-lg border border-input bg-background px-3 text-sm font-mono outline-none";
+
+const ENV_SOURCES = ["static", "oauth.access_token", "oauth.client_id", "oauth.brand"];
+
+let envRowSeq = 0;
+
+interface EnvRow extends ManifestSessionEnv {
+  id: number;
+}
 
 function inputValue(e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) {
   return (e.target as HTMLInputElement).value;
@@ -213,14 +231,26 @@ export function CliToolAddForm({ existingIds, onCreate, onCancel }: AddFormProps
 
 interface EditorProps {
   plugin: PluginWithMeta;
+  oauthProviders: ManifestOAuthProvider[];
   onSave: (next: ManifestPlugin) => Promise<void>;
   showToast: (message: string, type?: "success" | "error") => void;
 }
 
-// CliToolEditor is the compact detail editor for a plain CLI tool: per-binary
-// version, with a one-click resolve-to-latest. The mise key is shown read-only —
+function toEnvRows(envs: ManifestSessionEnv[] | undefined): EnvRow[] {
+  return (envs ?? []).map((e) => ({
+    id: (envRowSeq += 1),
+    env_var: e.env_var ?? "",
+    source: e.source || "static",
+    value: e.value ?? "",
+    required: !!e.required,
+  }));
+}
+
+// CliToolEditor is the compact detail editor for a manifest plugin: per-binary
+// version (with resolve-to-latest), the session env mapping that wires the CLI's
+// runtime variables, and an OAuth provider. The binary's mise key is read-only —
 // changing it means redefining the tool, which is an add/remove, not an edit.
-export function CliToolEditor({ plugin, onSave, showToast }: EditorProps) {
+export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: EditorProps) {
   const { t } = useI18n();
   const manifest = plugin._manifestPlugin as ManifestPlugin;
   const binaries = manifest.binaries ?? [];
@@ -228,6 +258,8 @@ export function CliToolEditor({ plugin, onSave, showToast }: EditorProps) {
   const [versions, setVersions] = useState<Record<string, string>>(() =>
     Object.fromEntries(binaries.map((b) => [b.name, b.version ?? ""])),
   );
+  const [envRows, setEnvRows] = useState<EnvRow[]>(() => toEnvRows(manifest.session_env));
+  const [oauthProvider, setOAuthProvider] = useState(manifest.oauth_provider ?? "");
   const [resolving, setResolving] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
@@ -248,13 +280,28 @@ export function CliToolEditor({ plugin, onSave, showToast }: EditorProps) {
     }
   }
 
+  function updateEnv(id: number, patch: Partial<EnvRow>) {
+    setEnvRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
   function reset() {
     setVersions(Object.fromEntries(binaries.map((b) => [b.name, b.version ?? ""])));
+    setEnvRows(toEnvRows(manifest.session_env));
+    setOAuthProvider(manifest.oauth_provider ?? "");
   }
 
   async function save() {
     setSaving(true);
     try {
+      const sessionEnv: ManifestSessionEnv[] = envRows
+        .map((r) => {
+          const e: ManifestSessionEnv = { env_var: r.env_var.trim(), source: r.source.trim() };
+          if (r.value) e.value = r.value;
+          if (r.required) e.required = true;
+          return e;
+        })
+        .filter((e) => e.env_var || e.source);
+
       const next: ManifestPlugin = {
         ...manifest,
         binaries: binaries.map((b) => {
@@ -265,16 +312,23 @@ export function CliToolEditor({ plugin, onSave, showToast }: EditorProps) {
           return copy;
         }),
       };
+      if (sessionEnv.length) next.session_env = sessionEnv;
+      else delete next.session_env;
+      if (oauthProvider) next.oauth_provider = oauthProvider;
+      else delete next.oauth_provider;
+
       await onSave(next);
     } finally {
       setSaving(false);
     }
   }
 
+  const showOAuth = !!oauthProvider || envRows.some((r) => r.source.startsWith("oauth."));
+
   return (
-    <div className="border-t border-border bg-muted px-6 py-5 space-y-4">
+    <div className="border-t border-border bg-muted px-6 py-5 space-y-5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-foreground">{t("plugins.binaries")}</span>
+        <span className="text-sm font-medium text-foreground">{t("plugins.configuration")}</span>
         <div className="flex items-center gap-2 shrink-0">
           <Button onClick={reset} variant="ghost" size="xs">
             {t("common.reset")}
@@ -284,7 +338,10 @@ export function CliToolEditor({ plugin, onSave, showToast }: EditorProps) {
           </Button>
         </div>
       </div>
-      <div className="space-y-3">
+
+      {/* Binaries — version only */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground">{t("plugins.binaries")}</p>
         {binaries.map((binary) => (
           <div key={binary.name} className="rounded-lg border border-border bg-background p-4">
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
@@ -322,6 +379,106 @@ export function CliToolEditor({ plugin, onSave, showToast }: EditorProps) {
           </div>
         ))}
       </div>
+
+      {/* Session environment — which env vars the CLI receives */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-muted-foreground">{t("plugins.sessionEnv")}</p>
+          <Button
+            onClick={() =>
+              setEnvRows((prev) => [
+                ...prev,
+                { id: (envRowSeq += 1), env_var: "", source: "static", value: "", required: false },
+              ])
+            }
+            variant="ghost"
+            size="xs"
+          >
+            {t("plugins.addVariable")}
+          </Button>
+        </div>
+        {envRows.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{t("plugins.noSessionEnv")}</p>
+        ) : (
+          envRows.map((row) => (
+            <div
+              key={row.id}
+              className="rounded-lg border border-border bg-background p-3 space-y-3"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Input
+                  nativeInput
+                  value={row.env_var}
+                  onChange={(e) => updateEnv(row.id, { env_var: inputValue(e) })}
+                  type="text"
+                  placeholder="MY_ENV_VAR"
+                  className="font-mono text-sm"
+                  size="sm"
+                />
+                <select
+                  value={row.source}
+                  onChange={(e) => updateEnv(row.id, { source: e.target.value })}
+                  className={SELECT_CLASS}
+                >
+                  {ENV_SOURCES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  nativeInput
+                  value={row.value ?? ""}
+                  onChange={(e) => updateEnv(row.id, { value: inputValue(e) })}
+                  type="text"
+                  placeholder={t("plugins.valueStaticOnly")}
+                  className="font-mono text-sm"
+                  size="sm"
+                  disabled={row.source !== "static"}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={!!row.required}
+                    onCheckedChange={(checked) => updateEnv(row.id, { required: checked })}
+                  />
+                  <span className="text-xs text-muted-foreground">{t("common.required")}</span>
+                </div>
+                <Button
+                  onClick={() => setEnvRows((prev) => prev.filter((r) => r.id !== row.id))}
+                  variant="ghost"
+                  size="xs"
+                  className="text-destructive hover:text-destructive"
+                >
+                  {t("common.remove")}
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* OAuth provider — only when an env var sources a token */}
+      {showOAuth && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground">
+            {t("plugins.oauthProvider")}
+          </p>
+          <select
+            value={oauthProvider}
+            onChange={(e) => setOAuthProvider(e.target.value)}
+            className={`${SELECT_CLASS} max-w-xs`}
+          >
+            <option value="">— none —</option>
+            {oauthProviders.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.id}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   );
 }
