@@ -192,3 +192,59 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/cli-tools/registry:
+    get:
+      tags: [plugins]
+      summary: Search the mise tool registry (admin only)
+      operationId: searchCliToolRegistry
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 30 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CliToolRegistryResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/cli-tools/latest:
+    get:
+      tags: [plugins]
+      summary: Resolve the latest version for a mise tool (admin only)
+      operationId: getCliToolLatest
+      parameters:
+        - name: tool
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CliToolLatestResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }

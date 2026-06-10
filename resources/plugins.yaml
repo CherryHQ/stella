@@ -253,6 +253,7 @@ oauth_providers:
       - calendar:calendar:delete
       - calendar:calendar:read
       - calendar:calendar:update
+      - contact:contact.base:readonly
       - contact:user.base:readonly
       - contact:user.basic_profile:readonly
       - contact:user:search
@@ -395,7 +396,6 @@ plugins:
     binaries:
       - name: gh
         tool: github:cli/cli
-        version: "2.92.0"
     oauth_provider: github
     session_env:
       - env_var: GH_TOKEN
@@ -411,7 +411,6 @@ plugins:
     binaries:
       - name: lark-cli
         tool: github:larksuite/cli
-        version: "1.0.35"
     oauth_provider: feishu
     session_env:
       - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
@@ -430,7 +429,6 @@ plugins:
     binaries:
       - name: fd
         tool: github:sharkdp/fd
-        version: "10.4.2"
 
   - id: tool/rg
     kind: tool
@@ -441,7 +439,6 @@ plugins:
     binaries:
       - name: rg
         tool: github:BurntSushi/ripgrep
-        version: "15.1.0"
 
   - id: hook/rtk
     kind: hook
@@ -452,7 +449,6 @@ plugins:
     binaries:
       - name: rtk
         tool: github:rtk-ai/rtk
-        version: "0.40.0"
 
   - id: tool/kreuzberg
     kind: tool
@@ -463,7 +459,6 @@ plugins:
     binaries:
       - name: kreuzberg
         tool: github:kreuzberg-dev/kreuzberg
-        version: 4.9.8
         asset_pattern: "kreuzberg-cli-*.tar.gz"
 
   - id: tool/uv
@@ -475,7 +470,6 @@ plugins:
     binaries:
       - name: uv
         tool: uv
-        version: "0.11.15"
 
   - id: tool/bun
     kind: tool
@@ -486,4 +480,3 @@ plugins:
     binaries:
       - name: bun
         tool: bun
-        version: "1.3.14"

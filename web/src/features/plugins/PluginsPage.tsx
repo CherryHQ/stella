@@ -25,6 +25,7 @@ import {
   buildPluginConfigDraft,
   buildPluginConfigPayload,
   hasGenericConfigEditor,
+  isSimpleCliTool,
   manifestInstallSummary,
   otherPlugins,
   pluginDescription,
@@ -35,8 +36,8 @@ import {
 import type { ManifestInstallDraft } from "./pluginUtils";
 import { GenericConfigEditor } from "./GenericConfigEditor";
 import { ManifestInstallEditor } from "./ManifestInstallEditor";
+import { CliToolAddForm, CliToolEditor } from "./CliToolPanel";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
@@ -81,18 +82,6 @@ export function PluginsPage() {
   const [manifestInstallDrafts, setManifestInstallDrafts] = useState<
     Record<string, ManifestInstallDraft>
   >({});
-
-  const [newManifestTool, setNewManifestTool] = useState({
-    id: "tool/",
-    name: "",
-    display_name: "",
-    description: "",
-    binary_name: "",
-    tool: "",
-    version: "",
-    bin_path: "",
-    bin: "",
-  });
 
   const { toasts, showToast } = useToast(4000);
 
@@ -328,66 +317,46 @@ export function PluginsPage() {
     }));
   }
 
-  function fillNewManifestToolDefaults() {
-    const binary = newManifestTool.binary_name.trim();
-    if (!binary) return;
-    setNewManifestTool((prev) => ({
-      ...prev,
-      name: prev.name || binary,
-      id: prev.id === "tool/" || !prev.id ? "tool/" + binary : prev.id,
-      display_name: prev.display_name || binary,
-    }));
+  // upsertManifestPlugin replaces (or appends) one manifest plugin, then persists,
+  // reloads, and syncs. Preserves every other plugin's definition verbatim.
+  async function upsertManifestPlugin(next: ManifestPlugin, successMsg: string) {
+    const index = manifestPlugins.findIndex((p) => p.id === next.id);
+    const updated =
+      index >= 0
+        ? manifestPlugins.map((p, i) => (i === index ? next : p))
+        : [...manifestPlugins, next];
+    await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
+    await loadManifestPlugins();
+    await loadPlugins();
+    await syncManifest(true);
+    showToast(successMsg);
   }
 
-  async function createManifestTool() {
+  async function createCliTool(params: {
+    toolKey: string;
+    name: string;
+    displayName: string;
+    version: string;
+  }) {
+    const id = "tool/" + params.name;
+    if (manifestPlugins.some((p) => p.id === id)) {
+      showToast(id + " already exists", "error");
+      return;
+    }
+    const binary: ManifestBinary = { name: params.name, tool: params.toolKey };
+    if (params.version) binary.version = params.version;
+    const next: ManifestPlugin = {
+      id,
+      kind: "tool",
+      name: params.name,
+      display_name: params.displayName || params.name,
+      description: "",
+      enabled: true,
+      binaries: [binary],
+    };
     try {
-      fillNewManifestToolDefaults();
-      const draft = newManifestTool;
-      const id = (draft.id || "").trim();
-      const name = (draft.name || "").trim();
-      const binaryName = (draft.binary_name || "").trim();
-      const tool = (draft.tool || "").trim();
-      if (!id || !id.startsWith("tool/")) throw new Error("Plugin ID must start with tool/");
-      if (!name) throw new Error("Name is required");
-      if (!binaryName) throw new Error("Binary name is required");
-      if (!tool) throw new Error("GitHub repo is required");
-      if (manifestPlugins.some((p) => p.id === id)) throw new Error(id + " already exists");
-
-      const binary: Record<string, string> = { name: binaryName, tool };
-      if (draft.version) binary.version = draft.version.trim();
-      if (draft.bin_path) binary.bin_path = draft.bin_path.trim();
-      if (draft.bin) binary.bin = draft.bin.trim();
-
-      const newPlugin: ManifestPlugin = {
-        id,
-        kind: "tool",
-        name,
-        display_name: (draft.display_name || "").trim() || name,
-        description: (draft.description || "").trim(),
-        enabled: true,
-        binaries: [binary as unknown as ManifestBinary],
-      };
-      const updated = [...manifestPlugins, newPlugin];
-      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
-      await loadManifestPlugins();
-      await loadPlugins();
-      await syncManifest(true);
-      setNewManifestTool({
-        id: "tool/",
-        name: "",
-        display_name: "",
-        description: "",
-        binary_name: "",
-        tool: "",
-        version: "",
-        bin_path: "",
-        bin: "",
-      });
-      void navigate({
-        to: "/settings/plugins/$pluginId",
-        params: { pluginId: name },
-      });
-      showToast(id + " added");
+      await upsertManifestPlugin(next, id + " added");
+      void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: params.name } });
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -427,188 +396,11 @@ export function PluginsPage() {
 
   if (isCreating) {
     detail = (
-      <DetailPanel
-        onSave={createManifestTool}
+      <CliToolAddForm
+        existingIds={manifestPlugins.map((p) => p.id)}
+        onCreate={createCliTool}
         onCancel={() => void navigate({ to: "/settings/plugins" })}
-        saveLabel="Save and sync"
-        cancelLabel={t("common.cancel")}
-      >
-        <DetailPanelHeader title={t("plugins.addTool")} subtitle={t("plugins.addToolDesc")} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.binaryName")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.binary_name}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  binary_name: (e.target as HTMLInputElement).value,
-                }))
-              }
-              onBlur={fillNewManifestToolDefaults}
-              type="text"
-              placeholder="my-cli"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.githubRepo")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.tool}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  tool: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="owner/repo"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.pluginId")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.id}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  id: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="tool/my-cli"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.nameLabel")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.name}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  name: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="my-cli"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.displayName")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.display_name}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  display_name: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="My CLI"
-              size="sm"
-              className="text-sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.versionLabel")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.version}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  version: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="latest or v1.2.3"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.binPath")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.bin_path}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  bin_path: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="bin"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.exeOverride")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.bin}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  bin: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="archive binary name"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.descriptionLabel")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.description}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  description: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="What this CLI does"
-              size="sm"
-              className="text-sm"
-            />
-          </div>
-        </div>
-      </DetailPanel>
+      />
     );
   } else if (selectedPlugin) {
     const p = selectedPlugin;
@@ -674,7 +466,17 @@ export function PluginsPage() {
           </div>
         )}
 
-        {p._manifest && manifestInstallDrafts[p.id] && (
+        {p._manifest && isSimpleCliTool(p) && (
+          <div className="border-t border-border pt-4 -mx-6 px-0">
+            <CliToolEditor
+              plugin={p}
+              onSave={(next) => upsertManifestPlugin(next, next.id + " updated")}
+              showToast={showToast}
+            />
+          </div>
+        )}
+
+        {p._manifest && !isSimpleCliTool(p) && manifestInstallDrafts[p.id] && (
           <div className="border-t border-border pt-4 -mx-6 px-0">
             <ManifestInstallEditor
               draft={manifestInstallDrafts[p.id]}

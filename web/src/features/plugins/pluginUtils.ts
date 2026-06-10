@@ -268,6 +268,31 @@ export function formatTimestamp(value: string): string {
   return date.toLocaleString();
 }
 
+// isSimpleCliTool reports whether a plugin is a plain CLI tool: a manifest tool
+// that installs one or more binaries and carries no OAuth / session-env wiring.
+// These get the compact mise-key + version editor; integration tools (gh,
+// lark-cli, x) keep the full definition editor.
+export function isSimpleCliTool(plugin: PluginWithMeta): boolean {
+  const manifest = plugin._manifestPlugin;
+  if (!manifest || plugin.kind !== "tool") return false;
+  if ((manifest.binaries?.length ?? 0) === 0) return false;
+  if (manifest.oauth_provider) return false;
+  if ((manifest.session_env?.length ?? 0) > 0) return false;
+  return true;
+}
+
+// deriveToolName extracts a plugin name from a mise tool key by taking the last
+// path/backend segment: "claude" → "claude", "github:cli/cli" → "cli",
+// "npm:@anthropic-ai/claude-code" → "claude-code", "cargo:fd-find" → "fd-find".
+export function deriveToolName(toolKey: string): string {
+  const key = toolKey.trim();
+  const afterSlash = key.includes("/") ? key.slice(key.lastIndexOf("/") + 1) : key;
+  const afterColon = afterSlash.includes(":")
+    ? afterSlash.slice(afterSlash.lastIndexOf(":") + 1)
+    : afterSlash;
+  return afterColon;
+}
+
 export function manifestInstallSummary(plugin: PluginWithMeta): string {
   const manifest = plugin._manifestPlugin;
   if (!manifest) return "";
