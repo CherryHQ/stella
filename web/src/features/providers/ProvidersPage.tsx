@@ -4,9 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { providersQueryOptions, providerTypesQueryOptions } from "@/lib/queries/providers";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
-import { ProviderListPanel } from "./ProviderListPanel";
+import { Button } from "@/components/ui/button";
+import {
+  SettingsCard,
+  SettingsCardSection,
+  SettingsDetailSheet,
+  SettingsGridPage,
+} from "@/features/settings/SettingsCardGrid";
+import { Boxes, Plus } from "lucide-react";
 import { ProviderDetailPanel } from "./ProviderDetailPanel";
 import { NewProviderForm } from "./NewProviderForm";
 
@@ -44,24 +49,33 @@ export function ProvidersPage() {
     [providers],
   );
 
+  // Group providers by type, labelled from the provider-type registry.
+  const groups = useMemo(() => {
+    const byType: Record<string, typeof normalizedProviders> = {};
+    for (const p of [...normalizedProviders].sort((a, b) =>
+      (a.name || a.id).localeCompare(b.name || b.id),
+    )) {
+      (byType[p.type] ??= []).push(p);
+    }
+    return Object.entries(byType)
+      .map(([type, items]) => ({
+        type,
+        label: sortedTypes.find((pt) => pt.id === type)?.name || type,
+        providers: items,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [normalizedProviders, sortedTypes]);
+
   const selectedProvider =
     providerId && providerId !== "new"
       ? normalizedProviders.find((p) => p.id === providerId)
       : undefined;
-
   const isCreating = providerId === "new";
+  const sheetOpen = isCreating || !!selectedProvider;
   const existingIds = useMemo(
     () => new Set(normalizedProviders.map((p) => p.id)),
     [normalizedProviders],
   );
-
-  const providerModelCounts = useMemo(() => {
-    const counts: Record<string, { length: number }> = {};
-    for (const p of normalizedProviders) {
-      counts[p.id] = { length: Object.keys(p.models || {}).length };
-    }
-    return counts;
-  }, [normalizedProviders]);
 
   let detail: React.ReactNode = undefined;
   if (isCreating) {
@@ -90,33 +104,66 @@ export function ProvidersPage() {
 
   return (
     <>
-      <SettingsDetailLayout
-        list={
-          <ProviderListPanel
-            providers={normalizedProviders}
-            providerTypes={sortedTypes}
-            providerModels={providerModelCounts}
-            selectedId={providerId}
-            onSelect={(id) =>
-              void navigate({ to: "/settings/providers/$providerId", params: { providerId: id } })
-            }
-            onNew={() =>
+      <SettingsGridPage
+        title={t("providers.title")}
+        action={
+          <Button
+            onClick={() =>
               void navigate({
                 to: "/settings/providers/$providerId",
                 params: { providerId: "new" },
               })
             }
-          />
+            variant="outline"
+            size="sm"
+          >
+            <Plus className="size-4" />
+            {t("providers.new")}
+          </Button>
         }
-        detail={detail}
-        emptyState={
-          <SettingsEmptyState
-            message={t("providers.noProviders")}
-            description={t("providers.noProvidersDesc")}
-          />
-        }
-        onBack={() => void navigate({ to: "/settings/providers" })}
-      />
+      >
+        {groups.map((group) => (
+          <SettingsCardSection key={group.type} title={group.label} count={group.providers.length}>
+            {group.providers.map((p) => {
+              const modelCount = Object.keys(p.models || {}).length;
+              return (
+                <SettingsCard
+                  key={p.id}
+                  icon={<Boxes className="size-4" />}
+                  title={p.name || p.id}
+                  active={providerId === p.id}
+                  onClick={() =>
+                    void navigate({
+                      to: "/settings/providers/$providerId",
+                      params: { providerId: p.id },
+                    })
+                  }
+                  footer={
+                    <>
+                      <span
+                        className={`size-1.5 shrink-0 rounded-full ${
+                          p.enabled ? "bg-green-500" : "bg-muted-foreground"
+                        }`}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {t("providers.modelsConfigured", { count: String(modelCount) })}
+                      </span>
+                    </>
+                  }
+                />
+              );
+            })}
+          </SettingsCardSection>
+        ))}
+      </SettingsGridPage>
+
+      <SettingsDetailSheet
+        open={sheetOpen}
+        onClose={() => void navigate({ to: "/settings/providers" })}
+      >
+        {detail}
+      </SettingsDetailSheet>
+
       <ToastContainer messages={toasts} />
     </>
   );
