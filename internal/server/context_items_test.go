@@ -2,14 +2,22 @@ package server_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/memory"
 )
+
+// offsetToken mirrors the server's opaque page-token encoding.
+func offsetToken(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
 
 func TestSessionContextItemsAndSummaryEndpoints(t *testing.T) {
 	env := setupAdmin(t)
@@ -139,6 +147,158 @@ func TestSessionContextItemsFallbackUsesMessagePaging(t *testing.T) {
 	}
 	if len(second.Items) != 1 || second.Items[0].Message == nil || second.Items[0].Message.Id != "fallback-msg-2" {
 		t.Fatalf("second page = %+v", second.Items)
+	}
+}
+
+func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	sessionID := "context-condensed-session"
+	now := time.Date(2026, 6, 10, 3, 0, 0, 0, time.UTC)
+	sm := env.mem.(memory.SessionManager)
+	if err := sm.SaveInfo(context.Background(), memory.SessionInfo{
+		ID:         sessionID,
+		AgentID:    agentID,
+		UserID:     env.adminUser.ID,
+		Channel:    "web",
+		Kind:       "chat",
+		Title:      "Condensed",
+		CreatedAt:  now,
+		LastActive: now,
+	}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	var conversationID string
+	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&conversationID); err != nil {
+		t.Fatalf("load conversation: %v", err)
+	}
+	mustExec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := env.db.Exec(query, args...); err != nil {
+			t.Fatalf("exec seed: %v\n%s", err, query)
+		}
+	}
+	mustExec(`
+		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
+		VALUES
+		('cm-1', ?, 1, 'user', 'text', 'one', 10, '2026-06-10 03:00:00'),
+		('cm-2', ?, 2, 'assistant', 'text', 'two', 10, '2026-06-10 03:01:00'),
+		('cm-3', ?, 3, 'user', 'text', 'three', 10, '2026-06-10 03:02:00'),
+		('cm-4', ?, 4, 'assistant', 'text', 'four', 10, '2026-06-10 03:03:00')
+	`, conversationID, conversationID, conversationID, conversationID)
+	mustExec(`
+		INSERT INTO ctx_summary (
+			id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at,
+			descendant_count, descendant_token_count, source_message_token_count, created_at
+		)
+		VALUES
+		('leaf-a', ?, 'epoch', 1, 'leaf a', 10, '2026-06-10 03:00:00', '2026-06-10 03:01:00', 2, 20, 20, '2026-06-10 03:04:00'),
+		('leaf-b', ?, 'epoch', 1, 'leaf b', 10, '2026-06-10 03:02:00', '2026-06-10 03:03:00', 2, 20, 20, '2026-06-10 03:05:00'),
+		('cond-1', ?, 'epoch', 2, 'condensed', 12, '2026-06-10 03:00:00', '2026-06-10 03:03:00', 4, 40, 40, '2026-06-10 03:06:00')
+	`, conversationID, conversationID, conversationID)
+	mustExec(`
+		INSERT INTO ctx_summary_message (summary_id, message_id, ordinal)
+		VALUES ('leaf-a', 'cm-1', 1), ('leaf-a', 'cm-2', 2), ('leaf-b', 'cm-3', 1), ('leaf-b', 'cm-4', 2)
+	`)
+	// Rows are (summary_id=condensed, parent_summary_id=constituent), matching
+	// the write path in compaction.
+	mustExec(`
+		INSERT INTO ctx_summary_parent (summary_id, parent_summary_id, ordinal)
+		VALUES ('cond-1', 'leaf-a', 1), ('cond-1', 'leaf-b', 2)
+	`)
+
+	rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/summaries/cond-1", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("condensed summary: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var detail apitypes.SessionSummaryDetail
+	if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode condensed summary: %v", err)
+	}
+	if len(detail.Children) != 2 || detail.Children[0].Id != "leaf-a" || detail.Children[1].Id != "leaf-b" {
+		t.Fatalf("children = %+v, want [leaf-a leaf-b]", detail.Children)
+	}
+	if detail.MessageSeqFrom == nil || *detail.MessageSeqFrom != 1 || detail.MessageSeqTo == nil || *detail.MessageSeqTo != 4 {
+		t.Fatalf("seq range = %v..%v, want 1..4", detail.MessageSeqFrom, detail.MessageSeqTo)
+	}
+}
+
+func TestSessionContextItemsPageTokenEdgeCases(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	sessionID := "context-token-session"
+	now := time.Date(2026, 6, 10, 4, 0, 0, 0, time.UTC)
+	sm := env.mem.(memory.SessionManager)
+	if err := sm.SaveInfo(context.Background(), memory.SessionInfo{
+		ID:         sessionID,
+		AgentID:    agentID,
+		UserID:     env.adminUser.ID,
+		Channel:    "web",
+		Kind:       "chat",
+		Title:      "Token edges",
+		CreatedAt:  now,
+		LastActive: now,
+	}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	var conversationID string
+	if err := env.db.QueryRow(`SELECT id FROM ctx_conversation WHERE session_id = ?`, sessionID).Scan(&conversationID); err != nil {
+		t.Fatalf("load conversation: %v", err)
+	}
+	seedContextItems(t, env, conversationID)
+
+	rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/context-items?page_token=not-a-token", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid token: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// An out-of-range offset on a session that has ctx_item rows must return
+	// an empty page, not fall back to raw message paging.
+	rr = doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/context-items?page_size=10&page_token="+offsetToken(1000), nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("out-of-range token: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var list apitypes.SessionContextItemList
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode out-of-range page: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Fatalf("out-of-range items = %+v, want empty", list.Items)
+	}
+	if list.NextPageToken != nil {
+		t.Fatalf("out-of-range next token = %v, want nil", *list.NextPageToken)
+	}
+}
+
+func TestSessionContextItemsTenantIsolation(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	sessionID := "context-isolation-session"
+	now := time.Date(2026, 6, 10, 5, 0, 0, 0, time.UTC)
+	sm := env.mem.(memory.SessionManager)
+	if err := sm.SaveInfo(context.Background(), memory.SessionInfo{
+		ID:         sessionID,
+		AgentID:    agentID,
+		UserID:     env.adminUser.ID,
+		Channel:    "web",
+		Kind:       "chat",
+		Title:      "Isolation",
+		CreatedAt:  now,
+		LastActive: now,
+	}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	// Another user's session lookup misses entirely, so the API answers 404
+	// rather than 403 — existence is not leaked across tenants.
+	_, otherToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "context-other", auth.RoleUser)
+	rr := doRequestWithSession(t, env.srv, otherToken, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/context-items", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("other user context items: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = doRequestWithSession(t, env.srv, otherToken, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/summaries/sum-1", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("other user summary: status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

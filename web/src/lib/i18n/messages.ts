@@ -1115,7 +1115,7 @@ const en = {
   "sessions.inspector.longTerm": "Long-term",
   "sessions.inspector.summaryDepth": "{{count}} layers",
   "sessions.epoch.summary": "Compacted epoch",
-  "sessions.epoch.messages": "messages",
+  "sessions.epoch.messageCount": "{{count}} messages",
   "sessions.epoch.originalMessages": "Original messages",
 
   // Sidebar (additions)
@@ -2356,7 +2356,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.inspector.longTerm": "长期层",
   "sessions.inspector.summaryDepth": "{{count}} 层",
   "sessions.epoch.summary": "折叠片段",
-  "sessions.epoch.messages": "条消息",
+  "sessions.epoch.messageCount": "{{count}} 条消息",
   "sessions.epoch.originalMessages": "原始消息",
 
   // Sidebar (additions)

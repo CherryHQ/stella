@@ -113,11 +113,16 @@ paths:
         - name: seq_from
           in: query
           schema: { type: integer, minimum: 1 }
-          description: Only return messages with seq greater than or equal to this value
+          description: >-
+            Only return messages with seq greater than or equal to this value.
+            Must be provided together with seq_to; when set, the seq range
+            takes precedence over limit/skip/after/before.
         - name: seq_to
           in: query
           schema: { type: integer, minimum: 1 }
-          description: Only return messages with seq less than or equal to this value
+          description: >-
+            Only return messages with seq less than or equal to this value.
+            Must be provided together with seq_from.
       responses:
         "200":
           description: ok

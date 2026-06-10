@@ -1,16 +1,29 @@
 import { queryOptions } from "@tanstack/react-query";
 import { getSessionContextItems, getSessionSummary } from "@/lib/api-client/sdk.gen";
+import type { SessionContextItem, SessionContextMeta } from "@/lib/api-client/types.gen";
 
 export function sessionContextItemsOptions(agentId: string, sessionId: string) {
   return queryOptions({
     queryKey: ["session-context-items", agentId, sessionId],
-    queryFn: async () => {
-      const { data } = await getSessionContextItems({
-        path: { agentId, sessionId },
-        query: { page_size: 200 },
-        throwOnError: true,
-      });
-      return data;
+    queryFn: async (): Promise<{ items: SessionContextItem[]; meta?: SessionContextMeta }> => {
+      // Compaction keeps the active window bounded, so the full ordinal
+      // sequence is small; drain all pages instead of truncating the newest
+      // items. The loop cap is a runaway guard.
+      const items: SessionContextItem[] = [];
+      let meta: SessionContextMeta | undefined;
+      let pageToken: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const { data } = await getSessionContextItems({
+          path: { agentId, sessionId },
+          query: { page_size: 200, page_token: pageToken },
+          throwOnError: true,
+        });
+        items.push(...(data.items ?? []));
+        meta = data.meta;
+        pageToken = data.next_page_token ?? undefined;
+        if (!pageToken) break;
+      }
+      return { items, meta };
     },
     enabled: !!agentId && !!sessionId,
   });

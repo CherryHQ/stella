@@ -5,7 +5,7 @@ import { Archive, ChevronDown, MessageSquareText } from "lucide-react";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { sessionSummaryOptions } from "@/lib/queries/session-context";
 import { getSessionMessages } from "@/lib/api-client/sdk.gen";
-import type { SessionContextItem, SessionContextMessage } from "@/lib/api-client/types.gen";
+import type { SessionContextItem } from "@/lib/api-client/types.gen";
 import { ChatTranscript, type TranscriptMessage } from "@/components/chat/ChatTranscript";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
@@ -59,34 +59,23 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
     }));
   }, [messages, agentName, agentId, activeStreaming]);
 
-  if (hasSummaries) {
-    return (
-      <div
-        ref={ref}
-        onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4"
-      >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-          {contextItems.map((item) =>
-            item.type === "summary" && item.summary ? (
-              <SummaryCard
-                key={`summary:${item.summary.id}`}
-                agentId={agentId}
-                sessionId={sessionId}
-                item={item}
-              />
-            ) : item.message ? (
-              <ContextMessageBubble
-                key={`message:${item.message.id}`}
-                message={item.message}
-                agentName={agentName}
-              />
-            ) : null,
-          )}
-        </div>
-      </div>
-    );
-  }
+  // Compacted epochs render as summary cards above the live tail; the tail
+  // messages themselves flow through the regular chat pipeline so tool calls,
+  // markdown, and streaming render identically to an uncompacted session.
+  const epochHeader = hasSummaries ? (
+    <div className="mx-auto mb-8 flex w-full max-w-3xl flex-col gap-3">
+      {contextItems.map((item) =>
+        item.type === "summary" && item.summary ? (
+          <SummaryCard
+            key={`summary:${item.summary.id}`}
+            agentId={agentId}
+            sessionId={sessionId}
+            item={item}
+          />
+        ) : null,
+      )}
+    </div>
+  ) : undefined;
 
   return (
     <ChatTranscript
@@ -96,6 +85,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
       onScroll={onScroll}
       fileAgentId={agentId}
       fileSessionId={sessionId}
+      header={epochHeader}
     />
   );
 });
@@ -153,7 +143,7 @@ function SummaryCard({
             {summary.content}
           </span>
           <span className="mt-2 block font-mono text-[10px] text-muted-foreground">
-            {summary.descendant_count} {t("sessions.epoch.messages")} ·{" "}
+            {t("sessions.epoch.messageCount", { count: summary.descendant_count })} ·{" "}
             {formatNumber(summary.source_message_token_count)} → {formatNumber(summary.token_count)}
           </span>
         </span>
@@ -166,6 +156,17 @@ function SummaryCard({
           <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">
             {summaryQuery.data?.summary.content ?? summary.content}
           </p>
+          {(summaryQuery.data?.children.length ?? 0) > 0 && (
+            <div className="mt-3 space-y-2">
+              {summaryQuery.data?.children.map((child) => (
+                <div key={child.id} className="rounded-md border border-border bg-background p-2">
+                  <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                    {child.content}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="mt-3 flex items-center gap-2">
             <Button variant="outline" size="xs" onClick={() => setShowMessages((value) => !value)}>
               <MessageSquareText className="size-3.5" />
@@ -194,38 +195,26 @@ function SummaryCard({
   );
 }
 
-function ContextMessageBubble({
-  message,
-  agentName,
-}: {
-  message: SessionContextMessage;
-  agentName: string;
-}) {
-  const isUser = message.role === "user";
-  return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[78%] rounded-lg border px-3 py-2 text-sm leading-relaxed",
-          isUser ? "border-primary/20 bg-primary text-primary-foreground" : "border-border bg-card",
-        )}
-      >
-        {!isUser && (
-          <div className="mb-1 text-[10px] font-medium text-muted-foreground">{agentName}</div>
-        )}
-        <div className="whitespace-pre-wrap">{message.content}</div>
-      </div>
-    </div>
-  );
-}
-
 function formatNumber(value: number): string {
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
   return String(value);
 }
 
 function formatRawMessage(message: Record<string, unknown>): string {
-  if (typeof message.content === "string") return message.content;
+  if (typeof message.content === "string" && message.content.trim()) return message.content;
+  if (Array.isArray(message.blocks)) {
+    const parts = (message.blocks as Array<Record<string, unknown>>)
+      .map((block) => {
+        if (block.type === "text" && typeof block.text === "string") return block.text;
+        if (block.type === "tool_call") {
+          const name = typeof block.name === "string" ? block.name : "unknown";
+          return `[tool: ${name}]`;
+        }
+        return null;
+      })
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join("\n");
+  }
   return JSON.stringify(message.blocks ?? message, null, 2);
 }
 

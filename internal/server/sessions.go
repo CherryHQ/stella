@@ -656,18 +656,27 @@ func (s *Server) GetSessionContextItems(w http.ResponseWriter, r *http.Request, 
 	}
 	usingMessageFallback := false
 	if len(rows) == 0 {
-		messages, err := s.q.GetMessagesByConversation(r.Context(), conv.ID)
+		// Distinguish "conversation predates ctx_item" from an out-of-range
+		// page token: only fall back to raw messages when no items exist.
+		count, err := s.q.GetContextItemCount(r.Context(), conv.ID)
 		if err != nil {
 			s.writeInternalError(w, err)
 			return
 		}
-		rows = contextRowsFromMessages(messages)
-		if offset < len(rows) {
-			rows = rows[offset:]
-		} else {
-			rows = nil
+		if count == 0 {
+			messages, err := s.q.GetMessagesByConversation(r.Context(), conv.ID)
+			if err != nil {
+				s.writeInternalError(w, err)
+				return
+			}
+			rows = contextRowsFromMessages(messages)
+			if offset < len(rows) {
+				rows = rows[offset:]
+			} else {
+				rows = nil
+			}
+			usingMessageFallback = true
 		}
-		usingMessageFallback = true
 	}
 	stats, err := s.q.GetContextStats(r.Context(), conv.ID)
 	if err != nil {
@@ -716,12 +725,15 @@ func (s *Server) GetSessionSummary(w http.ResponseWriter, r *http.Request, agent
 		}
 		return
 	}
-	children, err := s.q.GetSummaryChildren(r.Context(), summaryID)
+	// ctx_summary_parent rows are written as (summary_id=condensed,
+	// parent_summary_id=constituent), so "parents" is the downward direction:
+	// GetSummaryParents returns the sub-summaries a condensed node was built from.
+	children, err := s.q.GetSummaryParents(r.Context(), summaryID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
-	seqRange, err := s.q.GetSummaryMessageSeqRange(r.Context(), summaryID)
+	from, to, err := s.summaryMessageSeqRange(r.Context(), summaryID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -733,13 +745,48 @@ func (s *Server) GetSessionSummary(w http.ResponseWriter, r *http.Request, agent
 	for _, child := range children {
 		resp.Children = append(resp.Children, summaryToAPI(child))
 	}
-	if seqRange.MessageSeqFrom > 0 && seqRange.MessageSeqTo > 0 {
-		from := int(seqRange.MessageSeqFrom)
-		to := int(seqRange.MessageSeqTo)
+	if from > 0 && to > 0 {
 		resp.MessageSeqFrom = &from
 		resp.MessageSeqTo = &to
 	}
 	writeData(w, http.StatusOK, resp)
+}
+
+// summaryMessageSeqRange aggregates the covered message seq range across the
+// summary hierarchy: only leaf summaries carry ctx_summary_message links, so
+// condensed nodes walk down through their constituents.
+func (s *Server) summaryMessageSeqRange(ctx context.Context, summaryID string) (int, int, error) {
+	from, to := 0, 0
+	queue := []string{summaryID}
+	seen := map[string]bool{}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		r, err := s.q.GetSummaryMessageSeqRange(ctx, id)
+		if err != nil {
+			return 0, 0, err
+		}
+		if r.MessageSeqFrom > 0 {
+			if from == 0 || int(r.MessageSeqFrom) < from {
+				from = int(r.MessageSeqFrom)
+			}
+			if int(r.MessageSeqTo) > to {
+				to = int(r.MessageSeqTo)
+			}
+		}
+		kids, err := s.q.GetSummaryParents(ctx, id)
+		if err != nil {
+			return 0, 0, err
+		}
+		for _, k := range kids {
+			queue = append(queue, k.ID)
+		}
+	}
+	return from, to, nil
 }
 
 func (s *Server) requireSessionConversation(w http.ResponseWriter, r *http.Request, agentID, sessionID string) (sqlc.CtxConversation, bool) {
