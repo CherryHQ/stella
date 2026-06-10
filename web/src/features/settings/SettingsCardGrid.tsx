@@ -27,21 +27,26 @@ export function SettingsGridPage({
   );
 }
 
-// SettingsCardSection renders a labelled group with a responsive card grid.
-// Callers skip rendering it when a group is empty, or pass an empty hint child.
-export function SettingsCardSection({
-  icon,
-  title,
-  description,
-  count,
-  children,
-}: {
+interface SectionProps {
   icon?: ReactNode;
   title: string;
   description?: string;
   count?: number;
+  action?: ReactNode;
   children: ReactNode;
-}) {
+}
+
+// SettingsSection is a labelled block with a header (icon, title, count,
+// description, optional trailing action) and arbitrary content — for groups that
+// aren't a uniform card grid (tables, custom cards, nested panels).
+export function SettingsSection({
+  icon,
+  title,
+  description,
+  count,
+  action,
+  children,
+}: SectionProps) {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -53,9 +58,21 @@ export function SettingsCardSection({
           </Badge>
         )}
         {description && <span className="text-xs text-muted-foreground">— {description}</span>}
+        {action && <span className="ml-auto">{action}</span>}
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+      {children}
     </section>
+  );
+}
+
+// SettingsCardSection is a SettingsSection whose content is a responsive card
+// grid. Callers skip rendering it when a group is empty.
+export function SettingsCardSection(props: SectionProps) {
+  const { children, ...section } = props;
+  return (
+    <SettingsSection {...section}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+    </SettingsSection>
   );
 }
 
