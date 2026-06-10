@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { goalsOptions } from "@/lib/queries/goals";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
 import { standaloneTasksOptions } from "./queries";
@@ -20,6 +20,7 @@ interface AutomationsPageProps {
 export function AutomationsPage({ selectedKind, selectedId }: AutomationsPageProps = {}) {
   const { t } = useI18n();
   const { agentId } = useParams({ strict: false }) as { agentId: string };
+  const search = useSearch({ strict: false }) as { new?: string };
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
@@ -62,14 +63,14 @@ export function AutomationsPage({ selectedKind, selectedId }: AutomationsPagePro
 
   const pathForItem = useCallback(
     (kind: ItemKind, id: string) => {
-      const base = `/agents/${agentId}/automations`;
+      const base = `/agents/${agentId}/tasks`;
       switch (kind) {
         case "goal":
           return `${base}/goals/${id}`;
         case "schedule":
           return `${base}/schedules/${id}`;
         case "task":
-          return `${base}/tasks/${id}`;
+          return `${base}/${id}`;
       }
     },
     [agentId],
@@ -97,8 +98,12 @@ export function AutomationsPage({ selectedKind, selectedId }: AutomationsPagePro
 
   const handleScheduleDeleted = useCallback(() => {
     setIsNewSchedule(false);
-    void navigate({ to: `/agents/${agentId}/automations` });
+    void navigate({ to: `/agents/${agentId}/tasks` });
   }, [navigate, agentId]);
+
+  useEffect(() => {
+    if (search.new === "schedule") setIsNewSchedule(true);
+  }, [search.new]);
 
   useEffect(() => {
     setHeaderTitle(

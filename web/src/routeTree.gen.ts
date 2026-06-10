@@ -62,6 +62,8 @@ import { Route as AppAgentsAgentIdMemoriesProfileRouteImport } from './routes/_a
 import { Route as AppAgentsAgentIdAutomationsNewRouteImport } from './routes/_app/agents.$agentId/automations/new'
 import { Route as AppAgentsAgentIdAutomationsJobIdRouteImport } from './routes/_app/agents.$agentId/automations/$jobId'
 import { Route as AppAgentsAgentIdProjectsProjectIdIndexRouteImport } from './routes/_app/agents.$agentId/projects.$projectId/index'
+import { Route as AppAgentsAgentIdTasksSchedulesScheduleIdRouteImport } from './routes/_app/agents.$agentId/tasks/schedules.$scheduleId'
+import { Route as AppAgentsAgentIdTasksGoalsGoalIdRouteImport } from './routes/_app/agents.$agentId/tasks/goals.$goalId'
 import { Route as AppAgentsAgentIdSkillsScopeSkillIdRouteImport } from './routes/_app/agents.$agentId/skills/$scope.$skillId'
 import { Route as AppAgentsAgentIdAutomationsTasksTaskIdRouteImport } from './routes/_app/agents.$agentId/automations/tasks.$taskId'
 import { Route as AppAgentsAgentIdAutomationsSchedulesScheduleIdRouteImport } from './routes/_app/agents.$agentId/automations/schedules.$scheduleId'
@@ -444,6 +446,26 @@ const AppAgentsAgentIdProjectsProjectIdIndexRoute =
       (d) => d.Route,
     ),
   )
+const AppAgentsAgentIdTasksSchedulesScheduleIdRoute =
+  AppAgentsAgentIdTasksSchedulesScheduleIdRouteImport.update({
+    id: '/tasks/schedules/$scheduleId',
+    path: '/tasks/schedules/$scheduleId',
+    getParentRoute: () => AppAgentsAgentIdRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/agents.$agentId/tasks/schedules.$scheduleId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+const AppAgentsAgentIdTasksGoalsGoalIdRoute =
+  AppAgentsAgentIdTasksGoalsGoalIdRouteImport.update({
+    id: '/tasks/goals/$goalId',
+    path: '/tasks/goals/$goalId',
+    getParentRoute: () => AppAgentsAgentIdRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/agents.$agentId/tasks/goals.$goalId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AppAgentsAgentIdSkillsScopeSkillIdRoute =
   AppAgentsAgentIdSkillsScopeSkillIdRouteImport.update({
     id: '/skills/$scope/$skillId',
@@ -572,6 +594,8 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId/automations/schedules/$scheduleId': typeof AppAgentsAgentIdAutomationsSchedulesScheduleIdRoute
   '/agents/$agentId/automations/tasks/$taskId': typeof AppAgentsAgentIdAutomationsTasksTaskIdRoute
   '/agents/$agentId/skills/$scope/$skillId': typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
+  '/agents/$agentId/tasks/goals/$goalId': typeof AppAgentsAgentIdTasksGoalsGoalIdRoute
+  '/agents/$agentId/tasks/schedules/$scheduleId': typeof AppAgentsAgentIdTasksSchedulesScheduleIdRoute
   '/agents/$agentId/projects/$projectId/': typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   '/agents/$agentId/automations/$jobId/runs/$runId': typeof AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute
   '/agents/$agentId/projects/$projectId/sessions/$sessionId': typeof AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute
@@ -630,6 +654,8 @@ export interface FileRoutesByTo {
   '/agents/$agentId/automations/schedules/$scheduleId': typeof AppAgentsAgentIdAutomationsSchedulesScheduleIdRoute
   '/agents/$agentId/automations/tasks/$taskId': typeof AppAgentsAgentIdAutomationsTasksTaskIdRoute
   '/agents/$agentId/skills/$scope/$skillId': typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
+  '/agents/$agentId/tasks/goals/$goalId': typeof AppAgentsAgentIdTasksGoalsGoalIdRoute
+  '/agents/$agentId/tasks/schedules/$scheduleId': typeof AppAgentsAgentIdTasksSchedulesScheduleIdRoute
   '/agents/$agentId/projects/$projectId': typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   '/agents/$agentId/automations/$jobId/runs/$runId': typeof AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute
   '/agents/$agentId/projects/$projectId/sessions/$sessionId': typeof AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute
@@ -693,6 +719,8 @@ export interface FileRoutesById {
   '/_app/agents/$agentId/automations/schedules/$scheduleId': typeof AppAgentsAgentIdAutomationsSchedulesScheduleIdRoute
   '/_app/agents/$agentId/automations/tasks/$taskId': typeof AppAgentsAgentIdAutomationsTasksTaskIdRoute
   '/_app/agents/$agentId/skills/$scope/$skillId': typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
+  '/_app/agents/$agentId/tasks/goals/$goalId': typeof AppAgentsAgentIdTasksGoalsGoalIdRoute
+  '/_app/agents/$agentId/tasks/schedules/$scheduleId': typeof AppAgentsAgentIdTasksSchedulesScheduleIdRoute
   '/_app/agents/$agentId/projects/$projectId/': typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   '/_app/agents/$agentId/automations/$jobId/runs/$runId': typeof AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute
   '/_app/agents/$agentId/projects/$projectId/sessions/$sessionId': typeof AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute
@@ -756,6 +784,8 @@ export interface FileRouteTypes {
     | '/agents/$agentId/automations/schedules/$scheduleId'
     | '/agents/$agentId/automations/tasks/$taskId'
     | '/agents/$agentId/skills/$scope/$skillId'
+    | '/agents/$agentId/tasks/goals/$goalId'
+    | '/agents/$agentId/tasks/schedules/$scheduleId'
     | '/agents/$agentId/projects/$projectId/'
     | '/agents/$agentId/automations/$jobId/runs/$runId'
     | '/agents/$agentId/projects/$projectId/sessions/$sessionId'
@@ -814,6 +844,8 @@ export interface FileRouteTypes {
     | '/agents/$agentId/automations/schedules/$scheduleId'
     | '/agents/$agentId/automations/tasks/$taskId'
     | '/agents/$agentId/skills/$scope/$skillId'
+    | '/agents/$agentId/tasks/goals/$goalId'
+    | '/agents/$agentId/tasks/schedules/$scheduleId'
     | '/agents/$agentId/projects/$projectId'
     | '/agents/$agentId/automations/$jobId/runs/$runId'
     | '/agents/$agentId/projects/$projectId/sessions/$sessionId'
@@ -876,6 +908,8 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId/automations/schedules/$scheduleId'
     | '/_app/agents/$agentId/automations/tasks/$taskId'
     | '/_app/agents/$agentId/skills/$scope/$skillId'
+    | '/_app/agents/$agentId/tasks/goals/$goalId'
+    | '/_app/agents/$agentId/tasks/schedules/$scheduleId'
     | '/_app/agents/$agentId/projects/$projectId/'
     | '/_app/agents/$agentId/automations/$jobId/runs/$runId'
     | '/_app/agents/$agentId/projects/$projectId/sessions/$sessionId'
@@ -1264,6 +1298,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsAgentIdProjectsProjectIdIndexRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
     }
+    '/_app/agents/$agentId/tasks/schedules/$scheduleId': {
+      id: '/_app/agents/$agentId/tasks/schedules/$scheduleId'
+      path: '/tasks/schedules/$scheduleId'
+      fullPath: '/agents/$agentId/tasks/schedules/$scheduleId'
+      preLoaderRoute: typeof AppAgentsAgentIdTasksSchedulesScheduleIdRouteImport
+      parentRoute: typeof AppAgentsAgentIdRoute
+    }
+    '/_app/agents/$agentId/tasks/goals/$goalId': {
+      id: '/_app/agents/$agentId/tasks/goals/$goalId'
+      path: '/tasks/goals/$goalId'
+      fullPath: '/agents/$agentId/tasks/goals/$goalId'
+      preLoaderRoute: typeof AppAgentsAgentIdTasksGoalsGoalIdRouteImport
+      parentRoute: typeof AppAgentsAgentIdRoute
+    }
     '/_app/agents/$agentId/skills/$scope/$skillId': {
       id: '/_app/agents/$agentId/skills/$scope/$skillId'
       path: '/skills/$scope/$skillId'
@@ -1367,6 +1415,8 @@ interface AppAgentsAgentIdRouteChildren {
   AppAgentsAgentIdAutomationsSchedulesScheduleIdRoute: typeof AppAgentsAgentIdAutomationsSchedulesScheduleIdRoute
   AppAgentsAgentIdAutomationsTasksTaskIdRoute: typeof AppAgentsAgentIdAutomationsTasksTaskIdRoute
   AppAgentsAgentIdSkillsScopeSkillIdRoute: typeof AppAgentsAgentIdSkillsScopeSkillIdRoute
+  AppAgentsAgentIdTasksGoalsGoalIdRoute: typeof AppAgentsAgentIdTasksGoalsGoalIdRoute
+  AppAgentsAgentIdTasksSchedulesScheduleIdRoute: typeof AppAgentsAgentIdTasksSchedulesScheduleIdRoute
   AppAgentsAgentIdProjectsProjectIdIndexRoute: typeof AppAgentsAgentIdProjectsProjectIdIndexRoute
   AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute: typeof AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute
 }
@@ -1394,6 +1444,9 @@ const AppAgentsAgentIdRouteChildren: AppAgentsAgentIdRouteChildren = {
     AppAgentsAgentIdAutomationsTasksTaskIdRoute,
   AppAgentsAgentIdSkillsScopeSkillIdRoute:
     AppAgentsAgentIdSkillsScopeSkillIdRoute,
+  AppAgentsAgentIdTasksGoalsGoalIdRoute: AppAgentsAgentIdTasksGoalsGoalIdRoute,
+  AppAgentsAgentIdTasksSchedulesScheduleIdRoute:
+    AppAgentsAgentIdTasksSchedulesScheduleIdRoute,
   AppAgentsAgentIdProjectsProjectIdIndexRoute:
     AppAgentsAgentIdProjectsProjectIdIndexRoute,
   AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute:

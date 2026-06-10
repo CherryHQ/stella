@@ -812,7 +812,7 @@ const en = {
   "goals.noEvents": "No events yet.",
 
   // Automations hub (unified page)
-  "hub.title": "Automations",
+  "hub.title": "Tasks",
   "hub.searchPlaceholder": "Search automations…",
   "hub.secNeedsYou": "Needs you",
   "hub.secActive": "Active",
@@ -2055,7 +2055,7 @@ const zh: Record<MessageKey, string> = {
   "goals.noEvents": "暂无事件。",
 
   // Automations hub (unified page)
-  "hub.title": "自动化",
+  "hub.title": "任务",
   "hub.searchPlaceholder": "搜索自动化…",
   "hub.secNeedsYou": "需要你处理",
   "hub.secActive": "进行中",
