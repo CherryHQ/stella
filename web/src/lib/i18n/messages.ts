@@ -25,6 +25,8 @@ const en = {
   "facets.memory": "Memory",
   "facets.skills": "Skills",
   "facets.files": "Files",
+  "facets.sessions": "Sessions",
+  "facets.comingSoon": "Coming soon",
 
   // Common actions
   "common.cancel": "Cancel",
@@ -397,7 +399,6 @@ const en = {
   "scheduler.cron": "Cron Expression",
   "scheduler.nextRun": "Next Run",
   "scheduler.lastRun": "Last Run",
-  "scheduler.enabled": "Enabled",
   "scheduler.disabled": "Disabled",
   "scheduler.deleted": "Task deleted",
   "scheduler.deleteFailed": "Failed to delete task",
@@ -405,9 +406,7 @@ const en = {
   "scheduler.createFailed": "Failed to create task",
   "scheduler.updated": "Task updated",
   "scheduler.updateFailed": "Failed to update task",
-  "scheduler.deleteConfirm": "Delete task?",
   "scheduler.deleteConfirmDesc": "This will permanently delete the task {{name}}.",
-  "scheduler.runNow": "Run Now",
   "scheduler.running": "Running…",
 
   // Users
@@ -645,25 +644,10 @@ const en = {
   "automations.confirm.deleteSchedule": "Delete this schedule?",
 
   // Sessions sidebar
-  "sessions.sidebar.newChat": "New chat",
-  "sessions.sidebar.search": "Search…",
-  "sessions.sidebar.chats": "Chats",
   "sessions.sidebar.work": "Tasks",
-  "sessions.sidebar.automations": "Automations",
-  "sessions.sidebar.tasks": "Tasks",
   "sessions.sidebar.skills": "Skills",
-  "sessions.sidebar.memory": "Memory",
   "sessions.sidebar.noChats": "No chats yet.",
-  "sessions.sidebar.noAutomations": "No automations yet.",
-  "sessions.sidebar.noTasks": "No tasks yet.",
-  "sessions.sidebar.noSkills": "No skills yet.",
   "sessions.sidebar.loadMore": "Load more…",
-  "sessions.sidebar.builtin": "Built-in",
-  "sessions.sidebar.system": "System",
-  "sessions.sidebar.agentSoul": "Agent Soul",
-  "sessions.sidebar.soulSubtitle": "Personality & behavior",
-  "sessions.sidebar.userProfile": "User Profile",
-  "sessions.sidebar.noMemory": "No memory yet",
   "sessions.sidebar.conversations": "Conversations",
   "sessions.sidebar.temporaryChats": "Temporary chats",
   "sessions.sidebar.newTemporaryChat": "New temporary chat",
@@ -1003,8 +987,6 @@ const en = {
   "sessions.task.openSession": "Open Session",
   "sessions.task.askAbout": "Ask about this task...",
   "sessions.task.noConversation": "No conversation session",
-  "sessions.sidebar.agents": "Agents",
-  "sessions.sidebar.workspace": "Workspace",
   "sessions.sidebar.newProject": "New Project",
   "sessions.sidebar.projectName": "Project name",
   "sessions.sidebar.selectFolder": "Select a workspace folder for this agent.",
@@ -1052,11 +1034,7 @@ const en = {
   "providers.modelPlaceholder": "Llama 3.1 8B (Local)",
 
   // Scheduler (additions)
-  "scheduler.jobs": "Jobs",
   "scheduler.new2": "+ New",
-  "scheduler.dailySummary": "Daily summary",
-  "scheduler.reuseSession": "Reuse session",
-  "scheduler.newSessionEachRun": "New session each run",
   "scheduler.cron2": "Cron",
 
   // Recally (additions)
@@ -1125,7 +1103,6 @@ const en = {
 
   // Sidebar (additions)
   "sessions.sidebar.projects": "Projects",
-  "sessions.sidebar.sessions": "Sessions",
   "sessions.sidebar.newProject2": "New project",
 
   // Chat transcript
@@ -1144,24 +1121,11 @@ const en = {
   "sessions.createNewHint": "or create a new one with + New",
 
   // Scheduler page (additions 2)
-  "scheduler.interval": "Interval",
-  "scheduler.noJobsYet": "No jobs yet.",
-  "scheduler.selectOrCreate": "Select a job or create a new one",
-  "scheduler.newJob": "New job",
-  "scheduler.nameLabel": "Name",
-  "scheduler.sessionModeLabel": "Session Mode",
-  "scheduler.scheduleLabel": "Schedule",
-  "scheduler.agentLabel": "Agent",
-  "scheduler.defaultAgent": "Default agent",
-  "scheduler.systemJob": "System job",
-  "scheduler.systemJobDesc": "(broadcasts to all users)",
-  "scheduler.messageLabel": "Message",
-  "scheduler.messagePlaceholder": "What should the agent do?",
-  "scheduler.recentRuns": "Recent runs",
-  "scheduler.noRuns": "No runs yet.",
+  "scheduler.enabled": "Enabled",
+  "scheduler.dailySummary": "Daily summary",
+  "scheduler.reuseSession": "Reuse session",
+  "scheduler.newSessionEachRun": "New session each run",
   "scheduler.sessionLink": "session",
-  "scheduler.saved": "Saved",
-  "scheduler.requestFailed": "Request failed",
 
   // Plugins (manifest editor additions)
   "plugins.displayName": "Display name",
@@ -1296,6 +1260,8 @@ const zh: Record<MessageKey, string> = {
   "facets.memory": "记忆",
   "facets.skills": "技能",
   "facets.files": "文件",
+  "facets.sessions": "会话",
+  "facets.comingSoon": "即将推出",
 
   // Common actions
   "common.cancel": "取消",
@@ -1662,7 +1628,6 @@ const zh: Record<MessageKey, string> = {
   "scheduler.cron": "Cron 表达式",
   "scheduler.nextRun": "下次运行",
   "scheduler.lastRun": "上次运行",
-  "scheduler.enabled": "已启用",
   "scheduler.disabled": "已禁用",
   "scheduler.deleted": "任务已删除",
   "scheduler.deleteFailed": "删除任务失败",
@@ -1670,9 +1635,7 @@ const zh: Record<MessageKey, string> = {
   "scheduler.createFailed": "创建任务失败",
   "scheduler.updated": "任务已更新",
   "scheduler.updateFailed": "更新任务失败",
-  "scheduler.deleteConfirm": "删除任务？",
   "scheduler.deleteConfirmDesc": "这将永久删除任务 {{name}}。",
-  "scheduler.runNow": "立即运行",
   "scheduler.running": "运行中…",
 
   // Users
@@ -1910,25 +1873,10 @@ const zh: Record<MessageKey, string> = {
   "automations.confirm.deleteSchedule": "删除此计划任务？",
 
   // Sessions sidebar
-  "sessions.sidebar.newChat": "新建对话",
-  "sessions.sidebar.search": "搜索…",
-  "sessions.sidebar.chats": "对话",
   "sessions.sidebar.work": "任务",
-  "sessions.sidebar.automations": "自动化",
-  "sessions.sidebar.tasks": "任务",
   "sessions.sidebar.skills": "技能",
-  "sessions.sidebar.memory": "记忆",
   "sessions.sidebar.noChats": "暂无对话。",
-  "sessions.sidebar.noAutomations": "暂无自动化。",
-  "sessions.sidebar.noTasks": "暂无任务。",
-  "sessions.sidebar.noSkills": "暂无技能。",
   "sessions.sidebar.loadMore": "加载更多…",
-  "sessions.sidebar.builtin": "内置",
-  "sessions.sidebar.system": "系统",
-  "sessions.sidebar.agentSoul": "Agent 灵魂",
-  "sessions.sidebar.soulSubtitle": "个性与行为",
-  "sessions.sidebar.userProfile": "用户档案",
-  "sessions.sidebar.noMemory": "暂无记忆",
   "sessions.sidebar.conversations": "会话",
   "sessions.sidebar.temporaryChats": "临时会话",
   "sessions.sidebar.newTemporaryChat": "新建临时会话",
@@ -2265,8 +2213,6 @@ const zh: Record<MessageKey, string> = {
   "sessions.task.openSession": "打开会话",
   "sessions.task.askAbout": "询问关于此任务的问题...",
   "sessions.task.noConversation": "没有对话会话",
-  "sessions.sidebar.agents": "智能体",
-  "sessions.sidebar.workspace": "工作区",
   "sessions.sidebar.newProject": "新建项目",
   "sessions.sidebar.projectName": "项目名称",
   "sessions.sidebar.selectFolder": "为此智能体选择工作区文件夹。",
@@ -2313,11 +2259,7 @@ const zh: Record<MessageKey, string> = {
   "providers.modelPlaceholder": "Llama 3.1 8B（本地）",
 
   // Scheduler (additions)
-  "scheduler.jobs": "任务列表",
   "scheduler.new2": "+ 新建",
-  "scheduler.dailySummary": "每日总结",
-  "scheduler.reuseSession": "复用会话",
-  "scheduler.newSessionEachRun": "每次运行新建会话",
   "scheduler.cron2": "Cron",
 
   // Recally (additions)
@@ -2385,7 +2327,6 @@ const zh: Record<MessageKey, string> = {
 
   // Sidebar (additions)
   "sessions.sidebar.projects": "项目",
-  "sessions.sidebar.sessions": "会话",
   "sessions.sidebar.newProject2": "新建项目",
 
   // Chat transcript
@@ -2404,24 +2345,11 @@ const zh: Record<MessageKey, string> = {
   "sessions.createNewHint": "或点击 + 新建创建一个",
 
   // Scheduler page (additions 2)
-  "scheduler.interval": "间隔",
-  "scheduler.noJobsYet": "暂无任务。",
-  "scheduler.selectOrCreate": "选择一个任务或创建新任务",
-  "scheduler.newJob": "新建任务",
-  "scheduler.nameLabel": "名称",
-  "scheduler.sessionModeLabel": "会话模式",
-  "scheduler.scheduleLabel": "计划",
-  "scheduler.agentLabel": "智能体",
-  "scheduler.defaultAgent": "默认智能体",
-  "scheduler.systemJob": "系统任务",
-  "scheduler.systemJobDesc": "（广播给所有用户）",
-  "scheduler.messageLabel": "消息",
-  "scheduler.messagePlaceholder": "智能体应该做什么？",
-  "scheduler.recentRuns": "最近运行",
-  "scheduler.noRuns": "暂无运行记录。",
+  "scheduler.enabled": "已启用",
+  "scheduler.dailySummary": "每日总结",
+  "scheduler.reuseSession": "复用会话",
+  "scheduler.newSessionEachRun": "每次运行新建会话",
   "scheduler.sessionLink": "会话",
-  "scheduler.saved": "已保存",
-  "scheduler.requestFailed": "请求失败",
 
   // Plugins (manifest editor additions)
   "plugins.displayName": "显示名称",

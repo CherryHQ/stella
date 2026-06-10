@@ -14,7 +14,7 @@ import { useI18n } from "@/lib/i18n";
 import { getAgentColor } from "@/lib/agent-colors";
 import { fetchAllTasks } from "@/lib/paginated";
 import { cn } from "@/lib/utils";
-import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
+import { mainSessionQueryOptions, sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions } from "@/lib/queries/groups";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
@@ -265,8 +265,8 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
   const [showProjectDialog, setShowProjectDialog] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
 
-  const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
-  const sessions = sessionsQuery.data?.pages.flatMap((page) => page.sessions) ?? [];
+  const chatsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId, "chat"));
+  const { data: homeSession = null } = useQuery(mainSessionQueryOptions(agentId));
   const { data: groups = [] } = useQuery(groupsQueryOptions);
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: taskList } = useQuery({
@@ -284,10 +284,8 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
     taskList?.tasks?.filter((task) => ["blocked", "reviewing", "failed"].includes(task.status))
       .length ?? 0;
 
-  const homeSession =
-    sessions.find((session) => !session.archived && session.kind === "main") ?? null;
-  const chatSessions = sessions
-    .filter((session) => !session.archived && (session.kind === "main" || session.kind === "chat"))
+  const chatSessions = (chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? [])
+    .filter((session) => !session.archived)
     .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime());
 
   const conversations = useMemo(() => {
@@ -305,6 +303,8 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
       updatedAt: group.updated_at,
       index: 0,
     }));
+    // Degraded interim sort: agents carry no activity timestamp until the inbox
+    // phase adds last_active, so groups (updated_at) surface above agents (API order).
     return [...agentItems, ...groupItems].sort((a, b) => {
       if (!a.updatedAt && !b.updatedAt) return a.index - b.index;
       if (!a.updatedAt) return 1;
@@ -331,22 +331,12 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
   const openProject = useCallback(
     (projectId: string) => {
       closeMobile();
-      const existing = sessions.find(
-        (session) => session.project_id === projectId && !session.archived,
-      );
-      if (existing) {
-        void navigate({
-          to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
-          params: { agentId, projectId, sessionId: existing.id },
-        });
-        return;
-      }
       void navigate({
         to: "/agents/$agentId/projects/$projectId",
         params: { agentId, projectId },
       });
     },
-    [agentId, closeMobile, navigate, sessions],
+    [agentId, closeMobile, navigate],
   );
 
   const deleteProject = useCallback(
@@ -363,7 +353,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
       <div className="shrink-0 px-3">
         <SidebarSection title={t("inbox.needsYou")} className="mt-0">
           <SidebarItem
-            active={pathname.startsWith("/inbox")}
+            active={pathname.startsWith(`/agents/${agentId}/automations`)}
             icon={<Bell className="size-4" />}
             label={t("inbox.title")}
             badge={
@@ -375,7 +365,11 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
             }
             onClick={() => {
               closeMobile();
-              void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
+              if (agentId) {
+                void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
+              } else {
+                void navigate({ to: "/agents" });
+              }
             }}
           />
         </SidebarSection>
@@ -456,11 +450,6 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               key={session.id}
               active={activeSessionId === session.id}
               label={session.title || t("sessions.untitled")}
-              badge={
-                <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
-                  {session.kind === "main" ? "main" : "chat"}
-                </span>
-              }
               meta={
                 <time className="font-mono text-[11px]">{relativeTime(session.last_active)}</time>
               }
@@ -473,6 +462,16 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               }}
             />
           ))}
+          {chatsQuery.hasNextPage && (
+            <button
+              type="button"
+              className="w-full px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+              disabled={chatsQuery.isFetchingNextPage}
+              onClick={() => void chatsQuery.fetchNextPage()}
+            >
+              {t("sessions.sidebar.loadMore")}
+            </button>
+          )}
           {chatSessions.length === 0 && (
             <p className="px-2 py-2 text-xs text-muted-foreground">
               {t("sessions.sidebar.noChats")}

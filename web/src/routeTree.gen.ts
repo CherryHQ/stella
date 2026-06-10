@@ -122,9 +122,7 @@ const AppSchedulerRoute = AppSchedulerRouteImport.update({
   id: '/scheduler',
   path: '/scheduler',
   getParentRoute: () => AppRoute,
-} as any).lazy(() =>
-  import('./routes/_app/scheduler.lazy').then((d) => d.Route),
-)
+} as any)
 const AppRecallyRoute = AppRecallyRouteImport.update({
   id: '/recally',
   path: '/recally',

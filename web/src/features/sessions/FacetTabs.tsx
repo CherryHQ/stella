@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bot, HardDrive, MessageSquare, Users, Wrench } from "lucide-react";
+import { Brain, HardDrive, MessageSquare, Sparkles, Wrench } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,8 @@ interface TabDef {
   to: string;
   icon: typeof MessageSquare;
   active: (pathname: string) => boolean;
+  /* Facet exists in the IA but has no destination yet — rendered inert. */
+  disabled?: boolean;
 }
 
 export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps) {
@@ -42,6 +44,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
             to: groupId ? `/groups/${groupId}` : "/agents",
             icon: Wrench,
             active: () => false,
+            disabled: true,
           },
           {
             key: "files",
@@ -49,6 +52,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
             to: groupId ? `/groups/${groupId}` : "/agents",
             icon: HardDrive,
             active: () => false,
+            disabled: true,
           },
         ]
       : kind === "project"
@@ -61,8 +65,8 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               active: (p) => p === projectBase || p.startsWith(`${projectBase}/tasks`),
             },
             {
-              key: "conversation",
-              label: t("facets.conversation"),
+              key: "sessions",
+              label: t("facets.sessions"),
               to: projectBase || "/agents",
               icon: MessageSquare,
               active: (p) => p.startsWith(`${projectBase}/sessions`),
@@ -73,6 +77,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               to: projectBase || "/agents",
               icon: HardDrive,
               active: () => false,
+              disabled: true,
             },
           ]
         : [
@@ -94,14 +99,14 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               key: "memory",
               label: t("facets.memory"),
               to: `${base}/memories`,
-              icon: Bot,
+              icon: Brain,
               active: (p) => p.startsWith(`${base}/memories`),
             },
             {
               key: "skills",
               label: t("facets.skills"),
               to: `${base}/skills`,
-              icon: Users,
+              icon: Sparkles,
               active: (p) => p.startsWith(`${base}/skills`),
             },
             {
@@ -110,6 +115,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               to: base || "/agents",
               icon: HardDrive,
               active: () => false,
+              disabled: true,
             },
           ];
 
@@ -118,6 +124,19 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const active = tab.active(pathname);
+        if (tab.disabled) {
+          return (
+            <span
+              key={tab.key}
+              aria-disabled
+              title={t("facets.comingSoon")}
+              className="flex h-8 shrink-0 cursor-not-allowed items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground/50"
+            >
+              <Icon className="size-4" />
+              <span>{tab.label}</span>
+            </span>
+          );
+        }
         return (
           <Link
             key={tab.key}
