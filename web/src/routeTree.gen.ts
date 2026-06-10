@@ -341,11 +341,7 @@ const AppAgentsAgentIdAutomationsIndexRoute =
     id: '/automations/',
     path: '/automations/',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/index.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppSettingsAgentsAgentIdTabRoute =
   AppSettingsAgentsAgentIdTabRouteImport.update({
     id: '/$tab',
@@ -421,21 +417,13 @@ const AppAgentsAgentIdAutomationsNewRoute =
     id: '/automations/new',
     path: '/automations/new',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/new.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdAutomationsJobIdRoute =
   AppAgentsAgentIdAutomationsJobIdRouteImport.update({
     id: '/automations/$jobId',
     path: '/automations/$jobId',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/$jobId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdProjectsProjectIdIndexRoute =
   AppAgentsAgentIdProjectsProjectIdIndexRouteImport.update({
     id: '/projects/$projectId/',
@@ -481,41 +469,25 @@ const AppAgentsAgentIdAutomationsTasksTaskIdRoute =
     id: '/automations/tasks/$taskId',
     path: '/automations/tasks/$taskId',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/tasks.$taskId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdAutomationsSchedulesScheduleIdRoute =
   AppAgentsAgentIdAutomationsSchedulesScheduleIdRouteImport.update({
     id: '/automations/schedules/$scheduleId',
     path: '/automations/schedules/$scheduleId',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/schedules.$scheduleId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdAutomationsGoalsGoalIdRoute =
   AppAgentsAgentIdAutomationsGoalsGoalIdRouteImport.update({
     id: '/automations/goals/$goalId',
     path: '/automations/goals/$goalId',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/goals.$goalId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdAutomationsJobIdEditRoute =
   AppAgentsAgentIdAutomationsJobIdEditRouteImport.update({
     id: '/edit',
     path: '/edit',
     getParentRoute: () => AppAgentsAgentIdAutomationsJobIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/$jobId.edit.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute =
   AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRouteImport.update({
     id: '/projects/$projectId/sessions/$sessionId',
@@ -531,11 +503,7 @@ const AppAgentsAgentIdAutomationsJobIdRunsRunIdRoute =
     id: '/runs/$runId',
     path: '/runs/$runId',
     getParentRoute: () => AppAgentsAgentIdAutomationsJobIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/automations/$jobId.runs.$runId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute

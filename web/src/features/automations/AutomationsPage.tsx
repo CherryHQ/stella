@@ -25,7 +25,9 @@ export function AutomationsPage({ selectedKind, selectedId }: AutomationsPagePro
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
   const [searchText, setSearchText] = useState("");
-  const [isNewSchedule, setIsNewSchedule] = useState(false);
+  // The new-schedule form is driven by the URL (?new=schedule) so it survives
+  // reloads and back/forward; navigation away clears it.
+  const isNewSchedule = search.new === "schedule";
 
   const { data: goals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
@@ -78,7 +80,6 @@ export function AutomationsPage({ selectedKind, selectedId }: AutomationsPagePro
 
   const handleSelect = useCallback(
     (key: string) => {
-      setIsNewSchedule(false);
       const [kind, ...rest] = key.split(":");
       const id = rest.join(":");
       void navigate({ to: pathForItem(kind as ItemKind, id) });
@@ -86,24 +87,24 @@ export function AutomationsPage({ selectedKind, selectedId }: AutomationsPagePro
     [navigate, pathForItem],
   );
 
-  const handleNew = useCallback(() => setIsNewSchedule(true), []);
+  const handleNewTask = useCallback(() => {
+    void navigate({ to: `/agents/${agentId}/tasks/new` });
+  }, [navigate, agentId]);
+
+  const handleNewSchedule = useCallback(() => {
+    void navigate({ to: `/agents/${agentId}/tasks`, search: { new: "schedule" } });
+  }, [navigate, agentId]);
 
   const handleScheduleCreated = useCallback(
     (jobId: string) => {
-      setIsNewSchedule(false);
       void navigate({ to: pathForItem("schedule", jobId) });
     },
     [navigate, pathForItem],
   );
 
   const handleScheduleDeleted = useCallback(() => {
-    setIsNewSchedule(false);
     void navigate({ to: `/agents/${agentId}/tasks` });
   }, [navigate, agentId]);
-
-  useEffect(() => {
-    if (search.new === "schedule") setIsNewSchedule(true);
-  }, [search.new]);
 
   useEffect(() => {
     setHeaderTitle(
@@ -131,7 +132,8 @@ export function AutomationsPage({ selectedKind, selectedId }: AutomationsPagePro
         searchText={searchText}
         onSearch={setSearchText}
         onSelect={handleSelect}
-        onNew={handleNew}
+        onNewTask={handleNewTask}
+        onNewSchedule={handleNewSchedule}
       />
       <DetailPanel
         item={selectedItem}

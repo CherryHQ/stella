@@ -247,7 +247,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
         )}
       </div>
       <h2 className="mb-5 font-serif text-[22px] font-semibold tracking-tight leading-snug">
-        {mode === "create" ? t("hub.newAutomation") : job?.name}
+        {mode === "create" ? t("hub.newSchedule") : job?.name}
       </h2>
 
       {job && (

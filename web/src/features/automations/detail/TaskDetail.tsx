@@ -189,13 +189,14 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
                   </span>
                 )}
                 {run.session_id && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="link"
+                    size="xs"
                     onClick={() => openSession(run.session_id)}
-                    className="ml-auto text-[11px] text-primary hover:underline"
+                    className="ml-auto text-[11px] text-primary"
                   >
                     {t("scheduler.sessionLink")}
-                  </button>
+                  </Button>
                 )}
               </div>
             ))}
