@@ -672,6 +672,23 @@ func TestNotifyNoChatID(t *testing.T) {
 	}
 }
 
+func TestNotifyOpenIDRequiresResolvableUnionID(t *testing.T) {
+	bot := &Bot{cfg: Config{}}
+	err := bot.Notify(context.Background(), channel.Notification{ChatID: "ou_abc", Text: "hi"})
+	if err == nil {
+		t.Fatal("expected error when open_id cannot be resolved")
+	}
+	if !strings.Contains(err.Error(), "failed to resolve union_id") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "pass a union_id") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "lark-cli api GET /open-apis/contact/v3/users/ou_xxx --as bot") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 // TestReceiveIDTypeForChatID verifies that on_ (union_id), ou_ (open_id), and
 // oc_ (chat_id) prefixes are mapped to the correct Feishu receive_id_type.
 // This is critical because auto-provision stores union_id as ExternalID, so

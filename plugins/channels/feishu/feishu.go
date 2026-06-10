@@ -227,7 +227,8 @@ func (b *Bot) Platform() string { return channel.PlatformFeishu }
 
 // Notify sends a notification message. Implements channel.Channel.
 // Supports chat IDs (oc_ prefix), union IDs (on_ prefix), and open IDs (ou_ prefix).
-// Open IDs are promoted to union IDs via the Contact API before sending.
+// Open IDs are promoted to union IDs via the Contact API before sending; if
+// that fails, callers must pass a union ID instead because open IDs are app-scoped.
 // When the text contains {{button ...}} directives, sends an interactive card
 // so buttons render as clickable elements; otherwise sends plain text.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
@@ -239,13 +240,13 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	// Strip channel prefix if present.
 	chatID = strings.TrimPrefix(chatID, "feishu:")
 
-	// Promote open_id to union_id when possible so we use the stable ID.
+	// Promote open_id to union_id so we use the stable cross-app ID.
 	if strings.HasPrefix(chatID, "ou_") {
 		if unionID := b.resolveUnionID(ctx, chatID); unionID != "" {
 			logger().Debug("notify: promoted open_id to union_id", "open_id", chatID, "union_id", unionID)
 			chatID = unionID
 		} else {
-			logger().Debug("notify: failed to resolve union_id, falling back to open_id", "open_id", chatID)
+			return fmt.Errorf("feishu: notify: failed to resolve union_id for open_id %q; pass a union_id (on_...) instead because open_id is app-scoped; get the unique union_id with: lark-cli api GET /open-apis/contact/v3/users/ou_xxx --as bot --params '{\"user_id_type\":\"open_id\"}' --format json", chatID)
 		}
 	}
 

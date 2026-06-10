@@ -36,7 +36,7 @@ var notifyInputSchema = map[string]any{
 		},
 		"chat_id": map[string]any{
 			"type":        "string",
-			"description": "Target chat/channel within the backend. Usually omit this in user conversations so Stella can resolve the linked identity automatically.",
+			"description": "Target chat/channel within the backend. Usually omit this in user conversations so Stella can resolve the linked identity automatically. Never invent IDs. For Feishu, use a union_id (on_...) for a person; use a chat_id (oc_...) only when it was explicitly provided or came from the current message context and the bot is in that chat.",
 		},
 		"silent": map[string]any{
 			"type":        "boolean",
@@ -49,7 +49,7 @@ var notifyInputSchema = map[string]any{
 func (t *notifyTool) Definition() pkgtools.Definition {
 	return pkgtools.Definition{
 		Name:        "notify",
-		Description: "Send a notification message to the user. In normal user conversations, omit 'channel' and 'chat_id' so Stella routes via the current user's linked identities automatically. Supported backends: telegram, feishu, qq, weixin. To target a specific recipient, set 'channel' to the backend and 'chat_id' to that backend's target ID (e.g. a Feishu open_id 'ou_...', union_id 'on_...', or group chat_id 'oc_...'). Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
+		Description: "Send a notification message to the user. In normal user conversations, omit 'channel' and 'chat_id' so Stella routes via the current user's linked identities automatically. Supported backends: telegram, feishu, qq, weixin. To target a specific recipient, set 'channel' to the backend and 'chat_id' to a real backend target ID; never guess or fabricate IDs. For Feishu person targets, pass a union_id 'on_...' (you can use lark-cli with bot identity to get it). Feishu open_id 'ou_...' is app-scoped and may fail; Feishu chat_id 'oc_...' is only for a real chat where the bot is already a member. Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
 		InputSchema: notifyInputSchema,
 	}
 }
