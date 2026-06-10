@@ -1,7 +1,7 @@
 /*
  * Invariant style layer: Tailwind setup, @theme inline mapping, and base
  * engineering styles. Theme values live in tokens.css — swap themes there,
- * not here. See web/AGENTS.md § Theming.
+ * not here. See content/docs/development/rules/web-theming.md.
  */
 @import "./tokens.css";
 @import "tailwindcss";

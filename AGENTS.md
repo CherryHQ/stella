@@ -23,6 +23,8 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | sqlc queries     | `sqlc.md`            | Writing or editing SQL query files         |
 | API design       | `api-design.md`      | Designing or changing any HTTP API         |
 | CLI design       | `cli-design.md`      | Designing or changing any CLI command      |
+| Web UI           | `web-ui.md`          | Building or reviewing any web UI           |
+| Web theming      | `web-theming.md`     | Changing the web visual style or tokens    |
 | Documentation    | `doc-style.md`       | Writing or editing user/developer docs     |
 | Web UI testing   | `web-ui-test.md`     | Testing the web UI with browser automation |
 | Project tracking | `project-tracker.md` | Managing GitHub issues and project board   |
