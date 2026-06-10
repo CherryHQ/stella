@@ -122,6 +122,7 @@ export interface ToolResult {
 }
 
 export interface Message {
+  id?: string;
   role: "user" | "assistant" | "tool";
   content?: string;
   blocks?: ContentBlock[];
@@ -129,6 +130,7 @@ export interface Message {
   timestamp: string;
   token_count?: number;
   model?: string;
+  streaming?: boolean;
 }
 
 export interface AgentSandbox {

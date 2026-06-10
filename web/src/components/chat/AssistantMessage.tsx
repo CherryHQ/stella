@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
@@ -64,7 +64,14 @@ export function AssistantMessage({
           if (item.type === "text") {
             return <BlockRenderer key={gi} block={item.block} />;
           } else {
-            return <StepsGroup key={gi} blocks={item.blocks} streaming={streaming} />;
+            const hasFinalOutputAfter = grouped.slice(gi + 1).some((next) => next.type === "text");
+            return (
+              <StepsGroup
+                key={gi}
+                blocks={item.blocks}
+                active={Boolean(streaming && !hasFinalOutputAfter)}
+              />
+            );
           }
         })}
         {blocks.length === 0 && streaming && (
@@ -137,14 +144,18 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
   return null;
 }
 
-function StepsGroup({ blocks, streaming }: { blocks: ContentBlock[]; streaming?: boolean }) {
-  const hasRunning = streaming || blocks.some((b) => b.type === "tool_call" && !b.result);
+function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolean }) {
+  const hasRunning = active || blocks.some((b) => b.type === "tool_call" && !b.result);
   const [expanded, setExpanded] = useState(hasRunning);
+  const wasRunningRef = useRef(hasRunning);
 
   useEffect(() => {
     if (hasRunning) {
       setExpanded(true);
+    } else if (wasRunningRef.current) {
+      setExpanded(false);
     }
+    wasRunningRef.current = hasRunning;
   }, [hasRunning]);
 
   const labelText = hasRunning
