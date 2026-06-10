@@ -24,15 +24,20 @@ import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import {
   DetailPanel,
   DetailPanelHeader,
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
+import {
+  SettingsCard,
+  SettingsCardSection,
+  SettingsDetailSheet,
+  SettingsGridPage,
+} from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { AdminChannelListPanel, PublicChannelListPanel } from "./ChannelListPanel";
+import { MessageCircle, Plus } from "lucide-react";
+import { siQq, siTelegram, siWechat } from "simple-icons";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
@@ -64,6 +69,24 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
 
 const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({ id, label: meta.label }));
 const defaultChannelType = channelTypes[0]?.id || "";
+
+const PLATFORM_ICON_PATHS: Record<string, string> = {
+  telegram: siTelegram.path,
+  qq: siQq.path,
+  weixin: siWechat.path,
+};
+
+// PlatformIcon shows a brand mark for known chat platforms, else a generic
+// message glyph (e.g. Feishu, which simple-icons doesn't carry).
+function PlatformIcon({ type }: { type: string }) {
+  const path = PLATFORM_ICON_PATHS[type];
+  if (!path) return <MessageCircle className="size-4" />;
+  return (
+    <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
 
 function parseConfig(raw: string): Record<string, unknown> {
   try {
@@ -670,6 +693,7 @@ function PublicChannelDetail({
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export function ChannelsPage() {
+  const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
   const navigate = useNavigate();
@@ -710,11 +734,6 @@ export function ChannelsPage() {
   const selectedPublicChannel = useMemo(
     () => (!isAdmin && channelId ? publicChannels.find((ch) => ch.type === channelId) : undefined),
     [isAdmin, channelId, publicChannels],
-  );
-
-  const linkedPlatforms = useMemo(
-    () => new Set(linkedIdentities.map((i) => i.platform)),
-    [linkedIdentities],
   );
 
   // ── helpers ──
@@ -1031,49 +1050,133 @@ export function ChannelsPage() {
     );
   }
 
-  // ── build list pane ──
+  // ── build card grid ──
 
-  const listPane = isAdmin ? (
-    isLoading ? (
-      <div className="flex justify-center py-8">
-        <Spinner className="size-4" />
-      </div>
-    ) : (
-      <AdminChannelListPanel
-        channels={instances}
-        selectedId={channelId}
-        onSelect={(id) =>
-          void navigate({ to: "/settings/channels/$channelId", params: { channelId: id } })
-        }
-        onNew={() =>
-          void navigate({ to: "/settings/channels/$channelId", params: { channelId: "new" } })
-        }
-      />
-    )
-  ) : (
-    <PublicChannelListPanel
-      channels={publicChannels}
-      linkedPlatforms={linkedPlatforms}
-      selectedId={channelId}
-      onSelect={(type) =>
-        void navigate({ to: "/settings/channels/$channelId", params: { channelId: type } })
-      }
-    />
-  );
+  const sheetOpen = isCreating || !!selectedChannel || !!selectedPublicChannel;
+  const closeSheet = () => void navigate({ to: "/settings/channels" });
 
-  const emptyMessage = isAdmin ? "No channels configured" : "No channels available";
-  const emptyDescription = isAdmin
-    ? "Add a channel to connect your messaging platform."
-    : "An admin needs to enable channel plugins first.";
+  // Admin instances, grouped by platform (the instances list is already sorted
+  // default-instance-first within each type).
+  const adminGroups = Object.values(
+    instances.reduce<Record<string, { type: string; label: string; items: NormalizedChannel[] }>>(
+      (acc, ch) => {
+        (acc[ch.type] ??= {
+          type: ch.type,
+          label: platformMeta[ch.type]?.label || ch.type,
+          items: [],
+        }).items.push(ch);
+        return acc;
+      },
+      {},
+    ),
+  ).sort((a, b) => a.label.localeCompare(b.label));
 
   return (
     <>
-      <SettingsDetailLayout
-        list={listPane}
-        detail={detail}
-        emptyState={<SettingsEmptyState message={emptyMessage} description={emptyDescription} />}
-        onBack={() => void navigate({ to: "/settings/channels" })}
-      />
+      <SettingsGridPage
+        title={t("channels.title")}
+        action={
+          isAdmin ? (
+            <Button
+              onClick={() =>
+                void navigate({
+                  to: "/settings/channels/$channelId",
+                  params: { channelId: "new" },
+                })
+              }
+              variant="outline"
+              size="sm"
+            >
+              <Plus className="size-4" />
+              {t("channels.addChannel")}
+            </Button>
+          ) : undefined
+        }
+      >
+        {isAdmin ? (
+          isLoading ? (
+            <div className="flex justify-center py-8">
+              <Spinner className="size-4" />
+            </div>
+          ) : (
+            adminGroups.map((group) => (
+              <SettingsCardSection
+                key={group.type}
+                icon={<PlatformIcon type={group.type} />}
+                title={group.label}
+                count={group.items.length}
+              >
+                {group.items.map((ch) => {
+                  const platformLabel = platformMeta[ch.type]?.label || ch.type;
+                  const isDefault = ch.id === ch.type;
+                  return (
+                    <SettingsCard
+                      key={ch.id}
+                      icon={<PlatformIcon type={ch.type} />}
+                      title={ch.name || platformLabel}
+                      badge={
+                        isDefault ? (
+                          <Badge variant="secondary" size="sm">
+                            default
+                          </Badge>
+                        ) : undefined
+                      }
+                      active={channelId === ch.id}
+                      onClick={() =>
+                        void navigate({
+                          to: "/settings/channels/$channelId",
+                          params: { channelId: ch.id },
+                        })
+                      }
+                      footer={
+                        <>
+                          <span
+                            className={`size-1.5 shrink-0 rounded-full ${
+                              ch.enabled ? "bg-green-500" : "bg-muted-foreground"
+                            }`}
+                          />
+                          <span className="font-mono text-xs text-muted-foreground">{ch.id}</span>
+                        </>
+                      }
+                    />
+                  );
+                })}
+              </SettingsCardSection>
+            ))
+          )
+        ) : (
+          <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
+            {publicChannels.map((ch) => {
+              const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
+              const linked = isLinked(ch.type);
+              return (
+                <SettingsCard
+                  key={ch.type}
+                  icon={<PlatformIcon type={ch.type} />}
+                  title={platformLabel}
+                  active={channelId === ch.type}
+                  onClick={() =>
+                    void navigate({
+                      to: "/settings/channels/$channelId",
+                      params: { channelId: ch.type },
+                    })
+                  }
+                  footer={
+                    <Badge size="sm" variant={linked ? "success" : "secondary"}>
+                      {linked ? "linked" : "not linked"}
+                    </Badge>
+                  }
+                />
+              );
+            })}
+          </SettingsCardSection>
+        )}
+      </SettingsGridPage>
+
+      <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
+        {detail}
+      </SettingsDetailSheet>
+
       <ToastContainer messages={toasts} />
     </>
   );
