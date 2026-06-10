@@ -2,6 +2,13 @@ import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
+import { MoreHorizontal } from "lucide-react";
 
 // SettingsGridPage is the full-width, scrollable shell shared by the card-grid
 // settings pages: a title row with an optional action, then stacked sections.
@@ -138,6 +145,99 @@ export function SettingsCard({
         <div className="flex items-center gap-1.5 border-t border-border pt-2.5">{footer}</div>
       )}
     </Card>
+  );
+}
+
+// SettingsList is a bordered container of divided rows — the dense, uniform
+// alternative to a card grid for connection/account/secret lists.
+export function SettingsList({ children }: { children: ReactNode }) {
+  return (
+    <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+      {children}
+    </div>
+  );
+}
+
+export interface RowAction {
+  label: string;
+  onClick: () => void;
+  destructive?: boolean;
+  disabled?: boolean;
+}
+
+// SettingsRow is one compact list row: icon, title (+ chip), a one-line subtitle,
+// a status pill, an optional primary action, and an overflow menu for the rest.
+// The action cluster wraps below the title on narrow screens (mobile).
+export function SettingsRow({
+  icon,
+  title,
+  chip,
+  subtitle,
+  status,
+  primary,
+  menu,
+  onClick,
+}: {
+  icon?: ReactNode;
+  title: ReactNode;
+  chip?: ReactNode;
+  subtitle?: ReactNode;
+  status?: ReactNode;
+  primary?: ReactNode;
+  menu?: RowAction[];
+  onClick?: () => void;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 ${
+        onClick ? "cursor-pointer hover:bg-muted/40" : ""
+      }`}
+    >
+      {icon && (
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-muted text-muted-foreground">
+          {icon}
+        </span>
+      )}
+      <div className="min-w-0 flex-1 basis-44">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-medium text-foreground">{title}</span>
+          {chip}
+        </div>
+        {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
+      </div>
+      <div
+        className="ml-auto flex items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        {status}
+        {primary}
+        {menu && menu.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label="More actions"
+              className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground"
+            >
+              <MoreHorizontal className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {menu.map((action) => (
+                <DropdownMenuItem
+                  key={action.label}
+                  disabled={action.disabled}
+                  variant={action.destructive ? "destructive" : "default"}
+                  onClick={action.onClick}
+                >
+                  {action.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    </div>
   );
 }
 

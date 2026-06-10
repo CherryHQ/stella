@@ -23,11 +23,19 @@ import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
 import {
-  SettingsCard,
+  SettingsDetailSheet,
   SettingsGridPage,
+  SettingsList,
+  SettingsRow,
   SettingsSection,
 } from "@/features/settings/SettingsCardGrid";
-import { KeyRound, Mail, Plug, Plus } from "lucide-react";
+import type { RowAction } from "@/features/settings/SettingsCardGrid";
+import {
+  DetailPanel,
+  DetailPanelHeader,
+  FormSectionTitle,
+} from "@/features/settings/SettingsDetailPanel";
+import { KeyRound, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
 
 const SIMPLE_ICON_PATHS: Record<string, string> = {
@@ -65,7 +73,7 @@ export function CredentialsPage() {
   const [oauthFlow, setOauthFlow] = useState<Record<string, OAuthFlow | null>>({});
   const [oauthFlowActive, setOauthFlowActive] = useState<Record<string, boolean>>({});
 
-  const [configOpen, setConfigOpen] = useState<Record<string, boolean>>({});
+  const [sheetProvider, setSheetProvider] = useState<string | null>(null);
   const [configValues, setConfigValues] = useState<
     Record<string, { clientId: string; clientSecret: string; redirectUrl: string }>
   >({});
@@ -322,6 +330,150 @@ export function CredentialsPage() {
   );
 
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
+  const sheetProviderData = sheetProvider
+    ? oauthProviders.find((p) => p.provider === sheetProvider)
+    : undefined;
+
+  function statusBadge(p: OAuthProvider) {
+    const status = oauthStatus[p.provider];
+    if (status === "connected")
+      return (
+        <Badge variant="success" size="sm">
+          Connected
+        </Badge>
+      );
+    if (!p.available)
+      return (
+        <Badge variant="warning" size="sm">
+          Setup required
+        </Badge>
+      );
+    if (status === "checking")
+      return (
+        <Badge variant="outline" size="sm">
+          Checking
+        </Badge>
+      );
+    return (
+      <Badge variant="secondary" size="sm">
+        Ready
+      </Badge>
+    );
+  }
+
+  const sp = sheetProviderData;
+  const spConnected = sp ? oauthStatus[sp.provider] === "connected" : false;
+  const spFlow = sp ? oauthFlow[sp.provider] : null;
+  const providerSheet = sp ? (
+    <DetailPanel>
+      <DetailPanelHeader title={sp.provider} subtitle={statusBadge(sp)} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        {sp.available && !spConnected && (
+          <Button
+            size="sm"
+            loading={oauthFlowActive[sp.provider]}
+            onClick={() => connectOAuth(sp.provider)}
+          >
+            Connect
+          </Button>
+        )}
+        {spConnected && sp.available && (
+          <Button
+            size="sm"
+            variant="destructive-outline"
+            className="text-destructive hover:bg-destructive/10"
+            onClick={() => disconnectOAuth(sp.provider)}
+          >
+            Disconnect
+          </Button>
+        )}
+      </div>
+
+      {spFlow && (
+        <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
+          <p className="font-semibold">Authorize stella:</p>
+          <a
+            href={spFlow.verification_uri}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 block break-all font-mono text-xs text-primary underline"
+          >
+            {spFlow.verification_uri}
+          </a>
+          {spFlow.user_code && (
+            <p className="mt-1 font-medium">
+              Code: <span className="font-mono font-bold text-foreground">{spFlow.user_code}</span>
+            </p>
+          )}
+          <p className="mt-1 text-[11px] text-muted-foreground">Waiting for authorization…</p>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="space-y-3 border-t border-border pt-4">
+          <FormSectionTitle>OAuth app</FormSectionTitle>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Client ID</label>
+            <Input
+              type="text"
+              value={configValues[sp.provider]?.clientId ?? ""}
+              onChange={(e) =>
+                setConfigValues((prev) => ({
+                  ...prev,
+                  [sp.provider]: { ...prev[sp.provider], clientId: e.target.value },
+                }))
+              }
+              placeholder="OAuth app client ID"
+              autoComplete="off"
+              nativeInput
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Client Secret</label>
+            <Input
+              type="password"
+              value={configValues[sp.provider]?.clientSecret ?? ""}
+              onChange={(e) =>
+                setConfigValues((prev) => ({
+                  ...prev,
+                  [sp.provider]: { ...prev[sp.provider], clientSecret: e.target.value },
+                }))
+              }
+              placeholder={
+                hasExistingSecret[sp.provider]
+                  ? "Keep existing secret"
+                  : sp.configured
+                    ? "Configured"
+                    : "OAuth app client secret"
+              }
+              autoComplete="new-password"
+              nativeInput
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            {sp.configured && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:bg-destructive/10"
+                onClick={() => deleteProviderConfig(sp.provider)}
+              >
+                Reset
+              </Button>
+            )}
+            <Button
+              size="sm"
+              loading={configSaving[sp.provider]}
+              onClick={() => saveProviderConfig(sp.provider)}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
+    </DetailPanel>
+  ) : null;
 
   return (
     <>
@@ -331,201 +483,75 @@ export function CredentialsPage() {
           title={t("credentials.tab.oauth")}
           count={oauthProviders.length}
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            {oauthProviders.map((p) => {
-              const status = oauthStatus[p.provider];
-              const connected = status === "connected";
-              const ready = p.available && !connected;
-              const needsSetup = !p.available;
-              const statusLabel = connected
-                ? "Connected"
-                : ready
-                  ? "Ready"
-                  : needsSetup
-                    ? "Setup required"
-                    : "Checking";
-              const statusVariant = connected ? "success" : ready ? "secondary" : "outline";
-              const clientId = configValues[p.provider]?.clientId ?? "";
-              const clientIdPreview =
-                clientId.length > 12 ? `${clientId.slice(0, 6)}...${clientId.slice(-4)}` : clientId;
-              const appLabel = p.configured
-                ? clientIdPreview
-                  ? clientIdPreview
-                  : "Configured"
-                : "Not configured";
-              const accountLabel = connected
-                ? "Connected"
-                : status === "checking"
-                  ? "Checking"
-                  : "Not connected";
+          {oauthProviders.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No OAuth providers available.</p>
+          ) : (
+            <SettingsList>
+              {oauthProviders.map((p) => {
+                const status = oauthStatus[p.provider];
+                const connected = status === "connected";
+                const ready = p.available && !connected;
+                const needsSetup = !p.available;
+                const clientId = configValues[p.provider]?.clientId ?? "";
+                const clientIdPreview =
+                  clientId.length > 12 ? `${clientId.slice(0, 6)}…${clientId.slice(-4)}` : clientId;
+                const subtitle = !p.configured
+                  ? "App not configured"
+                  : connected
+                    ? clientIdPreview
+                      ? `Connected · ${clientIdPreview}`
+                      : "Connected"
+                    : `${clientIdPreview || "Configured"} · not connected`;
 
-              return (
-                <SettingsCard
-                  key={p.provider}
-                  icon={<ProviderIcon icon={p.icon} label={p.provider} />}
-                  title={p.provider}
-                  action={
-                    <Badge variant={statusVariant} size="sm">
-                      {statusLabel}
-                    </Badge>
-                  }
-                >
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <div>
-                      <span className="text-foreground font-medium">App:</span> {appLabel}
-                    </div>
-                    <div>
-                      <span className="text-foreground font-medium">Account:</span> {accountLabel}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {ready ? (
-                      <Button
-                        size="sm"
-                        loading={oauthFlowActive[p.provider]}
-                        onClick={() => connectOAuth(p.provider)}
-                        className="cursor-pointer"
-                      >
-                        Connect
-                      </Button>
-                    ) : connected && p.available ? (
-                      <Button
-                        size="sm"
-                        variant="destructive-outline"
-                        className="text-destructive hover:bg-destructive/10 cursor-pointer"
-                        onClick={() => disconnectOAuth(p.provider)}
-                      >
-                        Disconnect
-                      </Button>
-                    ) : null}
-                    {isAdmin && (
-                      <Button
-                        size="sm"
-                        variant={needsSetup ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() =>
-                          setConfigOpen((prev) => ({
-                            ...prev,
-                            [p.provider]: !prev[p.provider],
-                          }))
-                        }
-                      >
-                        {configOpen[p.provider] ? "Hide app" : needsSetup ? "Set up" : "Edit app"}
-                      </Button>
-                    )}
-                  </div>
-                  {configOpen[p.provider] && (
-                    <div className="border-t border-border pt-3 space-y-3">
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-muted-foreground">
-                            Client ID
-                          </label>
-                          <Input
-                            type="text"
-                            value={configValues[p.provider]?.clientId ?? ""}
-                            onChange={(e) =>
-                              setConfigValues((prev) => ({
-                                ...prev,
-                                [p.provider]: {
-                                  ...prev[p.provider],
-                                  clientId: e.target.value,
-                                },
-                              }))
-                            }
-                            placeholder={p.configured ? appLabel : "OAuth app client ID"}
-                            autoComplete="off"
-                            nativeInput
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-muted-foreground">
-                            Client Secret
-                          </label>
-                          <Input
-                            type="password"
-                            value={configValues[p.provider]?.clientSecret ?? ""}
-                            onChange={(e) =>
-                              setConfigValues((prev) => ({
-                                ...prev,
-                                [p.provider]: {
-                                  ...prev[p.provider],
-                                  clientSecret: e.target.value,
-                                },
-                              }))
-                            }
-                            placeholder={
-                              hasExistingSecret[p.provider]
-                                ? "Keep existing secret"
-                                : p.configured
-                                  ? "Configured"
-                                  : "OAuth app client secret"
-                            }
-                            autoComplete="new-password"
-                            nativeInput
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 pt-1.5 justify-end">
-                        {p.configured && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-destructive hover:bg-destructive/10 cursor-pointer"
-                            onClick={() => deleteProviderConfig(p.provider)}
-                          >
-                            Reset
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          loading={configSaving[p.provider]}
-                          onClick={() => saveProviderConfig(p.provider)}
-                          className="cursor-pointer"
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  {oauthFlow[p.provider] && (
-                    <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
-                      <p className="font-semibold">Authorize stella:</p>
-                      <a
-                        href={oauthFlow[p.provider]!.verification_uri}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-mono text-xs break-all text-primary underline block mt-1"
-                      >
-                        {oauthFlow[p.provider]!.verification_uri}
-                      </a>
-                      {oauthFlow[p.provider]!.user_code && (
-                        <p className="mt-1 font-medium">
-                          Code:{" "}
-                          <span className="font-mono font-bold text-foreground">
-                            {oauthFlow[p.provider]!.user_code}
-                          </span>
-                        </p>
-                      )}
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        Waiting for authorization…
-                      </p>
-                    </div>
-                  )}
-                </SettingsCard>
-              );
-            })}
-            {oauthProviders.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No OAuth providers available.
-              </p>
-            )}
-          </div>
+                const menu: RowAction[] = [];
+                if (isAdmin)
+                  menu.push({ label: "Edit app", onClick: () => setSheetProvider(p.provider) });
+                if (connected && p.available)
+                  menu.push({
+                    label: "Disconnect",
+                    destructive: true,
+                    onClick: () => void disconnectOAuth(p.provider),
+                  });
+
+                let primary: React.ReactNode = undefined;
+                if (needsSetup && isAdmin) {
+                  primary = (
+                    <Button size="sm" onClick={() => setSheetProvider(p.provider)}>
+                      Set up
+                    </Button>
+                  );
+                } else if (ready) {
+                  primary = (
+                    <Button
+                      size="sm"
+                      loading={oauthFlowActive[p.provider]}
+                      onClick={() => {
+                        setSheetProvider(p.provider);
+                        void connectOAuth(p.provider);
+                      }}
+                    >
+                      Connect
+                    </Button>
+                  );
+                }
+
+                return (
+                  <SettingsRow
+                    key={p.provider}
+                    icon={<ProviderIcon icon={p.icon} label={p.provider} />}
+                    title={p.provider}
+                    subtitle={subtitle}
+                    status={statusBadge(p)}
+                    primary={primary}
+                    menu={menu}
+                  />
+                );
+              })}
+            </SettingsList>
+          )}
         </SettingsSection>
 
-        <SettingsSection icon={<Mail className="size-4" />} title={t("credentials.tab.email")}>
-          <EmailAccountsPanel showToast={showToast} />
-        </SettingsSection>
+        <EmailAccountsPanel showToast={showToast} />
 
         <SettingsSection
           icon={<KeyRound className="size-4" />}
@@ -645,6 +671,11 @@ export function CredentialsPage() {
           )}
         </SettingsSection>
       </SettingsGridPage>
+
+      <SettingsDetailSheet open={!!sheetProvider} onClose={() => setSheetProvider(null)}>
+        {providerSheet}
+      </SettingsDetailSheet>
+
       <ToastContainer messages={toasts} />
     </>
   );
