@@ -74,9 +74,7 @@ function uiMessagesToTranscriptMessages(
         role: "assistant",
         content: text,
         blocks: partsToBlocks(msg.parts),
-        streaming: msg.parts.some(
-          (p) => p.type === "text" && (p as Record<string, unknown>).state === "streaming",
-        ),
+        streaming: msg.parts.some((p) => (p as Record<string, unknown>).state === "streaming"),
       });
       continue;
     }
@@ -103,9 +101,7 @@ function uiMessagesToTranscriptMessages(
         blocks: partsToBlocks(stepParts),
         agentName,
         agentId,
-        streaming: stepParts.some(
-          (p) => p.type === "text" && (p as Record<string, unknown>).state === "streaming",
-        ),
+        streaming: stepParts.some((p) => (p as Record<string, unknown>).state === "streaming"),
       });
     }
   }

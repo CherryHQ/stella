@@ -274,11 +274,13 @@ export function uiMessageToMessage(m: UIMessage): Message {
   const meta = (m.metadata ?? {}) as Record<string, unknown>;
 
   return {
+    id: m.id,
     role: m.role === "system" ? "assistant" : m.role,
     content: content || undefined,
     blocks: blocks.length > 0 ? blocks : undefined,
-    timestamp: (meta.timestamp as string) || new Date().toISOString(),
+    timestamp: (meta.timestamp as string) || "",
     token_count: meta.token_count as number | undefined,
     model: meta.model as string | undefined,
+    streaming: m.parts.some((p) => (p as Record<string, unknown>).state === "streaming"),
   };
 }

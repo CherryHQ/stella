@@ -299,6 +299,7 @@ export function SessionDetail({
             onScroll={handleTranscriptScroll}
             agentId={agentId}
             sessionId={sessionId}
+            activeStreaming={isStreaming}
           />
 
           {/* Message input */}

@@ -10,10 +10,11 @@ interface Props {
   onScroll: () => void;
   agentId: string;
   sessionId: string;
+  activeStreaming?: boolean;
 }
 
 export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
-  { messages, messagesLoading, onScroll, agentId, sessionId },
+  { messages, messagesLoading, onScroll, agentId, sessionId, activeStreaming },
   ref,
 ) {
   const { data: agents = [] } = useQuery(agentsQueryOptions);
@@ -22,8 +23,11 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
   const transcriptMessages = useMemo((): TranscriptMessage[] => {
     const filtered = messages.filter((m) => m.role !== "tool");
     const merged = mergeConsecutiveMessages(filtered);
+    const lastAssistantIndex = activeStreaming
+      ? merged.findLastIndex((m) => m.role === "assistant")
+      : -1;
     return merged.map((msg, i) => ({
-      id: `${msg.timestamp}-${msg.role}-${i}`,
+      id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,
       role: msg.role as "user" | "assistant",
       content: msg.content,
       timestamp: msg.timestamp,
@@ -32,8 +36,9 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
       blocks: msg.blocks ?? (msg.content ? [{ type: "text" as const, text: msg.content }] : []),
       model: msg.model,
       tokenCount: msg.token_count,
+      streaming: msg.streaming || i === lastAssistantIndex,
     }));
-  }, [messages, agentName, agentId]);
+  }, [messages, agentName, agentId, activeStreaming]);
 
   return (
     <ChatTranscript
@@ -71,8 +76,9 @@ function mergeConsecutiveMessages(messages: Message[]): Message[] {
         ...prev,
         blocks: mergedBlocks,
         token_count: (prev.token_count ?? 0) + (msg.token_count ?? 0),
-        timestamp: msg.timestamp,
+        timestamp: msg.timestamp || prev.timestamp,
         model: msg.model || prev.model,
+        streaming: prev.streaming || msg.streaming,
       };
     } else {
       const blocks = msg.blocks ?? [];
