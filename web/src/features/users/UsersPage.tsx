@@ -3,9 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { authUsersQueryOptions } from "@/lib/queries/users";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
-import { UserListPanel } from "./UserListPanel";
+import { Badge } from "@/components/ui/badge";
+import { SettingsDetailSheet, SettingsGridPage } from "@/features/settings/SettingsCardGrid";
 import { UserDetailPanel } from "./UserDetailPanel";
 
 export function UsersPage() {
@@ -17,24 +16,72 @@ export function UsersPage() {
 
   const { data: users = [] } = useQuery(authUsersQueryOptions);
 
+  const sorted = [...users].sort(
+    (a, b) =>
+      (a.name || a.email || "").localeCompare(b.name || b.email || "") || a.id.localeCompare(b.id),
+  );
+
   return (
     <>
-      <SettingsDetailLayout
-        list={
-          <UserListPanel
-            users={users}
-            selectedId={userId}
-            onSelect={(id) =>
-              void navigate({ to: "/settings/users/$userId", params: { userId: id } })
-            }
-          />
-        }
-        detail={userId ? <UserDetailPanel key={userId} userId={userId} /> : undefined}
-        emptyState={
-          <SettingsEmptyState message={t("users.noUsers")} description={t("users.noUsersDesc")} />
-        }
-        onBack={() => void navigate({ to: "/settings/users" })}
-      />
+      <SettingsGridPage title={t("users.title")}>
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40 text-left">
+                <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">
+                  {t("users.title")}
+                </th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">
+                  {t("users.role")}
+                </th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">
+                  {t("common.status")}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {sorted.map((u) => (
+                <tr
+                  key={u.id}
+                  onClick={() =>
+                    void navigate({ to: "/settings/users/$userId", params: { userId: u.id } })
+                  }
+                  className={`cursor-pointer hover:bg-muted/50 ${
+                    userId === u.id ? "bg-muted/60" : ""
+                  }`}
+                >
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-foreground">{u.name || u.email || u.id}</div>
+                    {u.email && u.name && (
+                      <div className="text-xs text-muted-foreground">{u.email}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant={u.role === "admin" ? "default" : "outline"} size="sm">
+                      {u.role}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span
+                        className={`size-1.5 rounded-full ${
+                          u.is_active ? "bg-green-500" : "bg-muted-foreground"
+                        }`}
+                      />
+                      {u.is_active ? t("users.active") : t("users.inactive")}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SettingsGridPage>
+
+      <SettingsDetailSheet open={!!userId} onClose={() => void navigate({ to: "/settings/users" })}>
+        {userId ? <UserDetailPanel key={userId} userId={userId} /> : null}
+      </SettingsDetailSheet>
+
       <ToastContainer messages={toasts} />
     </>
   );
