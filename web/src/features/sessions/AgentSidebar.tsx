@@ -504,8 +504,8 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                 active={isCur}
                 icon={
                   <span
-                    className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-white"
-                    style={{ background: getAgentColor(ag.id, idx).bg }}
+                    className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-primary-foreground"
+                    style={{ background: getAgentColor(ag.id, idx) }}
                   >
                     {ag.name[0]?.toUpperCase()}
                   </span>
