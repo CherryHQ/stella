@@ -22,7 +22,11 @@ import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
-import { SettingsGridPage, SettingsSection } from "@/features/settings/SettingsCardGrid";
+import {
+  SettingsCard,
+  SettingsGridPage,
+  SettingsSection,
+} from "@/features/settings/SettingsCardGrid";
 import { KeyRound, Mail, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
 
@@ -32,16 +36,11 @@ const SIMPLE_ICON_PATHS: Record<string, string> = {
 };
 
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
-  if (!icon) {
-    return <span className="size-4 shrink-0 rounded-full bg-muted" aria-hidden="true" />;
-  }
-  const [family, name] = icon.split(":");
+  const [family, name] = (icon ?? "").split(":");
   const path = family === "simpleicons" ? SIMPLE_ICON_PATHS[name?.toLowerCase()] : undefined;
-  if (!path) {
-    return <span className="size-4 shrink-0 rounded-full bg-muted" aria-hidden="true" />;
-  }
+  if (!path) return <Plug className="size-4" />;
   return (
-    <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="currentColor" aria-label={label}>
+    <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
       <path d={path} />
     </svg>
   );
@@ -361,17 +360,16 @@ export function CredentialsPage() {
                   : "Not connected";
 
               return (
-                <div
+                <SettingsCard
                   key={p.provider}
-                  className="rounded-xl border border-border bg-card p-5 space-y-3"
+                  icon={<ProviderIcon icon={p.icon} label={p.provider} />}
+                  title={p.provider}
+                  action={
+                    <Badge variant={statusVariant} size="sm">
+                      {statusLabel}
+                    </Badge>
+                  }
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <ProviderIcon icon={p.icon} label={p.provider} />
-                      <span className="text-sm font-medium">{p.provider}</span>
-                    </div>
-                    <Badge variant={statusVariant}>{statusLabel}</Badge>
-                  </div>
                   <div className="space-y-1 text-xs text-muted-foreground">
                     <div>
                       <span className="text-foreground font-medium">App:</span> {appLabel}
@@ -514,7 +512,7 @@ export function CredentialsPage() {
                       </p>
                     </div>
                   )}
-                </div>
+                </SettingsCard>
               );
             })}
             {oauthProviders.length === 0 && (
@@ -548,17 +546,17 @@ export function CredentialsPage() {
           {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
           {filteredVaultEntries.length > 0 && (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-xl border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground font-semibold">
+                  <tr className="border-b border-border bg-muted/40 text-left">
+                    <th className="px-4 py-2.5 font-mono text-xs font-semibold text-muted-foreground">
                       Name
                     </th>
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground font-semibold">
+                    <th className="px-4 py-2.5 font-mono text-xs font-semibold text-muted-foreground">
                       Created
                     </th>
-                    <th className="pb-2 text-left font-mono text-xs text-muted-foreground font-semibold">
+                    <th className="px-4 py-2.5 font-mono text-xs font-semibold text-muted-foreground">
                       Updated
                     </th>
                     <th></th>
@@ -567,14 +565,16 @@ export function CredentialsPage() {
                 <tbody className="divide-y divide-border">
                   {filteredVaultEntries.map((entry) => (
                     <tr key={entry.name}>
-                      <td className="py-2.5 font-mono text-foreground font-medium">{entry.name}</td>
-                      <td className="py-2.5 text-xs text-muted-foreground">
+                      <td className="px-4 py-2.5 font-mono font-medium text-foreground">
+                        {entry.name}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
                         {formatTime(entry.created_at)}
                       </td>
-                      <td className="py-2.5 text-xs text-muted-foreground">
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
                         {formatTime(entry.updated_at)}
                       </td>
-                      <td className="py-2.5 text-right">
+                      <td className="px-4 py-2.5 text-right">
                         <Button
                           size="xs"
                           variant="destructive-outline"

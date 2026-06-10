@@ -88,6 +88,7 @@ export function SettingsCard({
   footer,
   active,
   onClick,
+  children,
 }: {
   icon?: ReactNode;
   title: ReactNode;
@@ -97,6 +98,7 @@ export function SettingsCard({
   footer?: ReactNode;
   active?: boolean;
   onClick?: () => void;
+  children?: ReactNode;
 }) {
   return (
     <Card
@@ -131,6 +133,7 @@ export function SettingsCard({
           </span>
         )}
       </div>
+      {children}
       {footer && (
         <div className="flex items-center gap-1.5 border-t border-border pt-2.5">{footer}</div>
       )}

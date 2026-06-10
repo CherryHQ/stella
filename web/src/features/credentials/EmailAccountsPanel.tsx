@@ -7,6 +7,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingsCard } from "@/features/settings/SettingsCardGrid";
+import { Mail, Plus } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
 interface EmailAccount {
@@ -235,81 +237,65 @@ export function EmailAccountsPanel({
       {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
       {hasAccounts && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {Object.entries(config.accounts).map(([name, acct]) => {
             const isDefault = config.default === name;
             return (
-              <div
+              <SettingsCard
                 key={name}
-                className="min-w-0 rounded-xl border border-border bg-card p-5 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="size-4 text-muted-foreground"
+                icon={<Mail className="size-4" />}
+                title={<span className="font-mono">{name}</span>}
+                action={
+                  isDefault ? (
+                    <Badge variant="success" size="sm">
+                      {t("credentials.email.default")}
+                    </Badge>
+                  ) : undefined
+                }
+                footer={
+                  <div className="flex w-full items-center justify-end gap-2">
+                    {!isDefault && (
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => handleSetDefault(name)}
+                        loading={saving}
                       >
-                        <rect width="20" height="16" x="2" y="4" rx="2" />
-                        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                      </svg>
-                      <span className="min-w-0 truncate text-sm font-medium font-mono">{name}</span>
-                    </div>
-                    {isDefault && <Badge variant="success">{t("credentials.email.default")}</Badge>}
-                  </div>
-
-                  <div className="mt-4 space-y-2 text-xs text-muted-foreground">
-                    <div>
-                      <span className="text-foreground font-medium">From:</span> {acct.from}
-                    </div>
-                    <div>
-                      <span className="text-foreground font-medium">Username:</span> {acct.username}
-                    </div>
-                    <div>
-                      <span className="text-foreground font-medium">IMAP:</span> {acct.imap_host}:
-                      {acct.imap_port || 993} ({acct.imap_tls})
-                    </div>
-                    <div>
-                      <span className="text-foreground font-medium">SMTP:</span> {acct.smtp_host}:
-                      {acct.smtp_port || 587} ({acct.smtp_tls})
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-3">
-                  {!isDefault && (
+                        {t("credentials.email.setDefault")}
+                      </Button>
+                    )}
+                    <Button size="xs" variant="outline" onClick={() => handleEdit(name)}>
+                      {t("common.edit")}
+                    </Button>
                     <Button
                       size="xs"
-                      variant="ghost"
-                      className="cursor-pointer duration-120"
-                      onClick={() => handleSetDefault(name)}
+                      variant="destructive-outline"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => handleDelete(name)}
                       loading={saving}
                     >
-                      {t("credentials.email.setDefault")}
+                      {t("common.delete")}
                     </Button>
-                  )}
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="cursor-pointer duration-120"
-                    onClick={() => handleEdit(name)}
-                  >
-                    {t("common.edit")}
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="destructive-outline"
-                    className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
-                    onClick={() => handleDelete(name)}
-                    loading={saving}
-                  >
-                    {t("common.delete")}
-                  </Button>
+                  </div>
+                }
+              >
+                <div className="space-y-1.5 text-xs text-muted-foreground">
+                  <div>
+                    <span className="text-foreground font-medium">From:</span> {acct.from}
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">Username:</span> {acct.username}
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">IMAP:</span> {acct.imap_host}:
+                    {acct.imap_port || 993} ({acct.imap_tls})
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">SMTP:</span> {acct.smtp_host}:
+                    {acct.smtp_port || 587} ({acct.smtp_tls})
+                  </div>
                 </div>
-              </div>
+              </SettingsCard>
             );
           })}
         </div>
@@ -323,7 +309,8 @@ export function EmailAccountsPanel({
 
       {!formOpen ? (
         <div className="flex justify-end">
-          <Button size="sm" onClick={handleAdd} className="cursor-pointer duration-120">
+          <Button size="sm" variant="outline" onClick={handleAdd} className="cursor-pointer">
+            <Plus className="size-4" />
             {t("credentials.email.addAccount")}
           </Button>
         </div>
