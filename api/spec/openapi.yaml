@@ -164,6 +164,10 @@ paths:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}"
   /api/agents/{agentId}/sessions/{sessionId}/messages:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1messages"
+  /api/agents/{agentId}/sessions/{sessionId}/context-items:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1context-items"
+  /api/agents/{agentId}/sessions/{sessionId}/summaries/{summaryId}:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1summaries~1{summaryId}"
   /api/agents/{agentId}/sessions/{sessionId}/workspace:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1workspace"
   /api/agents/{agentId}/sessions/{sessionId}/workspace/files:

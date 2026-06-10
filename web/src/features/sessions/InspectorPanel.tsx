@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, FileText, Wrench } from "lucide-react";
-import { getSessionMessages, getSessionSystemPrompt, listTools } from "@/lib/api-client";
-import type { Message, Session, Tool, Workspace } from "@/lib/types";
+import { useQuery } from "@tanstack/react-query";
+import { getSessionSystemPrompt, listTools } from "@/lib/api-client";
+import type { Session, Tool, Workspace } from "@/lib/types";
+import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { WorkspacePanel } from "./WorkspacePanel";
@@ -109,38 +111,22 @@ function ContextMonitor({ session }: { agentID: string; session: Session | null 
     tools: false,
     prompt: false,
   });
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messagesLoading, setMessagesLoading] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [promptLoading, setPromptLoading] = useState(false);
   const [tools, setTools] = useState<Tool[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
 
+  const contextQuery = useQuery(
+    sessionContextItemsOptions(session?.agent_id ?? "", session?.id ?? ""),
+  );
+
   useEffect(() => {
     if (!session) {
-      setMessages([]);
       setSystemPrompt("");
       return;
     }
 
     let cancelled = false;
-    setMessagesLoading(true);
-    getSessionMessages({
-      path: { agentId: session.agent_id, sessionId: session.id },
-      query: { limit: 1000 },
-      throwOnError: true,
-    })
-      .then(({ data }) => {
-        if (!cancelled) setMessages((data?.messages as unknown as Message[] | undefined) ?? []);
-      })
-      .catch((e) => {
-        console.error(e);
-        if (!cancelled) setMessages([]);
-      })
-      .finally(() => {
-        if (!cancelled) setMessagesLoading(false);
-      });
-
     setPromptLoading(true);
     getSessionSystemPrompt({
       path: { agentId: session.agent_id, sessionId: session.id },
@@ -228,8 +214,8 @@ function ContextMonitor({ session }: { agentID: string; session: Session | null 
           {session && (
             <SessionContextCard
               session={session}
-              messages={messages}
-              messagesLoading={messagesLoading}
+              meta={contextQuery.data?.meta}
+              metaLoading={contextQuery.isLoading}
             />
           )}
         </ContextSectionCard>
@@ -287,18 +273,22 @@ function ContextSectionCard({
 
 function SessionContextCard({
   session,
-  messages,
-  messagesLoading,
+  meta,
+  metaLoading,
 }: {
   session: Session;
-  messages: Message[];
-  messagesLoading: boolean;
+  meta?: {
+    message_count: number;
+    source_token_count: number;
+    active_token_count: number;
+    summary_depth: number;
+  };
+  metaLoading: boolean;
 }) {
   const { t } = useI18n();
   const copyID = useCallback(() => {
     navigator.clipboard.writeText(session.id).catch(console.error);
   }, [session.id]);
-  const sessionTotalTokens = messages.reduce((sum, message) => sum + (message.token_count ?? 0), 0);
   const agentName = (session as Session & { agent_name?: string }).agent_name || session.agent_id;
 
   return (
@@ -326,13 +316,23 @@ function SessionContextCard({
           {t("sessions.inspector.messages")}
         </dt>
         <dd className="truncate text-foreground font-medium">
-          {messagesLoading ? "..." : messages.length.toLocaleString()}
+          {metaLoading ? "..." : (meta?.message_count ?? 0).toLocaleString()}
         </dd>
         <dt className="text-muted-foreground font-semibold text-[10px]">
           {t("sessions.inspector.tokens")}
         </dt>
         <dd className="truncate text-foreground font-medium">
-          {messagesLoading ? "..." : sessionTotalTokens.toLocaleString()}
+          {metaLoading
+            ? "..."
+            : `${(meta?.active_token_count ?? 0).toLocaleString()} / ${(meta?.source_token_count ?? 0).toLocaleString()}`}
+        </dd>
+        <dt className="text-muted-foreground font-semibold text-[10px]">
+          {t("sessions.inspector.longTerm")}
+        </dt>
+        <dd className="truncate text-foreground font-medium">
+          {metaLoading
+            ? "..."
+            : t("sessions.inspector.summaryDepth", { count: meta?.summary_depth ?? 0 })}
         </dd>
         <dt className="text-muted-foreground font-semibold text-[10px]">
           {t("sessions.inspector.sessionId")}

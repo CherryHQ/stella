@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
+import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import type { Message, Session } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -75,6 +76,9 @@ export function SessionDetail({
 
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
   const { data: inbox } = useQuery(inboxQueryOptions(agentId, 5));
+  const contextItemsQuery = useQuery(sessionContextItemsOptions(agentId, sessionId));
+  const hasContextSummaries =
+    contextItemsQuery.data?.items.some((item) => item.type === "summary") ?? false;
   const attentionItems = inbox?.items ?? [];
   const composerSkills = useMemo(
     () => [
@@ -104,7 +108,7 @@ export function SessionDetail({
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["session-messages", session?.id],
-    enabled: !!session,
+    enabled: !!session && contextItemsQuery.isSuccess && !hasContextSummaries,
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
@@ -330,6 +334,8 @@ export function SessionDetail({
             ref={transcriptRef}
             messages={messages}
             messagesLoading={messagesQuery.isLoading || messagesQuery.isFetchingNextPage}
+            contextItems={contextItemsQuery.data?.items}
+            contextLoading={contextItemsQuery.isLoading}
             onScroll={handleTranscriptScroll}
             agentId={agentId}
             sessionId={sessionId}

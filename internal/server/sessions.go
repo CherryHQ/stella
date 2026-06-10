@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -586,7 +587,22 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 	var rows []sqlc.CtxMessage
-	if limit > 0 {
+	switch {
+	case params.SeqFrom != nil || params.SeqTo != nil:
+		if params.SeqFrom == nil || params.SeqTo == nil || *params.SeqFrom <= 0 || *params.SeqTo < *params.SeqFrom {
+			writeError(w, http.StatusBadRequest, "invalid seq range")
+			return
+		}
+		rows, err = s.q.GetMessagesByConversationRange(r.Context(), sqlc.GetMessagesByConversationRangeParams{
+			ConversationID: conv.ID,
+			Seq:            int64(*params.SeqFrom),
+			Seq_2:          int64(*params.SeqTo),
+		})
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+	case limit > 0:
 		pageRows, err := s.q.ListMessagesByLogicalPage(r.Context(), sqlc.ListMessagesByLogicalPageParams{
 			ConversationID: conv.ID,
 			After:          nilIfStringPtr(params.After),
@@ -599,7 +615,7 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 			return
 		}
 		rows = logicalPageRowsToMessages(pageRows)
-	} else {
+	default:
 		var err error
 		rows, err = s.q.GetMessagesByConversation(r.Context(), conv.ID)
 		if err != nil {
@@ -610,6 +626,140 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	}
 
 	writeData(w, http.StatusOK, map[string]any{"messages": serializeDBMessages(rows)})
+}
+
+func (s *Server) GetSessionContextItems(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.GetSessionContextItemsParams) {
+	conv, ok := s.requireSessionConversation(w, r, agentID, sessionID)
+	if !ok {
+		return
+	}
+	pageSize := 100
+	if params.PageSize != nil && *params.PageSize > 0 {
+		pageSize = *params.PageSize
+	}
+	if pageSize > 500 {
+		pageSize = 500
+	}
+	offset, err := decodeOffsetToken(derefStr(params.PageToken))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid page token")
+		return
+	}
+	rows, err := s.q.ListContextItemsPage(r.Context(), sqlc.ListContextItemsPageParams{
+		ConversationID: conv.ID,
+		LimitCount:     int64(pageSize + 1),
+		OffsetCount:    int64(offset),
+	})
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	usingMessageFallback := false
+	if len(rows) == 0 {
+		messages, err := s.q.GetMessagesByConversation(r.Context(), conv.ID)
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		rows = contextRowsFromMessages(messages)
+		if offset < len(rows) {
+			rows = rows[offset:]
+		} else {
+			rows = nil
+		}
+		usingMessageFallback = true
+	}
+	stats, err := s.q.GetContextStats(r.Context(), conv.ID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	var nextPageToken *string
+	if len(rows) > pageSize {
+		rows = rows[:pageSize]
+		tok := encodeOffsetToken(offset + pageSize)
+		nextPageToken = &tok
+	}
+	items := make([]apitypes.SessionContextItem, 0, len(rows))
+	for _, row := range rows {
+		if item, ok := contextItemFromRow(row); ok {
+			items = append(items, item)
+		}
+	}
+	activeTokenCount := int(stats.ActiveTokenCount)
+	if usingMessageFallback {
+		activeTokenCount = int(stats.SourceTokenCount)
+	}
+	writeData(w, http.StatusOK, apitypes.SessionContextItemList{
+		Items: items,
+		Meta: apitypes.SessionContextMeta{
+			MessageCount:     int(stats.MessageCount),
+			SourceTokenCount: int(stats.SourceTokenCount),
+			ActiveTokenCount: activeTokenCount,
+			SummaryDepth:     int(stats.SummaryDepth),
+		},
+		NextPageToken: nextPageToken,
+	})
+}
+
+func (s *Server) GetSessionSummary(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, summaryID string) {
+	conv, ok := s.requireSessionConversation(w, r, agentID, sessionID)
+	if !ok {
+		return
+	}
+	summary, err := s.q.GetSummary(r.Context(), sqlc.GetSummaryParams{ID: summaryID, ConversationID: conv.ID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "summary not found")
+		} else {
+			s.writeInternalError(w, err)
+		}
+		return
+	}
+	children, err := s.q.GetSummaryChildren(r.Context(), summaryID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	seqRange, err := s.q.GetSummaryMessageSeqRange(r.Context(), summaryID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	resp := apitypes.SessionSummaryDetail{
+		Summary:  summaryToAPI(summary),
+		Children: make([]apitypes.SessionContextSummary, 0, len(children)),
+	}
+	for _, child := range children {
+		resp.Children = append(resp.Children, summaryToAPI(child))
+	}
+	if seqRange.MessageSeqFrom > 0 && seqRange.MessageSeqTo > 0 {
+		from := int(seqRange.MessageSeqFrom)
+		to := int(seqRange.MessageSeqTo)
+		resp.MessageSeqFrom = &from
+		resp.MessageSeqTo = &to
+	}
+	writeData(w, http.StatusOK, resp)
+}
+
+func (s *Server) requireSessionConversation(w http.ResponseWriter, r *http.Request, agentID, sessionID string) (sqlc.CtxConversation, bool) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return sqlc.CtxConversation{}, false
+	}
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
+		return sqlc.CtxConversation{}, false
+	}
+	userID := ""
+	if info := UserFromContext(r.Context()); info != nil {
+		userID = info.UserID
+	}
+	conv, err := s.q.GetConversationBySessionID(memoryContext(r, agentID), sqlc.GetConversationBySessionIDParams{SessionID: sessionID, UserID: sql.NullString{String: userID, Valid: true}, AgentID: sql.NullString{String: agentID, Valid: agentID != ""}})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session not found")
+		return sqlc.CtxConversation{}, false
+	}
+	return conv, true
 }
 
 // checkSessionAccess verifies the current user has access to the session.
@@ -1204,6 +1354,88 @@ func filterMessageRowsByTime(rows []sqlc.CtxMessage, after, before *string) []sq
 		filtered = append(filtered, row)
 	}
 	return filtered
+}
+
+func contextRowsFromMessages(messages []sqlc.CtxMessage) []sqlc.ListContextItemsPageRow {
+	rows := make([]sqlc.ListContextItemsPageRow, 0, len(messages))
+	for i, msg := range messages {
+		rows = append(rows, sqlc.ListContextItemsPageRow{
+			Ordinal:           int64(i + 1),
+			ItemType:          "message",
+			EventType:         msg.EventType,
+			MessageID:         sql.NullString{String: msg.ID, Valid: true},
+			MessageSeq:        sql.NullInt64{Int64: msg.Seq, Valid: true},
+			MessageRole:       sql.NullString{String: msg.Role, Valid: true},
+			MessageEventType:  sql.NullString{String: msg.EventType, Valid: true},
+			MessageContent:    sql.NullString{String: msg.Content, Valid: true},
+			MessageTokenCount: sql.NullInt64{Int64: msg.TokenCount, Valid: true},
+			MessageCreatedAt:  sql.NullString{String: msg.CreatedAt, Valid: true},
+		})
+	}
+	return rows
+}
+
+func contextItemFromRow(row sqlc.ListContextItemsPageRow) (apitypes.SessionContextItem, bool) {
+	item := apitypes.SessionContextItem{
+		Ordinal:   int(row.Ordinal),
+		EventType: nullableStringPtr(sql.NullString{String: row.EventType, Valid: row.EventType != ""}),
+	}
+	switch row.ItemType {
+	case "message":
+		if !row.MessageID.Valid || !row.MessageSeq.Valid || !row.MessageRole.Valid {
+			return item, false
+		}
+		content := nullableStringPtr(row.MessageContent)
+		eventType := nullableStringPtr(row.MessageEventType)
+		item.Type = apitypes.Message
+		item.Message = &apitypes.SessionContextMessage{
+			Id:         row.MessageID.String,
+			Seq:        int(row.MessageSeq.Int64),
+			Role:       row.MessageRole.String,
+			EventType:  eventType,
+			Content:    content,
+			Timestamp:  parseTime(row.MessageCreatedAt.String),
+			TokenCount: int(row.MessageTokenCount.Int64),
+		}
+		return item, true
+	case "summary":
+		if !row.SummaryID.Valid {
+			return item, false
+		}
+		item.Type = apitypes.Summary
+		item.Summary = &apitypes.SessionContextSummary{
+			Id:                      row.SummaryID.String,
+			Kind:                    row.SummaryKind.String,
+			Depth:                   int(row.SummaryDepth.Int64),
+			Content:                 row.SummaryContent.String,
+			TokenCount:              int(row.SummaryTokenCount.Int64),
+			EarliestAt:              parseTimePtr(row.SummaryEarliestAt),
+			LatestAt:                parseTimePtr(row.SummaryLatestAt),
+			DescendantCount:         int(row.SummaryDescendantCount.Int64),
+			DescendantTokenCount:    int(row.SummaryDescendantTokenCount.Int64),
+			SourceMessageTokenCount: int(row.SummarySourceMessageTokenCount.Int64),
+			CreatedAt:               parseTime(row.SummaryCreatedAt.String),
+		}
+		return item, true
+	default:
+		return item, false
+	}
+}
+
+func summaryToAPI(s sqlc.CtxSummary) apitypes.SessionContextSummary {
+	return apitypes.SessionContextSummary{
+		Id:                      s.ID,
+		Kind:                    s.Kind,
+		Depth:                   int(s.Depth),
+		Content:                 s.Content,
+		TokenCount:              int(s.TokenCount),
+		EarliestAt:              parseTimePtr(s.EarliestAt),
+		LatestAt:                parseTimePtr(s.LatestAt),
+		DescendantCount:         int(s.DescendantCount),
+		DescendantTokenCount:    int(s.DescendantTokenCount),
+		SourceMessageTokenCount: int(s.SourceMessageTokenCount),
+		CreatedAt:               parseTime(s.CreatedAt),
+	}
 }
 
 // serializeDBMessages converts raw DB message rows to JSON-friendly maps,
