@@ -1112,6 +1112,11 @@ const en = {
   "sessions.inspector.available": "{{count}} available",
   "sessions.inspector.loading": "Loading",
   "sessions.inspector.files": "Files",
+  "sessions.inspector.longTerm": "Long-term",
+  "sessions.inspector.summaryDepth": "{{count}} layers",
+  "sessions.epoch.summary": "Compacted epoch",
+  "sessions.epoch.messageCount": "{{count}} messages",
+  "sessions.epoch.originalMessages": "Original messages",
 
   // Sidebar (additions)
   "sessions.sidebar.projects": "Projects",
@@ -2348,6 +2353,11 @@ const zh: Record<MessageKey, string> = {
   "sessions.inspector.available": "{{count}} 个可用",
   "sessions.inspector.loading": "加载中",
   "sessions.inspector.files": "文件",
+  "sessions.inspector.longTerm": "长期层",
+  "sessions.inspector.summaryDepth": "{{count}} 层",
+  "sessions.epoch.summary": "折叠片段",
+  "sessions.epoch.messageCount": "{{count}} 条消息",
+  "sessions.epoch.originalMessages": "原始消息",
 
   // Sidebar (additions)
   "sessions.sidebar.projects": "项目",

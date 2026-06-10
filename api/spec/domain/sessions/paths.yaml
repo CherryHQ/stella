@@ -110,6 +110,19 @@ paths:
           in: query
           schema: { type: string }
           description: Only return messages created at or before this timestamp
+        - name: seq_from
+          in: query
+          schema: { type: integer, minimum: 1 }
+          description: >-
+            Only return messages with seq greater than or equal to this value.
+            Must be provided together with seq_to; when set, the seq range
+            takes precedence over limit/skip/after/before.
+        - name: seq_to
+          in: query
+          schema: { type: integer, minimum: 1 }
+          description: >-
+            Only return messages with seq less than or equal to this value.
+            Must be provided together with seq_from.
       responses:
         "200":
           description: ok
@@ -147,6 +160,58 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/agents/{agentId}/sessions/{sessionId}/context-items:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: List compacted context items for a session
+      operationId: getSessionContextItems
+      parameters:
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+        - name: page_token
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionContextItemList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/agents/{agentId}/sessions/{sessionId}/summaries/{summaryId}:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+      - { name: summaryId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get compacted summary detail for a session
+      operationId: getSessionSummary
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionSummaryDetail",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/agents/{agentId}/sessions/{sessionId}/workspace:
     parameters:

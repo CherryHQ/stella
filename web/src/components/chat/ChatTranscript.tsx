@@ -1,4 +1,4 @@
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useMemo, type ReactNode } from "react";
 import { useI18n } from "@/lib/i18n";
 import type { ContentBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,8 @@ interface Props {
   fileAgentId?: string;
   fileSessionId?: string;
   agentNames?: Map<string, string>;
+  /* Rendered inside the scroll container above the messages (e.g. epoch summaries). */
+  header?: ReactNode;
 }
 
 interface Annotated extends TranscriptMessage {
@@ -43,7 +45,7 @@ function annotate(messages: TranscriptMessage[]): Annotated[] {
 }
 
 export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTranscript(
-  { messages, loading, onScroll, fileAgentId, fileSessionId, agentNames },
+  { messages, loading, onScroll, fileAgentId, fileSessionId, agentNames, header },
   ref,
 ) {
   const { t } = useI18n();
@@ -63,7 +65,8 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
           </span>
         </div>
       )}
-      {messages.length === 0 && !loading && (
+      {header}
+      {messages.length === 0 && !loading && !header && (
         <div className="py-20 text-center">
           <p className="font-mono text-xs text-muted-foreground/60">
             {t("sessions.transcript.empty")}

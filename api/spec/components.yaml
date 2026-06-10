@@ -2208,6 +2208,130 @@ components:
           items:
             type: object
             additionalProperties: {}
+    SessionContextMeta:
+      type: object
+      required: [
+        message_count,
+        source_token_count,
+        active_token_count,
+        summary_depth,
+      ]
+      properties:
+        message_count:
+          type: integer
+        source_token_count:
+          type: integer
+        active_token_count:
+          type: integer
+        summary_depth:
+          type: integer
+    SessionContextMessage:
+      type: object
+      required: [id, seq, role, timestamp, token_count]
+      properties:
+        id:
+          type: string
+        seq:
+          type: integer
+        role:
+          type: string
+        event_type:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        token_count:
+          type: integer
+        data:
+          type: object
+          additionalProperties: {}
+    SessionContextSummary:
+      type: object
+      required: [
+        id,
+        kind,
+        depth,
+        content,
+        token_count,
+        descendant_count,
+        descendant_token_count,
+        source_message_token_count,
+        created_at,
+      ]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        depth:
+          type: integer
+        content:
+          type: string
+        token_count:
+          type: integer
+        earliest_at:
+          type: string
+          format: date-time
+          nullable: true
+        latest_at:
+          type: string
+          format: date-time
+          nullable: true
+        descendant_count:
+          type: integer
+        descendant_token_count:
+          type: integer
+        source_message_token_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    SessionContextItem:
+      type: object
+      required: [ordinal, type]
+      properties:
+        ordinal:
+          type: integer
+        type:
+          type: string
+          enum: [message, summary]
+        event_type:
+          type: string
+        message:
+          $ref: "#/components/schemas/SessionContextMessage"
+        summary:
+          $ref: "#/components/schemas/SessionContextSummary"
+    SessionContextItemList:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionContextItem"
+        meta:
+          $ref: "#/components/schemas/SessionContextMeta"
+        next_page_token:
+          type: string
+          nullable: true
+    SessionSummaryDetail:
+      type: object
+      required: [summary, children]
+      properties:
+        summary:
+          $ref: "#/components/schemas/SessionContextSummary"
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionContextSummary"
+        message_seq_from:
+          type: integer
+          nullable: true
+        message_seq_to:
+          type: integer
+          nullable: true
     Share:
       type: object
       required: [id, url, title, media_type, created_at]
