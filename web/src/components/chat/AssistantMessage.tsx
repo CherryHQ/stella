@@ -33,7 +33,7 @@ export function AssistantMessage({
   sameRoleAsPrev,
   agentSessionId,
 }: AssistantMessageProps) {
-  const colors = getAgentColor(agentId);
+  const color = getAgentColor(agentId);
   const grouped = groupBlocks(blocks);
 
   return (
@@ -41,8 +41,8 @@ export function AssistantMessage({
       {!sameRoleAsPrev && (
         <div className="mb-2 flex items-center gap-2">
           <span
-            className="grid size-5 place-items-center rounded-full text-[10px] font-bold text-white shrink-0"
-            style={{ background: colors.bg }}
+            className="grid size-5 place-items-center rounded-full text-[10px] font-bold text-primary-foreground shrink-0"
+            style={{ background: color }}
           >
             {agentName[0]?.toUpperCase()}
           </span>
