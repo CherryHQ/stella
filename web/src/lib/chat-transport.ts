@@ -38,6 +38,7 @@ export function createGroupTransport(groupId: string) {
 export interface AgentInfoData {
   agentId: string;
   agentName: string;
+  agentSessionId?: string;
 }
 
 export function groupMessagesToUIMessages(
@@ -73,7 +74,11 @@ export function groupMessagesToUIMessages(
         agentParts.push({
           type: "data-agent-info",
           id: `ai-${agentMsg.id}`,
-          data: { agentId: agentMsg.actor_id, agentName },
+          data: {
+            agentId: agentMsg.actor_id,
+            agentName,
+            agentSessionId: agentMsg.agent_session_id,
+          },
         } as UIMessage["parts"][number]);
 
         if (agentMsg.reasoning) {
@@ -103,7 +108,11 @@ export function groupMessagesToUIMessages(
         {
           type: "data-agent-info",
           id: `ai-${agentMsg.id}`,
-          data: { agentId: agentMsg.actor_id, agentName },
+          data: {
+            agentId: agentMsg.actor_id,
+            agentName,
+            agentSessionId: agentMsg.agent_session_id,
+          },
         } as UIMessage["parts"][number],
       ];
       if (agentMsg.reasoning) {
