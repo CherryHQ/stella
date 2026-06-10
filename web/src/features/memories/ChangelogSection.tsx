@@ -47,7 +47,9 @@ function computeDiff(before: string, after: string): DiffLine[] {
   const m = a.length;
   const n = b.length;
 
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  const dp: number[][] = Array.from({ length: m + 1 }, () =>
+    Array.from({ length: n + 1 }, () => 0),
+  );
   for (let i = 1; i <= m; i++)
     for (let j = 1; j <= n; j++)
       dp[i][j] =
