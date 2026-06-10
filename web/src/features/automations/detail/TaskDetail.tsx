@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { cancelTask, reopenTask } from "@/lib/api-client";
 import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import { taskRunsOptions } from "@/lib/queries/goals";
@@ -12,6 +13,7 @@ import { StatusPill, statusLabel } from "../lib";
 
 export function TaskDetail({ task }: { task: ComponentsTask }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [acting, setActing] = useState(false);
 
@@ -43,6 +45,15 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
   }, [task.id, invalidate]);
 
   const lastFailedRun = runs.find((r) => r.status === "failed" || r.status === "timed_out");
+  const openSession = useCallback(
+    (sessionId: string) => {
+      void navigate({
+        to: "/agents/$agentId/sessions/$sessionId",
+        params: { agentId: task.agent_id, sessionId },
+      });
+    },
+    [navigate, task.agent_id],
+  );
 
   return (
     <div className="max-w-[680px] px-9 py-7">
@@ -69,6 +80,11 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
 
       {/* Actions */}
       <div className="mt-5 flex flex-wrap gap-2">
+        {task.session_id && (
+          <Button variant="outline" size="sm" onClick={() => openSession(task.session_id)}>
+            {t("scheduler.sessionLink")}
+          </Button>
+        )}
         {task.status === "failed" && (
           <Button size="sm" loading={acting} onClick={handleReopen}>
             {t("hub.retry")}
@@ -171,6 +187,16 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
                   <span className="truncate text-[11px] text-destructive" title={run.error}>
                     {run.error}
                   </span>
+                )}
+                {run.session_id && (
+                  <Button
+                    variant="link"
+                    size="xs"
+                    onClick={() => openSession(run.session_id)}
+                    className="ml-auto text-[11px] text-primary"
+                  >
+                    {t("scheduler.sessionLink")}
+                  </Button>
                 )}
               </div>
             ))}

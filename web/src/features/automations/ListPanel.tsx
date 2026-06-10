@@ -27,7 +27,8 @@ interface ListPanelProps {
   searchText: string;
   onSearch: (q: string) => void;
   onSelect: (key: string) => void;
-  onNew: () => void;
+  onNewTask: () => void;
+  onNewSchedule: () => void;
 }
 
 export function ListPanel({
@@ -36,7 +37,8 @@ export function ListPanel({
   searchText,
   onSearch,
   onSelect,
-  onNew,
+  onNewTask,
+  onNewSchedule,
 }: ListPanelProps) {
   const { t } = useI18n();
 
@@ -95,13 +97,20 @@ export function ListPanel({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border px-3.5 py-2.5">
+      <div className="flex gap-2 border-t border-border px-3.5 py-2.5">
         <button
           type="button"
-          onClick={onNew}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-[7px] text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+          onClick={onNewTask}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-[7px] text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
         >
-          {t("hub.newAutomation")}
+          + {t("hub.newTask")}
+        </button>
+        <button
+          type="button"
+          onClick={onNewSchedule}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-[7px] text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+        >
+          + {t("hub.newSchedule")}
         </button>
       </div>
     </div>
