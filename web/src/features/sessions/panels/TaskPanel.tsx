@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
   agentId: string;
+  projectId?: string;
   onCreated: (task: ComponentsTask) => void;
 }
 
@@ -20,7 +21,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function TaskPanel({ agentId, onCreated }: Props) {
+export function TaskPanel({ agentId, projectId, onCreated }: Props) {
   const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -37,6 +38,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
           description: description.trim() || undefined,
           priority,
           agent_id: agentId,
+          project_id: projectId,
         },
         throwOnError: true,
       });
@@ -46,7 +48,7 @@ export function TaskPanel({ agentId, onCreated }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [title, description, priority, agentId, onCreated]);
+  }, [title, description, priority, agentId, projectId, onCreated]);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
