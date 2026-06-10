@@ -53,7 +53,7 @@ export function UserMessage({
       <div className="pl-7 w-full min-w-0 flex flex-col items-start gap-3">
         {text && (
           <div className="text-lg sm:text-xl font-medium tracking-tight text-foreground/90 leading-normal whitespace-pre-wrap">
-            {text}
+            {renderMentionedText(text, agentNames)}
           </div>
         )}
 
@@ -100,4 +100,25 @@ export function UserMessage({
       </div>
     </div>
   );
+}
+
+function renderMentionedText(text: string, agentNames?: Map<string, string>) {
+  if (!agentNames || agentNames.size === 0) return text;
+
+  const names = new Set<string>();
+  for (const [id, name] of agentNames) {
+    names.add(id.toLowerCase());
+    if (name) names.add(name.toLowerCase());
+  }
+
+  return text.split(/(@[^\s@]+)/g).map((part, index) => {
+    if (!part.startsWith("@") || !names.has(part.slice(1).toLowerCase())) {
+      return part;
+    }
+    return (
+      <span key={`${part}-${index}`} className="rounded-md bg-primary/10 px-1 py-0.5 text-primary">
+        {part}
+      </span>
+    );
+  });
 }
