@@ -177,6 +177,9 @@ export interface ManifestPlugin {
   display_name: string;
   description: string;
   enabled: boolean;
+  category?: string;
+  essential?: boolean;
+  prompt?: string;
   binaries?: ManifestBinary[];
   session_env?: ManifestSessionEnv[];
   oauth_provider?: string;

@@ -314,6 +314,12 @@ const en = {
   "plugins.tab.hooks": "Hooks",
   "plugins.tab.sandbox": "Sandbox",
   "plugins.tab.others": "Others",
+  "plugins.bucket.integrations": "Integrations",
+  "plugins.bucket.integrationsDesc": "Connect external accounts via OAuth",
+  "plugins.bucket.tools": "Tools",
+  "plugins.bucket.toolsDesc": "CLI capabilities the agent can call",
+  "plugins.bucket.system": "System",
+  "plugins.bucket.systemDesc": "Runtimes and hooks the harness depends on",
 
   // Providers
   "providers.title": "Providers",
@@ -1561,6 +1567,12 @@ const zh: Record<MessageKey, string> = {
   "plugins.tab.hooks": "钩子",
   "plugins.tab.sandbox": "沙盒",
   "plugins.tab.others": "其他",
+  "plugins.bucket.integrations": "集成",
+  "plugins.bucket.integrationsDesc": "通过 OAuth 连接外部账户",
+  "plugins.bucket.tools": "工具",
+  "plugins.bucket.toolsDesc": "智能体可调用的 CLI 能力",
+  "plugins.bucket.system": "系统",
+  "plugins.bucket.systemDesc": "运行时与 harness 依赖的钩子",
 
   // Providers
   "providers.title": "提供商",

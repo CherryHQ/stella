@@ -268,6 +268,36 @@ export function formatTimestamp(value: string): string {
   return date.toLocaleString();
 }
 
+export type PluginBucket = "integration" | "tool" | "system";
+
+// pluginHasOAuth reports whether a plugin authenticates against an external
+// account — either a declared oauth_provider or an oauth-sourced session env.
+export function pluginHasOAuth(plugin: PluginWithMeta): boolean {
+  const m = plugin._manifestPlugin;
+  if (!m) return false;
+  if (m.oauth_provider) return true;
+  return (m.session_env ?? []).some((e) => (e.source ?? "").startsWith("oauth."));
+}
+
+// pluginBucket assigns a plugin to one of three UI sections. An explicit
+// manifest `category` wins; otherwise it's derived: OAuth-backed → integration,
+// hooks → system, everything else → tool.
+export function pluginBucket(plugin: PluginWithMeta): PluginBucket {
+  const category = plugin._manifestPlugin?.category;
+  if (category === "integration" || category === "tool" || category === "system") {
+    return category;
+  }
+  if (pluginHasOAuth(plugin)) return "integration";
+  if (plugin.kind === "hook") return "system";
+  return "tool";
+}
+
+// pluginIsEssential reports whether disabling the plugin would break the harness
+// (e.g. rg/fd back Grep/Glob). The toggle is guarded for these.
+export function pluginIsEssential(plugin: PluginWithMeta): boolean {
+  return !!plugin._manifestPlugin?.essential;
+}
+
 // isSimpleCliTool reports whether a plugin is a plain CLI tool: a manifest tool
 // that installs one or more binaries and carries no OAuth / session-env wiring.
 // These get the compact mise-key + version editor; integration tools (gh,

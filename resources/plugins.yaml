@@ -359,6 +359,8 @@ plugins:
     display_name: mise
     description: "Inject mise usage guidance into the system prompt and provide the mise binary."
     enabled: true
+    category: system
+    essential: true
     prompt: "Use mise to install tools and manage environment variables."
 
   - id: tool/tap-web
@@ -426,6 +428,8 @@ plugins:
     display_name: fd
     description: "Fast file finder used by the Glob tool."
     enabled: true
+    category: system
+    essential: true
     binaries:
       - name: fd
         tool: github:sharkdp/fd
@@ -436,6 +440,8 @@ plugins:
     display_name: ripgrep
     description: "Fast text search used by the Grep tool."
     enabled: true
+    category: system
+    essential: true
     binaries:
       - name: rg
         tool: github:BurntSushi/ripgrep
@@ -467,6 +473,7 @@ plugins:
     display_name: uv
     description: "An extremely fast Python package manager and resolver written in Rust."
     enabled: true
+    category: system
     binaries:
       - name: uv
         tool: uv
@@ -477,6 +484,7 @@ plugins:
     display_name: Bun
     description: "An incredibly fast JavaScript runtime, bundler, test runner, and package manager."
     enabled: true
+    category: system
     binaries:
       - name: bun
         tool: bun

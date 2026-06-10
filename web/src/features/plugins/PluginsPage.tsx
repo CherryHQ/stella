@@ -28,29 +28,25 @@ import {
   isSimpleCliTool,
   manifestInstallSummary,
   otherPlugins,
+  pluginBucket,
   pluginDescription,
+  pluginIsEssential,
   pluginLabel,
-  pluginMetaBadges,
   semanticPlugins,
 } from "./pluginUtils";
 import type { ManifestInstallDraft } from "./pluginUtils";
 import { GenericConfigEditor } from "./GenericConfigEditor";
 import { ManifestInstallEditor } from "./ManifestInstallEditor";
 import { CliToolAddForm, CliToolEditor } from "./CliToolPanel";
+import { PluginSection, bucketIcon } from "./PluginGrid";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
-import {
-  SettingsListHeader,
-  SettingsListItem,
-  SettingsListBody,
-} from "@/features/settings/SettingsListPanel";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
-import { Plus, Wrench, Webhook, Blocks } from "lucide-react";
+import { Plus } from "lucide-react";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
   return { plugins: plugins.map((plugin) => ({ ...plugin })) };
@@ -90,9 +86,14 @@ export function PluginsPage() {
   const standalonePlugins = otherPlugins(plugins, manifestPlugins);
   const allPlugins = [...toolPlugins, ...hookPlugins, ...standalonePlugins];
 
+  const integrationPlugins = allPlugins.filter((p) => pluginBucket(p) === "integration");
+  const capabilityPlugins = allPlugins.filter((p) => pluginBucket(p) === "tool");
+  const systemPlugins = allPlugins.filter((p) => pluginBucket(p) === "system");
+
   const selectedPlugin =
     pluginId && pluginId !== "new" ? allPlugins.find((p) => p.name === pluginId) : undefined;
   const isCreating = pluginId === "new";
+  const sheetOpen = isCreating || !!selectedPlugin;
 
   const loadPlugins = useCallback(async () => {
     try {
@@ -364,33 +365,13 @@ export function PluginsPage() {
 
   // --- Render ---
 
-  function pluginKindIcon(kind: string) {
-    switch (kind) {
-      case "tool":
-        return <Wrench className="size-3.5 text-muted-foreground" />;
-      case "hook":
-        return <Webhook className="size-3.5 text-muted-foreground" />;
-      default:
-        return <Blocks className="size-3.5 text-muted-foreground" />;
-    }
+  function selectPlugin(p: PluginWithMeta) {
+    void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: p.name } });
   }
 
-  function pluginKindLabel(kind: string) {
-    switch (kind) {
-      case "tool":
-        return t("plugins.tab.tools");
-      case "hook":
-        return t("plugins.tab.hooks");
-      default:
-        return t("plugins.tab.others");
-    }
+  function closeSheet() {
+    void navigate({ to: "/settings/plugins" });
   }
-
-  const groups = [
-    { kind: "tool", plugins: toolPlugins },
-    { kind: "hook", plugins: hookPlugins },
-    ...(standalonePlugins.length > 0 ? [{ kind: "other", plugins: standalonePlugins }] : []),
-  ];
 
   let detail: React.ReactNode = undefined;
 
@@ -405,7 +386,8 @@ export function PluginsPage() {
   } else if (selectedPlugin) {
     const p = selectedPlugin;
     const hasConfig = hasGenericConfigEditor(p, schemas);
-    const badges = pluginMetaBadges(p);
+    const essential = pluginIsEssential(p);
+    const oauthProvider = p._manifestPlugin?.oauth_provider;
 
     detail = (
       <DetailPanel>
@@ -414,29 +396,30 @@ export function PluginsPage() {
           subtitle={
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-mono text-xs text-muted-foreground">{p.id}</span>
-              {p.enabled && (
-                <Badge variant="success" size="sm">
-                  on
+              {essential && (
+                <Badge variant="secondary" size="sm">
+                  core
                 </Badge>
               )}
-              {badges.map((badge) => (
-                <Badge
-                  key={badge.key}
-                  variant={badge.variant as "default" | "outline" | "secondary" | "info"}
-                  size="sm"
-                >
-                  {badge.label}
+              {oauthProvider && (
+                <Badge variant="outline" size="sm">
+                  {oauthProvider}
                 </Badge>
-              ))}
+              )}
             </div>
           }
-          action={
-            <Switch
-              checked={p.enabled}
-              onCheckedChange={(checked) => void toggleSemanticPlugin(p, checked)}
-            />
-          }
         />
+
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-2.5">
+          <span className="text-sm font-medium">
+            {p.enabled ? t("plugins.enabled") : t("plugins.disabled")}
+          </span>
+          <Switch
+            checked={p.enabled}
+            disabled={essential}
+            onCheckedChange={(checked) => void toggleSemanticPlugin(p, checked)}
+          />
+        </div>
 
         {pluginDescription(p) && (
           <p className="text-sm text-muted-foreground leading-relaxed">{pluginDescription(p)}</p>
@@ -493,71 +476,58 @@ export function PluginsPage() {
 
   return (
     <>
-      <SettingsDetailLayout
-        list={
-          <>
-            <SettingsListHeader
-              title={t("settings.nav.plugins")}
-              action={
-                <Button
-                  onClick={() =>
-                    void navigate({
-                      to: "/settings/plugins/$pluginId",
-                      params: { pluginId: "new" },
-                    })
-                  }
-                  variant="ghost"
-                  size="icon-sm"
-                >
-                  <Plus className="size-4" />
-                </Button>
+      <div className="h-full min-h-0 overflow-y-auto">
+        <div className="mx-auto max-w-5xl space-y-8 p-6">
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="text-lg font-semibold tracking-tight">{t("plugins.title")}</h1>
+            <Button
+              onClick={() =>
+                void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: "new" } })
               }
-            />
-            <SettingsListBody>
-              {groups.map((group) => (
-                <div key={group.kind} className="space-y-0.5">
-                  <div className="flex items-center gap-2 px-3 py-1.5">
-                    {pluginKindIcon(group.kind)}
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {pluginKindLabel(group.kind)}
-                    </span>
-                    <Badge variant="secondary" size="sm">
-                      {group.plugins.length}
-                    </Badge>
-                  </div>
-                  {group.plugins.map((p) => (
-                    <SettingsListItem
-                      key={p.id}
-                      active={pluginId === p.name}
-                      onClick={() =>
-                        void navigate({
-                          to: "/settings/plugins/$pluginId",
-                          params: { pluginId: p.name },
-                        })
-                      }
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`shrink-0 size-1.5 rounded-full ${p.enabled ? "bg-green-500" : "bg-muted-foreground"}`}
-                        />
-                        <span className="text-sm truncate">{pluginLabel(p)}</span>
-                      </div>
-                    </SettingsListItem>
-                  ))}
-                </div>
-              ))}
-            </SettingsListBody>
-          </>
-        }
-        detail={detail}
-        emptyState={
-          <SettingsEmptyState
-            message={t("plugins.noPlugins") ?? "No plugin selected"}
-            description={t("plugins.noPluginsDesc") ?? "Select a plugin to view its configuration."}
+              variant="outline"
+              size="sm"
+            >
+              <Plus className="size-4" />
+              {t("plugins.addTool")}
+            </Button>
+          </div>
+
+          <PluginSection
+            icon={bucketIcon.integration}
+            title={t("plugins.bucket.integrations")}
+            description={t("plugins.bucket.integrationsDesc")}
+            plugins={integrationPlugins}
+            activeName={selectedPlugin?.name}
+            onSelect={selectPlugin}
+            onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
           />
-        }
-        onBack={() => void navigate({ to: "/settings/plugins" })}
-      />
+          <PluginSection
+            icon={bucketIcon.tool}
+            title={t("plugins.bucket.tools")}
+            description={t("plugins.bucket.toolsDesc")}
+            plugins={capabilityPlugins}
+            activeName={selectedPlugin?.name}
+            onSelect={selectPlugin}
+            onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+          />
+          <PluginSection
+            icon={bucketIcon.system}
+            title={t("plugins.bucket.system")}
+            description={t("plugins.bucket.systemDesc")}
+            plugins={systemPlugins}
+            activeName={selectedPlugin?.name}
+            onSelect={selectPlugin}
+            onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+          />
+        </div>
+      </div>
+
+      <Sheet open={sheetOpen} onOpenChange={(open) => !open && closeSheet()}>
+        <SheetPopup side="right" className="h-full w-full p-0 sm:max-w-2xl">
+          {detail}
+        </SheetPopup>
+      </Sheet>
+
       <ToastContainer messages={toasts} />
     </>
   );
