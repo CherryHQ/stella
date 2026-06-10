@@ -338,8 +338,7 @@ SELECT
   t.project_id,
   t.title,
   b.question,
-  b.detail,
-  b.created_at
+  b.created_at AS created_at
 FROM agent_task t
 JOIN agent_task_blocker b ON b.id = t.active_blocker_id
 WHERE t.user_id = ?2
@@ -354,14 +353,13 @@ SELECT
   t.project_id,
   t.title,
   b.question,
-  b.detail,
-  b.created_at
+  b.created_at AS created_at
 FROM agent_task t
 JOIN agent_task_blocker b ON b.task_id = t.id AND b.status = 'open'
 WHERE t.user_id = ?2
   AND t.active_blocker_id IS NULL
   AND (?3 IS NULL OR t.agent_id = ?3)
-ORDER BY 7 DESC
+ORDER BY created_at DESC
 LIMIT ?1
 `
 
@@ -377,7 +375,6 @@ type ListBlockedInboxTasksRow struct {
 	ProjectID sql.NullString `json:"project_id"`
 	Title     string         `json:"title"`
 	Question  string         `json:"question"`
-	Detail    string         `json:"detail"`
 	CreatedAt string         `json:"created_at"`
 }
 
@@ -396,7 +393,6 @@ func (q *Queries) ListBlockedInboxTasks(ctx context.Context, arg ListBlockedInbo
 			&i.ProjectID,
 			&i.Title,
 			&i.Question,
-			&i.Detail,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -485,11 +481,13 @@ SELECT
   t.title,
   r.id AS review_id,
   r.summary,
-  r.created_at
+  r.created_at AS created_at
 FROM agent_task t
 JOIN agent_review r ON r.id = t.active_review_id
 WHERE t.user_id = ?2
+  AND t.status = 'reviewing'
   AND r.status IN ('requested', 'in_progress')
+  AND r.reviewer_type = 'human'
   AND (?3 IS NULL OR t.agent_id = ?3)
 
 UNION ALL
@@ -501,13 +499,16 @@ SELECT
   t.title,
   r.id AS review_id,
   r.summary,
-  r.created_at
+  r.created_at AS created_at
 FROM agent_task t
-JOIN agent_review r ON r.task_id = t.id AND r.status IN ('requested', 'in_progress')
+JOIN agent_review r ON r.task_id = t.id
+  AND r.status IN ('requested', 'in_progress')
+  AND r.reviewer_type = 'human'
 WHERE t.user_id = ?2
+  AND t.status = 'reviewing'
   AND t.active_review_id IS NULL
   AND (?3 IS NULL OR t.agent_id = ?3)
-ORDER BY 7 DESC
+ORDER BY created_at DESC
 LIMIT ?1
 `
 
@@ -527,6 +528,9 @@ type ListReviewInboxTasksRow struct {
 	CreatedAt string         `json:"created_at"`
 }
 
+// Only reviews waiting on a human belong in the inbox: agent-policy reviews
+// are dispatched to reviewer agents automatically, and a cancelled task can
+// leave its open review rows behind, so gate on t.status too.
 func (q *Queries) ListReviewInboxTasks(ctx context.Context, arg ListReviewInboxTasksParams) ([]ListReviewInboxTasksRow, error) {
 	rows, err := q.db.QueryContext(ctx, listReviewInboxTasks, arg.LimitCount, arg.UserID, arg.AgentID)
 	if err != nil {

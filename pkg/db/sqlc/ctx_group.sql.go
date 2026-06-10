@@ -133,6 +133,21 @@ func (q *Queries) DeleteGroupState(ctx context.Context, id string) error {
 	return err
 }
 
+const getGroupLastActive = `-- name: GetGroupLastActive :one
+SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
+FROM ctx_group_state gs
+LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
+WHERE gs.id = ?
+GROUP BY gs.id
+`
+
+func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getGroupLastActive, id)
+	var last_active string
+	err := row.Scan(&last_active)
+	return last_active, err
+}
+
 const getGroupMessage = `-- name: GetGroupMessage :one
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message WHERE id = ?
 `

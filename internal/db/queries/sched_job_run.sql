@@ -35,7 +35,7 @@ FROM sched_job_run r
 JOIN sched_job j ON j.id = r.job_id
 WHERE r.user_id = sqlc.arg(user_id)
   AND r.status = 'failed'
-  AND r.finished_at >= sqlc.arg(since)
+  AND datetime(r.finished_at) >= datetime(sqlc.arg(since))
   AND (sqlc.narg(agent_id) IS NULL OR j.agent_id = sqlc.narg(agent_id))
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT sqlc.arg(limit_count);

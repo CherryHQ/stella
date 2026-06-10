@@ -1,12 +1,12 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink } from "lucide-react";
 import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
 import { AppShell } from "@/layouts/AppShell";
 import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
-import { inboxQueryOptions } from "@/lib/queries/inbox";
+import { inboxInfiniteQueryOptions } from "@/lib/queries/inbox";
 import type { InboxItem } from "@/lib/api-client/types.gen";
 import { Button } from "@/components/ui/button";
 
@@ -27,8 +27,12 @@ export function InboxPage() {
   const navigate = useNavigate();
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const activeAgent = agents[0];
-  const { data: inbox, isLoading } = useQuery(inboxQueryOptions(undefined, 100));
-  const items = inbox?.items ?? [];
+  const inboxQuery = useInfiniteQuery(inboxInfiniteQueryOptions());
+  const isLoading = inboxQuery.isLoading;
+  const items = useMemo(
+    () => inboxQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
+    [inboxQuery.data],
+  );
   const byKind = useMemo(
     () => ({
       blocked: items.filter((item) => item.kind === "blocked").length,
@@ -79,10 +83,23 @@ export function InboxPage() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto w-full max-w-4xl divide-y divide-border/70 border-y border-border/70">
-              {items.map((item) => (
-                <InboxRow key={item.id} item={item} />
-              ))}
+            <div className="mx-auto w-full max-w-4xl">
+              <div className="divide-y divide-border/70 border-y border-border/70">
+                {items.map((item) => (
+                  <InboxRow key={item.id} item={item} />
+                ))}
+              </div>
+              {inboxQuery.hasNextPage && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-3 w-full"
+                  disabled={inboxQuery.isFetchingNextPage}
+                  onClick={() => void inboxQuery.fetchNextPage()}
+                >
+                  {t("sessions.sidebar.loadMore")}
+                </Button>
+              )}
             </div>
           )}
         </div>

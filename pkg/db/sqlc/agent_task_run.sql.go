@@ -319,17 +319,19 @@ FROM agent_task_run r
 LEFT JOIN agent_task t ON t.id = r.task_id
 WHERE r.user_id = ?1
   AND r.status = 'failed'
-  AND r.finished_at >= ?2
+  -- finished_at mixes RFC3339 (transition service) and naive UTC strings;
+  -- datetime() normalizes both before comparing.
+  AND datetime(r.finished_at) >= datetime(?2)
   AND (?3 IS NULL OR r.agent_id = ?3)
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT ?4
 `
 
 type ListFailedInboxTaskRunsParams struct {
-	UserID     string         `json:"user_id"`
-	Since      sql.NullString `json:"since"`
-	AgentID    interface{}    `json:"agent_id"`
-	LimitCount int64          `json:"limit_count"`
+	UserID     string      `json:"user_id"`
+	Since      interface{} `json:"since"`
+	AgentID    interface{} `json:"agent_id"`
+	LimitCount int64       `json:"limit_count"`
 }
 
 type ListFailedInboxTaskRunsRow struct {

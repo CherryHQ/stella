@@ -20,8 +20,14 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	}
 
 	pageSize := 20
-	if params.PageSize != nil && *params.PageSize > 0 {
-		pageSize = *params.PageSize
+	if params.PageSize != nil {
+		if *params.PageSize < 0 {
+			writeError(w, http.StatusBadRequest, "page_size must not be negative")
+			return
+		}
+		if *params.PageSize > 0 {
+			pageSize = *params.PageSize
+		}
 	}
 	if pageSize > 100 {
 		pageSize = 100
@@ -101,7 +107,8 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params apiser
 	if offset < len(items) {
 		items = items[offset:]
 	} else {
-		items = nil
+		// Keep a non-nil slice: the spec requires items to be an array.
+		items = items[:0]
 	}
 	if len(items) > pageSize {
 		items = items[:pageSize]
@@ -219,6 +226,10 @@ func taskTargetPath(agentID, taskID string) string {
 func taskRunTargetPath(row sqlc.ListFailedInboxTaskRunsRow) string {
 	if row.AgentID.Valid && row.TaskID.Valid {
 		return taskTargetPath(row.AgentID.String, row.TaskID.String)
+	}
+	// Goal-owned runs have no task; land on the agent's work hub.
+	if row.AgentID.Valid {
+		return "/agents/" + row.AgentID.String + "/automations"
 	}
 	return "/agents"
 }

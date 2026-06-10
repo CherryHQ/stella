@@ -102,7 +102,7 @@ FROM sched_job_run r
 JOIN sched_job j ON j.id = r.job_id
 WHERE r.user_id = ?1
   AND r.status = 'failed'
-  AND r.finished_at >= ?2
+  AND datetime(r.finished_at) >= datetime(?2)
   AND (?3 IS NULL OR j.agent_id = ?3)
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT ?4
@@ -110,7 +110,7 @@ LIMIT ?4
 
 type ListFailedInboxSchedulerRunsParams struct {
 	UserID     sql.NullString `json:"user_id"`
-	Since      sql.NullString `json:"since"`
+	Since      interface{}    `json:"since"`
 	AgentID    interface{}    `json:"agent_id"`
 	LimitCount int64          `json:"limit_count"`
 }

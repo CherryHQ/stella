@@ -12,6 +12,13 @@ RETURNING *;
 -- name: GetGroupStateByID :one
 SELECT * FROM ctx_group_state WHERE id = ?;
 
+-- name: GetGroupLastActive :one
+SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
+FROM ctx_group_state gs
+LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
+WHERE gs.id = ?
+GROUP BY gs.id;
+
 -- name: ListGroupsByUser :many
 SELECT
   gs.*,

@@ -45,6 +45,18 @@ func groupToAPI(g sqlc.CtxGroupState) apitypes.Group {
 	return resp
 }
 
+// groupToAPIWithActivity keeps single-resource responses on the same
+// message-derived last_active semantics as the list endpoint.
+func (s *Server) groupToAPIWithActivity(ctx context.Context, g sqlc.CtxGroupState) apitypes.Group {
+	resp := groupToAPI(g)
+	if la, err := s.q.GetGroupLastActive(ctx, g.ID); err == nil {
+		if t := parseTime(la); !t.IsZero() {
+			resp.LastActive = &t
+		}
+	}
+	return resp
+}
+
 func groupListRowToAPI(g sqlc.ListGroupsByUserRow) apitypes.Group {
 	resp := apitypes.Group{
 		Id:        g.ID,
@@ -189,7 +201,7 @@ func (s *Server) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeData(w, http.StatusCreated, groupToAPI(g))
+	writeData(w, http.StatusCreated, s.groupToAPIWithActivity(r.Context(), g))
 }
 
 func (s *Server) GetGroup(w http.ResponseWriter, r *http.Request, groupId string) {
@@ -197,7 +209,7 @@ func (s *Server) GetGroup(w http.ResponseWriter, r *http.Request, groupId string
 	if !ok {
 		return
 	}
-	writeData(w, http.StatusOK, groupToAPI(g))
+	writeData(w, http.StatusOK, s.groupToAPIWithActivity(r.Context(), g))
 }
 
 func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId string) {
@@ -221,7 +233,7 @@ func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId str
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, groupToAPI(g))
+	writeData(w, http.StatusOK, s.groupToAPIWithActivity(r.Context(), g))
 }
 
 func (s *Server) DeleteGroup(w http.ResponseWriter, r *http.Request, groupId string) {

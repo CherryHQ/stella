@@ -75,7 +75,9 @@ FROM agent_task_run r
 LEFT JOIN agent_task t ON t.id = r.task_id
 WHERE r.user_id = sqlc.arg(user_id)
   AND r.status = 'failed'
-  AND r.finished_at >= sqlc.arg(since)
+  -- finished_at mixes RFC3339 (transition service) and naive UTC strings;
+  -- datetime() normalizes both before comparing.
+  AND datetime(r.finished_at) >= datetime(sqlc.arg(since))
   AND (sqlc.narg(agent_id) IS NULL OR r.agent_id = sqlc.narg(agent_id))
 ORDER BY r.finished_at DESC, r.id DESC
 LIMIT sqlc.arg(limit_count);

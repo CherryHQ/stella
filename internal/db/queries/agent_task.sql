@@ -34,8 +34,7 @@ SELECT
   t.project_id,
   t.title,
   b.question,
-  b.detail,
-  b.created_at
+  b.created_at AS created_at
 FROM agent_task t
 JOIN agent_task_blocker b ON b.id = t.active_blocker_id
 WHERE t.user_id = sqlc.arg(user_id)
@@ -50,16 +49,18 @@ SELECT
   t.project_id,
   t.title,
   b.question,
-  b.detail,
-  b.created_at
+  b.created_at AS created_at
 FROM agent_task t
 JOIN agent_task_blocker b ON b.task_id = t.id AND b.status = 'open'
 WHERE t.user_id = sqlc.arg(user_id)
   AND t.active_blocker_id IS NULL
   AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
-ORDER BY 7 DESC
+ORDER BY created_at DESC
 LIMIT sqlc.arg(limit_count);
 
+-- Only reviews waiting on a human belong in the inbox: agent-policy reviews
+-- are dispatched to reviewer agents automatically, and a cancelled task can
+-- leave its open review rows behind, so gate on t.status too.
 -- name: ListReviewInboxTasks :many
 SELECT
   t.id AS task_id,
@@ -68,11 +69,13 @@ SELECT
   t.title,
   r.id AS review_id,
   r.summary,
-  r.created_at
+  r.created_at AS created_at
 FROM agent_task t
 JOIN agent_review r ON r.id = t.active_review_id
 WHERE t.user_id = sqlc.arg(user_id)
+  AND t.status = 'reviewing'
   AND r.status IN ('requested', 'in_progress')
+  AND r.reviewer_type = 'human'
   AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
 
 UNION ALL
@@ -84,13 +87,16 @@ SELECT
   t.title,
   r.id AS review_id,
   r.summary,
-  r.created_at
+  r.created_at AS created_at
 FROM agent_task t
-JOIN agent_review r ON r.task_id = t.id AND r.status IN ('requested', 'in_progress')
+JOIN agent_review r ON r.task_id = t.id
+  AND r.status IN ('requested', 'in_progress')
+  AND r.reviewer_type = 'human'
 WHERE t.user_id = sqlc.arg(user_id)
+  AND t.status = 'reviewing'
   AND t.active_review_id IS NULL
   AND (sqlc.narg(agent_id) IS NULL OR t.agent_id = sqlc.narg(agent_id))
-ORDER BY 7 DESC
+ORDER BY created_at DESC
 LIMIT sqlc.arg(limit_count);
 
 -- name: CountRunningAgentTasks :one
