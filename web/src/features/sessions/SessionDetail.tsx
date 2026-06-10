@@ -9,6 +9,7 @@ import { agentSkillsOptions } from "@/lib/queries/agents";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import type { Message, Session } from "@/lib/types";
+import { ChatPane } from "@/components/chat/ChatPane";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -346,67 +347,66 @@ export function SessionDetail({
     );
   }
   return (
-    <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
-      <div className="flex-1 min-h-0 flex overflow-hidden">
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {attentionItems.length > 0 && (
-            <div className="border-b border-border/70 bg-muted/20 px-3 py-2">
-              <div className="flex items-center gap-2 overflow-x-auto">
-                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                  <AlertCircle className="size-3.5" />
-                  {t("inbox.needsYou")}
-                </span>
-                {attentionItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="inline-flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-left text-xs transition-colors hover:bg-muted"
-                    onClick={() => void navigate({ to: item.target_path })}
-                  >
-                    <span className="truncate">{item.title}</span>
-                    <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                      {t(inboxKindLabels[item.kind])}
-                    </span>
-                  </button>
-                ))}
-              </div>
+    <ChatPane
+      banner={
+        attentionItems.length > 0 ? (
+          <div className="border-b border-border/70 bg-muted/20 px-3 py-2">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <AlertCircle className="size-3.5" />
+                {t("inbox.needsYou")}
+              </span>
+              {attentionItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="inline-flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-left text-xs transition-colors hover:bg-muted"
+                  onClick={() => void navigate({ to: item.target_path })}
+                >
+                  <span className="truncate">{item.title}</span>
+                  <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                    {t(inboxKindLabels[item.kind])}
+                  </span>
+                </button>
+              ))}
             </div>
-          )}
-          {/* Transcript */}
-          <Transcript
-            ref={transcriptRef}
-            messages={messages}
-            messagesLoading={
-              hasContextSummaries
-                ? tailQuery.isLoading
-                : messagesQuery.isLoading || messagesQuery.isFetchingNextPage
-            }
-            contextItems={contextItemsQuery.data?.items}
-            contextLoading={contextItemsQuery.isLoading}
-            onScroll={handleTranscriptScroll}
-            agentId={agentId}
-            sessionId={sessionId}
-            activeStreaming={isStreaming}
+          </div>
+        ) : null
+      }
+      transcript={
+        <Transcript
+          ref={transcriptRef}
+          messages={messages}
+          messagesLoading={
+            hasContextSummaries
+              ? tailQuery.isLoading
+              : messagesQuery.isLoading || messagesQuery.isFetchingNextPage
+          }
+          contextItems={contextItemsQuery.data?.items}
+          contextLoading={contextItemsQuery.isLoading}
+          onScroll={handleTranscriptScroll}
+          agentId={agentId}
+          sessionId={sessionId}
+          activeStreaming={isStreaming}
+        />
+      }
+      composer={
+        session.user_id === currentUserID ? (
+          <ChatComposer
+            value={userInput}
+            onChange={setUserInput}
+            onSend={(text) => void sendMessage(text)}
+            onStop={() => chatStop()}
+            isStreaming={isStreaming}
+            placeholder={t("sessions.composer.placeholder")}
+            attachments={attachments}
+            onFileSelect={(files) => void selectFiles(files)}
+            onRemoveAttachment={removeAttachment}
+            skills={composerSkills}
           />
-
-          {/* Message input */}
-          {session.user_id === currentUserID && (
-            <ChatComposer
-              value={userInput}
-              onChange={setUserInput}
-              onSend={(text) => void sendMessage(text)}
-              onStop={() => chatStop()}
-              isStreaming={isStreaming}
-              placeholder={t("sessions.composer.placeholder")}
-              attachments={attachments}
-              onFileSelect={(files) => void selectFiles(files)}
-              onRemoveAttachment={removeAttachment}
-              skills={composerSkills}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+        ) : null
+      }
+    />
   );
 }
 

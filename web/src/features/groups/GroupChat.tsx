@@ -7,8 +7,10 @@ import type { GroupMessage } from "@/lib/api-client/types.gen";
 import { groupMembersQueryOptions } from "@/lib/queries/groups";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { createGroupTransport, groupMessagesToUIMessages } from "@/lib/chat-transport";
+import { ChatPane } from "@/components/chat/ChatPane";
 import { BUILTIN_COMMANDS, ChatComposer } from "@/features/sessions/ChatComposer";
 import { useFileAttachments } from "@/features/sessions/useFileAttachments";
+import { GroupInspector } from "./GroupInspector";
 import { GroupTranscript } from "./GroupTranscript";
 
 interface Props {
@@ -241,28 +243,41 @@ export function GroupChat({ groupId }: Props) {
     ) : null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <GroupTranscript
-        ref={transcriptRef}
-        messages={chatMessages}
-        loading={loading}
-        agentNames={agentNameMap}
-        uploadAgentId={uploadContext?.agentId}
-        uploadSessionId={uploadContext?.sessionId}
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      <ChatPane
+        transcript={
+          <GroupTranscript
+            ref={transcriptRef}
+            messages={chatMessages}
+            loading={loading}
+            agentNames={agentNameMap}
+            uploadAgentId={uploadContext?.agentId}
+            uploadSessionId={uploadContext?.sessionId}
+          />
+        }
+        composer={
+          <ChatComposer
+            value={userInput}
+            onChange={handleInputChange}
+            onSend={(text) => handleSend(text)}
+            onStop={chatStop}
+            isStreaming={isStreaming}
+            placeholder={t("groups.messagePlaceholder")}
+            overlay={mentionOverlay}
+            textareaRef={inputRef}
+            attachments={attachments}
+            onFileSelect={(files) => void selectFiles(files)}
+            onRemoveAttachment={removeAttachment}
+            skills={composerSkills}
+          />
+        }
       />
-      <ChatComposer
-        value={userInput}
-        onChange={handleInputChange}
-        onSend={(text) => handleSend(text)}
-        onStop={chatStop}
-        isStreaming={isStreaming}
-        placeholder={t("groups.messagePlaceholder")}
-        overlay={mentionOverlay}
-        textareaRef={inputRef}
-        attachments={attachments}
-        onFileSelect={(files) => void selectFiles(files)}
-        onRemoveAttachment={removeAttachment}
-        skills={composerSkills}
+      <GroupInspector
+        members={members}
+        messages={historicalMessages}
+        liveMessages={chatMessages}
+        uploadContext={uploadContext}
+        streaming={isStreaming}
       />
     </div>
   );
