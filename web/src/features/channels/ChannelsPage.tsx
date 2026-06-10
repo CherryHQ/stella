@@ -1132,7 +1132,7 @@ export function ChannelsPage() {
                         <>
                           <span
                             className={`size-1.5 shrink-0 rounded-full ${
-                              ch.enabled ? "bg-green-500" : "bg-muted-foreground"
+                              ch.enabled ? "bg-chart-3" : "bg-muted-foreground"
                             }`}
                           />
                           <span className="font-mono text-xs text-muted-foreground">{ch.id}</span>

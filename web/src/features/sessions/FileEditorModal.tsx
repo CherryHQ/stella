@@ -42,7 +42,7 @@ export function FileEditorModal({ fileEditor, onClose, onSave, onChange, onToggl
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-black/50 z-[10000]"
+      className="fixed inset-0 flex items-center justify-center bg-foreground/50 z-[10000]"
       onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
       <div

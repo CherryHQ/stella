@@ -10,14 +10,14 @@ const SECTIONS: { key: Section; labelKey: MessageKey; dotClass: string }[] = [
   {
     key: "needs-you",
     labelKey: "hub.secNeedsYou",
-    dotClass: "bg-violet-500 shadow-[0_0_6px_rgba(139,92,246,0.5)]",
+    dotClass: "bg-primary shadow-primary/50 shadow-sm",
   },
   {
     key: "active",
     labelKey: "hub.secActive",
-    dotClass: "bg-emerald-500 shadow-[0_0_6px_rgba(52,211,153,0.4)]",
+    dotClass: "bg-chart-3 shadow-chart-3/40 shadow-sm",
   },
-  { key: "schedules", labelKey: "hub.secSchedules", dotClass: "bg-blue-500" },
+  { key: "schedules", labelKey: "hub.secSchedules", dotClass: "bg-chart-2" },
   { key: "closed", labelKey: "hub.secClosed", dotClass: "bg-muted-foreground" },
 ];
 
@@ -168,9 +168,9 @@ function ListItem({
 function TypeChip({ kind }: { kind: AutomationItem["kind"] }) {
   const { t } = useI18n();
   const config = {
-    goal: { label: t("hub.chipGoal"), cls: "bg-violet-500/10 text-violet-500/70" },
-    schedule: { label: t("hub.chipSchedule"), cls: "bg-blue-500/10 text-blue-500/70" },
-    task: { label: t("hub.chipTask"), cls: "bg-emerald-500/10 text-emerald-500/70" },
+    goal: { label: t("hub.chipGoal"), cls: "bg-primary/10 text-primary/70" },
+    schedule: { label: t("hub.chipSchedule"), cls: "bg-chart-2/10 text-chart-2/70" },
+    task: { label: t("hub.chipTask"), cls: "bg-chart-3/10 text-chart-3/70" },
   }[kind];
 
   return (

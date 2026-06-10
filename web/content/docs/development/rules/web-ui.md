@@ -10,7 +10,7 @@ The token pipeline: `web/src/tokens.css` defines values → `globals.css` `@them
 - Never hardcode color values: no `text-[#abc]`, no `bg-[oklch(...)]`, no inline `style={{ color }}`, no palette classes like `bg-violet-500`.
 - Never reference `var(--some-color)` directly in JSX when a Tailwind utility exists.
 - Never use arbitrary spacing values like `p-[13px]`. Stick to the 4px grid; prefer `gap-*` on flex/grid parents over margin on children.
-- For app-level surfaces beyond shadcn's vocabulary, use the `--stella-os-*` semantic layer (defined in `tokens.css` as aliases): `canvas`/`canvas-muted`, `surface`/`surface-raised`, `ink`/`muted`, `rule`, `accent`/`accent-soft`, `warning`/`success`/`danger`. Reference via `var(--stella-os-*)` only when no Tailwind utility exists (e.g. the landing page `routes/index.css`).
+- Do not add project-specific color aliases for one-off states or surfaces. If shadcn lacks an exact semantic name, use the closest existing token; status colors map to `chart-3` success, `chart-4` warning, `chart-2` info/running, and `destructive` error.
 
 ## Dark mode
 

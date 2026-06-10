@@ -37,8 +37,8 @@ function authProviderIcon(name: string, label: string) {
 function authProviderIconClass(name: string): string {
   const key = name.toLowerCase();
   if (key === "github") return "bg-foreground text-background";
-  if (key === "google") return "bg-white text-[#4285f4] border border-border";
-  if (key === "feishu") return "bg-white border border-border";
+  if (key === "google") return "bg-background text-primary border border-border";
+  if (key === "feishu") return "bg-background border border-border";
   return "bg-primary/10 text-primary border border-primary/20";
 }
 

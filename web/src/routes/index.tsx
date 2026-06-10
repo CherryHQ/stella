@@ -424,9 +424,9 @@ function HeroSection({ lang }: { lang: "en" | "zh" }) {
           <div className="simulator-card">
             <div className="simulator-header">
               <span className="flex items-center gap-2">
-                <span className="simulator-dot bg-red-500" />
-                <span className="simulator-dot bg-yellow-500" />
-                <span className="simulator-dot bg-green-500" />
+                <span className="simulator-dot bg-destructive" />
+                <span className="simulator-dot bg-chart-4" />
+                <span className="simulator-dot bg-chart-3" />
                 <span className="text-xs font-mono ml-2 text-muted-foreground">
                   stella-terminal
                 </span>
@@ -1042,8 +1042,8 @@ function FooterCTA({ lang }: { lang: "en" | "zh" }) {
             <button onClick={handleCopy} className="install-copy-btn">
               {copied ? (
                 <>
-                  <Check className="size-3.5 text-green-500" />
-                  <span className="text-green-500">{isZh ? "已复制" : "Copied"}</span>
+                  <Check className="size-3.5 text-chart-3" />
+                  <span className="text-chart-3">{isZh ? "已复制" : "Copied"}</span>
                 </>
               ) : (
                 <>

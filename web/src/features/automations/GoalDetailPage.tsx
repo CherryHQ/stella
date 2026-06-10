@@ -127,9 +127,7 @@ export function GoalDetailPage() {
                 <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
                   {r.running > 0 && <span>{r.running} running</span>}
                   {r.reviewing > 0 && <span>{r.reviewing} reviewing</span>}
-                  {r.blocked > 0 && (
-                    <span className="text-amber-600 dark:text-amber-400">{r.blocked} blocked</span>
-                  )}
+                  {r.blocked > 0 && <span className="text-chart-4">{r.blocked} blocked</span>}
                   {r.failed > 0 && <span className="text-destructive">{r.failed} failed</span>}
                 </div>
               </div>
@@ -410,9 +408,7 @@ function OverviewTab({
             <span
               className={cn(
                 "font-mono text-xs",
-                readiness.dispatchable
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-amber-600 dark:text-amber-400",
+                readiness.dispatchable ? "text-chart-3" : "text-chart-4",
               )}
             >
               {readiness.state}

@@ -48,6 +48,10 @@ web/src/
 
 Always use CossUI components before hand-writing primitives. Never override visual styles (colors, radius, shadows, padding, font) at the call site — use variant/size props. Feature components only add layout classes (`flex`, `grid`, `gap-*`, `p-*`, `w-*`). Full contract and token discipline: `web-ui.md`.
 
+### Theme tokens
+
+Do not hardcode palette utilities or raw colors in UI code (`bg-emerald-500`, `text-blue-600`, `bg-black/50`, `#fff`, `rgba(...)`, arbitrary color shadows, etc.). Use the existing shadcn tokens only: `background`, `foreground`, `card`, `popover`, `muted`, `accent`, `primary`, `destructive`, `border`, `ring`, `sidebar-*`, and `chart-1..5`. Map semantic status colors to chart tokens (`chart-3` success, `chart-4` warning, `chart-2` info/running) and `destructive` for errors. Do not add project-specific Tailwind color tokens for one-off states.
+
 ### I18n
 
 All user-facing strings use `useI18n()`. Never hardcode display text. Locales: `en`, `zh` — add keys to both when creating new text. Config: `src/lib/i18n/config.ts`.

@@ -83,8 +83,8 @@ function DiffView({ before, after }: { before: string; after: string }) {
           key={i}
           className={cn(
             "flex gap-2 px-3 py-0.5",
-            line.type === "removed" && "bg-red-500/10 text-red-400 dark:text-red-400",
-            line.type === "added" && "bg-emerald-500/10 text-emerald-400 dark:text-emerald-400",
+            line.type === "removed" && "bg-destructive/10 text-destructive",
+            line.type === "added" && "bg-chart-3/10 text-chart-3",
             line.type === "context" && "text-muted-foreground",
           )}
         >

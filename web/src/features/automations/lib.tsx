@@ -22,29 +22,29 @@ interface StatusMeta {
 
 const STATUS_META: Record<string, StatusMeta> = {
   done: {
-    dot: "bg-emerald-500",
-    pill: "bg-emerald-500/10 text-emerald-600 border-emerald-500/25 dark:text-emerald-400",
-    bar: "bg-emerald-500",
+    dot: "bg-chart-3",
+    pill: "bg-chart-3/10 text-chart-3 border-chart-3/25",
+    bar: "bg-chart-3",
   },
   running: {
-    dot: "bg-blue-500",
-    pill: "bg-blue-500/10 text-blue-600 border-blue-500/25 dark:text-blue-400",
-    bar: "bg-blue-500",
+    dot: "bg-chart-2",
+    pill: "bg-chart-2/10 text-chart-2 border-chart-2/25",
+    bar: "bg-chart-2",
   },
   planning: {
-    dot: "bg-blue-400",
-    pill: "bg-blue-500/10 text-blue-600 border-blue-500/25 dark:text-blue-400",
-    bar: "bg-blue-400",
+    dot: "bg-chart-2",
+    pill: "bg-chart-2/10 text-chart-2 border-chart-2/25",
+    bar: "bg-chart-2",
   },
   blocked: {
-    dot: "bg-amber-500",
-    pill: "bg-amber-500/10 text-amber-600 border-amber-500/25 dark:text-amber-400",
-    bar: "bg-amber-500",
+    dot: "bg-chart-4",
+    pill: "bg-chart-4/10 text-chart-4 border-chart-4/25",
+    bar: "bg-chart-4",
   },
   reviewing: {
-    dot: "bg-violet-500",
-    pill: "bg-violet-500/10 text-violet-600 border-violet-500/25 dark:text-violet-400",
-    bar: "bg-violet-500",
+    dot: "bg-primary",
+    pill: "bg-primary/10 text-primary border-primary/25",
+    bar: "bg-primary",
   },
   failed: {
     dot: "bg-destructive",

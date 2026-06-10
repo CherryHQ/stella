@@ -328,7 +328,7 @@ export function FileViewer({
               src={viewBlobUrl}
               title={fileName}
               sandbox="allow-scripts"
-              className="w-full h-full border-0 bg-white"
+              className="w-full h-full border-0 bg-background"
             />
           ) : (
             <div className="flex items-center justify-center h-full">

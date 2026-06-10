@@ -33,7 +33,10 @@ function Page() {
 
         {sidebarOpen && (
           <div className="fixed inset-0 z-40 md:hidden">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
+            <div
+              className="absolute inset-0 bg-foreground/50"
+              onClick={() => setSidebarOpen(false)}
+            />
             <aside className="absolute left-0 top-0 bottom-0 w-72 bg-background border-r border-border overflow-y-auto p-4 shadow-lg">
               <div className="flex justify-end mb-2">
                 <button

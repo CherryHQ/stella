@@ -193,7 +193,7 @@ function Row({
         <div className="flex items-center gap-2">
           <span className="truncate font-serif text-[15px] font-semibold">{g.title}</span>
           {g.priority === "urgent" && (
-            <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-amber-600 dark:text-amber-400">
+            <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-chart-4">
               urgent
             </span>
           )}
@@ -266,7 +266,7 @@ function Board({ goals, onOpen }: ViewProps) {
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <StatusPill status={g.status} label={statusLabel(t, g.status)} />
                     {g.priority === "urgent" && (
-                      <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                      <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-chart-4">
                         urgent
                       </span>
                     )}
@@ -341,7 +341,7 @@ function Table({ goals, onOpen }: ViewProps) {
                     {g.status === "blocked" ? t("goals.actUnblock") : t("goals.actReview")}
                   </span>
                 ) : g.priority === "urgent" ? (
-                  <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                  <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-[11px] font-medium text-chart-4">
                     urgent
                   </span>
                 ) : (
