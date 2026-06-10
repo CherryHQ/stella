@@ -1,6 +1,6 @@
 # Stella Web Theme — Perplexity
 
-**This file is the swappable half of the design system.** It describes the current visual direction only; replace it together with `src/tokens.css` when adopting a new style (see `AGENTS.md` § Theming). Engineering rules that survive any theme — CossUI contract, layout patterns, token discipline — live in `AGENTS.md` and never change with the theme.
+**This file is the swappable half of the design system.** It describes the current visual direction only; replace it together with `web/src/tokens.css` when adopting a new style (procedure: [`web-theming.md`](./web-theming.md)). Engineering rules that survive any theme — CossUI contract, layout patterns, token discipline — live in [`web-ui.md`](./web-ui.md) and never change with the theme.
 
 Source: designer design-system package `perplexity`, adapted to the shadcn token schema.
 

@@ -5,8 +5,8 @@
  * the font @import and the :root (light) / .dark token values in the shadcn
  * schema. globals.css holds the invariant @theme bridge and never changes.
  *
- * To swap styles, follow web/AGENTS.md § Theming.
- * Current theme: Perplexity (designer package `perplexity`) — see web/DESIGN.md.
+ * To swap styles, follow content/docs/development/rules/web-theming.md.
+ * Current theme: Perplexity — see content/docs/development/rules/web-design.md.
  */
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300..600&family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap");
 
