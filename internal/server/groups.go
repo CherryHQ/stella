@@ -38,6 +38,37 @@ func groupToAPI(g sqlc.CtxGroupState) apitypes.Group {
 		CreatedAt: parseTime(g.CreatedAt),
 		UpdatedAt: parseTime(g.UpdatedAt),
 	}
+	resp.LastActive = &resp.UpdatedAt
+	if g.CreatedByUserID.Valid {
+		resp.CreatedByUserId = &g.CreatedByUserID.String
+	}
+	return resp
+}
+
+// groupToAPIWithActivity keeps single-resource responses on the same
+// message-derived last_active semantics as the list endpoint.
+func (s *Server) groupToAPIWithActivity(ctx context.Context, g sqlc.CtxGroupState) apitypes.Group {
+	resp := groupToAPI(g)
+	if la, err := s.q.GetGroupLastActive(ctx, g.ID); err == nil {
+		if t := parseTime(la); !t.IsZero() {
+			resp.LastActive = &t
+		}
+	}
+	return resp
+}
+
+func groupListRowToAPI(g sqlc.ListGroupsByUserRow) apitypes.Group {
+	resp := apitypes.Group{
+		Id:        g.ID,
+		GroupName: g.GroupName,
+		Platform:  g.Platform,
+		CreatedAt: parseTime(g.CreatedAt),
+		UpdatedAt: parseTime(g.UpdatedAt),
+	}
+	lastActive := parseTime(g.LastActive)
+	if !lastActive.IsZero() {
+		resp.LastActive = &lastActive
+	}
 	if g.CreatedByUserID.Valid {
 		resp.CreatedByUserId = &g.CreatedByUserID.String
 	}
@@ -101,7 +132,7 @@ func (s *Server) ListGroups(w http.ResponseWriter, r *http.Request, params apise
 
 	apiGroups := make([]apitypes.Group, len(groups))
 	for i, g := range groups {
-		apiGroups[i] = groupToAPI(g)
+		apiGroups[i] = groupListRowToAPI(g)
 	}
 
 	writeData(w, http.StatusOK, apitypes.GroupList{
@@ -170,7 +201,7 @@ func (s *Server) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeData(w, http.StatusCreated, groupToAPI(g))
+	writeData(w, http.StatusCreated, s.groupToAPIWithActivity(r.Context(), g))
 }
 
 func (s *Server) GetGroup(w http.ResponseWriter, r *http.Request, groupId string) {
@@ -178,7 +209,7 @@ func (s *Server) GetGroup(w http.ResponseWriter, r *http.Request, groupId string
 	if !ok {
 		return
 	}
-	writeData(w, http.StatusOK, groupToAPI(g))
+	writeData(w, http.StatusOK, s.groupToAPIWithActivity(r.Context(), g))
 }
 
 func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId string) {
@@ -202,7 +233,7 @@ func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId str
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, groupToAPI(g))
+	writeData(w, http.StatusOK, s.groupToAPIWithActivity(r.Context(), g))
 }
 
 func (s *Server) DeleteGroup(w http.ResponseWriter, r *http.Request, groupId string) {

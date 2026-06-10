@@ -21,6 +21,7 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSchedulerRouteImport } from './routes/_app/scheduler'
 import { Route as AppRecallyRouteImport } from './routes/_app/recally'
+import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppAutomationsRouteImport } from './routes/_app/automations'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
@@ -128,6 +129,11 @@ const AppRecallyRoute = AppRecallyRouteImport.update({
   path: '/recally',
   getParentRoute: () => AppRoute,
 } as any).lazy(() => import('./routes/_app/recally.lazy').then((d) => d.Route))
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAutomationsRoute = AppAutomationsRouteImport.update({
   id: '/automations',
   path: '/automations',
@@ -516,6 +522,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/agents': typeof AppAgentsRouteWithChildren
   '/automations': typeof AppAutomationsRouteWithChildren
+  '/inbox': typeof AppInboxRoute
   '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
@@ -575,6 +582,7 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/signup': typeof SignupRoute
   '/automations': typeof AppAutomationsRouteWithChildren
+  '/inbox': typeof AppInboxRoute
   '/recally': typeof AppRecallyRoute
   '/scheduler': typeof AppSchedulerRoute
   '/sessions': typeof AppSessionsRouteWithChildren
@@ -635,6 +643,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_app/agents': typeof AppAgentsRouteWithChildren
   '/_app/automations': typeof AppAutomationsRouteWithChildren
+  '/_app/inbox': typeof AppInboxRoute
   '/_app/recally': typeof AppRecallyRoute
   '/_app/scheduler': typeof AppSchedulerRoute
   '/_app/sessions': typeof AppSessionsRouteWithChildren
@@ -697,6 +706,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/agents'
     | '/automations'
+    | '/inbox'
     | '/recally'
     | '/scheduler'
     | '/sessions'
@@ -756,6 +766,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/signup'
     | '/automations'
+    | '/inbox'
     | '/recally'
     | '/scheduler'
     | '/sessions'
@@ -815,6 +826,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_app/agents'
     | '/_app/automations'
+    | '/_app/inbox'
     | '/_app/recally'
     | '/_app/scheduler'
     | '/_app/sessions'
@@ -963,6 +975,13 @@ declare module '@tanstack/react-router' {
       path: '/recally'
       fullPath: '/recally'
       preLoaderRoute: typeof AppRecallyRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/automations': {
@@ -1550,6 +1569,7 @@ const AppTasksRouteWithChildren = AppTasksRoute._addFileChildren(
 interface AppRouteChildren {
   AppAgentsRoute: typeof AppAgentsRouteWithChildren
   AppAutomationsRoute: typeof AppAutomationsRouteWithChildren
+  AppInboxRoute: typeof AppInboxRoute
   AppRecallyRoute: typeof AppRecallyRoute
   AppSchedulerRoute: typeof AppSchedulerRoute
   AppSessionsRoute: typeof AppSessionsRouteWithChildren
@@ -1561,6 +1581,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAgentsRoute: AppAgentsRouteWithChildren,
   AppAutomationsRoute: AppAutomationsRouteWithChildren,
+  AppInboxRoute: AppInboxRoute,
   AppRecallyRoute: AppRecallyRoute,
   AppSchedulerRoute: AppSchedulerRoute,
   AppSessionsRoute: AppSessionsRouteWithChildren,

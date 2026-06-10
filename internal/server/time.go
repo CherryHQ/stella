@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -33,4 +34,19 @@ func parseTimePtr(ns sql.NullString) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+func parseSQLValueTime(value any) time.Time {
+	switch v := value.(type) {
+	case nil:
+		return time.Time{}
+	case string:
+		return parseTime(v)
+	case []byte:
+		return parseTime(string(v))
+	case time.Time:
+		return v.UTC()
+	default:
+		return parseTime(fmt.Sprint(v))
+	}
 }

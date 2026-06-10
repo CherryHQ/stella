@@ -133,6 +133,21 @@ func (q *Queries) DeleteGroupState(ctx context.Context, id string) error {
 	return err
 }
 
+const getGroupLastActive = `-- name: GetGroupLastActive :one
+SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
+FROM ctx_group_state gs
+LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
+WHERE gs.id = ?
+GROUP BY gs.id
+`
+
+func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getGroupLastActive, id)
+	var last_active string
+	err := row.Scan(&last_active)
+	return last_active, err
+}
+
 const getGroupMessage = `-- name: GetGroupMessage :one
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message WHERE id = ?
 `
@@ -322,10 +337,15 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 }
 
 const listGroupsByUser = `-- name: ListGroupsByUser :many
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state
-WHERE created_by_user_id = ?1
-  AND platform = 'web'
-ORDER BY updated_at DESC
+SELECT
+  gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id,
+  COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
+FROM ctx_group_state gs
+LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
+WHERE gs.created_by_user_id = ?1
+  AND gs.platform = 'web'
+GROUP BY gs.id
+ORDER BY last_active DESC
 LIMIT ?3 OFFSET ?2
 `
 
@@ -335,15 +355,28 @@ type ListGroupsByUserParams struct {
 	LimitCount  int64          `json:"limit_count"`
 }
 
-func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserParams) ([]CtxGroupState, error) {
+type ListGroupsByUserRow struct {
+	ID               string         `json:"id"`
+	Platform         string         `json:"platform"`
+	PlatformGroupID  string         `json:"platform_group_id"`
+	PlatformThreadID string         `json:"platform_thread_id"`
+	NextSeq          int64          `json:"next_seq"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
+	GroupName        string         `json:"group_name"`
+	CreatedByUserID  sql.NullString `json:"created_by_user_id"`
+	LastActive       string         `json:"last_active"`
+}
+
+func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserParams) ([]ListGroupsByUserRow, error) {
 	rows, err := q.db.QueryContext(ctx, listGroupsByUser, arg.UserID, arg.OffsetCount, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupState{}
+	items := []ListGroupsByUserRow{}
 	for rows.Next() {
-		var i CtxGroupState
+		var i ListGroupsByUserRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Platform,
@@ -354,6 +387,7 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 			&i.UpdatedAt,
 			&i.GroupName,
 			&i.CreatedByUserID,
+			&i.LastActive,
 		); err != nil {
 			return nil, err
 		}

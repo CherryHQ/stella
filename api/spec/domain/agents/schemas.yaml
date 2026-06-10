@@ -34,6 +34,7 @@ components:
         scope: { type: string }
         creator_id: { type: string }
         enabled: { type: boolean }
+        last_active: { type: string, format: date-time, nullable: true }
 
     AgentList:
       type: object

@@ -89,6 +89,78 @@ func (q *Queries) GetSchedJobRun(ctx context.Context, arg GetSchedJobRunParams) 
 	return i, err
 }
 
+const listFailedInboxSchedulerRuns = `-- name: ListFailedInboxSchedulerRuns :many
+SELECT
+  r.id AS run_id,
+  r.job_id,
+  j.agent_id,
+  j.name,
+  r.error,
+  r.finished_at,
+  r.started_at
+FROM sched_job_run r
+JOIN sched_job j ON j.id = r.job_id
+WHERE r.user_id = ?1
+  AND r.status = 'failed'
+  AND datetime(r.finished_at) >= datetime(?2)
+  AND (?3 IS NULL OR j.agent_id = ?3)
+ORDER BY r.finished_at DESC, r.id DESC
+LIMIT ?4
+`
+
+type ListFailedInboxSchedulerRunsParams struct {
+	UserID     sql.NullString `json:"user_id"`
+	Since      interface{}    `json:"since"`
+	AgentID    interface{}    `json:"agent_id"`
+	LimitCount int64          `json:"limit_count"`
+}
+
+type ListFailedInboxSchedulerRunsRow struct {
+	RunID      string         `json:"run_id"`
+	JobID      string         `json:"job_id"`
+	AgentID    sql.NullString `json:"agent_id"`
+	Name       string         `json:"name"`
+	Error      string         `json:"error"`
+	FinishedAt sql.NullString `json:"finished_at"`
+	StartedAt  string         `json:"started_at"`
+}
+
+func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFailedInboxSchedulerRunsParams) ([]ListFailedInboxSchedulerRunsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedInboxSchedulerRuns,
+		arg.UserID,
+		arg.Since,
+		arg.AgentID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFailedInboxSchedulerRunsRow{}
+	for rows.Next() {
+		var i ListFailedInboxSchedulerRunsRow
+		if err := rows.Scan(
+			&i.RunID,
+			&i.JobID,
+			&i.AgentID,
+			&i.Name,
+			&i.Error,
+			&i.FinishedAt,
+			&i.StartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSchedJobRuns = `-- name: ListSchedJobRuns :many
 SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_run
 WHERE job_id = ?1

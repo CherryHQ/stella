@@ -21,3 +21,21 @@ SELECT * FROM sched_job_run WHERE id = ? AND job_id = ?;
 -- name: CountRunningSchedJobRuns :one
 SELECT COUNT(*) FROM sched_job_run
 WHERE job_id = ? AND status = 'running';
+
+-- name: ListFailedInboxSchedulerRuns :many
+SELECT
+  r.id AS run_id,
+  r.job_id,
+  j.agent_id,
+  j.name,
+  r.error,
+  r.finished_at,
+  r.started_at
+FROM sched_job_run r
+JOIN sched_job j ON j.id = r.job_id
+WHERE r.user_id = sqlc.arg(user_id)
+  AND r.status = 'failed'
+  AND datetime(r.finished_at) >= datetime(sqlc.arg(since))
+  AND (sqlc.narg(agent_id) IS NULL OR j.agent_id = sqlc.narg(agent_id))
+ORDER BY r.finished_at DESC, r.id DESC
+LIMIT sqlc.arg(limit_count);

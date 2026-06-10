@@ -15,6 +15,7 @@ components:
         created_by_user_id: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        last_active: { type: string, format: date-time, nullable: true }
 
     GroupList:
       type: object

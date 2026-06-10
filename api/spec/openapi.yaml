@@ -55,6 +55,7 @@ tags:
   - name: status
   - name: tasks
   - name: projects
+  - name: inbox
 paths:
   # ── Status ─────────────────────────────────────────────────────────────────
   /api/status:
@@ -93,6 +94,9 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
   /api/agents/{id}/skills/{skillId}/file:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
+  # ── Inbox ──────────────────────────────────────────────────────────────────
+  /api/inbox:
+    $ref: "./domain/inbox/paths.yaml#/paths/~1api~1inbox"
   # ── Projects ───────────────────────────────────────────────────────────────
   /api/agents/{agentId}/projects:
     $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects"
