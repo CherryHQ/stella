@@ -1,0 +1,152 @@
+/*
+ * Theme tokens — the ONLY swappable CSS file in the design system.
+ *
+ * Everything that changes when Stella adopts a new visual style lives here:
+ * the font @import and the :root (light) / .dark token values in the shadcn
+ * schema. globals.css holds the invariant @theme bridge and never changes.
+ *
+ * To swap styles, follow web/AGENTS.md § Theming.
+ * Current theme: Perplexity (designer package `perplexity`) — see web/DESIGN.md.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300..600&family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap");
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(1 0 0); /* #ffffff */
+  --foreground: oklch(0.12 0.004 280); /* #0f0f10 */
+  --card: oklch(0.98 0 0); /* #f8f8f8 */
+  --card-foreground: oklch(0.12 0.004 280);
+  --popover: oklch(0.95 0 0); /* #f0f0f0 */
+  --popover-foreground: oklch(0.12 0.004 280);
+  --primary: oklch(0.51 0.23 293); /* #7c3aed */
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0 0); /* #f0f0f0 */
+  --secondary-foreground: oklch(0.12 0.004 280);
+  --muted: oklch(0.95 0 0); /* #f0f0f0 */
+  --muted-foreground: oklch(0.45 0.005 280); /* #5c5c5e */
+  --accent: oklch(0.96 0.02 293); /* subtle violet background */
+  --accent-foreground: oklch(0.51 0.23 293);
+  --destructive: oklch(0.56 0.18 28);
+  --border: oklch(0.9 0 0); /* #e0e0e0 */
+  --input: oklch(0.9 0 0);
+  --ring: oklch(0.51 0.23 293);
+  --chart-1: oklch(0.51 0.23 293);
+  --chart-2: oklch(0.62 0.22 307);
+  --chart-3: oklch(0.72 0.19 145);
+  --chart-4: oklch(0.74 0.17 72);
+  --chart-5: oklch(0.63 0.21 27);
+  --sidebar: oklch(0.98 0 0);
+  --sidebar-foreground: oklch(0.12 0.004 280);
+  --sidebar-primary: oklch(0.51 0.23 293);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.96 0.02 293);
+  --sidebar-accent-foreground: oklch(0.51 0.23 293);
+  --sidebar-border: oklch(0.9 0 0);
+  --sidebar-ring: oklch(0.51 0.23 293);
+  --destructive-foreground: oklch(1 0 0);
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-serif:
+    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --shadow-color: #000000;
+  --shadow-opacity: 0.02;
+  --shadow-blur: 1px;
+  --shadow-spread: 0px;
+  --shadow-offset-x: 0px;
+  --shadow-offset-y: 1px;
+  --letter-spacing: -0.01em;
+  --spacing: 0.25rem;
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+  --tracking-normal: -0.01em;
+  --stella-os-canvas: var(--background);
+  --stella-os-canvas-muted: var(--secondary);
+  --stella-os-surface: var(--card);
+  --stella-os-surface-raised: var(--popover);
+  --stella-os-ink: var(--foreground);
+  --stella-os-muted: var(--muted-foreground);
+  --stella-os-rule: var(--border);
+  --stella-os-accent: var(--primary);
+  --stella-os-accent-soft: var(--accent);
+  --stella-os-warning: oklch(0.74 0.17 72);
+  --stella-os-success: oklch(0.72 0.19 145);
+  --stella-os-danger: var(--destructive);
+}
+
+.dark {
+  --background: oklch(0.12 0.004 280); /* #0f0f10 */
+  --foreground: oklch(0.95 0 0); /* #f0f0f0 */
+  --card: oklch(0.16 0.004 280); /* #19191a */
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.2 0.005 280); /* #232325 */
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: oklch(0.62 0.22 307); /* #a855f7 */
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.16 0.004 280); /* #19191a */
+  --secondary-foreground: oklch(0.95 0 0);
+  --muted: oklch(0.2 0.005 280); /* #232325 */
+  --muted-foreground: oklch(0.65 0 0); /* #9b9b9b */
+  --accent: oklch(0.22 0.14 307); /* #3b1f5e */
+  --accent-foreground: oklch(0.72 0.2 307); /* #c084fc */
+  --destructive: oklch(0.63 0.21 27); /* #ef4444 */
+  --border: oklch(0.25 0.005 280); /* #2e2e30 */
+  --input: oklch(0.25 0.005 280);
+  --ring: oklch(0.62 0.22 307);
+  --chart-1: oklch(0.62 0.22 307);
+  --chart-2: oklch(0.72 0.2 307);
+  --chart-3: oklch(0.72 0.19 145);
+  --chart-4: oklch(0.74 0.17 72);
+  --chart-5: oklch(0.63 0.21 27);
+  --sidebar: oklch(0.16 0.004 280);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.62 0.22 307);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.22 0.14 307);
+  --sidebar-accent-foreground: oklch(0.72 0.2 307);
+  --sidebar-border: oklch(0.25 0.005 280);
+  --sidebar-ring: oklch(0.62 0.22 307);
+  --destructive-foreground: oklch(1 0 0);
+  --radius: 0.75rem;
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-serif:
+    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --shadow-color: #000000;
+  --shadow-opacity: 0;
+  --shadow-blur: 0px;
+  --shadow-spread: 0px;
+  --shadow-offset-x: 0px;
+  --shadow-offset-y: 0px;
+  --letter-spacing: -0.01em;
+  --spacing: 0.25rem;
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+  --stella-os-canvas: var(--background);
+  --stella-os-canvas-muted: var(--secondary);
+  --stella-os-surface: var(--card);
+  --stella-os-surface-raised: var(--popover);
+  --stella-os-ink: var(--foreground);
+  --stella-os-muted: var(--muted-foreground);
+  --stella-os-rule: var(--border);
+  --stella-os-accent: var(--primary);
+  --stella-os-accent-soft: var(--accent);
+  --stella-os-warning: oklch(0.74 0.17 72);
+  --stella-os-success: oklch(0.72 0.19 145);
+  --stella-os-danger: var(--destructive);
+}
