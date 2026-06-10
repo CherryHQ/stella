@@ -35,6 +35,7 @@ interface AppShellProps {
   defaultSidebarOpen?: boolean;
   title?: ReactNode;
   headerActions?: ReactNode;
+  subnav?: ReactNode;
 }
 
 export function AppShell({
@@ -43,6 +44,7 @@ export function AppShell({
   defaultSidebarOpen = true,
   title,
   headerActions,
+  subnav,
 }: AppShellProps) {
   const [dynamicTitle, setDynamicTitle] = useState<ReactNode>(null);
   const [dynamicActions, setDynamicActions] = useState<ReactNode>(null);
@@ -74,6 +76,7 @@ export function AppShell({
               <div className="flex items-center gap-1 shrink-0">{displayActions}</div>
             )}
           </header>
+          {subnav}
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
         </SidebarInset>
       </SidebarProvider>

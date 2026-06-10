@@ -6,7 +6,8 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AgentSidebarContent } from "@/features/sessions/AgentSidebar";
+import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
+import { FacetTabs } from "@/features/sessions/FacetTabs";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { AppShell } from "@/layouts/AppShell";
 
@@ -18,6 +19,7 @@ function AgentLayout() {
   const { agentId } = useParams({ from: "/_app/agents/$agentId" });
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const projectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
   const queryClient = useQueryClient();
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
@@ -32,11 +34,13 @@ function AgentLayout() {
   return (
     <AppShell
       sidebar={
-        <AgentSidebarContent
-          agents={agents}
+        <AgentAppSidebar agents={agents} agentId={agentId} onAgentChange={handleAgentChange} />
+      }
+      subnav={
+        <FacetTabs
+          kind={projectId ? "project" : "agent"}
           agentId={agentId}
-          pathname={pathname}
-          onAgentChange={handleAgentChange}
+          projectId={projectId || undefined}
         />
       }
     >

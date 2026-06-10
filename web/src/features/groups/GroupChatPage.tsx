@@ -7,7 +7,8 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { Button } from "@/components/ui/button";
 import { AppShell } from "@/layouts/AppShell";
-import { AgentSidebarContent } from "@/features/sessions/AgentSidebar";
+import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
+import { FacetTabs } from "@/features/sessions/FacetTabs";
 import { GroupChat } from "./GroupChat";
 import { GroupSettings } from "./GroupSettings";
 
@@ -30,15 +31,15 @@ export function GroupChatPage() {
   return (
     <AppShell
       sidebar={
-        <AgentSidebarContent
+        <AgentAppSidebar
           agents={agents}
           agentId={agents[0]?.id ?? ""}
-          pathname={`/groups/${groupId}`}
           onAgentChange={(id) => {
             void navigate({ to: "/agents/$agentId", params: { agentId: id } });
           }}
         />
       }
+      subnav={<FacetTabs kind="group" groupId={groupId} />}
       title={
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">{group?.group_name || t("groups.group")}</span>
