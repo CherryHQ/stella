@@ -37,10 +37,10 @@ import { PluginSection, bucketIcon } from "./PluginGrid";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
+import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
 import { Plus } from "lucide-react";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
@@ -416,57 +416,53 @@ export function PluginsPage() {
 
   return (
     <>
-      <div className="h-full min-h-0 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-8 p-6">
-          <div className="flex items-center justify-between gap-4">
-            <h1 className="text-lg font-semibold tracking-tight">{t("plugins.title")}</h1>
-            <Button
-              onClick={() =>
-                void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: "new" } })
-              }
-              variant="outline"
-              size="sm"
-            >
-              <Plus className="size-4" />
-              {t("plugins.addTool")}
-            </Button>
-          </div>
+      <SettingsGridPage
+        title={t("plugins.title")}
+        action={
+          <Button
+            onClick={() =>
+              void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: "new" } })
+            }
+            variant="outline"
+            size="sm"
+          >
+            <Plus className="size-4" />
+            {t("plugins.addTool")}
+          </Button>
+        }
+      >
+        <PluginSection
+          icon={bucketIcon.integration}
+          title={t("plugins.bucket.integrations")}
+          description={t("plugins.bucket.integrationsDesc")}
+          plugins={integrationPlugins}
+          activeName={selectedPlugin?.name}
+          onSelect={selectPlugin}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+        <PluginSection
+          icon={bucketIcon.tool}
+          title={t("plugins.bucket.tools")}
+          description={t("plugins.bucket.toolsDesc")}
+          plugins={capabilityPlugins}
+          activeName={selectedPlugin?.name}
+          onSelect={selectPlugin}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+        <PluginSection
+          icon={bucketIcon.system}
+          title={t("plugins.bucket.system")}
+          description={t("plugins.bucket.systemDesc")}
+          plugins={systemPlugins}
+          activeName={selectedPlugin?.name}
+          onSelect={selectPlugin}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+      </SettingsGridPage>
 
-          <PluginSection
-            icon={bucketIcon.integration}
-            title={t("plugins.bucket.integrations")}
-            description={t("plugins.bucket.integrationsDesc")}
-            plugins={integrationPlugins}
-            activeName={selectedPlugin?.name}
-            onSelect={selectPlugin}
-            onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-          />
-          <PluginSection
-            icon={bucketIcon.tool}
-            title={t("plugins.bucket.tools")}
-            description={t("plugins.bucket.toolsDesc")}
-            plugins={capabilityPlugins}
-            activeName={selectedPlugin?.name}
-            onSelect={selectPlugin}
-            onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-          />
-          <PluginSection
-            icon={bucketIcon.system}
-            title={t("plugins.bucket.system")}
-            description={t("plugins.bucket.systemDesc")}
-            plugins={systemPlugins}
-            activeName={selectedPlugin?.name}
-            onSelect={selectPlugin}
-            onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-          />
-        </div>
-      </div>
-
-      <Sheet open={sheetOpen} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetPopup side="right" className="h-full w-full p-0 sm:max-w-2xl">
-          {detail}
-        </SheetPopup>
-      </Sheet>
+      <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
+        {detail}
+      </SettingsDetailSheet>
 
       <ToastContainer messages={toasts} />
     </>

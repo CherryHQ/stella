@@ -4,9 +4,9 @@ import { Blocks, Cpu, Plug, Terminal, Webhook } from "lucide-react";
 import type { PluginWithMeta } from "@/lib/types";
 import type { PluginBucket } from "./pluginUtils";
 import { pluginBucket, pluginHasOAuth, pluginIsEssential, pluginLabel } from "./pluginUtils";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { SettingsCard, SettingsCardSection } from "@/features/settings/SettingsCardGrid";
 
 function BrandIcon({ path }: { path: string }) {
   return (
@@ -44,53 +44,35 @@ export function PluginCard({ plugin, active, onSelect, onToggle }: PluginCardPro
   const oauthProvider = plugin._manifestPlugin?.oauth_provider;
 
   return (
-    <Card
+    <SettingsCard
+      icon={<PluginIcon plugin={plugin} />}
+      title={pluginLabel(plugin)}
+      badge={
+        essential ? (
+          <Badge variant="secondary" size="sm">
+            core
+          </Badge>
+        ) : undefined
+      }
+      description={plugin.description || undefined}
+      action={
+        <Switch
+          checked={plugin.enabled}
+          disabled={essential}
+          onCheckedChange={(checked) => onToggle(checked)}
+        />
+      }
+      footer={
+        oauthProvider ? (
+          <>
+            <Plug className="size-3 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">{oauthProvider}</span>
+          </>
+        ) : undefined
+      }
+      active={active}
       onClick={onSelect}
-      className={`cursor-pointer p-4 gap-3 transition-colors hover:border-ring/40 ${
-        active ? "border-ring/60" : ""
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-muted text-muted-foreground">
-          <PluginIcon plugin={plugin} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-foreground">
-              {pluginLabel(plugin)}
-            </span>
-            {essential && (
-              <Badge variant="secondary" size="sm">
-                core
-              </Badge>
-            )}
-          </div>
-          {plugin.description && (
-            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-              {plugin.description}
-            </p>
-          )}
-        </div>
-        <span
-          className="shrink-0"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-          role="presentation"
-        >
-          <Switch
-            checked={plugin.enabled}
-            disabled={essential}
-            onCheckedChange={(checked) => onToggle(checked)}
-          />
-        </span>
-      </div>
-      {oauthProvider && (
-        <div className="flex items-center gap-1.5 border-t border-border pt-2.5">
-          <Plug className="size-3 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">{oauthProvider}</span>
-        </div>
-      )}
-    </Card>
+    />
   );
 }
 
@@ -115,27 +97,17 @@ export function PluginSection({
 }: PluginSectionProps) {
   if (plugins.length === 0) return null;
   return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground">{icon}</span>
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-        <Badge variant="secondary" size="sm">
-          {plugins.length}
-        </Badge>
-        <span className="text-xs text-muted-foreground">— {description}</span>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {plugins.map((plugin) => (
-          <PluginCard
-            key={plugin.id}
-            plugin={plugin}
-            active={activeName === plugin.name}
-            onSelect={() => onSelect(plugin)}
-            onToggle={(enabled) => onToggle(plugin, enabled)}
-          />
-        ))}
-      </div>
-    </section>
+    <SettingsCardSection icon={icon} title={title} description={description} count={plugins.length}>
+      {plugins.map((plugin) => (
+        <PluginCard
+          key={plugin.id}
+          plugin={plugin}
+          active={activeName === plugin.name}
+          onSelect={() => onSelect(plugin)}
+          onToggle={(enabled) => onToggle(plugin, enabled)}
+        />
+      ))}
+    </SettingsCardSection>
   );
 }
 
