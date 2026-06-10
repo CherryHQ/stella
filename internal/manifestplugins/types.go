@@ -1,12 +1,21 @@
 package manifestplugins
 
 type ManifestPlugin struct {
-	ID            string               `json:"id" yaml:"id"`
-	Kind          string               `json:"kind" yaml:"kind"`
-	Name          string               `json:"name" yaml:"name"`
-	DisplayName   string               `json:"display_name" yaml:"display_name"`
-	Description   string               `json:"description" yaml:"description"`
-	Enabled       bool                 `json:"enabled" yaml:"enabled"`
+	ID          string `json:"id" yaml:"id"`
+	Kind        string `json:"kind" yaml:"kind"`
+	Name        string `json:"name" yaml:"name"`
+	DisplayName string `json:"display_name" yaml:"display_name"`
+	Description string `json:"description" yaml:"description"`
+	Enabled     bool   `json:"enabled" yaml:"enabled"`
+
+	// Category is a display-only hint for grouping in the settings UI
+	// ("system", "integration", "tool"). Empty means the UI derives a bucket
+	// from the plugin's signals (oauth → integration, hook → system, else tool).
+	Category string `json:"category,omitempty" yaml:"category,omitempty"`
+	// Essential marks a plugin the runtime depends on (e.g. rg/fd back the
+	// Grep/Glob tools); the UI guards against disabling it.
+	Essential bool `json:"essential,omitempty" yaml:"essential,omitempty"`
+
 	Prompt        string               `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Binaries      []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
 	Skills        []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
@@ -72,6 +81,8 @@ type rawManifestPlugin struct {
 	DisplayName   string               `yaml:"display_name"`
 	Description   string               `yaml:"description"`
 	Enabled       *bool                `yaml:"enabled"`
+	Category      string               `yaml:"category,omitempty"`
+	Essential     bool                 `yaml:"essential,omitempty"`
 	Prompt        string               `yaml:"prompt,omitempty"`
 	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
 	Skills        []ManifestSkill      `yaml:"skills,omitempty"`

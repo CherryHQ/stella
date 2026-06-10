@@ -20,36 +20,28 @@ import type {
   PluginWithMeta,
 } from "@/lib/types";
 import {
-  buildManifestInstallDraft,
-  buildManifestPluginFromDraft,
   buildPluginConfigDraft,
   buildPluginConfigPayload,
   hasGenericConfigEditor,
-  manifestInstallSummary,
   otherPlugins,
+  pluginBucket,
   pluginDescription,
+  pluginHasBinaries,
+  pluginIsEssential,
   pluginLabel,
-  pluginMetaBadges,
   semanticPlugins,
 } from "./pluginUtils";
-import type { ManifestInstallDraft } from "./pluginUtils";
 import { GenericConfigEditor } from "./GenericConfigEditor";
-import { ManifestInstallEditor } from "./ManifestInstallEditor";
+import { CliToolAddForm, CliToolEditor } from "./CliToolPanel";
+import { PluginSection, bucketIcon } from "./PluginGrid";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
-import {
-  SettingsListHeader,
-  SettingsListItem,
-  SettingsListBody,
-} from "@/features/settings/SettingsListPanel";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
-import { Plus, Wrench, Webhook, Blocks } from "lucide-react";
+import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
+import { Plus } from "lucide-react";
 
 function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
   return { plugins: plugins.map((plugin) => ({ ...plugin })) };
@@ -78,22 +70,6 @@ export function PluginsPage() {
     Record<string, Record<string, unknown>>
   >({});
 
-  const [manifestInstallDrafts, setManifestInstallDrafts] = useState<
-    Record<string, ManifestInstallDraft>
-  >({});
-
-  const [newManifestTool, setNewManifestTool] = useState({
-    id: "tool/",
-    name: "",
-    display_name: "",
-    description: "",
-    binary_name: "",
-    tool: "",
-    version: "",
-    bin_path: "",
-    bin: "",
-  });
-
   const { toasts, showToast } = useToast(4000);
 
   const toolPlugins = semanticPlugins("tool", plugins, manifestPlugins);
@@ -101,9 +77,14 @@ export function PluginsPage() {
   const standalonePlugins = otherPlugins(plugins, manifestPlugins);
   const allPlugins = [...toolPlugins, ...hookPlugins, ...standalonePlugins];
 
+  const integrationPlugins = allPlugins.filter((p) => pluginBucket(p) === "integration");
+  const capabilityPlugins = allPlugins.filter((p) => pluginBucket(p) === "tool");
+  const systemPlugins = allPlugins.filter((p) => pluginBucket(p) === "system");
+
   const selectedPlugin =
     pluginId && pluginId !== "new" ? allPlugins.find((p) => p.name === pluginId) : undefined;
   const isCreating = pluginId === "new";
+  const sheetOpen = isCreating || !!selectedPlugin;
 
   const loadPlugins = useCallback(async () => {
     try {
@@ -176,12 +157,6 @@ export function PluginsPage() {
   useEffect(() => {
     if (selectedPlugin && selectedPlugin.has_config && !pluginConfigLoaded[selectedPlugin.id]) {
       void loadPluginConfig(selectedPlugin);
-    }
-    if (selectedPlugin?._manifest && !manifestInstallDrafts[selectedPlugin.id]) {
-      setManifestInstallDrafts((prev) => ({
-        ...prev,
-        [selectedPlugin.id]: buildManifestInstallDraft(selectedPlugin),
-      }));
     }
   }, [selectedPlugin?.id]);
 
@@ -298,96 +273,46 @@ export function PluginsPage() {
     }
   }
 
-  async function saveManifestInstall(plugin: PluginWithMeta) {
-    try {
-      const draft = manifestInstallDrafts[plugin.id];
-      if (!draft) throw new Error("manifest draft missing");
-      const next = buildManifestPluginFromDraft(draft);
-      const index = manifestPlugins.findIndex((p) => p.id === plugin.id);
-      let updated: ManifestPlugin[];
-      if (index >= 0) {
-        updated = [...manifestPlugins];
-        updated[index] = next;
-      } else {
-        updated = [...manifestPlugins, next];
-      }
-      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
-      await loadManifestPlugins();
-      await loadPlugins();
-      await syncManifest(true);
-      showToast(next.id + " install saved");
-    } catch (e) {
-      showToast((e as Error).message, "error");
+  // upsertManifestPlugin replaces (or appends) one manifest plugin, then persists,
+  // reloads, and syncs. Preserves every other plugin's definition verbatim.
+  async function upsertManifestPlugin(next: ManifestPlugin, successMsg: string) {
+    const index = manifestPlugins.findIndex((p) => p.id === next.id);
+    const updated =
+      index >= 0
+        ? manifestPlugins.map((p, i) => (i === index ? next : p))
+        : [...manifestPlugins, next];
+    await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
+    await loadManifestPlugins();
+    await loadPlugins();
+    await syncManifest(true);
+    showToast(successMsg);
+  }
+
+  async function createCliTool(params: {
+    toolKey: string;
+    name: string;
+    displayName: string;
+    version: string;
+  }) {
+    const id = "tool/" + params.name;
+    if (manifestPlugins.some((p) => p.id === id)) {
+      showToast(id + " already exists", "error");
+      return;
     }
-  }
-
-  function resetManifestInstallDraft(plugin: PluginWithMeta) {
-    setManifestInstallDrafts((prev) => ({
-      ...prev,
-      [plugin.id]: buildManifestInstallDraft(plugin),
-    }));
-  }
-
-  function fillNewManifestToolDefaults() {
-    const binary = newManifestTool.binary_name.trim();
-    if (!binary) return;
-    setNewManifestTool((prev) => ({
-      ...prev,
-      name: prev.name || binary,
-      id: prev.id === "tool/" || !prev.id ? "tool/" + binary : prev.id,
-      display_name: prev.display_name || binary,
-    }));
-  }
-
-  async function createManifestTool() {
+    const binary: ManifestBinary = { name: params.name, tool: params.toolKey };
+    if (params.version) binary.version = params.version;
+    const next: ManifestPlugin = {
+      id,
+      kind: "tool",
+      name: params.name,
+      display_name: params.displayName || params.name,
+      description: "",
+      enabled: true,
+      binaries: [binary],
+    };
     try {
-      fillNewManifestToolDefaults();
-      const draft = newManifestTool;
-      const id = (draft.id || "").trim();
-      const name = (draft.name || "").trim();
-      const binaryName = (draft.binary_name || "").trim();
-      const tool = (draft.tool || "").trim();
-      if (!id || !id.startsWith("tool/")) throw new Error("Plugin ID must start with tool/");
-      if (!name) throw new Error("Name is required");
-      if (!binaryName) throw new Error("Binary name is required");
-      if (!tool) throw new Error("GitHub repo is required");
-      if (manifestPlugins.some((p) => p.id === id)) throw new Error(id + " already exists");
-
-      const binary: Record<string, string> = { name: binaryName, tool };
-      if (draft.version) binary.version = draft.version.trim();
-      if (draft.bin_path) binary.bin_path = draft.bin_path.trim();
-      if (draft.bin) binary.bin = draft.bin.trim();
-
-      const newPlugin: ManifestPlugin = {
-        id,
-        kind: "tool",
-        name,
-        display_name: (draft.display_name || "").trim() || name,
-        description: (draft.description || "").trim(),
-        enabled: true,
-        binaries: [binary as unknown as ManifestBinary],
-      };
-      const updated = [...manifestPlugins, newPlugin];
-      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
-      await loadManifestPlugins();
-      await loadPlugins();
-      await syncManifest(true);
-      setNewManifestTool({
-        id: "tool/",
-        name: "",
-        display_name: "",
-        description: "",
-        binary_name: "",
-        tool: "",
-        version: "",
-        bin_path: "",
-        bin: "",
-      });
-      void navigate({
-        to: "/settings/plugins/$pluginId",
-        params: { pluginId: name },
-      });
-      showToast(id + " added");
+      await upsertManifestPlugin(next, id + " added");
+      void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: params.name } });
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -395,225 +320,29 @@ export function PluginsPage() {
 
   // --- Render ---
 
-  function pluginKindIcon(kind: string) {
-    switch (kind) {
-      case "tool":
-        return <Wrench className="size-3.5 text-muted-foreground" />;
-      case "hook":
-        return <Webhook className="size-3.5 text-muted-foreground" />;
-      default:
-        return <Blocks className="size-3.5 text-muted-foreground" />;
-    }
+  function selectPlugin(p: PluginWithMeta) {
+    void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: p.name } });
   }
 
-  function pluginKindLabel(kind: string) {
-    switch (kind) {
-      case "tool":
-        return t("plugins.tab.tools");
-      case "hook":
-        return t("plugins.tab.hooks");
-      default:
-        return t("plugins.tab.others");
-    }
+  function closeSheet() {
+    void navigate({ to: "/settings/plugins" });
   }
-
-  const groups = [
-    { kind: "tool", plugins: toolPlugins },
-    { kind: "hook", plugins: hookPlugins },
-    ...(standalonePlugins.length > 0 ? [{ kind: "other", plugins: standalonePlugins }] : []),
-  ];
 
   let detail: React.ReactNode = undefined;
 
   if (isCreating) {
     detail = (
-      <DetailPanel
-        onSave={createManifestTool}
+      <CliToolAddForm
+        existingIds={manifestPlugins.map((p) => p.id)}
+        onCreate={createCliTool}
         onCancel={() => void navigate({ to: "/settings/plugins" })}
-        saveLabel="Save and sync"
-        cancelLabel={t("common.cancel")}
-      >
-        <DetailPanelHeader title={t("plugins.addTool")} subtitle={t("plugins.addToolDesc")} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.binaryName")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.binary_name}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  binary_name: (e.target as HTMLInputElement).value,
-                }))
-              }
-              onBlur={fillNewManifestToolDefaults}
-              type="text"
-              placeholder="my-cli"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.githubRepo")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.tool}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  tool: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="owner/repo"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.pluginId")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.id}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  id: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="tool/my-cli"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.nameLabel")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.name}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  name: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="my-cli"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.displayName")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.display_name}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  display_name: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="My CLI"
-              size="sm"
-              className="text-sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.versionLabel")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.version}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  version: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="latest or v1.2.3"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.binPath")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.bin_path}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  bin_path: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="bin"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.exeOverride")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.bin}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  bin: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="archive binary name"
-              className="font-mono text-sm"
-              size="sm"
-            />
-          </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("plugins.descriptionLabel")}
-            </label>
-            <Input
-              nativeInput
-              value={newManifestTool.description}
-              onChange={(e) =>
-                setNewManifestTool((prev) => ({
-                  ...prev,
-                  description: (e.target as HTMLInputElement).value,
-                }))
-              }
-              type="text"
-              placeholder="What this CLI does"
-              size="sm"
-              className="text-sm"
-            />
-          </div>
-        </div>
-      </DetailPanel>
+      />
     );
   } else if (selectedPlugin) {
     const p = selectedPlugin;
     const hasConfig = hasGenericConfigEditor(p, schemas);
-    const badges = pluginMetaBadges(p);
+    const essential = pluginIsEssential(p);
+    const oauthProvider = p._manifestPlugin?.oauth_provider;
 
     detail = (
       <DetailPanel>
@@ -622,36 +351,33 @@ export function PluginsPage() {
           subtitle={
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-mono text-xs text-muted-foreground">{p.id}</span>
-              {p.enabled && (
-                <Badge variant="success" size="sm">
-                  on
+              {essential && (
+                <Badge variant="secondary" size="sm">
+                  core
                 </Badge>
               )}
-              {badges.map((badge) => (
-                <Badge
-                  key={badge.key}
-                  variant={badge.variant as "default" | "outline" | "secondary" | "info"}
-                  size="sm"
-                >
-                  {badge.label}
+              {oauthProvider && (
+                <Badge variant="outline" size="sm">
+                  {oauthProvider}
                 </Badge>
-              ))}
+              )}
             </div>
-          }
-          action={
-            <Switch
-              checked={p.enabled}
-              onCheckedChange={(checked) => void toggleSemanticPlugin(p, checked)}
-            />
           }
         />
 
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-2.5">
+          <span className="text-sm font-medium">
+            {p.enabled ? t("plugins.enabled") : t("plugins.disabled")}
+          </span>
+          <Switch
+            checked={p.enabled}
+            disabled={essential}
+            onCheckedChange={(checked) => void toggleSemanticPlugin(p, checked)}
+          />
+        </div>
+
         {pluginDescription(p) && (
           <p className="text-sm text-muted-foreground leading-relaxed">{pluginDescription(p)}</p>
-        )}
-
-        {p._manifest && (
-          <p className="text-xs text-muted-foreground font-mono">{manifestInstallSummary(p)}</p>
         )}
 
         {hasConfig && (
@@ -674,14 +400,13 @@ export function PluginsPage() {
           </div>
         )}
 
-        {p._manifest && manifestInstallDrafts[p.id] && (
+        {p._manifest && pluginHasBinaries(p) && (
           <div className="border-t border-border pt-4 -mx-6 px-0">
-            <ManifestInstallEditor
-              draft={manifestInstallDrafts[p.id]}
+            <CliToolEditor
+              plugin={p}
               oauthProviders={oauthProviders}
-              onChange={(draft) => setManifestInstallDrafts((prev) => ({ ...prev, [p.id]: draft }))}
-              onSave={() => saveManifestInstall(p)}
-              onReset={() => resetManifestInstallDraft(p)}
+              onSave={(next) => upsertManifestPlugin(next, next.id + " updated")}
+              showToast={showToast}
             />
           </div>
         )}
@@ -691,71 +416,54 @@ export function PluginsPage() {
 
   return (
     <>
-      <SettingsDetailLayout
-        list={
-          <>
-            <SettingsListHeader
-              title={t("settings.nav.plugins")}
-              action={
-                <Button
-                  onClick={() =>
-                    void navigate({
-                      to: "/settings/plugins/$pluginId",
-                      params: { pluginId: "new" },
-                    })
-                  }
-                  variant="ghost"
-                  size="icon-sm"
-                >
-                  <Plus className="size-4" />
-                </Button>
-              }
-            />
-            <SettingsListBody>
-              {groups.map((group) => (
-                <div key={group.kind} className="space-y-0.5">
-                  <div className="flex items-center gap-2 px-3 py-1.5">
-                    {pluginKindIcon(group.kind)}
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {pluginKindLabel(group.kind)}
-                    </span>
-                    <Badge variant="secondary" size="sm">
-                      {group.plugins.length}
-                    </Badge>
-                  </div>
-                  {group.plugins.map((p) => (
-                    <SettingsListItem
-                      key={p.id}
-                      active={pluginId === p.name}
-                      onClick={() =>
-                        void navigate({
-                          to: "/settings/plugins/$pluginId",
-                          params: { pluginId: p.name },
-                        })
-                      }
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`shrink-0 size-1.5 rounded-full ${p.enabled ? "bg-green-500" : "bg-muted-foreground"}`}
-                        />
-                        <span className="text-sm truncate">{pluginLabel(p)}</span>
-                      </div>
-                    </SettingsListItem>
-                  ))}
-                </div>
-              ))}
-            </SettingsListBody>
-          </>
+      <SettingsGridPage
+        title={t("plugins.title")}
+        action={
+          <Button
+            onClick={() =>
+              void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: "new" } })
+            }
+            variant="outline"
+            size="sm"
+          >
+            <Plus className="size-4" />
+            {t("plugins.addTool")}
+          </Button>
         }
-        detail={detail}
-        emptyState={
-          <SettingsEmptyState
-            message={t("plugins.noPlugins") ?? "No plugin selected"}
-            description={t("plugins.noPluginsDesc") ?? "Select a plugin to view its configuration."}
-          />
-        }
-        onBack={() => void navigate({ to: "/settings/plugins" })}
-      />
+      >
+        <PluginSection
+          icon={bucketIcon.integration}
+          title={t("plugins.bucket.integrations")}
+          description={t("plugins.bucket.integrationsDesc")}
+          plugins={integrationPlugins}
+          activeName={selectedPlugin?.name}
+          onSelect={selectPlugin}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+        <PluginSection
+          icon={bucketIcon.tool}
+          title={t("plugins.bucket.tools")}
+          description={t("plugins.bucket.toolsDesc")}
+          plugins={capabilityPlugins}
+          activeName={selectedPlugin?.name}
+          onSelect={selectPlugin}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+        <PluginSection
+          icon={bucketIcon.system}
+          title={t("plugins.bucket.system")}
+          description={t("plugins.bucket.systemDesc")}
+          plugins={systemPlugins}
+          activeName={selectedPlugin?.name}
+          onSelect={selectPlugin}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+      </SettingsGridPage>
+
+      <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
+        {detail}
+      </SettingsDetailSheet>
+
       <ToastContainer messages={toasts} />
     </>
   );

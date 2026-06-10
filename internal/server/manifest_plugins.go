@@ -112,6 +112,13 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	for _, plugin := range req.Plugins {
 		def, isBuiltin := builtinByID[plugin.ID]
 
+		// Essential builtin plugins back core tools (rg/fd → Grep/Glob); refuse to
+		// disable them so an admin can't silently break the harness.
+		if isBuiltin && def.Essential && !plugin.Enabled {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("plugin %q is essential and cannot be disabled", plugin.ID))
+			return
+		}
+
 		existing, _, err := s.store.GetManifestPluginOverride(r.Context(), plugin.ID)
 		if err != nil {
 			s.writeInternalError(w, err)
@@ -196,6 +203,8 @@ func manifestPluginConfigJSON(p manifestplugins.ManifestPlugin) string {
 		Name          string                               `json:"name"`
 		DisplayName   string                               `json:"display_name"`
 		Description   string                               `json:"description"`
+		Category      string                               `json:"category,omitempty"`
+		Essential     bool                                 `json:"essential,omitempty"`
 		Prompt        string                               `json:"prompt,omitempty"`
 		Binaries      []manifestplugins.ManifestBinary     `json:"binaries,omitempty"`
 		Skills        []manifestplugins.ManifestSkill      `json:"skills,omitempty"`
@@ -221,6 +230,8 @@ func manifestPluginConfigJSON(p manifestplugins.ManifestPlugin) string {
 		Name:          p.Name,
 		DisplayName:   p.DisplayName,
 		Description:   p.Description,
+		Category:      p.Category,
+		Essential:     p.Essential,
 		Prompt:        p.Prompt,
 		Binaries:      binaries,
 		Skills:        skills,

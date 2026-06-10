@@ -7,6 +7,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  SettingsDetailSheet,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/features/settings/SettingsCardGrid";
+import type { RowAction } from "@/features/settings/SettingsCardGrid";
+import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
+import { Mail, Plus } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
 interface EmailAccount {
@@ -231,119 +240,75 @@ export function EmailAccountsPanel({
   const hasAccounts = config.accounts && Object.keys(config.accounts).length > 0;
 
   return (
-    <div className="space-y-6">
-      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-
-      {hasAccounts && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {Object.entries(config.accounts).map(([name, acct]) => {
-            const isDefault = config.default === name;
-            return (
-              <div
-                key={name}
-                className="min-w-0 rounded-xl border border-border bg-card p-5 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="size-4 text-muted-foreground"
-                      >
-                        <rect width="20" height="16" x="2" y="4" rx="2" />
-                        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                      </svg>
-                      <span className="min-w-0 truncate text-sm font-medium font-mono">{name}</span>
-                    </div>
-                    {isDefault && <Badge variant="success">{t("credentials.email.default")}</Badge>}
-                  </div>
-
-                  <div className="mt-4 space-y-2 text-xs text-muted-foreground">
-                    <div>
-                      <span className="text-foreground font-medium">From:</span> {acct.from}
-                    </div>
-                    <div>
-                      <span className="text-foreground font-medium">Username:</span> {acct.username}
-                    </div>
-                    <div>
-                      <span className="text-foreground font-medium">IMAP:</span> {acct.imap_host}:
-                      {acct.imap_port || 993} ({acct.imap_tls})
-                    </div>
-                    <div>
-                      <span className="text-foreground font-medium">SMTP:</span> {acct.smtp_host}:
-                      {acct.smtp_port || 587} ({acct.smtp_tls})
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-3">
-                  {!isDefault && (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      className="cursor-pointer duration-120"
-                      onClick={() => handleSetDefault(name)}
-                      loading={saving}
-                    >
-                      {t("credentials.email.setDefault")}
-                    </Button>
-                  )}
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="cursor-pointer duration-120"
-                    onClick={() => handleEdit(name)}
-                  >
-                    {t("common.edit")}
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="destructive-outline"
-                    className="text-destructive hover:bg-destructive/10 cursor-pointer duration-120"
-                    onClick={() => handleDelete(name)}
-                    loading={saving}
-                  >
-                    {t("common.delete")}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {!hasAccounts && !loading && (
-        <p className="text-sm text-muted-foreground py-4 text-center">
-          {t("credentials.email.noAccounts")}
-        </p>
-      )}
-
-      {!formOpen ? (
-        <div className="flex justify-end">
-          <Button size="sm" onClick={handleAdd} className="cursor-pointer duration-120">
+    <>
+      <SettingsSection
+        icon={<Mail className="size-4" />}
+        title={t("credentials.tab.email")}
+        count={Object.keys(config.accounts || {}).length}
+        action={
+          <Button variant="ghost" size="xs" onClick={handleAdd} className="cursor-pointer">
+            <Plus className="size-3.5" />
             {t("credentials.email.addAccount")}
           </Button>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-border bg-card p-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground font-sans">
-              {editingName
+        }
+      >
+        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {hasAccounts ? (
+          <SettingsList>
+            {Object.entries(config.accounts).map(([name, acct]) => {
+              const isDefault = config.default === name;
+              const menu: RowAction[] = [];
+              if (!isDefault)
+                menu.push({
+                  label: t("credentials.email.setDefault"),
+                  onClick: () => void handleSetDefault(name),
+                });
+              menu.push({
+                label: t("common.delete"),
+                destructive: true,
+                onClick: () => void handleDelete(name),
+              });
+              return (
+                <SettingsRow
+                  key={name}
+                  icon={<Mail className="size-4" />}
+                  title={<span className="font-mono">{name}</span>}
+                  chip={
+                    isDefault ? (
+                      <Badge variant="success" size="sm">
+                        {t("credentials.email.default")}
+                      </Badge>
+                    ) : undefined
+                  }
+                  subtitle={`${acct.from} · ${acct.imap_host}`}
+                  menu={menu}
+                  onClick={() => handleEdit(name)}
+                />
+              );
+            })}
+          </SettingsList>
+        ) : (
+          !loading && (
+            <p className="text-sm text-muted-foreground">{t("credentials.email.noAccounts")}</p>
+          )
+        )}
+      </SettingsSection>
+
+      <SettingsDetailSheet open={formOpen} onClose={() => setFormOpen(false)}>
+        <DetailPanel
+          onSave={handleSave}
+          onCancel={() => setFormOpen(false)}
+          saveLabel={t("credentials.email.saveAccount")}
+          cancelLabel={t("common.cancel")}
+          isSaving={saving}
+        >
+          <DetailPanelHeader
+            title={
+              editingName
                 ? t("credentials.email.editAccount", { name: editingName })
-                : t("credentials.email.newAccount")}
-            </h3>
-            <Button
-              size="xs"
-              variant="ghost"
-              className="cursor-pointer duration-120"
-              onClick={() => setFormOpen(false)}
-            >
-              {t("common.cancel")}
-            </Button>
-          </div>
+                : t("credentials.email.newAccount")
+            }
+          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {!editingName && (
@@ -525,27 +490,8 @@ export function EmailAccountsPanel({
               </div>
             </div>
           </div>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="cursor-pointer duration-120"
-              onClick={() => setFormOpen(false)}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button
-              size="sm"
-              loading={saving}
-              onClick={handleSave}
-              className="cursor-pointer duration-120"
-            >
-              {t("credentials.email.saveAccount")}
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
+        </DetailPanel>
+      </SettingsDetailSheet>
+    </>
   );
 }

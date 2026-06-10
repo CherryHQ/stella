@@ -314,6 +314,12 @@ const en = {
   "plugins.tab.hooks": "Hooks",
   "plugins.tab.sandbox": "Sandbox",
   "plugins.tab.others": "Others",
+  "plugins.bucket.integrations": "Integrations",
+  "plugins.bucket.integrationsDesc": "Connect external accounts via OAuth",
+  "plugins.bucket.tools": "Tools",
+  "plugins.bucket.toolsDesc": "CLI capabilities the agent can call",
+  "plugins.bucket.system": "System",
+  "plugins.bucket.systemDesc": "Runtimes and hooks the harness depends on",
 
   // Providers
   "providers.title": "Providers",
@@ -1008,6 +1014,17 @@ const en = {
   "plugins.addTool": "Add Tool",
   "plugins.addToolDesc":
     "Declare a GitHub release binary. Stella writes it to plugins.yaml and syncs automatically.",
+  "plugins.addCliToolDesc":
+    "Search the mise registry by name, or type a mise key (e.g. github:owner/repo). Stella installs it and keeps it in sync.",
+  "plugins.searchRegistry": "Search a tool name or mise key…",
+  "plugins.searchingRegistry": "Searching…",
+  "plugins.noRegistryMatches": "No matches. You can still add a mise key directly.",
+  "plugins.useDirectKey": 'Use "{{key}}" as a mise key',
+  "plugins.miseKey": "mise key",
+  "plugins.cliToolName": "Name",
+  "plugins.updateToLatest": "Latest",
+  "plugins.resolvingLatest": "Resolving…",
+  "plugins.latestResolved": "Latest is {{version}}",
   "plugins.binaryName": "Binary name",
   "plugins.githubRepo": "GitHub repo",
   "plugins.pluginId": "Plugin ID",
@@ -1550,6 +1567,12 @@ const zh: Record<MessageKey, string> = {
   "plugins.tab.hooks": "钩子",
   "plugins.tab.sandbox": "沙盒",
   "plugins.tab.others": "其他",
+  "plugins.bucket.integrations": "集成",
+  "plugins.bucket.integrationsDesc": "通过 OAuth 连接外部账户",
+  "plugins.bucket.tools": "工具",
+  "plugins.bucket.toolsDesc": "智能体可调用的 CLI 能力",
+  "plugins.bucket.system": "系统",
+  "plugins.bucket.systemDesc": "运行时与 harness 依赖的钩子",
 
   // Providers
   "providers.title": "提供商",
@@ -2239,6 +2262,17 @@ const zh: Record<MessageKey, string> = {
   // Plugins (additions)
   "plugins.addTool": "添加工具",
   "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 将其写入 plugins.yaml 并自动同步。",
+  "plugins.addCliToolDesc":
+    "按名称搜索 mise 注册表，或直接输入 mise 标识（如 github:owner/repo）。Stella 会自动安装并保持同步。",
+  "plugins.searchRegistry": "搜索工具名称或 mise 标识…",
+  "plugins.searchingRegistry": "搜索中…",
+  "plugins.noRegistryMatches": "无匹配结果。你仍可直接输入 mise 标识添加。",
+  "plugins.useDirectKey": "将 “{{key}}” 作为 mise 标识使用",
+  "plugins.miseKey": "mise 标识",
+  "plugins.cliToolName": "名称",
+  "plugins.updateToLatest": "最新",
+  "plugins.resolvingLatest": "解析中…",
+  "plugins.latestResolved": "最新版本为 {{version}}",
   "plugins.binaryName": "二进制名称",
   "plugins.githubRepo": "GitHub 仓库",
   "plugins.pluginId": "插件 ID",

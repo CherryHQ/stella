@@ -16,7 +16,7 @@ import { useI18n } from "@/lib/i18n";
 import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
-import { SectionLabel } from "@/components/AppSidebar";
+import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { useSidebar } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import { GroupSection } from "@/features/groups/GroupSidebar";
@@ -381,45 +381,6 @@ function CreateProjectDialog({
   );
 }
 
-// ── nav item ────────────────────────────────────────────────────────────────
-
-function NavItem({
-  active,
-  icon,
-  label,
-  badge,
-  onClick,
-}: {
-  active: boolean;
-  icon: React.ReactNode;
-  label: string;
-  badge?: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex h-[34px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-all duration-150 border",
-        active
-          ? "bg-muted font-semibold text-foreground border-border/60"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
-      )}
-    >
-      <span className={cn("shrink-0", active ? "text-primary" : "text-muted-foreground")}>
-        {icon}
-      </span>
-      <span className="flex-1 truncate text-left">{label}</span>
-      {badge !== undefined && badge > 0 && (
-        <span className="shrink-0 rounded-full bg-primary px-[7px] py-[2px] font-mono text-[10px] text-primary-foreground">
-          {badge}
-        </span>
-      )}
-    </button>
-  );
-}
-
 // ── main component ───────────────────────────────────────────────────────────
 
 export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }: Props) {
@@ -429,6 +390,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
   const { setOpenMobile } = useSidebar();
   const closeMobile = useCallback(() => setOpenMobile(false), [setOpenMobile]);
 
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -456,6 +418,10 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
+
+  const currentAgentIndex = agents.findIndex((ag) => ag.id === agentId);
+  const currentAgent = currentAgentIndex >= 0 ? agents[currentAgentIndex] : agents[0];
+  const visibleAgents = agentPickerOpen ? agents : currentAgent ? [currentAgent] : [];
 
   const homeSession = useMemo(() => {
     const active = sessions.filter((s) => !s.archived);
@@ -528,43 +494,43 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
     <div className="flex min-h-0 w-full flex-col overflow-hidden">
       {/* ── Agents ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 px-3">
-        <SectionLabel>{t("sessions.sidebar.agents")}</SectionLabel>
-        <div className="grid gap-1.5">
-          {agents.map((ag, idx) => {
+        <SidebarSection title={t("sessions.sidebar.agents")} className="mt-0">
+          {visibleAgents.map((ag) => {
+            const idx = agents.findIndex((item) => item.id === ag.id);
             const isCur = ag.id === agentId;
             return (
-              <div
+              <SidebarItem
                 key={ag.id}
-                role="button"
-                tabIndex={0}
+                active={isCur}
+                icon={
+                  <span
+                    className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-white"
+                    style={{ background: getAgentColor(ag.id, idx).bg }}
+                  >
+                    {ag.name[0]?.toUpperCase()}
+                  </span>
+                }
+                label={ag.name}
+                trailing={
+                  isCur && agents.length > 1 ? (
+                    <ChevRight
+                      className={cn(
+                        "size-3 text-muted-foreground transition-transform duration-150",
+                        agentPickerOpen && "rotate-90",
+                      )}
+                    />
+                  ) : undefined
+                }
                 onClick={() => {
+                  if (isCur) {
+                    setAgentPickerOpen((open) => !open);
+                    return;
+                  }
+                  setAgentPickerOpen(false);
                   closeMobile();
                   onAgentChange(ag.id);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    closeMobile();
-                    onAgentChange(ag.id);
-                  }
-                }}
-                className={cn(
-                  "group grid min-h-[34px] cursor-pointer grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-2.5 py-1 text-left transition-all duration-150 border",
-                  isCur
-                    ? "bg-muted font-semibold text-foreground border-border/60"
-                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
-                )}
-              >
-                <span
-                  className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-white shrink-0"
-                  style={{ background: getAgentColor(ag.id, idx).bg }}
-                >
-                  {ag.name[0]?.toUpperCase()}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] tracking-[-0.01em]">{ag.name}</span>
-                </span>
-              </div>
+              />
             );
           })}
           {agents.length === 0 && (
@@ -572,67 +538,64 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
               {t("sessions.sidebar.noAgents")}
             </p>
           )}
-        </div>
+        </SidebarSection>
       </div>
 
       {/* ── Scrollable nav ──────────────────────────────────────────────── */}
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 pb-2" onScroll={handleScroll}>
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-2"
+        onScroll={handleScroll}
+      >
         {/* ── Groups ───────────────────────────────────────────────────── */}
         <GroupSection />
 
         {/* ── Workspace ─────────────────────────────────────────────────── */}
-        <div>
-          <SectionLabel>{t("sessions.sidebar.workspace")}</SectionLabel>
-          <div className="grid gap-0.5">
-            <NavItem
-              active={
-                isActive(`/agents/${agentId}/automations`) || isActive(`/agents/${agentId}/tasks`)
-              }
-              icon={<IconAutomation />}
-              label={t("sessions.sidebar.work")}
-              badge={taskAttentionCount}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={isActive(`/agents/${agentId}/skills`)}
-              icon={<IconSkills />}
-              label={t("sessions.sidebar.skills")}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
-              }}
-            />
-            <NavItem
-              active={isActive(`/agents/${agentId}/memories`)}
-              icon={<IconMemory />}
-              label={t("sessions.sidebar.memory")}
-              onClick={() => {
-                closeMobile();
-                void navigate({ to: "/agents/$agentId/memories", params: { agentId } });
-              }}
-            />
-          </div>
-        </div>
+        <SidebarSection title={t("sessions.sidebar.workspace")}>
+          <SidebarItem
+            active={
+              isActive(`/agents/${agentId}/automations`) || isActive(`/agents/${agentId}/tasks`)
+            }
+            icon={<IconAutomation />}
+            label={t("sessions.sidebar.work")}
+            badge={
+              taskAttentionCount > 0 ? (
+                <span className="shrink-0 rounded-full bg-primary px-[7px] py-[2px] font-mono text-[10px] text-primary-foreground">
+                  {taskAttentionCount}
+                </span>
+              ) : undefined
+            }
+            onClick={() => {
+              closeMobile();
+              void navigate({ to: "/agents/$agentId/automations", params: { agentId } });
+            }}
+          />
+          <SidebarItem
+            active={isActive(`/agents/${agentId}/skills`)}
+            icon={<IconSkills />}
+            label={t("sessions.sidebar.skills")}
+            onClick={() => {
+              closeMobile();
+              void navigate({ to: "/agents/$agentId/skills", params: { agentId } });
+            }}
+          />
+          <SidebarItem
+            active={isActive(`/agents/${agentId}/memories`)}
+            icon={<IconMemory />}
+            label={t("sessions.sidebar.memory")}
+            onClick={() => {
+              closeMobile();
+              void navigate({ to: "/agents/$agentId/memories", params: { agentId } });
+            }}
+          />
+        </SidebarSection>
 
         {/* ── Projects ─────────────────────────────────────────────── */}
-        <section className="mt-3">
-          <div className="flex h-[30px] items-center gap-1 pr-1">
-            <button
-              type="button"
-              onClick={() => setProjectsOpen((v) => !v)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
-            >
-              <span>{t("sessions.sidebar.projects")}</span>
-              <ChevRight
-                className={cn(
-                  "size-2.5 text-muted-foreground transition-transform duration-150",
-                  projectsOpen && "rotate-90",
-                )}
-              />
-            </button>
+        <SidebarSection
+          title={t("sessions.sidebar.projects")}
+          open={projectsOpen}
+          onOpenChange={setProjectsOpen}
+          action={
             <button
               type="button"
               onClick={() => setShowCreateProject(true)}
@@ -641,46 +604,34 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
             >
               <IconMore />
             </button>
-          </div>
-          {projectsOpen && (
-            <div className="grid gap-px">
-              {(projects as Project[]).map((p) => {
-                const isActiveProject = activeProjectId === p.id;
-                return (
-                  <div key={p.id} className="group/proj">
-                    <button
-                      type="button"
-                      onClick={() => void openProject(p.id)}
-                      className={cn(
-                        "grid min-h-[32px] w-full grid-cols-[21px_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl px-[7px] text-left text-[13px] font-medium tracking-[-0.016em] transition-colors border",
-                        isActiveProject
-                          ? "bg-muted text-foreground border-border"
-                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
-                      )}
-                    >
-                      <span className={cn("opacity-90", isActiveProject && "text-foreground")}>
-                        <IconFolderProject />
-                      </span>
-                      <span className="truncate">{p.name}</span>
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        {relativeTime(p.updated_at)}
-                      </span>
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deleteProject(p.id);
-                        }}
-                        className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-card hover:text-foreground group-hover/proj:opacity-70"
-                      >
-                        <IconMore />
-                      </span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+          }
+        >
+          {(projects as Project[]).map((p) => {
+            const isActiveProject = activeProjectId === p.id;
+            return (
+              <SidebarItem
+                key={p.id}
+                active={isActiveProject}
+                className="group/proj"
+                icon={<IconFolderProject />}
+                label={p.name}
+                meta={<span className="font-mono text-[11px]">{relativeTime(p.updated_at)}</span>}
+                trailing={
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void deleteProject(p.id);
+                    }}
+                    className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-card hover:text-foreground group-hover/proj:opacity-70"
+                  >
+                    <IconMore />
+                  </span>
+                }
+                onClick={() => void openProject(p.id)}
+              />
+            );
+          })}
+        </SidebarSection>
         {showCreateProject && (
           <CreateProjectDialog
             agentId={agentId}
@@ -694,86 +645,63 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
         )}
 
         {/* ── Sessions ──────────────────────────────────────────────────── */}
-        <section className="mt-3">
-          <div className="flex h-[30px] items-center gap-1 pr-1">
+        <SidebarSection
+          title={t("sessions.sidebar.sessions")}
+          open={chatsOpen}
+          onOpenChange={setChatsOpen}
+          action={
             <button
               type="button"
-              onClick={() => setChatsOpen((v) => !v)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-foreground/[0.045] hover:text-muted-foreground"
+              onClick={() => void createSession()}
+              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+              title="New temporary thread"
             >
-              <span>{t("sessions.sidebar.sessions")}</span>
-              <ChevRight
-                className={cn(
-                  "size-2.5 text-muted-foreground transition-transform duration-150",
-                  chatsOpen && "rotate-90",
-                )}
-              />
+              <IconNewChat />
             </button>
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => void createSession()}
-                className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
-                title="New temporary thread"
-              >
-                <IconNewChat />
-              </button>
-            </div>
-          </div>
-          {chatsOpen && (
-            <div className="grid gap-px">
-              {chatSessions.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => {
-                    closeMobile();
-                    void navigate({
-                      to: "/agents/$agentId/sessions/$sessionId",
-                      params: { agentId, sessionId: s.id },
-                    });
-                  }}
-                  className={cn(
-                    "grid min-h-[27px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg px-[7px] text-left text-[13px] leading-snug tracking-[-0.012em] transition-colors border",
-                    activeSessionId === s.id
-                      ? "bg-muted text-primary border-border/50"
-                      : "text-foreground hover:bg-muted/40 border-transparent",
-                  )}
-                >
-                  <span className="truncate">{sessionTitle(s)}</span>
-                  <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
-                    {sessionKindLabel(s)}
-                  </span>
-                  <time className="text-[12px] font-medium text-muted-foreground">
-                    {relativeTime(s.last_active)}
-                  </time>
-                </button>
-              ))}
-              {chatSessions.length === 0 && (
-                <p className="px-2 py-2 font-mono text-xs text-muted-foreground">
-                  {t("sessions.sidebar.noChats")}
-                </p>
-              )}
-              {sessionsQuery.isLoading && (
-                <div className="flex items-center gap-2 px-2 py-1.5">
-                  <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground/70" />
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {t("common.loading")}
-                  </span>
-                </div>
-              )}
-              {sessionsQuery.hasNextPage && !sessionsQuery.isFetchingNextPage && (
-                <button
-                  type="button"
-                  onClick={() => void sessionsQuery.fetchNextPage()}
-                  className="min-h-[28px] rounded-[10px] px-[7px] text-left text-[13px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-muted-foreground"
-                >
-                  Show more
-                </button>
-              )}
+          }
+        >
+          {chatSessions.map((s) => (
+            <SidebarItem
+              key={s.id}
+              active={activeSessionId === s.id}
+              className="min-h-[27px]"
+              label={sessionTitle(s)}
+              badge={
+                <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
+                  {sessionKindLabel(s)}
+                </span>
+              }
+              meta={<time className="text-[12px] font-medium">{relativeTime(s.last_active)}</time>}
+              onClick={() => {
+                closeMobile();
+                void navigate({
+                  to: "/agents/$agentId/sessions/$sessionId",
+                  params: { agentId, sessionId: s.id },
+                });
+              }}
+            />
+          ))}
+          {chatSessions.length === 0 && (
+            <p className="px-2 py-2 font-mono text-xs text-muted-foreground">
+              {t("sessions.sidebar.noChats")}
+            </p>
+          )}
+          {sessionsQuery.isLoading && (
+            <div className="flex items-center gap-2 px-2 py-1.5">
+              <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground/70" />
+              <span className="font-mono text-xs text-muted-foreground">{t("common.loading")}</span>
             </div>
           )}
-        </section>
+          {sessionsQuery.hasNextPage && !sessionsQuery.isFetchingNextPage && (
+            <button
+              type="button"
+              onClick={() => void sessionsQuery.fetchNextPage()}
+              className="min-h-[28px] rounded-[10px] px-[7px] text-left text-[13px] text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-muted-foreground"
+            >
+              Show more
+            </button>
+          )}
+        </SidebarSection>
       </div>
     </div>
   );

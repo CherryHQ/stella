@@ -66,3 +66,25 @@ components:
         plugins:
           type: array
           items: { $ref: "#/components/schemas/PluginView" }
+
+    CliToolRegistryItem:
+      type: object
+      properties:
+        name: { type: string }
+        backends:
+          type: array
+          items: { type: string }
+
+    CliToolRegistryResponse:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/CliToolRegistryItem" }
+
+    CliToolLatestResponse:
+      type: object
+      required: [version]
+      properties:
+        version: { type: string }

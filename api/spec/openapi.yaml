@@ -343,6 +343,10 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins"
   /api/manifest-plugins/sync:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync"
+  /api/cli-tools/registry:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1registry"
+  /api/cli-tools/latest:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1latest"
 components:
   securitySchemes:
     BearerAuth:

@@ -40,14 +40,14 @@ import type {
   User,
 } from "@/lib/types";
 import { fetchAllAuthUsers } from "@/lib/auth-users";
-import { AgentList } from "./AgentList";
 import { AgentForm } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
-import { SettingsDetailLayout } from "@/features/settings/SettingsDetailLayout";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
+import { SettingsCard, SettingsGridPage } from "@/features/settings/SettingsCardGrid";
+import { Button } from "@/components/ui/button";
+import { Bot, Plus } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
@@ -1067,26 +1067,53 @@ export function AgentsPage() {
     />
   ) : undefined;
 
+  const canEditAgent = (a: AgentDetail) =>
+    state.isAdmin || (!!a.creator_id && a.creator_id === state.currentUserId);
+  const modelLabel = (value: string) =>
+    state.cachedModels.find((m) => m.value === value)?.label ?? value;
+
   return (
     <>
-      <SettingsDetailLayout
-        list={
-          <AgentList
-            state={state}
-            selectedId={routeAgentId || undefined}
-            onEdit={editAgent}
-            onCreateAgent={startCreate}
-          />
-        }
-        detail={detail}
-        emptyState={
-          <SettingsEmptyState
-            message={t("agents.noAgentSelected")}
-            description={t("agents.selectToConfig")}
-          />
-        }
-        onBack={resetForm}
-      />
+      {state.showForm ? (
+        detail
+      ) : (
+        <SettingsGridPage
+          title={t("settings.nav.agents")}
+          action={
+            <Button onClick={startCreate} variant="outline" size="sm">
+              <Plus className="size-4" />
+              {t("agents.form.newAgent")}
+            </Button>
+          }
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {state.agents.map((a) => {
+              const canEdit = canEditAgent(a);
+              return (
+                <SettingsCard
+                  key={a.id}
+                  icon={<Bot className="size-4" />}
+                  title={a.name || a.id}
+                  active={routeAgentId === a.id}
+                  onClick={canEdit ? () => void editAgent(a) : undefined}
+                  footer={
+                    <>
+                      <span
+                        className={`size-1.5 shrink-0 rounded-full ${
+                          a.enabled ? "bg-green-500" : "bg-muted-foreground"
+                        }`}
+                      />
+                      <span className="truncate font-mono text-xs text-muted-foreground">
+                        {a.model ? modelLabel(a.model) : "—"}
+                      </span>
+                    </>
+                  }
+                />
+              );
+            })}
+          </div>
+        </SettingsGridPage>
+      )}
       {state.showTemplateModal && (
         <TemplateModal
           templates={state.builtinTemplates}

@@ -1136,10 +1136,11 @@ func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	// tool/mise defaults to enabled=true in the builtin manifest. Pre-seed an
-	// override row that binds a session env vault key.
-	const pluginID = "tool/mise"
-	const vaultKey = "vault/session/mise"
+	// tool/tap-web defaults to enabled=true in the builtin manifest (and is not
+	// essential, so it can be toggled). Pre-seed an override row that binds a
+	// session env vault key.
+	const pluginID = "tool/tap-web"
+	const vaultKey = "vault/session/tapweb"
 	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
 		PluginID:           pluginID,
 		SessionEnvVaultKey: vaultKey,
@@ -1200,8 +1201,8 @@ func TestSaveManifestPluginsPreservesConfigOnToggle(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	const pluginID = "tool/mise"
-	const configJSON = `{"kind":"tool","name":"mise","display_name":"Custom Mise","description":"custom"}`
+	const pluginID = "tool/tap-web"
+	const configJSON = `{"kind":"tool","name":"tap-web","display_name":"Custom Tap","description":"custom"}`
 
 	// Pre-seed a config override row.
 	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
@@ -1230,5 +1231,25 @@ func TestSaveManifestPluginsPreservesConfigOnToggle(t *testing.T) {
 	}
 	if ov.Enabled == nil || *ov.Enabled != false {
 		t.Fatalf("enabled not persisted: got %v, want explicit false", ov.Enabled)
+	}
+}
+
+// TestSaveManifestPluginsRejectsDisablingEssential guards the harness: an
+// essential builtin (rg/fd/mise back Grep/Glob/install) must not be disabled.
+func TestSaveManifestPluginsRejectsDisablingEssential(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/rg" // essential: true in the builtin manifest
+
+	body := map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": false}}}
+	rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("disable essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if _, ok, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
+		t.Fatalf("get override: %v", err)
+	} else if ok {
+		t.Fatal("rejected save must not write an override row")
 	}
 }

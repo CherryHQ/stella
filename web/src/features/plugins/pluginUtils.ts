@@ -1,19 +1,10 @@
 import type {
-  ManifestBinary,
   ManifestPlugin,
-  ManifestSessionEnv,
   Plugin,
   PluginSchemaField,
   PluginSchemaProperty,
   PluginWithMeta,
 } from "@/lib/types";
-
-// Row ID counter (module-level, simple incrementing)
-let rowIDCounter = 0;
-export function nextRowID(): number {
-  rowIDCounter += 1;
-  return rowIDCounter;
-}
 
 export function pluginLabel(plugin: Plugin | PluginWithMeta): string {
   return plugin.display_name || plugin.name || plugin.id;
@@ -268,30 +259,52 @@ export function formatTimestamp(value: string): string {
   return date.toLocaleString();
 }
 
-export function manifestInstallSummary(plugin: PluginWithMeta): string {
-  const manifest = plugin._manifestPlugin;
-  if (!manifest) return "";
-  const binaries = (manifest.binaries || []).map((b) => b.name).filter(Boolean);
-  if (binaries.length === 0) return "No binaries declared";
-  return "Binaries: " + binaries.join(", ");
+export type PluginBucket = "integration" | "tool" | "system";
+
+// pluginHasOAuth reports whether a plugin authenticates against an external
+// account — either a declared oauth_provider or an oauth-sourced session env.
+export function pluginHasOAuth(plugin: PluginWithMeta): boolean {
+  const m = plugin._manifestPlugin;
+  if (!m) return false;
+  if (m.oauth_provider) return true;
+  return (m.session_env ?? []).some((e) => (e.source ?? "").startsWith("oauth."));
 }
 
-export function pluginMetaBadges(
-  plugin: PluginWithMeta,
-): { key: string; label: string; variant: string }[] {
-  const badges: { key: string; label: string; variant: string }[] = [];
-  if (plugin._manifest) badges.push({ key: "manifest", label: "manifest", variant: "default" });
-  if (plugin.managed) badges.push({ key: "managed", label: "managed", variant: "default" });
-  if (plugin.has_config) badges.push({ key: "config", label: "config", variant: "secondary" });
-  if (plugin.has_status) badges.push({ key: "status", label: "status", variant: "secondary" });
-  if (plugin.supports_notifications)
-    badges.push({ key: "notifications", label: "notifications", variant: "info" });
-  const hiddenCapabilities = new Set([plugin.kind, "config", "status"]);
-  for (const capability of plugin.capabilities || []) {
-    if (hiddenCapabilities.has(capability)) continue;
-    badges.push({ key: `capability:${capability}`, label: capability, variant: "outline" });
+// pluginBucket assigns a plugin to one of three UI sections. An explicit
+// manifest `category` wins; otherwise it's derived: OAuth-backed → integration,
+// hooks → system, everything else → tool.
+export function pluginBucket(plugin: PluginWithMeta): PluginBucket {
+  const category = plugin._manifestPlugin?.category;
+  if (category === "integration" || category === "tool" || category === "system") {
+    return category;
   }
-  return badges;
+  if (pluginHasOAuth(plugin)) return "integration";
+  if (plugin.kind === "hook") return "system";
+  return "tool";
+}
+
+// pluginIsEssential reports whether disabling the plugin would break the harness
+// (e.g. rg/fd back Grep/Glob). The toggle is guarded for these.
+export function pluginIsEssential(plugin: PluginWithMeta): boolean {
+  return !!plugin._manifestPlugin?.essential;
+}
+
+// pluginHasBinaries reports whether a manifest plugin installs at least one
+// binary — these get the compact version editor in the detail sheet.
+export function pluginHasBinaries(plugin: PluginWithMeta): boolean {
+  return (plugin._manifestPlugin?.binaries?.length ?? 0) > 0;
+}
+
+// deriveToolName extracts a plugin name from a mise tool key by taking the last
+// path/backend segment: "claude" → "claude", "github:cli/cli" → "cli",
+// "npm:@anthropic-ai/claude-code" → "claude-code", "cargo:fd-find" → "fd-find".
+export function deriveToolName(toolKey: string): string {
+  const key = toolKey.trim();
+  const afterSlash = key.includes("/") ? key.slice(key.lastIndexOf("/") + 1) : key;
+  const afterColon = afterSlash.includes(":")
+    ? afterSlash.slice(afterSlash.lastIndexOf(":") + 1)
+    : afterSlash;
+  return afterColon;
 }
 
 export function sandboxMeta(pluginID: string): {
@@ -346,87 +359,4 @@ export function sandboxMeta(pluginID: string): {
     },
   };
   return meta[pluginID] || { recommended: false, isDefault: false, features: [], limitations: [] };
-}
-
-// Manifest install draft helpers
-export interface ManifestInstallDraft {
-  id: string;
-  kind: string;
-  name: string;
-  display_name: string;
-  description: string;
-  enabled: boolean;
-  binaries: (ManifestBinary & { id: number })[];
-  session_env: (ManifestSessionEnv & { id: number })[];
-  oauth_provider: string;
-}
-
-export function buildManifestInstallDraft(plugin: PluginWithMeta): ManifestInstallDraft {
-  const manifest = plugin._manifestPlugin || ({} as ManifestPlugin);
-  return {
-    id: manifest.id || plugin.id || "",
-    kind: manifest.kind || plugin.kind || "tool",
-    name: manifest.name || plugin.name || "",
-    display_name: manifest.display_name || plugin.display_name || "",
-    description: manifest.description || plugin.description || "",
-    enabled: manifest.enabled !== false,
-    binaries: (manifest.binaries || []).map((b) => ({
-      id: nextRowID(),
-      name: b.name || "",
-      tool: b.tool || "",
-      version: b.version || "",
-      bin_path: b.bin_path || "",
-      bin: b.bin || "",
-    })),
-    session_env: (manifest.session_env || []).map((e) => ({
-      id: nextRowID(),
-      env_var: e.env_var || "",
-      source: e.source || "static",
-      value: e.value || "",
-      required: !!e.required,
-    })),
-    oauth_provider: manifest.oauth_provider || "",
-  };
-}
-
-export function buildManifestPluginFromDraft(draft: ManifestInstallDraft): ManifestPlugin {
-  const binaries = (draft.binaries || [])
-    .map((row) => {
-      const binary: ManifestBinary = {
-        name: String(row.name || "").trim(),
-        tool: String(row.tool || "").trim(),
-      };
-      if (row.version) binary.version = String(row.version).trim();
-      if (row.bin_path) binary.bin_path = String(row.bin_path).trim();
-      if (row.bin) binary.bin = String(row.bin).trim();
-      return binary;
-    })
-    .filter((b) => b.name || b.tool);
-
-  const sessionEnv = (draft.session_env || [])
-    .map((row) => {
-      const env: ManifestSessionEnv = {
-        env_var: String(row.env_var || "").trim(),
-        source: String(row.source || "").trim(),
-      };
-      if (row.value) env.value = String(row.value);
-      if (row.required) env.required = true;
-      return env;
-    })
-    .filter((e) => e.env_var || e.source);
-
-  const next: ManifestPlugin = {
-    id: (draft.id || "").trim(),
-    kind: (draft.kind || "").trim(),
-    name: (draft.name || "").trim(),
-    display_name: (draft.display_name || "").trim(),
-    description: (draft.description || "").trim(),
-    enabled: !!draft.enabled,
-    binaries,
-    session_env: sessionEnv,
-  };
-
-  if (draft.oauth_provider) next.oauth_provider = draft.oauth_provider.trim();
-
-  return next;
 }
