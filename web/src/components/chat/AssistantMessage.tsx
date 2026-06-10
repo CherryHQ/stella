@@ -250,13 +250,13 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
                 "rounded overflow-hidden p-2 border",
                 block.result.is_error
                   ? "border-destructive/20 bg-destructive/5"
-                  : "border-success/20 bg-success/5",
+                  : "border-chart-3/20 bg-chart-3/5",
               )}
             >
               <div
                 className={cn(
                   "text-[9px] border-b border-border pb-1 mb-1.5 flex items-center gap-1.5",
-                  block.result.is_error ? "text-destructive" : "text-success",
+                  block.result.is_error ? "text-destructive" : "text-chart-3",
                 )}
               >
                 <span>{block.result.is_error ? "✕" : "✓"}</span>
