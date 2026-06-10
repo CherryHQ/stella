@@ -17,6 +17,15 @@ const en = {
   "nav.docs": "Docs",
   "nav.apiReferences": "API References",
 
+  // Agent IA
+  "inbox.needsYou": "Needs you",
+  "inbox.title": "Inbox",
+  "facets.conversation": "Conversation",
+  "facets.tasks": "Tasks",
+  "facets.memory": "Memory",
+  "facets.skills": "Skills",
+  "facets.files": "Files",
+
   // Common actions
   "common.cancel": "Cancel",
   "common.save": "Save",
@@ -655,6 +664,10 @@ const en = {
   "sessions.sidebar.soulSubtitle": "Personality & behavior",
   "sessions.sidebar.userProfile": "User Profile",
   "sessions.sidebar.noMemory": "No memory yet",
+  "sessions.sidebar.conversations": "Conversations",
+  "sessions.sidebar.temporaryChats": "Temporary chats",
+  "sessions.sidebar.newTemporaryChat": "New temporary chat",
+  "sessions.sidebar.deleteProjectConfirm": "Delete this project? Sessions will be kept.",
 
   // Sessions panel — automation
   "sessions.auto.eyebrowNew": "New schedule",
@@ -1274,6 +1287,15 @@ const zh: Record<MessageKey, string> = {
   "nav.recally.desc": "阅读队列、订阅源与记忆",
   "nav.docs": "文档",
   "nav.apiReferences": "API 文档",
+
+  // Agent IA
+  "inbox.needsYou": "需要你",
+  "inbox.title": "收件箱",
+  "facets.conversation": "对话",
+  "facets.tasks": "任务",
+  "facets.memory": "记忆",
+  "facets.skills": "技能",
+  "facets.files": "文件",
 
   // Common actions
   "common.cancel": "取消",
@@ -1907,6 +1929,10 @@ const zh: Record<MessageKey, string> = {
   "sessions.sidebar.soulSubtitle": "个性与行为",
   "sessions.sidebar.userProfile": "用户档案",
   "sessions.sidebar.noMemory": "暂无记忆",
+  "sessions.sidebar.conversations": "会话",
+  "sessions.sidebar.temporaryChats": "临时会话",
+  "sessions.sidebar.newTemporaryChat": "新建临时会话",
+  "sessions.sidebar.deleteProjectConfirm": "删除此项目？会话会保留。",
 
   // Sessions panel — automation
   "sessions.auto.eyebrowNew": "新建计划",
