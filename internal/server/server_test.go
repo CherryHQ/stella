@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
@@ -46,7 +47,10 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(m.Run())
+	resetBcryptCost := auth.SetBcryptCostForTesting(bcrypt.MinCost)
+	code := m.Run()
+	resetBcryptCost()
+	os.Exit(code)
 }
 
 func ensureTemplateDB() string {
