@@ -4,8 +4,9 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 export const Route = createFileRoute("/_app/agents/")({
   beforeLoad: async ({ context: { queryClient } }) => {
     const agents = await queryClient.ensureQueryData(agentsQueryOptions);
-    if (agents.length > 0) {
-      throw redirect({ to: "/agents/$agentId", params: { agentId: agents[0].id } });
+    const defaultAgent = agents.find((agent) => agent.name.toLowerCase() === "stella") ?? agents[0];
+    if (defaultAgent) {
+      throw redirect({ to: "/agents/$agentId", params: { agentId: defaultAgent.id } });
     }
   },
 });

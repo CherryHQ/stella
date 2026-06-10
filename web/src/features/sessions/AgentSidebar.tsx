@@ -429,6 +429,7 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
   const { setOpenMobile } = useSidebar();
   const closeMobile = useCallback(() => setOpenMobile(false), [setOpenMobile]);
 
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -456,6 +457,10 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
+
+  const currentAgentIndex = agents.findIndex((ag) => ag.id === agentId);
+  const currentAgent = currentAgentIndex >= 0 ? agents[currentAgentIndex] : agents[0];
+  const visibleAgents = agentPickerOpen ? agents : currentAgent ? [currentAgent] : [];
 
   const homeSession = useMemo(() => {
     const active = sessions.filter((s) => !s.archived);
@@ -530,26 +535,24 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
       <div className="shrink-0 px-3">
         <SectionLabel>{t("sessions.sidebar.agents")}</SectionLabel>
         <div className="grid gap-1.5">
-          {agents.map((ag, idx) => {
+          {visibleAgents.map((ag) => {
+            const idx = agents.findIndex((item) => item.id === ag.id);
             const isCur = ag.id === agentId;
             return (
-              <div
+              <button
                 key={ag.id}
-                role="button"
-                tabIndex={0}
+                type="button"
                 onClick={() => {
+                  if (isCur) {
+                    setAgentPickerOpen((open) => !open);
+                    return;
+                  }
+                  setAgentPickerOpen(false);
                   closeMobile();
                   onAgentChange(ag.id);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    closeMobile();
-                    onAgentChange(ag.id);
-                  }
-                }}
                 className={cn(
-                  "group grid min-h-[34px] cursor-pointer grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-2.5 py-1 text-left transition-all duration-150 border",
+                  "group grid min-h-[34px] cursor-pointer grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2.5 py-1 text-left transition-all duration-150 border",
                   isCur
                     ? "bg-muted font-semibold text-foreground border-border/60"
                     : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
@@ -564,7 +567,15 @@ export function AgentSidebarContent({ agents, agentId, pathname, onAgentChange }
                 <span className="min-w-0">
                   <span className="block truncate text-[13px] tracking-[-0.01em]">{ag.name}</span>
                 </span>
-              </div>
+                {isCur && agents.length > 1 && (
+                  <ChevRight
+                    className={cn(
+                      "size-3 text-muted-foreground transition-transform duration-150",
+                      agentPickerOpen && "rotate-90",
+                    )}
+                  />
+                )}
+              </button>
             );
           })}
           {agents.length === 0 && (
