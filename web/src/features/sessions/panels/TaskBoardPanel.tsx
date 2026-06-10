@@ -362,11 +362,11 @@ function StatusDot({ status, className }: { status: string; className?: string }
     <span
       className={cn(
         "w-2 h-2 rounded-full shrink-0",
-        status === "done" && "bg-emerald-500",
-        status === "running" && "bg-blue-500",
+        status === "done" && "bg-chart-3",
+        status === "running" && "bg-chart-2",
         (status === "draft" || status === "ready") && "bg-muted-foreground/30",
         status === "failed" && "bg-destructive",
-        (status === "blocked" || status === "reviewing") && "bg-amber-500",
+        (status === "blocked" || status === "reviewing") && "bg-chart-4",
         status === "cancelled" && "bg-muted-foreground/20",
         className,
       )}
@@ -389,10 +389,10 @@ function ChevronLeft() {
 }
 
 function statusColor(status: string): string {
-  if (status === "done") return "text-emerald-600";
-  if (status === "running") return "text-blue-600";
+  if (status === "done") return "text-chart-3";
+  if (status === "running") return "text-chart-2";
   if (status === "failed") return "text-destructive";
-  if (status === "blocked" || status === "reviewing") return "text-amber-600";
+  if (status === "blocked" || status === "reviewing") return "text-chart-4";
   return "text-muted-foreground";
 }
 

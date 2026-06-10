@@ -65,7 +65,7 @@ export function UsersPage() {
                     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                       <span
                         className={`size-1.5 rounded-full ${
-                          u.is_active ? "bg-green-500" : "bg-muted-foreground"
+                          u.is_active ? "bg-chart-3" : "bg-muted-foreground"
                         }`}
                       />
                       {u.is_active ? t("users.active") : t("users.inactive")}

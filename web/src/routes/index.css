@@ -1,6 +1,6 @@
 .home-page {
-  background: var(--stella-os-canvas);
-  color: var(--stella-os-ink);
+  background: var(--background);
+  color: var(--foreground);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
@@ -53,10 +53,10 @@
 .home-eyebrow {
   display: inline-block;
   padding: 0.3rem 0.65rem;
-  border: 1px solid color-mix(in oklch, var(--stella-os-accent) 32%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 32%, transparent);
   border-radius: var(--radius-sm);
-  background: color-mix(in oklch, var(--stella-os-accent-soft) 74%, transparent);
-  color: var(--stella-os-accent);
+  background: color-mix(in oklch, var(--accent) 74%, transparent);
+  color: var(--primary);
   font-family: var(--font-mono);
   font-size: 0.7rem;
   font-weight: 650;
@@ -67,17 +67,17 @@
 /* ─── Hero ─── */
 
 .home-hero {
-  --hero-bg: var(--stella-os-canvas);
-  --hero-fg: var(--stella-os-ink);
-  --hero-muted: var(--stella-os-muted);
-  --hero-soft: color-mix(in oklch, var(--stella-os-surface) 88%, transparent);
-  --hero-rule: color-mix(in oklch, var(--stella-os-rule) 42%, transparent);
+  --hero-bg: var(--background);
+  --hero-fg: var(--foreground);
+  --hero-muted: var(--muted-foreground);
+  --hero-soft: color-mix(in oklch, var(--card) 88%, transparent);
+  --hero-rule: color-mix(in oklch, var(--border) 42%, transparent);
   position: relative;
   min-height: min(58rem, calc(100svh - 3.5rem));
   padding: clamp(3.35rem, 5.4vw, 5.3rem) 0 clamp(3rem, 5vw, 4.25rem);
   background:
     linear-gradient(var(--hero-rule) 1px, transparent 1px),
-    linear-gradient(90deg, var(--hero-rule) 1px, transparent 1px), var(--stella-os-canvas);
+    linear-gradient(90deg, var(--hero-rule) 1px, transparent 1px), var(--background);
   background-size:
     56px 56px,
     56px 56px;
@@ -135,7 +135,7 @@
 
 .home-hero-title em {
   font-style: normal;
-  color: var(--stella-os-accent);
+  color: var(--primary);
   position: relative;
   z-index: 0;
 }
@@ -147,7 +147,7 @@
   right: -0.05em;
   bottom: 0;
   height: 0.11em;
-  background: color-mix(in oklch, var(--stella-os-accent) 16%, transparent);
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
   border-radius: 0.06em;
   z-index: -1;
 }
@@ -189,12 +189,12 @@
 }
 
 .home-btn:focus-visible {
-  outline: 2px solid var(--stella-os-accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
 .home-btn-primary {
-  background: var(--stella-os-accent);
+  background: var(--primary);
   color: var(--primary-foreground);
   box-shadow: none;
 }
@@ -206,11 +206,11 @@
 .home-btn-ghost {
   border: 1px solid var(--hero-rule);
   color: var(--hero-fg);
-  background: color-mix(in oklch, var(--stella-os-surface) 74%, transparent);
+  background: color-mix(in oklch, var(--card) 74%, transparent);
 }
 
 .home-btn-ghost:hover {
-  background: var(--stella-os-surface);
+  background: var(--card);
   transform: translateY(-1px);
 }
 
@@ -221,7 +221,7 @@
   margin: 2rem 0 0;
   border: 1px solid var(--hero-rule);
   border-radius: var(--radius-lg);
-  background: color-mix(in oklch, var(--stella-os-surface) 76%, transparent);
+  background: color-mix(in oklch, var(--card) 76%, transparent);
   overflow: hidden;
 }
 
@@ -263,9 +263,9 @@
 
 .simulator-card {
   width: 100%;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--stella-os-surface);
+  background: var(--card);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -276,8 +276,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--stella-os-rule);
-  background: color-mix(in oklch, var(--stella-os-surface) 95%, var(--stella-os-ink) 5%);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--card) 95%, var(--foreground) 5%);
 }
 
 .simulator-dot {
@@ -293,7 +293,7 @@
   gap: 0.25rem;
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
   cursor: pointer;
   background: transparent;
   border: none;
@@ -303,8 +303,8 @@
 }
 
 .simulator-reset-btn:hover {
-  background: var(--stella-os-canvas-muted);
-  color: var(--stella-os-ink);
+  background: var(--secondary);
+  color: var(--foreground);
 }
 
 .simulator-input-view {
@@ -315,7 +315,7 @@
   display: block;
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
   margin-bottom: 0.75rem;
 }
 
@@ -329,10 +329,10 @@
   width: 100%;
   height: 6rem;
   padding: 0.75rem;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--stella-os-canvas);
-  color: var(--stella-os-ink);
+  background: var(--background);
+  color: var(--foreground);
   font-size: 0.82rem;
   line-height: 1.5;
   resize: none;
@@ -340,7 +340,7 @@
 }
 
 .simulator-textarea:focus {
-  border-color: var(--stella-os-accent);
+  border-color: var(--primary);
 }
 
 .simulator-run-btn {
@@ -350,7 +350,7 @@
   gap: 0.5rem;
   padding: 0.75rem;
   border-radius: var(--radius-md);
-  background: var(--stella-os-accent);
+  background: var(--primary);
   color: var(--primary-foreground);
   font-size: 0.85rem;
   font-weight: 600;
@@ -362,7 +362,7 @@
 }
 
 .simulator-run-btn:hover {
-  background: color-mix(in oklch, var(--stella-os-accent) 92%, #ffffff 8%);
+  background: color-mix(in oklch, var(--primary) 92%, var(--primary-foreground) 8%);
   transform: translateY(-1px);
 }
 
@@ -376,10 +376,10 @@
 
 .simulator-preset-chip {
   padding: 0.35rem 0.65rem;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  background: var(--stella-os-canvas);
-  color: var(--stella-os-muted);
+  background: var(--background);
+  color: var(--muted-foreground);
   font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
@@ -390,9 +390,9 @@
 
 .simulator-preset-chip:hover,
 .simulator-preset-chip.active {
-  border-color: var(--stella-os-accent);
-  color: var(--stella-os-accent);
-  background: var(--stella-os-accent-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--accent);
 }
 
 .simulator-preset-chip:hover {
@@ -410,7 +410,7 @@
 
 .simulator-dag-container {
   padding: 1.25rem;
-  border-bottom: 1px solid var(--stella-os-rule);
+  border-bottom: 1px solid var(--border);
 }
 
 .simulator-dag-header {
@@ -425,8 +425,8 @@
   font-family: var(--font-mono);
   padding: 0.2rem 0.5rem;
   border-radius: var(--radius-sm);
-  background: var(--stella-os-accent-soft);
-  color: var(--stella-os-accent);
+  background: var(--accent);
+  color: var(--primary);
   font-weight: 600;
 }
 
@@ -460,41 +460,41 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0.85rem;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--stella-os-canvas);
+  background: var(--background);
   transition: all var(--motion-fast) ease;
 }
 
 .dag-node.active,
 .dag-node.running {
-  border-color: var(--stella-os-accent);
-  background: var(--stella-os-accent-soft);
-  box-shadow: 0 0 12px color-mix(in oklch, var(--stella-os-accent) 24%, transparent);
+  border-color: var(--primary);
+  background: var(--accent);
+  box-shadow: 0 0 12px color-mix(in oklch, var(--primary) 24%, transparent);
   animation: active-glow 2s ease infinite alternate;
 }
 
 .dag-node.success {
-  border-color: var(--stella-os-success);
-  background: color-mix(in oklch, var(--stella-os-success) 8%, transparent);
+  border-color: var(--chart-3);
+  background: color-mix(in oklch, var(--chart-3) 8%, transparent);
 }
 
 .dag-node-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--stella-os-success);
+  color: var(--chart-3);
 }
 
 .dag-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--stella-os-muted);
+  background: var(--muted-foreground);
 }
 
 .dag-node.running .dag-dot {
-  background: var(--stella-os-accent);
+  background: var(--primary);
   animation: pulse-node 1s ease infinite alternate;
 }
 
@@ -507,21 +507,21 @@
 .dag-node-status-label {
   font-family: var(--font-mono);
   font-size: 0.65rem;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
 }
 
 .dag-node.running .dag-node-status-label {
-  color: var(--stella-os-accent);
+  color: var(--primary);
 }
 
 .dag-node.success .dag-node-status-label {
-  color: var(--stella-os-success);
+  color: var(--chart-3);
 }
 
 .dag-edge {
   width: 2px;
   height: 0.75rem;
-  background: var(--stella-os-rule);
+  background: var(--border);
   margin-left: 1.25rem;
   transition: background-color var(--motion-fast) ease;
   transform-origin: top;
@@ -538,19 +538,19 @@
 }
 
 .dag-edge.active {
-  background: linear-gradient(180deg, var(--stella-os-success) 50%, var(--stella-os-rule) 50%);
+  background: linear-gradient(180deg, var(--chart-3) 50%, var(--border) 50%);
   background-size: 100% 200%;
   animation: flow-edge 0.5s linear infinite;
 }
 
 .simulator-terminal {
   padding: 1rem;
-  background: color-mix(in oklch, var(--stella-os-canvas) 85%, #000000 15%);
-  border-bottom: 1px solid var(--stella-os-rule);
+  background: var(--popover);
+  border-bottom: 1px solid var(--border);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.6;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
   min-height: 8rem;
   max-height: 11rem;
   overflow-y: auto;
@@ -572,15 +572,15 @@
   display: inline-block;
   width: 6px;
   height: 12px;
-  background: var(--stella-os-ink);
+  background: var(--foreground);
   animation: blink 1s step-end infinite;
   margin-left: 2px;
 }
 
 .simulator-approve-gate {
   padding: 1rem;
-  background: var(--stella-os-surface);
-  border-top: 1px solid var(--stella-os-rule);
+  background: var(--card);
+  border-top: 1px solid var(--border);
   animation: fade-up var(--motion-base) var(--ease-standard) both;
 }
 
@@ -605,8 +605,8 @@
 
 .home-systems {
   padding: clamp(4rem, 8vw, 8rem) 0;
-  border-top: 1px solid var(--stella-os-rule);
-  background: var(--stella-os-canvas-muted);
+  border-top: 1px solid var(--border);
+  background: var(--secondary);
 }
 
 .agent-explorer-layout {
@@ -627,9 +627,9 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--stella-os-surface);
+  background: var(--card);
   cursor: pointer;
   transition: all var(--motion-fast) var(--ease-standard);
   border-left: 3px solid transparent;
@@ -637,8 +637,8 @@
 
 .agent-tab-item:hover,
 .agent-tab-item.active {
-  border-color: var(--stella-os-accent);
-  background: color-mix(in oklch, var(--stella-os-accent) 4%, var(--stella-os-surface));
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 4%, var(--card));
 }
 
 .agent-tab-item:hover {
@@ -650,24 +650,24 @@
 }
 
 .agent-tab-item.active {
-  border-left-color: var(--stella-os-accent);
+  border-left-color: var(--primary);
 }
 
 .agent-tab-item.active .agent-tab-arrow {
   opacity: 1;
-  color: var(--stella-os-accent);
+  color: var(--primary);
 }
 
 .agent-tab-name {
   font-size: 0.85rem;
   font-weight: 700;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
 }
 
 .agent-panel {
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--stella-os-surface);
+  background: var(--card);
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
@@ -675,7 +675,7 @@
 }
 
 .agent-panel-header {
-  border-bottom: 1px solid var(--stella-os-rule);
+  border-bottom: 1px solid var(--border);
   padding-bottom: 1rem;
   margin-bottom: 1.25rem;
 }
@@ -683,7 +683,7 @@
 .agent-panel-title {
   font-size: 1.2rem;
   font-weight: 700;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
 }
 
 .agent-field {
@@ -695,14 +695,14 @@
   font-family: var(--font-mono);
   font-size: 0.65rem;
   text-transform: uppercase;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
   margin-bottom: 0.5rem;
   letter-spacing: 0.05em;
 }
 
 .agent-prompt-box {
-  background: var(--stella-os-canvas-muted);
-  border: 1px solid var(--stella-os-rule);
+  background: var(--secondary);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 0.85rem 1rem;
 }
@@ -711,7 +711,7 @@
   font-family: var(--font-mono);
   font-size: 0.8rem;
   line-height: 1.6;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
   white-space: pre-wrap;
 }
 
@@ -726,20 +726,20 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.35rem 0.65rem;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--stella-os-canvas);
+  background: var(--background);
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
 }
 
 /* ─── Pipeline steps / Pillars ─── */
 
 .home-pillars {
   padding: clamp(4rem, 8vw, 8rem) 0;
-  border-top: 1px solid var(--stella-os-rule);
-  background: color-mix(in oklch, var(--stella-os-ink) 96%, var(--stella-os-accent) 4%);
+  border-top: 1px solid var(--border);
+  background: color-mix(in oklch, var(--foreground) 96%, var(--primary) 4%);
 }
 
 .home-pillars-heading {
@@ -749,7 +749,7 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--stella-os-accent);
+  color: var(--primary);
 }
 
 .pipeline-steps-grid {
@@ -760,9 +760,9 @@
 
 .pipeline-step-card {
   padding: 1.5rem;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--stella-os-surface);
+  background: var(--card);
   display: flex;
   flex-direction: column;
   transition:
@@ -771,7 +771,7 @@
 }
 
 .pipeline-step-card:hover {
-  border-color: var(--stella-os-accent);
+  border-color: var(--primary);
   transform: translateY(-2px);
 }
 
@@ -786,20 +786,20 @@
   font-family: var(--font-mono);
   font-size: 0.9rem;
   font-weight: 700;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
 }
 
 .pipeline-step-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
   margin-bottom: 0.5rem;
 }
 
 .pipeline-step-desc {
   font-size: 0.78rem;
   line-height: 1.6;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
   margin: 0;
 }
 
@@ -807,7 +807,7 @@
 
 .home-caps {
   padding: clamp(4rem, 8vw, 8rem) 0;
-  border-top: 1px solid var(--stella-os-rule);
+  border-top: 1px solid var(--border);
 }
 
 .home-caps-header {
@@ -820,13 +820,13 @@
   font-weight: 760;
   line-height: 1.1;
   letter-spacing: var(--letter-spacing);
-  color: var(--stella-os-ink);
+  color: var(--foreground);
 }
 
 .home-section-sub {
   margin: 1rem 0 0;
   max-width: 38rem;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
   font-size: 1.05rem;
   font-weight: 400;
   line-height: 1.7;
@@ -834,9 +834,9 @@
 
 .recally-mockup-container {
   width: 100%;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--stella-os-surface);
+  background: var(--card);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -847,15 +847,15 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.65rem 1rem;
-  border-bottom: 1px solid var(--stella-os-rule);
-  background: color-mix(in oklch, var(--stella-os-surface) 95%, var(--stella-os-ink) 5%);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--card) 95%, var(--foreground) 5%);
 }
 
 .recally-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--stella-os-accent);
+  background: var(--primary);
 }
 
 .recally-url-bar {
@@ -863,9 +863,9 @@
   font-size: 0.65rem;
   padding: 0.2rem 1.5rem;
   border-radius: var(--radius-sm);
-  background: var(--stella-os-canvas-muted);
-  border: 1px solid var(--stella-os-rule);
-  color: var(--stella-os-muted);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
 }
 
 .recally-layout {
@@ -875,18 +875,18 @@
 }
 
 .recally-sidebar {
-  border-right: 1px solid var(--stella-os-rule);
-  background: color-mix(in oklch, var(--stella-os-surface) 97%, var(--stella-os-ink) 3%);
+  border-right: 1px solid var(--border);
+  background: color-mix(in oklch, var(--card) 97%, var(--foreground) 3%);
   display: flex;
   flex-direction: column;
 }
 
 .recally-sidebar-header {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--stella-os-rule);
+  border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
 }
 
 .recally-sidebar-list {
@@ -907,7 +907,7 @@
 
 .recally-list-item:hover,
 .recally-list-item.active {
-  background: var(--stella-os-canvas-muted);
+  background: var(--secondary);
 }
 
 .recally-list-item:hover {
@@ -915,12 +915,12 @@
 }
 
 .recally-list-item.active {
-  border-left: 2px solid var(--stella-os-accent);
+  border-left: 2px solid var(--primary);
 }
 
 .recally-reader {
-  border-right: 1px solid var(--stella-os-rule);
-  background: var(--stella-os-canvas);
+  border-right: 1px solid var(--border);
+  background: var(--background);
   overflow-y: auto;
   padding: 1.5rem;
 }
@@ -929,20 +929,20 @@
   font-size: 1.15rem;
   font-weight: 700;
   line-height: 1.3;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
   margin-bottom: 0.5rem;
 }
 
 .recally-article-meta {
   font-size: 0.65rem;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
   margin-bottom: 1.25rem;
 }
 
 .recally-article-content {
   font-size: 0.8rem;
   line-height: 1.65;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
 }
 
 .recally-article-content p {
@@ -950,21 +950,21 @@
 }
 
 .recally-highlight {
-  border-left: 2px solid var(--stella-os-accent);
+  border-left: 2px solid var(--primary);
   padding-left: 0.75rem;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
   font-style: italic;
   transition: background-color var(--motion-base) ease;
 }
 
 .recally-highlight:hover {
-  background-color: color-mix(in oklch, var(--stella-os-accent-soft) 40%, transparent);
+  background-color: color-mix(in oklch, var(--accent) 40%, transparent);
 }
 
 .recally-chat {
   display: flex;
   flex-direction: column;
-  background: var(--stella-os-surface);
+  background: var(--card);
 }
 
 .recally-chat-header {
@@ -972,10 +972,10 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--stella-os-rule);
+  border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
 }
 
 .recally-chat-messages {
@@ -997,30 +997,30 @@
 }
 
 .chat-bubble.user {
-  background: var(--stella-os-canvas-muted);
-  color: var(--stella-os-ink);
+  background: var(--secondary);
+  color: var(--foreground);
   align-self: flex-end;
   border-bottom-right-radius: 0;
 }
 
 .chat-bubble.bot {
-  background: var(--stella-os-accent-soft);
-  color: var(--stella-os-ink);
+  background: var(--accent);
+  color: var(--foreground);
   align-self: flex-start;
   border-bottom-left-radius: 0;
 }
 
 .recally-chat-input-wrapper {
   padding: 0.75rem;
-  border-top: 1px solid var(--stella-os-rule);
+  border-top: 1px solid var(--border);
 }
 
 .recally-chat-input {
   width: 100%;
   padding: 0.45rem 0.75rem;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--stella-os-canvas);
+  background: var(--background);
   font-size: 0.72rem;
   outline: none;
 }
@@ -1029,8 +1029,8 @@
 
 .home-cta {
   padding: clamp(4rem, 8vw, 8rem) 0;
-  border-top: 1px solid var(--stella-os-rule);
-  background: var(--stella-os-canvas-muted);
+  border-top: 1px solid var(--border);
+  background: var(--secondary);
 }
 
 .home-cta-layout {
@@ -1046,9 +1046,9 @@
 
 .install-tabs-card {
   width: 100%;
-  border: 1px solid var(--stella-os-rule);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--stella-os-surface);
+  background: var(--card);
   overflow: hidden;
 }
 
@@ -1057,15 +1057,15 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--stella-os-rule);
-  background: color-mix(in oklch, var(--stella-os-surface) 95%, var(--stella-os-ink) 5%);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--card) 95%, var(--foreground) 5%);
 }
 
 .install-tab-btn {
   font-family: var(--font-sans);
   font-size: 0.72rem;
   font-weight: 600;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
   background: transparent;
   border: none;
   padding: 0.4rem 0.75rem;
@@ -1076,11 +1076,11 @@
 
 .install-tab-btn:hover,
 .install-tab-btn.active {
-  color: var(--stella-os-accent);
+  color: var(--primary);
 }
 
 .install-tab-btn.active {
-  background: var(--stella-os-canvas-muted);
+  background: var(--secondary);
 }
 
 .install-copy-btn {
@@ -1090,7 +1090,7 @@
   font-family: var(--font-sans);
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--stella-os-muted);
+  color: var(--muted-foreground);
   background: transparent;
   border: none;
   padding: 0.3rem 0.6rem;
@@ -1099,13 +1099,13 @@
 }
 
 .install-copy-btn:hover {
-  background: var(--stella-os-canvas-muted);
-  color: var(--stella-os-ink);
+  background: var(--secondary);
+  color: var(--foreground);
 }
 
 .install-code-body {
   padding: 1.25rem;
-  background: color-mix(in oklch, var(--stella-os-canvas) 85%, #000000 15%);
+  background: var(--popover);
   animation: code-fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -1113,7 +1113,7 @@
   font-family: var(--font-mono);
   font-size: 0.8rem;
   line-height: 1.6;
-  color: var(--stella-os-ink);
+  color: var(--foreground);
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1175,7 +1175,7 @@
   }
 
   .recally-chat {
-    border-top: 1px solid var(--stella-os-rule);
+    border-top: 1px solid var(--border);
     height: 14rem;
   }
 }
@@ -1360,9 +1360,9 @@
 
 @keyframes active-glow {
   from {
-    box-shadow: 0 0 4px color-mix(in oklch, var(--stella-os-accent) 12%, transparent);
+    box-shadow: 0 0 4px color-mix(in oklch, var(--primary) 12%, transparent);
   }
   to {
-    box-shadow: 0 0 16px color-mix(in oklch, var(--stella-os-accent) 32%, transparent);
+    box-shadow: 0 0 16px color-mix(in oklch, var(--primary) 32%, transparent);
   }
 }

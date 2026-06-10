@@ -48,13 +48,13 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
     <div className="max-w-[680px] px-9 py-7">
       {/* Eyebrow */}
       <div className="mb-2 flex items-center gap-1.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-500">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-chart-3">
           {t("hub.chipTask")}
         </span>
         <span className="text-[10px] text-border">/</span>
         <StatusPill status={task.status} label={statusLabel(t, task.status)} />
         {task.priority === "urgent" && (
-          <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-[10px] font-medium text-chart-4">
             urgent
           </span>
         )}
@@ -138,9 +138,9 @@ export function TaskDetail({ task }: { task: ComponentsTask }) {
       {task.status === "running" && runs.length > 0 && runs[0].status === "running" && (
         <div className="mt-6">
           <SectionHead title={t("hub.currentRun")} />
-          <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3.5 py-3">
+          <div className="rounded-lg border border-chart-3/25 bg-chart-3/[0.06] px-3.5 py-3">
             <div className="flex items-center gap-2">
-              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+              <span className="size-1.5 animate-pulse rounded-full bg-chart-3" />
               <span className="text-xs font-semibold">Run #{runs[0].attempt_no}</span>
               <span className="font-mono text-[10px] text-muted-foreground">
                 started {formatTime(runs[0].started_at)}
@@ -201,9 +201,9 @@ function SectionHead({ title }: { title: string }) {
 }
 
 function runDotClass(status: string): string {
-  if (status === "completed") return "bg-emerald-500";
+  if (status === "completed") return "bg-chart-3";
   if (status === "failed" || status === "timed_out") return "bg-destructive";
-  if (status === "running") return "bg-amber-500";
+  if (status === "running") return "bg-chart-4";
   return "bg-muted-foreground/40";
 }
 

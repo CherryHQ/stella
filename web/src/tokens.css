@@ -67,18 +67,6 @@
   --shadow-xl: none;
   --shadow-2xl: none;
   --tracking-normal: -0.01em;
-  --stella-os-canvas: var(--background);
-  --stella-os-canvas-muted: var(--secondary);
-  --stella-os-surface: var(--card);
-  --stella-os-surface-raised: var(--popover);
-  --stella-os-ink: var(--foreground);
-  --stella-os-muted: var(--muted-foreground);
-  --stella-os-rule: var(--border);
-  --stella-os-accent: var(--primary);
-  --stella-os-accent-soft: var(--accent);
-  --stella-os-warning: oklch(0.74 0.17 72);
-  --stella-os-success: oklch(0.72 0.19 145);
-  --stella-os-danger: var(--destructive);
 }
 
 .dark {
@@ -137,16 +125,4 @@
   --shadow-lg: none;
   --shadow-xl: none;
   --shadow-2xl: none;
-  --stella-os-canvas: var(--background);
-  --stella-os-canvas-muted: var(--secondary);
-  --stella-os-surface: var(--card);
-  --stella-os-surface-raised: var(--popover);
-  --stella-os-ink: var(--foreground);
-  --stella-os-muted: var(--muted-foreground);
-  --stella-os-rule: var(--border);
-  --stella-os-accent: var(--primary);
-  --stella-os-accent-soft: var(--accent);
-  --stella-os-warning: oklch(0.74 0.17 72);
-  --stella-os-success: oklch(0.72 0.19 145);
-  --stella-os-danger: var(--destructive);
 }

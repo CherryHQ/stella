@@ -769,7 +769,7 @@ function TreeWithSearch({
                   color: "var(--popover-foreground)",
                   padding: "4px 0",
                   minWidth: MENU_W,
-                  boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+                  boxShadow: "var(--shadow-lg)",
                 }}
               >
                 <button

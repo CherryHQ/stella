@@ -54,7 +54,7 @@ export function ProjectHome() {
 
   return (
     <div className="flex flex-1 items-center justify-center bg-gradient-to-b from-card/80 to-card p-6">
-      <div className="w-full max-w-md rounded-[24px] border border-border/80 bg-card p-6 text-center shadow-[0_22px_54px_rgba(29,29,31,0.10)]">
+      <div className="w-full max-w-md rounded-[24px] border border-border/80 bg-card p-6 text-center shadow-xl">
         <div className="mx-auto mb-4 grid size-12 place-items-center rounded-[16px] bg-foreground text-base font-bold text-background shadow-sm">
           S
         </div>

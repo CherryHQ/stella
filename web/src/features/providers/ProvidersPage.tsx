@@ -142,7 +142,7 @@ export function ProvidersPage() {
                     <>
                       <span
                         className={`size-1.5 shrink-0 rounded-full ${
-                          p.enabled ? "bg-green-500" : "bg-muted-foreground"
+                          p.enabled ? "bg-chart-3" : "bg-muted-foreground"
                         }`}
                       />
                       <span className="text-xs text-muted-foreground">

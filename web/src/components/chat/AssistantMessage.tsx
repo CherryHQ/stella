@@ -221,9 +221,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
         <span
           className={cn(
             "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider font-sans shrink-0",
-            n === "bash"
-              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-              : "bg-primary/10 text-primary",
+            n === "bash" ? "bg-chart-4/10 text-chart-4" : "bg-primary/10 text-primary",
           )}
         >
           {n}

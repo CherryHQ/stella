@@ -533,7 +533,7 @@ function ScheduleKanbanCard({
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+        <span className="rounded-full bg-chart-3/10 px-2 py-0.5 text-[10px] font-medium text-chart-3">
           {t("automations.dash.schedule")}
         </span>
         <span className="font-mono text-[10px] text-muted-foreground">
@@ -583,7 +583,7 @@ function JobDetailPanel({
         <span
           className={cn(
             "text-[9px] font-mono px-2 py-0.5 rounded-full",
-            job.enabled ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground",
+            job.enabled ? "bg-chart-3/10 text-chart-3" : "bg-muted text-muted-foreground",
           )}
         >
           {job.enabled ? "on" : "off"}
@@ -671,8 +671,8 @@ function JobDetailPanel({
                   <span
                     className={cn(
                       "text-[9px] font-mono px-1.5 py-0.5 rounded-full",
-                      run.status === "success" && "bg-emerald-500/10 text-emerald-600",
-                      run.status === "running" && "bg-blue-500/10 text-blue-600",
+                      run.status === "success" && "bg-chart-3/10 text-chart-3",
+                      run.status === "running" && "bg-chart-2/10 text-chart-2",
                       run.status === "failed" && "bg-destructive/10 text-destructive",
                       run.status === "skipped" && "bg-muted text-muted-foreground",
                     )}
@@ -711,8 +711,8 @@ function RunDetailPanel({
         <span
           className={cn(
             "text-[9px] font-mono px-2 py-0.5 rounded-full",
-            run.status === "success" && "bg-emerald-500/10 text-emerald-600",
-            run.status === "running" && "bg-blue-500/10 text-blue-600",
+            run.status === "success" && "bg-chart-3/10 text-chart-3",
+            run.status === "running" && "bg-chart-2/10 text-chart-2",
             run.status === "failed" && "bg-destructive/10 text-destructive",
             run.status === "skipped" && "bg-muted text-muted-foreground",
           )}
@@ -787,8 +787,8 @@ function RunStatusDot({ status }: { status: string }) {
     <span
       className={cn(
         "w-2 h-2 rounded-full shrink-0",
-        status === "success" && "bg-emerald-500",
-        status === "running" && "bg-blue-500",
+        status === "success" && "bg-chart-3",
+        status === "running" && "bg-chart-2",
         status === "failed" && "bg-destructive",
         status === "skipped" && "bg-muted-foreground/30",
       )}
@@ -801,11 +801,11 @@ function StatusDot({ status }: { status: string }) {
     <span
       className={cn(
         "size-2 rounded-full",
-        status === "done" && "bg-emerald-500",
-        status === "running" && "bg-blue-500",
+        status === "done" && "bg-chart-3",
+        status === "running" && "bg-chart-2",
         (status === "draft" || status === "ready") && "bg-muted-foreground/30",
         status === "failed" && "bg-destructive",
-        (status === "blocked" || status === "reviewing") && "bg-amber-500",
+        (status === "blocked" || status === "reviewing") && "bg-chart-4",
         status === "cancelled" && "bg-muted-foreground/20",
       )}
     />

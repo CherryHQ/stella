@@ -61,13 +61,13 @@ export function GoalDetail({ goal }: { goal: ComponentsGoal }) {
     <div className="max-w-[680px] px-9 py-7">
       {/* Eyebrow */}
       <div className="mb-2 flex items-center gap-1.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-violet-500">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-primary">
           {t("hub.chipGoal")}
         </span>
         <span className="text-[10px] text-border">/</span>
         <StatusPill status={goal.status} label={statusLabel(t, goal.status)} />
         {goal.priority === "urgent" && (
-          <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-[10px] font-medium text-chart-4">
             urgent
           </span>
         )}

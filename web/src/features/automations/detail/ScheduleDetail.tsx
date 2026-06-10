@@ -165,7 +165,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
     return (
       <div className="max-w-[680px] px-9 py-7">
         <div className="mb-2 flex items-center gap-1.5">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-blue-500">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-chart-2">
             {t("hub.chipSchedule")}
           </span>
           <span className="text-[10px] text-border">/</span>
@@ -233,7 +233,7 @@ export function ScheduleDetail({ job, agentId, mode, onCreated, onDeleted }: Sch
   return (
     <div className="max-w-[680px] px-9 py-7">
       <div className="mb-2 flex items-center gap-1.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-blue-500">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-chart-2">
           {t("hub.chipSchedule")}
         </span>
         {job && (
