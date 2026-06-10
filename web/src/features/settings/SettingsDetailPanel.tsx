@@ -27,14 +27,14 @@ export function DetailPanel({
   canSave?: boolean;
 }) {
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-6">{children}</div>
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">{children}</div>
       {footer ? (
-        <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-card">
+        <div className="shrink-0 border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-card">
           {footer}
         </div>
       ) : onSave || onCancel || onDelete ? (
-        <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-card">
+        <div className="shrink-0 border-t border-border px-6 py-3 flex items-center justify-between gap-3 bg-card">
           <div>
             {onDelete && (
               <Button

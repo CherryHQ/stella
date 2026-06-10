@@ -217,7 +217,7 @@ func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, mod
 	spanCtx, span := otel.Tracer("stella").Start(ctx, "agent.runner_get_or_create", trace.WithAttributes(attrs...))
 	defer span.End()
 
-	cs, r, err := rt.cache.getOrCreate(spanCtx, info, model)
+	cs, r, err := rt.cache.getOrCreate(spanCtx, info, model, "")
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

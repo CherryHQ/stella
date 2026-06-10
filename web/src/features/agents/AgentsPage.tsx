@@ -91,8 +91,11 @@ function emptyForm(): Omit<AgentDetail, "id"> {
   return {
     name: "",
     model: "",
+    model_thinking: "",
     model_strong: "",
+    model_strong_thinking: "",
     model_fast: "",
+    model_fast_thinking: "",
     system_prompt: "",
     soul: "",
     scope: "restricted",
@@ -107,8 +110,11 @@ function agentRequestBody(form: Omit<AgentDetail, "id">): CreateAgentData["body"
   return {
     name: form.name,
     model: form.model,
+    model_thinking: form.model_thinking,
     model_strong: form.model_strong,
+    model_strong_thinking: form.model_strong_thinking,
     model_fast: form.model_fast,
+    model_fast_thinking: form.model_fast_thinking,
     system_prompt: form.system_prompt,
     soul: form.soul,
     scope: form.scope,

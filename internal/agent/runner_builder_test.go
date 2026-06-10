@@ -20,10 +20,6 @@ func (fakeStreamProvider) Stream(context.Context, ai.Model, ai.Context, ai.Strea
 	return nil, errors.New("not implemented")
 }
 
-func (fakeStreamProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return nil, errors.New("not implemented")
-}
-
 func TestNewRunnerFunc(t *testing.T) {
 	stellaHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(stellaHome, "bin"), 0o755); err != nil {

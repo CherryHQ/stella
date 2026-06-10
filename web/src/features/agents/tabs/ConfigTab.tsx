@@ -10,6 +10,36 @@ interface Props {
   onSetState: (patch: Partial<AgentsPageState>) => void;
 }
 
+const thinkingLevels = ["", "minimal", "low", "medium", "high", "xhigh"] as const;
+
+function ThinkingField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-muted-foreground mb-1.5">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      >
+        {thinkingLevels.map((level) => (
+          <option key={level || "default"} value={level}>
+            {level || t("agents.form.thinkingDefault")}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function ModelComboField({
   label,
   field,
@@ -238,16 +268,23 @@ export function ConfigTab({ state, onSetState }: Props) {
             — {t("agents.form.modelProvider")}
           </span>
         </p>
-        <div className="space-y-4">
-          <ModelComboField
-            label={t("agents.form.modelDefault")}
-            field="model"
-            value={form.model ?? ""}
-            placeholder="anthropic/claude-..."
-            cachedModels={cachedModels}
-            onChange={(v) => setForm({ model: v })}
-          />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="rounded-lg border border-border p-4 space-y-4">
+            <ModelComboField
+              label={t("agents.form.modelDefault")}
+              field="model"
+              value={form.model ?? ""}
+              placeholder="anthropic/claude-..."
+              cachedModels={cachedModels}
+              onChange={(v) => setForm({ model: v })}
+            />
+            <ThinkingField
+              label={t("agents.form.modelThinking")}
+              value={form.model_thinking ?? ""}
+              onChange={(v) => setForm({ model_thinking: v })}
+            />
+          </div>
+          <div className="rounded-lg border border-border p-4 space-y-4">
             <ModelComboField
               label={t("agents.form.modelStrong")}
               field="model_strong"
@@ -257,6 +294,13 @@ export function ConfigTab({ state, onSetState }: Props) {
               cachedModels={cachedModels}
               onChange={(v) => setForm({ model_strong: v })}
             />
+            <ThinkingField
+              label={t("agents.form.modelStrongThinking")}
+              value={form.model_strong_thinking ?? ""}
+              onChange={(v) => setForm({ model_strong_thinking: v })}
+            />
+          </div>
+          <div className="rounded-lg border border-border p-4 space-y-4">
             <ModelComboField
               label={t("agents.form.modelFast")}
               field="model_fast"
@@ -265,6 +309,11 @@ export function ConfigTab({ state, onSetState }: Props) {
               optional
               cachedModels={cachedModels}
               onChange={(v) => setForm({ model_fast: v })}
+            />
+            <ThinkingField
+              label={t("agents.form.modelFastThinking")}
+              value={form.model_fast_thinking ?? ""}
+              onChange={(v) => setForm({ model_fast_thinking: v })}
             />
           </div>
         </div>

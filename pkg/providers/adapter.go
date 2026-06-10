@@ -11,7 +11,6 @@ import (
 type ProviderAdapter interface {
 	API() string
 	Stream(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.StreamOptions) (AssistantEventStream, error)
-	StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (AssistantEventStream, error)
 }
 
 // ModelLister is an optional interface providers can implement to list available models.

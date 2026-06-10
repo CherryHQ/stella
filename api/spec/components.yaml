@@ -55,9 +55,15 @@ components:
           type: string
         model:
           type: string
+        model_thinking:
+          type: string
         model_strong:
           type: string
+        model_strong_thinking:
+          type: string
         model_fast:
+          type: string
+        model_fast_thinking:
           type: string
         system_prompt:
           type: string
@@ -90,9 +96,15 @@ components:
           type: string
         model:
           type: string
+        model_thinking:
+          type: string
         model_strong:
           type: string
+        model_strong_thinking:
+          type: string
         model_fast:
+          type: string
+        model_fast_thinking:
           type: string
         system_prompt:
           type: string

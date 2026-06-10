@@ -172,11 +172,6 @@ func (p *Provider) Stream(goCtx context.Context, model ai.Model, ctx ai.Context,
 	return out, nil
 }
 
-// StreamSimple delegates to Stream with mapped options.
-func (p *Provider) StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return p.Stream(goCtx, model, ctx, opts.StreamOptions)
-}
-
 // ListModels fetches available models from the OpenAI API.
 func (p *Provider) ListModels(ctx context.Context) ([]ai.Model, error) {
 	page, err := p.client.Models.List(ctx)

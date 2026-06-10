@@ -171,6 +171,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				BaseURL: creds.BaseURL,
 				Builder: cfg.ProviderStreamBuilder,
 			},
+			Thinking: params.Thinking,
 			Sandbox: sandbox.Config{
 				SandboxConfig:    cfg.Snap.Sandbox,
 				SandboxBackendFn: cfg.SandboxBackendFn,

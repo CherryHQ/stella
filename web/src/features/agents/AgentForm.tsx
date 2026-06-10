@@ -57,7 +57,7 @@ export function AgentForm({
   );
 
   return (
-    <div className="min-w-0 flex flex-col bg-card">
+    <div className="h-full min-h-0 min-w-0 flex flex-col bg-card">
       <div className="border-b border-border px-6 py-4">
         <span className="font-medium text-sm text-foreground">
           {editingId ? t("agents.form.editAgent", { name: form.name }) : t("agents.form.newAgent")}
@@ -87,7 +87,7 @@ export function AgentForm({
           <TabsTrigger value="advanced">{t("agents.tabs.advanced")}</TabsTrigger>
           {isAdmin && <TabsTrigger value="users">{t("agents.tabs.users")}</TabsTrigger>}
         </TabsList>
-        <div className="p-6 space-y-6">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
           <TabsContent value="config">
             <ConfigTab state={state} onSetState={onSetState} />
           </TabsContent>
@@ -121,7 +121,7 @@ export function AgentForm({
           </TabsContent>
         </div>
       </Tabs>
-      <div className="border-t border-border px-6 py-4 flex items-center justify-between gap-2">
+      <div className="shrink-0 border-t border-border px-6 py-4 flex items-center justify-between gap-2">
         <div>
           {canEdit && editingId && onDelete && (
             <Button
