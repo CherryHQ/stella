@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // ErrChatTimeout is emitted when a chat turn exceeds its deadline.
@@ -33,7 +34,7 @@ type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory
 
 // chat is the goroutine body for Runtime.Chat.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
-	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model)
+	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
 		close(out)
@@ -96,7 +97,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		} else {
 			cancel()
 			rt.log.Info("auto-compaction succeeded", "session_id", info.ID, "summary_len", len(summary))
-			cs, r, err = rt.getOrCreateRunner(ctx, info, co.model)
+			cs, r, err = rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
 			if err != nil {
 				out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
 				close(out)
@@ -198,7 +199,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	}
 }
 
-func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string) (*cachedSession, Runner, error) {
+func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (*cachedSession, Runner, error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.conversation.id", info.ID),
 		attribute.String("user_id", info.UserID),
@@ -217,7 +218,7 @@ func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, mod
 	spanCtx, span := otel.Tracer("stella").Start(ctx, "agent.runner_get_or_create", trace.WithAttributes(attrs...))
 	defer span.End()
 
-	cs, r, err := rt.cache.getOrCreate(spanCtx, info, model, "")
+	cs, r, err := rt.cache.getOrCreate(spanCtx, info, model, "", extraTools...)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

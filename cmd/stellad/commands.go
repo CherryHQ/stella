@@ -182,18 +182,28 @@ func setup(parent context.Context, _ bool) (*setupResult, error) {
 		DB:       db,
 		Memory:   memProvider,
 		Services: &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-		Pools: func(agentID string) (agent.NewRunnerFunc, bool) {
-			if poolMgr == nil {
-				return nil, false
+		Chat: func(ctx context.Context, p tasks.TaskChatParams) <-chan agent.Event {
+			var svc *agent.Service
+			if poolMgr != nil {
+				svc = poolMgr.GetService(p.AgentID)
+				if svc == nil {
+					svc = poolMgr.Default()
+				}
 			}
-			svc := poolMgr.GetService(agentID)
 			if svc == nil {
-				svc = poolMgr.Default()
+				out := make(chan agent.Event, 1)
+				out <- agent.Event{Err: fmt.Errorf("no agent service for %s", p.AgentID)}
+				close(out)
+				return out
 			}
-			if svc == nil {
-				return nil, false
-			}
-			return svc.Runtime.NewRunnerFunc(), true
+			return svc.ChatForTask(ctx, agent.TaskChatRequest{
+				SessionID:  p.SessionID,
+				UserID:     p.UserID,
+				AgentID:    p.AgentID,
+				ProjectID:  p.ProjectID,
+				Message:    p.Prompt,
+				ExtraTools: p.ExtraTools,
+			})
 		},
 	})
 

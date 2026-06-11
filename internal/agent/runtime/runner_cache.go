@@ -12,6 +12,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // cachedSession holds one active runner and its metadata.
@@ -54,7 +55,9 @@ func newRunnerCache(
 
 // getOrCreate returns an existing runner or creates one.
 // info must be fully populated; this method does NOT repair missing fields.
-func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel) (*cachedSession, Runner, error) {
+// Passing extraTools always builds a fresh runner (per-call tools defeat the
+// cache); the caller is expected to evict it afterwards via CloseSession.
+func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, extraTools ...tools.Tool) (*cachedSession, Runner, error) {
 	if info.ID == "" {
 		return nil, nil, fmt.Errorf("session.Info.ID is required")
 	}
@@ -75,6 +78,9 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	var stale Runner
 	if cs.r != nil {
 		switch {
+		case len(extraTools) > 0:
+			stale = cs.r
+			cs.r = nil
 		case !cs.r.Alive():
 			c.log.Warn("replacing dead runner", "session_id", info.ID)
 			stale = cs.r
@@ -132,6 +138,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		AgentID:        info.AgentID,
 		ProjectID:      info.ProjectID,
 		HooksFn:        hooksFn,
+		ExtraTools:     extraTools,
 		DelegateRunner: delegateRunner,
 	})
 	if err != nil {

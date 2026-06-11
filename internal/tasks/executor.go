@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -74,10 +73,21 @@ type executorFunc func(ctx context.Context, req Request) (Result, error)
 
 func (f executorFunc) Execute(ctx context.Context, req Request) (Result, error) { return f(ctx, req) }
 
-// PoolLookup resolves an agent ID to a Runner factory. Returned (nil, false)
-// means no pool is available for that agent; the executor surfaces this as a
-// non-retryable Fail.
-type PoolLookup func(agentID string) (agent.NewRunnerFunc, bool)
+// TaskChatParams describes one persisted worker turn on a task session.
+type TaskChatParams struct {
+	AgentID    string
+	UserID     string
+	SessionID  string
+	ProjectID  string
+	Prompt     string
+	ExtraTools []tools.Tool
+}
+
+// TaskChatFunc runs one worker turn through the agent service layer so the
+// transcript persists to the task session and prior turns load as history.
+// Implementations resolve AgentID to a service; an unknown agent surfaces as
+// an Err event on the returned channel.
+type TaskChatFunc func(ctx context.Context, p TaskChatParams) <-chan agent.Event
 
 // terminalRecorder captures the first terminal action declared during an
 // execution attempt. Later terminal declarations are rejected so a stray
@@ -114,25 +124,24 @@ func (r *terminalRecorder) snapshot() (Result, bool) {
 	return r.result, r.done
 }
 
-// workerExecutor is the agent-backed Executor for worker runs. It resolves the
-// run's executor agent to a Runner factory, wires a recording task_control
-// tool, pumps the chat loop until a terminal action fires or the channel
-// closes, then returns the recorded Result.
+// workerExecutor is the agent-backed Executor for worker runs. It wires a
+// recording task_control tool, runs each turn through TaskChatFunc (which
+// persists the transcript to the task session), and pumps the chat loop until
+// a terminal action fires or the channel closes.
 type workerExecutor struct {
-	pools PoolLookup
-	mem   memory.Provider
-	q     *sqlc.Queries
-	svc   *TransitionService
-	log   *slog.Logger
+	chat TaskChatFunc
+	q    *sqlc.Queries
+	svc  *TransitionService
+	log  *slog.Logger
 }
 
 // newWorkerExecutor builds the default agent-backed worker executor. q and svc
 // are used only to persist progress patches during execution (D3).
-func newWorkerExecutor(pools PoolLookup, mem memory.Provider, q *sqlc.Queries, svc *TransitionService, log *slog.Logger) *workerExecutor {
+func newWorkerExecutor(chat TaskChatFunc, q *sqlc.Queries, svc *TransitionService, log *slog.Logger) *workerExecutor {
 	if log == nil {
 		log = slog.Default().With("component", "tasks/worker-executor")
 	}
-	return &workerExecutor{pools: pools, mem: mem, q: q, svc: svc, log: log}
+	return &workerExecutor{chat: chat, q: q, svc: svc, log: log}
 }
 
 // Execute runs one worker turn. All outcomes are encoded in Result so the
@@ -149,31 +158,29 @@ func (e *workerExecutor) Execute(ctx context.Context, req Request) (Result, erro
 	if agentID == "" {
 		return failResult("no executor agent on run", false), nil
 	}
-	factory, ok := e.pools(agentID)
-	if !ok || factory == nil {
-		return failResult(fmt.Sprintf("no agent pool for %s", agentID), false), nil
-	}
 	if req.Task == nil {
 		return failResult("no task on worker request", false), nil
 	}
 
 	rec := &terminalRecorder{}
 	ctTool := newRecordingControlTool(rec, req.Task.ID, e.log).withProgress(e.q, e.svc)
-
-	runner, err := factory(ctx, agent.RunnerParams{
-		AgentID:    agentID,
-		UserID:     req.Run.UserID,
-		SessionID:  req.Run.SessionID,
-		Memory:     e.mem,
-		ExtraTools: []tools.Tool{ctTool},
-	})
-	if err != nil {
-		return failResult(fmt.Sprintf("create runner: %v", err), true), nil
+	turn := func(prompt string) <-chan agent.Event {
+		projectID := ""
+		if req.Task.ProjectID.Valid {
+			projectID = req.Task.ProjectID.String
+		}
+		return e.chat(ctx, TaskChatParams{
+			AgentID:    agentID,
+			UserID:     req.Run.UserID,
+			SessionID:  req.Run.SessionID,
+			ProjectID:  projectID,
+			Prompt:     prompt,
+			ExtraTools: []tools.Tool{ctTool},
+		})
 	}
-	defer func() { _ = runner.Close() }()
 
 	// First turn.
-	text, res, done, fail := e.runTurn(ctx, runner, rec, buildTaskPrompt(*req.Task, e.latestResolution(ctx, req.Task.ID)))
+	text, res, done, fail := e.runTurn(ctx, turn(buildTaskPrompt(*req.Task, e.latestResolution(ctx, req.Task.ID))), rec)
 	if fail != nil {
 		return *fail, nil
 	}
@@ -189,7 +196,7 @@ func (e *workerExecutor) Execute(ctx context.Context, req Request) (Result, erro
 		return Result{Action: TerminalNone}, nil
 	}
 
-	_, res, done, fail = e.runTurn(ctx, runner, rec, buildRepairPrompt(text))
+	_, res, done, fail = e.runTurn(ctx, turn(buildRepairPrompt(text)), rec)
 	if fail != nil {
 		return *fail, nil
 	}
@@ -199,12 +206,11 @@ func (e *workerExecutor) Execute(ctx context.Context, req Request) (Result, erro
 	return Result{Action: TerminalNone, RepairAttempted: true}, nil
 }
 
-// runTurn pumps one Chat turn until a terminal action is recorded or the event
+// runTurn pumps one chat turn until a terminal action is recorded or the event
 // channel closes. It returns the assistant text emitted during the turn, the
 // recorded Result (when done), whether a terminal action fired, and a non-nil
 // fail Result if the stream errored before any terminal action.
-func (e *workerExecutor) runTurn(ctx context.Context, runner agent.Runner, rec *terminalRecorder, prompt string) (text string, res Result, done bool, fail *Result) {
-	events := runner.Chat(ctx, nil, prompt)
+func (e *workerExecutor) runTurn(ctx context.Context, events <-chan agent.Event, rec *terminalRecorder) (text string, res Result, done bool, fail *Result) {
 	var buf strings.Builder
 	for ev := range events {
 		if ev.Err != nil {

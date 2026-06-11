@@ -26,9 +26,9 @@ type Service struct {
 // BootConfig is the minimal wiring needed at server start.
 type BootConfig struct {
 	DB       *sql.DB
-	Memory   memory.Provider                                  // used to mint sessions when Services is nil
-	Services agent.ServiceManager                             // registry-backed session minting
-	Pools    func(agentID string) (agent.NewRunnerFunc, bool) // resolves executor agents to runner factories
+	Memory   memory.Provider      // used to mint sessions when Services is nil
+	Services agent.ServiceManager // registry-backed session minting
+	Chat     TaskChatFunc         // runs persisted worker turns; nil falls back to the noop executor
 	// MaxWorkers, TickEvery, LeaseTTL override defaults; zero values use the
 	// dispatcher's defaults.
 	MaxWorkers int
@@ -40,7 +40,7 @@ type BootConfig struct {
 // New constructs the task system. The dispatcher is constructed but not
 // started; the caller registers it on a scheduler via dispatcher.Start.
 //
-// If BootConfig.Pools is non-nil, the dispatcher uses the agent-backed worker
+// If BootConfig.Chat is non-nil, the dispatcher uses the agent-backed worker
 // executor. Otherwise it falls back to a noop executor that fails with a clear
 // message.
 func New(cfg BootConfig) *Service {
@@ -52,8 +52,8 @@ func New(cfg BootConfig) *Service {
 	}
 
 	var exec Executor
-	if cfg.Pools != nil {
-		exec = newWorkerExecutor(cfg.Pools, cfg.Memory, q, svc, logger)
+	if cfg.Chat != nil {
+		exec = newWorkerExecutor(cfg.Chat, q, svc, logger)
 	} else {
 		exec = noopExecutor(logger)
 	}
@@ -91,8 +91,8 @@ func noopExecutor(log *slog.Logger) Executor {
 	return executorFunc(func(_ context.Context, req Request) (Result, error) {
 		log.Warn("tasks v2 noop executor invoked",
 			"task_id", req.Run.TaskID.String, "run_id", req.Run.ID,
-			"hint", "wire BootConfig.Pools to a real agent pool to execute tasks")
-		return failResult("task system v2 executor not wired (noop): connect cmd/stella to an agent pool", false), nil
+			"hint", "wire BootConfig.Chat to the agent service to execute tasks")
+		return failResult("task system v2 executor not wired (noop): wire BootConfig.Chat to the agent service", false), nil
 	})
 }
 

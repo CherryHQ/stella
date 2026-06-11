@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	delegatetool "github.com/CherryHQ/stella/internal/tools/delegate"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // Service is a thin composition facade over session.Registry and runtime.Runtime.
@@ -197,6 +198,51 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
 	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+}
+
+// TaskChatRequest describes one worker turn on a durable task session.
+type TaskChatRequest struct {
+	SessionID  string // task session minted at task creation
+	UserID     string
+	AgentID    string
+	ProjectID  string
+	Message    MessageContent
+	ExtraTools []tools.Tool // per-run tools (e.g. task_control)
+}
+
+// ChatForTask runs one persisted chat turn on a task session. Exact-ID
+// creation is allowed because the task system owns the ID. The per-run extra
+// tools force a fresh runner, which is evicted once the turn finishes so the
+// tools never leak into later turns on the same session.
+func (s *Service) ChatForTask(ctx context.Context, req TaskChatRequest) <-chan Event {
+	info, err := s.Sessions.Ensure(ctx, session.Request{
+		ID:                 req.SessionID,
+		UserID:             req.UserID,
+		AgentID:            req.AgentID,
+		ProjectID:          req.ProjectID,
+		Kind:               session.KindTask,
+		Channel:            session.ChannelTask,
+		CreateIfMissing:    true,
+		AllowExactIDCreate: true,
+		RequireKind:        session.KindTask,
+	})
+	if err != nil {
+		out := make(chan Event, 1)
+		out <- Event{Err: fmt.Errorf("resolve task session: %w", err)}
+		close(out)
+		return out
+	}
+
+	src := s.Runtime.Chat(ctx, info, req.Message, agentruntime.WithExtraTools(req.ExtraTools...))
+	out := make(chan Event)
+	go func() {
+		defer close(out)
+		for ev := range src {
+			out <- ev
+		}
+		_ = s.Runtime.CloseSession(context.WithoutCancel(ctx), req.SessionID)
+	}()
+	return out
 }
 
 // ResolveChannelSession resolves or creates a channel/group chat session using a
