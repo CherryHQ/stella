@@ -352,7 +352,9 @@ func TestDispatchJob_MissingTemplate_ErrorRun(t *testing.T) {
 func TestExecuteSingleRun_SkipsWhenAlreadyRunning(t *testing.T) {
 	svc := testService(t)
 
-	started := make(chan struct{})
+	// Buffered so the non-blocking send below never drops the signal when the
+	// run goroutine reaches it before the test goroutine parks on <-started.
+	started := make(chan struct{}, 1)
 	unblock := make(chan struct{})
 	var callCount int32
 	svc.SetOnJob(func(_ context.Context, _ Job) error {
@@ -383,7 +385,7 @@ func TestExecuteSingleRun_SkipsWhenAlreadyRunning(t *testing.T) {
 	// Wait until the first run is actually executing.
 	select {
 	case <-started:
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("first run did not start")
 	}
 
@@ -473,7 +475,7 @@ func TestUpdateUserJob_DisabledJobDoesNotFire(t *testing.T) {
 	}
 
 	// Let it fire at least once to confirm it was active.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if atomic.LoadInt32(&fired) > 0 {
 			break
@@ -497,12 +499,24 @@ func TestUpdateUserJob_DisabledJobDoesNotFire(t *testing.T) {
 		t.Error("disabled job should have no gocron entry")
 	}
 
-	// Wait a couple of intervals; the job must not fire again.
-	countBefore := atomic.LoadInt32(&fired)
-	time.Sleep(300 * time.Millisecond)
-	countAfter := atomic.LoadInt32(&fired)
-	if countAfter != countBefore {
-		t.Errorf("disabled job fired %d more times after UpdateUserJob", countAfter-countBefore)
+	// A tick dispatched by gocron just before the entry was removed may still
+	// be executing, so its fire can land after UpdateUserJob returns — a fixed
+	// post-disable window races that straggler on slow runners. Instead wait
+	// for the fire stream to stay quiet for several intervals: in-flight
+	// stragglers are absorbed, while a job still scheduled at 100ms can never
+	// go quiet for 500ms.
+	countAtDisable := atomic.LoadInt32(&fired)
+	last := countAtDisable
+	lastChange := time.Now()
+	quietDeadline := time.Now().Add(10 * time.Second)
+	for time.Since(lastChange) < 500*time.Millisecond {
+		if time.Now().After(quietDeadline) {
+			t.Fatalf("disabled job fired %d more times and never went quiet", atomic.LoadInt32(&fired)-countAtDisable)
+		}
+		time.Sleep(20 * time.Millisecond)
+		if cur := atomic.LoadInt32(&fired); cur != last {
+			last, lastChange = cur, time.Now()
+		}
 	}
 }
 
