@@ -71,6 +71,19 @@ Options must be placed before the feed URL. Trailing options are rejected.`,
 			o.Printf("  Kind: %s\n", feed.Kind)
 			o.Printf("  Title: %s\n", feed.Title)
 			o.Printf("  URL: %s\n", feed.Url)
+			// Best-effort: nudge the user to subscribe to the recally-rss job template
+			// if they have not done so. Any error (503 scheduler-disabled, network, etc.)
+			// is silently ignored — the feed was already added successfully.
+			if tpl, err := apiclient.Call[apiclient.JobTemplateList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListJobTemplates(c.Context)
+			}); err == nil {
+				for _, t := range tpl.JobTemplates {
+					if t.Key == "recally-rss" && (t.SubscribedJobId == nil || *t.SubscribedJobId == "") {
+						o.Printf("\nNote: RSS polling is opt-in — subscribe with 'stella scheduler subscribe recally-rss' or via the Web UI scheduler page.\n")
+						break
+					}
+				}
+			}
 			return o.Err()
 		},
 	}
