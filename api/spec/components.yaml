@@ -2051,6 +2051,10 @@ components:
           type: string
           nullable: true
           description: "ID of the current user's active subscription instance, or null if not subscribed."
+        subscribed_agent_id:
+          type: string
+          nullable: true
+          description: "Agent that owns the current user's subscription job; set when subscribed_job_id is set."
     JobTemplateList:
       type: object
       required: [job_templates]

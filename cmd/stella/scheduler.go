@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
@@ -23,6 +24,9 @@ at the specified time and can optionally notify you with the results.`,
 			schedulerAddCommand(),
 			schedulerListCommand(),
 			schedulerRemoveCommand(),
+			schedulerTemplatesCommand(),
+			schedulerSubscribeCommand(),
+			schedulerUnsubscribeCommand(),
 		},
 	}
 }
@@ -182,6 +186,187 @@ func schedulerRemoveCommand() *ucli.Command {
 			}
 			o := cli.Stdout(c)
 			o.Printf("Job %q removed.\n", id)
+			return o.Err()
+		},
+	}
+}
+
+func schedulerTemplatesCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "templates",
+		Usage: "List available job templates",
+		Description: `Lists platform-provided job templates. Each template is a pre-configured
+scheduled task you can subscribe to. The SUBSCRIBED column shows the short
+job ID when you already have an active subscription, or "-" if not.
+
+Template prompts are platform-managed and read-only. To manage subscriptions,
+use 'stella scheduler subscribe --help' and 'stella scheduler unsubscribe --help'.`,
+		Flags: []ucli.Flag{
+			cli.JSONFlag(),
+		},
+		Action: func(c *ucli.Context) error {
+			list, err := apiclient.Call[apiclient.JobTemplateList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListJobTemplates(c.Context)
+			})
+			if err != nil {
+				return err
+			}
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, list)
+			}
+			o := cli.Stdout(c)
+			if len(list.JobTemplates) == 0 {
+				o.Println("No job templates available.")
+				return o.Err()
+			}
+			o.Printf("%-20s  %-25s  %-22s  %s\n", "KEY", "NAME", "DEFAULT SCHEDULE", "SUBSCRIBED")
+			for _, t := range list.JobTemplates {
+				sub := "-"
+				if t.SubscribedJobId != nil && *t.SubscribedJobId != "" {
+					sub = cli.ShortID(*t.SubscribedJobId)
+				}
+				o.Printf("%-20s  %-25s  %-22s  %s\n",
+					cli.Truncate(t.Key, 20), cli.Truncate(t.Name, 25), cli.Truncate(t.DefaultSchedule, 22), sub)
+			}
+			return o.Err()
+		},
+	}
+}
+
+func schedulerSubscribeCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "subscribe",
+		Usage:     "Subscribe to a job template",
+		ArgsUsage: "<template-key>",
+		Description: `Creates a scheduled job from a platform-provided template. The prompt is
+managed by the platform and cannot be edited. One subscription per template
+is allowed; a second subscribe returns an "already subscribed" message.
+
+Use 'stella scheduler templates' to list available template keys.
+Use 'stella scheduler unsubscribe <template-key>' to cancel a subscription.
+
+Optional schedule override flags (--cron or --every) replace the template's
+default schedule. Omit them to use the template default.`,
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "cron", Usage: "Override default schedule with a cron expression, e.g. '0 9 * * 1-5'"},
+			&ucli.StringFlag{Name: "every", Usage: "Override default schedule with a Go duration, e.g. '12h'"},
+			cli.JSONFlag(),
+		},
+		Action: func(c *ucli.Context) error {
+			key := c.Args().First()
+			if key == "" {
+				return fmt.Errorf("usage: stella scheduler subscribe <template-key>")
+			}
+			cron := c.String("cron")
+			every := c.String("every")
+			if cron != "" && every != "" {
+				return fmt.Errorf("only one of --cron or --every may be set")
+			}
+
+			agentID, err := taskAgentID(c)
+			if err != nil {
+				return err
+			}
+			enabled := true
+			body := apiclient.CreateSchedulerJobJSONRequestBody{
+				TemplateKey: apiclient.Ptr(key),
+				Enabled:     &enabled,
+			}
+			if cron != "" {
+				body.Cron = &cron
+			}
+			if every != "" {
+				body.Every = &every
+			}
+
+			job, err := apiclient.Call[apiclient.Job](func(api *apiclient.Client) (*http.Response, error) {
+				return api.CreateSchedulerJob(c.Context, agentID, body)
+			})
+			if err != nil {
+				// 409 means this user is already subscribed; surface a friendly message.
+				if strings.Contains(err.Error(), "stella server 409") {
+					return fmt.Errorf("already subscribed to template %q; use 'stella scheduler templates' to see the job ID", key)
+				}
+				return err
+			}
+			if cli.IsJSON(c) {
+				return cli.PrintJSON(c, job)
+			}
+			sched := cli.DerefStr(job.Cron)
+			if sched == "" {
+				sched = cli.DerefStr(job.Every)
+			}
+			o := cli.Stdout(c)
+			o.Printf("Subscribed: job %s created (%s, %s).\n", cli.ShortID(job.Id), job.Name, sched)
+			return o.Err()
+		},
+	}
+}
+
+func schedulerUnsubscribeCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "unsubscribe",
+		Usage:     "Unsubscribe from a job template",
+		ArgsUsage: "<template-key>",
+		Description: `Removes your subscription to a platform-provided job template by deleting
+the corresponding scheduled job. If you are not subscribed, a message is
+printed and the command exits successfully.
+
+Use 'stella scheduler templates' to see which templates you are subscribed to.`,
+		Flags: []ucli.Flag{
+			cli.JSONFlag(),
+		},
+		Action: func(c *ucli.Context) error {
+			key := c.Args().First()
+			if key == "" {
+				return fmt.Errorf("usage: stella scheduler unsubscribe <template-key>")
+			}
+
+			// Look up the subscribed job ID from the templates list.
+			list, err := apiclient.Call[apiclient.JobTemplateList](func(api *apiclient.Client) (*http.Response, error) {
+				return api.ListJobTemplates(c.Context)
+			})
+			if err != nil {
+				return err
+			}
+			var jobID, subAgentID string
+			for _, t := range list.JobTemplates {
+				if t.Key == key {
+					if t.SubscribedJobId != nil {
+						jobID = *t.SubscribedJobId
+					}
+					if t.SubscribedAgentId != nil {
+						subAgentID = *t.SubscribedAgentId
+					}
+					break
+				}
+			}
+			if jobID == "" {
+				o := cli.Stdout(c)
+				o.Printf("Not subscribed to template %q.\n", key)
+				return o.Err()
+			}
+
+			// Use the agent that owns the subscription job; fall back to the
+			// CLI's task agent when the server doesn't supply subscribed_agent_id
+			// (old server version).
+			deleteAgentID := subAgentID
+			if deleteAgentID == "" {
+				deleteAgentID, err = taskAgentID(c)
+				if err != nil {
+					return err
+				}
+			}
+			if err := apiclient.Do(func(api *apiclient.Client) (*http.Response, error) {
+				return api.DeleteSchedulerJob(c.Context, deleteAgentID, jobID)
+			}); err != nil {
+				return err
+			}
+			if cli.IsJSON(c) {
+				return cli.PrintDeleted(c, jobID)
+			}
+			o := cli.Stdout(c)
+			o.Printf("Unsubscribed from template %q (job %s removed).\n", key, cli.ShortID(jobID))
 			return o.Err()
 		},
 	}

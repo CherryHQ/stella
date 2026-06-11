@@ -22,6 +22,24 @@ title: 定时任务
 
 订阅后会出现在定时任务列表，并带有模板标识（例如 `订阅 · recally-rss`）。提示词由平台维护且只读——如需自定义提示词，请创建普通定时任务。
 
+### 通过 CLI 订阅
+
+```bash
+# 列出可用模板并查看订阅状态
+stella scheduler templates
+
+# 订阅（使用模板默认频率）
+stella scheduler subscribe recally-rss
+
+# 订阅并自定义频率
+stella scheduler subscribe recally-rss --every 12h
+
+# 取消订阅
+stella scheduler unsubscribe recally-rss
+```
+
+运行 `stella scheduler subscribe --help` 或 `stella scheduler unsubscribe --help` 查看完整参数说明。
+
 ### 通过 API 订阅
 
 ```
