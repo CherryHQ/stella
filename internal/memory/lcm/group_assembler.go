@@ -70,26 +70,20 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 			return nil, fmt.Errorf("persist between-turn messages: %w", err)
 		}
 		agentHistory = append(agentHistory, injected...)
-		injected = nil
 	}
 
-	// 4. Merge: agent history first, then injected between-turn messages.
-	merged := make([]ai.Message, 0, len(agentHistory)+len(injected))
-	merged = append(merged, agentHistory...)
-	merged = append(merged, injected...)
-
-	// 5. Apply token budget: trim oldest messages first.
+	// 4. Apply token budget: trim oldest messages first.
 	total := 0
-	for _, m := range merged {
+	for _, m := range agentHistory {
 		total += estimateMessageTokens(m)
 	}
 	cutIdx := 0
-	for total > budget && cutIdx < len(merged) {
-		total -= estimateMessageTokens(merged[cutIdx])
+	for total > budget && cutIdx < len(agentHistory) {
+		total -= estimateMessageTokens(agentHistory[cutIdx])
 		cutIdx++
 	}
 
-	return sanitizeToolPairs(merged[cutIdx:]), nil
+	return sanitizeToolPairs(agentHistory[cutIdx:]), nil
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {

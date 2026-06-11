@@ -1,6 +1,7 @@
 package lcm_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -29,7 +30,9 @@ func TestConformance(t *testing.T) {
 		t.Fatalf("seed user: %v", err)
 	}
 
-	p, err := lcm.New(db, nil, nil)
+	p, err := lcm.New(db, func(context.Context, string) (string, error) {
+		return "conformance summary", nil
+	}, nil)
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
 	}

@@ -33,21 +33,19 @@ var (
 // Provider implements memory.Provider and all six capability interfaces
 // using the lossless context management algorithm.
 type Provider struct {
-	db         *sql.DB
-	q          *sqlc.Queries
-	assembler  *assembler
-	compaction *compactionEngine
-	retrieval  *retrievalEngine
-	summarizer memory.Summarizer
-	sessionMu  map[string]*sync.Mutex
-	globalMu   sync.Mutex
-	freshTail  int
-	log        *slog.Logger
+	db           *sql.DB
+	q            *sqlc.Queries
+	assembler    *assembler
+	compaction   *compactionEngine
+	retrieval    *retrievalEngine
+	summarizer   memory.Summarizer
+	sessionLocks [sessionLockStripes]sync.Mutex
+	freshTail    int
+	log          *slog.Logger
 }
 
 // New creates a new LCM provider.
-// summarizerFn provides LLM access for compaction; if nil, a deterministic
-// truncation fallback is used.
+// summarizerFn provides LLM access for compaction; if nil, compaction is disabled.
 // cfg is the plugin-specific configuration from the plugin.config JSON.
 func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (string, error), cfg map[string]any) (*Provider, error) {
 	q := sqlc.New(db)
@@ -62,8 +60,6 @@ func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (stri
 	var summarizer memory.Summarizer
 	if summarizerFn != nil {
 		summarizer = &memory.LLMSummarizer{Generate: summarizerFn}
-	} else {
-		summarizer = &memory.StaticSummarizer{Response: ""}
 	}
 
 	p := &Provider{
@@ -71,7 +67,6 @@ func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (stri
 		q:         q,
 		assembler: newAssembler(q, slog.Default()),
 		retrieval: newRetrievalEngine(q),
-		sessionMu: make(map[string]*sync.Mutex),
 		freshTail: freshTail,
 		log:       slog.Default(),
 	}
@@ -217,6 +212,9 @@ func (p *Provider) Close() error {
 
 // NeedsCompaction implements memory.Compactor.
 func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, threshold float64) bool {
+	if p.summarizer == nil {
+		return false
+	}
 	if session.GroupID != "" {
 		return false
 	}
@@ -287,6 +285,10 @@ func (p *Provider) summaryDepths(ctx context.Context, items []sqlc.CtxItem) (map
 
 // Compact implements memory.Compactor.
 func (p *Provider) Compact(ctx context.Context, session memory.Session, mode memory.CompactionMode) (*memory.CompactionResult, error) {
+	if p.summarizer == nil {
+		p.log.Debug("compaction disabled: no summarizer")
+		return nil, nil
+	}
 	var result *memory.CompactionResult
 	err := p.withSessionLock(session.ID, func() error {
 		convID, cErr := p.getOrCreateConversation(ctx, session)

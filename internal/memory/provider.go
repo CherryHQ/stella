@@ -105,9 +105,8 @@ type CompactionResult struct {
 // Compactor is implemented by providers that support background compaction.
 // The runtime calls NeedsCompaction before each chat turn and Compact when needed.
 type Compactor interface {
-	// NeedsCompaction returns true if the session's context has grown large enough
-	// to warrant compaction. threshold is a fraction of the session's token budget
-	// (e.g. 0.75 means "compact when context is 75% full").
+	// NeedsCompaction returns true if the session's context token count exceeds
+	// threshold, an absolute token count.
 	NeedsCompaction(ctx context.Context, session Session, threshold float64) bool
 
 	// Compact runs the compaction algorithm on the session.

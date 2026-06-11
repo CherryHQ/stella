@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,21 +43,21 @@ const (
 	defaultFreshTail          = 6
 	defaultLeafChunkSize      = 10
 	oversizedToolResultTokens = 2000
+	sessionLockStripes        = 64
 )
 
-// withSessionLock acquires a per-session mutex before running fn.
+// withSessionLock acquires a deterministic striped mutex before running fn.
 func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
-	p.globalMu.Lock()
-	mu, ok := p.sessionMu[sessionID]
-	if !ok {
-		mu = &sync.Mutex{}
-		p.sessionMu[sessionID] = mu
-	}
-	p.globalMu.Unlock()
-
+	mu := &p.sessionLocks[sessionLockStripe(sessionID)]
 	mu.Lock()
 	defer mu.Unlock()
 	return fn()
+}
+
+func sessionLockStripe(sessionID string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(sessionID))
+	return h.Sum32() % sessionLockStripes
 }
 
 // getOrCreateConversation retrieves or creates a scoped conversation for the session.
