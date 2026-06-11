@@ -57,7 +57,7 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 
 	// Resolve fresh tail — these are always included unless the token cap pushes
 	// whole oldest turns back into older budget competition below.
-	tailMsgs, tailTokens, err := resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
+	tailMsgs, tailTokens, compacted, err := resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
@@ -71,13 +71,13 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 		splitIdx = nextSplitIdx
 		tail = items[splitIdx:]
 		older = items[:splitIdx]
-		tailMsgs, tailTokens, err = resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
+		tailMsgs, tailTokens, compacted, err = resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
 		if err != nil {
 			return nil, fmt.Errorf("resolve tail: %w", err)
 		}
 	}
 
-	// Telemetry: count turns and tool results before compaction.
+	// Telemetry: count turns and tool results in the final tail.
 	userTurns := 0
 	toolResults := 0
 	for _, m := range tailMsgs {
@@ -88,9 +88,6 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 			toolResults++
 		}
 	}
-
-	var compacted int
-	tailMsgs, compacted = compactOversizedTailResults(tailMsgs)
 
 	itemsPerTurn := float64(len(tailMsgs)) / float64(max(userTurns, 1))
 	a.log.Info("lcm tail telemetry",
@@ -331,16 +328,20 @@ func stripTrailingOrphanResults(msgs []ai.Message) []ai.Message {
 	return msgs
 }
 
-func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary) ([]ai.Message, int, error) {
+// resolveTailFromCaches resolves tail items and replaces oversized processed
+// tool results with placeholders before costing, so the token cap and the
+// remaining-budget computation both see what the model will actually receive.
+func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary) ([]ai.Message, int, int, error) {
 	msgs, err := resolveItemsFromCaches(items, messages, summaries, parents)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
+	msgs, compacted := compactOversizedTailResults(msgs)
 	tokens := 0
 	for _, msg := range msgs {
 		tokens += estimateMessageTokens(msg)
 	}
-	return msgs, tokens, nil
+	return msgs, tokens, compacted, nil
 }
 
 // resolveItemsFromCaches resolves a slice of context items to ai.Messages.
