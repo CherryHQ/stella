@@ -75,6 +75,20 @@ WHERE ctx_message_fts.content MATCH sqlc.arg('match')
 ORDER BY score ASC
 LIMIT sqlc.arg('limit');
 
+-- name: SearchMessagesLike :many
+-- Fallback for queries with no token of 3+ runes, which trigram MATCH would
+-- silently never hit. Scans the content table directly (faster there than on
+-- the FTS table, which pays external-content read-back), recency-ordered, no
+-- BM25. Pattern must be a full '%text%' built with ftsquery.EscapeLike; sqlc
+-- cannot parse || concatenation here, so the caller wraps it, and the parens
+-- around LIKE...ESCAPE are also required by sqlc's grammar. Keep these doc
+-- comments ASCII: multibyte chars corrupt sqlc's query rewriter offsets.
+SELECT * FROM ctx_message
+WHERE conversation_id = sqlc.arg('conversation_id')
+  AND (content LIKE sqlc.arg('pattern') ESCAPE '\')
+ORDER BY created_at DESC
+LIMIT sqlc.arg('limit');
+
 -- name: GetMessagesSince :many
 SELECT * FROM ctx_message
 WHERE conversation_id = ? AND created_at > ?

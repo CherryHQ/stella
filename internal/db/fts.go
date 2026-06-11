@@ -33,15 +33,29 @@ func ensureFTS(db *sql.DB) error {
 	for _, t := range []struct {
 		ftsTable string
 		schema   string
+		tokenize string
 	}{
-		{"ctx_message_fts", ctxMessageFTSSchema},
-		{"ctx_summary_fts", ctxSummaryFTSSchema},
-		{"recally_article_fts", RecallyArticleFTSSchema},
+		{"ctx_message_fts", ctxMessageFTSSchema, "trigram"},
+		{"ctx_summary_fts", ctxSummaryFTSSchema, "trigram"},
+		{"recally_article_fts", RecallyArticleFTSSchema, "trigram"},
 	} {
+		// A table created with an older tokenizer (unicode61) would survive the
+		// CREATE IF NOT EXISTS below with a stale, incompatible index. Drop it
+		// so the embedded DDL recreates it and the rebuild path backfills it.
+		var ddl sql.NullString
+		_ = db.QueryRowContext(ctx,
+			`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`, t.ftsTable,
+		).Scan(&ddl) // ErrNoRows means no table yet; the create below handles it
+		if ddl.Valid && !strings.Contains(ddl.String, "tokenize='"+t.tokenize+"'") {
+			if _, err := db.ExecContext(ctx, `DROP TABLE `+t.ftsTable); err != nil {
+				return fmt.Errorf("drop stale %s: %w", t.ftsTable, err)
+			}
+		}
 		// Check the insert trigger alongside the table: an Atlas table-rebuild
 		// migration drops the content table's triggers and shifts rowids, which
 		// silently stales the index. A missing trigger with the index present is
-		// exactly that signature, so it must also force a rebuild.
+		// exactly that signature, so it must also force a rebuild. A tokenizer
+		// drop above also lands here (table missing → existing < 2 → rebuild).
 		var existing int
 		if err := db.QueryRowContext(ctx,
 			"SELECT COUNT(*) FROM sqlite_master WHERE name IN (?, ?)",

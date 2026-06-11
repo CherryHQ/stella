@@ -546,3 +546,56 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 	}
 	return items, nil
 }
+
+const searchMessagesLike = `-- name: SearchMessagesLike :many
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message
+WHERE conversation_id = ?1
+  AND (content LIKE ?2 ESCAPE '\')
+ORDER BY created_at DESC
+LIMIT ?3
+`
+
+type SearchMessagesLikeParams struct {
+	ConversationID string `json:"conversation_id"`
+	Pattern        string `json:"pattern"`
+	Limit          int64  `json:"limit"`
+}
+
+// Fallback for queries with no token of 3+ runes, which trigram MATCH would
+// silently never hit. Scans the content table directly (faster there than on
+// the FTS table, which pays external-content read-back), recency-ordered, no
+// BM25. Pattern must be a full '%text%' built with ftsquery.EscapeLike; sqlc
+// cannot parse || concatenation here, so the caller wraps it, and the parens
+// around LIKE...ESCAPE are also required by sqlc's grammar. Keep these doc
+// comments ASCII: multibyte chars corrupt sqlc's query rewriter offsets.
+func (q *Queries) SearchMessagesLike(ctx context.Context, arg SearchMessagesLikeParams) ([]CtxMessage, error) {
+	rows, err := q.db.QueryContext(ctx, searchMessagesLike, arg.ConversationID, arg.Pattern, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxMessage{}
+	for rows.Next() {
+		var i CtxMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

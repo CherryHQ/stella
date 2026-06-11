@@ -58,6 +58,20 @@ WHERE recally_article_fts.recally_article_fts MATCH sqlc.arg('match')
 ORDER BY score ASC
 LIMIT sqlc.arg('limit');
 
+-- name: SearchArticlesLike :many
+-- Fallback for queries with no token of 3+ runes, which trigram MATCH would
+-- silently never hit. Scans the content table directly, recency-ordered, no
+-- BM25. Pattern must be a full '%text%' built with ftsquery.EscapeLike; see
+-- SearchMessagesLike for the sqlc constraints shaping this query.
+SELECT * FROM recally_article
+WHERE user_id = sqlc.arg('user_id')
+  AND ((title LIKE sqlc.arg('pattern') ESCAPE '\')
+    OR (summary LIKE sqlc.arg('pattern') ESCAPE '\')
+    OR (tags LIKE sqlc.arg('pattern') ESCAPE '\')
+    OR (author LIKE sqlc.arg('pattern') ESCAPE '\'))
+ORDER BY created_at DESC
+LIMIT sqlc.arg('limit');
+
 -- name: CountArticlesByStatus :one
 SELECT COUNT(*) as count FROM recally_article WHERE user_id = ? AND status = ?;
 
