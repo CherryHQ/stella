@@ -1,4 +1,5 @@
 import {
+  getSessionMessages,
   listGoals,
   listGoalTasks,
   listSchedulerJobRuns,
@@ -17,6 +18,7 @@ import type {
   ComponentsTask,
   JobRun,
 } from "@/lib/api-client/types.gen";
+import type { Message } from "@/lib/types";
 
 export async function fetchAllTasks(agentId?: string): Promise<ComponentsTask[]> {
   const all: ComponentsTask[] = [];
@@ -119,6 +121,32 @@ export async function fetchAllTaskEvents(taskId: string): Promise<ComponentsEven
     pageToken = data?.next_page_token ?? undefined;
   } while (pageToken);
   return all;
+}
+
+export async function fetchAllSessionMessages(
+  agentId: string,
+  sessionId: string,
+  onProgress?: (count: number) => void,
+): Promise<Message[]> {
+  const pages: Message[][] = [];
+  const limit = 200;
+  let skip = 0;
+  let total = 0;
+  while (true) {
+    const { data } = await getSessionMessages({
+      path: { agentId, sessionId },
+      query: { limit, skip },
+      throwOnError: true,
+    });
+    const batch = (data?.messages as unknown as Message[] | undefined) ?? [];
+    if (batch.length === 0) break;
+    pages.push(batch);
+    total += batch.length;
+    onProgress?.(total);
+    if (batch.length < limit) break;
+    skip += batch.length;
+  }
+  return pages.reverse().flat();
 }
 
 export async function fetchAllSchedulerJobRuns(agentId: string, jobId: string): Promise<JobRun[]> {
