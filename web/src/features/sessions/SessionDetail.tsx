@@ -28,7 +28,6 @@ import {
   messageToUIMessage,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
-import { cn } from "@/lib/utils";
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
 import { Transcript } from "./Transcript";
@@ -235,7 +234,10 @@ export function SessionDetail({
       if (!session || exporting || isStreaming) return;
       setExporting(true);
       try {
-        const all = await fetchAllSessionMessages(session.agent_id, session.id);
+        const exportedAt = new Date().toISOString();
+        const all = await fetchAllSessionMessages(session.agent_id, session.id, {
+          before: exportedAt,
+        });
         if (all.length === 0) {
           showToast(t("sessions.export.empty"), "error");
           return;
@@ -244,7 +246,7 @@ export function SessionDetail({
         const exportMeta = {
           session,
           agentName,
-          exportedAt: new Date().toISOString(),
+          exportedAt,
         };
         const isJsonl = format === "jsonl";
         const body = isJsonl
@@ -308,13 +310,10 @@ export function SessionDetail({
                     render={
                       <Button
                         variant="ghost"
-                        size="xs"
+                        size="icon-sm"
                         aria-disabled={exportDisabled || undefined}
                         data-disabled={exportDisabled || undefined}
-                        className={cn(
-                          "h-7 w-7 rounded-full p-0 text-muted-foreground",
-                          exportDisabled && "cursor-not-allowed opacity-50",
-                        )}
+                        className="rounded-full text-muted-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                         aria-label={t("sessions.export.button")}
                       >
                         <Download className="size-3.5" />
@@ -385,6 +384,7 @@ export function SessionDetail({
     exporting,
     exportSessionAs,
     exportDisabled,
+    exportMenuOpen,
     t,
   ]);
 

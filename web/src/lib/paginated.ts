@@ -126,7 +126,7 @@ export async function fetchAllTaskEvents(taskId: string): Promise<ComponentsEven
 export async function fetchAllSessionMessages(
   agentId: string,
   sessionId: string,
-  onProgress?: (count: number) => void,
+  opts: { before?: string; onProgress?: (count: number) => void } = {},
 ): Promise<Message[]> {
   const pages: Message[][] = [];
   const limit = 200;
@@ -135,14 +135,14 @@ export async function fetchAllSessionMessages(
   while (true) {
     const { data } = await getSessionMessages({
       path: { agentId, sessionId },
-      query: { limit, skip },
+      query: { limit, skip, ...(opts.before ? { before: opts.before } : {}) },
       throwOnError: true,
     });
     const batch = (data?.messages as unknown as Message[] | undefined) ?? [];
     if (batch.length === 0) break;
     pages.push(batch);
     total += batch.length;
-    onProgress?.(total);
+    opts.onProgress?.(total);
     if (batch.length < limit) break;
     skip += batch.length;
   }
