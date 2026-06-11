@@ -92,7 +92,7 @@ export function SkillsListPage() {
   const { agentId } = useParams({ from: "/_app/agents/$agentId/skills/" });
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { setHeaderTitle, setHeaderActions } = useAppShell();
+  const { setHeaderActions } = useAppShell();
   const { data: skills = [], isLoading, refetch } = useQuery(agentSkillsOptions(agentId));
 
   const search = Route.useSearch();
@@ -118,13 +118,11 @@ export function SkillsListPage() {
   }, [search.expand, search.scope]);
 
   useEffect(() => {
-    setHeaderTitle(<span className="text-sm font-medium">{t("sessions.sidebar.skills")}</span>);
     setHeaderActions(null);
     return () => {
-      setHeaderTitle(null);
       setHeaderActions(null);
     };
-  }, [setHeaderActions, setHeaderTitle, t]);
+  }, [setHeaderActions]);
 
   const systemSkills = skills.filter((s) => s.scope === "system");
   const agentSkills = skills.filter((s) => s.scope === "agent");

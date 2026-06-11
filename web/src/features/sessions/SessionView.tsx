@@ -43,7 +43,7 @@ export function SessionView() {
   );
 
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(false);
   const [compactWorkspace, setCompactWorkspace] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -62,7 +62,7 @@ export function SessionView() {
     const compact = viewportWidth < RIGHT_AUTO_HIDE_WIDTH;
     setCompactWorkspace(compact);
     setRightWidth(defaultRightWidth(viewportWidth));
-    setRightOpen(!compact);
+    setRightOpen(false);
   }, []);
 
   useEffect(() => {
@@ -175,12 +175,6 @@ export function SessionView() {
   }, [agentId, navigate, projectId, queryClient]);
 
   const contextTitle = project?.name ?? currentAgent?.name ?? sessionDetail?.title;
-  const contextSubtitle = project
-    ? "Project main thread"
-    : sessionDetail?.kind === "main"
-      ? "Main thread"
-      : `${sessionDetail?.kind ?? "chat"} session`;
-
   const showWorkspace = rightOpen && !compactWorkspace;
   const toggleInspector = useCallback(() => {
     if (compactWorkspace) {
@@ -201,7 +195,6 @@ export function SessionView() {
           onToggleWorkspace={toggleInspector}
           workspaceOpen={showWorkspace}
           contextTitle={contextTitle}
-          contextSubtitle={contextSubtitle}
         />
       </div>
 

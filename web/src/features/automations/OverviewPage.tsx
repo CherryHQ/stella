@@ -38,7 +38,7 @@ export function OverviewPage() {
   const { agentId } = useParams({ strict: false }) as { agentId: string };
   const search = useSearch({ strict: false }) as { new?: string };
   const navigate = useNavigate();
-  const { setHeaderTitle, setHeaderActions } = useAppShell();
+  const { setHeaderActions } = useAppShell();
 
   const { data: goals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
@@ -50,9 +50,6 @@ export function OverviewPage() {
   }, [navigate, agentId]);
 
   useEffect(() => {
-    setHeaderTitle(
-      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{t("hub.title")}</h1>,
-    );
     setHeaderActions(
       <div className="flex gap-2">
         <Button
@@ -77,10 +74,9 @@ export function OverviewPage() {
       </div>,
     );
     return () => {
-      setHeaderTitle(null);
       setHeaderActions(null);
     };
-  }, [setHeaderTitle, setHeaderActions, t, navigate, agentId]);
+  }, [setHeaderActions, t, navigate, agentId]);
 
   const needsYou = useMemo(() => {
     const items: NeedsYouItem[] = [];

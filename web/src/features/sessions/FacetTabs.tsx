@@ -129,7 +129,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
           ];
 
   return (
-    <nav className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-card/65 px-4 backdrop-blur-xl">
+    <nav className="flex h-8 min-w-0 items-center gap-1 overflow-x-auto">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const active = tab.active(pathname);

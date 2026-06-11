@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
 import { FacetTabs } from "@/features/sessions/FacetTabs";
 import { agentsQueryOptions } from "@/lib/queries/agents";
+import { agentProjectsOptions } from "@/lib/queries/projects";
 import { AppShell } from "@/layouts/AppShell";
 
 export const Route = createLazyFileRoute("/_app/agents/$agentId")({
@@ -23,6 +24,10 @@ function AgentLayout() {
   const queryClient = useQueryClient();
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
+  const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
+  const currentAgent = agents.find((agent) => agent.id === agentId);
+  const currentProject = projects.find((project) => project.id === projectId);
+  const title = currentProject?.name ?? currentAgent?.name ?? "Stella";
 
   const handleAgentChange = (newAgentId: string) => {
     if (newAgentId !== agentId) {
@@ -43,6 +48,7 @@ function AgentLayout() {
           projectId={projectId || undefined}
         />
       }
+      title={<h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{title}</h1>}
     >
       <Outlet />
     </AppShell>

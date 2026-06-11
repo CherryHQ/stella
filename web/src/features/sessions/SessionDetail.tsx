@@ -57,7 +57,6 @@ interface Props {
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
   contextTitle?: string;
-  contextSubtitle?: string;
 }
 
 export function SessionDetail({
@@ -67,7 +66,6 @@ export function SessionDetail({
   onToggleWorkspace,
   workspaceOpen,
   contextTitle,
-  contextSubtitle,
 }: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -336,24 +334,13 @@ export function SessionDetail({
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
   const titleText = session ? contextTitle || session.title || t("sessions.untitled") : "";
-  const subtitleText = session
-    ? contextSubtitle ||
-      t("sessions.messagesChannel", {
-        count: messages.length,
-        channel: channelLabel(session.channel) || t("sessions.chat"),
-      })
-    : "";
-
   useEffect(() => {
     setHeaderTitle(
       titleText ? (
-        <div className="min-w-0">
-          <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{titleText}</h1>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitleText}</p>
-        </div>
+        <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{titleText}</h1>
       ) : null,
     );
-  }, [titleText, subtitleText, setHeaderTitle]);
+  }, [titleText, setHeaderTitle]);
 
   const exportDisabled = exporting || isStreaming;
 
@@ -530,10 +517,4 @@ export function SessionDetail({
       <ToastContainer messages={toasts} />
     </>
   );
-}
-
-function channelLabel(ch: string | null | undefined): string {
-  if (!ch) return "";
-  const m = ch.match(/:channel:([^:]+)/);
-  return m ? m[1] : ch;
 }
