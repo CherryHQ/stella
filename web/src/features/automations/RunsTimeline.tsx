@@ -22,7 +22,7 @@ function statusTone(status: string): string {
   return "text-muted-foreground";
 }
 
-/** Expandable run history: error output inline, session one click away. */
+/** Run history: session link visible on every row, error output expandable inline. */
 export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState<string | null>(null);
@@ -35,13 +35,20 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
     <div className="overflow-hidden rounded-xl border border-border">
       {runs.map((run) => {
         const isOpen = open === run.id;
-        const expandable = !!run.error || !!run.sessionId;
+        const hasError = !!run.error;
         return (
           <div key={run.id} className="border-b border-border last:border-b-0">
-            <button
-              type="button"
-              onClick={() => setOpen(isOpen ? null : run.id)}
-              className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left hover:bg-muted/50"
+            <div
+              role={hasError ? "button" : undefined}
+              tabIndex={hasError ? 0 : undefined}
+              onClick={hasError ? () => setOpen(isOpen ? null : run.id) : undefined}
+              onKeyDown={
+                hasError ? (e) => e.key === "Enter" && setOpen(isOpen ? null : run.id) : undefined
+              }
+              className={cn(
+                "flex w-full items-center gap-3 px-3.5 py-2.5 text-left",
+                hasError && "cursor-pointer hover:bg-muted/50",
+              )}
             >
               <span
                 className={cn(
@@ -61,12 +68,22 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
               <span
                 className={cn(
                   "min-w-0 flex-1 truncate text-xs",
-                  run.error ? "text-destructive" : "text-muted-foreground",
+                  hasError ? "text-destructive" : "text-muted-foreground",
                 )}
               >
                 {run.error || ""}
               </span>
-              {expandable && (
+              {run.sessionId && (
+                <Link
+                  to="/agents/$agentId/sessions/$sessionId"
+                  params={{ agentId, sessionId: run.sessionId }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="shrink-0 text-xs font-medium text-primary hover:underline"
+                >
+                  {t("hub.openSession")}
+                </Link>
+              )}
+              {hasError && (
                 <ChevronRight
                   className={cn(
                     "size-3.5 shrink-0 text-muted-foreground transition-transform",
@@ -74,25 +91,12 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
                   )}
                 />
               )}
-            </button>
-            {isOpen && expandable && (
+            </div>
+            {isOpen && hasError && (
               <div className="px-3.5 pb-3.5 sm:pl-[90px]">
-                {run.error && (
-                  <div className="whitespace-pre-wrap rounded-lg border border-destructive/25 bg-destructive/[0.06] px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-destructive">
-                    {run.error}
-                  </div>
-                )}
-                {run.sessionId && (
-                  <div className="mt-2">
-                    <Link
-                      to="/agents/$agentId/sessions/$sessionId"
-                      params={{ agentId, sessionId: run.sessionId }}
-                      className="text-xs font-medium text-primary hover:underline"
-                    >
-                      {t("hub.openSession")} →
-                    </Link>
-                  </div>
-                )}
+                <div className="whitespace-pre-wrap rounded-lg border border-destructive/25 bg-destructive/[0.06] px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-destructive">
+                  {run.error}
+                </div>
               </div>
             )}
           </div>
