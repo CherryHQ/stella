@@ -68,13 +68,16 @@ func TestDecodeToolCallBlock_invalid(t *testing.T) {
 }
 
 func TestSerializeUserRow(t *testing.T) {
-	row := sqlc.CtxMessage{Role: "user", Content: "hello", CreatedAt: "2026-01-01T00:00:00Z"}
+	row := sqlc.CtxMessage{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: "2026-01-01T00:00:00Z"}
 	m := serializeUserRow(row)
 	if m["role"] != "user" {
 		t.Errorf("role = %v", m["role"])
 	}
 	if m["content"] != "hello" {
 		t.Errorf("content = %v", m["content"])
+	}
+	if m["id"] != "msg-u1" {
+		t.Errorf("id = %v, want msg-u1", m["id"])
 	}
 }
 
@@ -180,7 +183,7 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 
 func TestSerializeAssistantRows_text(t *testing.T) {
 	rows := []sqlc.CtxMessage{
-		{Role: "assistant", EventType: "text", Content: "hi"},
+		{ID: "msg-a1", Role: "assistant", EventType: "text", Content: "hi"},
 	}
 	m, consumed := serializeAssistantRows(rows, 0)
 	if consumed != 1 {
@@ -188,5 +191,25 @@ func TestSerializeAssistantRows_text(t *testing.T) {
 	}
 	if m["role"] != "assistant" {
 		t.Errorf("role = %v", m["role"])
+	}
+	if m["id"] != "msg-a1" {
+		t.Errorf("id = %v, want msg-a1", m["id"])
+	}
+}
+
+// Multiple consecutive assistant rows merge into one turn; the merged turn must
+// carry the first row's ID so historical pagination produces stable React keys.
+func TestSerializeAssistantRows_mergedFirstRowID(t *testing.T) {
+	rows := []sqlc.CtxMessage{
+		{ID: "msg-a1", Role: "assistant", EventType: "thinking", Content: "..."},
+		{ID: "msg-a2", Role: "assistant", EventType: "tool_call", Content: `{"id":"c1","tool":"bash","args":{}}`},
+		{ID: "msg-a3", Role: "assistant", EventType: "text", Content: "ok"},
+	}
+	m, consumed := serializeAssistantRows(rows, 0)
+	if consumed != 3 {
+		t.Errorf("consumed = %d, want 3", consumed)
+	}
+	if m["id"] != "msg-a1" {
+		t.Errorf("id = %v, want msg-a1 (first row of merged turn)", m["id"])
 	}
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Terminal, Brain, FileText } from "lucide-react";
 import { getAgentColor } from "@/lib/agent-colors";
@@ -145,22 +146,66 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
 }
 
 function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolean }) {
-  const hasRunning = active || blocks.some((b) => b.type === "tool_call" && !b.result);
+  const { t } = useI18n();
+  // Drive running state purely from the parent-supplied `active` flag (which
+  // already encodes `streaming && !hasFinalOutputAfter`). Do NOT fall back to
+  // "any tool_call without a result" — paginated history can land in the middle
+  // of a turn (assistant tool_call without its tool result row), and that
+  // fallback would start a Thinking-for-Xs… timer that never stops.
+  const hasRunning = active;
   const [expanded, setExpanded] = useState(hasRunning);
   const wasRunningRef = useRef(hasRunning);
 
+  // Real wall-clock timer: starts ticking when the group first becomes active,
+  // freezes at the elapsed value when streaming completes. Historical messages
+  // (never active in this session) fall back to a label without seconds since
+  // we don't persist the original elapsed time on the wire yet.
+  const startedAtRef = useRef<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState<number | null>(null);
+
+  // Auto-expand when the group first becomes active. Do NOT auto-collapse on
+  // running→done: with multi-step agentic flows, each subsequent text block
+  // flips `active` to false for an earlier StepsGroup, and snapping that group
+  // shut mid-stream reads as a flicker. Initial state stays driven by
+  // useState(hasRunning), so historical messages still default to collapsed.
   useEffect(() => {
     if (hasRunning) {
       setExpanded(true);
-    } else if (wasRunningRef.current) {
-      setExpanded(false);
+      if (startedAtRef.current === null) {
+        startedAtRef.current = Date.now();
+      }
+      const tick = () => {
+        const start = startedAtRef.current;
+        if (start !== null) {
+          setElapsedSec(Math.max(1, Math.floor((Date.now() - start) / 1000)));
+        }
+      };
+      tick();
+      const id = window.setInterval(tick, 1000);
+      wasRunningRef.current = true;
+      return () => window.clearInterval(id);
     }
-    wasRunningRef.current = hasRunning;
+    if (wasRunningRef.current) {
+      // Freeze the elapsed time at the moment streaming completed.
+      const start = startedAtRef.current;
+      if (start !== null) {
+        setElapsedSec(Math.max(1, Math.floor((Date.now() - start) / 1000)));
+      }
+    }
+    wasRunningRef.current = false;
   }, [hasRunning]);
 
-  const labelText = hasRunning
-    ? "Thinking..."
-    : `Worked for ${Math.max(1, Math.round(blocks.length * 0.8))}s`;
+  let labelText: string;
+  if (hasRunning) {
+    labelText =
+      elapsedSec !== null
+        ? t("sessions.transcript.thinkingFor", { seconds: elapsedSec })
+        : t("sessions.transcript.thinking");
+  } else if (elapsedSec !== null) {
+    labelText = t("sessions.transcript.workedFor", { seconds: elapsedSec });
+  } else {
+    labelText = t("sessions.transcript.worked");
+  }
 
   return (
     <CollapsibleThinking labelText={labelText} expanded={expanded} onToggle={setExpanded}>
