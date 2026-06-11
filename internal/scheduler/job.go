@@ -20,8 +20,6 @@ const (
 	ExecScopeSystem = "system"
 	// ExecScopeUser runs once with a specific user's context (UserID must be set).
 	ExecScopeUser = "user"
-	// ExecScopeAllUsers fans out: runs once per active user, each with that user's context.
-	ExecScopeAllUsers = "all_users"
 )
 
 // Schedule defines when a job runs. Exactly one field must be set.
@@ -130,8 +128,7 @@ func RunSessionIDFromContext(ctx context.Context) string {
 	return ""
 }
 
-// SessionID returns the stable session identifier for system or single-user job executions.
-// For all_users fan-out runs, use UserSessionID instead.
+// SessionID returns the stable session identifier for system job executions.
 func (j Job) SessionID() string {
 	prefix := "scheduler"
 	if j.AgentID != "" {
@@ -144,7 +141,7 @@ func (j Job) SessionID() string {
 	return base
 }
 
-// UserSessionID returns a user-scoped session ID for all_users fan-out sub-runs.
+// UserSessionID returns a user-scoped session ID for user-owned job executions.
 // In reuse mode the ID is stable per user; in new mode a timestamp suffix ensures freshness.
 func (j Job) UserSessionID(userID string) string {
 	prefix := "scheduler"

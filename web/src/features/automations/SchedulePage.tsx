@@ -4,7 +4,6 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { triggerSchedulerJob, updateSchedulerJob } from "@/lib/api-client";
 import type { SchedulerJob } from "@/lib/types";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
-import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -28,7 +27,6 @@ export function SchedulePage() {
   const [acting, setActing] = useState(false);
 
   const { toasts, showToast } = useToast();
-  const { data: me } = useQuery(meQueryOptions);
   const { data: jobs = [], isSuccess } = useQuery(agentSchedulerJobsOptions(agentId));
   const job = useMemo(
     () => (jobs as SchedulerJob[]).find((j) => j.id === scheduleId) ?? null,
@@ -92,9 +90,7 @@ export function SchedulePage() {
   }
   if (!job) return null;
 
-  const editable = !job.owner_kind || job.owner_kind === "user";
-  // System/plugin jobs can only be triggered manually by admins.
-  const canTrigger = editable || !!me?.is_admin;
+  const isSubscription = !!job.template_key;
   const next = jobNextRunAt(job);
 
   return (
@@ -108,35 +104,24 @@ export function SchedulePage() {
             status={job.enabled ? "running" : "draft"}
             label={job.enabled ? t("scheduler.enabled") : t("scheduler.disabled")}
           />
-          {job.owner_kind === "plugin" && (
-            <Badge size="sm" variant="info">
-              plugin:{job.plugin_id}
-            </Badge>
-          )}
-          {job.owner_kind === "system" && (
+          {isSubscription && (
             <Badge size="sm" variant="secondary">
-              system
+              {t("automations.subscriptionBadge", { key: job.template_key })}
             </Badge>
           )}
         </span>
       }
       actions={
         <>
-          {canTrigger && (
-            <Button size="sm" loading={acting} onClick={handleTrigger}>
-              {t("hub.runNow")}
-            </Button>
-          )}
-          {editable && (
-            <>
-              <Button variant="outline" size="sm" loading={acting} onClick={handleToggleEnabled}>
-                {job.enabled ? t("hub.pause") : t("hub.resume")}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-                {t("common.edit")}
-              </Button>
-            </>
-          )}
+          <Button size="sm" loading={acting} onClick={handleTrigger}>
+            {t("hub.runNow")}
+          </Button>
+          <Button variant="outline" size="sm" loading={acting} onClick={handleToggleEnabled}>
+            {job.enabled ? t("hub.pause") : t("hub.resume")}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+            {t("common.edit")}
+          </Button>
         </>
       }
     >
@@ -178,6 +163,11 @@ export function SchedulePage() {
       </DetailSection>
 
       <DetailSection title={t("hub.promptSection")}>
+        {isSubscription && (
+          <p className="mb-2 text-xs text-muted-foreground">
+            {t("automations.templateMessageReadOnly")}
+          </p>
+        )}
         <div className="whitespace-pre-wrap rounded-xl border border-border bg-muted/40 px-4 py-3.5 text-[13px] leading-relaxed text-muted-foreground">
           {job.message}
         </div>

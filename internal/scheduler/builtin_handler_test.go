@@ -71,7 +71,7 @@ func TestBuiltinHandlerDispatch(t *testing.T) {
 	}
 }
 
-func TestBuiltinMessageHandlerXOR(t *testing.T) {
+func TestBuiltinValidation(t *testing.T) {
 	svc := testService(t)
 
 	cases := []struct {
@@ -80,19 +80,9 @@ func TestBuiltinMessageHandlerXOR(t *testing.T) {
 		want string
 	}{
 		{
-			name: "neither",
-			job:  BuiltinJob{Name: "neither", Schedule: Schedule{Every: "1h"}},
-			want: "exactly one of Message or Handler",
-		},
-		{
-			name: "both",
-			job: BuiltinJob{
-				Name:     "both",
-				Schedule: Schedule{Every: "1h"},
-				Message:  "hi",
-				Handler:  func(context.Context, Job) error { return nil },
-			},
-			want: "exactly one of Message or Handler",
+			name: "no-handler",
+			job:  BuiltinJob{Name: "no-handler", Schedule: Schedule{Every: "1h"}},
+			want: "Handler is required",
 		},
 		{
 			name: "missing-name",

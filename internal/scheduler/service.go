@@ -32,10 +32,6 @@ type OnJobFunc func(ctx context.Context, job Job) error
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
-// ListActiveUsersFunc returns the IDs of all currently active users.
-// Used by the scheduler to fan out ExecScopeAllUsers jobs.
-type ListActiveUsersFunc func(ctx context.Context) ([]string, error)
-
 // Service manages scheduled jobs backed by gocron/v2 with database persistence.
 type Service struct {
 	scheduler       gocron.Scheduler
@@ -50,13 +46,17 @@ type Service struct {
 	gids            map[string]uuid.UUID // job ID -> gocron job UUID
 	log             *slog.Logger
 	userJobsEnabled bool
-	listActiveUsers ListActiveUsersFunc
 
 	// Runtime-registered builtin specs, keyed by Name. Populated via
 	// (*Service).RegisterBuiltin and distinct from the package-global
 	// builtinJobs registry that init() functions write to. Handler-mode
 	// dispatch reads the Handler off this map at fire time.
 	runtimeBuiltins map[string]BuiltinJob
+
+	// templates holds job template specs registered via RegisterTemplate.
+	// Subscription instances store the template key in job_key and resolve
+	// their prompt here at fire time.
+	templates map[string]JobTemplate
 
 	// started flips to true inside start(); RegisterBuiltin rejects further
 	// runtime registrations after that point to avoid persisted handler-mode
@@ -103,19 +103,11 @@ func NewFromPath(dbPath string) (*Service, error) {
 	return svc, nil
 }
 
-// SetUserJobsEnabled controls whether persisted user-owned and all_users scheduler jobs are loaded.
+// SetUserJobsEnabled controls whether persisted user-owned scheduler jobs are loaded.
 func (s *Service) SetUserJobsEnabled(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.userJobsEnabled = enabled
-}
-
-// SetListActiveUsersFunc registers the function used to enumerate active users
-// when fanning out ExecScopeAllUsers jobs.
-func (s *Service) SetListActiveUsersFunc(fn ListActiveUsersFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.listActiveUsers = fn
 }
 
 // SetOnJob sets the primary callback invoked when a job fires.
@@ -162,7 +154,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	if loadPersisted {
 		for _, j := range jobs {
 			s.jobs[j.ID] = j
-			// Skip user-scoped and all_users jobs when user jobs are disabled.
+			// Skip user-scoped jobs when user jobs are disabled.
 			if !s.userJobsEnabled && j.ExecScope != ExecScopeSystem {
 				continue
 			}
@@ -261,9 +253,9 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 	if err := validateSchedule(sched); err != nil {
 		return Job{}, err
 	}
-	// Reject non-system jobs whose name collides with a registered builtin.
-	// Otherwise the user's prompt would be silently dropped at dispatch time
-	// — the handler-mode router keys on Name alone.
+	// Reject non-system jobs whose name collides with a registered builtin or
+	// template. Otherwise the user's prompt would be silently dropped at
+	// dispatch time — the handler-mode router keys on Name alone.
 	if ownerKind != JobOwnerSystem && s.nameIsReservedBuiltin(name) {
 		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", name)
 	}
@@ -294,20 +286,9 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.scheduleJob(s.ctx, job); err != nil {
-		return Job{}, fmt.Errorf("schedule job: %w", err)
+	if err := s.addJobLocked(job); err != nil {
+		return Job{}, err
 	}
-
-	if err := s.insertJob(s.ctx, job); err != nil {
-		// Roll back: remove from gocron.
-		if gid, ok := s.gids[job.ID]; ok {
-			_ = s.scheduler.RemoveJob(gid)
-			delete(s.gids, job.ID)
-		}
-		return Job{}, fmt.Errorf("persist job: %w", err)
-	}
-
-	s.jobs[job.ID] = job
 
 	s.log.Info("job added", "id", job.ID, "name", name, "exec_scope", execScope, "agent_id", agentID, "user_id", userID)
 	return job, nil
@@ -512,7 +493,7 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 	captured := job
 	isOneTime := job.Schedule.At != ""
 	gj, err := s.scheduler.NewJob(jobDef, gocron.NewTask(func() {
-		s.executeJob(ctx, captured, isOneTime)
+		s.executeSingleRun(ctx, captured, captured.UserID, isOneTime)
 	}))
 	if err != nil {
 		return err
@@ -522,45 +503,9 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 	return nil
 }
 
-// executeJob dispatches on ExecScope and runs the job with run tracking.
-func (s *Service) executeJob(ctx context.Context, job Job, isOneTime bool) {
-	if job.ExecScope == ExecScopeAllUsers {
-		s.executeJobForAllUsers(ctx, job, isOneTime)
-		return
-	}
-	s.executeSingleRun(ctx, job, job.UserID, isOneTime)
-}
-
-// executeJobForAllUsers fans out a job to every active user.
-// Sub-runs execute sequentially so that removeOneTimeJob fires only after all
-// users have finished. Caller is typically a goroutine, so long fan-outs don't
-// block the scheduler.
-func (s *Service) executeJobForAllUsers(ctx context.Context, job Job, isOneTime bool) {
-	s.mu.Lock()
-	fn := s.listActiveUsers
-	s.mu.Unlock()
-
-	if fn == nil {
-		s.log.Warn("all_users job has no listActiveUsers configured, skipping", "job_id", job.ID)
-		return
-	}
-
-	userIDs, err := fn(ctx)
-	if err != nil {
-		s.log.Warn("failed to list active users for all_users job", "job_id", job.ID, "error", err)
-		return
-	}
-
-	for _, uid := range userIDs {
-		s.executeSingleRun(ctx, job, uid, false)
-	}
-
-	if isOneTime {
-		go s.removeOneTimeJob(job.ID)
-	}
-}
-
 // executeSingleRun runs one job execution for the given userID (empty = system context).
+// Uses tryStartJobRun to guard against re-entrant runs: if a run for this job
+// is still active (e.g. previous cron tick overran), this tick is skipped.
 func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, isOneTime bool) {
 	var sessionID string
 	if userID != "" {
@@ -572,8 +517,15 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	runID := uuid.New().String()[:8]
 	startedAt := time.Now().UTC()
 
-	if err := s.createJobRun(ctx, runID, job.ID, sessionID, userID, startedAt); err != nil {
+	// Atomically check for an existing active run. Skip this tick rather than
+	// stacking a second execution on top of one that has not finished yet.
+	if err := s.tryStartJobRun(ctx, runID, job.ID, sessionID, userID, startedAt); err != nil {
+		if errors.Is(err, errJobAlreadyRunning) {
+			s.log.Info("skipping scheduled fire: previous run still active", "job_id", job.ID, "name", job.Name)
+			return
+		}
 		s.log.Warn("failed to create job run record", "job_id", job.ID, "error", err)
+		return
 	}
 
 	outputSink := &RunOutputSink{}
@@ -620,8 +572,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 }
 
 // RunJobNow triggers an immediate execution of the given job asynchronously.
-// For ExecScopeAllUsers jobs all user sub-runs are launched; no run ID is returned.
-// For other scopes, returns the run ID of the newly created run record.
+// Returns the run ID of the newly created run record.
 // Returns errJobAlreadyRunning (wrapped) if a run is already active for the job.
 func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	s.mu.Lock()
@@ -631,11 +582,6 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	if !ok {
 		return "", fmt.Errorf("job %q not found", jobID)
-	}
-
-	if job.ExecScope == ExecScopeAllUsers {
-		go s.executeJobForAllUsers(svcCtx, job, false)
-		return "", nil
 	}
 
 	sessionID := job.SessionID()
@@ -740,6 +686,21 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	fn := s.onJob
 	listeners := append([]OnJobFunc(nil), s.listeners...)
 	s.mu.Unlock()
+
+	// Subscription instances carry an empty message; resolve from the template
+	// registry at fire time so prompt improvements propagate automatically.
+	if job.OwnerKind == JobOwnerUser && job.JobKey != "" {
+		msg, ok := s.ResolveTemplateMessage(job.JobKey)
+		if !ok {
+			// Template was removed from the binary after the subscription was
+			// created. Record a visible error run instead of panicking or
+			// silently dropping the execution.
+			err := fmt.Errorf("scheduler: template %q not found for subscription job %q", job.JobKey, job.ID)
+			s.log.Error("dropping subscription run: template missing", "job_id", job.ID, "template_key", job.JobKey)
+			return err
+		}
+		job.Message = msg
+	}
 
 	var runErr error
 	switch {

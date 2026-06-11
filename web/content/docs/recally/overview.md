@@ -32,6 +32,15 @@ After saving an article, you can ask questions about it:
 
 This turns reading from passive collection into active understanding.
 
+## Automatic polling and digests require a subscription
+
+> **Upgrading from an earlier version?** Automatic RSS polling and daily digest broadcasts have been removed. After upgrading, Stella stops polling your feeds and generating digests until you subscribe manually. Each user must create their own subscription:
+>
+> 1. Open any agent → **Tasks** tab → **New Schedule** → **From template**.
+> 2. Select **recally-rss** to resume periodic feed polling, or **recally-digest** for daily digests.
+>
+> Your saved feeds and articles are intact — only the automatic scheduling has changed.
+
 ## Subscribe to feeds
 
 Recally can subscribe to feeds and keep a live stream of new entries. Use this for sources you care about repeatedly: company blogs, release notes, journals, newsletters, and policy updates.

@@ -32,6 +32,15 @@ Recally 可以总结已保存内容，让你快速判断什么值得深入阅读
 
 这会把阅读从被动收藏变成主动理解。
 
+## 自动轮询和摘要需要手动订阅
+
+> **从旧版升级？** 自动 RSS 轮询和每日摘要广播已移除。升级后，Stella 不再自动轮询 feeds 或生成摘要，需要你手动订阅：
+>
+> 1. 打开任意 Agent → **Tasks** 页签 → **New Schedule** → **From template**（从模板）。
+> 2. 选择 **recally-rss** 恢复定期 feed 轮询，或选择 **recally-digest** 获取每日摘要。
+>
+> 你保存的 feeds 和文章数据不受影响，只是自动调度方式发生了变化。
+
 ## 订阅 feeds
 
 Recally 可以订阅 feeds，并持续获取新条目。适合长期关注的来源：公司博客、release notes、期刊、newsletter 和政策更新。

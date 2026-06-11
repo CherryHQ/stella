@@ -265,6 +265,8 @@ paths:
   /api/email/messages/{uid}/mark:
     $ref: "./domain/email/paths.yaml#/paths/~1api~1email~1messages~1{uid}~1mark"
   # ── Scheduler ──────────────────────────────────────────────────────────────
+  /api/scheduler/job-templates:
+    $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1scheduler~1job-templates"
   /api/agents/{agentId}/scheduler/jobs:
     $ref: "./domain/scheduler/paths.yaml#/paths/~1api~1agents~1{agentId}~1scheduler~1jobs"
   /api/agents/{agentId}/scheduler/jobs/{jobId}:
@@ -402,6 +404,10 @@ components:
     Job: { $ref: "./components.yaml#/components/schemas/Job" }
     JobList: { $ref: "./components.yaml#/components/schemas/JobList" }
     JobInput: { $ref: "./components.yaml#/components/schemas/JobInput" }
+    JobTemplate: { $ref: "./components.yaml#/components/schemas/JobTemplate" }
+    JobTemplateList: {
+      $ref: "./components.yaml#/components/schemas/JobTemplateList",
+    }
     DeleteResult: { $ref: "./components.yaml#/components/schemas/DeleteResult" }
     CachedModel: { $ref: "./components.yaml#/components/schemas/CachedModel" }
     Tool: { $ref: "./components.yaml#/components/schemas/Tool" }

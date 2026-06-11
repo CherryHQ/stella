@@ -295,9 +295,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.schedulerSvc != nil {
 		adminSrv.SetSchedulerService(s.schedulerSvc)
 		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
-		s.schedulerSvc.SetListActiveUsersFunc(func(ctx context.Context) ([]string, error) {
-			return as.ListActiveUserIDs(ctx)
-		})
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
