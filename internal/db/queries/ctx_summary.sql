@@ -27,6 +27,12 @@ VALUES (?, ?, ?);
 INSERT INTO ctx_summary_parent (summary_id, parent_summary_id, ordinal)
 VALUES (?, ?, ?);
 
+-- name: ListSummaryParentsBySummaryIDs :many
+SELECT summary_id, parent_summary_id, ordinal
+FROM ctx_summary_parent
+WHERE summary_id IN (sqlc.slice('summary_ids'))
+ORDER BY summary_id, ordinal;
+
 -- name: GetSummaryMessages :many
 SELECT m.* FROM ctx_message m
 JOIN ctx_summary_message sm ON sm.message_id = m.id

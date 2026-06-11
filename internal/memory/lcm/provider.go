@@ -141,6 +141,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 					ItemType:       itemTypeMessage,
 					MessageID:      sql.NullString{String: dbMsg.ID, Valid: true},
 					EventType:      row.eventType,
+					Role:           row.role,
 				})
 				if err != nil {
 					return fmt.Errorf("append context item: %w", err)

@@ -421,6 +421,46 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 	return items, nil
 }
 
+const listSummaryParentsBySummaryIDs = `-- name: ListSummaryParentsBySummaryIDs :many
+SELECT summary_id, parent_summary_id, ordinal
+FROM ctx_summary_parent
+WHERE summary_id IN (/*SLICE:summary_ids*/?)
+ORDER BY summary_id, ordinal
+`
+
+func (q *Queries) ListSummaryParentsBySummaryIDs(ctx context.Context, summaryIds []string) ([]CtxSummaryParent, error) {
+	query := listSummaryParentsBySummaryIDs
+	var queryParams []interface{}
+	if len(summaryIds) > 0 {
+		for _, v := range summaryIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:summary_ids*/?", strings.Repeat(",?", len(summaryIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:summary_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxSummaryParent{}
+	for rows.Next() {
+		var i CtxSummaryParent
+		if err := rows.Scan(&i.SummaryID, &i.ParentSummaryID, &i.Ordinal); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchSummaries = `-- name: SearchSummaries :many
 SELECT
     s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,

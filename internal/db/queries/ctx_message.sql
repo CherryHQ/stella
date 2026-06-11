@@ -9,6 +9,11 @@ SELECT * FROM ctx_message WHERE id = ? AND conversation_id = ?;
 -- name: GetMessagesByConversation :many
 SELECT * FROM ctx_message WHERE conversation_id = ? ORDER BY seq ASC;
 
+-- name: GetConversationTimeBounds :one
+SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
+FROM ctx_message
+WHERE conversation_id = ?;
+
 -- name: ListMessagesByLogicalPage :many
 -- Keep this logical-message boundary in sync with serializeDBMessages in
 -- internal/server/sessions.go: consecutive assistant rows render as one

@@ -4,3 +4,5 @@ CREATE TABLE ctx_summary_parent (
     ordinal INTEGER NOT NULL,
     PRIMARY KEY (summary_id, parent_summary_id)
 );
+
+CREATE INDEX idx_ctx_summary_parent_parent ON ctx_summary_parent(parent_summary_id, ordinal);
