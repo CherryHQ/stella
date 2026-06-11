@@ -13,7 +13,11 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { getAgentColor } from "@/lib/agent-colors";
 import { cn } from "@/lib/utils";
-import { mainSessionQueryOptions, sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
+import {
+  mainSessionQueryOptions,
+  projectSessionsQueryOptions,
+  sessionsInfiniteQueryOptions,
+} from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions } from "@/lib/queries/groups";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
@@ -274,12 +278,24 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
   const activeGroupId = pathname.match(/\/groups\/([^/]+)/)?.[1] ?? "";
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
+  const { data: activeProjectSessions = [] } = useQuery(
+    projectSessionsQueryOptions(agentId, activeProjectId),
+  );
 
   const attentionCount = inbox?.items?.length ?? 0;
+  const activeProject = (projects as Project[]).find((project) => project.id === activeProjectId);
 
-  const chatSessions = (chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? [])
+  const agentChatSessions = (chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? [])
     .filter((session) => !session.archived)
     .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime());
+  const projectChatSessions = activeProjectSessions
+    .filter((session) => (session.kind === "main" || session.kind === "chat") && !session.archived)
+    .sort((a, b) => {
+      if (a.kind === "main" && b.kind !== "main") return -1;
+      if (a.kind !== "main" && b.kind === "main") return 1;
+      return new Date(b.last_active).getTime() - new Date(a.last_active).getTime();
+    });
+  const visibleChatSessions = activeProjectId ? projectChatSessions : agentChatSessions;
 
   const conversations = useMemo(() => {
     const agentItems = agents.map((agent, index) => ({
@@ -307,17 +323,26 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
   const createTemporarySession = useCallback(async () => {
     const { data } = await sdkCreateSession({
       path: { agentId },
-      body: { kind: "chat" },
+      body: { kind: "chat", ...(activeProjectId ? { project_id: activeProjectId } : {}) },
       throwOnError: true,
     });
     const session = data as ComponentsSession;
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+    if (activeProjectId) {
+      await queryClient.invalidateQueries({
+        queryKey: ["sessions", agentId, "project", activeProjectId],
+      });
+    }
     closeMobile();
     void navigate({
-      to: "/agents/$agentId/sessions/$sessionId",
-      params: { agentId, sessionId: session.id },
+      to: activeProjectId
+        ? "/agents/$agentId/projects/$projectId/sessions/$sessionId"
+        : "/agents/$agentId/sessions/$sessionId",
+      params: activeProjectId
+        ? { agentId, projectId: activeProjectId, sessionId: session.id }
+        : { agentId, sessionId: session.id },
     });
-  }, [agentId, closeMobile, navigate, queryClient]);
+  }, [activeProjectId, agentId, closeMobile, navigate, queryClient]);
 
   const openProject = useCallback(
     (projectId: string) => {
@@ -471,22 +496,30 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
             </button>
           }
         >
-          {chatSessions.map((session: Session) => (
+          {visibleChatSessions.map((session: Session) => (
             <SidebarItem
               key={session.id}
               active={activeSessionId === session.id}
-              label={session.title || t("sessions.untitled")}
+              label={
+                activeProjectId && session.kind === "main"
+                  ? activeProject?.name || session.title || t("sessions.untitled")
+                  : session.title || t("sessions.untitled")
+              }
               meta={<time className="font-mono text-xs">{relativeTime(session.last_active)}</time>}
               onClick={() => {
                 closeMobile();
                 void navigate({
-                  to: "/agents/$agentId/sessions/$sessionId",
-                  params: { agentId, sessionId: session.id },
+                  to: activeProjectId
+                    ? "/agents/$agentId/projects/$projectId/sessions/$sessionId"
+                    : "/agents/$agentId/sessions/$sessionId",
+                  params: activeProjectId
+                    ? { agentId, projectId: activeProjectId, sessionId: session.id }
+                    : { agentId, sessionId: session.id },
                 });
               }}
             />
           ))}
-          {chatsQuery.hasNextPage && (
+          {!activeProjectId && chatsQuery.hasNextPage && (
             <button
               type="button"
               className="w-full px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
@@ -496,7 +529,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               {t("sessions.sidebar.loadMore")}
             </button>
           )}
-          {chatSessions.length === 0 && (
+          {visibleChatSessions.length === 0 && (
             <p className="px-2 py-2 text-xs text-muted-foreground">
               {t("sessions.sidebar.noThreads")}
             </p>
