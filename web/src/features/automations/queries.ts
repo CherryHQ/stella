@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
-import { getTask, listSchedulerJobRuns } from "@/lib/api-client";
-import type { ComponentsTask } from "@/lib/api-client/types.gen";
-import { fetchAllTasks, fetchAllSchedulerJobRuns } from "@/lib/paginated";
+import { getTask, getTaskBlocker, listSchedulerJobRuns } from "@/lib/api-client";
+import type { Blocker, ComponentsDep, ComponentsTask } from "@/lib/api-client/types.gen";
+import { fetchAllTasks, fetchAllTaskDeps, fetchAllSchedulerJobRuns } from "@/lib/paginated";
 
 export function standaloneTasksOptions(agentId: string) {
   return queryOptions({
@@ -46,5 +46,27 @@ export function taskOptions(taskId: string) {
       return data as ComponentsTask;
     },
     enabled: !!taskId,
+  });
+}
+
+export function taskBlockerOptions(taskId: string, blockerId: string | undefined) {
+  return queryOptions({
+    queryKey: ["task-blocker", taskId, blockerId],
+    queryFn: async (): Promise<Blocker> => {
+      const { data } = await getTaskBlocker({
+        path: { taskId, blockerId: blockerId! },
+        throwOnError: true,
+      });
+      return data as Blocker;
+    },
+    enabled: !!taskId && !!blockerId,
+  });
+}
+
+export function taskDepsOptions(taskId: string, enabled = true) {
+  return queryOptions({
+    queryKey: ["task-deps", taskId],
+    queryFn: (): Promise<ComponentsDep[]> => fetchAllTaskDeps(taskId),
+    enabled: !!taskId && enabled,
   });
 }

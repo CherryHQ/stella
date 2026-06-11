@@ -74,4 +74,6 @@ Use the task UI to inspect:
 - Goal child tasks and rollup.
 - The conversation session attached to a task or run.
 
+When a task is blocked on you, the task page shows the agent's question. Answer it there to resume the task — the answer is handed to the agent when it picks the task back up. For a failed upstream dependency, waive the dependency from the same page instead.
+
 The practical rule: use chat to describe goals and decisions; use tasks to track execution.

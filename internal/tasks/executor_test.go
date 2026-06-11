@@ -66,7 +66,7 @@ func TestBuildTaskPromptRequiresTerminalTaskControl(t *testing.T) {
 	prompt := buildTaskPrompt(sqlc.AgentTask{
 		Title:       "Do the work",
 		Description: "Check everything",
-	})
+	}, "")
 	for _, want := range []string{
 		"MUST call task_control exactly once",
 		`action="submit"`,

@@ -91,7 +91,7 @@ All commands are `stella task ...` or `stella task goal ...`.
 
 **Explain why a task is not running.** Use `readiness <id>`. It distinguishes waiting dependencies, blockers, future `not_before`, throttling, terminal state, and missing executor context.
 
-**Answer a blocker.** Use `get <id>` to read the blocker and find `active_blocker`, then resolve it with `blocker resolve`. If the blocker is `dep_failure`, do not use generic resolve; waive the dependency with `dep waive <id> <dep-task-id> --reason "..."`.
+**Answer a blocker.** Use `get <id>` to read the blocker and find `active_blocker`, then resolve it with `blocker resolve --resolution "..."`. Always pass `--resolution`: the answer is delivered to the worker when the task resumes, so an empty resolution makes the worker re-ask the same question. If the blocker is `dep_failure`, do not use generic resolve; waive the dependency with `dep waive <id> <dep-task-id> --reason "..."`.
 
 **Review task output.** Supported task review policies are `none`, `auto`, and `human`. Use `reviews <id>` to list review rows and `review approve|reject|request-changes` to decide. Do not use `review_policy=agent`; agent reviewer runtime is not supported.
 

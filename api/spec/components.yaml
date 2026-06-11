@@ -2870,6 +2870,40 @@ components:
       properties:
         reason:
           type: string
+    Blocker:
+      type: object
+      required: [id, task_id, kind, status, question, created_at]
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        kind:
+          type: string
+          enum: [
+            user_input,
+            external_dependency,
+            tool_error,
+            policy_hold,
+            dep_failure,
+          ]
+        status:
+          type: string
+          enum: [open, resolved, cancelled]
+        question:
+          type: string
+        detail:
+          type: string
+          description: JSON blob with blocker context.
+        resolution:
+          type: string
+          description: Answer recorded when the blocker was resolved.
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
     ResolveBlockerRequest:
       type: object
       properties:

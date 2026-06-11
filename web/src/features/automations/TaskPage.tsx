@@ -1,15 +1,33 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { cancelTask, reopenTask } from "@/lib/api-client";
+import { cancelTask, reopenTask, resolveTaskBlocker, waiveTaskDep } from "@/lib/api-client";
 import { taskRunsOptions } from "@/lib/queries/goals";
+import type { TFunction } from "i18next";
 import { useI18n } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
-import { taskOptions } from "./queries";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { taskBlockerOptions, taskDepsOptions, taskOptions } from "./queries";
 import { StatusPill, priorityLabel, statusLabel } from "./lib";
 import { AgentChip, DetailSection, DetailShell, MetaSep } from "./DetailShell";
 import { RunsTimeline } from "./RunsTimeline";
+
+const BLOCKER_KIND_KEYS: Record<string, MessageKey> = {
+  user_input: "hub.blockerKindUserInput",
+  external_dependency: "hub.blockerKindExternalDependency",
+  tool_error: "hub.blockerKindToolError",
+  policy_hold: "hub.blockerKindPolicyHold",
+  dep_failure: "hub.blockerKindDepFailure",
+};
+
+function blockerKindLabel(t: TFunction, kind: string): string {
+  const key = BLOCKER_KIND_KEYS[kind];
+  return key ? t(key) : kind;
+}
 
 export function TaskPage() {
   const { t } = useI18n();
@@ -20,14 +38,24 @@ export function TaskPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [acting, setActing] = useState(false);
+  const [answer, setAnswer] = useState("");
+  const [waiveReason, setWaiveReason] = useState("");
 
   const { data: task, isError } = useQuery(taskOptions(taskId));
   const { data: runs = [] } = useQuery(taskRunsOptions(taskId));
+  const isBlocked = task?.status === "blocked";
+  const { data: blocker } = useQuery(
+    taskBlockerOptions(taskId, isBlocked ? task?.active_blocker_id : undefined),
+  );
+  const isDepFailure = blocker?.kind === "dep_failure";
+  const { data: deps = [] } = useQuery(taskDepsOptions(taskId, isBlocked && isDepFailure));
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["task", taskId] });
     void qc.invalidateQueries({ queryKey: ["standalone-tasks"] });
     void qc.invalidateQueries({ queryKey: ["task-runs", taskId] });
+    void qc.invalidateQueries({ queryKey: ["task-blocker", taskId] });
+    void qc.invalidateQueries({ queryKey: ["task-deps", taskId] });
   }, [qc, taskId]);
 
   const act = useCallback(
@@ -149,6 +177,96 @@ export function TaskPage() {
           </>
         )}
       </div>
+
+      {isBlocked && blocker && (
+        <DetailSection title={t("hub.blockedReason")}>
+          <div className="rounded-xl border border-chart-4/30 bg-chart-4/[0.06] px-4 py-3.5">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-chart-4">
+              {blockerKindLabel(t, blocker.kind)}
+            </p>
+            {blocker.question && (
+              <MarkdownPreview
+                content={blocker.question}
+                className="mt-2 text-[13px] [&_ol]:pl-5 [&_ul]:pl-5"
+              />
+            )}
+            {!isDepFailure && (
+              <div className="mt-3 space-y-2">
+                <Textarea
+                  value={answer}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  placeholder={t("hub.blockerAnswerPlaceholder")}
+                  rows={3}
+                />
+                <Button
+                  size="sm"
+                  loading={acting}
+                  disabled={!answer.trim()}
+                  onClick={() =>
+                    act(async () => {
+                      await resolveTaskBlocker({
+                        path: { taskId: task.id, blockerId: blocker.id },
+                        body: { resolution: answer.trim() },
+                        throwOnError: true,
+                      });
+                      setAnswer("");
+                    })
+                  }
+                >
+                  {t("hub.resolveBlocker")}
+                </Button>
+              </div>
+            )}
+            {isDepFailure && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">{t("hub.failedDeps")}</p>
+                <Input
+                  value={waiveReason}
+                  onChange={(e) => setWaiveReason(e.target.value)}
+                  placeholder={t("hub.waiveReasonPlaceholder")}
+                />
+                {deps
+                  .filter(
+                    (d) =>
+                      !d.waived_at &&
+                      (d.upstream_status === "failed" || d.upstream_status === "cancelled"),
+                  )
+                  .map((d) => (
+                    <div key={d.dep_task_id} className="flex items-center gap-3 text-xs">
+                      <Link
+                        to="/agents/$agentId/tasks/$taskId"
+                        params={{ agentId, taskId: d.dep_task_id }}
+                        className="font-mono font-medium text-primary hover:underline"
+                      >
+                        {d.dep_task_id.slice(0, 8)}
+                      </Link>
+                      <span className="text-destructive">
+                        {statusLabel(t, d.upstream_status ?? "")}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        loading={acting}
+                        disabled={!waiveReason.trim()}
+                        onClick={() =>
+                          act(() =>
+                            waiveTaskDep({
+                              path: { taskId: task.id, depTaskId: d.dep_task_id },
+                              body: { reason: waiveReason.trim() },
+                              throwOnError: true,
+                            }),
+                          )
+                        }
+                      >
+                        {t("hub.waiveDep")}
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </DetailSection>
+      )}
 
       {task.status === "failed" && lastFailedRun?.error && (
         <DetailSection title={t("hub.failureReason")}>

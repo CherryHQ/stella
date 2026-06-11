@@ -173,7 +173,7 @@ func (e *workerExecutor) Execute(ctx context.Context, req Request) (Result, erro
 	defer func() { _ = runner.Close() }()
 
 	// First turn.
-	text, res, done, fail := e.runTurn(ctx, runner, rec, buildTaskPrompt(*req.Task))
+	text, res, done, fail := e.runTurn(ctx, runner, rec, buildTaskPrompt(*req.Task, e.latestResolution(ctx, req.Task.ID)))
 	if fail != nil {
 		return *fail, nil
 	}
@@ -245,15 +245,36 @@ func drainEvents(ch <-chan agent.Event) {
 	}
 }
 
+// latestResolution returns the question+answer of the task's most recently
+// resolved blocker, or "" when there is none or the answer is empty. Without
+// this the resume turn rebuilds the prompt from title+description only and
+// the user's answer never reaches the agent, so it re-asks the same question.
+// dep_failure blockers are skipped: their resolution is a waiver record, not
+// an answer.
+func (e *workerExecutor) latestResolution(ctx context.Context, taskID string) string {
+	b, err := e.q.GetLatestResolvedBlockerForTask(ctx, taskID)
+	if err != nil || b.Kind == BlockerKindDepFailure {
+		return ""
+	}
+	answer := strings.TrimSpace(b.Resolution)
+	if answer == "" || answer == "{}" {
+		return ""
+	}
+	if q := strings.TrimSpace(b.Question); q != "" {
+		return "You previously blocked this task asking:\n" + q + "\n\nThe user answered:\n" + answer
+	}
+	return "The user resolved your earlier blocker with:\n" + answer
+}
+
 // buildTaskPrompt assembles the worker turn. The terminal task_control rule is
 // repeated in the user message because workers run as normal agents with extra
 // tools; relying on the tool description alone makes protocol errors too easy.
-func buildTaskPrompt(task sqlc.AgentTask) string {
+func buildTaskPrompt(task sqlc.AgentTask, resolution string) string {
 	body := task.Title
 	if task.Description != "" {
 		body += "\n\n" + task.Description
 	}
-	return `You are executing a durable Stella task.
+	prompt := `You are executing a durable Stella task.
 
 Protocol:
 - You may use tools normally while working.
@@ -265,6 +286,10 @@ Protocol:
 
 Task:
 ` + body
+	if resolution != "" {
+		prompt += "\n\n" + resolution
+	}
+	return prompt
 }
 
 // buildRepairPrompt is the single bounded correction turn for a worker that
