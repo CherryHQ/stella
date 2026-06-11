@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink } from "lucide-react";
 import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
 import { AppShell } from "@/layouts/AppShell";
@@ -119,7 +119,6 @@ function Metric({ label, value }: { label: string; value: number }) {
 
 function InboxRow({ item }: { item: InboxItem }) {
   const { t } = useI18n();
-  const navigate = useNavigate();
   const icon =
     item.kind === "failed" ? (
       <CircleAlert className="size-4 text-destructive" />
@@ -147,7 +146,7 @@ function InboxRow({ item }: { item: InboxItem }) {
         variant="ghost"
         size="xs"
         className="h-8 gap-1.5 rounded-md"
-        onClick={() => void navigate({ to: item.target_path })}
+        render={<Link to={item.target_path} />}
       >
         <ExternalLink className="size-3.5" />
         {t("inbox.open")}

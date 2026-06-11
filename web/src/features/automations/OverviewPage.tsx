@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { reopenTask, updateSchedulerJob } from "@/lib/api-client";
 import type { ComponentsGoal, ComponentsTask, JobRun } from "@/lib/api-client/types.gen";
 import type { SchedulerJob } from "@/lib/types";
@@ -64,27 +64,27 @@ export function OverviewPage() {
     setHeaderActions(
       <div className="flex gap-2">
         <Button
+          render={
+            <Link
+              to="/agents/$agentId/tasks/new"
+              params={{ agentId }}
+              search={projectId ? { project_id: projectId } : {}}
+            />
+          }
           variant="outline"
           size="sm"
-          onClick={() =>
-            navigate({
-              to: "/agents/$agentId/tasks/new",
-              params: { agentId },
-              search: projectId ? { project_id: projectId } : {},
-            })
-          }
         >
           {t("hub.newTask")}
         </Button>
         <Button
-          size="sm"
-          onClick={() =>
-            navigate({
-              to: projectId ? "/agents/$agentId/projects/$projectId" : "/agents/$agentId/tasks",
-              params: projectId ? { agentId, projectId } : { agentId },
-              search: projectId ? { tab: "tasks", new: "schedule" } : { new: "schedule" },
-            })
+          render={
+            <Link
+              to={projectId ? "/agents/$agentId/projects/$projectId" : "/agents/$agentId/tasks"}
+              params={projectId ? { agentId, projectId } : { agentId }}
+              search={projectId ? { tab: "tasks", new: "schedule" } : { new: "schedule" }}
+            />
           }
+          size="sm"
         >
           {t("hub.newSchedule")}
         </Button>

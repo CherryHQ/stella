@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import QRCode from "qrcode";
@@ -1078,12 +1078,7 @@ export function ChannelsPage() {
         action={
           isAdmin ? (
             <Button
-              onClick={() =>
-                void navigate({
-                  to: "/settings/channels/$channelId",
-                  params: { channelId: "new" },
-                })
-              }
+              render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
               variant="outline"
               size="sm"
             >
@@ -1122,12 +1117,8 @@ export function ChannelsPage() {
                         ) : undefined
                       }
                       active={channelId === ch.id}
-                      onClick={() =>
-                        void navigate({
-                          to: "/settings/channels/$channelId",
-                          params: { channelId: ch.id },
-                        })
-                      }
+                      to="/settings/channels/$channelId"
+                      params={{ channelId: ch.id }}
                       footer={
                         <>
                           <span
@@ -1155,12 +1146,8 @@ export function ChannelsPage() {
                   icon={<PlatformIcon type={ch.type} />}
                   title={platformLabel}
                   active={channelId === ch.type}
-                  onClick={() =>
-                    void navigate({
-                      to: "/settings/channels/$channelId",
-                      params: { channelId: ch.type },
-                    })
-                  }
+                  to="/settings/channels/$channelId"
+                  params={{ channelId: ch.type }}
                   footer={
                     <Badge size="sm" variant={linked ? "success" : "secondary"}>
                       {linked ? "linked" : "not linked"}

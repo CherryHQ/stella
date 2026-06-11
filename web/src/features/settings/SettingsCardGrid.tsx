@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +97,8 @@ export function SettingsCard({
   active,
   onClick,
   children,
+  to,
+  params,
 }: {
   icon?: ReactNode;
   title: ReactNode;
@@ -106,12 +109,15 @@ export function SettingsCard({
   active?: boolean;
   onClick?: () => void;
   children?: ReactNode;
+  to?: string;
+  params?: Record<string, string>;
 }) {
   return (
     <Card
+      render={to ? <Link to={to} params={params as never} /> : undefined}
       onClick={onClick}
       className={`gap-3 p-4 transition-colors ${
-        onClick ? "cursor-pointer hover:border-ring/40" : ""
+        onClick || to ? "cursor-pointer hover:border-ring/40" : ""
       } ${active ? "border-ring/60" : ""}`}
     >
       <div className="flex items-start gap-3">
@@ -132,7 +138,10 @@ export function SettingsCard({
         {action && (
           <span
             className="shrink-0"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             onKeyDown={(e) => e.stopPropagation()}
             role="presentation"
           >

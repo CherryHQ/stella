@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   AlertCircle,
   Download,
@@ -68,7 +68,6 @@ export function SessionDetail({
   contextTitle,
 }: Props) {
   const { t } = useI18n();
-  const navigate = useNavigate();
   const [userInput, setUserInput] = useState("");
   const { toasts, showToast } = useToast();
   const [exporting, setExporting] = useState(false);
@@ -464,17 +463,16 @@ export function SessionDetail({
                   {t("inbox.needsYou")}
                 </span>
                 {attentionItems.map((item) => (
-                  <button
+                  <Link
                     key={item.id}
-                    type="button"
+                    to={item.target_path}
                     className="inline-flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-left text-xs transition-colors hover:bg-muted"
-                    onClick={() => void navigate({ to: item.target_path })}
                   >
                     <span className="truncate">{item.title}</span>
                     <span className="shrink-0 text-xs uppercase text-muted-foreground">
                       {t(inboxKindLabels[item.kind])}
                     </span>
-                  </button>
+                  </Link>
                 ))}
               </div>
             </div>

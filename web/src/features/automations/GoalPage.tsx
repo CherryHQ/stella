@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import {
   activateGoal,
   cancelGoal,
@@ -37,7 +37,6 @@ export function GoalPage() {
     agentId: string;
     goalId: string;
   };
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const [dagOpen, setDagOpen] = useState(false);
   const [acting, setActing] = useState(false);
@@ -185,15 +184,10 @@ export function GoalPage() {
               const reason = task.status === "blocked" ? blockReason(task.id) : null;
               const isHighlight = task.status === "blocked" || task.status === "reviewing";
               return (
-                <button
+                <Link
                   key={task.id}
-                  type="button"
-                  onClick={() =>
-                    navigate({
-                      to: "/agents/$agentId/tasks/$taskId",
-                      params: { agentId, taskId: task.id },
-                    })
-                  }
+                  to="/agents/$agentId/tasks/$taskId"
+                  params={{ agentId, taskId: task.id }}
                   className="flex w-full items-center gap-3 border-b border-border px-3.5 py-3 text-left last:border-b-0 hover:bg-muted/50"
                 >
                   <span
@@ -215,7 +209,7 @@ export function GoalPage() {
                   >
                     {statusLabel(t, task.status)}
                   </span>
-                </button>
+                </Link>
               );
             })}
           </div>

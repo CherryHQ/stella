@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar";
 import { useI18n } from "@/lib/i18n";
 import { groupsQueryOptions } from "@/lib/queries/groups";
@@ -33,7 +33,6 @@ function IconPlus() {
 }
 
 export function GroupSection() {
-  const navigate = useNavigate();
   const { t } = useI18n();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { setOpenMobile } = useSidebar();
@@ -70,10 +69,9 @@ export function GroupSection() {
               active={isActive}
               icon={<IconGroup />}
               label={g.group_name || t("groups.unnamed")}
-              onClick={() => {
-                setOpenMobile(false);
-                void navigate({ to: "/groups/$groupId", params: { groupId: g.id } });
-              }}
+              to="/groups/$groupId"
+              params={{ groupId: g.id }}
+              onClick={() => setOpenMobile(false)}
             />
           );
         })}

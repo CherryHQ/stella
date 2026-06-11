@@ -1,10 +1,4 @@
-import {
-  createLazyFileRoute,
-  Outlet,
-  useNavigate,
-  useParams,
-  useRouterState,
-} from "@tanstack/react-router";
+import { createLazyFileRoute, Outlet, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
 import { FacetTabs } from "@/features/sessions/FacetTabs";
@@ -18,7 +12,6 @@ export const Route = createLazyFileRoute("/_app/agents/$agentId")({
 
 function AgentLayout() {
   const { agentId } = useParams({ from: "/_app/agents/$agentId" });
-  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const projectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
   const queryClient = useQueryClient();
@@ -33,7 +26,6 @@ function AgentLayout() {
     if (newAgentId !== agentId) {
       void queryClient.invalidateQueries({ queryKey: ["sessions", newAgentId] });
     }
-    void navigate({ to: "/agents/$agentId", params: { agentId: newAgentId } });
   };
 
   return (

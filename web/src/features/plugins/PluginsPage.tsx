@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   getPluginConfig,
   getPluginConfigSchema,
@@ -320,10 +320,6 @@ export function PluginsPage() {
 
   // --- Render ---
 
-  function selectPlugin(p: PluginWithMeta) {
-    void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: p.name } });
-  }
-
   function closeSheet() {
     void navigate({ to: "/settings/plugins" });
   }
@@ -420,9 +416,7 @@ export function PluginsPage() {
         title={t("plugins.title")}
         action={
           <Button
-            onClick={() =>
-              void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: "new" } })
-            }
+            render={<Link to="/settings/plugins/$pluginId" params={{ pluginId: "new" }} />}
             variant="outline"
             size="sm"
           >
@@ -437,7 +431,6 @@ export function PluginsPage() {
           description={t("plugins.bucket.integrationsDesc")}
           plugins={integrationPlugins}
           activeName={selectedPlugin?.name}
-          onSelect={selectPlugin}
           onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
         />
         <PluginSection
@@ -446,7 +439,6 @@ export function PluginsPage() {
           description={t("plugins.bucket.toolsDesc")}
           plugins={capabilityPlugins}
           activeName={selectedPlugin?.name}
-          onSelect={selectPlugin}
           onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
         />
         <PluginSection
@@ -455,7 +447,6 @@ export function PluginsPage() {
           description={t("plugins.bucket.systemDesc")}
           plugins={systemPlugins}
           activeName={selectedPlugin?.name}
-          onSelect={selectPlugin}
           onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
         />
       </SettingsGridPage>

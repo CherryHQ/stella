@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { cancelTask, reopenTask, resolveTaskBlocker, waiveTaskDep } from "@/lib/api-client";
 import { taskRunsOptions } from "@/lib/queries/goals";
 import type { TFunction } from "i18next";
@@ -35,7 +35,6 @@ export function TaskPage() {
     agentId: string;
     taskId: string;
   };
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const [acting, setActing] = useState(false);
   const [answer, setAnswer] = useState("");
@@ -105,14 +104,14 @@ export function TaskPage() {
           )}
           {task.session_id && (
             <Button
+              render={
+                <Link
+                  to="/agents/$agentId/sessions/$sessionId"
+                  params={{ agentId: taskAgentId, sessionId: task.session_id }}
+                />
+              }
               variant="outline"
               size="sm"
-              onClick={() =>
-                navigate({
-                  to: "/agents/$agentId/sessions/$sessionId",
-                  params: { agentId: taskAgentId, sessionId: task.session_id },
-                })
-              }
             >
               {t("hub.openSession")}
             </Button>

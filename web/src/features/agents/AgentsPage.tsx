@@ -1095,6 +1095,8 @@ export function AgentsPage() {
                   icon={<Bot className="size-4" />}
                   title={a.name || a.id}
                   active={routeAgentId === a.id}
+                  to={canEdit ? "/settings/agents/$agentId/$tab" : undefined}
+                  params={canEdit ? { agentId: a.id, tab: "config" } : undefined}
                   onClick={canEdit ? () => void editAgent(a) : undefined}
                   footer={
                     <>

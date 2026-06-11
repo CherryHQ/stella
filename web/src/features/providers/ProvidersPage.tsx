@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { providersQueryOptions, providerTypesQueryOptions } from "@/lib/queries/providers";
 import { useI18n } from "@/lib/i18n";
@@ -108,12 +108,7 @@ export function ProvidersPage() {
         title={t("providers.title")}
         action={
           <Button
-            onClick={() =>
-              void navigate({
-                to: "/settings/providers/$providerId",
-                params: { providerId: "new" },
-              })
-            }
+            render={<Link to="/settings/providers/$providerId" params={{ providerId: "new" }} />}
             variant="outline"
             size="sm"
           >
@@ -132,12 +127,8 @@ export function ProvidersPage() {
                   icon={<Boxes className="size-4" />}
                   title={p.name || p.id}
                   active={providerId === p.id}
-                  onClick={() =>
-                    void navigate({
-                      to: "/settings/providers/$providerId",
-                      params: { providerId: p.id },
-                    })
-                  }
+                  to="/settings/providers/$providerId"
+                  params={{ providerId: p.id }}
                   footer={
                     <>
                       <span

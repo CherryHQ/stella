@@ -1,4 +1,4 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { ThemeSelector, UserMenu } from "@/components/SiteHeader";
@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/menu";
 
 export function AppSidebarHeader() {
-  const navigate = useNavigate();
   const { t } = useI18n();
   const routePathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -61,7 +60,7 @@ export function AppSidebarHeader() {
               {t("common.context")}
             </DropdownMenuLabel>
             <DropdownMenuItem
-              onClick={() => void navigate({ to: "/agents" })}
+              render={<Link to="/agents" />}
               className={cn(
                 "gap-2.5 py-2 text-xs font-medium cursor-pointer rounded-md",
                 currentContext === "agents" && "bg-accent text-primary",
@@ -83,7 +82,7 @@ export function AppSidebarHeader() {
               </div>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => void navigate({ to: "/recally" })}
+              render={<Link to="/recally" />}
               className={cn(
                 "gap-2.5 py-2 text-xs font-medium cursor-pointer rounded-md",
                 currentContext === "recally" && "bg-accent text-primary",
@@ -105,7 +104,7 @@ export function AppSidebarHeader() {
               </div>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => void navigate({ to: "/settings" })}
+              render={<Link to="/settings" />}
               className={cn(
                 "gap-2.5 py-2 text-xs font-medium cursor-pointer rounded-md",
                 currentContext === "settings" && "bg-accent text-primary",
@@ -134,16 +133,14 @@ export function AppSidebarHeader() {
 }
 
 export function AppSidebarFooter() {
-  const navigate = useNavigate();
   const { t } = useI18n();
   const routePathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
     <div className="shrink-0 border-t border-border/60 bg-card/60 px-3 py-1.5 backdrop-blur-xl">
       <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => void navigate({ to: "/settings" })}
+        <Link
+          to="/settings"
           className={cn(
             "flex h-7 min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 text-left text-xs font-medium tracking-[-0.01em] transition-colors cursor-pointer",
             routePathname.startsWith("/settings")
@@ -158,7 +155,7 @@ export function AppSidebarFooter() {
             )}
           />
           <span className="truncate">{t("nav.settings")}</span>
-        </button>
+        </Link>
         <ThemeSelector />
         <UserMenu />
       </div>
@@ -240,6 +237,8 @@ export function SidebarItem({
   trailing,
   onClick,
   className,
+  to,
+  params,
 }: {
   active?: boolean;
   icon?: ReactNode;
@@ -249,24 +248,37 @@ export function SidebarItem({
   trailing?: ReactNode;
   onClick?: () => void;
   className?: string;
+  to?: string;
+  params?: Record<string, string>;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex min-h-[34px] w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg px-2.5 py-1 text-left text-[13px] tracking-[-0.01em] transition-all duration-150 border",
-        active
-          ? "bg-muted font-semibold text-foreground border-border/60"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
-        className,
-      )}
-    >
+  const itemClassName = cn(
+    "flex min-h-[34px] w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg px-2.5 py-1 text-left text-[13px] tracking-[-0.01em] transition-all duration-150 border",
+    active
+      ? "bg-muted font-semibold text-foreground border-border/60"
+      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
+    className,
+  );
+  const content = (
+    <>
       {icon && <span className="grid size-6 shrink-0 place-items-center">{icon}</span>}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge}
       {meta && <span className="shrink-0 text-muted-foreground">{meta}</span>}
       {trailing}
+    </>
+  );
+
+  if (to) {
+    return (
+      <Link to={to} params={params as never} onClick={onClick} className={itemClassName}>
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <button type="button" onClick={onClick} className={itemClassName}>
+      {content}
     </button>
   );
 }

@@ -368,17 +368,6 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
     });
   }, [activeProjectId, agentId, closeMobile, navigate, refreshSessions]);
 
-  const openProject = useCallback(
-    (projectId: string) => {
-      closeMobile();
-      void navigate({
-        to: "/agents/$agentId/projects/$projectId",
-        params: { agentId, projectId },
-      });
-    },
-    [agentId, closeMobile, navigate],
-  );
-
   const deleteProject = useCallback(
     async (projectId: string) => {
       if (!window.confirm(t("sessions.sidebar.deleteProjectConfirm"))) return;
@@ -457,10 +446,8 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                 </span>
               ) : undefined
             }
-            onClick={() => {
-              closeMobile();
-              void navigate({ to: "/inbox" });
-            }}
+            to="/inbox"
+            onClick={closeMobile}
           />
         </SidebarSection>
       </div>
@@ -505,10 +492,11 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                     <span className="font-mono text-xs">{relativeTime(item.updatedAt)}</span>
                   ) : undefined
                 }
+                to={item.kind === "agent" ? "/agents/$agentId" : "/groups/$groupId"}
+                params={item.kind === "agent" ? { agentId: item.id } : { groupId: item.id }}
                 onClick={() => {
                   closeMobile();
                   if (item.kind === "agent") onAgentChange(item.id);
-                  else void navigate({ to: "/groups/$groupId", params: { groupId: item.id } });
                 }}
               />
             );
@@ -547,6 +535,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                 <span
                   className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/project:opacity-70"
                   onClick={(event) => {
+                    event.preventDefault();
                     event.stopPropagation();
                     void deleteProject(project.id);
                   }}
@@ -554,7 +543,9 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                   <MoreHorizontal className="size-3.5" />
                 </span>
               }
-              onClick={() => openProject(project.id)}
+              to="/agents/$agentId/projects/$projectId"
+              params={{ agentId, projectId: project.id }}
+              onClick={closeMobile}
             />
           ))}
         </SidebarSection>
@@ -622,7 +613,10 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                         render={
                           <span
                             className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/thread:opacity-70"
-                            onClick={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
                           />
                         }
                       >
@@ -651,17 +645,17 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                     </DropdownMenu>
                   )
                 }
-                onClick={() => {
-                  closeMobile();
-                  void navigate({
-                    to: activeProjectId
-                      ? "/agents/$agentId/projects/$projectId/sessions/$sessionId"
-                      : "/agents/$agentId/sessions/$sessionId",
-                    params: activeProjectId
-                      ? { agentId, projectId: activeProjectId, sessionId: session.id }
-                      : { agentId, sessionId: session.id },
-                  });
-                }}
+                to={
+                  activeProjectId
+                    ? "/agents/$agentId/projects/$projectId/sessions/$sessionId"
+                    : "/agents/$agentId/sessions/$sessionId"
+                }
+                params={
+                  activeProjectId
+                    ? { agentId, projectId: activeProjectId, sessionId: session.id }
+                    : { agentId, sessionId: session.id }
+                }
+                onClick={closeMobile}
               />
             );
           })}
