@@ -20,7 +20,7 @@ All config lives in normalized SQLite tables:
 
 | Table                     | Purpose                                                                                                 |
 | ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `settings`                | Key-value JSON settings (runner, scheduler, heartbeat, plugins)                                         |
+| `settings`                | Key-value JSON settings (runner, scheduler, plugins)                                                    |
 | `settings_agents`         | Agent definitions (provider, model, system prompt, workspace)                                           |
 | `settings_plugins`        | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
 | `settings_users`          | Auto-created platform users with default agent preference                                               |
@@ -84,7 +84,6 @@ Global settings are stored in the `settings` table as JSON values:
 | ----------- | ------------------------------------------------- |
 | `runner`    | Idle timeout, delegate timeout, compaction config |
 | `scheduler` | Scheduler enabled flag, data directory            |
-| `heartbeat` | Heartbeat enabled, interval, file path            |
 | `plugins`   | Array of plugin configs (path + optional config)  |
 
 ## Directory layout

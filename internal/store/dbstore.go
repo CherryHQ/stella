@@ -615,9 +615,6 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	if val, err := s.GetSetting(ctx, "compaction"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Compaction)
 	}
-	if val, err := s.GetSetting(ctx, "heartbeat"); err == nil && val != "" {
-		_ = json.Unmarshal([]byte(val), &snap.Heartbeat)
-	}
 	if val, err := s.GetSetting(ctx, "scheduler"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Scheduler)
 	}

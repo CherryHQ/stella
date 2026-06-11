@@ -59,28 +59,17 @@ The runner controls how the agent processes messages. You can configure these fr
 | Compaction threshold | 80,000 tokens | Auto-compress history when it exceeds this size           |
 | Keep recent messages | 20            | Number of recent messages kept verbatim after compression |
 
-## Heartbeat
-
-Heartbeat lets Stella watch a file and act when something changes. Configure it from the Web UI **Settings** page:
-
-- **Enabled** — turn heartbeat polling on or off
-- **Interval** — how often to check (e.g. `10m`)
-- **File** — path to the heartbeat file (e.g. `HEARTBEAT.md` in the agent workspace)
-
-Heartbeat only runs in server mode (`stellad server`). It uses the fast model to decide whether action is needed, keeping costs low.
-
 ## Directory Layout
 
 All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 
-| Path                                           | Purpose                                             |
-| ---------------------------------------------- | --------------------------------------------------- |
-| `~/.stella/stella.db`                          | Database (config, memory, scheduler) — back this up |
-| `~/.stella/workspaces/{agent-id}/`             | Per-agent workspace, skills, and overrides          |
-| `~/.stella/workspaces/{agent-id}/SOUL.md`      | Optional agent personality override                 |
-| `~/.stella/workspaces/{agent-id}/SYSTEM.md`    | Optional system prompt override                     |
-| `~/.stella/workspaces/{agent-id}/HEARTBEAT.md` | Heartbeat instructions                              |
-| `~/.stella/cache/`                             | Model cache (safe to delete)                        |
+| Path                                        | Purpose                                             |
+| ------------------------------------------- | --------------------------------------------------- |
+| `~/.stella/stella.db`                       | Database (config, memory, scheduler) — back this up |
+| `~/.stella/workspaces/{agent-id}/`          | Per-agent workspace, skills, and overrides          |
+| `~/.stella/workspaces/{agent-id}/SOUL.md`   | Optional agent personality override                 |
+| `~/.stella/workspaces/{agent-id}/SYSTEM.md` | Optional system prompt override                     |
+| `~/.stella/cache/`                          | Model cache (safe to delete)                        |
 
 ## Environment Variables
 

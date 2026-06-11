@@ -55,7 +55,7 @@ internal/
   admin/               HTTP API + embedded React SPA
   auth/                RBAC/ABAC policy engine, sessions, sandbox
   db/                  SQLite, Atlas migrations, sqlc queries
-  scheduler/           gocron service, heartbeat (skill via stella scheduler CLI)
+  scheduler/           gocron service (job scheduling via stella scheduler CLI)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
   memory/              Memory Provider interface, types, Summarizer, tool auto-generation, test helpers

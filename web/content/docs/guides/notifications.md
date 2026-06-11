@@ -38,7 +38,6 @@ Notifications come from several sources:
 
 - **Scheduled jobs** -- when a recurring job finishes (daily summaries, periodic checks, etc.), Stella sends you the result.
 - **Background tasks** -- when a task completes, fails, or needs your input (a question or review request), you get a notification.
-- **Heartbeat monitoring** -- if you have uptime checks configured, Stella alerts you when a service goes down or recovers.
 - **Agent-initiated** -- during a conversation, Stella may send you a notification to a specific channel if you ask it to (for example, "Send this summary to my Telegram").
 
 ## Silent notifications

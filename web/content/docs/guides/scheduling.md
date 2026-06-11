@@ -115,26 +115,6 @@ stella scheduler add --name "weather" \
 stella scheduler remove <job-id>
 ```
 
-## Heartbeat Monitoring
-
-Heartbeat is a special scheduling feature that watches a file on your system. You write instructions in a `HEARTBEAT.md` file, and Stella periodically checks it. If the file has content, Stella reads it, decides whether action is needed, and executes the instructions.
-
-This is useful for:
-
-- Integrating with external tools that can write to a file
-- Creating a simple "inbox" that Stella monitors
-- Triggering Stella from cron jobs or CI pipelines
-
-### Setting Up Heartbeat
-
-Configure heartbeat from the Web UI:
-
-1. Enable heartbeat monitoring.
-2. Set the poll interval (for example, every 10 minutes).
-3. Set the path to your heartbeat file (for example, `HEARTBEAT.md`).
-
-When Stella detects content in the file, she reads it, acts on it, and sends you the result through your configured notification channel.
-
 ## Tips
 
 - **Use cron for precise timing.** Cron expressions give you fine control: `0 9 * * 1-5` means "9am on weekdays." Use interval (`--every`) for simpler "every N minutes" patterns.

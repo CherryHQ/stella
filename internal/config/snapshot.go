@@ -38,7 +38,6 @@ type Snapshot struct {
 
 	Runner     RunnerConfig
 	Compaction CompactionConfig
-	Heartbeat  HeartbeatConfig
 	Scheduler  SchedulerConfig
 	Plugins    []Plugin
 
