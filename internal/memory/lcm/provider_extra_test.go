@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,14 @@ func newLCMTestProvider(t *testing.T) (memory.Provider, func()) {
 		_ = p.Close()
 		_ = db.Close()
 	}
+}
+
+func sessionIDs(infos []memory.SessionInfo) []string {
+	ids := make([]string, 0, len(infos))
+	for _, info := range infos {
+		ids = append(ids, info.ID)
+	}
+	return ids
 }
 
 func newLCMTestSession(suffix string) memory.Session {
@@ -448,6 +457,135 @@ func TestLCMProvider_LoadHistory(t *testing.T) {
 	}
 	if len(history) < 2 {
 		t.Errorf("expected at least 2 messages in history, got %d", len(history))
+	}
+}
+
+func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "test")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	fixtures := []memory.SessionInfo{
+		{ID: "list-1", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(1 * time.Minute)},
+		{ID: "list-2", AgentID: "test", UserID: "1", Channel: "web", Kind: "task", ProjectID: "p1", LastActive: base.Add(2 * time.Minute)},
+		{ID: "list-3", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p2", LastActive: base.Add(3 * time.Minute)},
+		{ID: "list-4", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
+		{ID: "list-5", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
+		{ID: "list-6", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
+	}
+	for _, info := range fixtures {
+		if err := p.SaveInfo(ctx, info); err != nil {
+			t.Fatalf("SaveInfo %s: %v", info.ID, err)
+		}
+	}
+
+	infos, err := p.ListInfo(ctx, memory.ListOptions{Kind: "chat", ProjectID: "p1", Offset: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListInfo filtered: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"list-4", "list-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered IDs = %v, want %v", got, want)
+	}
+
+	infos, err = p.ListInfo(ctx, memory.ListOptions{Kind: "chat", ProjectID: "p1", IncludeArchived: true, Limit: 3})
+	if err != nil {
+		t.Fatalf("ListInfo include archived: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"list-6", "list-5", "list-4"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("include archived IDs = %v, want %v", got, want)
+	}
+}
+
+func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), "1"), "test")
+	initial := memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", Title: "Original", LastActive: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if err := p.SaveInfo(ctx, initial); err != nil {
+		t.Fatalf("SaveInfo initial: %v", err)
+	}
+	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Archived: true}); err != nil {
+		t.Fatalf("SaveInfo partial: %v", err)
+	}
+	info, err := p.LoadInfo(ctx, "save-info")
+	if err != nil {
+		t.Fatalf("LoadInfo partial: %v", err)
+	}
+	if info.Title != "Original" || !info.Archived || info.Kind != "chat" || info.ProjectID != "p1" {
+		t.Fatalf("partial update clobbered fields: %+v", info)
+	}
+
+	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Title: "Renamed", Kind: "task", ProjectID: "p2"}); err != nil {
+		t.Fatalf("SaveInfo full: %v", err)
+	}
+	info, err = p.LoadInfo(ctx, "save-info")
+	if err != nil {
+		t.Fatalf("LoadInfo full: %v", err)
+	}
+	if info.Title != "Renamed" || info.Archived || info.Kind != "task" || info.ProjectID != "p2" {
+		t.Fatalf("full update = %+v", info)
+	}
+
+	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: "1", Title: ""}); err != nil {
+		t.Fatalf("SaveInfo empty title/project: %v", err)
+	}
+	info, err = p.LoadInfo(ctx, "save-info")
+	if err != nil {
+		t.Fatalf("LoadInfo final: %v", err)
+	}
+	if info.Title != "Renamed" || info.ProjectID != "p2" {
+		t.Fatalf("empty title/project should preserve existing values: %+v", info)
+	}
+}
+
+func TestLCMProvider_ListInfoForReviewFiltersInSQL(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ('2', 'user-2@test.local')`); err != nil {
+		t.Fatalf("seed second user: %v", err)
+	}
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	fixtures := []memory.SessionInfo{
+		{ID: "review-1", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(1 * time.Minute)},
+		{ID: "review-2", AgentID: "test", UserID: "2", Channel: "web", Kind: "task", ProjectID: "p1", LastActive: base.Add(2 * time.Minute)},
+		{ID: "review-3", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p2", LastActive: base.Add(3 * time.Minute)},
+		{ID: "review-4", AgentID: "test", UserID: "2", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
+		{ID: "review-5", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
+		{ID: "review-6", AgentID: "test", UserID: "2", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
+	}
+	for _, info := range fixtures {
+		if err := p.SaveInfo(context.Background(), info); err != nil {
+			t.Fatalf("SaveInfo %s: %v", info.ID, err)
+		}
+	}
+
+	infos, err := p.ListInfoForReview(context.Background(), memory.ListOptions{AgentID: "test", Kind: "chat", ProjectID: "p1", Offset: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListInfoForReview filtered: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"review-4", "review-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("review filtered IDs = %v, want %v", got, want)
 	}
 }
 
