@@ -111,19 +111,12 @@ export function OverviewPage() {
     );
   }, [goals, tasks]);
 
-  // System/plugin jobs are platform-owned and read-only for users; keep them
-  // out of the user's schedule list and show them in their own section.
-  const [sortedJobs, systemJobs] = useMemo(() => {
+  const sortedJobs = useMemo(() => {
     const byEnabledThenName = (a: SchedulerJob, b: SchedulerJob) => {
       if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
       return a.name.localeCompare(b.name);
     };
-    const all = jobs as SchedulerJob[];
-    const isSystem = (j: SchedulerJob) => j.owner_kind === "system" || j.owner_kind === "plugin";
-    return [
-      all.filter((j) => !isSystem(j)).sort(byEnabledThenName),
-      all.filter(isSystem).sort(byEnabledThenName),
-    ];
+    return [...(jobs as SchedulerJob[])].sort(byEnabledThenName);
   }, [jobs]);
 
   const soonestNextRun = useMemo(() => {
@@ -214,14 +207,6 @@ export function OverviewPage() {
             <SchedulesTable jobs={sortedJobs} agentId={agentId} />
           )}
         </section>
-
-        {/* System jobs — admin-only (backend filters them out for others) */}
-        {systemJobs.length > 0 && (
-          <section className="mt-8">
-            <SectionHead title={t("hub.secSystemJobs")} count={systemJobs.length} />
-            <SchedulesTable jobs={systemJobs} agentId={agentId} readOnly />
-          </section>
-        )}
 
         {/* Goals */}
         {activeGoals.length > 0 && (
@@ -406,15 +391,7 @@ function NeedsYouCard({
   );
 }
 
-function SchedulesTable({
-  jobs,
-  agentId,
-  readOnly = false,
-}: {
-  jobs: SchedulerJob[];
-  agentId: string;
-  readOnly?: boolean;
-}) {
+function SchedulesTable({ jobs, agentId }: { jobs: SchedulerJob[]; agentId: string }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -469,14 +446,9 @@ function SchedulesTable({
               <TableCell className="font-medium">
                 <span className="inline-flex items-center gap-1.5">
                   {job.name}
-                  {job.owner_kind === "plugin" && (
-                    <Badge size="sm" variant="info">
-                      plugin:{job.plugin_id}
-                    </Badge>
-                  )}
-                  {job.owner_kind === "system" && (
+                  {job.template_key && (
                     <Badge size="sm" variant="secondary">
-                      system
+                      {t("automations.subscriptionBadge", { key: job.template_key })}
                     </Badge>
                   )}
                 </span>
@@ -489,11 +461,7 @@ function SchedulesTable({
               </TableCell>
               <TableCell className="text-[12.5px]">{next ? formatUntil(t, next) : "—"}</TableCell>
               <TableCell onClick={(e) => e.stopPropagation()}>
-                <Switch
-                  checked={job.enabled}
-                  disabled={readOnly}
-                  onCheckedChange={(v) => void toggleJob(job, v)}
-                />
+                <Switch checked={job.enabled} onCheckedChange={(v) => void toggleJob(job, v)} />
               </TableCell>
             </TableRow>
           );
