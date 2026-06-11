@@ -1,33 +1,28 @@
-import type { UIMessage } from "ai";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { Activity } from "lucide-react";
 import type { GroupMember, GroupMessage } from "@/lib/api-client/types.gen";
 import { getAgentColor } from "@/lib/agent-colors";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetDescription, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 
 interface Props {
   members: GroupMember[];
   messages: GroupMessage[];
-  liveMessages: UIMessage[];
+  activeAgentIds: Set<string>;
   uploadContext?: { agentId: string; sessionId: string } | null;
-  streaming: boolean;
 }
 
-export function GroupInspector({
-  members,
-  messages,
-  liveMessages,
-  uploadContext,
-  streaming,
-}: Props) {
+export function GroupInspector({ members, messages, activeAgentIds, uploadContext }: Props) {
   const { t } = useI18n();
-  const activeAgentIds = collectActiveAgentIds(liveMessages);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const messageCounts = countMessagesByActor(messages);
   const lastMessage = messages[0];
 
-  return (
-    <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-l border-border bg-card md:flex">
+  const content = (
+    <>
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold text-foreground">{t("groups.inspector.title")}</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
@@ -61,9 +56,7 @@ export function GroupInspector({
                   <span
                     className={cn(
                       "rounded-md px-1.5 py-0.5 font-mono text-[10px]",
-                      active || streaming
-                        ? "bg-chart-2/10 text-chart-2"
-                        : "bg-muted text-muted-foreground",
+                      active ? "bg-chart-2/10 text-chart-2" : "bg-muted text-muted-foreground",
                     )}
                   >
                     {active ? t("groups.inspector.active") : t("groups.inspector.idle")}
@@ -77,7 +70,10 @@ export function GroupInspector({
         <section>
           <SectionTitle>{t("groups.inspector.stats")}</SectionTitle>
           <div className="mt-2 rounded-md border border-border bg-background">
-            <StatRow label={t("groups.inspector.messages")} value={messages.length.toString()} />
+            <StatRow
+              label={t("groups.inspector.recentMessages")}
+              value={messages.length.toString()}
+            />
             <StatRow
               label={t("groups.inspector.lastActive")}
               value={lastMessage ? formatTime(lastMessage.created_at) : t("common.noData")}
@@ -101,7 +97,37 @@ export function GroupInspector({
           </div>
         </section>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-l border-border bg-card md:flex">
+        {content}
+      </aside>
+      <Button
+        variant="ghost"
+        size="xs"
+        onClick={() => setMobileOpen(true)}
+        className="absolute right-3 top-3 z-10 h-7 w-7 rounded-full bg-background/80 p-0 text-muted-foreground backdrop-blur md:hidden"
+        aria-label={t("groups.inspector.title")}
+      >
+        <Activity className="size-3.5" />
+      </Button>
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetPopup
+          side="right"
+          showCloseButton={false}
+          className="w-[85%] max-w-sm border-l border-border bg-card"
+        >
+          <SheetTitle className="sr-only">{t("groups.inspector.title")}</SheetTitle>
+          <SheetDescription className="sr-only">
+            {t("groups.inspector.subtitle", { count: members.length })}
+          </SheetDescription>
+          <div className="flex h-full flex-col overflow-hidden">{content}</div>
+        </SheetPopup>
+      </Sheet>
+    </>
   );
 }
 
@@ -129,16 +155,4 @@ function countMessagesByActor(messages: GroupMessage[]) {
     counts.set(message.actor_id, (counts.get(message.actor_id) ?? 0) + 1);
   }
   return counts;
-}
-
-function collectActiveAgentIds(messages: UIMessage[]) {
-  const ids = new Set<string>();
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type !== "data-agent-info") continue;
-      const data = (part as unknown as { data?: { agentId?: string } }).data;
-      if (data?.agentId) ids.add(data.agentId);
-    }
-  }
-  return ids;
 }

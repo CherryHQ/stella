@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { listGroupMessages, createSession, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
@@ -190,10 +191,17 @@ export function GroupChat({ groupId }: Props) {
     const q = mentionQuery.toLowerCase();
     return members.filter(
       (m) =>
-        m.agent_id.toLowerCase().includes(q) ||
-        (m.agent_name && m.agent_name.toLowerCase().includes(q)),
+        m.agent_id.toLowerCase().startsWith(q) ||
+        (m.agent_name && m.agent_name.toLowerCase().startsWith(q)),
     );
   }, [mentionQuery, members]);
+
+  // "Active" means responding right now: only agent-info parts from live
+  // streaming messages count, never the merged history (grp-* ids).
+  const activeAgentIds = useMemo(() => {
+    if (!isStreaming) return new Set<string>();
+    return collectActiveAgentIds(chatMessages.filter((m) => !m.id.startsWith("grp-")));
+  }, [isStreaming, chatMessages]);
 
   const handleInputChange = useCallback((val: string) => {
     setUserInput(val);
@@ -243,7 +251,7 @@ export function GroupChat({ groupId }: Props) {
     ) : null;
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    <div className="relative flex min-h-0 flex-1 overflow-hidden">
       <ChatPane
         transcript={
           <GroupTranscript
@@ -275,10 +283,21 @@ export function GroupChat({ groupId }: Props) {
       <GroupInspector
         members={members}
         messages={historicalMessages}
-        liveMessages={chatMessages}
+        activeAgentIds={activeAgentIds}
         uploadContext={uploadContext}
-        streaming={isStreaming}
       />
     </div>
   );
+}
+
+function collectActiveAgentIds(messages: UIMessage[]) {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== "data-agent-info") continue;
+      const data = (part as unknown as { data?: { agentId?: string } }).data;
+      if (data?.agentId) ids.add(data.agentId);
+    }
+  }
+  return ids;
 }
