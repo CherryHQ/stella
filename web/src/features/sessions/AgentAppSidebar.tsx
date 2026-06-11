@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bell, Folder, MessageSquarePlus, MoreHorizontal, Users } from "lucide-react";
+import { Bell, Folder, FolderPlus, MessageSquarePlus, MoreHorizontal, Users } from "lucide-react";
 import type { Agent, Project, Session } from "@/lib/types";
 import type { ComponentsSession } from "@/lib/api-client/types.gen";
 import {
@@ -428,7 +428,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               title={t("sessions.sidebar.newProject2")}
               onClick={() => setShowProjectDialog(true)}
             >
-              <MoreHorizontal className="size-3.5" />
+              <FolderPlus className="size-3.5" />
             </button>
           }
         >
