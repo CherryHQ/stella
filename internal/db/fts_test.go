@@ -15,7 +15,7 @@ func TestOpenDBCreatesFTSIndexes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	for _, table := range []string{"ctx_message_fts", "ctx_summary_fts"} {
+	for _, table := range []string{"ctx_message_fts", "ctx_summary_fts", "recally_article_fts"} {
 		if !tableExists(t, db, table) {
 			t.Errorf("%s should exist after OpenDB", table)
 		}
@@ -37,12 +37,16 @@ func TestEnsureFTSBackfillsPreexistingRows(t *testing.T) {
 	for _, stmt := range []string{
 		"DROP TABLE ctx_message_fts",
 		"DROP TABLE ctx_summary_fts",
+		"DROP TABLE recally_article_fts",
 		"DROP TRIGGER IF EXISTS ctx_message_fts_ai",
 		"DROP TRIGGER IF EXISTS ctx_message_fts_ad",
 		"DROP TRIGGER IF EXISTS ctx_message_fts_au",
 		"DROP TRIGGER IF EXISTS ctx_summary_fts_ai",
 		"DROP TRIGGER IF EXISTS ctx_summary_fts_ad",
 		"DROP TRIGGER IF EXISTS ctx_summary_fts_au",
+		"DROP TRIGGER IF EXISTS recally_article_fts_ai",
+		"DROP TRIGGER IF EXISTS recally_article_fts_ad",
+		"DROP TRIGGER IF EXISTS recally_article_fts_au",
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("%s: %v", stmt, err)
@@ -59,12 +63,19 @@ func TestEnsureFTSBackfillsPreexistingRows(t *testing.T) {
 		VALUES ('sum-fts', 'conv-fts', 'leaf', 0, 'legacy aardvark summary', 5)`); err != nil {
 		t.Fatalf("insert summary: %v", err)
 	}
+	if _, err := db.Exec(`INSERT INTO auth_user (id, email) VALUES ('user-fts', 'fts@example.com')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO recally_article (id, user_id, url, canonical_url, title)
+		VALUES ('art-fts', 'user-fts', 'https://example.com/a', 'https://example.com/a', 'legacy aardvark article')`); err != nil {
+		t.Fatalf("insert article: %v", err)
+	}
 
 	if err := ensureFTS(db); err != nil {
 		t.Fatalf("ensureFTS: %v", err)
 	}
 
-	for _, table := range []string{"ctx_message_fts", "ctx_summary_fts"} {
+	for _, table := range []string{"ctx_message_fts", "ctx_summary_fts", "recally_article_fts"} {
 		var count int
 		if err := db.QueryRow(
 			"SELECT COUNT(*) FROM " + table + " WHERE " + table + " MATCH 'aardvark'",

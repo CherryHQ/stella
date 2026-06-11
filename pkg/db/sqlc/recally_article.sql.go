@@ -426,62 +426,66 @@ func (q *Queries) ListUnreadArticlesOlderThan(ctx context.Context, arg ListUnrea
 }
 
 const searchArticles = `-- name: SearchArticles :many
-SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
-WHERE user_id = ?
-  AND (title LIKE '%' || ? || '%'
-       OR summary LIKE '%' || ? || '%'
-       OR tags LIKE '%' || ? || '%'
-       OR author LIKE '%' || ? || '%')
-ORDER BY saved_at DESC
-LIMIT ?
+SELECT
+    a.id, a.user_id, a.agent_id, a.url, a.canonical_url, a.source_type, a.title, a.author, a.summary, a.tags, a.status, a.starred, a.file_path, a.metadata, a.published_at, a.saved_at, a.read_at, a.created_at, a.updated_at,
+    snippet(recally_article_fts, -1, '<<', '>>', '...', 32) AS snippet,
+    bm25(recally_article_fts, 4.0, 2.0, 2.0, 1.0) AS score
+FROM recally_article_fts
+JOIN recally_article a ON a.rowid = recally_article_fts.rowid
+WHERE recally_article_fts.recally_article_fts MATCH ?1
+  AND a.user_id = ?2
+ORDER BY score ASC
+LIMIT ?3
 `
 
 type SearchArticlesParams struct {
-	UserID  string         `json:"user_id"`
-	Column2 sql.NullString `json:"column_2"`
-	Column3 sql.NullString `json:"column_3"`
-	Column4 sql.NullString `json:"column_4"`
-	Column5 sql.NullString `json:"column_5"`
-	Limit   int64          `json:"limit"`
+	Match  string `json:"match"`
+	UserID string `json:"user_id"`
+	Limit  int64  `json:"limit"`
 }
 
-// Phase 1 MVP: LIKE-based search. Upgrade to FTS5 in future phase.
-func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) ([]RecallyArticle, error) {
-	rows, err := q.db.QueryContext(ctx, searchArticles,
-		arg.UserID,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
-		arg.Column5,
-		arg.Limit,
-	)
+type SearchArticlesRow struct {
+	RecallyArticle RecallyArticle `json:"recally_article"`
+	Snippet        string         `json:"snippet"`
+	Score          float64        `json:"score"`
+}
+
+// FTS5/BM25 search over title/summary/tags/author. Matching against the
+// hidden table-name column searches every indexed column (declared for sqlc
+// in recally_article_fts_sqlc.sql); bm25 weights rank title hits highest,
+// and snippet column -1 picks the best-matching column. More negative bm25
+// means more relevant, hence ORDER BY score ASC.
+func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) ([]SearchArticlesRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchArticles, arg.Match, arg.UserID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []RecallyArticle{}
+	items := []SearchArticlesRow{}
 	for rows.Next() {
-		var i RecallyArticle
+		var i SearchArticlesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.UserID,
-			&i.AgentID,
-			&i.Url,
-			&i.CanonicalUrl,
-			&i.SourceType,
-			&i.Title,
-			&i.Author,
-			&i.Summary,
-			&i.Tags,
-			&i.Status,
-			&i.Starred,
-			&i.FilePath,
-			&i.Metadata,
-			&i.PublishedAt,
-			&i.SavedAt,
-			&i.ReadAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.RecallyArticle.ID,
+			&i.RecallyArticle.UserID,
+			&i.RecallyArticle.AgentID,
+			&i.RecallyArticle.Url,
+			&i.RecallyArticle.CanonicalUrl,
+			&i.RecallyArticle.SourceType,
+			&i.RecallyArticle.Title,
+			&i.RecallyArticle.Author,
+			&i.RecallyArticle.Summary,
+			&i.RecallyArticle.Tags,
+			&i.RecallyArticle.Status,
+			&i.RecallyArticle.Starred,
+			&i.RecallyArticle.FilePath,
+			&i.RecallyArticle.Metadata,
+			&i.RecallyArticle.PublishedAt,
+			&i.RecallyArticle.SavedAt,
+			&i.RecallyArticle.ReadAt,
+			&i.RecallyArticle.CreatedAt,
+			&i.RecallyArticle.UpdatedAt,
+			&i.Snippet,
+			&i.Score,
 		); err != nil {
 			return nil, err
 		}

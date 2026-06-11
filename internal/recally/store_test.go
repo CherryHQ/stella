@@ -9,6 +9,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	appdb "github.com/CherryHQ/stella/internal/db"
 )
 
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
@@ -112,6 +114,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_recally_feed_entry_feed_guid ON recally_fe
 			t.Fatalf("Failed to remove temp dir: %v", removeErr)
 		}
 		t.Fatalf("Failed to create schema: %v", err)
+	}
+
+	// Article search runs against the runtime-managed FTS5 index; apply the
+	// same DDL OpenDB would so triggers keep the index in sync.
+	if _, err := db.Exec(appdb.RecallyArticleFTSSchema); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Fatalf("Failed to close test database: %v", closeErr)
+		}
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			t.Fatalf("Failed to remove temp dir: %v", removeErr)
+		}
+		t.Fatalf("Failed to create FTS schema: %v", err)
 	}
 
 	// Insert a test user
@@ -370,6 +384,141 @@ func TestStore_SearchArticles(t *testing.T) {
 	}
 	if len(results) != 1 {
 		t.Errorf("Expected 1 result for 'Python', got %d", len(results))
+	}
+}
+
+func TestStore_SearchArticles_RanksTitleAboveAuthor(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	store := NewStore(db)
+	ctx := t.Context()
+
+	// Same term in a low-weight column (author) vs the high-weight title.
+	for _, req := range []SaveRequest{
+		{URL: "https://example.com/by-quasar", Title: "Unrelated piece", Author: "Quasar Quill"},
+		{URL: "https://example.com/about-quasar", Title: "Quasar formation explained", Author: "Someone Else"},
+	} {
+		if _, _, err := store.SaveArticle(ctx, "1", req); err != nil {
+			t.Fatalf("SaveArticle failed: %v", err)
+		}
+	}
+
+	results, err := store.SearchArticles(ctx, "1", "quasar", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("Expected 2 results, got %d", len(results))
+	}
+	if results[0].Title != "Quasar formation explained" {
+		t.Errorf("Expected title match ranked first, got %q", results[0].Title)
+	}
+}
+
+func TestStore_SearchArticles_UserScoping(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	store := NewStore(db)
+	ctx := t.Context()
+
+	if _, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+		URL: "https://example.com/mine", Title: "Private zeppelin notes",
+	}); err != nil {
+		t.Fatalf("SaveArticle failed: %v", err)
+	}
+
+	results, err := store.SearchArticles(ctx, "2", "zeppelin", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Expected no results for another user, got %d", len(results))
+	}
+}
+
+func TestStore_SearchArticles_NoStaleHitsAfterDeleteAndUpdate(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	store := NewStore(db)
+	ctx := t.Context()
+
+	deleted, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+		URL: "https://example.com/doomed", Title: "Obsolete walrus manual",
+	})
+	if err != nil {
+		t.Fatalf("SaveArticle failed: %v", err)
+	}
+	if err := store.DeleteArticle(ctx, "1", deleted.ID); err != nil {
+		t.Fatalf("DeleteArticle failed: %v", err)
+	}
+	results, err := store.SearchArticles(ctx, "1", "walrus", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Expected no hits after delete, got %d", len(results))
+	}
+
+	// Updates must drop the old terms from the index and add the new ones.
+	article, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+		URL: "https://example.com/renamed", Title: "Original ocelot title",
+	})
+	if err != nil {
+		t.Fatalf("SaveArticle failed: %v", err)
+	}
+	if _, err := store.UpdateArticle(ctx, "1", article.ID, map[string]any{"title": "Renamed capybara title"}); err != nil {
+		t.Fatalf("UpdateArticle failed: %v", err)
+	}
+	results, err = store.SearchArticles(ctx, "1", "ocelot", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Expected no hits for replaced title, got %d", len(results))
+	}
+	results, err = store.SearchArticles(ctx, "1", "capybara", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Expected 1 hit for new title, got %d", len(results))
+	}
+}
+
+func TestStore_SearchArticles_SpecialCharsAndEmptyQuery(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	store := NewStore(db)
+	ctx := t.Context()
+
+	if _, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+		URL: "https://example.com/special", Title: "C++ versus Rust: a (biased) take",
+	}); err != nil {
+		t.Fatalf("SaveArticle failed: %v", err)
+	}
+
+	// FTS5 operators in user input must never produce a query error.
+	results, err := store.SearchArticles(ctx, "1", `rust* AND (biased) -take "c++"`, 10)
+	if err != nil {
+		t.Fatalf("SearchArticles with operators failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Expected 1 hit, got %d", len(results))
+	}
+
+	// Queries with no extractable tokens return empty without touching FTS.
+	for _, q := range []string{"", "   ", `*** (") -:`} {
+		results, err := store.SearchArticles(ctx, "1", q, 10)
+		if err != nil {
+			t.Fatalf("SearchArticles(%q) failed: %v", q, err)
+		}
+		if len(results) != 0 {
+			t.Errorf("SearchArticles(%q): expected no results, got %d", q, len(results))
+		}
 	}
 }
 
