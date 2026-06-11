@@ -62,7 +62,7 @@ Some work should stop for a human decision. Use human review for:
 
 ## Task UI
 
-The task UI exists because chat history is a bad project tracker. In the Web UI, open an agent and choose the **Tasks** facet to see one-time tasks, scheduled work, and goals in one place. Project pages also open on their project task list first.
+The task UI exists because chat history is a bad project tracker. In the Web UI, open an agent and choose the **Tasks** tab to see one-time tasks, scheduled work, and goals in one place. Project pages also open on their project task list first.
 
 Use the task UI to inspect:
 

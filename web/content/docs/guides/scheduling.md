@@ -40,7 +40,7 @@ You can specify the mode when creating a job:
 
 ### From the Web UI
 
-Open the Web UI to see all your scheduled jobs. You can:
+Open an agent and choose the **Tasks** tab; scheduled jobs appear there alongside one-time tasks and goals. You can:
 
 - View job status, schedule, and last run time
 - Enable or disable jobs

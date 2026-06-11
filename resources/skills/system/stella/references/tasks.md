@@ -87,7 +87,7 @@ All commands are `stella task ...` or `stella task goal ...`.
 
 **Check status.** Use `list` to scan, `get <id>` for detail, `events <id>` for audit history, and `runs <id>` for attempts.
 
-**Use the Web UI when the user asks to inspect work visually.** The agent **Tasks** facet shows one-time tasks, scheduled work, and goals together. Project pages open task-first and keep project task rows, the project main conversation, task sessions, and workspace files adjacent.
+**Use the Web UI when the user asks to inspect work visually.** The agent **Tasks** tab shows one-time tasks, scheduled work, and goals together. Project pages open task-first and keep project task rows, the project main conversation, task sessions, and workspace files adjacent.
 
 **Explain why a task is not running.** Use `readiness <id>`. It distinguishes waiting dependencies, blockers, future `not_before`, throttling, terminal state, and missing executor context.
 
