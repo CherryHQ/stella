@@ -1,7 +1,6 @@
 package config
 
 import (
-	"path/filepath"
 	"time"
 )
 
@@ -42,37 +41,6 @@ type SchedulerConfig struct {
 // IsEnabled returns whether the scheduler is enabled (defaults to true).
 func (c SchedulerConfig) IsEnabled() bool {
 	return boolDefault(c.Enabled, true)
-}
-
-// HeartbeatConfig configures periodic heartbeat checks.
-type HeartbeatConfig struct {
-	Enabled *bool  `json:"enabled"`
-	Every   string `json:"every"`
-	File    string `json:"file"`
-}
-
-// IsEnabled returns whether heartbeat is enabled (defaults to false).
-func (c HeartbeatConfig) IsEnabled() bool {
-	return boolDefault(c.Enabled, false)
-}
-
-// Interval returns the configured heartbeat cadence.
-func (c HeartbeatConfig) Interval() string {
-	if c.Every == "" {
-		return "10m"
-	}
-	return c.Every
-}
-
-// FilePath resolves the configured heartbeat file relative to the workspace.
-func (c HeartbeatConfig) FilePath(workspace string) string {
-	if c.File == "" {
-		return filepath.Join(workspace, "HEARTBEAT.md")
-	}
-	if filepath.IsAbs(c.File) {
-		return c.File
-	}
-	return filepath.Join(workspace, c.File)
 }
 
 // boolDefault dereferences a *bool pointer, returning def if the pointer is nil.

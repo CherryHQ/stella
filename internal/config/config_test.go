@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -62,27 +61,6 @@ func TestSchedulerIsEnabled(t *testing.T) {
 				t.Errorf("IsEnabled() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestHeartbeatConfig(t *testing.T) {
-	c := HeartbeatConfig{}
-	if c.IsEnabled() {
-		t.Error("Heartbeat should be disabled by default")
-	}
-	if c.Interval() != "10m" {
-		t.Errorf("Interval() = %q, want %q", c.Interval(), "10m")
-	}
-	if c.FilePath("/workspace") != filepath.Join("/workspace", "HEARTBEAT.md") {
-		t.Errorf("FilePath() = %q", c.FilePath("/workspace"))
-	}
-}
-
-func TestHeartbeatFilePathAbsolute(t *testing.T) {
-	c := HeartbeatConfig{File: "/absolute/path/heartbeat.md"}
-	got := c.FilePath("/workspace")
-	if got != "/absolute/path/heartbeat.md" {
-		t.Errorf("FilePath() = %q, want absolute path preserved", got)
 	}
 }
 
