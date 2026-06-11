@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -39,12 +42,35 @@ func (p *Provider) Search(ctx context.Context, session memory.Session, query mem
 	return p.retrieval.search(ctx, conv.ID, query)
 }
 
+// buildMatchQuery converts free text into an FTS5 MATCH expression. Tokens
+// (runs of letters/digits/underscore) are individually quoted so FTS5 query
+// operators in user input (*, -, :, parens) can never break the query, and
+// OR-joined for recall — BM25 still ranks multi-term hits higher. Returns ""
+// when no tokens can be extracted; callers must skip the query then.
+func buildMatchQuery(text string) string {
+	tokens := strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	})
+	quoted := make([]string, 0, len(tokens))
+	for _, tok := range tokens {
+		tok = strings.ReplaceAll(tok, `"`, "")
+		if tok == "" {
+			continue
+		}
+		quoted = append(quoted, `"`+tok+`"`)
+	}
+	return strings.Join(quoted, " OR ")
+}
+
 func (r *retrievalEngine) search(ctx context.Context, convID string, query memory.SearchQuery) ([]memory.SearchResult, error) {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
-	likePattern := "%" + query.Text + "%"
+	match := buildMatchQuery(query.Text)
+	if match == "" {
+		return nil, nil
+	}
 
 	scope := scopeBoth
 	switch query.Scope {
@@ -59,7 +85,7 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 	if scope == scopeMessages || scope == scopeBoth {
 		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
 			ConversationID: convID,
-			Content:        likePattern,
+			Match:          match,
 			Limit:          int64(limit),
 		})
 		if err != nil {
@@ -69,21 +95,18 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 			results = append(results, memory.SearchResult{
 				SourceType: itemTypeMessage,
 				SourceID:   fmt.Sprint(msg.ID),
-				Content:    truncateUTF8(msg.Content, maxContentSnippet),
+				Content:    searchSnippet(msg.Snippet, msg.Content),
+				Score:      -msg.Score,
 				Timestamp:  parseTime(msg.CreatedAt),
 			})
 		}
 	}
 
 	if scope == scopeSummaries || scope == scopeBoth {
-		remaining := limit - len(results)
-		if remaining <= 0 {
-			remaining = limit // summaries-only: use full limit
-		}
 		sums, err := r.q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
 			ConversationID: convID,
-			Content:        likePattern,
-			Limit:          int64(remaining),
+			Match:          match,
+			Limit:          int64(limit),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("search summaries: %w", err)
@@ -92,13 +115,36 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 			results = append(results, memory.SearchResult{
 				SourceType: itemTypeSummary,
 				SourceID:   s.ID,
-				Content:    truncateUTF8(s.Content, maxContentSnippet),
+				Content:    searchSnippet(s.Snippet, s.Content),
+				Score:      -s.Score,
 				Timestamp:  parseTime(s.CreatedAt),
 			})
 		}
 	}
 
+	// Both-scope queries each table with the full limit, then keep the global
+	// top N so a strong summary hit can outrank a weak message hit. BM25 from
+	// the two indexes shares the same corpus statistics family closely enough
+	// for cross-source ordering.
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Timestamp.After(results[j].Timestamp)
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
 	return results, nil
+}
+
+// searchSnippet prefers the FTS5 snippet (match context with <<>> highlights)
+// and falls back to a plain truncation for degenerate empty snippets.
+func searchSnippet(snippet, content string) string {
+	if snippet != "" {
+		return snippet
+	}
+	return truncateUTF8(content, maxContentSnippet)
 }
 
 func (p *Provider) getScopedSummary(ctx context.Context, summaryID string) (sqlc.CtxSummary, error) {

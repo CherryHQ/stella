@@ -466,6 +466,10 @@ type CtxMessage struct {
 	CreatedAt      string `json:"created_at"`
 }
 
+type CtxMessageFt struct {
+	Content string `json:"content"`
+}
+
 type CtxMessagePart struct {
 	ID          string         `json:"id"`
 	MessageID   string         `json:"message_id"`
@@ -492,6 +496,10 @@ type CtxSummary struct {
 	DescendantTokenCount    int64          `json:"descendant_token_count"`
 	SourceMessageTokenCount int64          `json:"source_message_token_count"`
 	CreatedAt               string         `json:"created_at"`
+}
+
+type CtxSummaryFt struct {
+	Content string `json:"content"`
 }
 
 type CtxSummaryMessage struct {

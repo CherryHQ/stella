@@ -422,27 +422,50 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 }
 
 const searchSummaries = `-- name: SearchSummaries :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary
-WHERE conversation_id = ? AND content LIKE ?
-ORDER BY created_at ASC
-LIMIT ?
+SELECT
+    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,
+    snippet(ctx_summary_fts, 0, '<<', '>>', '...', 32) AS snippet,
+    bm25(ctx_summary_fts) AS score
+FROM ctx_summary_fts
+JOIN ctx_summary s ON s.rowid = ctx_summary_fts.rowid
+WHERE ctx_summary_fts.content MATCH ?1
+  AND s.conversation_id = ?2
+ORDER BY score ASC
+LIMIT ?3
 `
 
 type SearchSummariesParams struct {
+	Match          string `json:"match"`
 	ConversationID string `json:"conversation_id"`
-	Content        string `json:"content"`
 	Limit          int64  `json:"limit"`
 }
 
-func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams) ([]CtxSummary, error) {
-	rows, err := q.db.QueryContext(ctx, searchSummaries, arg.ConversationID, arg.Content, arg.Limit)
+type SearchSummariesRow struct {
+	ID                      string         `json:"id"`
+	ConversationID          string         `json:"conversation_id"`
+	Kind                    string         `json:"kind"`
+	Depth                   int64          `json:"depth"`
+	Content                 string         `json:"content"`
+	TokenCount              int64          `json:"token_count"`
+	EarliestAt              sql.NullString `json:"earliest_at"`
+	LatestAt                sql.NullString `json:"latest_at"`
+	DescendantCount         int64          `json:"descendant_count"`
+	DescendantTokenCount    int64          `json:"descendant_token_count"`
+	SourceMessageTokenCount int64          `json:"source_message_token_count"`
+	CreatedAt               string         `json:"created_at"`
+	Snippet                 string         `json:"snippet"`
+	Score                   float64        `json:"score"`
+}
+
+func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams) ([]SearchSummariesRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchSummaries, arg.Match, arg.ConversationID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxSummary{}
+	items := []SearchSummariesRow{}
 	for rows.Next() {
-		var i CtxSummary
+		var i SearchSummariesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ConversationID,
@@ -456,6 +479,8 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.Snippet,
+			&i.Score,
 		); err != nil {
 			return nil, err
 		}

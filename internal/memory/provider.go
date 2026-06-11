@@ -142,7 +142,7 @@ type SearchResult struct {
 	SourceType string    // "message" or "summary"
 	SourceID   string    // message ID or summary ID
 	Content    string    // snippet of the matching content (truncated at ~500 chars)
-	Score      float64   // relevance score: 0 for keyword match, 0.0-1.0 for semantic
+	Score      float64   // normalized BM25 relevance (-bm25), higher is better
 	Timestamp  time.Time // when the source was created
 }
 

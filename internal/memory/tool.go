@@ -215,7 +215,7 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 	if t.hasAction(actionSearch) {
 		properties["pattern"] = map[string]any{
 			"type":        "string",
-			"description": "Text pattern to search for (required for search, case-insensitive substring match)",
+			"description": "Keywords to search for (required for search, full-text match ranked by relevance)",
 		}
 		properties["scope"] = map[string]any{
 			"type":        "string",

@@ -52,6 +52,11 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: migrate: %w", err)
 	}
 
+	if err := ensureFTS(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("db: fts: %w", err)
+	}
+
 	return db, nil
 }
 
