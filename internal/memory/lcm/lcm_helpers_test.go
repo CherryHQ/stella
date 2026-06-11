@@ -422,20 +422,22 @@ func makeCtxItem(ord int64, itemType, eventType string) sqlc.CtxItem {
 }
 
 func TestSplitFreshTail_ToolPairIntegrity(t *testing.T) {
-	// Items: user(1), asst-text(2), asst-tool_call(3), tool_result(4), user(5), asst-text(6)
-	// With freshTail=2, naive split would put items 5,6 in tail, leaving
-	// tool_call(3) in older and tool_result(4) in tail — broken pair.
+	// Degenerate ordering: a user turn boundary appears between a tool_call and
+	// its result. The defensive pair correction must pull the call into tail.
 	items := []sqlc.CtxItem{
 		makeCtxItem(1, itemTypeMessage, eventTypeText),
 		makeCtxItem(2, itemTypeMessage, eventTypeText),
 		makeCtxItem(3, itemTypeMessage, eventTypeToolCall),
-		makeCtxItem(4, itemTypeMessage, eventTypeToolResult),
-		makeCtxItem(5, itemTypeMessage, eventTypeText),
+		makeCtxItem(4, itemTypeMessage, eventTypeText),
+		makeCtxItem(5, itemTypeMessage, eventTypeToolResult),
 		makeCtxItem(6, itemTypeMessage, eventTypeText),
 	}
-	tail, older := splitFreshTail(items, 2)
+	items[1].Role = roleUser
+	items[3].Role = roleUser
+	items[5].Role = roleAssistant
+	tail, older := splitFreshTail(items, 1)
 
-	// tool_call(3) and tool_result(4) must be in the same partition.
+	// tool_call(3) and tool_result(5) must be in the same partition.
 	tailOrdinals := make(map[int64]bool)
 	for _, item := range tail {
 		tailOrdinals[item.Ordinal] = true
@@ -444,38 +446,40 @@ func TestSplitFreshTail_ToolPairIntegrity(t *testing.T) {
 	for _, item := range older {
 		olderOrdinals[item.Ordinal] = true
 	}
-	// Both 3 and 4 should be in tail (pulled in to preserve the pair).
-	if olderOrdinals[3] && tailOrdinals[4] {
-		t.Error("splitFreshTail split tool_call(3) into older and tool_result(4) into tail")
+	// Both 3 and 5 should be in tail (pulled in to preserve the pair).
+	if olderOrdinals[3] && tailOrdinals[5] {
+		t.Error("splitFreshTail split tool_call(3) into older and tool_result(5) into tail")
 	}
-	if olderOrdinals[4] && tailOrdinals[3] {
-		t.Error("splitFreshTail split tool_result(4) into older and tool_call(3) into tail")
+	if olderOrdinals[5] && tailOrdinals[3] {
+		t.Error("splitFreshTail split tool_result(5) into older and tool_call(3) into tail")
 	}
 	// Verify they ended up together.
-	if tailOrdinals[3] != tailOrdinals[4] {
-		t.Errorf("tool_call and tool_result not in same partition: tail has 3=%v 4=%v", tailOrdinals[3], tailOrdinals[4])
+	if tailOrdinals[3] != tailOrdinals[5] {
+		t.Errorf("tool_call and tool_result not in same partition: tail has 3=%v 5=%v", tailOrdinals[3], tailOrdinals[5])
 	}
 }
 
 func TestSplitFreshTail_MultipleToolCalls(t *testing.T) {
-	// Items: user(1), asst-tc1(2), asst-tc2(3), result1(4), result2(5), user(6)
-	// freshTail=2 would naively land on item 5, splitting the tool pairs.
+	// Degenerate ordering with multiple tool_calls immediately before the oldest
+	// retained user turn. Pair correction pulls the whole call block into tail.
 	items := []sqlc.CtxItem{
 		makeCtxItem(1, itemTypeMessage, eventTypeText),
 		makeCtxItem(2, itemTypeMessage, eventTypeToolCall),
 		makeCtxItem(3, itemTypeMessage, eventTypeToolCall),
-		makeCtxItem(4, itemTypeMessage, eventTypeToolResult),
+		makeCtxItem(4, itemTypeMessage, eventTypeText),
 		makeCtxItem(5, itemTypeMessage, eventTypeToolResult),
-		makeCtxItem(6, itemTypeMessage, eventTypeText),
+		makeCtxItem(6, itemTypeMessage, eventTypeToolResult),
 	}
-	tail, older := splitFreshTail(items, 2)
+	items[0].Role = roleUser
+	items[3].Role = roleUser
+	tail, older := splitFreshTail(items, 1)
 
 	tailOrdinals := make(map[int64]bool)
 	for _, item := range tail {
 		tailOrdinals[item.Ordinal] = true
 	}
 	// All tool calls and results should be in the same partition.
-	for _, ord := range []int64{2, 3, 4, 5} {
+	for _, ord := range []int64{2, 3, 4, 5, 6} {
 		if !tailOrdinals[ord] {
 			t.Errorf("expected ordinal %d in tail, but it's in older", ord)
 		}

@@ -27,8 +27,8 @@ type CompactionConfig struct {
 	// 0 (or omitted) uses the default of 80000. Negative values disable
 	// automatic compaction. Manual /compact still works.
 	MaxTokens int `json:"max_tokens"`
-	// KeepTail is the number of recent message entries to preserve verbatim
-	// after compaction. Default: 20.
+	// KeepTail is the number of recent user turns to preserve verbatim
+	// after compaction. Default: 6.
 	KeepTail int `json:"keep_tail"`
 }
 

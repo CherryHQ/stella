@@ -39,7 +39,8 @@ const (
 	scopeSummaries = "summaries"
 	scopeBoth      = "both"
 
-	defaultFreshTail          = 20
+	// defaultFreshTail is the number of recent user turns preserved verbatim.
+	defaultFreshTail          = 6
 	defaultLeafChunkSize      = 10
 	oversizedToolResultTokens = 2000
 )

@@ -10,8 +10,8 @@ type CompactionConfig struct {
 	// 0 (or omitted) uses the default of 80000. Negative values disable
 	// automatic compaction. Manual /compact still works.
 	MaxTokens int `yaml:"max_tokens"`
-	// KeepTail is the number of recent message entries to preserve verbatim
-	// after compaction. Default: 20.
+	// KeepTail is the number of recent user turns to preserve verbatim
+	// after compaction. Default: 6.
 	KeepTail int `yaml:"keep_tail"`
 }
 
@@ -22,7 +22,7 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 		c.MaxTokens = 80_000
 	}
 	if c.KeepTail == 0 {
-		c.KeepTail = 20
+		c.KeepTail = 6
 	}
 	return c
 }

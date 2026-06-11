@@ -49,8 +49,8 @@ type Provider interface {
 
 	// Assemble builds the context window to send to the LLM.
 	// budget: maximum number of tokens the returned messages may consume.
-	// freshTail: minimum number of recent messages to always include verbatim,
-	//   regardless of budget pressure. Implementations MUST honour this.
+	// freshTail: number of recent user turns to prefer verbatim. Implementations
+	//   may apply safety caps so oversized tails do not consume the whole budget.
 	// Returns messages in chronological order (oldest first).
 	// Older content that does not fit in the budget is either summarised
 	// (if the plugin supports Compactor) or omitted.
