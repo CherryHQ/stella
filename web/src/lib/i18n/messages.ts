@@ -1137,6 +1137,7 @@ const en = {
   "sessions.export.success": "Exported {{count}} messages",
   "sessions.export.empty": "No messages to export",
   "sessions.export.failed": "Export failed: {{error}}",
+  "sessions.export.streamingDisabled": "Wait for the current reply to finish",
 
   // Scheduler page (additions 2)
   "scheduler.interval": "Interval",
@@ -2392,6 +2393,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.export.success": "已导出 {{count}} 条消息",
   "sessions.export.empty": "没有可导出的消息",
   "sessions.export.failed": "导出失败：{{error}}",
+  "sessions.export.streamingDisabled": "等当前回复结束后再导出",
 
   // Scheduler page (additions 2)
   "scheduler.interval": "间隔",

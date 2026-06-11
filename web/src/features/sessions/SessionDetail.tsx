@@ -28,6 +28,7 @@ import {
   messageToUIMessage,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
+import { cn } from "@/lib/utils";
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
 import { Transcript } from "./Transcript";
@@ -57,6 +58,7 @@ export function SessionDetail({
   const [userInput, setUserInput] = useState("");
   const { toasts, showToast } = useToast();
   const [exporting, setExporting] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const { data: agentsList = [] } = useQuery(agentsQueryOptions);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -230,7 +232,7 @@ export function SessionDetail({
 
   const exportSessionAs = useCallback(
     async (format: "jsonl" | "md") => {
-      if (!session || exporting) return;
+      if (!session || exporting || isStreaming) return;
       setExporting(true);
       try {
         const all = await fetchAllSessionMessages(session.agent_id, session.id);
@@ -261,7 +263,7 @@ export function SessionDetail({
         setExporting(false);
       }
     },
-    [session, exporting, agentsList, showToast, t],
+    [session, exporting, isStreaming, agentsList, showToast, t],
   );
 
   const { setHeaderTitle, setHeaderActions } = useAppShell();
@@ -286,32 +288,54 @@ export function SessionDetail({
     );
   }, [titleText, subtitleText, setHeaderTitle]);
 
+  const exportDisabled = exporting || isStreaming;
+
   useEffect(() => {
     setHeaderActions(
       session ? (
         <div className="flex items-center gap-1 shrink-0">
-          <DropdownMenu>
+          <DropdownMenu
+            open={exportMenuOpen && !exportDisabled}
+            onOpenChange={(next) => {
+              if (exportDisabled) return;
+              setExportMenuOpen(next);
+            }}
+          >
             <Tooltip>
               <TooltipTrigger
                 render={
                   <DropdownMenuTrigger
-                    aria-label={t("sessions.export.button")}
-                    disabled={exporting}
-                    className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground outline-none hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Download className="size-3.5" />
-                  </DropdownMenuTrigger>
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        aria-disabled={exportDisabled || undefined}
+                        data-disabled={exportDisabled || undefined}
+                        className={cn(
+                          "h-7 w-7 rounded-full p-0 text-muted-foreground",
+                          exportDisabled && "cursor-not-allowed opacity-50",
+                        )}
+                        aria-label={t("sessions.export.button")}
+                      >
+                        <Download className="size-3.5" />
+                      </Button>
+                    }
+                  />
                 }
               />
               <TooltipPopup side="bottom">
-                {exporting ? t("sessions.export.exporting") : t("sessions.export.button")}
+                {exporting
+                  ? t("sessions.export.exporting")
+                  : isStreaming
+                    ? t("sessions.export.streamingDisabled")
+                    : t("sessions.export.button")}
               </TooltipPopup>
             </Tooltip>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem disabled={exporting} onClick={() => void exportSessionAs("jsonl")}>
+              <DropdownMenuItem onClick={() => void exportSessionAs("jsonl")}>
                 {t("sessions.export.jsonl")}
               </DropdownMenuItem>
-              <DropdownMenuItem disabled={exporting} onClick={() => void exportSessionAs("md")}>
+              <DropdownMenuItem onClick={() => void exportSessionAs("md")}>
                 {t("sessions.export.markdown")}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -360,6 +384,7 @@ export function SessionDetail({
     setHeaderActions,
     exporting,
     exportSessionAs,
+    exportDisabled,
     t,
   ]);
 
