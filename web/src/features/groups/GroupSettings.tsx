@@ -11,7 +11,6 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupMembersQueryOptions } from "@/lib/queries/groups";
 import type { GroupMember } from "@/lib/api-client/types.gen";
 import type { Agent } from "@/lib/types";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,7 +20,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogDescription,
+  DialogPanel,
 } from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
 
 interface Props {
   groupId: string;
@@ -93,17 +94,15 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogPopup>
+      <DialogPopup className="max-w-xl">
         <DialogHeader>
           <DialogTitle>{t("groups.settingsTitle")}</DialogTitle>
           <DialogDescription>{t("groups.settingsDesc")}</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-5 py-2">
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
-              {t("groups.groupName")}
-            </label>
-            <div className="flex gap-2">
+        <DialogPanel className="grid gap-5">
+          <Field>
+            <FieldLabel>{t("groups.groupName")}</FieldLabel>
+            <div className="flex w-full gap-2">
               <Input
                 value={name}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
@@ -116,70 +115,65 @@ export function GroupSettings({ groupId, groupName, open, onClose, onDeleted }: 
                 disabled={!name.trim() || name === groupName || saving}
                 onClick={() => void saveName()}
               >
-                {saving ? "..." : t("common.save")}
+                {saving ? t("common.saving") : t("common.save")}
               </Button>
             </div>
-          </div>
+          </Field>
 
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
+          <section className="grid gap-2">
+            <h3 className="text-sm font-medium text-foreground">
               {t("groups.members", { count: members.length })}
-            </label>
-            <div className="grid gap-1 rounded-lg border border-border p-1.5">
+            </h3>
+            <div className="overflow-hidden rounded-xl border border-border bg-card">
               {members.map((m: GroupMember) => (
                 <div
                   key={m.agent_id}
-                  className="flex items-center justify-between rounded-md px-2 py-1.5"
+                  className="flex min-h-11 items-center justify-between gap-3 border-b border-border px-4 last:border-b-0"
                 >
-                  <span className="text-[13px] font-medium text-foreground">
+                  <span className="truncate text-sm font-medium text-foreground">
                     {m.agent_name || m.agent_id}
                   </span>
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => void handleRemoveMember(m.agent_id)}
                     disabled={members.length <= 1}
-                    className={cn(
-                      "text-xs text-muted-foreground transition-colors",
-                      members.length > 1
-                        ? "hover:text-destructive cursor-pointer"
-                        : "opacity-30 cursor-not-allowed",
-                    )}
                   >
                     {t("common.remove")}
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
 
           {nonMemberAgents.length > 0 && (
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                {t("groups.addAgent")}
-              </label>
-              <div className="grid gap-1 rounded-lg border border-border p-1.5">
+            <section className="grid gap-2">
+              <h3 className="text-sm font-medium text-foreground">{t("groups.addAgent")}</h3>
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
                 {nonMemberAgents.map((ag: Agent) => (
                   <button
                     key={ag.id}
                     type="button"
                     onClick={() => void handleAddMember(ag.id)}
-                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="flex min-h-11 w-full items-center gap-3 border-b border-border px-4 text-left text-sm text-muted-foreground transition-colors last:border-b-0 hover:bg-muted hover:text-foreground"
                   >
-                    <span className="text-xs text-primary">+</span>
-                    <span className="font-medium">{ag.name}</span>
+                    <span className="font-mono text-primary">+</span>
+                    <span className="truncate font-medium">{ag.name}</span>
                   </button>
                 ))}
               </div>
-            </div>
+            </section>
           )}
-        </div>
-        <DialogFooter className="flex justify-between">
-          <Button variant="destructive" size="sm" onClick={() => void handleDelete()}>
-            {t("groups.deleteGroup")}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            {t("common.close")}
-          </Button>
+        </DialogPanel>
+        <DialogFooter>
+          <div className="flex w-full items-center justify-between gap-3">
+            <Button variant="destructive" size="sm" onClick={() => void handleDelete()}>
+              {t("groups.deleteGroup")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              {t("common.close")}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogPopup>
     </Dialog>

@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bell, Folder, FolderPlus, MessageSquarePlus, MoreHorizontal, Users } from "lucide-react";
+import {
+  Bell,
+  Folder,
+  FolderPlus,
+  MessageSquarePlus,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Users,
+} from "lucide-react";
 import type { Agent, Project, Session } from "@/lib/types";
 import type { ComponentsSession } from "@/lib/api-client/types.gen";
 import {
   createProject,
   createSession as sdkCreateSession,
   deleteProject as sdkDeleteProject,
+  deleteSession as sdkDeleteSession,
   getSessionWorkspace,
+  updateSession as sdkUpdateSession,
 } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import { getAgentColor } from "@/lib/agent-colors";
@@ -32,6 +43,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
 import { useSidebar } from "@/components/ui/sidebar";
 import { CreateGroupDialog } from "@/features/groups/CreateGroupDialog";
 
@@ -268,6 +285,9 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [showProjectDialog, setShowProjectDialog] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState("");
+  const [editingTitle, setEditingTitle] = useState("");
+  const [renaming, setRenaming] = useState(false);
 
   const chatsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId, "chat"));
   const { data: homeSession = null } = useQuery(mainSessionQueryOptions(agentId));
@@ -320,6 +340,15 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
     });
   }, [agents, groups, t]);
 
+  const refreshSessions = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+    if (activeProjectId) {
+      await queryClient.invalidateQueries({
+        queryKey: ["sessions", agentId, "project", activeProjectId],
+      });
+    }
+  }, [activeProjectId, agentId, queryClient]);
+
   const createTemporarySession = useCallback(async () => {
     const { data } = await sdkCreateSession({
       path: { agentId },
@@ -327,12 +356,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
       throwOnError: true,
     });
     const session = data as ComponentsSession;
-    await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
-    if (activeProjectId) {
-      await queryClient.invalidateQueries({
-        queryKey: ["sessions", agentId, "project", activeProjectId],
-      });
-    }
+    await refreshSessions();
     closeMobile();
     void navigate({
       to: activeProjectId
@@ -342,7 +366,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
         ? { agentId, projectId: activeProjectId, sessionId: session.id }
         : { agentId, sessionId: session.id },
     });
-  }, [activeProjectId, agentId, closeMobile, navigate, queryClient]);
+  }, [activeProjectId, agentId, closeMobile, navigate, refreshSessions]);
 
   const openProject = useCallback(
     (projectId: string) => {
@@ -362,6 +386,60 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
       await queryClient.invalidateQueries({ queryKey: ["projects", agentId] });
     },
     [agentId, queryClient, t],
+  );
+
+  const openRenameSession = useCallback((session: Session, title: string) => {
+    setEditingSessionId(session.id);
+    setEditingTitle(title);
+  }, []);
+
+  const cancelRenameSession = useCallback(() => {
+    if (renaming) return;
+    setEditingSessionId("");
+    setEditingTitle("");
+  }, [renaming]);
+
+  const renameSession = useCallback(
+    async (session: Session, currentTitle: string) => {
+      if (renaming) return;
+      const title = editingTitle.trim();
+      if (!title || title === currentTitle) {
+        cancelRenameSession();
+        return;
+      }
+      setRenaming(true);
+      try {
+        await sdkUpdateSession({
+          path: { agentId, sessionId: session.id },
+          body: { title },
+          throwOnError: true,
+        });
+        await refreshSessions();
+        setEditingSessionId("");
+        setEditingTitle("");
+      } catch {
+        setEditingTitle(currentTitle);
+      } finally {
+        setRenaming(false);
+      }
+    },
+    [agentId, cancelRenameSession, editingTitle, refreshSessions, renaming],
+  );
+
+  const deleteThreadSession = useCallback(
+    async (session: Session) => {
+      if (!window.confirm(t("sessions.sidebar.deleteThreadConfirm"))) return;
+      await sdkDeleteSession({ path: { agentId, sessionId: session.id }, throwOnError: true });
+      await refreshSessions();
+      if (activeSessionId === session.id) {
+        closeMobile();
+        void navigate({
+          to: activeProjectId ? "/agents/$agentId/projects/$projectId" : "/agents/$agentId",
+          params: activeProjectId ? { agentId, projectId: activeProjectId } : { agentId },
+        });
+      }
+    },
+    [activeProjectId, activeSessionId, agentId, closeMobile, navigate, refreshSessions, t],
   );
 
   return (
@@ -496,29 +574,97 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
             </button>
           }
         >
-          {visibleChatSessions.map((session: Session) => (
-            <SidebarItem
-              key={session.id}
-              active={activeSessionId === session.id}
-              label={
-                activeProjectId && session.kind === "main"
-                  ? activeProject?.name || session.title || t("sessions.untitled")
-                  : session.title || t("sessions.untitled")
-              }
-              meta={<time className="font-mono text-xs">{relativeTime(session.last_active)}</time>}
-              onClick={() => {
-                closeMobile();
-                void navigate({
-                  to: activeProjectId
-                    ? "/agents/$agentId/projects/$projectId/sessions/$sessionId"
-                    : "/agents/$agentId/sessions/$sessionId",
-                  params: activeProjectId
-                    ? { agentId, projectId: activeProjectId, sessionId: session.id }
-                    : { agentId, sessionId: session.id },
-                });
-              }}
-            />
-          ))}
+          {visibleChatSessions.map((session: Session) => {
+            const label =
+              activeProjectId && session.kind === "main"
+                ? activeProject?.name || session.title || t("sessions.untitled")
+                : session.title || t("sessions.untitled");
+            return (
+              <SidebarItem
+                key={session.id}
+                active={activeSessionId === session.id}
+                className="group/thread"
+                label={
+                  editingSessionId === session.id ? (
+                    <Input
+                      autoFocus
+                      unstyled
+                      size="sm"
+                      className="w-full min-w-0"
+                      disabled={renaming}
+                      value={editingTitle}
+                      onBlur={() => void renameSession(session, label)}
+                      onChange={(event) => setEditingTitle(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void renameSession(session, label);
+                        }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelRenameSession();
+                        }
+                      }}
+                    />
+                  ) : (
+                    label
+                  )
+                }
+                meta={
+                  <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
+                }
+                trailing={
+                  editingSessionId === session.id ? undefined : (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <span
+                            className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/thread:opacity-70"
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        }
+                      >
+                        <MoreHorizontal className="size-3.5" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            openRenameSession(session, label);
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                          {t("sessions.sidebar.renameThread")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            void deleteThreadSession(session);
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                          {t("common.delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )
+                }
+                onClick={() => {
+                  closeMobile();
+                  void navigate({
+                    to: activeProjectId
+                      ? "/agents/$agentId/projects/$projectId/sessions/$sessionId"
+                      : "/agents/$agentId/sessions/$sessionId",
+                    params: activeProjectId
+                      ? { agentId, projectId: activeProjectId, sessionId: session.id }
+                      : { agentId, sessionId: session.id },
+                  });
+                }}
+              />
+            );
+          })}
           {!activeProjectId && chatsQuery.hasNextPage && (
             <button
               type="button"

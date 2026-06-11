@@ -554,6 +554,83 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	writeData(w, http.StatusOK, resp)
 }
 
+func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
+		return
+	}
+
+	var body apiserver.UpdateSessionJSONRequestBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if body.Title == nil {
+		writeError(w, http.StatusBadRequest, "no fields to update")
+		return
+	}
+	title := strings.TrimSpace(*body.Title)
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	info := UserFromContext(r.Context())
+	if info == nil || info.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if err := s.q.UpdateConversationTitleBySessionID(r.Context(), sqlc.UpdateConversationTitleBySessionIDParams{
+		Title:     sql.NullString{String: title, Valid: true},
+		SessionID: sessionID,
+		UserID:    sql.NullString{String: info.UserID, Valid: true},
+		AgentID:   sql.NullString{String: agentID, Valid: agentID != ""},
+	}); err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return
+	}
+	si, err := sm.LoadInfo(memoryContext(r, agentID), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	writeData(w, http.StatusOK, toSessionResponse(si))
+}
+
+func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	if err := s.checkSessionAccess(w, r, agentID, sessionID); err != nil {
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil || info.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if err := s.q.UpdateConversationArchived(r.Context(), sqlc.UpdateConversationArchivedParams{
+		Archived:  1,
+		SessionID: sessionID,
+		UserID:    sql.NullString{String: info.UserID, Valid: true},
+		AgentID:   sql.NullString{String: agentID, Valid: agentID != ""},
+	}); err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeNoContent(w)
+}
+
 func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.GetSessionMessagesParams) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")

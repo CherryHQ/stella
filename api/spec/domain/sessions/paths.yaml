@@ -84,6 +84,44 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    patch:
+      tags: [sessions]
+      summary: Update session metadata
+      operationId: updateSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateSessionRequest",
+            }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Session",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [sessions]
+      summary: Delete a session
+      operationId: deleteSession
+      responses:
+        "204": { description: deleted }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/agents/{agentId}/sessions/{sessionId}/messages:
     parameters:

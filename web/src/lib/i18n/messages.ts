@@ -674,6 +674,11 @@ const en = {
   "sessions.sidebar.chats": "Chats",
   "sessions.sidebar.threads": "Threads",
   "sessions.sidebar.newThread": "New thread",
+  "sessions.sidebar.renameThread": "Rename thread",
+  "sessions.sidebar.renameThreadDesc": "Give this thread a clearer name.",
+  "sessions.sidebar.renameRequired": "Thread name is required.",
+  "sessions.sidebar.renameFailed": "Failed to rename thread",
+  "sessions.sidebar.deleteThreadConfirm": "Delete this thread?",
   "sessions.sidebar.deleteProjectConfirm": "Delete this project? Sessions will be kept.",
 
   // Sessions panel — automation
@@ -1946,6 +1951,11 @@ const zh: Record<MessageKey, string> = {
   "sessions.sidebar.chats": "聊天",
   "sessions.sidebar.threads": "话题",
   "sessions.sidebar.newThread": "新话题",
+  "sessions.sidebar.renameThread": "重命名话题",
+  "sessions.sidebar.renameThreadDesc": "给这个话题换个更清楚的名字。",
+  "sessions.sidebar.renameRequired": "话题名称不能为空。",
+  "sessions.sidebar.renameFailed": "重命名话题失败",
+  "sessions.sidebar.deleteThreadConfirm": "删除这个话题？",
   "sessions.sidebar.deleteProjectConfirm": "删除此项目？会话会保留。",
 
   // Sessions panel — automation

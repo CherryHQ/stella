@@ -49,6 +49,11 @@ components:
           enum: [main, chat]
         project_id: { type: string }
 
+    UpdateSessionRequest:
+      type: object
+      properties:
+        title: { type: string }
+
     MessagePart:
       type: object
       required: [type]
