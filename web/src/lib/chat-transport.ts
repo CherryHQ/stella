@@ -167,7 +167,20 @@ export function mergeToolResults(messages: Message[]): Message[] {
   return out;
 }
 
-export function messageToUIMessage(m: Message, index: number): UIMessage {
+// Tiny non-cryptographic content hash. Used to derive a stable historical ID
+// that does not depend on the message's position in the list. Without this,
+// fetching an older page shifts every index and the dedup in setChatMessages
+// breaks — every already-loaded message would be added a second time.
+function stableContentKey(m: Message): string {
+  const sig = m.blocks ? JSON.stringify(m.blocks) : (m.content ?? "");
+  let h = 5381;
+  for (let i = 0; i < sig.length; i++) {
+    h = (h * 33) ^ sig.charCodeAt(i);
+  }
+  return (h >>> 0).toString(36);
+}
+
+export function messageToUIMessage(m: Message): UIMessage {
   const parts: UIMessage["parts"] = [];
 
   if (m.blocks && m.blocks.length > 0) {
@@ -203,7 +216,7 @@ export function messageToUIMessage(m: Message, index: number): UIMessage {
   }
 
   return {
-    id: `hist-${m.timestamp}-${m.role}-${index}`,
+    id: m.id ?? `hist-${m.timestamp}-${m.role}-${stableContentKey(m)}`,
     role: m.role === "tool" ? "assistant" : m.role,
     parts,
     metadata: {
