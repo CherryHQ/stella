@@ -111,8 +111,39 @@ stella scheduler add \
     --at "2024-01-15T14:45:00+08:00"
 ```
 
+## Job Template Subscriptions
+
+Platform-provided templates are opt-in scheduled jobs with platform-managed prompts. You cannot edit the message of a subscription job; the prompt is resolved from the template registry.
+
+**List available templates** (shows subscription status per template):
+
+```bash
+stella scheduler templates --help
+stella scheduler templates --json
+```
+
+**Subscribe to a template**:
+
+```bash
+stella scheduler subscribe --help
+stella scheduler subscribe recally-rss
+stella scheduler subscribe recally-rss --every 12h   # override default schedule
+```
+
+One subscription per template is allowed. If already subscribed, a friendly message is printed and the command exits with an error.
+
+**Unsubscribe from a template**:
+
+```bash
+stella scheduler unsubscribe --help
+stella scheduler unsubscribe recally-rss
+```
+
+If not subscribed, prints a message and exits successfully. Internally looks up the subscribed job ID from the templates list, then deletes it.
+
 ## Limitations
 
 - Scheduler must be enabled on the server (`scheduler.enabled = true` in config).
 - One-time jobs (`--at`) with a past timestamp are rejected.
 - Plugin-owned jobs cannot be modified.
+- Subscription job prompts are read-only; message edits are rejected by the server.

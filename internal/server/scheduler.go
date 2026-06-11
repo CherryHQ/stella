@@ -38,11 +38,12 @@ func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
 
 	templates := s.schedulerSvc.Templates()
 
-	// Build a lookup: template key → subscribed job ID for this user.
-	subscriptions := make(map[string]string)
+	// Build a lookup: template key → (subscribed job ID, agent ID) for this user.
+	type subInfo struct{ jobID, agentID string }
+	subscriptions := make(map[string]subInfo)
 	for _, job := range s.schedulerSvc.ListJobs() {
 		if job.OwnerKind == scheduler.JobOwnerUser && job.UserID == info.UserID && job.JobKey != "" {
-			subscriptions[job.JobKey] = job.ID
+			subscriptions[job.JobKey] = subInfo{jobID: job.ID, agentID: job.AgentID}
 		}
 	}
 
@@ -55,8 +56,11 @@ func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
 			DefaultSchedule: templateDefaultSchedule(tmpl.DefaultSchedule),
 			SessionMode:     tmpl.SessionMode,
 		}
-		if jobID, ok := subscriptions[tmpl.Key]; ok {
-			t.SubscribedJobId = ptrStr(jobID)
+		if sub, ok := subscriptions[tmpl.Key]; ok {
+			t.SubscribedJobId = ptrStr(sub.jobID)
+			if sub.agentID != "" {
+				t.SubscribedAgentId = ptrStr(sub.agentID)
+			}
 		}
 		out = append(out, t)
 	}

@@ -107,6 +107,12 @@ func TestListJobTemplates_WithSubscription(t *testing.T) {
 	if *templates[0].SubscribedJobId != created.Id {
 		t.Errorf("SubscribedJobId = %q, want %q", *templates[0].SubscribedJobId, created.Id)
 	}
+	if templates[0].SubscribedAgentId == nil {
+		t.Fatal("SubscribedAgentId is nil after subscribing")
+	}
+	if *templates[0].SubscribedAgentId != agentID {
+		t.Errorf("SubscribedAgentId = %q, want %q", *templates[0].SubscribedAgentId, agentID)
+	}
 }
 
 // TestListJobTemplates_503WhenDisabled verifies 503 when scheduler is nil.

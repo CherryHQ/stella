@@ -22,6 +22,24 @@ Available templates:
 
 The subscription appears in your scheduled jobs list with a template badge (for example, `Subscription · recally-rss`). The prompt is platform-managed and read-only — if you want a fully custom prompt, create a regular scheduled job instead.
 
+### Subscribe via the CLI
+
+```bash
+# List available templates and check subscription status
+stella scheduler templates
+
+# Subscribe (uses the template's default schedule)
+stella scheduler subscribe recally-rss
+
+# Subscribe with a custom schedule
+stella scheduler subscribe recally-rss --every 12h
+
+# Unsubscribe
+stella scheduler unsubscribe recally-rss
+```
+
+Run `stella scheduler subscribe --help` or `stella scheduler unsubscribe --help` for full flag details.
+
 ### Subscribe via the API
 
 ```
