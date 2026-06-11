@@ -47,9 +47,19 @@ func RollupGoal(goal sqlc.AgentGoal, counts sqlc.GoalChildCountsRow, hasOpenSynt
 	}
 	// goal.Status is running or blocked from here on.
 
+	done := nullFloatToInt(counts.RequiredDone)
 	failed := nullFloatToInt(counts.RequiredFailed)
+	cancelled := nullFloatToInt(counts.RequiredCancelled)
 	blocked := nullFloatToInt(counts.RequiredBlocked)
 	pending := nullFloatToInt(counts.RequiredPending)
+
+	// No required children yet: the planner may still be inserting tasks when
+	// the dispatcher tick fires, and a goal with only optional children has no
+	// completion signal. Never auto-complete on a vacuous "all required done";
+	// explicit CompleteGoal remains available.
+	if done+failed+cancelled+blocked+pending == 0 {
+		return GoalNextState{}
+	}
 
 	if failed > 0 {
 		return GoalNextState{NextStatus: GoalStatusFailed, Reason: "required_child_failed"}
