@@ -1,4 +1,4 @@
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useMemo, type ReactNode } from "react";
 import { useI18n } from "@/lib/i18n";
 import type { ContentBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,8 @@ interface Props {
   fileAgentId?: string;
   fileSessionId?: string;
   agentNames?: Map<string, string>;
+  /* Rendered inside the scroll container above the messages (e.g. epoch summaries). */
+  header?: ReactNode;
 }
 
 interface Annotated extends TranscriptMessage {
@@ -43,7 +45,7 @@ function annotate(messages: TranscriptMessage[]): Annotated[] {
 }
 
 export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTranscript(
-  { messages, loading, onScroll, fileAgentId, fileSessionId, agentNames },
+  { messages, loading, onScroll, fileAgentId, fileSessionId, agentNames, header },
   ref,
 ) {
   const { t } = useI18n();
@@ -52,7 +54,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
   return (
     <div
       ref={ref}
-      className="stella-transcript-scroll flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-8 sm:py-8"
+      className="stella-transcript-scroll min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-8 sm:py-8"
       onScroll={onScroll}
     >
       {loading && messages.length > 0 && (
@@ -63,18 +65,20 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
           </span>
         </div>
       )}
-      {messages.length === 0 && !loading && (
+      {header}
+      {messages.length === 0 && !loading && !header && (
         <div className="py-20 text-center">
           <p className="font-mono text-xs text-muted-foreground/60">
             {t("sessions.transcript.empty")}
           </p>
         </div>
       )}
-      <div className="mx-auto max-w-3xl space-y-8">
+      <div className="mx-auto w-full min-w-0 max-w-3xl space-y-8">
         {processed.map((msg, idx) => (
           <div
             key={msg.id}
             className={cn(
+              "min-w-0",
               msg.sameRoleAsPrev ? "-mt-2" : "",
               idx > 0 && msg.role === "user" && !msg.sameRoleAsPrev
                 ? "border-t border-border/40 pt-8 mt-8"

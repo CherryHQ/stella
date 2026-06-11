@@ -15,6 +15,12 @@ SELECT * FROM agent_task_blocker
 WHERE task_id = ? AND status = 'open'
 LIMIT 1;
 
+-- name: GetLatestResolvedBlockerForTask :one
+SELECT * FROM agent_task_blocker
+WHERE task_id = ? AND status = 'resolved'
+ORDER BY resolved_at DESC
+LIMIT 1;
+
 -- name: ListAgentTaskBlockersByTask :many
 SELECT * FROM agent_task_blocker WHERE task_id = ? ORDER BY created_at DESC;
 

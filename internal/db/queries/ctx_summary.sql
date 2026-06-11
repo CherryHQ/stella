@@ -33,6 +33,14 @@ JOIN ctx_summary_message sm ON sm.message_id = m.id
 WHERE sm.summary_id = ?
 ORDER BY sm.ordinal ASC;
 
+-- name: GetSummaryMessageSeqRange :one
+SELECT
+  CAST(COALESCE(MIN(m.seq), 0) AS INTEGER) AS message_seq_from,
+  CAST(COALESCE(MAX(m.seq), 0) AS INTEGER) AS message_seq_to
+FROM ctx_summary_message sm
+JOIN ctx_message m ON sm.message_id = m.id
+WHERE sm.summary_id = ?;
+
 -- name: GetSummaryParents :many
 SELECT s.* FROM ctx_summary s
 JOIN ctx_summary_parent sp ON sp.parent_summary_id = s.id

@@ -2,6 +2,8 @@ import type { TFunction } from "i18next";
 import { cn } from "@/lib/utils";
 import type { MessageKey } from "@/lib/i18n/messages";
 import type { ComponentsGoal, ComponentsTask } from "@/lib/api-client/types.gen";
+import type { SchedulerJob } from "@/lib/types";
+import { parseGoDuration } from "./types";
 
 export type Status =
   | "draft"
@@ -168,6 +170,47 @@ export function ProgressBar({ r, className }: { r: Rollup; className?: string })
       )}
     </div>
   );
+}
+
+/** Localized schedule text: "Every 30 min", a raw cron expression, or a one-shot time. */
+export function humanScheduleText(t: TFunction, j: SchedulerJob): string {
+  if (j.cron) return j.cron;
+  if (j.every) {
+    const ms = parseGoDuration(j.every);
+    if (ms != null && ms > 0) {
+      if (ms % 3_600_000 === 0) return t("hub.everyHours", { n: ms / 3_600_000 });
+      if (ms % 60_000 === 0) return t("hub.everyMinutes", { n: ms / 60_000 });
+    }
+    return t("hub.everyDuration", { d: j.every });
+  }
+  if (j.at) return t("hub.onceAt", { time: new Date(j.at).toLocaleString() });
+  return "—";
+}
+
+/** Localized countdown for a future time; falls back to a date beyond 24h. */
+export function formatUntil(t: TFunction, d: Date): string {
+  const diff = d.getTime() - Date.now();
+  if (diff < 60_000) return t("hub.nextNow");
+  if (diff < 3_600_000) return t("hub.inMinutes", { n: Math.round(diff / 60_000) });
+  if (diff < 86_400_000) return t("hub.inHours", { n: Math.round(diff / 3_600_000) });
+  return d.toLocaleString();
+}
+
+export function priorityLabel(t: TFunction, priority: string): string {
+  if (priority === "urgent") return t("tasks.priorityUrgent");
+  return t("tasks.priorityRoutine");
+}
+
+const POLICY_KEY: Record<string, MessageKey> = {
+  none: "hub.policyNone",
+  auto: "hub.policyAuto",
+  agent: "hub.policyAgent",
+  human: "hub.policyHuman",
+};
+
+export function policyLabel(t: TFunction, policy: string): string {
+  const key = POLICY_KEY[policy];
+  return key ? t(key) : policy;
 }
 
 export function avatarInitials(name: string): string {

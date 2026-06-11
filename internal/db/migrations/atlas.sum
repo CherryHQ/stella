@@ -1,4 +1,4 @@
-h1:PstP3yYfZbkbGLHyxdyf9H9wcT3nJS1RliZa6JcsUYo=
+h1:DAnl1aYsM7aW7dmSZhHyEmdm8+y1PQ8GsS9u49b075s=
 20260531120105_initial.sql h1:yFv08NKwCabgVkvWoSNzba6WMXjbXrI9xHctaJBir/8=
 20260601060943_add_config_to_plugin_override.sql h1:q2MIJRzEYGDQyjnLeFUrQ0zbnvdgxBh/MRANwRmPFn4=
 20260602031701_add-channel-name.sql h1:1ZGYJvwMOOShxLGIN9SJihmcfQtFRpTPXHhOWDv29fc=
@@ -17,3 +17,4 @@ h1:PstP3yYfZbkbGLHyxdyf9H9wcT3nJS1RliZa6JcsUYo=
 20260606104642_rename_recally_feed.sql h1:4fOp9kKwEa8qGluJlEAwIP/fdBwzOg0WhpLL+l3dnSA=
 20260609105345_add_ctx_item_event_type.sql h1:N+zrGeAGMj7atd5HO1fd0s+GTnKNAIxbjlkumhvoa60=
 20260610014557_add_agent_thinking_levels.sql h1:zsr59uHERtdAhgsGA/NomtUKAaWyxHrajHYsU8/U8h4=
+20260611023502_sched_job_run_output.sql h1:zNoa428mqc9RwW6uevQCKYYE6Ury2HfWcH62BIlIEq4=

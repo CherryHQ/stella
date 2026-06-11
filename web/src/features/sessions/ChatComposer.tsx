@@ -187,7 +187,7 @@ export function ChatComposer({
   const hasChips = (hasAttachments && attachments.length > 0) || selectedSkills.length > 0;
 
   return (
-    <div className="relative flex-shrink-0 px-4 pt-2 pb-3 sm:px-8">
+    <div className="relative min-w-0 flex-shrink-0 px-4 pt-2 pb-3 sm:px-8">
       {overlay}
       {onFileSelect && (
         <input
@@ -203,7 +203,7 @@ export function ChatComposer({
       )}
       <div
         className={cn(
-          "relative mx-auto max-w-3xl rounded-xl border bg-card flex flex-col p-1.5",
+          "relative mx-auto flex w-full min-w-0 max-w-3xl flex-col rounded-xl border bg-card p-1.5",
           isStreaming
             ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
             : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
@@ -267,7 +267,7 @@ export function ChatComposer({
               ))}
           </div>
         )}
-        <div className="relative">
+        <div className="relative min-w-0">
           <textarea
             ref={taRef}
             value={value}
@@ -322,7 +322,7 @@ export function ChatComposer({
               }
             }}
             placeholder={placeholder}
-            className="w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1.5 pr-12 text-[15px] leading-relaxed focus:outline-none placeholder:text-muted-foreground text-foreground"
+            className="w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1.5 pr-12 text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             style={{ minHeight: 40, maxHeight: 160 }}
             rows={1}
             disabled={disabled ?? isStreaming}
@@ -355,7 +355,7 @@ export function ChatComposer({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 px-2 pb-0.5">
+        <div className="flex min-w-0 items-center gap-1.5 px-2 pb-0.5">
           {!isStreaming && onFileSelect && (
             <button
               type="button"
@@ -367,7 +367,7 @@ export function ChatComposer({
             </button>
           )}
           {!isStreaming && (
-            <span className="text-[9px] font-mono text-muted-foreground select-none">
+            <span className="min-w-0 truncate font-mono text-[9px] text-muted-foreground select-none">
               {skills && skills.length > 0
                 ? t("sessions.transcript.sendHintSkills")
                 : t("sessions.transcript.sendHint")}

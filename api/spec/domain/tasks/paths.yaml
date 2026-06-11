@@ -279,6 +279,25 @@ paths:
         "409":
           { $ref: "../../components.yaml#/components/responses/Conflict" }
 
+  /api/tasks/{taskId}/blockers/{blockerId}:
+    parameters:
+      - { name: taskId, in: path, required: true, schema: { type: string } }
+      - { name: blockerId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [tasks]
+      summary: Get a blocker
+      operationId: getTaskBlocker
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                { $ref: "../../components.yaml#/components/schemas/Blocker" }
+        "401":
+          { $ref: "../../components.yaml#/components/responses/Unauthorized" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/tasks/{taskId}/blockers/{blockerId}/resolve:
     parameters:
       - { name: taskId, in: path, required: true, schema: { type: string } }

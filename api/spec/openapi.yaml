@@ -55,6 +55,7 @@ tags:
   - name: status
   - name: tasks
   - name: projects
+  - name: inbox
 paths:
   # ── Status ─────────────────────────────────────────────────────────────────
   /api/status:
@@ -93,6 +94,9 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
   /api/agents/{id}/skills/{skillId}/file:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
+  # ── Inbox ──────────────────────────────────────────────────────────────────
+  /api/inbox:
+    $ref: "./domain/inbox/paths.yaml#/paths/~1api~1inbox"
   # ── Projects ───────────────────────────────────────────────────────────────
   /api/agents/{agentId}/projects:
     $ref: "./domain/projects/paths.yaml#/paths/~1api~1agents~1{agentId}~1projects"
@@ -160,6 +164,10 @@ paths:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}"
   /api/agents/{agentId}/sessions/{sessionId}/messages:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1messages"
+  /api/agents/{agentId}/sessions/{sessionId}/context-items:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1context-items"
+  /api/agents/{agentId}/sessions/{sessionId}/summaries/{summaryId}:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1summaries~1{summaryId}"
   /api/agents/{agentId}/sessions/{sessionId}/workspace:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1workspace"
   /api/agents/{agentId}/sessions/{sessionId}/workspace/files:
@@ -284,6 +292,8 @@ paths:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1deps"
   /api/tasks/{taskId}/deps/{depTaskId}/waive:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1deps~1{depTaskId}~1waive"
+  /api/tasks/{taskId}/blockers/{blockerId}:
+    $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1blockers~1{blockerId}"
   /api/tasks/{taskId}/blockers/{blockerId}/resolve:
     $ref: "./domain/tasks/paths.yaml#/paths/~1api~1tasks~1{taskId}~1blockers~1{blockerId}~1resolve"
   /api/tasks/{taskId}/reviews:

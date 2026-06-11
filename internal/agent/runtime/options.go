@@ -1,6 +1,9 @@
 package runtime
 
-import "github.com/CherryHQ/stella/internal/memory"
+import (
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/tools"
+)
 
 // Option configures a single Chat call.
 type Option func(*chatOptions)
@@ -9,6 +12,7 @@ type chatOptions struct {
 	model          string
 	systemOverride string
 	excludedTools  []string
+	extraTools     []tools.Tool
 	currentSpeaker memory.CurrentSpeaker
 	hasSpeaker     bool
 }
@@ -41,5 +45,15 @@ func WithSystemOverride(system string) Option {
 func WithExcludedTools(names ...string) Option {
 	return func(o *chatOptions) {
 		o.excludedTools = append(o.excludedTools, names...)
+	}
+}
+
+// WithExtraTools binds additional tools to the runner for this Chat call.
+// The runner is rebuilt for the call (per-call tools defeat the session
+// cache), so callers should evict the session runner afterwards via
+// CloseSession to avoid the tools leaking into later tool-less turns.
+func WithExtraTools(ts ...tools.Tool) Option {
+	return func(o *chatOptions) {
+		o.extraTools = append(o.extraTools, ts...)
 	}
 }

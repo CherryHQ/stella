@@ -27,6 +27,10 @@ func TestRollupGoal(t *testing.T) {
 	}{
 		{"draft-no-op", GoalStatusDraft, ReviewPolicyNone, count(0, 0, 0, 2), false, "", false},
 		{"reviewing-no-op", GoalStatusReviewing, ReviewPolicyHuman, count(2, 0, 0, 0), false, "", false},
+		// An empty goal (planner hasn't inserted tasks yet) or one with only
+		// optional children must not vacuously auto-complete.
+		{"running-no-required-children", GoalStatusRunning, ReviewPolicyNone, count(0, 0, 0, 0), false, "", false},
+		{"blocked-no-required-children", GoalStatusBlocked, ReviewPolicyNone, count(0, 0, 0, 0), false, "", false},
 		{"running-pending", GoalStatusRunning, ReviewPolicyNone, count(1, 0, 0, 2), false, GoalStatusRunning, false},
 		{"running-failed-child", GoalStatusRunning, ReviewPolicyNone, count(1, 1, 0, 0), false, GoalStatusFailed, false},
 		{"running-blocked-child", GoalStatusRunning, ReviewPolicyNone, count(1, 0, 1, 0), false, GoalStatusBlocked, false},

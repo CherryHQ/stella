@@ -15,6 +15,11 @@ WHERE session_id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id)
   AND agent_id IS sqlc.narg(agent_id);
 
+-- name: GetConversationAgentBySessionID :one
+SELECT agent_id FROM ctx_conversation
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id);
+
 -- name: UpdateConversationTitle :exec
 UPDATE ctx_conversation SET title = sqlc.arg(title), updated_at = datetime('now')
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND agent_id IS sqlc.narg(agent_id);
@@ -47,6 +52,14 @@ SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id) IS NULL OR agent_id = sqlc.narg(agent_id))
 ORDER BY last_active DESC;
+
+-- name: ListAgentConversationLastActive :many
+SELECT agent_id, MAX(last_active) AS last_active
+FROM ctx_conversation
+WHERE user_id = sqlc.arg(user_id)
+  AND agent_id IS NOT NULL
+  AND archived = 0
+GROUP BY agent_id;
 
 -- name: ListConversationsForReviewByAgent :many
 SELECT * FROM ctx_conversation

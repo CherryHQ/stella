@@ -11,7 +11,6 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -36,6 +35,12 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
+		// System and plugin jobs are platform-level: users cannot edit or
+		// trigger them, so only admins see them.
+		if (row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem) &&
+			(info == nil || !info.IsAdmin) {
+			continue
+		}
 		jobs = append(jobs, dbRowToAPIJob(row))
 	}
 	writeData(w, http.StatusOK, apiserver.JobList{Jobs: jobs})
@@ -354,16 +359,21 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 	if existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem {
-		writeError(w, http.StatusForbidden, "cannot manually trigger system or plugin jobs")
-		return
-	}
-	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
-		writeError(w, http.StatusNotFound, "job not found")
-		return
-	}
-	if !existing.UserID.Valid || existing.UserID.String != info.UserID {
-		writeError(w, http.StatusForbidden, "access denied")
-		return
+		// System and plugin jobs are not owned by any user; only admins may
+		// trigger them manually.
+		if !info.IsAdmin {
+			writeError(w, http.StatusForbidden, "cannot manually trigger system or plugin jobs")
+			return
+		}
+	} else {
+		if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+			writeError(w, http.StatusNotFound, "job not found")
+			return
+		}
+		if !existing.UserID.Valid || existing.UserID.String != info.UserID {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	runID, err := s.schedulerSvc.RunJobNow(r.Context(), jobID)
@@ -424,17 +434,22 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	}
 
 	page, nextToken := nextPageTokenForRows(rows, limit, offset)
-	sm, _ := s.mem.(memory.SessionManager)
 	runs := make([]apitypes.JobRun, 0, len(page))
 	for _, row := range page {
 		j := dbRowToAPIJobRun(row)
-		if j.SessionId != "" && sm != nil {
-			ctx := r.Context()
-			if row.UserID.Valid {
-				ctx = memory.WithUserID(ctx, row.UserID.String)
-			}
-			if _, err := sm.LoadInfo(ctx, j.SessionId); err != nil {
+		// Resolve the run's conversation to confirm the session exists and to
+		// report which agent owns it — system jobs run under an agent that
+		// differs from the URL agent.
+		if j.SessionId != "" {
+			agent, err := s.q.GetConversationAgentBySessionID(r.Context(), sqlc.GetConversationAgentBySessionIDParams{
+				SessionID: j.SessionId,
+				UserID:    row.UserID,
+			})
+			switch {
+			case err != nil:
 				j.SessionId = ""
+			case agent.Valid:
+				j.SessionAgentId = ptrStr(agent.String)
 			}
 		}
 		runs = append(runs, j)
@@ -518,6 +533,9 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 	}
 	if row.Error != "" {
 		j.Error = &row.Error
+	}
+	if row.Output != "" {
+		j.Output = &row.Output
 	}
 	if row.UserID.Valid {
 		j.UserId = ptrStr(row.UserID.String)

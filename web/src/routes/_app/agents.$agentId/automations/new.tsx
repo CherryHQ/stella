@@ -1,3 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_app/agents/$agentId/automations/new")({});
+export const Route = createFileRoute("/_app/agents/$agentId/automations/new")({
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/agents/$agentId/tasks",
+      params,
+      search: { new: "schedule" },
+    });
+  },
+});

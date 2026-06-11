@@ -505,6 +505,44 @@ func (s *Server) WaiveTaskDep(w http.ResponseWriter, r *http.Request, taskID str
 // Blockers
 // ---------------------------------------------------------------------------
 
+func (s *Server) GetTaskBlocker(w http.ResponseWriter, r *http.Request, taskID string, blockerID string) {
+	if !s.tasksReady() {
+		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
+		return
+	}
+	if requireAuth(w, r) == nil {
+		return
+	}
+	t, ok := s.loadTask(r.Context(), w, taskID)
+	if !ok {
+		return
+	}
+	blocker, err := s.tasksSvc.Facade.GetBlocker(r.Context(), blockerID)
+	if err != nil || blocker.TaskID != t.ID {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	writeData(w, http.StatusOK, blockerToAPI(blocker))
+}
+
+func blockerToAPI(b sqlc.AgentTaskBlocker) apitypes.Blocker {
+	out := apitypes.Blocker{
+		Id:         b.ID,
+		TaskId:     b.TaskID,
+		Kind:       apitypes.BlockerKind(b.Kind),
+		Status:     apitypes.BlockerStatus(b.Status),
+		Question:   b.Question,
+		Detail:     optStr(b.Detail),
+		Resolution: optStr(b.Resolution),
+		CreatedAt:  parseTS(b.CreatedAt),
+	}
+	if b.ResolvedAt.Valid {
+		v := parseTS(b.ResolvedAt.String)
+		out.ResolvedAt = &v
+	}
+	return out
+}
+
 func (s *Server) ResolveTaskBlocker(w http.ResponseWriter, r *http.Request, taskID string, blockerID string) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")

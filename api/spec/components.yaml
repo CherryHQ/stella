@@ -79,6 +79,10 @@ components:
           type: string
         enabled:
           type: boolean
+        last_active:
+          type: string
+          format: date-time
+          nullable: true
     AgentList:
       type: object
       required: [agents]
@@ -721,6 +725,10 @@ components:
         updated_at:
           type: string
           format: date-time
+        last_active:
+          type: string
+          format: date-time
+          nullable: true
     GroupList:
       type: object
       required: [groups]
@@ -823,6 +831,54 @@ components:
         client_message_id:
           type: string
           description: "Client-generated UUID for idempotent dedup"
+    InboxItem:
+      type: object
+      required: [
+        id,
+        kind,
+        title,
+        source_type,
+        source_id,
+        target_path,
+        created_at,
+      ]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [blocked, review, failed]
+        title:
+          type: string
+        detail:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+        project_id:
+          type: string
+          nullable: true
+        source_type:
+          type: string
+          enum: [task, task_run, scheduler_run]
+        source_id:
+          type: string
+        target_path:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    InboxList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InboxItem"
+        next_page_token:
+          type: string
+          nullable: true
     CachedModel:
       type: object
       required: [provider, model]
@@ -1924,6 +1980,9 @@ components:
           type: string
         session_id:
           type: string
+        session_agent_id:
+          type: string
+          description: Agent that owns the run's session; may differ from the URL agent for system jobs.
         user_id:
           type: string
         status:
@@ -1936,6 +1995,9 @@ components:
           format: date-time
         error:
           type: string
+        output:
+          type: string
+          description: Final assistant text produced by the run (truncated to 4000 chars).
         duration:
           type: string
     JobRunList:
@@ -2152,6 +2214,130 @@ components:
           items:
             type: object
             additionalProperties: {}
+    SessionContextMeta:
+      type: object
+      required: [
+        message_count,
+        source_token_count,
+        active_token_count,
+        summary_depth,
+      ]
+      properties:
+        message_count:
+          type: integer
+        source_token_count:
+          type: integer
+        active_token_count:
+          type: integer
+        summary_depth:
+          type: integer
+    SessionContextMessage:
+      type: object
+      required: [id, seq, role, timestamp, token_count]
+      properties:
+        id:
+          type: string
+        seq:
+          type: integer
+        role:
+          type: string
+        event_type:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        token_count:
+          type: integer
+        data:
+          type: object
+          additionalProperties: {}
+    SessionContextSummary:
+      type: object
+      required: [
+        id,
+        kind,
+        depth,
+        content,
+        token_count,
+        descendant_count,
+        descendant_token_count,
+        source_message_token_count,
+        created_at,
+      ]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        depth:
+          type: integer
+        content:
+          type: string
+        token_count:
+          type: integer
+        earliest_at:
+          type: string
+          format: date-time
+          nullable: true
+        latest_at:
+          type: string
+          format: date-time
+          nullable: true
+        descendant_count:
+          type: integer
+        descendant_token_count:
+          type: integer
+        source_message_token_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    SessionContextItem:
+      type: object
+      required: [ordinal, type]
+      properties:
+        ordinal:
+          type: integer
+        type:
+          type: string
+          enum: [message, summary]
+        event_type:
+          type: string
+        message:
+          $ref: "#/components/schemas/SessionContextMessage"
+        summary:
+          $ref: "#/components/schemas/SessionContextSummary"
+    SessionContextItemList:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionContextItem"
+        meta:
+          $ref: "#/components/schemas/SessionContextMeta"
+        next_page_token:
+          type: string
+          nullable: true
+    SessionSummaryDetail:
+      type: object
+      required: [summary, children]
+      properties:
+        summary:
+          $ref: "#/components/schemas/SessionContextSummary"
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionContextSummary"
+        message_seq_from:
+          type: integer
+          nullable: true
+        message_seq_to:
+          type: integer
+          nullable: true
     Share:
       type: object
       required: [id, url, title, media_type, created_at]
@@ -2687,6 +2873,40 @@ components:
       properties:
         reason:
           type: string
+    Blocker:
+      type: object
+      required: [id, task_id, kind, status, question, created_at]
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        kind:
+          type: string
+          enum: [
+            user_input,
+            external_dependency,
+            tool_error,
+            policy_hold,
+            dep_failure,
+          ]
+        status:
+          type: string
+          enum: [open, resolved, cancelled]
+        question:
+          type: string
+        detail:
+          type: string
+          description: JSON blob with blocker context.
+        resolution:
+          type: string
+          description: Answer recorded when the blocker was resolved.
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
     ResolveBlockerRequest:
       type: object
       properties:

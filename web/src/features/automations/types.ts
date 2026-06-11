@@ -87,3 +87,39 @@ export function jobScheduleText(j: SchedulerJob): string {
   if (j.at) return "at " + j.at;
   return "—";
 }
+
+/** Parse a Go duration string ("30m", "1h30m", "90s") into milliseconds. */
+export function parseGoDuration(s: string): number | null {
+  const re = /(\d+(?:\.\d+)?)(h|ms|m|s)/g;
+  let ms = 0;
+  let matched = false;
+  for (const m of s.matchAll(re)) {
+    matched = true;
+    const n = Number(m[1]);
+    if (m[2] === "h") ms += n * 3_600_000;
+    else if (m[2] === "m") ms += n * 60_000;
+    else if (m[2] === "s") ms += n * 1_000;
+    else ms += n;
+  }
+  return matched ? ms : null;
+}
+
+/**
+ * Next run time, when it is computable client-side: interval jobs derive it
+ * from last_run_at + interval; one-shot jobs use their timestamp. Cron jobs
+ * return null (no cron parser shipped) and fall back to the schedule text.
+ */
+export function jobNextRunAt(j: SchedulerJob): Date | null {
+  if (!j.enabled) return null;
+  if (j.every && j.last_run_at) {
+    const ms = parseGoDuration(j.every);
+    if (ms == null) return null;
+    const next = new Date(j.last_run_at).getTime() + ms;
+    return new Date(Math.max(next, Date.now()));
+  }
+  if (j.at) {
+    const at = new Date(j.at);
+    return at.getTime() > Date.now() ? at : null;
+  }
+  return null;
+}

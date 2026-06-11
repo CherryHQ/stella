@@ -25,7 +25,7 @@ func (q *Queries) CountRunningSchedJobRuns(ctx context.Context, jobID string) (i
 const createSchedJobRun = `-- name: CreateSchedJobRun :one
 INSERT INTO sched_job_run (id, job_id, session_id, status, started_at, finished_at, error, user_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, job_id, session_id, status, started_at, finished_at, error, user_id
+RETURNING id, job_id, session_id, status, started_at, finished_at, error, output, user_id
 `
 
 type CreateSchedJobRunParams struct {
@@ -59,13 +59,14 @@ func (q *Queries) CreateSchedJobRun(ctx context.Context, arg CreateSchedJobRunPa
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Error,
+		&i.Output,
 		&i.UserID,
 	)
 	return i, err
 }
 
 const getSchedJobRun = `-- name: GetSchedJobRun :one
-SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_run WHERE id = ? AND job_id = ?
+SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run WHERE id = ? AND job_id = ?
 `
 
 type GetSchedJobRunParams struct {
@@ -84,13 +85,86 @@ func (q *Queries) GetSchedJobRun(ctx context.Context, arg GetSchedJobRunParams) 
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Error,
+		&i.Output,
 		&i.UserID,
 	)
 	return i, err
 }
 
+const listFailedInboxSchedulerRuns = `-- name: ListFailedInboxSchedulerRuns :many
+SELECT
+  r.id AS run_id,
+  r.job_id,
+  j.agent_id,
+  j.name,
+  r.error,
+  r.finished_at,
+  r.started_at
+FROM sched_job_run r
+JOIN sched_job j ON j.id = r.job_id
+WHERE r.user_id = ?1
+  AND r.status = 'failed'
+  AND datetime(r.finished_at) >= datetime(?2)
+  AND (?3 IS NULL OR j.agent_id = ?3)
+ORDER BY r.finished_at DESC, r.id DESC
+LIMIT ?4
+`
+
+type ListFailedInboxSchedulerRunsParams struct {
+	UserID     sql.NullString `json:"user_id"`
+	Since      interface{}    `json:"since"`
+	AgentID    interface{}    `json:"agent_id"`
+	LimitCount int64          `json:"limit_count"`
+}
+
+type ListFailedInboxSchedulerRunsRow struct {
+	RunID      string         `json:"run_id"`
+	JobID      string         `json:"job_id"`
+	AgentID    sql.NullString `json:"agent_id"`
+	Name       string         `json:"name"`
+	Error      string         `json:"error"`
+	FinishedAt sql.NullString `json:"finished_at"`
+	StartedAt  string         `json:"started_at"`
+}
+
+func (q *Queries) ListFailedInboxSchedulerRuns(ctx context.Context, arg ListFailedInboxSchedulerRunsParams) ([]ListFailedInboxSchedulerRunsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedInboxSchedulerRuns,
+		arg.UserID,
+		arg.Since,
+		arg.AgentID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFailedInboxSchedulerRunsRow{}
+	for rows.Next() {
+		var i ListFailedInboxSchedulerRunsRow
+		if err := rows.Scan(
+			&i.RunID,
+			&i.JobID,
+			&i.AgentID,
+			&i.Name,
+			&i.Error,
+			&i.FinishedAt,
+			&i.StartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSchedJobRuns = `-- name: ListSchedJobRuns :many
-SELECT id, job_id, session_id, status, started_at, finished_at, error, user_id FROM sched_job_run
+SELECT id, job_id, session_id, status, started_at, finished_at, error, output, user_id FROM sched_job_run
 WHERE job_id = ?1
   AND (?2 IS NULL OR user_id = ?2)
 ORDER BY started_at DESC, id DESC
@@ -126,6 +200,7 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.Error,
+			&i.Output,
 			&i.UserID,
 		); err != nil {
 			return nil, err
@@ -143,7 +218,7 @@ func (q *Queries) ListSchedJobRuns(ctx context.Context, arg ListSchedJobRunsPara
 
 const updateSchedJobRun = `-- name: UpdateSchedJobRun :exec
 UPDATE sched_job_run
-SET status = ?, finished_at = ?, error = ?
+SET status = ?, finished_at = ?, error = ?, output = ?
 WHERE id = ? AND job_id = ?
 `
 
@@ -151,6 +226,7 @@ type UpdateSchedJobRunParams struct {
 	Status     string         `json:"status"`
 	FinishedAt sql.NullString `json:"finished_at"`
 	Error      string         `json:"error"`
+	Output     string         `json:"output"`
 	ID         string         `json:"id"`
 	JobID      string         `json:"job_id"`
 }
@@ -160,6 +236,7 @@ func (q *Queries) UpdateSchedJobRun(ctx context.Context, arg UpdateSchedJobRunPa
 		arg.Status,
 		arg.FinishedAt,
 		arg.Error,
+		arg.Output,
 		arg.ID,
 		arg.JobID,
 	)

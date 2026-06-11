@@ -160,6 +160,43 @@ func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID str
 	return items, nil
 }
 
+const getContextStats = `-- name: GetContextStats :one
+SELECT
+  (SELECT COUNT(*) FROM ctx_message cm WHERE cm.conversation_id = ?1) AS message_count,
+  (SELECT CAST(COALESCE(SUM(cm.token_count), 0) AS INTEGER) FROM ctx_message cm WHERE cm.conversation_id = ?1) AS source_token_count,
+  (SELECT CAST(COALESCE(SUM(
+        CASE
+            WHEN ci.item_type = 'message' THEN m.token_count
+            WHEN ci.item_type = 'summary' THEN s.token_count
+            ELSE 0
+        END
+    ), 0) AS INTEGER)
+   FROM ctx_item ci
+   LEFT JOIN ctx_message m ON ci.message_id = m.id
+   LEFT JOIN ctx_summary s ON ci.summary_id = s.id
+   WHERE ci.conversation_id = ?1) AS active_token_count,
+  (SELECT CAST(COALESCE(MAX(cs.depth), 0) AS INTEGER) FROM ctx_summary cs WHERE cs.conversation_id = ?1) AS summary_depth
+`
+
+type GetContextStatsRow struct {
+	MessageCount     int64 `json:"message_count"`
+	SourceTokenCount int64 `json:"source_token_count"`
+	ActiveTokenCount int64 `json:"active_token_count"`
+	SummaryDepth     int64 `json:"summary_depth"`
+}
+
+func (q *Queries) GetContextStats(ctx context.Context, conversationID string) (GetContextStatsRow, error) {
+	row := q.db.QueryRowContext(ctx, getContextStats, conversationID)
+	var i GetContextStatsRow
+	err := row.Scan(
+		&i.MessageCount,
+		&i.SourceTokenCount,
+		&i.ActiveTokenCount,
+		&i.SummaryDepth,
+	)
+	return i, err
+}
+
 const getContextTokenCount = `-- name: GetContextTokenCount :one
 SELECT CAST(
     COALESCE(SUM(
@@ -227,4 +264,110 @@ func (q *Queries) GetMaxContextOrdinal(ctx context.Context, conversationID strin
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const listContextItemsPage = `-- name: ListContextItemsPage :many
+SELECT
+  ci.ordinal,
+  ci.item_type,
+  ci.event_type,
+  m.id AS message_id,
+  m.seq AS message_seq,
+  m.role AS message_role,
+  m.event_type AS message_event_type,
+  m.content AS message_content,
+  m.token_count AS message_token_count,
+  m.created_at AS message_created_at,
+  s.id AS summary_id,
+  s.kind AS summary_kind,
+  s.depth AS summary_depth,
+  s.content AS summary_content,
+  s.token_count AS summary_token_count,
+  s.earliest_at AS summary_earliest_at,
+  s.latest_at AS summary_latest_at,
+  s.descendant_count AS summary_descendant_count,
+  s.descendant_token_count AS summary_descendant_token_count,
+  s.source_message_token_count AS summary_source_message_token_count,
+  s.created_at AS summary_created_at
+FROM ctx_item ci
+LEFT JOIN ctx_message m ON m.id = ci.message_id
+LEFT JOIN ctx_summary s ON s.id = ci.summary_id
+WHERE ci.conversation_id = ?1
+ORDER BY ci.ordinal ASC
+LIMIT ?3 OFFSET ?2
+`
+
+type ListContextItemsPageParams struct {
+	ConversationID string `json:"conversation_id"`
+	OffsetCount    int64  `json:"offset_count"`
+	LimitCount     int64  `json:"limit_count"`
+}
+
+type ListContextItemsPageRow struct {
+	Ordinal                        int64          `json:"ordinal"`
+	ItemType                       string         `json:"item_type"`
+	EventType                      string         `json:"event_type"`
+	MessageID                      sql.NullString `json:"message_id"`
+	MessageSeq                     sql.NullInt64  `json:"message_seq"`
+	MessageRole                    sql.NullString `json:"message_role"`
+	MessageEventType               sql.NullString `json:"message_event_type"`
+	MessageContent                 sql.NullString `json:"message_content"`
+	MessageTokenCount              sql.NullInt64  `json:"message_token_count"`
+	MessageCreatedAt               sql.NullString `json:"message_created_at"`
+	SummaryID                      sql.NullString `json:"summary_id"`
+	SummaryKind                    sql.NullString `json:"summary_kind"`
+	SummaryDepth                   sql.NullInt64  `json:"summary_depth"`
+	SummaryContent                 sql.NullString `json:"summary_content"`
+	SummaryTokenCount              sql.NullInt64  `json:"summary_token_count"`
+	SummaryEarliestAt              sql.NullString `json:"summary_earliest_at"`
+	SummaryLatestAt                sql.NullString `json:"summary_latest_at"`
+	SummaryDescendantCount         sql.NullInt64  `json:"summary_descendant_count"`
+	SummaryDescendantTokenCount    sql.NullInt64  `json:"summary_descendant_token_count"`
+	SummarySourceMessageTokenCount sql.NullInt64  `json:"summary_source_message_token_count"`
+	SummaryCreatedAt               sql.NullString `json:"summary_created_at"`
+}
+
+func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItemsPageParams) ([]ListContextItemsPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listContextItemsPage, arg.ConversationID, arg.OffsetCount, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListContextItemsPageRow{}
+	for rows.Next() {
+		var i ListContextItemsPageRow
+		if err := rows.Scan(
+			&i.Ordinal,
+			&i.ItemType,
+			&i.EventType,
+			&i.MessageID,
+			&i.MessageSeq,
+			&i.MessageRole,
+			&i.MessageEventType,
+			&i.MessageContent,
+			&i.MessageTokenCount,
+			&i.MessageCreatedAt,
+			&i.SummaryID,
+			&i.SummaryKind,
+			&i.SummaryDepth,
+			&i.SummaryContent,
+			&i.SummaryTokenCount,
+			&i.SummaryEarliestAt,
+			&i.SummaryLatestAt,
+			&i.SummaryDescendantCount,
+			&i.SummaryDescendantTokenCount,
+			&i.SummarySourceMessageTokenCount,
+			&i.SummaryCreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

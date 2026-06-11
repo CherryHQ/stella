@@ -230,6 +230,27 @@ func (q *Queries) GetSummaryChildren(ctx context.Context, parentSummaryID string
 	return items, nil
 }
 
+const getSummaryMessageSeqRange = `-- name: GetSummaryMessageSeqRange :one
+SELECT
+  CAST(COALESCE(MIN(m.seq), 0) AS INTEGER) AS message_seq_from,
+  CAST(COALESCE(MAX(m.seq), 0) AS INTEGER) AS message_seq_to
+FROM ctx_summary_message sm
+JOIN ctx_message m ON sm.message_id = m.id
+WHERE sm.summary_id = ?
+`
+
+type GetSummaryMessageSeqRangeRow struct {
+	MessageSeqFrom int64 `json:"message_seq_from"`
+	MessageSeqTo   int64 `json:"message_seq_to"`
+}
+
+func (q *Queries) GetSummaryMessageSeqRange(ctx context.Context, summaryID string) (GetSummaryMessageSeqRangeRow, error) {
+	row := q.db.QueryRowContext(ctx, getSummaryMessageSeqRange, summaryID)
+	var i GetSummaryMessageSeqRangeRow
+	err := row.Scan(&i.MessageSeqFrom, &i.MessageSeqTo)
+	return i, err
+}
+
 const getSummaryMessages = `-- name: GetSummaryMessages :many
 SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at FROM ctx_message m
 JOIN ctx_summary_message sm ON sm.message_id = m.id

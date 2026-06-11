@@ -331,6 +331,83 @@ func (q *Queries) ListAgentTasksByUser(ctx context.Context, arg ListAgentTasksBy
 	return items, nil
 }
 
+const listBlockedInboxTasks = `-- name: ListBlockedInboxTasks :many
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  b.question,
+  b.created_at AS created_at
+FROM agent_task t
+JOIN agent_task_blocker b ON b.id = t.active_blocker_id
+WHERE t.user_id = ?2
+  AND b.status = 'open'
+  AND (?3 IS NULL OR t.agent_id = ?3)
+
+UNION ALL
+
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  b.question,
+  b.created_at AS created_at
+FROM agent_task t
+JOIN agent_task_blocker b ON b.task_id = t.id AND b.status = 'open'
+WHERE t.user_id = ?2
+  AND t.active_blocker_id IS NULL
+  AND (?3 IS NULL OR t.agent_id = ?3)
+ORDER BY created_at DESC
+LIMIT ?1
+`
+
+type ListBlockedInboxTasksParams struct {
+	LimitCount int64       `json:"limit_count"`
+	UserID     string      `json:"user_id"`
+	AgentID    interface{} `json:"agent_id"`
+}
+
+type ListBlockedInboxTasksRow struct {
+	TaskID    string         `json:"task_id"`
+	AgentID   string         `json:"agent_id"`
+	ProjectID sql.NullString `json:"project_id"`
+	Title     string         `json:"title"`
+	Question  string         `json:"question"`
+	CreatedAt string         `json:"created_at"`
+}
+
+func (q *Queries) ListBlockedInboxTasks(ctx context.Context, arg ListBlockedInboxTasksParams) ([]ListBlockedInboxTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBlockedInboxTasks, arg.LimitCount, arg.UserID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListBlockedInboxTasksRow{}
+	for rows.Next() {
+		var i ListBlockedInboxTasksRow
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.Title,
+			&i.Question,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReadyCandidates = `-- name: ListReadyCandidates :many
 SELECT id, user_id, agent_id, session_id, goal_id, project_id, title, description, status, priority, review_policy, active_review_id, required, retry_count, max_retries, not_before, deadline_at, active_run_id, active_blocker_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_task
 WHERE status = 'ready'
@@ -382,6 +459,95 @@ func (q *Queries) ListReadyCandidates(ctx context.Context, arg ListReadyCandidat
 			&i.UpdatedAt,
 			&i.CompletedAt,
 			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReviewInboxTasks = `-- name: ListReviewInboxTasks :many
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  r.id AS review_id,
+  r.summary,
+  r.created_at AS created_at
+FROM agent_task t
+JOIN agent_review r ON r.id = t.active_review_id
+WHERE t.user_id = ?2
+  AND t.status = 'reviewing'
+  AND r.status IN ('requested', 'in_progress')
+  AND r.reviewer_type = 'human'
+  AND (?3 IS NULL OR t.agent_id = ?3)
+
+UNION ALL
+
+SELECT
+  t.id AS task_id,
+  t.agent_id,
+  t.project_id,
+  t.title,
+  r.id AS review_id,
+  r.summary,
+  r.created_at AS created_at
+FROM agent_task t
+JOIN agent_review r ON r.task_id = t.id
+  AND r.status IN ('requested', 'in_progress')
+  AND r.reviewer_type = 'human'
+WHERE t.user_id = ?2
+  AND t.status = 'reviewing'
+  AND t.active_review_id IS NULL
+  AND (?3 IS NULL OR t.agent_id = ?3)
+ORDER BY created_at DESC
+LIMIT ?1
+`
+
+type ListReviewInboxTasksParams struct {
+	LimitCount int64       `json:"limit_count"`
+	UserID     string      `json:"user_id"`
+	AgentID    interface{} `json:"agent_id"`
+}
+
+type ListReviewInboxTasksRow struct {
+	TaskID    string         `json:"task_id"`
+	AgentID   string         `json:"agent_id"`
+	ProjectID sql.NullString `json:"project_id"`
+	Title     string         `json:"title"`
+	ReviewID  string         `json:"review_id"`
+	Summary   string         `json:"summary"`
+	CreatedAt string         `json:"created_at"`
+}
+
+// Only reviews waiting on a human belong in the inbox: agent-policy reviews
+// are dispatched to reviewer agents automatically, and a cancelled task can
+// leave its open review rows behind, so gate on t.status too.
+func (q *Queries) ListReviewInboxTasks(ctx context.Context, arg ListReviewInboxTasksParams) ([]ListReviewInboxTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReviewInboxTasks, arg.LimitCount, arg.UserID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReviewInboxTasksRow{}
+	for rows.Next() {
+		var i ListReviewInboxTasksRow
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.Title,
+			&i.ReviewID,
+			&i.Summary,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -1,6 +1,13 @@
-import { createLazyFileRoute } from "@tanstack/react-router";
-import { TaskBoardPage } from "@/features/sessions/pages/TaskBoardPage";
+import { createLazyFileRoute, useParams } from "@tanstack/react-router";
+import { TaskPage } from "@/features/automations/TaskPage";
 
 export const Route = createLazyFileRoute("/_app/agents/$agentId/tasks/$taskId")({
-  component: TaskBoardPage,
+  component: TaskKeyed,
 });
+
+function TaskKeyed() {
+  const { agentId, taskId } = useParams({
+    from: "/_app/agents/$agentId/tasks/$taskId",
+  });
+  return <TaskPage key={`${agentId}/task/${taskId}`} />;
+}

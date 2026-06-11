@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -18,36 +17,37 @@ import (
 // surfaces as a stream error event.
 type turnFn func(tc tools.Tool, emit func(text string)) error
 
-// fakeRunner runs a sequence of turns, one per Chat call, so tests can exercise
-// the bounded protocol-repair second turn.
-type fakeRunner struct {
-	tc     tools.Tool
-	turns  []turnFn
-	idx    int
-	closed bool
-}
-
-func (f *fakeRunner) Chat(_ context.Context, _ []ai.Message, _ agent.MessageContent) <-chan agent.Event {
-	ev := make(chan agent.Event, 8)
-	i := f.idx
-	f.idx++
-	go func() {
-		defer close(ev)
-		if i >= len(f.turns) {
-			return
+// fakeChat replays a sequence of turns, one per TaskChatFunc call, so tests
+// can exercise the bounded protocol-repair second turn.
+func fakeChat(t *testing.T, turns []turnFn) TaskChatFunc {
+	idx := 0
+	return func(_ context.Context, p TaskChatParams) <-chan agent.Event {
+		var tc tools.Tool
+		for _, et := range p.ExtraTools {
+			if et.Definition().Name == "task_control" {
+				tc = et
+				break
+			}
 		}
-		emit := func(text string) { ev <- agent.Event{Text: text} }
-		if err := f.turns[i](f.tc, emit); err != nil {
-			ev <- agent.Event{Err: err}
+		if tc == nil {
+			t.Fatalf("task_control tool missing from ExtraTools")
 		}
-	}()
-	return ev
+		ev := make(chan agent.Event, 8)
+		i := idx
+		idx++
+		go func() {
+			defer close(ev)
+			if i >= len(turns) {
+				return
+			}
+			emit := func(text string) { ev <- agent.Event{Text: text} }
+			if err := turns[i](tc, emit); err != nil {
+				ev <- agent.Event{Err: err}
+			}
+		}()
+		return ev
+	}
 }
-func (f *fakeRunner) Alive() bool             { return !f.closed }
-func (f *fakeRunner) Busy() bool              { return false }
-func (f *fakeRunner) LastActivity() time.Time { return time.Now() }
-func (f *fakeRunner) SystemPrompt() string    { return "" }
-func (f *fakeRunner) Close() error            { f.closed = true; return nil }
 
 // claimSetup creates a task, claims it, and returns the task id + run id.
 func claimSetup(t *testing.T, h *testHarness) (string, string) {
@@ -66,7 +66,7 @@ func TestBuildTaskPromptRequiresTerminalTaskControl(t *testing.T) {
 	prompt := buildTaskPrompt(sqlc.AgentTask{
 		Title:       "Do the work",
 		Description: "Check everything",
-	})
+	}, "")
 	for _, want := range []string{
 		"MUST call task_control exactly once",
 		`action="submit"`,
@@ -96,8 +96,8 @@ func TestTerminalRecorder_FirstWins(t *testing.T) {
 	}
 }
 
-// runExecutorTurns claims a task, wires a fake pool whose runner replays the
-// given turns (one per Chat call), and returns the workerExecutor's Result.
+// runExecutorTurns claims a task, wires a fake chat that replays the given
+// turns (one per TaskChatFunc call), and returns the workerExecutor's Result.
 func runExecutorTurns(t *testing.T, h *testHarness, turns ...turnFn) (Result, error) {
 	t.Helper()
 	taskID, runID := claimSetup(t, h)
@@ -110,22 +110,7 @@ func runExecutorTurns(t *testing.T, h *testHarness, turns ...turnFn) (Result, er
 	}
 	task := h.getTask(t, taskID)
 
-	pools := func(_ string) (agent.NewRunnerFunc, bool) {
-		return func(_ context.Context, p agent.RunnerParams) (agent.Runner, error) {
-			var tc tools.Tool
-			for _, et := range p.ExtraTools {
-				if et.Definition().Name == "task_control" {
-					tc = et
-					break
-				}
-			}
-			if tc == nil {
-				t.Fatalf("task_control tool missing from ExtraTools")
-			}
-			return &fakeRunner{tc: tc, turns: turns}, nil
-		}, true
-	}
-	exec := newWorkerExecutor(pools, nil, h.q, h.svc, nil)
+	exec := newWorkerExecutor(fakeChat(t, turns), h.q, h.svc, nil)
 	return exec.Execute(context.Background(), Request{Run: run, Task: &task})
 }
 
@@ -264,8 +249,11 @@ func TestWorkerExecutor_NoExecutorAgent_NonRetryableFail(t *testing.T) {
 	taskID, runID := claimSetup(t, h)
 	run, _ := h.q.GetAgentTaskRun(context.Background(), runID)
 	task := h.getTask(t, taskID)
-	pools := func(_ string) (agent.NewRunnerFunc, bool) { t.Fatal("pools should not be called"); return nil, false }
-	exec := newWorkerExecutor(pools, nil, h.q, h.svc, nil)
+	chat := func(_ context.Context, _ TaskChatParams) <-chan agent.Event {
+		t.Fatal("chat should not be called")
+		return nil
+	}
+	exec := newWorkerExecutor(chat, h.q, h.svc, nil)
 	res, err := exec.Execute(context.Background(), Request{Run: run, Task: &task})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -275,20 +263,25 @@ func TestWorkerExecutor_NoExecutorAgent_NonRetryableFail(t *testing.T) {
 	}
 }
 
-func TestWorkerExecutor_NoPool_NonRetryableFail(t *testing.T) {
+func TestWorkerExecutor_ChatError_RetryableFail(t *testing.T) {
 	h := newHarness(t)
 	taskID, runID := claimSetup(t, h)
 	_, _ = h.db.Exec(`UPDATE agent_task_run SET executor_agent_id = ? WHERE id = ?`, h.agentID, runID)
 	run, _ := h.q.GetAgentTaskRun(context.Background(), runID)
 	task := h.getTask(t, taskID)
-	pools := func(_ string) (agent.NewRunnerFunc, bool) { return nil, false }
-	exec := newWorkerExecutor(pools, nil, h.q, h.svc, nil)
+	chat := func(_ context.Context, _ TaskChatParams) <-chan agent.Event {
+		ev := make(chan agent.Event, 1)
+		ev <- agent.Event{Err: errors.New("no agent service")}
+		close(ev)
+		return ev
+	}
+	exec := newWorkerExecutor(chat, h.q, h.svc, nil)
 	res, err := exec.Execute(context.Background(), Request{Run: run, Task: &task})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Action != TerminalFail || res.Failure == nil || res.Failure.Retryable {
-		t.Fatalf("res=%+v want non-retryable fail", res)
+	if res.Action != TerminalFail || res.Failure == nil || !res.Failure.Retryable {
+		t.Fatalf("res=%+v want retryable fail", res)
 	}
 }
 

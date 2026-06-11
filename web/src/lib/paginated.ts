@@ -20,12 +20,15 @@ import type {
 } from "@/lib/api-client/types.gen";
 import type { Message } from "@/lib/types";
 
-export async function fetchAllTasks(agentId?: string): Promise<ComponentsTask[]> {
+export async function fetchAllTasks(
+  agentId?: string,
+  projectId?: string,
+): Promise<ComponentsTask[]> {
   const all: ComponentsTask[] = [];
   let pageToken: string | undefined;
   do {
     const { data } = await listTasks({
-      query: { agent_id: agentId, page_size: 500, page_token: pageToken },
+      query: { agent_id: agentId, project_id: projectId, page_size: 500, page_token: pageToken },
       throwOnError: true,
     });
     all.push(...(data?.tasks ?? []));

@@ -677,6 +677,7 @@ type SchedJobRun struct {
 	StartedAt  string         `json:"started_at"`
 	FinishedAt sql.NullString `json:"finished_at"`
 	Error      string         `json:"error"`
+	Output     string         `json:"output"`
 	UserID     sql.NullString `json:"user_id"`
 }
 

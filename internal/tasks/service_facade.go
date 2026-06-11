@@ -170,6 +170,9 @@ func (f *ServiceFacade) resolveTaskContext(ctx context.Context, in CreateTaskInp
 		if goal.UserID != in.UserID {
 			return "", "", ErrGoalNotFound
 		}
+		if isTerminalGoalStatus(goal.Status) {
+			return "", "", fmt.Errorf("%w: goal is %s and accepts no new tasks", ErrInvalidTaskContext, goal.Status)
+		}
 		if goal.AgentID == "" {
 			return "", "", fmt.Errorf("%w: goal has no agent_id", ErrInvalidTaskContext)
 		}

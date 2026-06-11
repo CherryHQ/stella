@@ -115,6 +115,31 @@ func (q *Queries) GetAgentTaskBlocker(ctx context.Context, id string) (AgentTask
 	return i, err
 }
 
+const getLatestResolvedBlockerForTask = `-- name: GetLatestResolvedBlockerForTask :one
+SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker
+WHERE task_id = ? AND status = 'resolved'
+ORDER BY resolved_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestResolvedBlockerForTask(ctx context.Context, taskID string) (AgentTaskBlocker, error) {
+	row := q.db.QueryRowContext(ctx, getLatestResolvedBlockerForTask, taskID)
+	var i AgentTaskBlocker
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.Kind,
+		&i.Status,
+		&i.Question,
+		&i.Detail,
+		&i.Resolution,
+		&i.CreatedByRunID,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
 const getOpenBlockerForTask = `-- name: GetOpenBlockerForTask :one
 SELECT id, task_id, kind, status, question, detail, resolution, created_by_run_id, created_at, resolved_at FROM agent_task_blocker
 WHERE task_id = ? AND status = 'open'

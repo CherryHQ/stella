@@ -45,7 +45,7 @@ SELECT
     SUM(CASE WHEN required = 1 AND status = 'failed'    THEN 1 ELSE 0 END) AS required_failed,
     SUM(CASE WHEN required = 1 AND status = 'cancelled' THEN 1 ELSE 0 END) AS required_cancelled,
     SUM(CASE WHEN required = 1 AND status = 'blocked'   THEN 1 ELSE 0 END) AS required_blocked,
-    SUM(CASE WHEN required = 1 AND status IN ('done','failed','cancelled') THEN 0 ELSE 1 END) AS required_pending
+    SUM(CASE WHEN required = 1 AND status NOT IN ('done','failed','cancelled') THEN 1 ELSE 0 END) AS required_pending
 FROM agent_task
 WHERE goal_id = ?;
 

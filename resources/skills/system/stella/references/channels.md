@@ -9,6 +9,8 @@ All channel configuration is stored in the database and managed via the Web UI (
 - **Dedicated channels**: If a channel instance has `agent_id`, all chats on that channel use the bound agent and `/agent` switching is disabled there
 - **Fallback**: First enabled agent
 
+In the Web UI, groups appear alongside agents in the main agent sidebar. A group conversation uses the same transcript and composer shape as an agent chat, plus a group monitor for member activity and shared upload context. Mention a member agent with `@<agent-id>` when you need deterministic routing in a web group.
+
 Commands available in all channels:
 
 - `/agent` -- List available agents or switch to a specific one
