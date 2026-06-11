@@ -64,10 +64,16 @@ SELECT * FROM ctx_message_part WHERE message_id = ? ORDER BY ordinal ASC;
 SELECT * FROM ctx_message_part WHERE message_id IN (sqlc.slice('message_ids')) ORDER BY message_id, ordinal ASC;
 
 -- name: SearchMessages :many
-SELECT * FROM ctx_message
-WHERE conversation_id = ? AND content LIKE ?
-ORDER BY seq ASC
-LIMIT ?;
+SELECT
+    m.*,
+    snippet(ctx_message_fts, 0, '<<', '>>', '...', 32) AS snippet,
+    bm25(ctx_message_fts) AS score
+FROM ctx_message_fts
+JOIN ctx_message m ON m.rowid = ctx_message_fts.rowid
+WHERE ctx_message_fts.content MATCH sqlc.arg('match')
+  AND m.conversation_id = sqlc.arg('conversation_id')
+ORDER BY score ASC
+LIMIT sqlc.arg('limit');
 
 -- name: GetMessagesSince :many
 SELECT * FROM ctx_message

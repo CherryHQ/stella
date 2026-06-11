@@ -54,7 +54,13 @@ WHERE sp.parent_summary_id = ?
 ORDER BY sp.ordinal ASC;
 
 -- name: SearchSummaries :many
-SELECT * FROM ctx_summary
-WHERE conversation_id = ? AND content LIKE ?
-ORDER BY created_at ASC
-LIMIT ?;
+SELECT
+    s.*,
+    snippet(ctx_summary_fts, 0, '<<', '>>', '...', 32) AS snippet,
+    bm25(ctx_summary_fts) AS score
+FROM ctx_summary_fts
+JOIN ctx_summary s ON s.rowid = ctx_summary_fts.rowid
+WHERE ctx_summary_fts.content MATCH sqlc.arg('match')
+  AND s.conversation_id = sqlc.arg('conversation_id')
+ORDER BY score ASC
+LIMIT sqlc.arg('limit');
