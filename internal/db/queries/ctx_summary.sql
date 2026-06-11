@@ -64,3 +64,11 @@ WHERE ctx_summary_fts.content MATCH sqlc.arg('match')
   AND s.conversation_id = sqlc.arg('conversation_id')
 ORDER BY score ASC
 LIMIT sqlc.arg('limit');
+
+-- name: SearchSummariesLike :many
+-- Fallback for queries with no token of 3+ runes (see SearchMessagesLike).
+SELECT * FROM ctx_summary
+WHERE conversation_id = sqlc.arg('conversation_id')
+  AND (content LIKE sqlc.arg('pattern') ESCAPE '\')
+ORDER BY created_at DESC
+LIMIT sqlc.arg('limit');

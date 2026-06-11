@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -251,13 +252,35 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 
 // SearchArticles searches articles by title, summary, tags, or author using
 // the FTS5 index, ordered by BM25 relevance (title hits rank highest).
+// Queries with no token of 3+ runes use an unranked LIKE fallback instead.
 func (s *Store) SearchArticles(ctx context.Context, userID string, query string, limit int) ([]Article, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	match := ftsquery.BuildMatchQuery(query)
 	if match == "" {
-		return []Article{}, nil
+		// All tokens are below the trigram minimum (e.g. 部署, "go"), which
+		// MATCH would silently never hit — fall back to a substring scan,
+		// recency-ordered, without BM25 ranking.
+		text := strings.TrimSpace(query)
+		if text == "" {
+			return []Article{}, nil
+		}
+		rows, err := s.q.SearchArticlesLike(ctx, sqlc.SearchArticlesLikeParams{
+			UserID:  userID,
+			Pattern: "%" + ftsquery.EscapeLike(text) + "%",
+			Limit:   int64(limit),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("search articles like: %w", err)
+		}
+		articles := make([]Article, 0, len(rows))
+		for _, row := range rows {
+			var article Article
+			article.FromSQLCArticle(row)
+			articles = append(articles, article)
+		}
+		return articles, nil
 	}
 	rows, err := s.q.SearchArticles(ctx, sqlc.SearchArticlesParams{
 		Match:  match,

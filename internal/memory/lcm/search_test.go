@@ -69,10 +69,12 @@ func runSearch(t *testing.T, p memory.Provider, sess memory.Session, q memory.Se
 }
 
 func TestSearch_MessagesRankedByBM25(t *testing.T) {
+	// Contents kept short: the snippet window is 32 tokens, which under the
+	// trigram tokenizer is only ~34 characters.
 	_, p, sess := newSearchTestEnv(t, "fts-rank")
 	appendUser(t, p, sess,
-		"alpha beaver alpha beaver strongdoc",
-		"alpha weakdoc and unrelated padding words here",
+		"alpha beaver alpha strongdoc",
+		"alpha weakdoc padding words",
 		"completely irrelevant content",
 	)
 
@@ -188,20 +190,21 @@ func TestSearch_DeleteRemovesFTSHits(t *testing.T) {
 }
 
 func TestSearch_ConversationIsolation(t *testing.T) {
+	// Marker fits the ~34-char trigram snippet window.
 	_, p, sess := newSearchTestEnv(t, "fts-iso-a")
-	appendUser(t, p, sess, "shared quokka keyword in conversation A")
+	appendUser(t, p, sess, "shared quokka keyword in convA")
 
 	other := newLCMTestSession("fts-iso-b")
 	if err := p.Bootstrap(context.Background(), other); err != nil {
 		t.Fatalf("bootstrap other: %v", err)
 	}
-	appendUser(t, p, other, "shared quokka keyword in conversation B")
+	appendUser(t, p, other, "shared quokka keyword in convB")
 
 	results := runSearch(t, p, sess, memory.SearchQuery{Text: "quokka"})
 	if len(results) != 1 {
 		t.Fatalf("expected 1 hit scoped to conversation A, got %d", len(results))
 	}
-	if !strings.Contains(results[0].Content, "conversation A") {
+	if !strings.Contains(results[0].Content, "convA") {
 		t.Errorf("hit leaked from another conversation: %q", results[0].Content)
 	}
 }
@@ -227,5 +230,81 @@ func TestSearch_SpecialCharactersDoNotError(t *testing.T) {
 		if got := runSearch(t, p, sess, memory.SearchQuery{Text: q}); len(got) != 0 {
 			t.Errorf("query %q: expected empty results, got %d", q, len(got))
 		}
+	}
+}
+
+func TestSearch_CJKSubstringMatch(t *testing.T) {
+	_, p, sess := newSearchTestEnv(t, "fts-cjk")
+	appendUser(t, p, sess, "今天讨论了部署方案的细节和时间表")
+
+	// 3+ rune CJK query goes through trigram MATCH with snippet highlights.
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署方案", Scope: memory.SearchScopeMessages})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 hit for 部署方案, got %d", len(results))
+	}
+	if !strings.Contains(results[0].Content, "<<") {
+		t.Errorf("expected snippet highlighting in MATCH path, got %q", results[0].Content)
+	}
+}
+
+func TestSearch_ShortQueryFallsBackToLike(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "fts-short")
+	convID := conversationID(t, db, sess.ID)
+	appendUser(t, p, sess, "今天讨论了部署方案的细节")
+	insertSummary(t, db, convID, "sum-fts-short", "总结：部署流程已经确定")
+
+	// 2-char CJK queries match nothing via trigram MATCH; the LIKE fallback
+	// must still find them, in both scopes, with Score 0 (no BM25 here).
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署", Scope: memory.SearchScopeBoth})
+	if len(results) != 2 {
+		t.Fatalf("expected 2 fallback hits for 部署, got %d: %+v", len(results), results)
+	}
+	for _, r := range results {
+		if r.Score != 0 {
+			t.Errorf("fallback hit should carry Score 0, got %v", r.Score)
+		}
+	}
+
+	msgs := runSearch(t, p, sess, memory.SearchQuery{Text: "部署", Scope: memory.SearchScopeMessages})
+	if len(msgs) != 1 || msgs[0].SourceType != "message" {
+		t.Errorf("messages scope fallback: expected 1 message hit, got %+v", msgs)
+	}
+}
+
+func TestSearch_LikeFallbackConversationIsolation(t *testing.T) {
+	_, p, sess := newSearchTestEnv(t, "fts-like-iso-a")
+	appendUser(t, p, sess, "会话A的部署记录")
+
+	other := newLCMTestSession("fts-like-iso-b")
+	if err := p.Bootstrap(context.Background(), other); err != nil {
+		t.Fatalf("bootstrap other: %v", err)
+	}
+	appendUser(t, p, other, "会话B的部署记录")
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "部署"})
+	if len(results) != 1 {
+		t.Fatalf("expected 1 hit scoped to conversation A, got %d", len(results))
+	}
+	if !strings.Contains(results[0].Content, "会话A") {
+		t.Errorf("fallback hit leaked from another conversation: %q", results[0].Content)
+	}
+}
+
+func TestSearch_LikeFallbackEscapesWildcards(t *testing.T) {
+	_, p, sess := newSearchTestEnv(t, "fts-like-esc")
+	appendUser(t, p, sess,
+		"discount is 50% off",
+		"discount is 500 off",
+		"see a_b here",
+		"see axb here",
+	)
+
+	// Both queries tokenize below the trigram minimum, so they hit the LIKE
+	// fallback; % and _ must match literally, not as wildcards.
+	if got := runSearch(t, p, sess, memory.SearchQuery{Text: "50%"}); len(got) != 1 {
+		t.Errorf("query 50%%: expected 1 literal hit, got %d: %+v", len(got), got)
+	}
+	if got := runSearch(t, p, sess, memory.SearchQuery{Text: "_b"}); len(got) != 1 {
+		t.Errorf("query _b: expected 1 literal hit, got %d: %+v", len(got), got)
 	}
 }

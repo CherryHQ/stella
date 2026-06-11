@@ -494,3 +494,54 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 	}
 	return items, nil
 }
+
+const searchSummariesLike = `-- name: SearchSummariesLike :many
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary
+WHERE conversation_id = ?1
+  AND (content LIKE ?2 ESCAPE '\')
+ORDER BY created_at DESC
+LIMIT ?3
+`
+
+type SearchSummariesLikeParams struct {
+	ConversationID string `json:"conversation_id"`
+	Pattern        string `json:"pattern"`
+	Limit          int64  `json:"limit"`
+}
+
+// Fallback for queries with no token of 3+ runes (see SearchMessagesLike).
+func (q *Queries) SearchSummariesLike(ctx context.Context, arg SearchSummariesLikeParams) ([]CtxSummary, error) {
+	rows, err := q.db.QueryContext(ctx, searchSummariesLike, arg.ConversationID, arg.Pattern, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxSummary{}
+	for rows.Next() {
+		var i CtxSummary
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Kind,
+			&i.Depth,
+			&i.Content,
+			&i.TokenCount,
+			&i.EarliestAt,
+			&i.LatestAt,
+			&i.DescendantCount,
+			&i.DescendantTokenCount,
+			&i.SourceMessageTokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

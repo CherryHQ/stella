@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/db/ftsquery"
@@ -46,17 +47,22 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
-	match := ftsquery.BuildMatchQuery(query.Text)
-	if match == "" {
-		return nil, nil
-	}
-
 	scope := scopeBoth
 	switch query.Scope {
 	case memory.SearchScopeMessages:
 		scope = scopeMessages
 	case memory.SearchScopeSummaries:
 		scope = scopeSummaries
+	}
+
+	match := ftsquery.BuildMatchQuery(query.Text)
+	if match == "" {
+		// All tokens are below the trigram minimum (e.g. 部署, "go"), which
+		// MATCH would silently never hit — fall back to a substring scan.
+		if text := strings.TrimSpace(query.Text); text != "" {
+			return r.searchLike(ctx, convID, text, scope, limit)
+		}
+		return nil, nil
 	}
 
 	var results []memory.SearchResult
@@ -109,6 +115,60 @@ func (r *retrievalEngine) search(ctx context.Context, convID string, query memor
 		if results[i].Score != results[j].Score {
 			return results[i].Score > results[j].Score
 		}
+		return results[i].Timestamp.After(results[j].Timestamp)
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+// searchLike is the recall path for short queries: a plain substring scan of
+// the content tables, recency-ordered. Honest limitation: no BM25 ranking and
+// no snippet highlighting here, so hits carry Score 0 and truncated content.
+func (r *retrievalEngine) searchLike(ctx context.Context, convID, text, scope string, limit int) ([]memory.SearchResult, error) {
+	pattern := "%" + ftsquery.EscapeLike(text) + "%"
+	var results []memory.SearchResult
+
+	if scope == scopeMessages || scope == scopeBoth {
+		msgs, err := r.q.SearchMessagesLike(ctx, sqlc.SearchMessagesLikeParams{
+			ConversationID: convID,
+			Pattern:        pattern,
+			Limit:          int64(limit),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("search messages like: %w", err)
+		}
+		for _, msg := range msgs {
+			results = append(results, memory.SearchResult{
+				SourceType: itemTypeMessage,
+				SourceID:   fmt.Sprint(msg.ID),
+				Content:    truncateUTF8(msg.Content, maxContentSnippet),
+				Timestamp:  parseTime(msg.CreatedAt),
+			})
+		}
+	}
+
+	if scope == scopeSummaries || scope == scopeBoth {
+		sums, err := r.q.SearchSummariesLike(ctx, sqlc.SearchSummariesLikeParams{
+			ConversationID: convID,
+			Pattern:        pattern,
+			Limit:          int64(limit),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("search summaries like: %w", err)
+		}
+		for _, s := range sums {
+			results = append(results, memory.SearchResult{
+				SourceType: itemTypeSummary,
+				SourceID:   s.ID,
+				Content:    truncateUTF8(s.Content, maxContentSnippet),
+				Timestamp:  parseTime(s.CreatedAt),
+			})
+		}
+	}
+
+	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].Timestamp.After(results[j].Timestamp)
 	})
 	if len(results) > limit {

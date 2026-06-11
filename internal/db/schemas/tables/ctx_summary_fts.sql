@@ -3,11 +3,14 @@
 -- migrations: Atlas's embedded dev SQLite lacks the fts5 module, so this file
 -- is intentionally not imported into main.sql. sqlc still reads it (schema
 -- glob) so search queries can reference the virtual table.
+-- trigram tokenizer for CJK substring recall (rationale in
+-- ctx_message_fts.sql); internal/db/fts.go rebuilds the index when an
+-- existing table still carries a different tokenizer.
 CREATE VIRTUAL TABLE IF NOT EXISTS ctx_summary_fts USING fts5(
     content,
     content='ctx_summary',
     content_rowid='rowid',
-    tokenize='unicode61 remove_diacritics 1'
+    tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS ctx_summary_fts_ai AFTER INSERT ON ctx_summary BEGIN

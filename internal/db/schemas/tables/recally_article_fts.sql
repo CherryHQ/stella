@@ -5,6 +5,9 @@
 -- into main.sql. sqlc still reads it (schema glob) so search queries can
 -- reference the virtual table; see recally_article_fts_sqlc.sql for the
 -- sqlc-only view of fts5's hidden table-name column.
+-- trigram tokenizer for CJK substring recall (rationale in
+-- ctx_message_fts.sql); internal/db/fts.go rebuilds the index when an
+-- existing table still carries a different tokenizer.
 CREATE VIRTUAL TABLE IF NOT EXISTS recally_article_fts USING fts5(
     title,
     summary,
@@ -12,7 +15,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS recally_article_fts USING fts5(
     author,
     content='recally_article',
     content_rowid='rowid',
-    tokenize='unicode61 remove_diacritics 1'
+    tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS recally_article_fts_ai AFTER INSERT ON recally_article BEGIN

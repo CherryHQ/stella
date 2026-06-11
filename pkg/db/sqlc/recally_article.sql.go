@@ -500,6 +500,70 @@ func (q *Queries) SearchArticles(ctx context.Context, arg SearchArticlesParams) 
 	return items, nil
 }
 
+const searchArticlesLike = `-- name: SearchArticlesLike :many
+SELECT id, user_id, agent_id, url, canonical_url, source_type, title, author, summary, tags, status, starred, file_path, metadata, published_at, saved_at, read_at, created_at, updated_at FROM recally_article
+WHERE user_id = ?1
+  AND ((title LIKE ?2 ESCAPE '\')
+    OR (summary LIKE ?2 ESCAPE '\')
+    OR (tags LIKE ?2 ESCAPE '\')
+    OR (author LIKE ?2 ESCAPE '\'))
+ORDER BY created_at DESC
+LIMIT ?3
+`
+
+type SearchArticlesLikeParams struct {
+	UserID  string `json:"user_id"`
+	Pattern string `json:"pattern"`
+	Limit   int64  `json:"limit"`
+}
+
+// Fallback for queries with no token of 3+ runes, which trigram MATCH would
+// silently never hit. Scans the content table directly, recency-ordered, no
+// BM25. Pattern must be a full '%text%' built with ftsquery.EscapeLike; see
+// SearchMessagesLike for the sqlc constraints shaping this query.
+func (q *Queries) SearchArticlesLike(ctx context.Context, arg SearchArticlesLikeParams) ([]RecallyArticle, error) {
+	rows, err := q.db.QueryContext(ctx, searchArticlesLike, arg.UserID, arg.Pattern, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RecallyArticle{}
+	for rows.Next() {
+		var i RecallyArticle
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.Url,
+			&i.CanonicalUrl,
+			&i.SourceType,
+			&i.Title,
+			&i.Author,
+			&i.Summary,
+			&i.Tags,
+			&i.Status,
+			&i.Starred,
+			&i.FilePath,
+			&i.Metadata,
+			&i.PublishedAt,
+			&i.SavedAt,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateArticle = `-- name: UpdateArticle :one
 UPDATE recally_article
 SET title       = ?1,

@@ -438,6 +438,46 @@ func TestStore_SearchArticles_UserScoping(t *testing.T) {
 	}
 }
 
+func TestStore_SearchArticles_CJKAndShortQueryFallback(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	store := NewStore(db)
+	ctx := t.Context()
+
+	if _, _, err := store.SaveArticle(ctx, "1", SaveRequest{
+		URL: "https://example.com/deploy", Title: "今天讨论了部署方案", Summary: "K8s 上线计划",
+	}); err != nil {
+		t.Fatalf("SaveArticle failed: %v", err)
+	}
+
+	// 3+ rune CJK query hits the trigram MATCH path.
+	results, err := store.SearchArticles(ctx, "1", "部署方案", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 MATCH hit for 部署方案, got %d", len(results))
+	}
+
+	// 2-char query matches nothing via trigram MATCH; the LIKE fallback must
+	// still find it, and must stay user-scoped.
+	results, err = store.SearchArticles(ctx, "1", "部署", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 fallback hit for 部署, got %d", len(results))
+	}
+	results, err = store.SearchArticles(ctx, "2", "部署", 10)
+	if err != nil {
+		t.Fatalf("SearchArticles failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Expected fallback to stay user-scoped, got %d hits", len(results))
+	}
+}
+
 func TestStore_SearchArticles_NoStaleHitsAfterDeleteAndUpdate(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

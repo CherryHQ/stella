@@ -206,12 +206,13 @@ Every assembly emits a structured log entry (`lcm tail telemetry`) with `tail_it
 
 ### Search
 
-Search runs on SQLite FTS5 with BM25 ranking. Two external-content virtual tables — `ctx_message_fts` and `ctx_summary_fts` — index `content` and are kept in sync by insert/update/delete triggers on the base tables.
+Search runs on SQLite FTS5 with BM25 ranking. Two external-content virtual tables — `ctx_message_fts` and `ctx_summary_fts` — index `content` with the `trigram` tokenizer and are kept in sync by insert/update/delete triggers on the base tables. Trigram gives substring recall — 部署方案 matches inside a longer CJK sentence, and English queries also match substrings ("ploy" hits "deployment").
 
-- Query text is tokenized into letter/digit/underscore runs, each quoted and OR-joined into a `MATCH` expression, so FTS5 operators in user input never break the query. Queries with no extractable tokens return empty results.
-- Results carry an FTS snippet (`<<term>>` highlights) and a normalized score (`-bm25`, higher is better).
+- Query text is tokenized into letter/digit/underscore runs, each quoted and OR-joined into a `MATCH` expression, so FTS5 operators in user input never break the query. Tokens shorter than 3 characters are dropped — trigram `MATCH` silently returns nothing for them.
+- Queries whose tokens are all shorter than 3 characters (部署, "go") fall back to an unranked, recency-ordered `LIKE` scan of the content tables: no BM25 score, no snippet highlights.
+- `MATCH` results carry an FTS snippet (`<<term>>` highlights) and a normalized score (`-bm25`, higher is better).
 - `both` scope queries messages and summaries separately with the full limit, then merges by score and keeps the top N — a strong summary hit can outrank a weak message hit. Summary hits drill down via `describe`/`expand`.
-- The FTS schema lives in `internal/db/schemas/tables/ctx_*_fts.sql` but is applied at **runtime** (`internal/db/fts.go`), not through Atlas migrations — Atlas's dev SQLite lacks the fts5 module. The index is rebuilt from existing rows on first creation (so pre-FTS history is searchable) and whenever the sync triggers are found missing — the signature of an Atlas table-rebuild migration, which drops triggers and shifts rowids. If the SQLite build lacks FTS5, startup fails with an explicit error.
+- The FTS schema lives in `internal/db/schemas/tables/ctx_*_fts.sql` but is applied at **runtime** (`internal/db/fts.go`), not through Atlas migrations — Atlas's dev SQLite lacks the fts5 module. The index is rebuilt from existing rows on first creation (so pre-FTS history is searchable), whenever the sync triggers are found missing — the signature of an Atlas table-rebuild migration, which drops triggers and shifts rowids — and when an existing table carries a different tokenizer (the unicode61 → trigram migration). If the SQLite build lacks FTS5, startup fails with an explicit error.
 
 ## Simple Plugin
 

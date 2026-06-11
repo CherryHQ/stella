@@ -206,12 +206,13 @@ ai.Message (user/assistant/tool_result)
 
 ### 搜索
 
-搜索基于 SQLite FTS5 和 BM25 排序。两张外部内容（external-content）虚拟表 — `ctx_message_fts` 和 `ctx_summary_fts` — 为 `content` 建立索引，并通过基础表上的 insert/update/delete 触发器保持同步。
+搜索基于 SQLite FTS5 和 BM25 排序。两张外部内容（external-content）虚拟表 — `ctx_message_fts` 和 `ctx_summary_fts` — 使用 `trigram` 分词器为 `content` 建立索引，并通过基础表上的 insert/update/delete 触发器保持同步。trigram 提供子串召回 — 部署方案 可以命中更长的中文句子，英文查询也获得子串语义（"ploy" 命中 "deployment"）。
 
-- 查询文本按字母/数字/下划线切分为 token，逐个加引号并以 OR 连接成 `MATCH` 表达式，用户输入中的 FTS5 操作符不会破坏查询。无法提取 token 的查询返回空结果。
-- 结果包含 FTS 片段（`<<term>>` 高亮）和归一化分数（`-bm25`，越大越相关）。
+- 查询文本按字母/数字/下划线切分为 token，逐个加引号并以 OR 连接成 `MATCH` 表达式，用户输入中的 FTS5 操作符不会破坏查询。短于 3 个字符的 token 会被丢弃 — trigram `MATCH` 对它们静默返回零命中。
+- 当所有 token 都短于 3 个字符时（部署、"go"），回退到对内容表的 `LIKE` 扫描：按时间倒序、无 BM25 分数、无片段高亮。
+- `MATCH` 结果包含 FTS 片段（`<<term>>` 高亮）和归一化分数（`-bm25`，越大越相关）。
 - `both` 范围分别以完整 limit 查询消息和摘要，再按分数合并取前 N — 强摘要命中可以排在弱消息命中之前。摘要命中可通过 `describe`/`expand` 下钻。
-- FTS schema 位于 `internal/db/schemas/tables/ctx_*_fts.sql`，但在**运行时**（`internal/db/fts.go`）创建，而非通过 Atlas 迁移 — Atlas 的 dev SQLite 缺少 fts5 模块。索引会在首次创建时从已有行重建（因此 FTS 之前的历史也可搜索）；当检测到同步触发器丢失时也会重建 — 这是 Atlas 表重建迁移的特征，它会删除触发器并改变 rowid。若 SQLite 构建缺少 FTS5，启动会以明确错误失败。
+- FTS schema 位于 `internal/db/schemas/tables/ctx_*_fts.sql`，但在**运行时**（`internal/db/fts.go`）创建，而非通过 Atlas 迁移 — Atlas 的 dev SQLite 缺少 fts5 模块。索引会在首次创建时从已有行重建（因此 FTS 之前的历史也可搜索）；当检测到同步触发器丢失时也会重建 — 这是 Atlas 表重建迁移的特征，它会删除触发器并改变 rowid；当现有表使用不同分词器时同样会重建（unicode61 → trigram 迁移）。若 SQLite 构建缺少 FTS5，启动会以明确错误失败。
 
 ## Simple 插件
 
