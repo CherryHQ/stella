@@ -14,7 +14,6 @@ import (
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -62,11 +61,6 @@ type Service struct {
 	// runtime registrations after that point to avoid persisted handler-mode
 	// jobs firing before their handler exists.
 	started bool
-
-	// Heartbeat (optional, configured via SetHeartbeat).
-	heartbeatCfg      *HeartbeatConfig
-	heartbeatChat     ChatFunc
-	heartbeatNotifier notify.Notifier
 }
 
 // New creates a scheduler service backed by the given database.
@@ -133,7 +127,6 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 // StartEphemeral starts the shared scheduler without loading persisted jobs.
-// Use this when the scheduler is only needed for internal tasks such as heartbeat.
 func (s *Service) StartEphemeral(ctx context.Context) error {
 	return s.start(ctx, false)
 }
