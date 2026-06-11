@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Database, Folder, ListTodo, MessageSquare, Puzzle } from "lucide-react";
+import { Database, ListTodo, MessageSquare, Puzzle } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -42,51 +42,26 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
             icon: MessageSquare,
             active: (p) => p.startsWith(`/groups/${groupId}`),
           },
-          {
-            key: "tasks",
-            label: t("facets.tasks"),
-            to: groupId ? `/groups/${groupId}` : "/agents",
-            icon: ListTodo,
-            active: () => false,
-            disabled: true,
-          },
-          {
-            key: "files",
-            label: t("facets.files"),
-            to: groupId ? `/groups/${groupId}` : "/agents",
-            icon: Folder,
-            active: () => false,
-            disabled: true,
-          },
         ]
       : kind === "project"
         ? [
+            {
+              key: "conversation",
+              label: t("facets.conversation"),
+              to: projectBase || "/agents",
+              icon: MessageSquare,
+              active: (p) =>
+                (p === projectBase && (!searchTab || searchTab === "sessions")) ||
+                p.startsWith(`${projectBase}/sessions`),
+            },
             {
               key: "tasks",
               label: t("facets.tasks"),
               to: projectBase || "/agents",
               icon: ListTodo,
               active: (p) =>
-                (p === projectBase && (!searchTab || searchTab === "tasks")) ||
+                (p === projectBase && searchTab === "tasks") ||
                 p.startsWith(`${projectBase}/tasks`),
-            },
-            {
-              key: "sessions",
-              label: t("facets.sessions"),
-              to: projectBase || "/agents",
-              search: { tab: "sessions" },
-              icon: MessageSquare,
-              active: (p) =>
-                (p === projectBase && searchTab === "sessions") ||
-                p.startsWith(`${projectBase}/sessions`),
-            },
-            {
-              key: "files",
-              label: t("facets.files"),
-              to: projectBase || "/agents",
-              search: { tab: "files" },
-              icon: Folder,
-              active: (p) => p === projectBase && searchTab === "files",
             },
           ]
         : [
@@ -117,14 +92,6 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               to: `${base}/skills`,
               icon: Puzzle,
               active: (p) => p.startsWith(`${base}/skills`),
-            },
-            {
-              key: "files",
-              label: t("facets.files"),
-              to: base || "/agents",
-              icon: Folder,
-              active: () => false,
-              disabled: true,
             },
           ];
 

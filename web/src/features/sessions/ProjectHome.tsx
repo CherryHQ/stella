@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createSession, getSessionWorkspace } from "@/lib/api-client/sdk.gen";
+import { createSession } from "@/lib/api-client/sdk.gen";
 import type { ComponentsTask } from "@/lib/api-client/types.gen";
-import type { Session, Workspace } from "@/lib/types";
+import type { Session } from "@/lib/types";
 import { projectSessionsQueryOptions } from "@/lib/queries/sessions";
-import { agentProjectsOptions } from "@/lib/queries/projects";
 import { fetchAllTasks } from "@/lib/paginated";
 import { formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { StatusDot, statusLabel } from "@/features/automations/lib";
-import { WorkspacePanel } from "./WorkspacePanel";
+import { useAppShell } from "@/layouts/AppShell";
 import { useI18n } from "@/lib/i18n";
 
 const STATUS_ORDER = [
@@ -28,18 +27,14 @@ export function ProjectHome() {
   const { agentId, projectId } = useParams({
     from: "/_app/agents/$agentId/projects/$projectId/",
   });
-  const { tab = "tasks" } = useSearch({ from: "/_app/agents/$agentId/projects/$projectId/" });
+  const { tab: rawTab } = useSearch({ from: "/_app/agents/$agentId/projects/$projectId/" });
+  const tab = rawTab === "tasks" ? "tasks" : "sessions";
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { setHeaderActions } = useAppShell();
   const queryClient = useQueryClient();
   const creating = useRef(false);
 
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [projectDir, setProjectDir] = useState("");
-
-  const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
-  const project = projects.find((p) => p.id === projectId);
   const sessionsQuery = useQuery(projectSessionsQueryOptions(agentId, projectId));
   const projectSessions = (sessionsQuery.data ?? []).filter(
     (s) => !s.archived && s.kind !== "delegate" && s.kind !== "scheduler",
@@ -76,40 +71,24 @@ export function ProjectHome() {
       });
   }, [mainSession, sessionsQuery.isSuccess, agentId, projectId, queryClient]);
 
-  const loadWorkspace = useCallback(
-    async (sid: string, scopePath?: string) => {
-      setWorkspaceLoading(true);
-      try {
-        const { data } = await getSessionWorkspace({
-          path: { agentId: agentId, sessionId: sid },
-          query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : {}) },
-          throwOnError: true,
-        });
-        setWorkspace(data);
-        if (
-          !scopePath &&
-          project?.base_dir &&
-          data.root &&
-          project.base_dir.startsWith(data.root + "/")
-        ) {
-          const rel = project.base_dir.slice(data.root.length + 1);
-          if (rel) setProjectDir(rel);
-        }
-      } catch (e) {
-        console.error(e);
-        setWorkspace(null);
-      } finally {
-        setWorkspaceLoading(false);
-      }
-    },
-    [agentId, project?.base_dir],
-  );
-
   useEffect(() => {
-    if (tab === "files" && mainSessionId) {
-      void loadWorkspace(mainSessionId, projectDir || undefined);
-    }
-  }, [tab, mainSessionId, loadWorkspace, projectDir]);
+    setHeaderActions(
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() =>
+          void navigate({
+            to: "/agents/$agentId/tasks/new",
+            params: { agentId },
+            search: { project_id: projectId },
+          })
+        }
+      >
+        {t("tasks.new")}
+      </Button>,
+    );
+    return () => setHeaderActions(null);
+  }, [agentId, navigate, projectId, setHeaderActions, t]);
 
   const openTask = useCallback(
     (task: ComponentsTask) => {
@@ -133,38 +112,6 @@ export function ProjectHome() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="border-b border-border px-5 py-4">
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold tracking-[-0.01em]">
-              {project?.name ?? t("projects.home.fallbackTitle")}
-            </h1>
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {t("projects.home.summary", {
-                tasks: tasks.length,
-                sessions: projectSessions.length,
-              })}
-              {project?.base_dir && (
-                <span className="ml-2 font-mono text-xs">{project.base_dir}</span>
-              )}
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              void navigate({
-                to: "/agents/$agentId/tasks/new",
-                params: { agentId },
-                search: { project_id: projectId },
-              })
-            }
-          >
-            {t("tasks.new")}
-          </Button>
-        </div>
-      </div>
-
       <div className="min-h-0 flex-1 overflow-hidden">
         {tab === "tasks" && <ProjectTasks tasks={tasks} loading={tasksLoading} onOpen={openTask} />}
         {tab === "sessions" && (
@@ -172,22 +119,6 @@ export function ProjectHome() {
             sessions={orderedSessions}
             mainSessionId={mainSessionId}
             onOpen={openSession}
-          />
-        )}
-        {tab === "files" && mainSession && (
-          <WorkspacePanel
-            agentID={agentId}
-            sessionID={mainSession.id}
-            workspace={workspace}
-            workspaceLoading={workspaceLoading}
-            onReload={loadWorkspace}
-            projectDir={projectDir}
-          />
-        )}
-        {tab === "files" && !mainSession && (
-          <EmptyState
-            title={t("projects.home.openingWorkspace")}
-            detail={t("projects.home.preparingSession")}
           />
         )}
       </div>
