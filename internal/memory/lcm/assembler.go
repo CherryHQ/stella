@@ -44,13 +44,13 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 	if err != nil {
 		return nil, err
 	}
-	tailSummaries, err := a.loadSummariesByItem(ctx, tail)
+	tailSummaries, tailParents, err := a.loadSummariesByItem(ctx, tail)
 	if err != nil {
 		return nil, err
 	}
 
 	// Resolve fresh tail — these are always included.
-	tailMsgs, err := a.resolveItemsFromCaches(ctx, tail, tailMessages, tailSummaries)
+	tailMsgs, err := a.resolveItemsFromCaches(tail, tailMessages, tailSummaries, tailParents)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
@@ -194,13 +194,13 @@ func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.C
 		if err != nil {
 			return nil, err
 		}
-		summaries, err := a.loadSummariesByItem(ctx, batch)
+		summaries, parents, err := a.loadSummariesByItem(ctx, batch)
 		if err != nil {
 			return nil, err
 		}
 		for i := len(batch) - 1; i >= 0; i-- {
 			item := batch[i]
-			msgs, err := a.resolveItemsFromCaches(ctx, batch[i:i+1], messages, summaries)
+			msgs, err := a.resolveItemsFromCaches(batch[i:i+1], messages, summaries, parents)
 			if err != nil {
 				return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
 			}
@@ -249,7 +249,7 @@ func stripTrailingOrphanResults(msgs []ai.Message) []ai.Message {
 }
 
 // resolveItemsFromCaches resolves a slice of context items to ai.Messages.
-func (a *assembler) resolveItemsFromCaches(ctx context.Context, items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary) ([]ai.Message, error) {
+func (a *assembler) resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary) ([]ai.Message, error) {
 	var result []ai.Message
 	for _, item := range items {
 		switch item.ItemType {
@@ -271,11 +271,7 @@ func (a *assembler) resolveItemsFromCaches(ctx context.Context, items []sqlc.Ctx
 			if !ok {
 				return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, sql.ErrNoRows)
 			}
-			parents, err := a.q.GetSummaryParents(ctx, sum.ID)
-			if err != nil {
-				return nil, fmt.Errorf("get summary parents %s: %w", sum.ID, err)
-			}
-			result = append(result, ai.UserMessage{Content: FormatSummaryXML(sum, parents)})
+			result = append(result, ai.UserMessage{Content: FormatSummaryXML(sum, parents[sum.ID])})
 		}
 	}
 	return result, nil
@@ -308,7 +304,7 @@ func (a *assembler) loadMessagesByItem(ctx context.Context, items []sqlc.CtxItem
 	return out, nil
 }
 
-func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxSummary, error) {
+func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxSummary, map[string][]sqlc.CtxSummary, error) {
 	idsByConversation := make(map[string][]string)
 	seen := make(map[string]struct{})
 	for _, item := range items {
@@ -323,16 +319,25 @@ func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxIte
 		idsByConversation[item.ConversationID] = append(idsByConversation[item.ConversationID], item.SummaryID.String)
 	}
 	out := make(map[string]sqlc.CtxSummary)
+	parents := make(map[string][]sqlc.CtxSummary)
 	for convID, ids := range idsByConversation {
 		rows, err := a.q.ListSummariesByIDs(ctx, sqlc.ListSummariesByIDsParams{ConversationID: convID, SummaryIds: ids})
 		if err != nil {
-			return nil, fmt.Errorf("list summaries: %w", err)
+			return nil, nil, fmt.Errorf("list summaries: %w", err)
 		}
 		for _, row := range rows {
 			out[row.ID] = row
 		}
+
+		parentRefs, err := a.q.ListSummaryParentsBySummaryIDs(ctx, ids)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list summary parents: %w", err)
+		}
+		for _, ref := range parentRefs {
+			parents[ref.SummaryID] = append(parents[ref.SummaryID], sqlc.CtxSummary{ID: ref.ParentSummaryID})
+		}
 	}
-	return out, nil
+	return out, parents, nil
 }
 
 // sanitizeToolPairs is a defense-in-depth pass that enforces the tool pairing

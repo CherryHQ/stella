@@ -200,11 +200,12 @@ func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.Se
 		SummaryCount: len(summaries),
 	}
 
-	msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
-	if err == nil && len(msgs) > 0 {
-		stats.OldestAt = parseTime(msgs[0].CreatedAt)
-		stats.NewestAt = parseTime(msgs[len(msgs)-1].CreatedAt)
+	bounds, err := p.q.GetConversationTimeBounds(ctx, conv.ID)
+	if err != nil {
+		return memory.SessionStats{}, fmt.Errorf("get conversation time bounds: %w", err)
 	}
+	stats.OldestAt = parseTime(sqlTimeString(bounds.EarliestAt))
+	stats.NewestAt = parseTime(sqlTimeString(bounds.LatestAt))
 
 	return stats, nil
 }
@@ -310,6 +311,21 @@ func toInt(v any) (int, bool) {
 		return int(n), true
 	default:
 		return 0, false
+	}
+}
+
+func sqlTimeString(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	case time.Time:
+		return t.UTC().Format(time.RFC3339)
+	default:
+		return ""
 	}
 }
 
