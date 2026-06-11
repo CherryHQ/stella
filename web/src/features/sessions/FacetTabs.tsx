@@ -16,6 +16,7 @@ interface TabDef {
   key: string;
   label: string;
   to: string;
+  search?: Record<string, string>;
   icon: typeof MessageSquare;
   active: (pathname: string) => boolean;
   /* Facet exists in the IA but has no destination yet — rendered inert. */
@@ -25,6 +26,9 @@ interface TabDef {
 export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps) {
   const { t } = useI18n();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const searchTab = useRouterState({
+    select: (s) => (s.location.search as { tab?: string }).tab,
+  });
   const base = agentId ? `/agents/${agentId}` : "";
   const projectBase = agentId && projectId ? `/agents/${agentId}/projects/${projectId}` : "";
 
@@ -62,22 +66,27 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               label: t("facets.tasks"),
               to: projectBase || "/agents",
               icon: Wrench,
-              active: (p) => p === projectBase || p.startsWith(`${projectBase}/tasks`),
+              active: (p) =>
+                (p === projectBase && (!searchTab || searchTab === "tasks")) ||
+                p.startsWith(`${projectBase}/tasks`),
             },
             {
               key: "sessions",
               label: t("facets.sessions"),
               to: projectBase || "/agents",
+              search: { tab: "sessions" },
               icon: MessageSquare,
-              active: (p) => p.startsWith(`${projectBase}/sessions`),
+              active: (p) =>
+                (p === projectBase && searchTab === "sessions") ||
+                p.startsWith(`${projectBase}/sessions`),
             },
             {
               key: "files",
               label: t("facets.files"),
               to: projectBase || "/agents",
+              search: { tab: "files" },
               icon: HardDrive,
-              active: () => false,
-              disabled: true,
+              active: (p) => p === projectBase && searchTab === "files",
             },
           ]
         : [
@@ -141,6 +150,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
           <Link
             key={tab.key}
             to={tab.to}
+            search={tab.search}
             className={cn(
               "flex h-8 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
               active

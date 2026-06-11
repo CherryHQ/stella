@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSession, getSessionWorkspace } from "@/lib/api-client/sdk.gen";
 import type { ComponentsTask } from "@/lib/api-client/types.gen";
 import type { Session, Workspace } from "@/lib/types";
-import { sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
+import { projectSessionsQueryOptions } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { fetchAllTasks } from "@/lib/paginated";
 import { formatTime } from "@/lib/time";
@@ -12,60 +12,59 @@ import { Button } from "@/components/ui/button";
 import { StatusDot, statusLabel } from "@/features/automations/lib";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
 
-type ProjectTab = "tasks" | "sessions" | "files";
-
-const STATUS_ORDER = ["blocked", "reviewing", "running", "ready", "draft", "failed", "done"];
+const STATUS_ORDER = [
+  "blocked",
+  "reviewing",
+  "running",
+  "ready",
+  "draft",
+  "failed",
+  "done",
+  "cancelled",
+];
 
 export function ProjectHome() {
   const { agentId, projectId } = useParams({
     from: "/_app/agents/$agentId/projects/$projectId/",
   });
+  const { tab = "tasks" } = useSearch({ from: "/_app/agents/$agentId/projects/$projectId/" });
   const navigate = useNavigate();
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const creating = useRef(false);
 
-  const [tab, setTab] = useState<ProjectTab>("tasks");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [projectDir, setProjectDir] = useState("");
 
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const project = projects.find((p) => p.id === projectId);
-  const sessionsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId));
-  const sessions = sessionsQuery.data?.pages.flatMap((p) => p.sessions) ?? [];
+  const sessionsQuery = useQuery(projectSessionsQueryOptions(agentId, projectId));
+  const projectSessions = (sessionsQuery.data ?? []).filter(
+    (s) => !s.archived && s.kind !== "delegate" && s.kind !== "scheduler",
+  );
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: ["project-tasks", agentId, projectId],
-    queryFn: async () => {
-      const all = await fetchAllTasks(agentId);
-      return all.filter((task) => task.project_id === projectId);
-    },
+    queryFn: () => fetchAllTasks(agentId, projectId),
     enabled: !!agentId && !!projectId,
   });
 
-  const projectSessions = useMemo(
-    () => sessions.filter((s) => s.project_id === projectId && !s.archived),
-    [sessions, projectId],
-  );
-  const mainSession = useMemo(
-    () => projectSessions.find((s) => !isTaskSession(s)) ?? null,
-    [projectSessions],
-  );
-  const orderedSessions = useMemo(() => {
-    const rest = projectSessions
-      .filter((s) => s.id !== mainSession?.id)
-      .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime());
-    return mainSession ? [mainSession, ...rest] : rest;
-  }, [mainSession, projectSessions]);
+  const mainSession = projectSessions.find((s) => s.kind === "main") ?? null;
+  const mainSessionId = mainSession?.id;
+  const orderedSessions = [
+    ...(mainSession ? [mainSession] : []),
+    ...projectSessions
+      .filter((s) => s.id !== mainSessionId)
+      .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime()),
+  ];
 
   useEffect(() => {
-    if (sessionsQuery.isLoading || mainSession || creating.current) return;
+    if (!sessionsQuery.isSuccess || mainSession || creating.current) return;
     creating.current = true;
     createSession({
       path: { agentId: agentId },
-      body: { project_id: projectId },
+      body: { project_id: projectId, kind: "main" },
       throwOnError: true,
     })
       .then(async () => {
@@ -75,7 +74,7 @@ export function ProjectHome() {
         console.error(err);
         creating.current = false;
       });
-  }, [mainSession, sessionsQuery.isLoading, agentId, projectId, queryClient]);
+  }, [mainSession, sessionsQuery.isSuccess, agentId, projectId, queryClient]);
 
   const loadWorkspace = useCallback(
     async (sid: string, scopePath?: string) => {
@@ -107,10 +106,10 @@ export function ProjectHome() {
   );
 
   useEffect(() => {
-    if (tab === "files" && mainSession) {
-      void loadWorkspace(mainSession.id, projectDir || undefined);
+    if (tab === "files" && mainSessionId) {
+      void loadWorkspace(mainSessionId, projectDir || undefined);
     }
-  }, [tab, mainSession?.id, loadWorkspace, projectDir, mainSession]);
+  }, [tab, mainSessionId, loadWorkspace, projectDir]);
 
   const openTask = useCallback(
     (task: ComponentsTask) => {
@@ -138,10 +137,16 @@ export function ProjectHome() {
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold tracking-[-0.01em]">
-              {project?.name ?? "Project"}
+              {project?.name ?? t("projects.home.fallbackTitle")}
             </h1>
             <p className="mt-1 truncate text-xs text-muted-foreground">
-              {tasks.length} tasks · {projectSessions.length} sessions
+              {t("projects.home.summary", {
+                tasks: tasks.length,
+                sessions: projectSessions.length,
+              })}
+              {project?.base_dir && (
+                <span className="ml-2 font-mono text-[11px]">{project.base_dir}</span>
+              )}
             </p>
           </div>
           <Button
@@ -158,27 +163,6 @@ export function ProjectHome() {
             {t("tasks.new")}
           </Button>
         </div>
-        <div className="mt-4 flex gap-1">
-          {(["tasks", "sessions", "files"] as ProjectTab[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setTab(value)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                tab === value
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              {value === "tasks"
-                ? t("facets.tasks")
-                : value === "sessions"
-                  ? t("facets.conversation")
-                  : t("facets.files")}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -186,7 +170,7 @@ export function ProjectHome() {
         {tab === "sessions" && (
           <ProjectSessions
             sessions={orderedSessions}
-            mainSessionId={mainSession?.id}
+            mainSessionId={mainSessionId}
             onOpen={openSession}
           />
         )}
@@ -202,8 +186,8 @@ export function ProjectHome() {
         )}
         {tab === "files" && !mainSession && (
           <EmptyState
-            title="Opening workspace…"
-            detail="Stella is preparing the project session."
+            title={t("projects.home.openingWorkspace")}
+            detail={t("projects.home.preparingSession")}
           />
         )}
       </div>
@@ -229,7 +213,7 @@ function ProjectTasks({
   })).filter((group) => group.tasks.length > 0);
 
   if (loading) {
-    return <EmptyState title="Loading tasks…" detail="" loading />;
+    return <EmptyState title={t("projects.home.loadingTasks")} detail="" loading />;
   }
   if (tasks.length === 0) {
     return <EmptyState title={t("tasks.noTasks")} detail={t("tasks.noTasksDesc")} />;
@@ -241,7 +225,10 @@ function ProjectTasks({
         {grouped.map((group) => (
           <section key={group.status}>
             <div className="mb-2 flex items-center gap-2">
-              <StatusDot status={group.status} />
+              <StatusDot
+                status={group.status}
+                className={group.status === "running" ? "animate-pulse" : undefined}
+              />
               <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 {statusLabel(t, group.status)}
               </h2>
@@ -257,7 +244,10 @@ function ProjectTasks({
                   onClick={() => onOpen(task)}
                   className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50"
                 >
-                  <StatusDot status={task.status} />
+                  <StatusDot
+                    status={task.status}
+                    className={task.status === "running" ? "animate-pulse" : undefined}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{task.title}</div>
                     {task.description && (
@@ -288,9 +278,13 @@ function ProjectSessions({
   mainSessionId?: string;
   onOpen: (sessionId: string) => void;
 }) {
+  const { t } = useI18n();
   if (sessions.length === 0) {
     return (
-      <EmptyState title="Opening sessions…" detail="Stella is preparing the project session." />
+      <EmptyState
+        title={t("projects.home.openingSessions")}
+        detail={t("projects.home.preparingSession")}
+      />
     );
   }
   return (
@@ -308,7 +302,9 @@ function ProjectSessions({
             </span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">
-                {session.id === mainSessionId ? "Project main" : session.title || session.id}
+                {session.id === mainSessionId
+                  ? t("projects.home.mainSession")
+                  : session.title || session.id}
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">{session.id}</div>
             </div>
@@ -342,8 +338,4 @@ function EmptyState({
       </div>
     </div>
   );
-}
-
-function isTaskSession(session: Session): boolean {
-  return session.channel === "task" || session.id.startsWith("task:");
 }

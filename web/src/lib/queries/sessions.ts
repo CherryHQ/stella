@@ -17,6 +17,27 @@ export function mainSessionQueryOptions(agentId: string) {
   });
 }
 
+export function projectSessionsQueryOptions(agentId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["sessions", agentId, "project", projectId],
+    queryFn: async () => {
+      const all: Session[] = [];
+      let pageToken: string | undefined;
+      do {
+        const { data } = await listSessions({
+          path: { agentId },
+          query: { page_size: 200, page_token: pageToken, project_id: projectId },
+          throwOnError: true,
+        });
+        all.push(...((data?.sessions as Session[]) ?? []));
+        pageToken = data?.next_page_token ?? undefined;
+      } while (pageToken);
+      return all;
+    },
+    enabled: !!agentId && !!projectId,
+  });
+}
+
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {
   return infiniteQueryOptions({
     queryKey: ["sessions", agentId, kind],

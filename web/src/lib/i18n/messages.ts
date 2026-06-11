@@ -567,6 +567,15 @@ const en = {
   "recally.toggleSidebar": "Toggle sidebar",
   "recally.resizeList": "Resize list",
 
+  // Project home
+  "projects.home.fallbackTitle": "Project",
+  "projects.home.summary": "{{tasks}} tasks · {{sessions}} sessions",
+  "projects.home.loadingTasks": "Loading tasks…",
+  "projects.home.openingSessions": "Opening sessions…",
+  "projects.home.openingWorkspace": "Opening workspace…",
+  "projects.home.preparingSession": "Stella is preparing the project session.",
+  "projects.home.mainSession": "Project main",
+
   // Tasks
   "tasks.title": "Tasks",
   "tasks.new": "New Task",
@@ -1749,6 +1758,15 @@ const zh: Record<MessageKey, string> = {
   "recally.tags.more": "+{{count}}",
   "recally.toggleSidebar": "切换侧边栏",
   "recally.resizeList": "调整列表宽度",
+
+  // Project home
+  "projects.home.fallbackTitle": "项目",
+  "projects.home.summary": "{{tasks}} 个任务 · {{sessions}} 个会话",
+  "projects.home.loadingTasks": "正在加载任务…",
+  "projects.home.openingSessions": "正在打开会话…",
+  "projects.home.openingWorkspace": "正在打开工作区…",
+  "projects.home.preparingSession": "Stella 正在准备项目会话。",
+  "projects.home.mainSession": "项目主会话",
 
   // Tasks
   "tasks.title": "任务",
