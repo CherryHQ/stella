@@ -95,6 +95,24 @@ func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams
 	return i, err
 }
 
+const getConversationAgentBySessionID = `-- name: GetConversationAgentBySessionID :one
+SELECT agent_id FROM ctx_conversation
+WHERE session_id = ?1
+  AND user_id = ?2
+`
+
+type GetConversationAgentBySessionIDParams struct {
+	SessionID string         `json:"session_id"`
+	UserID    sql.NullString `json:"user_id"`
+}
+
+func (q *Queries) GetConversationAgentBySessionID(ctx context.Context, arg GetConversationAgentBySessionIDParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getConversationAgentBySessionID, arg.SessionID, arg.UserID)
+	var agent_id sql.NullString
+	err := row.Scan(&agent_id)
+	return agent_id, err
+}
+
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
 WHERE session_id = ?1

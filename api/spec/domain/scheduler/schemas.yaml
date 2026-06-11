@@ -82,6 +82,9 @@ components:
         id: { type: string }
         job_id: { type: string }
         session_id: { type: string }
+        session_agent_id:
+          type: string
+          description: Agent that owns the run's session; may differ from the URL agent for system jobs.
         user_id: { type: string }
         status: { type: string }
         started_at: { type: string, format: date-time }

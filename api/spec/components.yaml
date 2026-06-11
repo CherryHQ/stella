@@ -1980,6 +1980,9 @@ components:
           type: string
         session_id:
           type: string
+        session_agent_id:
+          type: string
+          description: Agent that owns the run's session; may differ from the URL agent for system jobs.
         user_id:
           type: string
         status:

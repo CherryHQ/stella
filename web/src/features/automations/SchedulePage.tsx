@@ -4,7 +4,9 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { triggerSchedulerJob, updateSchedulerJob } from "@/lib/api-client";
 import type { SchedulerJob } from "@/lib/types";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
+import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { schedulerJobRunsOptions } from "./queries";
@@ -25,6 +27,8 @@ export function SchedulePage() {
   const [editOpen, setEditOpen] = useState(false);
   const [acting, setActing] = useState(false);
 
+  const { toasts, showToast } = useToast();
+  const { data: me } = useQuery(meQueryOptions);
   const { data: jobs = [], isSuccess } = useQuery(agentSchedulerJobsOptions(agentId));
   const job = useMemo(
     () => (jobs as SchedulerJob[]).find((j) => j.id === scheduleId) ?? null,
@@ -46,11 +50,14 @@ export function SchedulePage() {
         path: { agentId: effectiveAgentId, jobId: job.id },
         throwOnError: true,
       });
+      showToast(t("hub.runNowStarted"));
       invalidate();
+    } catch {
+      showToast(t("hub.runNowFailed"), "error");
     } finally {
       setActing(false);
     }
-  }, [job, effectiveAgentId, invalidate]);
+  }, [job, effectiveAgentId, invalidate, showToast, t]);
 
   const handleToggleEnabled = useCallback(async () => {
     if (!job) return;
@@ -86,6 +93,8 @@ export function SchedulePage() {
   if (!job) return null;
 
   const editable = !job.owner_kind || job.owner_kind === "user";
+  // System/plugin jobs can only be triggered manually by admins.
+  const canTrigger = editable || !!me?.is_admin;
   const next = jobNextRunAt(job);
 
   return (
@@ -113,9 +122,11 @@ export function SchedulePage() {
       }
       actions={
         <>
-          <Button size="sm" loading={acting} onClick={handleTrigger}>
-            {t("hub.runNow")}
-          </Button>
+          {canTrigger && (
+            <Button size="sm" loading={acting} onClick={handleTrigger}>
+              {t("hub.runNow")}
+            </Button>
+          )}
           {editable && (
             <>
               <Button variant="outline" size="sm" loading={acting} onClick={handleToggleEnabled}>
@@ -161,6 +172,7 @@ export function SchedulePage() {
             error: r.error,
             output: r.output,
             sessionId: r.session_id,
+            sessionAgentId: r.session_agent_id,
           }))}
         />
       </DetailSection>
@@ -178,6 +190,7 @@ export function SchedulePage() {
         agentId={agentId}
         onDeleted={() => navigate({ to: "/agents/$agentId/tasks", params: { agentId } })}
       />
+      <ToastContainer messages={toasts} />
     </DetailShell>
   );
 }

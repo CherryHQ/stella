@@ -14,6 +14,8 @@ export interface TimelineRun {
   error?: string;
   output?: string;
   sessionId?: string;
+  /** Agent that owns the session when it differs from the page agent (system jobs). */
+  sessionAgentId?: string;
 }
 
 function statusTone(status: string): string {
@@ -79,7 +81,7 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
               {run.sessionId && (
                 <Link
                   to="/agents/$agentId/sessions/$sessionId"
-                  params={{ agentId, sessionId: run.sessionId }}
+                  params={{ agentId: run.sessionAgentId || agentId, sessionId: run.sessionId }}
                   onClick={(e) => e.stopPropagation()}
                   className="shrink-0 text-xs font-medium text-primary hover:underline"
                 >
