@@ -4,7 +4,7 @@ import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Terminal, Brain, FileText } from "lucide-react";
+import { Terminal, Lightbulb, FileText } from "lucide-react";
 import { getAgentColor } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { SessionTrace } from "./SessionTrace";
@@ -215,7 +215,7 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
             return (
               <div key={idx} className="flex gap-2.5 items-start py-0.5">
                 <span className="flex items-center justify-center text-primary/60 mt-1 shrink-0">
-                  <Brain className="size-3.5" />
+                  <Lightbulb className="size-3.5" />
                 </span>
                 <div className="text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-mono min-w-0">
                   {block.thinking}

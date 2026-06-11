@@ -1,4 +1,4 @@
-import { ChevronDown, Brain } from "lucide-react";
+import { ChevronDown, Lightbulb } from "lucide-react";
 
 export function CollapsibleThinking({
   labelText,
@@ -17,7 +17,7 @@ export function CollapsibleThinking({
         onClick={() => onToggle(true)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-muted/40 hover:bg-muted/70 hover:border-foreground/10 transition-all duration-120 font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer w-fit shadow-none"
       >
-        <Brain className="size-3.5 text-primary shrink-0" />
+        <Lightbulb className="size-3.5 text-primary shrink-0" />
         <span>{labelText}</span>
         <ChevronDown className="size-3.5 text-muted-foreground/60 shrink-0 ml-0.5" />
       </button>
@@ -31,7 +31,7 @@ export function CollapsibleThinking({
           onClick={() => onToggle(false)}
           className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer font-semibold"
         >
-          <Brain className="size-3.5 text-primary shrink-0" />
+          <Lightbulb className="size-3.5 text-primary shrink-0" />
           <span>{labelText}</span>
           <ChevronDown className="size-3.5 transition-transform duration-120 text-muted-foreground/50 rotate-180" />
         </button>

@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Brain, HardDrive, MessageSquare, Sparkles, Wrench } from "lucide-react";
+import { Database, Folder, ListTodo, MessageSquare, Puzzle } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +46,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
             key: "tasks",
             label: t("facets.tasks"),
             to: groupId ? `/groups/${groupId}` : "/agents",
-            icon: Wrench,
+            icon: ListTodo,
             active: () => false,
             disabled: true,
           },
@@ -54,7 +54,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
             key: "files",
             label: t("facets.files"),
             to: groupId ? `/groups/${groupId}` : "/agents",
-            icon: HardDrive,
+            icon: Folder,
             active: () => false,
             disabled: true,
           },
@@ -65,7 +65,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               key: "tasks",
               label: t("facets.tasks"),
               to: projectBase || "/agents",
-              icon: Wrench,
+              icon: ListTodo,
               active: (p) =>
                 (p === projectBase && (!searchTab || searchTab === "tasks")) ||
                 p.startsWith(`${projectBase}/tasks`),
@@ -85,7 +85,7 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               label: t("facets.files"),
               to: projectBase || "/agents",
               search: { tab: "files" },
-              icon: HardDrive,
+              icon: Folder,
               active: (p) => p === projectBase && searchTab === "files",
             },
           ]
@@ -101,28 +101,28 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               key: "tasks",
               label: t("facets.tasks"),
               to: `${base}/automations`,
-              icon: Wrench,
+              icon: ListTodo,
               active: (p) => p.startsWith(`${base}/automations`) || p.startsWith(`${base}/tasks`),
             },
             {
               key: "memory",
               label: t("facets.memory"),
               to: `${base}/memories`,
-              icon: Brain,
+              icon: Database,
               active: (p) => p.startsWith(`${base}/memories`),
             },
             {
               key: "skills",
               label: t("facets.skills"),
               to: `${base}/skills`,
-              icon: Sparkles,
+              icon: Puzzle,
               active: (p) => p.startsWith(`${base}/skills`),
             },
             {
               key: "files",
               label: t("facets.files"),
               to: base || "/agents",
-              icon: HardDrive,
+              icon: Folder,
               active: () => false,
               disabled: true,
             },
