@@ -50,7 +50,7 @@ export function AssistantMessage({
           <span className="text-xs font-semibold text-foreground">{agentName}</span>
           {streaming && (
             <span className="inline-flex items-center gap-1">
-              <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+              <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
             </span>
           )}
           {timestamp && !streaming && (
@@ -98,7 +98,7 @@ export function AssistantMessage({
             )}
             {timestamp && sameRoleAsPrev && <span>{formatTime(timestamp)}</span>}
             {(tokenCount ?? 0) > 0 && (
-              <span className="text-primary/70">{tokenCount!.toLocaleString()} tok</span>
+              <span className="text-muted-foreground/60">{tokenCount!.toLocaleString()} tok</span>
             )}
           </div>
         )}
@@ -214,7 +214,7 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
           if (block.type === "thinking" && block.thinking) {
             return (
               <div key={idx} className="flex gap-2.5 items-start py-0.5">
-                <span className="flex items-center justify-center text-primary/60 mt-1 shrink-0">
+                <span className="flex items-center justify-center text-muted-foreground/60 mt-1 shrink-0">
                   <Lightbulb className="size-3.5" />
                 </span>
                 <div className="text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-mono min-w-0">
@@ -266,7 +266,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
         <span
           className={cn(
             "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider font-sans shrink-0",
-            n === "bash" ? "bg-chart-4/10 text-chart-4" : "bg-primary/10 text-primary",
+            n === "bash" ? "bg-chart-4/10 text-chart-4" : "bg-muted text-muted-foreground",
           )}
         >
           {n}

@@ -147,7 +147,7 @@ export function ChatComposer({
   const slashOverlay = slashOpen ? (
     <div
       ref={slashListRef}
-      className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
+      className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-popover"
     >
       <div className="p-1.5">
         {slashCandidates.map((s, i) => (
@@ -159,23 +159,18 @@ export function ChatComposer({
             onMouseEnter={() => setSlashIndex(i)}
             className={cn(
               "group flex w-full items-baseline gap-3 rounded-md px-2.5 py-2 text-left transition-colors",
-              i === slashIndex ? "bg-primary/5" : "",
+              i === slashIndex ? "bg-muted/50" : "",
             )}
           >
             <code
               className={cn(
                 "shrink-0 rounded px-1.5 py-0.5 font-mono text-xs font-semibold",
-                i === slashIndex ? "bg-primary/10 text-primary" : "bg-muted text-primary",
+                i === slashIndex ? "bg-muted text-foreground" : "bg-muted text-muted-foreground",
               )}
             >
               /{s.name}
             </code>
-            <span
-              className={cn(
-                "truncate text-xs leading-tight",
-                i === slashIndex ? "text-muted-foreground" : "text-muted-foreground",
-              )}
-            >
+            <span className="truncate text-xs leading-tight text-muted-foreground">
               {s.description}
             </span>
           </button>
@@ -226,13 +221,13 @@ export function ChatComposer({
             {selectedSkills.map((s) => (
               <span
                 key={s.name}
-                className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2.5 py-1 font-mono text-[11px] font-semibold text-primary"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground"
               >
                 /{s.name}
                 <button
                   type="button"
                   onClick={() => removeSkill(s.name)}
-                  className="ml-0.5 shrink-0 cursor-pointer text-primary/40 transition-colors hover:text-primary"
+                  className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground/60 transition-colors hover:text-foreground"
                 >
                   <X className="size-3" />
                 </button>
@@ -246,13 +241,13 @@ export function ChatComposer({
                     "inline-flex items-center gap-1.5 text-[11px] font-mono rounded-md px-3 py-1 max-w-48 border",
                     a.uploading
                       ? "bg-muted/50 text-muted-foreground border-border"
-                      : "bg-primary/5 text-primary border-primary/20",
+                      : "bg-muted text-muted-foreground border-border",
                   )}
                 >
                   {a.uploading ? (
                     <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin shrink-0" />
                   ) : (
-                    <Paperclip className="w-3 h-3 shrink-0 text-primary/70" />
+                    <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
                   )}
                   <span className="truncate">{a.name}</span>
                   {!a.uploading && onRemoveAttachment && (
@@ -346,7 +341,7 @@ export function ChatComposer({
                   "w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer",
                   !canSend
                     ? "bg-muted text-muted-foreground/30 cursor-not-allowed"
-                    : "bg-primary text-primary-foreground hover:bg-primary-hover",
+                    : "bg-primary text-primary-foreground hover:bg-primary/90",
                 )}
                 title={t("sessions.composer.sendMessage")}
               >
@@ -374,7 +369,7 @@ export function ChatComposer({
             </span>
           )}
           {isStreaming && (
-            <span className="text-[9px] font-mono text-primary/70 select-none animate-pulse">
+            <span className="text-[9px] font-mono text-chart-2 select-none animate-pulse">
               {t("sessions.transcript.generating")}
             </span>
           )}

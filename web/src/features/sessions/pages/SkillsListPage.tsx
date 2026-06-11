@@ -462,7 +462,7 @@ function SkillDetailRow({
       <div
         onClick={onToggle}
         className={cn(
-          "group flex items-center justify-between gap-4 py-3 px-3 transition-all duration-150 cursor-pointer rounded-lg",
+          "group flex items-center justify-between gap-4 py-3 px-3 transition-colors duration-150 cursor-pointer rounded-lg",
           isExpanded ? "bg-muted/30" : "hover:bg-muted/40",
         )}
       >
@@ -529,7 +529,7 @@ function SkillDetailRow({
         </div>
         <ChevronRight
           className={cn(
-            "size-4 text-muted-foreground transition-all duration-150 shrink-0",
+            "size-4 text-muted-foreground transition-colors duration-150 shrink-0",
             isExpanded
               ? "rotate-90"
               : "opacity-0 group-hover:opacity-100 translate-x-[-4px] group-hover:translate-x-0",

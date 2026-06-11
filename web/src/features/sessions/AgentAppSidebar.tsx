@@ -349,7 +349,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
             label={t("inbox.title")}
             badge={
               attentionCount > 0 ? (
-                <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 font-mono text-[10px] text-primary-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-foreground">
                   {attentionCount}
                 </span>
               ) : undefined
@@ -367,7 +367,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
           action={
             <button
               type="button"
-              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-colors hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
               title={t("groups.newGroup")}
               onClick={() => setShowGroupDialog(true)}
             >
@@ -424,7 +424,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
           action={
             <button
               type="button"
-              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-colors hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
               title={t("sessions.sidebar.newProject2")}
               onClick={() => setShowProjectDialog(true)}
             >
@@ -444,7 +444,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               }
               trailing={
                 <span
-                  className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-card hover:text-foreground group-hover/project:opacity-70"
+                  className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/project:opacity-70"
                   onClick={(event) => {
                     event.stopPropagation();
                     void deleteProject(project.id);
@@ -465,7 +465,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
           action={
             <button
               type="button"
-              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-colors hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
               title={t("sessions.sidebar.newThread")}
               onClick={() => void createTemporarySession()}
             >

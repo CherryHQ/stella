@@ -30,7 +30,7 @@ export function ToastContainer({ messages }: { messages: ToastMsg[] }) {
       {messages.map((m) => (
         <div
           key={m.id}
-          className={`px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium pointer-events-auto ${
+          className={`px-4 py-2.5 rounded-lg text-sm font-medium pointer-events-auto ${
             m.kind === "error"
               ? "bg-destructive text-destructive-foreground"
               : "bg-success text-success-foreground"

@@ -116,7 +116,7 @@ function renderMentionedText(text: string, agentNames?: Map<string, string>) {
       return part;
     }
     return (
-      <span key={`${part}-${index}`} className="rounded-md bg-primary/10 px-1 py-0.5 text-primary">
+      <span key={`${part}-${index}`} className="rounded-md bg-muted px-1 py-0.5 text-foreground">
         {part}
       </span>
     );
