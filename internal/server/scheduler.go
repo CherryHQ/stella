@@ -519,6 +519,9 @@ func dbRowToAPIJobRun(row sqlc.SchedJobRun) apitypes.JobRun {
 	if row.Error != "" {
 		j.Error = &row.Error
 	}
+	if row.Output != "" {
+		j.Output = &row.Output
+	}
 	if row.UserID.Valid {
 		j.UserId = ptrStr(row.UserID.String)
 	}

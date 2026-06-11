@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	ucli "github.com/urfave/cli/v2"
@@ -308,13 +309,29 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 			AgentID:   agentID,
 			Message:   schedulerJobMessage(job),
 		})
+		// Keep the last step's text — that's the final assistant answer;
+		// earlier steps are tool-call narration.
 		var runErr error
+		var output, step strings.Builder
 		for evt := range ch {
 			if evt.Err != nil {
 				runErr = evt.Err
 				slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
 			}
+			if evt.Text != "" {
+				step.WriteString(evt.Text)
+			}
+			if evt.Step != nil && evt.Step.Kind == "finish" && step.Len() > 0 {
+				output.Reset()
+				output.WriteString(step.String())
+				step.Reset()
+			}
 		}
+		if step.Len() > 0 {
+			output.Reset()
+			output.WriteString(step.String())
+		}
+		scheduler.RunOutputSinkFromContext(ctx).Set(strings.TrimSpace(output.String()))
 		return runErr
 	})
 }

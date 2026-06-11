@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -11,6 +12,7 @@ export interface TimelineRun {
   startedAt?: string;
   duration?: string;
   error?: string;
+  output?: string;
   sessionId?: string;
 }
 
@@ -22,7 +24,7 @@ function statusTone(status: string): string {
   return "text-muted-foreground";
 }
 
-/** Run history: session link visible on every row, error output expandable inline. */
+/** Run history: session link visible on every row, output/error expandable inline. */
 export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState<string | null>(null);
@@ -36,18 +38,19 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
       {runs.map((run) => {
         const isOpen = open === run.id;
         const hasError = !!run.error;
+        const expandable = hasError || !!run.output;
         return (
           <div key={run.id} className="border-b border-border last:border-b-0">
             <div
-              role={hasError ? "button" : undefined}
-              tabIndex={hasError ? 0 : undefined}
-              onClick={hasError ? () => setOpen(isOpen ? null : run.id) : undefined}
+              role={expandable ? "button" : undefined}
+              tabIndex={expandable ? 0 : undefined}
+              onClick={expandable ? () => setOpen(isOpen ? null : run.id) : undefined}
               onKeyDown={
-                hasError ? (e) => e.key === "Enter" && setOpen(isOpen ? null : run.id) : undefined
+                expandable ? (e) => e.key === "Enter" && setOpen(isOpen ? null : run.id) : undefined
               }
               className={cn(
                 "flex w-full items-center gap-3 px-3.5 py-2.5 text-left",
-                hasError && "cursor-pointer hover:bg-muted/50",
+                expandable && "cursor-pointer hover:bg-muted/50",
               )}
             >
               <span
@@ -71,7 +74,7 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
                   hasError ? "text-destructive" : "text-muted-foreground",
                 )}
               >
-                {run.error || ""}
+                {run.error || run.output || ""}
               </span>
               {run.sessionId && (
                 <Link
@@ -83,7 +86,7 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
                   {t("hub.openSession")}
                 </Link>
               )}
-              {hasError && (
+              {expandable && (
                 <ChevronRight
                   className={cn(
                     "size-3.5 shrink-0 text-muted-foreground transition-transform",
@@ -92,11 +95,21 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
                 />
               )}
             </div>
-            {isOpen && hasError && (
-              <div className="px-3.5 pb-3.5 sm:pl-[90px]">
-                <div className="whitespace-pre-wrap rounded-lg border border-destructive/25 bg-destructive/[0.06] px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-destructive">
-                  {run.error}
-                </div>
+            {isOpen && expandable && (
+              <div className="space-y-2 px-3.5 pb-3.5 sm:pl-[90px]">
+                {run.error && (
+                  <div className="whitespace-pre-wrap rounded-lg border border-destructive/25 bg-destructive/[0.06] px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-destructive">
+                    {run.error}
+                  </div>
+                )}
+                {run.output && (
+                  <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                    <MarkdownPreview
+                      content={run.output}
+                      className="text-xs [&_ol]:pl-5 [&_ul]:pl-5"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

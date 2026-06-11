@@ -159,6 +159,7 @@ export function SchedulePage() {
             startedAt: r.started_at,
             duration: r.duration,
             error: r.error,
+            output: r.output,
             sessionId: r.session_id,
           }))}
         />

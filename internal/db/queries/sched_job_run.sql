@@ -5,7 +5,7 @@ RETURNING *;
 
 -- name: UpdateSchedJobRun :exec
 UPDATE sched_job_run
-SET status = ?, finished_at = ?, error = ?
+SET status = ?, finished_at = ?, error = ?, output = ?
 WHERE id = ? AND job_id = ?;
 
 -- name: ListSchedJobRuns :many

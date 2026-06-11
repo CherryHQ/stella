@@ -576,7 +576,8 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		s.log.Warn("failed to create job run record", "job_id", job.ID, "error", err)
 	}
 
-	runCtx := WithRunSessionID(ctx, sessionID)
+	outputSink := &RunOutputSink{}
+	runCtx := withRunOutputSink(WithRunSessionID(ctx, sessionID), outputSink)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -592,7 +593,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		errStr = runErr.Error()
 	}
 
-	if err := s.finishJobRun(ctx, runID, job.ID, status, finishedAt, errStr); err != nil {
+	if err := s.finishJobRun(ctx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 	}
 
@@ -653,7 +654,8 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	}
 
 	go func() {
-		runCtx := WithRunSessionID(svcCtx, sessionID)
+		outputSink := &RunOutputSink{}
+		runCtx := withRunOutputSink(WithRunSessionID(svcCtx, sessionID), outputSink)
 		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
@@ -664,7 +666,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 			errStr = runErr.Error()
 		}
 
-		if err := s.finishJobRun(svcCtx, runID, jobID, status, finishedAt, errStr); err != nil {
+		if err := s.finishJobRun(svcCtx, runID, jobID, status, finishedAt, errStr, outputSink.get()); err != nil {
 			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 		}
 		if err := s.recordJobRun(svcCtx, jobID, finishedAt, runErr); err != nil {

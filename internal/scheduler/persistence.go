@@ -278,11 +278,27 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 	return tx.Commit()
 }
 
-func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, finishedAt time.Time, errStr string) error {
+// maxRunOutputLen caps stored run output so run rows stay cheap to list;
+// the full transcript lives in the run's session.
+const maxRunOutputLen = 4000
+
+func truncateRunes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…"
+}
+
+func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, finishedAt time.Time, errStr, output string) error {
 	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
 		Status:     status,
 		FinishedAt: sql.NullString{String: finishedAt.UTC().Format(dbTimeLayout), Valid: true},
 		Error:      errStr,
+		Output:     truncateRunes(output, maxRunOutputLen),
 		ID:         id,
 		JobID:      jobID,
 	})
@@ -297,6 +313,7 @@ func dbRowToJobRun(r sqlc.SchedJobRun) JobRun {
 		Status:    r.Status,
 		StartedAt: startedAt,
 		Error:     r.Error,
+		Output:    r.Output,
 	}
 	if r.UserID.Valid {
 		run.UserID = r.UserID.String

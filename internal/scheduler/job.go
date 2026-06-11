@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -74,6 +75,46 @@ type JobRun struct {
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Error      string     `json:"error,omitempty"`
+	Output     string     `json:"output,omitempty"`
+}
+
+// RunOutputSink is a context-carried slot the dispatch callback fills with the
+// run's final assistant text so the run record can persist it. Mirrors the
+// WithRunSessionID pattern: the scheduler owns the run lifecycle, the callback
+// owns the agent conversation.
+type RunOutputSink struct {
+	mu   sync.Mutex
+	text string
+}
+
+func (s *RunOutputSink) Set(text string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.text = text
+	s.mu.Unlock()
+}
+
+func (s *RunOutputSink) get() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.text
+}
+
+type runOutputSinkKey struct{}
+
+func withRunOutputSink(ctx context.Context, sink *RunOutputSink) context.Context {
+	return context.WithValue(ctx, runOutputSinkKey{}, sink)
+}
+
+// RunOutputSinkFromContext returns the output sink for the current run, or nil
+// when the job was not dispatched through the run lifecycle.
+func RunOutputSinkFromContext(ctx context.Context) *RunOutputSink {
+	if v, ok := ctx.Value(runOutputSinkKey{}).(*RunOutputSink); ok {
+		return v
+	}
+	return nil
 }
 
 type runSessionIDKey struct{}
