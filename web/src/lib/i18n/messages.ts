@@ -657,11 +657,11 @@ const en = {
 
   // Sessions sidebar
   "sessions.sidebar.skills": "Skills",
-  "sessions.sidebar.noChats": "No chats yet.",
+  "sessions.sidebar.noThreads": "No threads yet.",
   "sessions.sidebar.loadMore": "Load more…",
-  "sessions.sidebar.conversations": "Conversations",
-  "sessions.sidebar.temporaryChats": "Temporary chats",
-  "sessions.sidebar.newTemporaryChat": "New temporary chat",
+  "sessions.sidebar.chats": "Chats",
+  "sessions.sidebar.threads": "Threads",
+  "sessions.sidebar.newThread": "New thread",
   "sessions.sidebar.deleteProjectConfirm": "Delete this project? Sessions will be kept.",
 
   // Sessions panel — automation
@@ -942,7 +942,7 @@ const en = {
   "sessions.conversation": "Conversation",
   "sessions.fullView": "Full view",
   "sessions.selectSession": "Select a session from the sidebar",
-  "sessions.startThread": "Start temporary thread",
+  "sessions.startThread": "New thread",
   "sessions.inspector.session": "Session",
   "sessions.inspector.tools": "Tools",
   "sessions.inspector.prompt": "Prompt",
@@ -1840,11 +1840,11 @@ const zh: Record<MessageKey, string> = {
 
   // Sessions sidebar
   "sessions.sidebar.skills": "技能",
-  "sessions.sidebar.noChats": "暂无对话。",
+  "sessions.sidebar.noThreads": "暂无话题。",
   "sessions.sidebar.loadMore": "加载更多…",
-  "sessions.sidebar.conversations": "会话",
-  "sessions.sidebar.temporaryChats": "临时会话",
-  "sessions.sidebar.newTemporaryChat": "新建临时会话",
+  "sessions.sidebar.chats": "聊天",
+  "sessions.sidebar.threads": "话题",
+  "sessions.sidebar.newThread": "新话题",
   "sessions.sidebar.deleteProjectConfirm": "删除此项目？会话会保留。",
 
   // Sessions panel — automation
@@ -2122,7 +2122,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.conversation": "对话",
   "sessions.fullView": "完整视图",
   "sessions.selectSession": "从侧边栏选择一个会话",
-  "sessions.startThread": "开始临时线程",
+  "sessions.startThread": "新话题",
   "sessions.inspector.session": "会话",
   "sessions.inspector.tools": "工具",
   "sessions.inspector.prompt": "提示词",

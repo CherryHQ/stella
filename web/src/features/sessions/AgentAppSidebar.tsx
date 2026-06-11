@@ -363,7 +363,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
       </div>
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-2">
         <SidebarSection
-          title={t("sessions.sidebar.conversations")}
+          title={t("sessions.sidebar.chats")}
           action={
             <button
               type="button"
@@ -418,55 +418,6 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
         </SidebarSection>
 
         <SidebarSection
-          title={t("sessions.sidebar.temporaryChats")}
-          open={chatsOpen}
-          onOpenChange={setChatsOpen}
-          action={
-            <button
-              type="button"
-              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
-              title={t("sessions.sidebar.newTemporaryChat")}
-              onClick={() => void createTemporarySession()}
-            >
-              <MessageSquarePlus className="size-3.5" />
-            </button>
-          }
-        >
-          {chatSessions.map((session: Session) => (
-            <SidebarItem
-              key={session.id}
-              active={activeSessionId === session.id}
-              label={session.title || t("sessions.untitled")}
-              meta={
-                <time className="font-mono text-[11px]">{relativeTime(session.last_active)}</time>
-              }
-              onClick={() => {
-                closeMobile();
-                void navigate({
-                  to: "/agents/$agentId/sessions/$sessionId",
-                  params: { agentId, sessionId: session.id },
-                });
-              }}
-            />
-          ))}
-          {chatsQuery.hasNextPage && (
-            <button
-              type="button"
-              className="w-full px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
-              disabled={chatsQuery.isFetchingNextPage}
-              onClick={() => void chatsQuery.fetchNextPage()}
-            >
-              {t("sessions.sidebar.loadMore")}
-            </button>
-          )}
-          {chatSessions.length === 0 && (
-            <p className="px-2 py-2 text-xs text-muted-foreground">
-              {t("sessions.sidebar.noChats")}
-            </p>
-          )}
-        </SidebarSection>
-
-        <SidebarSection
           title={t("sessions.sidebar.projects")}
           open={projectsOpen}
           onOpenChange={setProjectsOpen}
@@ -505,6 +456,55 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               onClick={() => openProject(project.id)}
             />
           ))}
+        </SidebarSection>
+
+        <SidebarSection
+          title={t("sessions.sidebar.threads")}
+          open={chatsOpen}
+          onOpenChange={setChatsOpen}
+          action={
+            <button
+              type="button"
+              className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-60 transition-all hover:bg-foreground/[0.055] hover:text-foreground hover:opacity-100"
+              title={t("sessions.sidebar.newThread")}
+              onClick={() => void createTemporarySession()}
+            >
+              <MessageSquarePlus className="size-3.5" />
+            </button>
+          }
+        >
+          {chatSessions.map((session: Session) => (
+            <SidebarItem
+              key={session.id}
+              active={activeSessionId === session.id}
+              label={session.title || t("sessions.untitled")}
+              meta={
+                <time className="font-mono text-[11px]">{relativeTime(session.last_active)}</time>
+              }
+              onClick={() => {
+                closeMobile();
+                void navigate({
+                  to: "/agents/$agentId/sessions/$sessionId",
+                  params: { agentId, sessionId: session.id },
+                });
+              }}
+            />
+          ))}
+          {chatsQuery.hasNextPage && (
+            <button
+              type="button"
+              className="w-full px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+              disabled={chatsQuery.isFetchingNextPage}
+              onClick={() => void chatsQuery.fetchNextPage()}
+            >
+              {t("sessions.sidebar.loadMore")}
+            </button>
+          )}
+          {chatSessions.length === 0 && (
+            <p className="px-2 py-2 text-xs text-muted-foreground">
+              {t("sessions.sidebar.noThreads")}
+            </p>
+          )}
         </SidebarSection>
       </div>
       {showProjectDialog && (
