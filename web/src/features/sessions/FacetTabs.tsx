@@ -58,10 +58,23 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               key: "tasks",
               label: t("facets.tasks"),
               to: projectBase || "/agents",
+              search: { tab: "tasks" },
               icon: ListTodo,
-              active: (p) =>
-                (p === projectBase && searchTab === "tasks") ||
-                p.startsWith(`${projectBase}/tasks`),
+              active: (p) => p === projectBase && searchTab === "tasks",
+            },
+            {
+              key: "memory",
+              label: t("facets.memory"),
+              to: `${projectBase}/memories`,
+              icon: Database,
+              active: (p) => p.startsWith(`${projectBase}/memories`),
+            },
+            {
+              key: "skills",
+              label: t("facets.skills"),
+              to: `${projectBase}/skills`,
+              icon: Puzzle,
+              active: (p) => p.startsWith(`${projectBase}/skills`),
             },
           ]
         : [

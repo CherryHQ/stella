@@ -35,19 +35,30 @@ import { ScheduleSheet } from "./ScheduleSheet";
 
 export function OverviewPage() {
   const { t } = useI18n();
-  const { agentId } = useParams({ strict: false }) as { agentId: string };
+  const { agentId, projectId } = useParams({ strict: false }) as {
+    agentId: string;
+    projectId?: string;
+  };
   const search = useSearch({ strict: false }) as { new?: string };
   const navigate = useNavigate();
   const { setHeaderActions } = useAppShell();
 
   const { data: goals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
-  const { data: tasks = [] } = useQuery(standaloneTasksOptions(agentId));
+  const { data: tasks = [] } = useQuery(standaloneTasksOptions(agentId, projectId));
 
   const isNewSchedule = search.new === "schedule";
   const closeSheet = useCallback(() => {
+    if (projectId) {
+      void navigate({
+        to: "/agents/$agentId/projects/$projectId",
+        params: { agentId, projectId },
+        search: { tab: "tasks" },
+      });
+      return;
+    }
     void navigate({ to: "/agents/$agentId/tasks", params: { agentId } });
-  }, [navigate, agentId]);
+  }, [navigate, agentId, projectId]);
 
   useEffect(() => {
     setHeaderActions(
@@ -55,7 +66,13 @@ export function OverviewPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => navigate({ to: "/agents/$agentId/tasks/new", params: { agentId } })}
+          onClick={() =>
+            navigate({
+              to: "/agents/$agentId/tasks/new",
+              params: { agentId },
+              search: projectId ? { project_id: projectId } : {},
+            })
+          }
         >
           {t("hub.newTask")}
         </Button>
@@ -63,9 +80,9 @@ export function OverviewPage() {
           size="sm"
           onClick={() =>
             navigate({
-              to: "/agents/$agentId/tasks",
-              params: { agentId },
-              search: { new: "schedule" },
+              to: projectId ? "/agents/$agentId/projects/$projectId" : "/agents/$agentId/tasks",
+              params: projectId ? { agentId, projectId } : { agentId },
+              search: projectId ? { tab: "tasks", new: "schedule" } : { new: "schedule" },
             })
           }
         >
@@ -76,7 +93,7 @@ export function OverviewPage() {
     return () => {
       setHeaderActions(null);
     };
-  }, [setHeaderActions, t, navigate, agentId]);
+  }, [setHeaderActions, t, navigate, agentId, projectId]);
 
   const needsYou = useMemo(() => {
     const items: NeedsYouItem[] = [];

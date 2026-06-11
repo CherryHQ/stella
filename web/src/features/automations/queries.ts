@@ -3,11 +3,11 @@ import { getTask, getTaskBlocker, listSchedulerJobRuns } from "@/lib/api-client"
 import type { Blocker, ComponentsDep, ComponentsTask } from "@/lib/api-client/types.gen";
 import { fetchAllTasks, fetchAllTaskDeps, fetchAllSchedulerJobRuns } from "@/lib/paginated";
 
-export function standaloneTasksOptions(agentId: string) {
+export function standaloneTasksOptions(agentId: string, projectId?: string) {
   return queryOptions({
-    queryKey: ["standalone-tasks", agentId],
+    queryKey: ["standalone-tasks", agentId, projectId],
     queryFn: async (): Promise<ComponentsTask[]> => {
-      const all = await fetchAllTasks(agentId);
+      const all = await fetchAllTasks(agentId, projectId);
       return all.filter((t) => !t.goal_id);
     },
     enabled: !!agentId,

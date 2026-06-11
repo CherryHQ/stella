@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -37,7 +37,6 @@ import {
 } from "@/lib/api-client";
 import { ChevronRight, Plus, Code2, Cpu, Terminal, User, Bot, Upload, Search } from "lucide-react";
 import type { Skill, SkillSearchResult } from "@/lib/types";
-import { Route } from "@/routes/_app/agents.$agentId/skills/index";
 
 interface SkillSectionProps {
   title: string;
@@ -89,13 +88,25 @@ function SkillSection({
 }
 
 export function SkillsListPage() {
-  const { agentId } = useParams({ from: "/_app/agents/$agentId/skills/" });
+  const { agentId, projectId } = useParams({ strict: false }) as {
+    agentId: string;
+    projectId?: string;
+  };
   const navigate = useNavigate();
   const { t } = useI18n();
   const { setHeaderActions } = useAppShell();
   const { data: skills = [], isLoading, refetch } = useQuery(agentSkillsOptions(agentId));
 
-  const search = Route.useSearch();
+  const search = useSearch({ strict: false }) as {
+    new?: boolean;
+    expand?: string;
+    scope?: string;
+  };
+
+  const skillsRoute = projectId
+    ? "/agents/$agentId/projects/$projectId/skills"
+    : "/agents/$agentId/skills";
+  const routeParams = projectId ? { agentId, projectId } : { agentId };
 
   const [isNewDialogOpen, setIsNewDialogOpen] = useState(search.new === true);
 
@@ -133,16 +144,16 @@ export function SkillsListPage() {
       const next = current === key ? null : key;
       if (next === null) {
         void navigate({
-          to: "/agents/$agentId/skills",
-          params: { agentId },
+          to: skillsRoute,
+          params: routeParams,
           search: {},
           replace: true,
         });
       } else {
         const [scope, skillId] = next.split(":");
         void navigate({
-          to: "/agents/$agentId/skills",
-          params: { agentId },
+          to: skillsRoute,
+          params: routeParams,
           search: { expand: skillId, scope },
           replace: true,
         });
@@ -154,8 +165,8 @@ export function SkillsListPage() {
   const handleCloseDialog = () => {
     setIsNewDialogOpen(false);
     void navigate({
-      to: "/agents/$agentId/skills",
-      params: { agentId },
+      to: skillsRoute,
+      params: routeParams,
       search: {},
       replace: true,
     });
@@ -164,8 +175,8 @@ export function SkillsListPage() {
   const handleOpenDialog = () => {
     setIsNewDialogOpen(true);
     void navigate({
-      to: "/agents/$agentId/skills",
-      params: { agentId },
+      to: skillsRoute,
+      params: routeParams,
       search: { new: true },
       replace: true,
     });
