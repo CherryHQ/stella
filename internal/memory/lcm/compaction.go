@@ -10,9 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+const summarizeConcurrency = 4
 
 // compactionEngine runs leaf and condensed compaction passes.
 type compactionEngine struct {
@@ -104,8 +108,28 @@ func (c *compactionEngine) leafPass(ctx context.Context, convID string, items []
 		return nil
 	}
 
-	for _, run := range runs {
-		if err := c.compactMessageRun(ctx, convID, run, result); err != nil {
+	prepared := make([]messageRunSummary, len(runs))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(summarizeConcurrency)
+	for i, run := range runs {
+		group.Go(func() error {
+			summary, err := c.summarizeMessageRun(groupCtx, convID, run)
+			if err != nil {
+				return err
+			}
+			prepared[i] = summary
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
+	}
+
+	// Summaries in a pass are written only after every LLM call succeeds. This
+	// intentionally makes each pass all-or-nothing; older sequential code could
+	// leave earlier runs committed when a later summarization failed.
+	for _, summary := range prepared {
+		if err := c.writeMessageRunSummary(ctx, convID, summary, result); err != nil {
 			return err
 		}
 	}
@@ -204,8 +228,17 @@ func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 	}
 }
 
-// compactMessageRun creates a leaf summary from a message run.
-func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string, run messageRun, result *memory.CompactionResult) error {
+type messageRunSummary struct {
+	run         messageRun
+	messages    []sqlc.CtxMessage
+	content     string
+	totalTokens int64
+	earliestAt  string
+	latestAt    string
+}
+
+// summarizeMessageRun creates a leaf summary candidate from a message run without writing it.
+func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID string, run messageRun) (messageRunSummary, error) {
 	// Load source messages before opening a transaction. The summarizer may call
 	// back into the database to resolve model/provider settings, and Stella's SQLite
 	// handle intentionally uses a single connection. Holding a transaction while
@@ -224,7 +257,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 	}
 	loadedMessages, err := c.q.ListMessagesByIDs(ctx, sqlc.ListMessagesByIDsParams{ConversationID: convID, MessageIds: messageIDs})
 	if err != nil {
-		return fmt.Errorf("list messages: %w", err)
+		return messageRunSummary{}, fmt.Errorf("list messages: %w", err)
 	}
 	messagesByID := make(map[string]sqlc.CtxMessage, len(loadedMessages))
 	for _, msg := range loadedMessages {
@@ -236,7 +269,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 		}
 		msg, ok := messagesByID[item.MessageID.String]
 		if !ok {
-			return fmt.Errorf("get message %s: %w", item.MessageID.String, sql.ErrNoRows)
+			return messageRunSummary{}, fmt.Errorf("get message %s: %w", item.MessageID.String, sql.ErrNoRows)
 		}
 		messages = append(messages, msg)
 		textParts = append(textParts, formatMessageForSummarizer(msg))
@@ -251,7 +284,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 	}
 
 	if len(messages) == 0 {
-		return nil
+		return messageRunSummary{run: run}, nil
 	}
 
 	// Generate summary outside the write transaction. The provider-level
@@ -263,7 +296,22 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 		TargetTokens: targetTokens,
 	})
 	if err != nil {
-		return fmt.Errorf("summarize: %w", err)
+		return messageRunSummary{}, fmt.Errorf("summarize: %w", err)
+	}
+
+	return messageRunSummary{
+		run:         run,
+		messages:    messages,
+		content:     summary,
+		totalTokens: totalTokens,
+		earliestAt:  earliestAt,
+		latestAt:    latestAt,
+	}, nil
+}
+
+func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID string, summary messageRunSummary, result *memory.CompactionResult) error {
+	if len(summary.messages) == 0 {
+		return nil
 	}
 
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -280,20 +328,20 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 		ConversationID:          convID,
 		Kind:                    kindLeaf,
 		Depth:                   0,
-		Content:                 summary,
-		TokenCount:              int64(memory.EstimateTokens(summary)),
-		EarliestAt:              sql.NullString{String: earliestAt, Valid: earliestAt != ""},
-		LatestAt:                sql.NullString{String: latestAt, Valid: latestAt != ""},
-		DescendantCount:         int64(len(messages)),
-		DescendantTokenCount:    totalTokens,
-		SourceMessageTokenCount: totalTokens,
+		Content:                 summary.content,
+		TokenCount:              int64(memory.EstimateTokens(summary.content)),
+		EarliestAt:              sql.NullString{String: summary.earliestAt, Valid: summary.earliestAt != ""},
+		LatestAt:                sql.NullString{String: summary.latestAt, Valid: summary.latestAt != ""},
+		DescendantCount:         int64(len(summary.messages)),
+		DescendantTokenCount:    summary.totalTokens,
+		SourceMessageTokenCount: summary.totalTokens,
 	})
 	if err != nil {
 		return fmt.Errorf("create summary: %w", err)
 	}
 
 	// Link summary to source messages.
-	for i, msg := range messages {
+	for i, msg := range summary.messages {
 		err = qtx.LinkSummaryToMessage(ctx, sqlc.LinkSummaryToMessageParams{
 			SummaryID: sumID,
 			MessageID: msg.ID,
@@ -307,8 +355,8 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 	// Replace message context items with summary item.
 	err = qtx.DeleteContextItemsInRange(ctx, sqlc.DeleteContextItemsInRangeParams{
 		ConversationID: convID,
-		Ordinal:        run.startOrd,
-		Ordinal_2:      run.endOrd,
+		Ordinal:        summary.run.startOrd,
+		Ordinal_2:      summary.run.endOrd,
 	})
 	if err != nil {
 		return fmt.Errorf("delete context range: %w", err)
@@ -316,7 +364,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 
 	err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
-		Ordinal:        run.startOrd, // reuse start ordinal
+		Ordinal:        summary.run.startOrd, // reuse start ordinal
 		ItemType:       itemTypeSummary,
 		SummaryID:      sql.NullString{String: sumID, Valid: true},
 		Role:           "",
@@ -330,7 +378,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 	}
 
 	result.LeafSummariesCreated++
-	result.MessagesCompacted += len(messages)
+	result.MessagesCompacted += len(summary.messages)
 
 	return nil
 }
@@ -353,8 +401,26 @@ func (c *compactionEngine) condensedPass(ctx context.Context, convID string, ite
 		return nil
 	}
 
-	for _, run := range runs {
-		if err := c.condenseSummaryRun(ctx, convID, run, sumCache, result); err != nil {
+	prepared := make([]condensedRunSummary, len(runs))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(summarizeConcurrency)
+	for i, run := range runs {
+		group.Go(func() error {
+			summary, err := c.summarizeCondensedRun(groupCtx, run, sumCache)
+			if err != nil {
+				return err
+			}
+			prepared[i] = summary
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
+	}
+
+	// See leafPass: writes stay serial and happen only after all summaries succeed.
+	for _, summary := range prepared {
+		if err := c.writeCondensedRunSummary(ctx, convID, summary, result); err != nil {
 			return err
 		}
 	}
@@ -441,10 +507,22 @@ func findSummaryRuns(items []sqlc.CtxItem, minSize int, depthOf map[string]int64
 	return runs
 }
 
-// condenseSummaryRun creates a condensed summary from a run of summary context items.
-func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string, run summaryRun, sumCache map[string]sqlc.CtxSummary, result *memory.CompactionResult) error {
+type condensedRunSummary struct {
+	run              summaryRun
+	summaries        []sqlc.CtxSummary
+	content          string
+	newDepth         int64
+	totalTokens      int64
+	totalDescendants int64
+	totalDescTokens  int64
+	earliestAt       string
+	latestAt         string
+}
+
+// summarizeCondensedRun creates a condensed summary candidate from summary items without writing it.
+func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summaryRun, sumCache map[string]sqlc.CtxSummary) (condensedRunSummary, error) {
 	// Load summaries from cache before opening a transaction; see
-	// compactMessageRun for why LLM work must not happen while holding Stella's
+	// summarizeMessageRun for why LLM work must not happen while holding Stella's
 	// single SQLite connection in a transaction.
 	var summaries []sqlc.CtxSummary
 	var textParts []string
@@ -460,7 +538,7 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 		}
 		sum, ok := sumCache[item.SummaryID.String]
 		if !ok {
-			return fmt.Errorf("summary %s not in cache", item.SummaryID.String)
+			return condensedRunSummary{}, fmt.Errorf("summary %s not in cache", item.SummaryID.String)
 		}
 		summaries = append(summaries, sum)
 		textParts = append(textParts, sum.Content)
@@ -479,7 +557,7 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 	}
 
 	if len(summaries) < 2 {
-		return nil
+		return condensedRunSummary{run: run}, nil
 	}
 
 	// Generate condensed summary.
@@ -495,7 +573,25 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 		TargetTokens: targetTokens,
 	})
 	if err != nil {
-		return fmt.Errorf("summarize condensed: %w", err)
+		return condensedRunSummary{}, fmt.Errorf("summarize condensed: %w", err)
+	}
+
+	return condensedRunSummary{
+		run:              run,
+		summaries:        summaries,
+		content:          content,
+		newDepth:         newDepth,
+		totalTokens:      totalTokens,
+		totalDescendants: totalDescendants,
+		totalDescTokens:  totalDescTokens,
+		earliestAt:       earliestAt,
+		latestAt:         latestAt,
+	}, nil
+}
+
+func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID string, summary condensedRunSummary, result *memory.CompactionResult) error {
+	if len(summary.summaries) < 2 {
+		return nil
 	}
 
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -511,13 +607,13 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 		ID:                      sumID,
 		ConversationID:          convID,
 		Kind:                    kindCondensed,
-		Depth:                   newDepth,
-		Content:                 content,
-		TokenCount:              int64(memory.EstimateTokens(content)),
-		EarliestAt:              sql.NullString{String: earliestAt, Valid: earliestAt != ""},
-		LatestAt:                sql.NullString{String: latestAt, Valid: latestAt != ""},
-		DescendantCount:         totalDescendants + int64(len(summaries)),
-		DescendantTokenCount:    totalDescTokens + totalTokens,
+		Depth:                   summary.newDepth,
+		Content:                 summary.content,
+		TokenCount:              int64(memory.EstimateTokens(summary.content)),
+		EarliestAt:              sql.NullString{String: summary.earliestAt, Valid: summary.earliestAt != ""},
+		LatestAt:                sql.NullString{String: summary.latestAt, Valid: summary.latestAt != ""},
+		DescendantCount:         summary.totalDescendants + int64(len(summary.summaries)),
+		DescendantTokenCount:    summary.totalDescTokens + summary.totalTokens,
 		SourceMessageTokenCount: 0,
 	})
 	if err != nil {
@@ -525,7 +621,7 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 	}
 
 	// Link to parent summaries.
-	for i, sum := range summaries {
+	for i, sum := range summary.summaries {
 		err = qtx.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
 			SummaryID:       sumID,
 			ParentSummaryID: sum.ID,
@@ -539,8 +635,8 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 	// Replace summary context items with condensed item.
 	err = qtx.DeleteContextItemsInRange(ctx, sqlc.DeleteContextItemsInRangeParams{
 		ConversationID: convID,
-		Ordinal:        run.startOrd,
-		Ordinal_2:      run.endOrd,
+		Ordinal:        summary.run.startOrd,
+		Ordinal_2:      summary.run.endOrd,
 	})
 	if err != nil {
 		return fmt.Errorf("delete context range: %w", err)
@@ -548,7 +644,7 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 
 	err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
-		Ordinal:        run.startOrd,
+		Ordinal:        summary.run.startOrd,
 		ItemType:       itemTypeSummary,
 		SummaryID:      sql.NullString{String: sumID, Valid: true},
 		Role:           "",
