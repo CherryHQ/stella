@@ -33,11 +33,11 @@ export function ArticleCard({
         {article.starred && <Star className="size-3 text-chart-4 fill-chart-4 shrink-0 mt-0.5" />}
       </div>
       {article.summary && (
-        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
           {article.summary}
         </p>
       )}
-      <div className="mt-1.5 text-[10px] font-mono text-muted-foreground">
+      <div className="mt-1.5 text-xs font-mono text-muted-foreground">
         {formatSavedAt(article.saved_at, t)}
       </div>
     </button>

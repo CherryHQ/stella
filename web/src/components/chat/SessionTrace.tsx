@@ -54,7 +54,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
     return (
       <button
         onClick={toggle}
-        className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer mt-1"
+        className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer mt-1"
       >
         <ChevronRight className="size-3" />
         <span>{t("chat.viewTrace")}</span>
@@ -66,7 +66,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
     <div className="mt-2 space-y-2">
       <button
         onClick={toggle}
-        className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
       >
         <ChevronRight className="size-3 rotate-90 transition-transform" />
         <span>{t("chat.executionTrace")}</span>
@@ -74,7 +74,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
       {loading && (
         <div className="flex items-center gap-2 pl-4">
           <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
-          <span className="text-[10px] font-mono text-muted-foreground">Loading…</span>
+          <span className="text-xs font-mono text-muted-foreground">Loading…</span>
         </div>
       )}
       {blocks !== null && blocks.length > 0 && (
@@ -88,7 +88,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
         </div>
       )}
       {blocks !== null && blocks.length === 0 && !loading && (
-        <p className="text-[10px] font-mono text-muted-foreground/40 pl-4">
+        <p className="text-xs font-mono text-muted-foreground/40 pl-4">
           {t("chat.noExecutionDetails")}
         </p>
       )}

@@ -208,7 +208,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
               onClick={onClose}
               className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
             >
-              <span className="text-xs font-bold font-mono">×</span>
+              <span className="text-xs font-semibold font-mono">×</span>
             </button>
           )}
         </div>
@@ -225,7 +225,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
               <p className="text-xs font-semibold text-foreground">
                 {t("recally.chat.discussArticle")}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-1 max-w-44 leading-normal">
+              <p className="text-xs text-muted-foreground mt-1 max-w-44 leading-normal">
                 {t("recally.chat.discussDesc")}
               </p>
             </div>
@@ -260,7 +260,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
                   <div className="text-xs leading-relaxed text-foreground font-sans">
                     <MarkdownPreview
                       content={text}
-                      className="prose-headings:text-foreground [&_code]:text-[10px] [&_pre]:bg-muted/40 [&_pre]:p-1.5 leading-relaxed text-xs"
+                      className="prose-headings:text-foreground [&_code]:text-xs [&_pre]:bg-muted/40 [&_pre]:p-1.5 leading-relaxed text-xs"
                     />
                   </div>
                 )}
@@ -270,7 +270,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
         )}
 
         {isStreaming && (
-          <div className="flex items-center gap-1.5 text-[10px] font-mono text-primary/80 animate-pulse pl-1">
+          <div className="flex items-center gap-1.5 text-xs font-mono text-primary/80 animate-pulse pl-1">
             <Loader2 className="size-3 animate-spin text-primary" />
             <span>{t("recally.chat.typing")}</span>
           </div>

@@ -77,9 +77,7 @@ function ModelComboField({
           {label}
         </label>
         {optional && (
-          <span className="text-[10px] font-mono text-muted-foreground">
-            ({t("common.optional")})
-          </span>
+          <span className="text-xs font-mono text-muted-foreground">({t("common.optional")})</span>
         )}
       </div>
       <Input
@@ -158,7 +156,7 @@ function ChannelSelector({
       <label className="block text-xs font-semibold text-muted-foreground mb-1">
         {t("agents.form.channels")}
       </label>
-      <p className="text-[11px] text-muted-foreground mb-2">{t("agents.form.channelsDesc")}</p>
+      <p className="text-xs text-muted-foreground mb-2">{t("agents.form.channelsDesc")}</p>
       <div ref={containerRef} className="relative">
         <div
           className="min-h-9 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm cursor-pointer flex flex-wrap gap-1.5 items-center"
@@ -212,9 +210,7 @@ function ChannelSelector({
                     <p className="text-sm font-medium text-foreground truncate">
                       {channelDisplayName(ch)}
                     </p>
-                    <p className="text-[10px] text-muted-foreground font-mono truncate">
-                      {ch.type}
-                    </p>
+                    <p className="text-xs text-muted-foreground font-mono truncate">{ch.type}</p>
                   </div>
                 </button>
               ))}

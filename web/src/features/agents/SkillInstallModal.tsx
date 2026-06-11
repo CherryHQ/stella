@@ -94,7 +94,7 @@ export function SkillInstallModal({
           </Button>
         </div>
         <div className="px-6 py-4 border-b border-border space-y-2.5">
-          <label className="text-[10px] font-semibold text-muted-foreground block">
+          <label className="text-xs font-semibold text-muted-foreground block">
             {t("agents.skills.installTarget")}
           </label>
           <div className="flex items-center border border-border p-0.5 rounded-lg w-fit">
@@ -172,7 +172,7 @@ export function SkillInstallModal({
                             {s.installs} installs
                           </span>
                         </div>
-                        <p className="text-[10px] text-muted-foreground font-mono truncate mt-1">
+                        <p className="text-xs text-muted-foreground font-mono truncate mt-1">
                           {s.source}@{s.skillId}
                         </p>
                       </div>
@@ -249,7 +249,7 @@ export function SkillInstallModal({
                 <div className="text-sm font-semibold text-foreground">
                   {uploadFile ? uploadFile.name : t("agents.skills.chooseZip")}
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   {t("agents.skills.zipRequirement")}
                 </p>
                 <Button variant="ghost" size="sm" className="pointer-events-none">
@@ -257,7 +257,7 @@ export function SkillInstallModal({
                 </Button>
               </div>
             </label>
-            <ul className="text-[11px] text-muted-foreground space-y-1.5 list-disc pl-4">
+            <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4">
               <li>
                 <span className="font-mono">.zip</span> only
               </li>

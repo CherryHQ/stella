@@ -170,7 +170,7 @@ export function RecallyReader({
         <div className="mx-auto max-w-3xl px-6 py-6 md:px-8 md:py-8">
           {/* Header Toolbar */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
-            <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-muted-foreground">
+            <div className="flex flex-wrap gap-1.5 text-xs font-mono text-muted-foreground">
               <StatusBadge status={selectedArticle.status} t={t} />
               <span className="rounded bg-muted/40 border border-border px-2 py-0.5">
                 {t(SOURCE_LABEL_KEYS[selectedArticle.source_type])}
@@ -296,7 +296,7 @@ export function RecallyReader({
               {/* Delete / Destructive actions */}
               {confirmingDeleteId === selectedArticle.id ? (
                 <div className="flex items-center gap-1 bg-destructive/5 border border-destructive/20 rounded-lg p-1">
-                  <span className="text-[10px] font-medium text-destructive px-1.5">Confirm?</span>
+                  <span className="text-xs font-medium text-destructive px-1.5">Confirm?</span>
                   <button
                     onClick={() =>
                       deleteArticleMut.mutate({
@@ -304,13 +304,13 @@ export function RecallyReader({
                       })
                     }
                     disabled={deleteArticleMut.isPending}
-                    className="rounded bg-destructive/10 border border-destructive/20 px-2 py-0.5 text-[10px] text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50 cursor-pointer"
+                    className="rounded bg-destructive/10 border border-destructive/20 px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50 cursor-pointer"
                   >
                     {t("common.yes")}
                   </button>
                   <button
                     onClick={() => setConfirmingDeleteId(null)}
-                    className="rounded border border-border bg-card px-2 py-0.5 text-[10px] transition-colors hover:bg-accent cursor-pointer"
+                    className="rounded border border-border bg-card px-2 py-0.5 text-xs transition-colors hover:bg-accent cursor-pointer"
                   >
                     {t("common.no")}
                   </button>
@@ -329,7 +329,7 @@ export function RecallyReader({
           </div>
 
           <article className="w-full">
-            <h2 className="mb-2 text-2xl font-bold leading-tight tracking-tight text-foreground font-sans">
+            <h2 className="mb-2 text-2xl font-semibold leading-tight tracking-tight text-foreground font-sans">
               {selectedArticle.title}
             </h2>
             {selectedArticle.author && (
@@ -345,14 +345,14 @@ export function RecallyReader({
                   <div className="flex items-start gap-2.5">
                     <Link className="size-4 text-primary/75 shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
-                      <span className="text-[10px] font-bold text-muted-foreground block leading-none mb-1">
+                      <span className="text-xs font-semibold text-muted-foreground block leading-none mb-1">
                         Source URL
                       </span>
                       <a
                         href={parsed.metadata.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="truncate text-[11px] text-foreground hover:text-primary transition-colors hover:underline block leading-tight"
+                        className="truncate text-xs text-foreground hover:text-primary transition-colors hover:underline block leading-tight"
                       >
                         {parsed.metadata.url}
                       </a>
@@ -363,10 +363,10 @@ export function RecallyReader({
                   <div className="flex items-start gap-2.5">
                     <Calendar className="size-4 text-primary/75 shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
-                      <span className="text-[10px] font-bold text-muted-foreground block leading-none mb-1">
+                      <span className="text-xs font-semibold text-muted-foreground block leading-none mb-1">
                         Published Time
                       </span>
-                      <span className="text-[11px] text-foreground block leading-tight">
+                      <span className="text-xs text-foreground block leading-tight">
                         {parsed.metadata.publishedTime}
                       </span>
                     </div>
@@ -384,7 +384,7 @@ export function RecallyReader({
                   className="flex w-full items-center gap-1.5 focus:outline-none"
                 >
                   <Sparkles className="size-4 text-primary" />
-                  <span className="text-[11px] font-bold text-primary">
+                  <span className="text-xs font-semibold text-primary">
                     {t("recally.summary.label")}
                   </span>
                   <ChevronDown

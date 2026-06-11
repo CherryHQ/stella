@@ -60,7 +60,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
       {loading && messages.length > 0 && (
         <div className="mb-6 flex items-center justify-center gap-2">
           <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono text-xs text-muted-foreground">
             {t("sessions.transcript.loadingEarlier")}
           </span>
         </div>

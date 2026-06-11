@@ -25,7 +25,7 @@ export function SidebarNavItem({
       {icon && <span className="shrink-0">{icon}</span>}
       <span className="flex-1 truncate text-left">{label}</span>
       {count !== undefined && (
-        <span className="text-[10px] font-mono text-muted-foreground tabular-nums">{count}</span>
+        <span className="text-xs font-mono text-muted-foreground tabular-nums">{count}</span>
       )}
     </button>
   );

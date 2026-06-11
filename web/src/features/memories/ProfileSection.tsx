@@ -89,7 +89,7 @@ export function ProfileSection({ agentId, content: initialContent, updatedAt }: 
         <>
           <MarkdownPreview content={displayContent} variant="card" />
           {updatedAt && (
-            <p className="text-[11px] font-mono text-muted-foreground/50 mt-3">
+            <p className="text-xs font-mono text-muted-foreground/50 mt-3">
               {formatTime(updatedAt)}
             </p>
           )}

@@ -47,7 +47,7 @@ export function GoalsPage() {
   useEffect(() => {
     setHeaderTitle(
       <div className="min-w-0">
-        <div className="truncate font-mono text-[10px] font-semibold text-muted-foreground">
+        <div className="truncate font-mono text-xs font-semibold text-muted-foreground">
           {t("goals.eyebrow")}
         </div>
         <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
@@ -143,8 +143,8 @@ function Triage({ goals, onOpen }: ViewProps) {
     arr.length ? (
       <section className="mb-7">
         <div className="mb-3 flex items-center gap-2.5">
-          <span className="font-mono text-[11px] font-semibold text-muted-foreground">{label}</span>
-          <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <span className="font-mono text-xs font-semibold text-muted-foreground">{label}</span>
+          <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
             {arr.length}
           </span>
           <span className="h-px flex-1 bg-border" />
@@ -193,7 +193,7 @@ function Row({
         <div className="flex items-center gap-2">
           <span className="truncate font-serif text-[15px] font-semibold">{g.title}</span>
           {g.priority === "urgent" && (
-            <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-chart-4">
+            <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
               urgent
             </span>
           )}
@@ -207,7 +207,7 @@ function Row({
           {hook ?? g.description ?? ""}
         </div>
       </div>
-      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
         {formatTime(g.updated_at)}
       </span>
     </button>
@@ -247,8 +247,8 @@ function Board({ goals, onOpen }: ViewProps) {
           <div key={col.labelKey} className="min-h-[180px] rounded-2xl bg-muted p-2.5">
             <div className="flex items-center gap-2 px-1.5 pb-2.5 pt-1">
               <StatusDot status={col.status} />
-              <span className="font-mono text-[11px] font-semibold">{t(col.labelKey)}</span>
-              <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              <span className="font-mono text-xs font-semibold">{t(col.labelKey)}</span>
+              <span className="ml-auto font-mono text-xs text-muted-foreground">
                 {items.length}
               </span>
             </div>
@@ -266,7 +266,7 @@ function Board({ goals, onOpen }: ViewProps) {
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <StatusPill status={g.status} label={statusLabel(t, g.status)} />
                     {g.priority === "urgent" && (
-                      <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-chart-4">
+                      <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
                         urgent
                       </span>
                     )}
@@ -337,11 +337,11 @@ function Table({ goals, onOpen }: ViewProps) {
               </td>
               <td className="px-3.5 py-3">
                 {goalNeedsYou(g) ? (
-                  <span className="rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-medium text-primary">
+                  <span className="rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs font-medium text-primary">
                     {g.status === "blocked" ? t("goals.actUnblock") : t("goals.actReview")}
                   </span>
                 ) : g.priority === "urgent" ? (
-                  <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-[11px] font-medium text-chart-4">
+                  <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-4">
                     urgent
                   </span>
                 ) : (
@@ -351,7 +351,7 @@ function Table({ goals, onOpen }: ViewProps) {
               <td className="px-3.5 py-3">
                 {g.agent_id ? (
                   <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className="grid size-[18px] place-items-center rounded-full bg-accent text-[9px] font-bold text-accent-foreground">
+                    <span className="grid size-[18px] place-items-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
                       {avatarInitials(g.agent_id)}
                     </span>
                   </span>

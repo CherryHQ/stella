@@ -330,7 +330,7 @@ export function EmailAccountsPanel({
 
             {/* IMAP Config */}
             <div className="space-y-4 rounded-lg border border-border bg-muted p-4">
-              <h4 className="font-mono text-[9px] text-muted-foreground">
+              <h4 className="font-mono text-xs text-muted-foreground">
                 {t("credentials.email.imapIncoming")}
               </h4>
 
@@ -384,7 +384,7 @@ export function EmailAccountsPanel({
 
             {/* SMTP Config */}
             <div className="space-y-4 rounded-lg border border-border bg-muted p-4">
-              <h4 className="font-mono text-[9px] text-muted-foreground">
+              <h4 className="font-mono text-xs text-muted-foreground">
                 {t("credentials.email.smtpOutgoing")}
               </h4>
 
@@ -438,7 +438,7 @@ export function EmailAccountsPanel({
 
             {/* Credentials / Auth */}
             <div className="space-y-4 rounded-lg border border-border bg-muted p-4 md:col-span-2">
-              <h4 className="font-mono text-[9px] text-muted-foreground">
+              <h4 className="font-mono text-xs text-muted-foreground">
                 {t("credentials.email.credentials")}
               </h4>
 

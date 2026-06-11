@@ -210,11 +210,11 @@ export function FileViewer({
         >
           <ArrowLeft className="w-3.5 h-3.5" />
         </button>
-        <span className="text-[11px] font-mono text-foreground truncate flex-1 min-w-0">
+        <span className="text-xs font-mono text-foreground truncate flex-1 min-w-0">
           {fileName}
         </span>
         {language && (
-          <span className="text-[9px] font-mono text-muted-foreground shrink-0">{language}</span>
+          <span className="text-xs font-mono text-muted-foreground shrink-0">{language}</span>
         )}
         {!loading && (
           <a
@@ -339,12 +339,12 @@ export function FileViewer({
         {!loading && !isPdf(path) && isBinary(path) && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
             <span className="text-xs font-mono">{t("sessions.workspace.binaryFile")}</span>
-            <span className="text-[10px] font-mono">.{ext}</span>
+            <span className="text-xs font-mono">.{ext}</span>
             <a
               href={rawUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[11px] font-mono text-primary hover:underline flex items-center gap-1"
+              className="text-xs font-mono text-primary hover:underline flex items-center gap-1"
             >
               <ExternalLink className="w-3 h-3" />
               Open in browser

@@ -125,7 +125,7 @@ export function SandboxPage() {
                     <ul className="text-xs text-muted-foreground space-y-1">
                       {meta.features.map((f) => (
                         <li key={f} className="flex items-start gap-2">
-                          <span className="text-success-foreground shrink-0 font-bold mt-px">
+                          <span className="text-success-foreground shrink-0 font-semibold mt-px">
                             ✓
                           </span>
                           <span>{f}</span>
@@ -138,7 +138,7 @@ export function SandboxPage() {
                     <ul className="text-xs text-muted-foreground space-y-1">
                       {meta.limitations.map((l) => (
                         <li key={l} className="flex items-start gap-2">
-                          <span className="text-warning-foreground shrink-0 font-bold mt-px">
+                          <span className="text-warning-foreground shrink-0 font-semibold mt-px">
                             ⚠
                           </span>
                           <span>{l}</span>

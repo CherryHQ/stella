@@ -198,7 +198,7 @@ export function ChatComposer({
       )}
       <div
         className={cn(
-          "relative mx-auto flex w-full min-w-0 max-w-3xl flex-col rounded-xl border bg-card p-1.5",
+          "relative mx-auto flex w-full min-w-0 max-w-3xl flex-col rounded-lg border bg-card p-1.5",
           isStreaming
             ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
             : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
@@ -221,7 +221,7 @@ export function ChatComposer({
             {selectedSkills.map((s) => (
               <span
                 key={s.name}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2.5 py-1 font-mono text-[11px] font-semibold text-foreground"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2.5 py-1 font-mono text-xs font-semibold text-foreground"
               >
                 /{s.name}
                 <button
@@ -238,7 +238,7 @@ export function ChatComposer({
                 <span
                   key={i}
                   className={cn(
-                    "inline-flex items-center gap-1.5 text-[11px] font-mono rounded-md px-3 py-1 max-w-48 border",
+                    "inline-flex items-center gap-1.5 text-xs font-mono rounded-md px-3 py-1 max-w-48 border",
                     a.uploading
                       ? "bg-muted/50 text-muted-foreground border-border"
                       : "bg-muted text-muted-foreground border-border",
@@ -253,7 +253,7 @@ export function ChatComposer({
                   {!a.uploading && onRemoveAttachment && (
                     <button
                       onClick={() => onRemoveAttachment(i)}
-                      className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0 font-bold ml-0.5"
+                      className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0 font-semibold ml-0.5"
                     >
                       ×
                     </button>
@@ -362,14 +362,14 @@ export function ChatComposer({
             </button>
           )}
           {!isStreaming && (
-            <span className="min-w-0 truncate font-mono text-[9px] text-muted-foreground select-none">
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
               {skills && skills.length > 0
                 ? t("sessions.transcript.sendHintSkills")
                 : t("sessions.transcript.sendHint")}
             </span>
           )}
           {isStreaming && (
-            <span className="text-[9px] font-mono text-chart-2 select-none animate-pulse">
+            <span className="text-xs font-mono text-chart-2 select-none animate-pulse">
               {t("sessions.transcript.generating")}
             </span>
           )}

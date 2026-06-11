@@ -42,7 +42,7 @@ export function TemplateModal({ templates, onPick, onPickBlank, onClose }: Props
               >
                 <div>
                   <p className="font-semibold text-sm text-foreground">{tmpl.name}</p>
-                  <p className="text-[10px] text-muted-foreground font-mono mt-1 flex items-center gap-1">
+                  <p className="text-xs text-muted-foreground font-mono mt-1 flex items-center gap-1">
                     <span>{t("agents.template.templateLabel")}</span>
                     <span>{tmpl.id}</span>
                   </p>
@@ -61,7 +61,7 @@ export function TemplateModal({ templates, onPick, onPickBlank, onClose }: Props
                 <p className="font-semibold text-sm text-foreground">
                   {t("agents.template.blank")}
                 </p>
-                <p className="text-[10px] text-muted-foreground font-mono mt-1">
+                <p className="text-xs text-muted-foreground font-mono mt-1">
                   {t("agents.template.blankSlate")}
                 </p>
               </div>

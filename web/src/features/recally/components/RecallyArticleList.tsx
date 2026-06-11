@@ -76,7 +76,7 @@ export function RecallyArticleList({
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder={t("recally.searchPlaceholder")}
-                className="w-full pl-8 pr-3 py-1.5 text-[11px] font-mono rounded-md border border-border focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors duration-120 text-foreground placeholder:text-muted-foreground/45"
+                className="w-full pl-8 pr-3 py-1.5 text-xs font-mono rounded-md border border-border focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors duration-120 text-foreground placeholder:text-muted-foreground/45"
               />
             </div>
             <button
@@ -90,7 +90,7 @@ export function RecallyArticleList({
             >
               <SlidersHorizontal className="size-3.5" />
               {activeFiltersCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                   {activeFiltersCount}
                 </span>
               )}
@@ -103,7 +103,7 @@ export function RecallyArticleList({
       {refinementsOpen && !digestView && (
         <div className="shrink-0 border-b border-border/40 p-3 space-y-2.5">
           <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono font-semibold text-muted-foreground w-12 shrink-0">
+            <span className="text-xs font-mono font-semibold text-muted-foreground w-12 shrink-0">
               Status:
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -125,7 +125,7 @@ export function RecallyArticleList({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono font-semibold text-muted-foreground w-12 shrink-0">
+            <span className="text-xs font-mono font-semibold text-muted-foreground w-12 shrink-0">
               Source:
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -200,7 +200,7 @@ export function RecallyArticleList({
                 <p className="text-xs font-mono text-muted-foreground">
                   {t("recally.empty.noArticles")}
                 </p>
-                <p className="text-[10px] font-mono text-muted-foreground/45 mt-1">
+                <p className="text-xs font-mono text-muted-foreground/45 mt-1">
                   {t("recally.empty.noArticlesDesc")}
                 </p>
               </div>

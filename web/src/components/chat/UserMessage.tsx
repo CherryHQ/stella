@@ -39,12 +39,12 @@ export function UserMessage({
     <div className="w-full min-w-0 flex flex-col gap-1.5">
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-[10px] font-bold text-foreground shrink-0">
+          <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
             Y
           </span>
           <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
           {msg.timestamp && (
-            <span className="font-mono text-[10px] text-muted-foreground/50">
+            <span className="font-mono text-xs text-muted-foreground/50">
               {formatTime(msg.timestamp)}
             </span>
           )}

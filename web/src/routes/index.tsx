@@ -885,7 +885,7 @@ function RecallySection({ lang }: { lang: "en" | "zh" }) {
                   <div className="font-semibold text-xs truncate">
                     {isZh ? "理解 Agent 任务工作流 (DAG)" : "Understanding Agent DAG Workflows"}
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                  <div className="text-xs text-muted-foreground mt-0.5">
                     stella.sh · {isZh ? "今天" : "Today"}
                   </div>
                 </div>
@@ -893,7 +893,7 @@ function RecallySection({ lang }: { lang: "en" | "zh" }) {
                   <div className="font-semibold text-xs truncate">
                     {isZh ? "自部署私有化大模型实践" : "Self-hosting Local LLMs Strategy"}
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                  <div className="text-xs text-muted-foreground mt-0.5">
                     ollama.ai · {isZh ? "昨天" : "Yesterday"}
                   </div>
                 </div>
@@ -903,7 +903,7 @@ function RecallySection({ lang }: { lang: "en" | "zh" }) {
                       ? "使用 Docker 与 Sandbox 保护密钥"
                       : "Sandboxing Secrets with Containers"}
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                  <div className="text-xs text-muted-foreground mt-0.5">
                     docker.com · {isZh ? "3天前" : "3d ago"}
                   </div>
                 </div>

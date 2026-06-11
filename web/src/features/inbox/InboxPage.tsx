@@ -60,7 +60,7 @@ export function InboxPage() {
       title={
         <div className="min-w-0">
           <h1 className="truncate text-[15px] font-semibold">{t("inbox.title")}</h1>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{t("inbox.subtitle")}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{t("inbox.subtitle")}</p>
         </div>
       }
     >
@@ -135,7 +135,7 @@ function InboxRow({ item }: { item: InboxItem }) {
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-sm font-medium">{item.title}</p>
-          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs uppercase text-muted-foreground">
             {t(kindLabels[item.kind])}
           </span>
         </div>

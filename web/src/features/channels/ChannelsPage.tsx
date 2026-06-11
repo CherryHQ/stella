@@ -424,7 +424,7 @@ function ChannelDetail({
           <div className="rounded-lg border border-border bg-card p-4 space-y-2">
             <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
             <div className="flex items-center gap-2 flex-wrap">
-              <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
+              <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
                 /link {linkCode}
               </code>
               <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
@@ -659,7 +659,7 @@ function PublicChannelDetail({
           <div className="rounded-lg border border-border bg-card p-4 space-y-2">
             <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
             <div className="flex items-center gap-2 flex-wrap">
-              <code className="font-mono text-lg font-bold bg-muted text-foreground px-3 py-1 rounded select-all">
+              <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
                 /link {linkCode}
               </code>
               <Button onClick={onCopyLinkCode} variant="ghost" size="xs">

@@ -87,7 +87,7 @@ export function RecallySourceNav({
     <div className="flex min-h-0 w-full flex-col overflow-hidden">
       {/* Library */}
       <div className="shrink-0 px-2 pt-2 pb-1">
-        <div className="text-[10px] font-mono font-semibold text-muted-foreground px-3 pb-1">
+        <div className="text-xs font-mono font-semibold text-muted-foreground px-3 pb-1">
           {t("recally.section.library")}
         </div>
         <div className="space-y-0.5">
@@ -133,7 +133,7 @@ export function RecallySourceNav({
             onClick={() => setFeedsExpanded(!feedsExpanded)}
             className="flex w-full items-center justify-between px-3 py-1 cursor-pointer"
           >
-            <span className="text-[10px] font-mono font-semibold text-muted-foreground">
+            <span className="text-xs font-mono font-semibold text-muted-foreground">
               {t("recally.section.feeds")}
             </span>
             <ChevronDown
@@ -157,7 +157,7 @@ export function RecallySourceNav({
                       createFeedMut.mutate({ body: { url: feedUrl.trim() } });
                     }
                   }}
-                  className="h-7 flex-1 min-w-0 rounded-md border border-border/40 px-2 text-[10px] font-mono placeholder:text-muted-foreground/45 hover:border-border/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/10 focus:outline-none transition-all duration-150 text-foreground"
+                  className="h-7 flex-1 min-w-0 rounded-md border border-border/40 px-2 text-xs font-mono placeholder:text-muted-foreground/45 hover:border-border/60 focus:border-primary/40 focus:ring-1 focus:ring-primary/10 focus:outline-none transition-all duration-150 text-foreground"
                 />
                 <button
                   onClick={() => {
@@ -191,7 +191,7 @@ export function RecallySourceNav({
                     <button
                       onClick={() => pollFeedMut.mutate({ path: { id: feed.id } })}
                       disabled={pollFeedMut.isPending}
-                      className="inline-flex shrink-0 items-center rounded-md px-1 py-0.5 font-mono text-[9px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+                      className="inline-flex shrink-0 items-center rounded-md px-1 py-0.5 font-mono text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
                         <RefreshCw className="size-2.5 animate-spin" />
@@ -208,7 +208,7 @@ export function RecallySourceNav({
                   </div>
                 ))}
                 {feeds.length === 0 && (
-                  <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground/45">
+                  <div className="px-3 py-2 text-xs font-mono text-muted-foreground/45">
                     {t("recally.feeds.noFeedsDesc")}
                   </div>
                 )}
@@ -224,7 +224,7 @@ export function RecallySourceNav({
             onClick={() => setTagsExpanded(!tagsExpanded)}
             className="flex w-full items-center justify-between px-3 py-1 cursor-pointer"
           >
-            <span className="text-[10px] font-mono font-semibold text-muted-foreground">
+            <span className="text-xs font-mono font-semibold text-muted-foreground">
               {t("recally.section.tags")}
             </span>
             <ChevronDown
@@ -251,7 +251,7 @@ export function RecallySourceNav({
                   {hasMoreTags && (
                     <button
                       onClick={() => setShowAllTags(!showAllTags)}
-                      className="w-full px-3 py-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-left"
+                      className="w-full px-3 py-1 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-left"
                     >
                       {showAllTags
                         ? t("recally.tags.less")
@@ -260,9 +260,7 @@ export function RecallySourceNav({
                   )}
                 </>
               ) : (
-                <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground/45">
-                  No tags
-                </div>
+                <div className="px-3 py-2 text-xs font-mono text-muted-foreground/45">No tags</div>
               )}
             </div>
           )}

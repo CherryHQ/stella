@@ -69,7 +69,7 @@ export function FileEditorModal({ fileEditor, onClose, onSave, onChange, onToggl
               {fileEditor.path}
             </span>
             {fileEditor.language && (
-              <span className="text-[9px] border border-border rounded-full px-1.5 py-0.5 font-mono">
+              <span className="text-xs border border-border rounded-full px-1.5 py-0.5 font-mono">
                 {fileEditor.language}
               </span>
             )}
@@ -88,7 +88,7 @@ export function FileEditorModal({ fileEditor, onClose, onSave, onChange, onToggl
                 Preview
               </Button>
             )}
-            <span className="text-[10px] font-mono text-muted-foreground/30 select-none hidden sm:block">
+            <span className="text-xs font-mono text-muted-foreground/30 select-none hidden sm:block">
               ⌘S
             </span>
             <Button

@@ -42,7 +42,7 @@ export function AssistantMessage({
       {!sameRoleAsPrev && (
         <div className="mb-2 flex items-center gap-2">
           <span
-            className="grid size-5 place-items-center rounded-full text-[10px] font-bold text-primary-foreground shrink-0"
+            className="grid size-5 place-items-center rounded-full text-xs font-semibold text-primary-foreground shrink-0"
             style={{ background: color }}
           >
             {agentName[0]?.toUpperCase()}
@@ -54,7 +54,7 @@ export function AssistantMessage({
             </span>
           )}
           {timestamp && !streaming && (
-            <span className="font-mono text-[10px] text-muted-foreground/50">
+            <span className="font-mono text-xs text-muted-foreground/50">
               {formatTime(timestamp)}
             </span>
           )}
@@ -90,7 +90,7 @@ export function AssistantMessage({
           />
         )}
         {showTimestamp && (
-          <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/60 mt-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground/60 mt-2">
             {model && (
               <span className="bg-muted border border-border/10 px-1.5 py-0.5 rounded text-foreground/75 font-medium">
                 {model}
@@ -256,7 +256,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted hover:border-border/80 transition-colors cursor-pointer font-mono text-[11px] text-muted-foreground hover:text-foreground shadow-none w-fit max-w-full min-w-0",
+          "flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted hover:border-border/80 transition-colors cursor-pointer font-mono text-xs text-muted-foreground hover:text-foreground shadow-none w-fit max-w-full min-w-0",
           open && "border-primary/20 bg-muted/40",
         )}
       >
@@ -265,22 +265,20 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
         </span>
         <span
           className={cn(
-            "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider font-sans shrink-0",
+            "px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider font-sans shrink-0",
             n === "bash" ? "bg-chart-4/10 text-chart-4" : "bg-muted text-muted-foreground",
           )}
         >
           {n}
         </span>
         <span className="truncate text-foreground/90 font-medium">{cmdPreview}</span>
-        <span className="text-[9px] text-muted-foreground/65 shrink-0 ml-0.5">
-          {open ? "▾" : "▸"}
-        </span>
+        <span className="text-xs text-muted-foreground/65 shrink-0 ml-0.5">{open ? "▾" : "▸"}</span>
       </button>
 
       {open && (
-        <div className="space-y-1.5 border border-border rounded-lg p-2.5 bg-card/20 font-mono text-[10px] max-w-full overflow-hidden">
+        <div className="space-y-1.5 border border-border rounded-lg p-2.5 bg-card/20 font-mono text-xs max-w-full overflow-hidden">
           <div className="bg-card/40 rounded overflow-hidden p-2 border border-border">
-            <div className="text-[9px] text-muted-foreground/50 border-b border-border pb-1 mb-1.5 flex items-center gap-1.5">
+            <div className="text-xs text-muted-foreground/50 border-b border-border pb-1 mb-1.5 flex items-center gap-1.5">
               <Terminal className="size-2.5" />
               <span>{n} input</span>
             </div>
@@ -300,7 +298,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             >
               <div
                 className={cn(
-                  "text-[9px] border-b border-border pb-1 mb-1.5 flex items-center gap-1.5",
+                  "text-xs border-b border-border pb-1 mb-1.5 flex items-center gap-1.5",
                   block.result.is_error ? "text-destructive" : "text-chart-3",
                 )}
               >

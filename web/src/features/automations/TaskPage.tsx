@@ -181,7 +181,7 @@ export function TaskPage() {
       {isBlocked && blocker && (
         <DetailSection title={t("hub.blockedReason")}>
           <div className="rounded-xl border border-chart-4/30 bg-chart-4/[0.06] px-4 py-3.5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-chart-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-chart-4">
               {blockerKindLabel(t, blocker.kind)}
             </p>
             {blocker.question && (

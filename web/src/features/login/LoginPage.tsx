@@ -31,7 +31,7 @@ function authProviderIcon(name: string, label: string) {
   if (key === "github") return <span className="font-semibold text-[13px]">GH</span>;
   if (key === "google") return <span className="font-semibold text-[13px]">G</span>;
   if (key === "feishu") return <img src={feishuIcon} alt="" className="size-5" />;
-  return <span className="font-semibold text-[11px]">{label.slice(0, 2).toUpperCase()}</span>;
+  return <span className="font-semibold text-xs">{label.slice(0, 2).toUpperCase()}</span>;
 }
 
 function authProviderIconClass(name: string): string {

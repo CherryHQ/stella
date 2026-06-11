@@ -116,7 +116,7 @@ export function GoalDetailPage() {
             {r.total > 0 && (
               <div className="mb-6 rounded-2xl border border-border bg-card p-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="font-mono text-[11px] font-semibold text-muted-foreground">
+                  <span className="font-mono text-xs font-semibold text-muted-foreground">
                     {t("goals.rollup")}
                   </span>
                   <span className="font-mono text-xs text-muted-foreground">
@@ -124,7 +124,7 @@ export function GoalDetailPage() {
                   </span>
                 </div>
                 <ProgressBar r={r} />
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
                   {r.running > 0 && <span>{r.running} running</span>}
                   {r.reviewing > 0 && <span>{r.reviewing} reviewing</span>}
                   {r.blocked > 0 && <span className="text-chart-4">{r.blocked} blocked</span>}
@@ -134,7 +134,7 @@ export function GoalDetailPage() {
             )}
 
             <div className="mb-3 flex items-center gap-2.5">
-              <span className="font-mono text-[11px] font-semibold text-muted-foreground">
+              <span className="font-mono text-xs font-semibold text-muted-foreground">
                 {t("goals.dagTitle")}
               </span>
               <span className="h-px flex-1 bg-border" />
@@ -322,7 +322,7 @@ function TaskDrawer({
         <div className="min-w-0">
           <div className="mb-1.5 flex items-center gap-1.5">
             <StatusDot status={task.status} />
-            <span className="font-mono text-[11px] capitalize text-muted-foreground">
+            <span className="font-mono text-xs capitalize text-muted-foreground">
               {statusLabel(t, task.status)}
             </span>
           </div>
@@ -402,7 +402,7 @@ function OverviewTab({
       {readiness && (
         <div className="rounded-xl border border-border bg-background p-3.5">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="font-mono text-[11px] font-semibold text-muted-foreground">
+            <span className="font-mono text-xs font-semibold text-muted-foreground">
               {t("goals.readiness")}
             </span>
             <span
@@ -443,7 +443,7 @@ function OverviewTab({
       </div>
 
       <div>
-        <div className="mb-2 font-mono text-[11px] font-semibold text-muted-foreground">
+        <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">
           {t("goals.deps")}
         </div>
         {deps.length === 0 ? (
@@ -479,9 +479,7 @@ function RunsTab({ task }: { task: ComponentsTask }) {
               <StatusDot status={run.status === "completed" ? "done" : run.status} />
               {t("goals.attempt", { count: run.attempt_no })}
             </span>
-            <span className="font-mono text-[11px] capitalize text-muted-foreground">
-              {run.kind}
-            </span>
+            <span className="font-mono text-xs capitalize text-muted-foreground">{run.kind}</span>
           </div>
           <div className="mt-1.5 flex items-center justify-between font-mono text-[10.5px] text-muted-foreground">
             <span>{run.status}</span>
@@ -530,7 +528,7 @@ function ReviewsTab({ task }: { task: ComponentsTask }) {
     <div className="space-y-4">
       {active && (
         <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-3.5">
-          <div className="mb-2 font-mono text-[11px] font-semibold text-primary/80">
+          <div className="mb-2 font-mono text-xs font-semibold text-primary/80">
             {t("goals.reviewGate")}
           </div>
           {active.summary && <p className="mb-3 text-[12.5px] text-foreground">{active.summary}</p>}
@@ -573,10 +571,10 @@ function ReviewsTab({ task }: { task: ComponentsTask }) {
           {reviews.map((rv) => (
             <li key={rv.id} className="rounded-xl border border-border bg-background p-3">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[11px] capitalize text-muted-foreground">
+                <span className="font-mono text-xs capitalize text-muted-foreground">
                   {rv.reviewer_type}
                 </span>
-                <span className="font-mono text-[11px] capitalize text-muted-foreground">
+                <span className="font-mono text-xs capitalize text-muted-foreground">
                   {rv.status.replace(/_/g, " ")}
                 </span>
               </div>

@@ -36,9 +36,7 @@ export function DetailShell({
           <ArrowLeft className="size-3.5" />
           {t("hub.title")}
         </Link>
-        <div className="mt-4 font-mono text-[11px] font-medium text-muted-foreground">
-          {kindLabel}
-        </div>
+        <div className="mt-4 font-mono text-xs font-medium text-muted-foreground">{kindLabel}</div>
         <div className="mt-1.5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <h2 className="flex min-w-0 flex-wrap items-center gap-2.5 text-[22px] font-semibold tracking-tight leading-snug">
             {title}
@@ -55,7 +53,7 @@ export function DetailShell({
 export function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mt-7">
-      <h3 className="mb-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <h3 className="mb-2.5 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         {title}
       </h3>
       {children}
@@ -75,7 +73,7 @@ export function AgentChip({ agentId }: { agentId: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
-        className="grid size-4 place-items-center rounded-full text-[9px] font-semibold text-background"
+        className="grid size-4 place-items-center rounded-full text-xs font-semibold text-background"
         style={{ backgroundColor: getAgentColor(agentId) }}
       >
         {avatarInitials(name)}

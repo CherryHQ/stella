@@ -194,7 +194,7 @@ export function SkillsTab({
             ))}
           </div>
           {!editingId && (
-            <div className="text-[11px] text-muted-foreground">{t("agents.skills.saveFirst")}</div>
+            <div className="text-xs text-muted-foreground">{t("agents.skills.saveFirst")}</div>
           )}
         </div>
         <div className="p-3 space-y-2 max-h-[70vh] overflow-y-auto min-w-0">
@@ -285,7 +285,7 @@ export function SkillsTab({
                 <p className="text-xs text-muted-foreground mt-2 break-words leading-relaxed">
                   {selectedSkill.description || t("agents.skills.noDescription")}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-1.5">
+                <p className="text-xs text-muted-foreground mt-1.5">
                   {selectedSkill.scope === "system"
                     ? t("agents.skills.systemScope")
                     : selectedSkill.scope === "user"
@@ -343,9 +343,7 @@ export function SkillsTab({
 
             <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold text-muted-foreground">
-                  {t("common.status")}
-                </p>
+                <p className="text-xs font-semibold text-muted-foreground">{t("common.status")}</p>
                 {!selectedSkillEditMode ? (
                   <div className="text-xs font-mono font-medium text-foreground">
                     {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
@@ -372,7 +370,7 @@ export function SkillsTab({
                 )}
               </div>
               <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold text-muted-foreground">
+                <p className="text-xs font-semibold text-muted-foreground">
                   {t("agents.form.scope")}
                 </p>
                 <div className="text-xs font-mono font-medium text-foreground">
@@ -437,7 +435,7 @@ export function SkillsTab({
                   ? t("agents.skills.hideAdvanced")
                   : t("agents.skills.showAdvanced")}
               </Button>
-              <p className="text-[11px] text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Files and source editing live here so the main view stays focused on behavior.
               </p>
             </div>

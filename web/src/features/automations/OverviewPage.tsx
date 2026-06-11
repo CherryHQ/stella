@@ -236,10 +236,10 @@ export function OverviewPage() {
                     className="flex w-full items-center gap-3 border-b border-border px-3.5 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-muted/50"
                   >
                     <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
-                    <span className="shrink-0 font-mono text-[11px] text-chart-3">
+                    <span className="shrink-0 font-mono text-xs text-chart-3">
                       {statusLabel(t, "done")}
                     </span>
-                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
                       {formatTime(itemUpdated(item))}
                     </span>
                   </button>
@@ -303,7 +303,7 @@ function SectionHead({ title, count }: { title: string; count?: number }) {
     <div className="mb-3 flex items-baseline gap-2">
       <h2 className="text-sm font-semibold">{title}</h2>
       {count !== undefined && count > 0 && (
-        <span className="rounded-full bg-muted px-2 py-px font-mono text-[11px] text-muted-foreground">
+        <span className="rounded-full bg-muted px-2 py-px font-mono text-xs text-muted-foreground">
           {count}
         </span>
       )}
@@ -363,7 +363,7 @@ function NeedsYouCard({
         isFail ? "border-l-destructive" : "border-l-chart-4",
       )}
     >
-      <div className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="font-mono text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {kindLabel} · {statusLabel(t, status)}
       </div>
       <div className="mt-1 text-sm font-semibold">{title}</div>
@@ -482,7 +482,7 @@ function RunSparkline({ runs }: { runs: JobRun[] }) {
           key={run.id}
           title={`${run.status}${run.error ? `: ${run.error}` : ""}`}
           className={cn(
-            "size-2 rounded-[3px]",
+            "size-2 rounded-sm",
             run.status === "running"
               ? "animate-pulse bg-chart-4"
               : run.status === "failed" || run.status === "error"
@@ -511,7 +511,7 @@ function GoalCard({ goal, onOpen }: { goal: ComponentsGoal; onOpen: () => void }
       <div className="flex items-center gap-2">
         <span className={cn("size-1.5 shrink-0 rounded-full", statusMeta(goal.status).dot)} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold">{goal.title}</span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">
           {statusLabel(t, goal.status)}
         </span>
       </div>
@@ -521,7 +521,7 @@ function GoalCard({ goal, onOpen }: { goal: ComponentsGoal; onOpen: () => void }
         </div>
       )}
       {r.total > 0 && <ProgressBar r={r} className="mt-3" />}
-      <div className="mt-2 flex flex-wrap gap-x-3.5 font-mono text-[11px] text-muted-foreground">
+      <div className="mt-2 flex flex-wrap gap-x-3.5 font-mono text-xs text-muted-foreground">
         <span>{t("hub.goalDone", { done: r.done, total: r.total })}</span>
         {r.blocked > 0 && (
           <span className="text-chart-4">{t("hub.goalBlocked", { n: r.blocked })}</span>

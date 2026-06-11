@@ -47,7 +47,7 @@ export function PromptTab({ state, onSetState, onApplySoul }: Props) {
         <label className="block text-xs font-semibold text-muted-foreground mb-1">
           {t("agents.form.soul")}
         </label>
-        <p className="text-[11px] text-muted-foreground mb-2">{t("agents.form.soulDesc")}</p>
+        <p className="text-xs text-muted-foreground mb-2">{t("agents.form.soulDesc")}</p>
         <Textarea
           value={form.soul}
           onChange={(e) => setForm({ soul: (e.target as HTMLTextAreaElement).value })}

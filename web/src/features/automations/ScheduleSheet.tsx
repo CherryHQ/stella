@@ -279,7 +279,7 @@ export function ScheduleSheet({
                           )}
                         </div>
                         <div className="mt-0.5 text-muted-foreground">{tpl.description}</div>
-                        <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                        <div className="mt-1 font-mono text-xs text-muted-foreground">
                           {t("automations.templateDefaultSchedule", {
                             schedule: tpl.default_schedule,
                           })}

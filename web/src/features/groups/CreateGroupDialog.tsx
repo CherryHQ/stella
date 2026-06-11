@@ -111,7 +111,7 @@ export function CreateGroupDialog({ open, onClose }: Props) {
                   >
                     <span
                       className={cn(
-                        "grid size-4 shrink-0 place-items-center rounded-sm border text-[10px] transition-colors",
+                        "grid size-4 shrink-0 place-items-center rounded-sm border text-xs transition-colors",
                         selected
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-input bg-background",

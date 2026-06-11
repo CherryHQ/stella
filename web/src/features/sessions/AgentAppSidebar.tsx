@@ -349,7 +349,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
             label={t("inbox.title")}
             badge={
               attentionCount > 0 ? (
-                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-foreground">
                   {attentionCount}
                 </span>
               ) : undefined
@@ -387,7 +387,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                 icon={
                   item.kind === "agent" ? (
                     <span
-                      className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-primary-foreground"
+                      className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
                       style={{ background: getAgentColor(item.id, item.index) }}
                     >
                       {item.label[0]?.toUpperCase()}
@@ -399,7 +399,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                 label={item.label}
                 meta={
                   item.updatedAt ? (
-                    <span className="font-mono text-[11px]">{relativeTime(item.updatedAt)}</span>
+                    <span className="font-mono text-xs">{relativeTime(item.updatedAt)}</span>
                   ) : undefined
                 }
                 onClick={() => {
@@ -439,9 +439,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               className="group/project"
               icon={<Folder className="size-4" />}
               label={project.name}
-              meta={
-                <span className="font-mono text-[11px]">{relativeTime(project.updated_at)}</span>
-              }
+              meta={<span className="font-mono text-xs">{relativeTime(project.updated_at)}</span>}
               trailing={
                 <span
                   className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/project:opacity-70"
@@ -478,9 +476,7 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
               key={session.id}
               active={activeSessionId === session.id}
               label={session.title || t("sessions.untitled")}
-              meta={
-                <time className="font-mono text-[11px]">{relativeTime(session.last_active)}</time>
-              }
+              meta={<time className="font-mono text-xs">{relativeTime(session.last_active)}</time>}
               onClick={() => {
                 closeMobile();
                 void navigate({

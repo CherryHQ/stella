@@ -105,7 +105,7 @@ function ChangelogRow({ entry }: { entry: ChangelogEntry }) {
     <div className="flex items-center gap-2 text-xs">
       <span
         className={cn(
-          "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
+          "shrink-0 rounded-sm px-1.5 py-0.5 text-xs font-medium",
           scopeStyles[entry.scope] || "bg-muted text-muted-foreground",
         )}
       >
@@ -114,7 +114,7 @@ function ChangelogRow({ entry }: { entry: ChangelogEntry }) {
       <span className="font-medium">{entry.action}</span>
       <span
         className={cn(
-          "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
+          "shrink-0 rounded-sm px-1.5 py-0.5 text-xs font-medium",
           sourceStyles[entry.source] || "bg-muted text-muted-foreground",
         )}
       >
@@ -123,7 +123,7 @@ function ChangelogRow({ entry }: { entry: ChangelogEntry }) {
       {entry.memory_version_after != null && (
         <span className="text-muted-foreground font-mono">v{entry.memory_version_after}</span>
       )}
-      <span className="ml-auto shrink-0 text-muted-foreground font-mono text-[10px]">
+      <span className="ml-auto shrink-0 text-muted-foreground font-mono text-xs">
         {formatTime(entry.created_at)}
       </span>
     </div>

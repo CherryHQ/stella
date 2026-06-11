@@ -239,7 +239,7 @@ export function WorkspacePanel({
     return (
       <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
         <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 px-4">
-          <span className="text-[9px] font-mono text-muted-foreground">
+          <span className="text-xs font-mono text-muted-foreground">
             {t("sessions.workspace.title")}
           </span>
         </div>
@@ -274,7 +274,7 @@ export function WorkspacePanel({
       <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-border/70 py-1.5 px-4">
         <div className="min-w-0 flex-1 pl-1">
           <span
-            className="block truncate font-mono text-[10px] font-medium text-muted-foreground"
+            className="block truncate font-mono text-xs font-medium text-muted-foreground"
             title={
               workspace?.root
                 ? `${workspace.root}\n${fileCount.toLocaleString()} files, ${dirCount.toLocaleString()} folders, ${formatBytes(workspace.total_bytes)}`
@@ -288,13 +288,13 @@ export function WorkspacePanel({
               <button
                 type="button"
                 onClick={copyRootPath}
-                className="block min-w-0 truncate rounded-sm font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                className="block min-w-0 truncate rounded-sm font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
                 title={workspace?.root}
               >
                 in {rootLabel}
               </button>
               {rootCopied && (
-                <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-xs font-medium text-muted-foreground">
                   Copied
                 </span>
               )}
@@ -361,7 +361,7 @@ export function WorkspacePanel({
             }}
             className="flex min-w-0 items-center gap-1.5"
           >
-            <span className="text-[10px] font-mono text-muted-foreground">
+            <span className="text-xs font-mono text-muted-foreground">
               {newItemType === "dir" ? "dir" : "file"}:
             </span>
             <input
@@ -369,11 +369,11 @@ export function WorkspacePanel({
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && (setNewItemType(null), setNewItemName(""))}
-              className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] focus:border-primary/60 focus:outline-none"
+              className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs focus:border-primary/60 focus:outline-none"
               placeholder="name..."
               autoComplete="off"
             />
-            <Button type="submit" size="xs" className="h-6 min-h-0 text-[11px]">
+            <Button type="submit" size="xs" className="h-6 min-h-0 text-xs">
               {t("common.add")}
             </Button>
             <button
@@ -393,7 +393,7 @@ export function WorkspacePanel({
       {/* Empty state */}
       {!workspaceLoading && workspace && entryCount === 0 && !newItemType && (
         <div className="px-4 py-8 text-center">
-          <p className="text-[11px] font-mono text-muted-foreground/40">Empty workspace</p>
+          <p className="text-xs font-mono text-muted-foreground/40">Empty workspace</p>
         </div>
       )}
 

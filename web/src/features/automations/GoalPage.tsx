@@ -155,7 +155,7 @@ export function GoalPage() {
           title={`${t("hub.progress")} · ${t("hub.goalDone", { done: r.done, total: r.total })}`}
         >
           <ProgressBar r={r} className="h-2" />
-          <div className="mt-2 flex flex-wrap gap-x-3.5 font-mono text-[11px] text-muted-foreground">
+          <div className="mt-2 flex flex-wrap gap-x-3.5 font-mono text-xs text-muted-foreground">
             <span>{t("hub.goalDone", { done: r.done, total: r.total })}</span>
             {r.blocked > 0 && (
               <span className="text-chart-4">{t("hub.goalBlocked", { n: r.blocked })}</span>
@@ -169,7 +169,7 @@ export function GoalPage() {
       {tasks.length > 0 && (
         <div className="mt-7">
           <div className="mb-2.5 flex items-baseline justify-between">
-            <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t("hub.subtasks")}
             </h3>
             <button
@@ -209,7 +209,7 @@ export function GoalPage() {
                   </span>
                   <span
                     className={cn(
-                      "shrink-0 font-mono text-[11px]",
+                      "shrink-0 font-mono text-xs",
                       isHighlight ? "text-chart-4" : "text-muted-foreground",
                     )}
                   >

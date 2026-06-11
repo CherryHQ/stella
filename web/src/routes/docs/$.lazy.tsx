@@ -66,7 +66,9 @@ function Page() {
 
           <article className="max-w-3xl mx-auto px-6 py-8 md:px-8">
             {page.frontmatter?.title && (
-              <h1 className="text-3xl font-bold text-foreground mb-2">{page.frontmatter.title}</h1>
+              <h1 className="text-3xl font-semibold text-foreground mb-2">
+                {page.frontmatter.title}
+              </h1>
             )}
             {page.frontmatter?.description && (
               <p className="text-lg text-muted-foreground mb-8">{page.frontmatter.description}</p>

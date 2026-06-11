@@ -253,7 +253,7 @@ function ContextSectionCard({
         </span>
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold text-foreground">{title}</span>
-          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground leading-none">
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground leading-none">
             {detail}
           </span>
         </span>
@@ -294,31 +294,31 @@ function SessionContextCard({
   return (
     <div className="space-y-3.5">
       <dl className="grid grid-cols-[5.2rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.channel")}
         </dt>
         <dd className="truncate text-foreground font-medium">
           {channelLabel(session.channel) || "chat"}
         </dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.agent")}
         </dt>
         <dd className="truncate text-foreground font-medium">{agentName || "unknown"}</dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.kind")}
         </dt>
         <dd className="truncate capitalize text-foreground font-medium">{session.kind}</dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.active")}
         </dt>
         <dd className="truncate text-foreground font-medium">{formatTime(session.last_active)}</dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.messages")}
         </dt>
         <dd className="truncate text-foreground font-medium">
           {metaLoading ? "..." : (meta?.message_count ?? 0).toLocaleString()}
         </dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.tokens")}
         </dt>
         <dd className="truncate text-foreground font-medium">
@@ -326,7 +326,7 @@ function SessionContextCard({
             ? "..."
             : `${(meta?.active_token_count ?? 0).toLocaleString()} / ${(meta?.source_token_count ?? 0).toLocaleString()}`}
         </dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.longTerm")}
         </dt>
         <dd className="truncate text-foreground font-medium">
@@ -334,16 +334,16 @@ function SessionContextCard({
             ? "..."
             : t("sessions.inspector.summaryDepth", { count: meta?.summary_depth ?? 0 })}
         </dd>
-        <dt className="text-muted-foreground font-semibold text-[10px]">
+        <dt className="text-muted-foreground font-semibold text-xs">
           {t("sessions.inspector.sessionId")}
         </dt>
-        <dd className="truncate font-mono text-[10px] text-muted-foreground">{session.id}</dd>
+        <dd className="truncate font-mono text-xs text-muted-foreground">{session.id}</dd>
       </dl>
       <div className="flex justify-end border-t border-border/10 pt-2.5">
         <button
           type="button"
           onClick={copyID}
-          className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/60 bg-transparent"
+          className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/60 bg-transparent"
         >
           {t("sessions.inspector.copySessionId")}
         </button>
@@ -378,23 +378,23 @@ function ToolContextRow({ tool }: { tool: Tool }) {
         onClick={() => setExpanded((v) => !v)}
         className="grid w-full grid-cols-[1rem_minmax(0,1fr)] gap-2 text-left hover:bg-muted/20 p-1.5 rounded-lg cursor-pointer"
       >
-        <span className="pt-0.5 text-[10px] text-muted-foreground">{expanded ? "▼" : "▶"}</span>
+        <span className="pt-0.5 text-xs text-muted-foreground">{expanded ? "▼" : "▶"}</span>
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate font-mono text-xs font-semibold text-foreground">
               {tool.name}
             </span>
-            <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
+            <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
               {tool.category}
             </span>
           </span>
-          <span className="mt-1 block text-[11px] text-muted-foreground leading-normal">
+          <span className="mt-1 block text-xs text-muted-foreground leading-normal">
             {tool.description}
           </span>
         </span>
       </button>
       {expanded && (
-        <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-[10px] leading-relaxed text-muted-foreground">
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-muted/40 p-2 border border-border/15 font-mono text-xs leading-relaxed text-muted-foreground">
           {JSON.stringify(tool.input_schema, null, 2)}
         </pre>
       )}
@@ -415,18 +415,18 @@ function PromptContext({ systemPrompt, loading }: { systemPrompt: string; loadin
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between gap-2 px-1">
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-xs text-muted-foreground">
           ~{Math.round(systemPrompt.length / 4)} tokens
         </span>
         <button
           type="button"
           onClick={copyPrompt}
-          className="rounded-lg px-2 py-1 font-semibold text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/50"
+          className="rounded-lg px-2 py-1 font-semibold text-xs text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer border border-border/50"
         >
           {t("sessions.inspector.copy")}
         </button>
       </div>
-      <pre className="whitespace-pre-wrap rounded-xl border border-border/60 bg-muted/40 p-3.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+      <pre className="whitespace-pre-wrap rounded-xl border border-border/60 bg-muted/40 p-3.5 font-mono text-xs leading-relaxed text-muted-foreground">
         {systemPrompt || t("sessions.inspector.noPrompt")}
       </pre>
     </div>

@@ -49,13 +49,13 @@ export function GroupInspector({ members, messages, activeAgentIds, uploadContex
                     <div className="truncate text-xs font-medium text-foreground">
                       {member.agent_name || member.agent_id}
                     </div>
-                    <div className="truncate font-mono text-[10px] text-muted-foreground">
+                    <div className="truncate font-mono text-xs text-muted-foreground">
                       @{member.agent_id}
                     </div>
                   </div>
                   <span
                     className={cn(
-                      "rounded-md px-1.5 py-0.5 font-mono text-[10px]",
+                      "rounded-md px-1.5 py-0.5 font-mono text-xs",
                       active ? "bg-chart-2/10 text-chart-2" : "bg-muted text-muted-foreground",
                     )}
                   >
@@ -133,7 +133,7 @@ export function GroupInspector({ members, messages, activeAgentIds, uploadContex
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+    <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
       {children}
     </h3>
   );
@@ -143,7 +143,7 @@ function StatRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 last:border-b-0">
       <span className="truncate text-xs text-muted-foreground">{label}</span>
-      <span className="shrink-0 font-mono text-[11px] text-foreground">{value}</span>
+      <span className="shrink-0 font-mono text-xs text-foreground">{value}</span>
     </div>
   );
 }

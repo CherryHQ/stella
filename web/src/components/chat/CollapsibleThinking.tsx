@@ -15,7 +15,7 @@ export function CollapsibleThinking({
     return (
       <button
         onClick={() => onToggle(true)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-muted/40 hover:bg-muted/70 hover:border-foreground/10 transition-colors duration-120 font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer w-fit shadow-none"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-muted/40 hover:bg-muted/70 hover:border-foreground/10 transition-colors duration-120 font-mono text-xs text-muted-foreground hover:text-foreground cursor-pointer w-fit shadow-none"
       >
         <Lightbulb className="size-3.5 text-muted-foreground shrink-0" />
         <span>{labelText}</span>
@@ -25,7 +25,7 @@ export function CollapsibleThinking({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3.5 transition-colors duration-120 space-y-3.5 max-w-3xl w-full shadow-none overflow-hidden">
+    <div className="rounded-lg border border-border bg-card px-4 py-3.5 transition-colors duration-120 space-y-3.5 max-w-3xl w-full shadow-none overflow-hidden">
       <div className="flex items-center">
         <button
           onClick={() => onToggle(false)}

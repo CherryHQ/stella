@@ -403,10 +403,11 @@ export function CredentialsPage() {
           </a>
           {spFlow.user_code && (
             <p className="mt-1 font-medium">
-              Code: <span className="font-mono font-bold text-foreground">{spFlow.user_code}</span>
+              Code:{" "}
+              <span className="font-mono font-semibold text-foreground">{spFlow.user_code}</span>
             </p>
           )}
-          <p className="mt-1 text-[11px] text-muted-foreground">Waiting for authorization…</p>
+          <p className="mt-1 text-xs text-muted-foreground">Waiting for authorization…</p>
         </div>
       )}
 

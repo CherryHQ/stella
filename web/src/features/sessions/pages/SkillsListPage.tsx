@@ -504,7 +504,7 @@ function SkillDetailRow({
                         : "outline"
                   }
                   size="sm"
-                  className="text-[9px] uppercase px-1 py-0 h-4"
+                  className="text-xs uppercase px-1 py-0 h-4"
                 >
                   {skill.status}
                 </Badge>
@@ -514,16 +514,14 @@ function SkillDetailRow({
                 <Badge
                   variant="outline"
                   size="sm"
-                  className="text-[9px] text-muted-foreground border-muted-foreground/30 px-1 py-0 h-4"
+                  className="text-xs text-muted-foreground border-muted-foreground/30 px-1 py-0 h-4"
                 >
                   {t("sessions.skill.modelInvocationLabel")} {t("common.disable")}
                 </Badge>
               )}
             </div>
             {skill.description && !isExpanded && (
-              <p className="text-[11px] text-muted-foreground mt-1 line-clamp-1">
-                {skill.description}
-              </p>
+              <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{skill.description}</p>
             )}
           </div>
         </div>
@@ -575,9 +573,7 @@ function SkillDetailRow({
 
                   <div className="rounded-xl border border-border/60 bg-muted/5 overflow-hidden">
                     <div className="bg-muted/40 border-b border-border/50 px-3 py-1.5 flex justify-between items-center">
-                      <span className="text-[10px] font-mono text-muted-foreground">
-                        {activeFile}
-                      </span>
+                      <span className="text-xs font-mono text-muted-foreground">{activeFile}</span>
                     </div>
                     <div className="p-3">
                       {fileLoading ? (
@@ -640,7 +636,7 @@ function SkillDetailRow({
                 <div className="space-y-4 rounded-xl border border-border bg-muted/10 p-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <label className="block text-[11px] font-mono text-muted-foreground mb-1.5">
+                      <label className="block text-xs font-mono text-muted-foreground mb-1.5">
                         {t("sessions.skill.fieldStatus")}
                       </label>
                       <div className="inline-flex rounded-lg border border-border bg-background p-0.5">
@@ -663,7 +659,7 @@ function SkillDetailRow({
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-mono text-muted-foreground mb-1">
+                      <label className="block text-xs font-mono text-muted-foreground mb-1">
                         {t("sessions.skill.fieldDescription")}
                       </label>
                       <Input
@@ -681,7 +677,7 @@ function SkillDetailRow({
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-mono text-muted-foreground mb-1">
+                      <label className="block text-xs font-mono text-muted-foreground mb-1">
                         {t("sessions.skill.fieldContent")} ({activeFile})
                       </label>
                       <Textarea
@@ -704,7 +700,7 @@ function SkillDetailRow({
                       <span className="text-xs font-medium block">
                         {t("sessions.skill.modelInvocation")}
                       </span>
-                      <span className="text-[10px] text-muted-foreground block">
+                      <span className="text-xs text-muted-foreground block">
                         Allow LLM to automatically run this skill during conversations.
                       </span>
                     </div>
@@ -972,11 +968,11 @@ function NewSkillDialog({
                               <p className="truncate font-mono text-xs font-semibold text-foreground">
                                 {s.name || s.skillId}
                               </p>
-                              <span className="shrink-0 text-[10px] bg-muted/60 px-1 py-0.5 rounded text-muted-foreground font-mono">
+                              <span className="shrink-0 text-xs bg-muted/60 px-1 py-0.5 rounded text-muted-foreground font-mono">
                                 {s.installs} installs
                               </span>
                             </div>
-                            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                            <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                               {source}
                             </p>
                             {s.description && (
@@ -1011,7 +1007,7 @@ function NewSkillDialog({
                 <div className="rounded-xl border border-dashed border-border/80 px-4 py-12 text-center space-y-2">
                   <Search className="mx-auto size-5 text-muted-foreground" />
                   <p className="text-xs font-semibold">{t("sessions.skill.searchCatalog")}</p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {t("sessions.skill.resultsAppear")}
                   </p>
                 </div>
@@ -1035,15 +1031,13 @@ function NewSkillDialog({
                 <div className="text-xs font-semibold">
                   {uploadFile ? uploadFile.name : t("sessions.skill.chooseZip")}
                 </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  {t("sessions.skill.zipReq")}
-                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{t("sessions.skill.zipReq")}</p>
                 <Button variant="outline" size="sm" className="mt-3 h-7 text-xs rounded-lg">
                   {t("sessions.skill.browseFiles")}
                 </Button>
               </label>
 
-              <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono text-muted-foreground">
+              <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono text-muted-foreground">
                 <div className="rounded-lg border border-border/60 bg-muted/10 px-2 py-1.5">
                   .zip file
                 </div>
@@ -1070,7 +1064,7 @@ function NewSkillDialog({
             <TabsContent value="custom" className="space-y-4 outline-none">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-[11px] font-mono text-muted-foreground mb-1">
+                  <label className="block text-xs font-mono text-muted-foreground mb-1">
                     {t("sessions.skill.fieldName")}
                   </label>
                   <Input
@@ -1085,7 +1079,7 @@ function NewSkillDialog({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-mono text-muted-foreground mb-1.5">
+                  <label className="block text-xs font-mono text-muted-foreground mb-1.5">
                     {t("sessions.skill.fieldStatus")}
                   </label>
                   <div className="inline-flex rounded-lg border border-border bg-background p-0.5">
@@ -1108,7 +1102,7 @@ function NewSkillDialog({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-mono text-muted-foreground mb-1">
+                  <label className="block text-xs font-mono text-muted-foreground mb-1">
                     {t("sessions.skill.fieldDescription")}
                   </label>
                   <Input
@@ -1126,7 +1120,7 @@ function NewSkillDialog({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-mono text-muted-foreground mb-1">
+                  <label className="block text-xs font-mono text-muted-foreground mb-1">
                     {t("sessions.skill.fieldContent")} (SKILL.md)
                   </label>
                   <Textarea
@@ -1148,7 +1142,7 @@ function NewSkillDialog({
                   <span className="text-xs font-medium block">
                     {t("sessions.skill.modelInvocation")}
                   </span>
-                  <span className="text-[10px] text-muted-foreground block">
+                  <span className="text-xs text-muted-foreground block">
                     Allow LLM to automatically run this skill during conversations.
                   </span>
                 </div>

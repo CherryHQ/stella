@@ -145,7 +145,7 @@ export function ProjectHome() {
                 sessions: projectSessions.length,
               })}
               {project?.base_dir && (
-                <span className="ml-2 font-mono text-[11px]">{project.base_dir}</span>
+                <span className="ml-2 font-mono text-xs">{project.base_dir}</span>
               )}
             </p>
           </div>
@@ -232,7 +232,7 @@ function ProjectTasks({
               <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 {statusLabel(t, group.status)}
               </h2>
-              <span className="rounded bg-muted px-1.5 py-px text-[11px] text-muted-foreground">
+              <span className="rounded bg-muted px-1.5 py-px text-xs text-muted-foreground">
                 {group.tasks.length}
               </span>
             </div>
@@ -256,7 +256,7 @@ function ProjectTasks({
                       </div>
                     )}
                   </div>
-                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {formatTime(task.updated_at)}
                   </span>
                 </button>
@@ -308,7 +308,7 @@ function ProjectSessions({
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">{session.id}</div>
             </div>
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">
               {formatTime(session.last_active)}
             </span>
           </button>

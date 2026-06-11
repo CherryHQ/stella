@@ -101,7 +101,7 @@ export function StatusPill({ status, label }: { status: string; label: string })
   return (
     <span
       className={cn(
-        "inline-flex h-[21px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-semibold capitalize",
+        "inline-flex h-[21px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold capitalize",
         statusMeta(status).pill,
       )}
     >

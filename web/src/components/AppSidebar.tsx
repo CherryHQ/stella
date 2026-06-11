@@ -57,7 +57,7 @@ export function AppSidebarHeader() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56" sideOffset={6}>
           <DropdownMenuGroup>
-            <DropdownMenuLabel className="text-[10px] font-mono tracking-wider text-muted-foreground/60 uppercase px-2 py-1">
+            <DropdownMenuLabel className="text-xs font-mono tracking-wider text-muted-foreground/60 uppercase px-2 py-1">
               {t("common.context")}
             </DropdownMenuLabel>
             <DropdownMenuItem
@@ -77,7 +77,7 @@ export function AppSidebarHeader() {
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="font-medium text-foreground">{t("nav.sessions")}</span>
-                <span className="text-[10px] text-muted-foreground font-normal truncate">
+                <span className="text-xs text-muted-foreground font-normal truncate">
                   {t("nav.sessions.desc" as any) || "AI chat assistant & projects"}
                 </span>
               </div>
@@ -99,7 +99,7 @@ export function AppSidebarHeader() {
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="font-medium text-foreground">{t("nav.recally")}</span>
-                <span className="text-[10px] text-muted-foreground font-normal truncate">
+                <span className="text-xs text-muted-foreground font-normal truncate">
                   {t("nav.recally.desc" as any) || "Read queue, feeds & memory"}
                 </span>
               </div>
@@ -121,7 +121,7 @@ export function AppSidebarHeader() {
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="font-medium text-foreground">{t("nav.settings")}</span>
-                <span className="text-[10px] text-muted-foreground font-normal truncate">
+                <span className="text-xs text-muted-foreground font-normal truncate">
                   {t("settings.title") || "Settings"}
                 </span>
               </div>
@@ -196,7 +196,7 @@ export function SidebarSection({
   className?: string;
 }) {
   const headerClassName =
-    "flex h-full min-w-0 flex-1 items-center gap-2 rounded-[9px] px-2 font-mono text-[10px] text-muted-foreground";
+    "flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2 font-mono text-xs text-muted-foreground";
   const interactiveHeaderClassName = cn(
     headerClassName,
     "cursor-pointer hover:bg-foreground/[0.045] hover:text-muted-foreground",

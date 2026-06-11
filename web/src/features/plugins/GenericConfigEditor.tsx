@@ -129,9 +129,7 @@ export function GenericConfigEditor({
                     />
                   )}
                   {description && (
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      {description}
-                    </p>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
                   )}
                 </div>
               );

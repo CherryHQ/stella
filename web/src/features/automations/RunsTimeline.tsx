@@ -57,7 +57,7 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
             >
               <span
                 className={cn(
-                  "w-16 shrink-0 font-mono text-[11px] font-medium",
+                  "w-16 shrink-0 font-mono text-xs font-medium",
                   statusTone(run.status),
                   run.status === "running" && "animate-pulse",
                 )}
@@ -67,7 +67,7 @@ export function RunsTimeline({ runs, agentId }: { runs: TimelineRun[]; agentId: 
               <span className="w-24 shrink-0 text-[12.5px]">
                 {run.startedAt ? formatTime(run.startedAt) : "—"}
               </span>
-              <span className="w-16 shrink-0 font-mono text-[11px] text-muted-foreground">
+              <span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
                 {run.duration || "—"}
               </span>
               <span

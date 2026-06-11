@@ -47,7 +47,7 @@ export function DigestDetail({
               {digest.top_tags.map(({ tag, count }) => (
                 <span
                   key={tag}
-                  className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] font-mono text-muted-foreground font-medium"
+                  className="rounded-full border border-border bg-card px-2.5 py-0.5 text-xs font-mono text-muted-foreground font-medium"
                 >
                   {tag} <span className="text-muted-foreground">{count}</span>
                 </span>
@@ -61,7 +61,7 @@ export function DigestDetail({
 }
 
 function SectionLabel({ title }: { title: string }) {
-  return <div className="text-[10px] font-mono font-semibold text-muted-foreground">{title}</div>;
+  return <div className="text-xs font-mono font-semibold text-muted-foreground">{title}</div>;
 }
 
 function ArticleGroup({

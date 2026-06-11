@@ -349,7 +349,7 @@ export function SessionDetail({
       titleText ? (
         <div className="min-w-0">
           <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{titleText}</h1>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtitleText}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitleText}</p>
         </div>
       ) : null,
     );
@@ -458,7 +458,7 @@ export function SessionDetail({
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <p className="text-sm text-muted-foreground/70">{t("sessions.selectSession")}</p>
-          <p className="text-[11px] text-muted-foreground/40 font-mono">
+          <p className="text-xs text-muted-foreground/40 font-mono">
             {t("sessions.createNewHint")}
           </p>
         </div>
@@ -484,7 +484,7 @@ export function SessionDetail({
                     onClick={() => void navigate({ to: item.target_path })}
                   >
                     <span className="truncate">{item.title}</span>
-                    <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                    <span className="shrink-0 text-xs uppercase text-muted-foreground">
                       {t(inboxKindLabels[item.kind])}
                     </span>
                   </button>

@@ -17,7 +17,7 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
 
   return (
     <div className="space-y-6">
-      <p className="text-[11px] text-muted-foreground">{t("agents.users.desc")}</p>
+      <p className="text-xs text-muted-foreground">{t("agents.users.desc")}</p>
       <div className="divide-y divide-border/60 border-t border-b border-border/40">
         {assignedUsers.map((u) => (
           <div

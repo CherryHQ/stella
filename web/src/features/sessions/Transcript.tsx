@@ -142,7 +142,7 @@ function SummaryCard({
           <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
             {summary.content}
           </span>
-          <span className="mt-2 block font-mono text-[10px] text-muted-foreground">
+          <span className="mt-2 block font-mono text-xs text-muted-foreground">
             {t("sessions.epoch.messageCount", { count: summary.descendant_count })} ·{" "}
             {formatNumber(summary.source_message_token_count)} → {formatNumber(summary.token_count)}
           </span>
