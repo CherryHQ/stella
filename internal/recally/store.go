@@ -12,6 +12,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/CherryHQ/stella/internal/db/ftsquery"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -248,19 +249,20 @@ func (s *Store) ListArticles(ctx context.Context, userID string, filter ArticleF
 	return articles, nil
 }
 
-// SearchArticles searches articles by title, summary, tags, or author.
+// SearchArticles searches articles by title, summary, tags, or author using
+// the FTS5 index, ordered by BM25 relevance (title hits rank highest).
 func (s *Store) SearchArticles(ctx context.Context, userID string, query string, limit int) ([]Article, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	needle := sql.NullString{String: query, Valid: query != ""}
+	match := ftsquery.BuildMatchQuery(query)
+	if match == "" {
+		return []Article{}, nil
+	}
 	rows, err := s.q.SearchArticles(ctx, sqlc.SearchArticlesParams{
-		UserID:  userID,
-		Column2: needle,
-		Column3: needle,
-		Column4: needle,
-		Column5: needle,
-		Limit:   int64(limit),
+		Match:  match,
+		UserID: userID,
+		Limit:  int64(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search articles: %w", err)
@@ -269,7 +271,7 @@ func (s *Store) SearchArticles(ctx context.Context, userID string, query string,
 	articles := make([]Article, 0, len(rows))
 	for _, row := range rows {
 		var article Article
-		article.FromSQLCArticle(row)
+		article.FromSQLCArticle(row.RecallyArticle)
 		articles = append(articles, article)
 	}
 	return articles, nil

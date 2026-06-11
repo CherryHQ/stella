@@ -17,6 +17,11 @@ var (
 	ctxMessageFTSSchema string
 	//go:embed schemas/tables/ctx_summary_fts.sql
 	ctxSummaryFTSSchema string
+	// RecallyArticleFTSSchema is exported so recally store tests, which
+	// assemble their schema by hand instead of running migrations, can create
+	// the index and triggers their search queries depend on.
+	//go:embed schemas/tables/recally_article_fts.sql
+	RecallyArticleFTSSchema string
 )
 
 // ensureFTS creates the FTS5 virtual tables and triggers if missing, and
@@ -31,6 +36,7 @@ func ensureFTS(db *sql.DB) error {
 	}{
 		{"ctx_message_fts", ctxMessageFTSSchema},
 		{"ctx_summary_fts", ctxSummaryFTSSchema},
+		{"recally_article_fts", RecallyArticleFTSSchema},
 	} {
 		// Check the insert trigger alongside the table: an Atlas table-rebuild
 		// migration drops the content table's triggers and shifts rowids, which
@@ -45,7 +51,7 @@ func ensureFTS(db *sql.DB) error {
 		}
 		if _, err := db.ExecContext(ctx, t.schema); err != nil {
 			if strings.Contains(err.Error(), "fts5") {
-				return fmt.Errorf("create %s: sqlite build lacks FTS5 support, required for memory search: %w", t.ftsTable, err)
+				return fmt.Errorf("create %s: sqlite build lacks FTS5 support, required for full-text search: %w", t.ftsTable, err)
 			}
 			return fmt.Errorf("create %s: %w", t.ftsTable, err)
 		}

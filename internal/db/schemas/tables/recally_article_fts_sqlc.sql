@@ -1,0 +1,14 @@
+-- sqlc-only schema shim — NEVER executed against a real database and NOT
+-- imported into main.sql (Atlas never sees it; internal/db/fts.go does not
+-- embed it).
+--
+-- Every FTS5 table has a hidden column named after the table itself; matching
+-- against it searches ALL indexed columns (`WHERE t.t MATCH ?`). sqlc v1.29
+-- cannot see hidden columns and rejects both the bare-table form
+-- (`WHERE recally_article_fts MATCH ?` → "column does not exist") and the
+-- `=` MATCH synonym, while qualifying a real column (`fts.title MATCH ?`)
+-- restricts the search to that column at runtime. Declaring the hidden column
+-- here teaches sqlc's catalog about it so queries/recally_article.sql can use
+-- the all-column form. fts5 itself rejects a declared column named after the
+-- table, so this cannot live in the real DDL.
+ALTER TABLE recally_article_fts ADD COLUMN recally_article_fts TEXT NOT NULL;

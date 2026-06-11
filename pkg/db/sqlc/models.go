@@ -597,6 +597,14 @@ type RecallyArticle struct {
 	UpdatedAt    string         `json:"updated_at"`
 }
 
+type RecallyArticleFt struct {
+	Title             string `json:"title"`
+	Summary           string `json:"summary"`
+	Tags              string `json:"tags"`
+	Author            string `json:"author"`
+	RecallyArticleFts string `json:"recally_article_fts"`
+}
+
 type RecallyDigest struct {
 	ID                   string `json:"id"`
 	UserID               string `json:"user_id"`

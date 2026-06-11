@@ -42,15 +42,21 @@ RETURNING *;
 DELETE FROM recally_article WHERE id = ? AND user_id = ?;
 
 -- name: SearchArticles :many
--- Phase 1 MVP: LIKE-based search. Upgrade to FTS5 in future phase.
-SELECT * FROM recally_article
-WHERE user_id = ?
-  AND (title LIKE '%' || ? || '%'
-       OR summary LIKE '%' || ? || '%'
-       OR tags LIKE '%' || ? || '%'
-       OR author LIKE '%' || ? || '%')
-ORDER BY saved_at DESC
-LIMIT ?;
+-- FTS5/BM25 search over title/summary/tags/author. Matching against the
+-- hidden table-name column searches every indexed column (declared for sqlc
+-- in recally_article_fts_sqlc.sql); bm25 weights rank title hits highest,
+-- and snippet column -1 picks the best-matching column. More negative bm25
+-- means more relevant, hence ORDER BY score ASC.
+SELECT
+    sqlc.embed(a),
+    snippet(recally_article_fts, -1, '<<', '>>', '...', 32) AS snippet,
+    bm25(recally_article_fts, 4.0, 2.0, 2.0, 1.0) AS score
+FROM recally_article_fts
+JOIN recally_article a ON a.rowid = recally_article_fts.rowid
+WHERE recally_article_fts.recally_article_fts MATCH sqlc.arg('match')
+  AND a.user_id = sqlc.arg('user_id')
+ORDER BY score ASC
+LIMIT sqlc.arg('limit');
 
 -- name: CountArticlesByStatus :one
 SELECT COUNT(*) as count FROM recally_article WHERE user_id = ? AND status = ?;

@@ -5,10 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
-	"strings"
-	"unicode"
 	"unicode/utf8"
 
+	"github.com/CherryHQ/stella/internal/db/ftsquery"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -42,32 +41,12 @@ func (p *Provider) Search(ctx context.Context, session memory.Session, query mem
 	return p.retrieval.search(ctx, conv.ID, query)
 }
 
-// buildMatchQuery converts free text into an FTS5 MATCH expression. Tokens
-// (runs of letters/digits/underscore) are individually quoted so FTS5 query
-// operators in user input (*, -, :, parens) can never break the query, and
-// OR-joined for recall — BM25 still ranks multi-term hits higher. Returns ""
-// when no tokens can be extracted; callers must skip the query then.
-func buildMatchQuery(text string) string {
-	tokens := strings.FieldsFunc(text, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
-	})
-	quoted := make([]string, 0, len(tokens))
-	for _, tok := range tokens {
-		tok = strings.ReplaceAll(tok, `"`, "")
-		if tok == "" {
-			continue
-		}
-		quoted = append(quoted, `"`+tok+`"`)
-	}
-	return strings.Join(quoted, " OR ")
-}
-
 func (r *retrievalEngine) search(ctx context.Context, convID string, query memory.SearchQuery) ([]memory.SearchResult, error) {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
-	match := buildMatchQuery(query.Text)
+	match := ftsquery.BuildMatchQuery(query.Text)
 	if match == "" {
 		return nil, nil
 	}
