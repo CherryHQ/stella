@@ -2,11 +2,25 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ErrAlreadySubscribed is returned by Subscribe when the user already has an
+// active subscription instance for the given template key.
+var ErrAlreadySubscribed = errors.New("already subscribed to template")
+
+// ErrTemplateNotFound is returned by Subscribe when the requested template key
+// is not registered.
+var ErrTemplateNotFound = errors.New("template not found")
+
+// ErrSubscriptionMessageReadOnly is returned by UpdateUserJob when the caller
+// attempts to change the message on a subscription instance (job_key non-empty).
+// The message is owned by the template registry, not the row.
+var ErrSubscriptionMessageReadOnly = errors.New("subscription message is read-only")
 
 // JobTemplate defines a platform-managed job recipe that users can subscribe
 // to. Unlike a BuiltinJob the template itself is never scheduled directly;
@@ -112,14 +126,14 @@ func (s *Service) Subscribe(ctx context.Context, userID, agentID, key string, sc
 
 	tmpl, ok := s.templates[key]
 	if !ok {
-		return Job{}, fmt.Errorf("subscribe: template %q not found", key)
+		return Job{}, fmt.Errorf("subscribe: template %q not found: %w", key, ErrTemplateNotFound)
 	}
 
 	// Dedup: scan in-memory jobs map — it is the authoritative mirror of the
 	// DB write path, so this check is correct under the held lock.
 	for _, j := range s.jobs {
 		if j.OwnerKind == JobOwnerUser && j.UserID == userID && j.JobKey == key {
-			return Job{}, fmt.Errorf("subscribe: user %q already subscribed to template %q (job %s)", userID, key, j.ID)
+			return Job{}, fmt.Errorf("subscribe: user %q already subscribed to template %q (job %s): %w", userID, key, j.ID, ErrAlreadySubscribed)
 		}
 	}
 
@@ -212,7 +226,7 @@ func (s *Service) UpdateUserJob(ctx context.Context, id string, update JobUpdate
 
 	// Subscription instances: the prompt belongs to the template, not the row.
 	if job.JobKey != "" && update.Message != nil {
-		return Job{}, fmt.Errorf("job %q is a template subscription; message cannot be changed", id)
+		return Job{}, fmt.Errorf("job %q is a template subscription; message cannot be changed: %w", id, ErrSubscriptionMessageReadOnly)
 	}
 
 	// Apply optional field overrides.

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -15,7 +16,52 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-const adminDBTimeLayout = "2006-01-02 15:04:05"
+// isSystemOrPlugin reports whether a job's owner kind is a platform-level
+// owner (system or plugin). These jobs are invisible to all API callers.
+func isSystemOrPlugin(ownerKind string) bool {
+	return ownerKind == scheduler.JobOwnerPlugin || ownerKind == scheduler.JobOwnerSystem
+}
+
+// ListJobTemplates returns all registered job templates with subscription
+// status resolved for the current user.
+// Returns 503 when the scheduler service is not available.
+func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	templates := s.schedulerSvc.Templates()
+
+	// Build a lookup: template key → subscribed job ID for this user.
+	subscriptions := make(map[string]string)
+	for _, job := range s.schedulerSvc.ListJobs() {
+		if job.OwnerKind == scheduler.JobOwnerUser && job.UserID == info.UserID && job.JobKey != "" {
+			subscriptions[job.JobKey] = job.ID
+		}
+	}
+
+	out := make([]apitypes.JobTemplate, 0, len(templates))
+	for _, tmpl := range templates {
+		t := apitypes.JobTemplate{
+			Key:             tmpl.Key,
+			Name:            tmpl.Name,
+			Description:     tmpl.Description,
+			DefaultSchedule: templateDefaultSchedule(tmpl.DefaultSchedule),
+			SessionMode:     tmpl.SessionMode,
+		}
+		if jobID, ok := subscriptions[tmpl.Key]; ok {
+			t.SubscribedJobId = ptrStr(jobID)
+		}
+		out = append(out, t)
+	}
+	writeData(w, http.StatusOK, apitypes.JobTemplateList{JobTemplates: out})
+}
 
 func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agentID string) {
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
@@ -35,13 +81,11 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
-		// System and plugin jobs are platform-level: users cannot edit or
-		// trigger them, so only admins see them.
-		if (row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem) &&
-			(info == nil || !info.IsAdmin) {
+		// Platform jobs (system/plugin) are invisible to all callers, including admins.
+		if isSystemOrPlugin(row.OwnerKind) {
 			continue
 		}
-		jobs = append(jobs, dbRowToAPIJob(row))
+		jobs = append(jobs, s.dbRowToAPIJob(row))
 	}
 	writeData(w, http.StatusOK, apiserver.JobList{Jobs: jobs})
 }
@@ -52,12 +96,51 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		writeError(w, code, msg)
 		return
 	}
+	if info == nil {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+	if s.schedulerSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		return
+	}
 
 	var body apiserver.JobInput
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+
+	userID := info.UserID
+
+	// Template-subscription path.
+	if body.TemplateKey != nil && *body.TemplateKey != "" {
+		if body.Message != nil && *body.Message != "" {
+			writeError(w, http.StatusBadRequest, "message must be empty when subscribing via template_key")
+			return
+		}
+		sched := scheduler.Schedule{
+			Cron:  derefStr(body.Cron),
+			Every: derefStr(body.Every),
+			At:    derefStr(body.At),
+		}
+		job, err := s.schedulerSvc.Subscribe(r.Context(), userID, agentID, *body.TemplateKey, sched)
+		if err != nil {
+			switch {
+			case errors.Is(err, scheduler.ErrAlreadySubscribed):
+				writeError(w, http.StatusConflict, "already subscribed to this template")
+			case errors.Is(err, scheduler.ErrTemplateNotFound):
+				writeError(w, http.StatusNotFound, "template not found")
+			default:
+				s.writeInternalError(w, err)
+			}
+			return
+		}
+		writeData(w, http.StatusCreated, s.schedulerJobToAPI(job))
+		return
+	}
+
+	// Regular (non-template) job path.
 	if body.Name == nil || *body.Name == "" || body.Message == nil || *body.Message == "" {
 		writeError(w, http.StatusBadRequest, "name and message are required")
 		return
@@ -71,86 +154,17 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		sessionMode = *body.SessionMode
 	}
 
-	if info == nil {
-		writeError(w, http.StatusForbidden, "access denied")
-		return
+	sched := scheduler.Schedule{
+		Cron:  derefStr(body.Cron),
+		Every: derefStr(body.Every),
+		At:    derefStr(body.At),
 	}
-	userID := info.UserID
-
-	if s.schedulerSvc != nil {
-		sched := scheduler.Schedule{
-			Cron:  derefStr(body.Cron),
-			Every: derefStr(body.Every),
-			At:    derefStr(body.At),
-		}
-		job, err := s.schedulerSvc.AddJobWithOwner(*body.Name, *body.Message, sched, sessionMode, agentID, userID)
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-		writeData(w, http.StatusCreated, schedulerJobToAPI(job))
-		return
-	}
-
-	// Infer exec_scope from user_id when not explicitly set.
-	execScope := scheduler.ExecScopeSystem
-	if userID != "" {
-		execScope = scheduler.ExecScopeUser
-	}
-
-	id := generateShortID()
-	var enabled int64
-	if body.Enabled != nil && *body.Enabled {
-		enabled = 1
-	}
-
-	now := time.Now().UTC().Format(adminDBTimeLayout)
-	_, err := s.q.CreateSchedulerJob(r.Context(), sqlc.CreateSchedulerJobParams{
-		ID:            id,
-		OwnerKind:     scheduler.JobOwnerUser,
-		ExecScope:     execScope,
-		PluginID:      "",
-		JobKey:        "",
-		RuntimeName:   "",
-		Name:          *body.Name,
-		Description:   derefStr(body.Description),
-		ScheduleCron:  derefStr(body.Cron),
-		ScheduleEvery: derefStr(body.Every),
-		ScheduleAt:    derefStr(body.At),
-		Message:       *body.Message,
-		Payload:       "{}",
-		SessionMode:   sessionMode,
-		Enabled:       enabled,
-		AgentID:       sql.NullString{String: agentID, Valid: agentID != ""},
-		UserID:        sql.NullString{String: userID, Valid: userID != ""},
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		LastRunAt:     sql.NullString{},
-		LastError:     "",
-	})
+	job, err := s.schedulerSvc.AddJobWithOwner(*body.Name, *body.Message, sched, sessionMode, agentID, userID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
-
-	nowT := ptrTime(parseTime(now))
-	resp := apiserver.Job{
-		Id:          id,
-		OwnerKind:   ptrStr(scheduler.JobOwnerUser),
-		Name:        *body.Name,
-		Description: body.Description,
-		Cron:        body.Cron,
-		Every:       body.Every,
-		At:          body.At,
-		Message:     *body.Message,
-		SessionMode: sessionMode,
-		Enabled:     enabled != 0,
-		AgentId:     ptrStr(agentID),
-		UserId:      ptrStr(userID),
-		CreatedAt:   nowT,
-		UpdatedAt:   nowT,
-	}
-	writeData(w, http.StatusCreated, resp)
+	writeData(w, http.StatusCreated, s.schedulerJobToAPI(job))
 }
 
 func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
@@ -166,17 +180,21 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 		return
 	}
 
-	isGlobal := existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem
-	if !isGlobal && (!existing.AgentID.Valid || existing.AgentID.String != agentID) {
+	// Platform jobs return 404 uniformly to avoid existence probing.
+	if isSystemOrPlugin(existing.OwnerKind) {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
-	if !isGlobal && (info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID) {
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
 
-	writeData(w, http.StatusOK, dbRowToAPIJob(existing))
+	writeData(w, http.StatusOK, s.dbRowToAPIJob(existing))
 }
 
 func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
@@ -185,6 +203,10 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 	info := UserFromContext(r.Context())
+	if s.schedulerSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		return
+	}
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
@@ -192,15 +214,15 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	if existing.OwnerKind == scheduler.JobOwnerPlugin {
-		writeError(w, http.StatusForbidden, "plugin-owned jobs are read-only in admin")
+	// Platform jobs return 404 uniformly.
+	if isSystemOrPlugin(existing.OwnerKind) {
+		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
 	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
-
 	if info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
@@ -212,89 +234,39 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	// Merge: use existing values for nil/empty fields.
-	name := existing.Name
+	update := scheduler.JobUpdate{}
 	if body.Name != nil && *body.Name != "" {
-		name = *body.Name
+		update.Name = body.Name
 	}
-	message := existing.Message
 	if body.Message != nil && *body.Message != "" {
-		message = *body.Message
+		update.Message = body.Message
 	}
-	cron := existing.ScheduleCron
-	every := existing.ScheduleEvery
-	at := existing.ScheduleAt
 	if body.Cron != nil || body.Every != nil || body.At != nil {
-		cron = derefStr(body.Cron)
-		every = derefStr(body.Every)
-		at = derefStr(body.At)
-	}
-	sessionMode := existing.SessionMode
-	if body.SessionMode != nil && *body.SessionMode != "" {
-		sessionMode = *body.SessionMode
-	}
-
-	userID := info.UserID
-
-	var enabled int64
-	if body.Enabled != nil {
-		if *body.Enabled {
-			enabled = 1
+		sched := scheduler.Schedule{
+			Cron:  derefStr(body.Cron),
+			Every: derefStr(body.Every),
+			At:    derefStr(body.At),
 		}
-	} else {
-		enabled = existing.Enabled
+		update.Schedule = &sched
+	}
+	if body.SessionMode != nil && *body.SessionMode != "" {
+		update.SessionMode = body.SessionMode
+	}
+	if body.Enabled != nil {
+		update.Enabled = body.Enabled
 	}
 
-	now := time.Now().UTC().Format(adminDBTimeLayout)
-	err = s.q.UpdateSchedulerJob(r.Context(), sqlc.UpdateSchedulerJobParams{
-		ID:            jobID,
-		OwnerKind:     existing.OwnerKind,
-		ExecScope:     existing.ExecScope,
-		PluginID:      existing.PluginID,
-		JobKey:        existing.JobKey,
-		RuntimeName:   existing.RuntimeName,
-		Name:          name,
-		Description:   existing.Description,
-		ScheduleCron:  cron,
-		ScheduleEvery: every,
-		ScheduleAt:    at,
-		Message:       message,
-		Payload:       existing.Payload,
-		SessionMode:   sessionMode,
-		Enabled:       enabled,
-		AgentID:       sql.NullString{String: agentID, Valid: agentID != ""},
-		UserID:        sql.NullString{String: userID, Valid: userID != ""},
-		UpdatedAt:     now,
-		LastRunAt:     existing.LastRunAt,
-		LastError:     existing.LastError,
-	})
+	job, err := s.schedulerSvc.UpdateUserJob(r.Context(), jobID, update)
 	if err != nil {
-		s.writeInternalError(w, err)
+		switch {
+		case errors.Is(err, scheduler.ErrSubscriptionMessageReadOnly):
+			writeError(w, http.StatusBadRequest, "subscription job message is read-only; it is controlled by the template")
+		default:
+			s.writeInternalError(w, err)
+		}
 		return
 	}
-
-	resp := apiserver.Job{
-		Id:          jobID,
-		OwnerKind:   ptrStr(existing.OwnerKind),
-		PluginId:    ptrStr(existing.PluginID),
-		JobKey:      ptrStr(existing.JobKey),
-		RuntimeName: ptrStr(existing.RuntimeName),
-		Name:        name,
-		Description: ptrStr(existing.Description),
-		Cron:        ptrStr(cron),
-		Every:       ptrStr(every),
-		At:          ptrStr(at),
-		Message:     message,
-		SessionMode: sessionMode,
-		Enabled:     enabled != 0,
-		AgentId:     ptrStr(agentID),
-		UserId:      ptrStr(userID),
-		CreatedAt:   ptrTime(parseTime(existing.CreatedAt)),
-		UpdatedAt:   ptrTime(parseTime(now)),
-		LastRunAt:   parseTimePtr(existing.LastRunAt),
-		LastError:   ptrStr(existing.LastError),
-	}
-	writeData(w, http.StatusOK, resp)
+	writeData(w, http.StatusOK, s.schedulerJobToAPI(job))
 }
 
 func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
@@ -303,6 +275,10 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 	info := UserFromContext(r.Context())
+	if s.schedulerSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		return
+	}
 
 	existing, err := s.q.GetSchedulerJob(r.Context(), jobID)
 	if err != nil {
@@ -310,28 +286,22 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	if existing.OwnerKind == scheduler.JobOwnerPlugin {
-		writeError(w, http.StatusForbidden, "plugin-owned jobs are read-only in admin")
+	// Platform jobs return 404 uniformly.
+	if isSystemOrPlugin(existing.OwnerKind) {
+		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
 	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
-
 	if info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
 
-	var deleteErr error
-	if s.schedulerSvc != nil {
-		deleteErr = s.schedulerSvc.RemoveJob(jobID)
-	} else {
-		deleteErr = s.q.DeleteSchedulerJob(r.Context(), jobID)
-	}
-	if deleteErr != nil {
-		s.writeInternalError(w, deleteErr)
+	if err := s.schedulerSvc.RemoveJob(jobID); err != nil {
+		s.writeInternalError(w, err)
 		return
 	}
 	writeNoContent(w)
@@ -353,27 +323,24 @@ func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 
+	// Platform jobs return 404 uniformly.
+	if isSystemOrPlugin(existing.OwnerKind) {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
-	if existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem {
-		// System and plugin jobs are not owned by any user; only admins may
-		// trigger them manually.
-		if !info.IsAdmin {
-			writeError(w, http.StatusForbidden, "cannot manually trigger system or plugin jobs")
-			return
-		}
-	} else {
-		if !existing.AgentID.Valid || existing.AgentID.String != agentID {
-			writeError(w, http.StatusNotFound, "job not found")
-			return
-		}
-		if !existing.UserID.Valid || existing.UserID.String != info.UserID {
-			writeError(w, http.StatusForbidden, "access denied")
-			return
-		}
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if !existing.UserID.Valid || existing.UserID.String != info.UserID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
 	}
 
 	runID, err := s.schedulerSvc.RunJobNow(r.Context(), jobID)
@@ -398,13 +365,18 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		return
 	}
 
-	info := UserFromContext(r.Context())
-	isGlobal := existing.OwnerKind == scheduler.JobOwnerPlugin || existing.OwnerKind == scheduler.JobOwnerSystem
-	if !isGlobal && (!existing.AgentID.Valid || existing.AgentID.String != agentID) {
+	// Platform jobs return 404 uniformly.
+	if isSystemOrPlugin(existing.OwnerKind) {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
-	if !isGlobal && (info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID) {
+
+	info := UserFromContext(r.Context())
+	if !existing.AgentID.Valid || existing.AgentID.String != agentID {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if info == nil || !existing.UserID.Valid || existing.UserID.String != info.UserID {
 		writeError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -414,17 +386,9 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	// For global (plugin/system) jobs the caller only sees their own runs, so
-	// scope by user in SQL; for owned jobs access is already verified above and
-	// every run belongs to the owner. Filtering in the query keeps the limit+1
-	// page-size detection and next_page_token accurate.
-	var userFilter any
-	if isGlobal && info != nil {
-		userFilter = info.UserID
-	}
 	rows, err := s.q.ListSchedJobRuns(r.Context(), sqlc.ListSchedJobRunsParams{
 		JobID:  jobID,
-		UserID: userFilter,
+		UserID: nil,
 		Limit:  int64(limit + 1),
 		Offset: int64(offset),
 	})
@@ -437,9 +401,6 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	runs := make([]apitypes.JobRun, 0, len(page))
 	for _, row := range page {
 		j := dbRowToAPIJobRun(row)
-		// Resolve the run's conversation to confirm the session exists and to
-		// report which agent owns it — system jobs run under an agent that
-		// differs from the URL agent.
 		if j.SessionId != "" {
 			agent, err := s.q.GetConversationAgentBySessionID(r.Context(), sqlc.GetConversationAgentBySessionIDParams{
 				SessionID: j.SessionId,
@@ -463,7 +424,9 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 
 // --------------- converter functions ---------------
 
-func dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
+// dbRowToAPIJob converts a DB row to an API Job, resolving the template message
+// for subscription instances so the caller sees the actual prompt.
+func (s *Server) dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 	j := apiserver.Job{
 		Id:          row.ID,
 		OwnerKind:   ptrStr(row.OwnerKind),
@@ -475,12 +438,23 @@ func dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 		Cron:        ptrStr(row.ScheduleCron),
 		Every:       ptrStr(row.ScheduleEvery),
 		At:          ptrStr(row.ScheduleAt),
-		Message:     row.Message,
 		SessionMode: row.SessionMode,
 		Enabled:     row.Enabled != 0,
 		CreatedAt:   ptrTime(parseTime(row.CreatedAt)),
 		UpdatedAt:   ptrTime(parseTime(row.UpdatedAt)),
 		LastError:   ptrStr(row.LastError),
+	}
+	// For subscription instances: return the template-resolved message and
+	// surface template_key so the UI can display the badge and lock message.
+	if row.JobKey != "" && s.schedulerSvc != nil {
+		j.TemplateKey = ptrStr(row.JobKey)
+		if msg, ok := s.schedulerSvc.ResolveTemplateMessage(row.JobKey); ok {
+			j.Message = msg
+		} else {
+			j.Message = row.Message
+		}
+	} else {
+		j.Message = row.Message
 	}
 	if payload := decodeSchedulerPayload(row.Payload); len(payload) > 0 {
 		j.Payload = &payload
@@ -495,7 +469,7 @@ func dbRowToAPIJob(row sqlc.SchedJob) apiserver.Job {
 	return j
 }
 
-func schedulerJobToAPI(job scheduler.Job) apiserver.Job {
+func (s *Server) schedulerJobToAPI(job scheduler.Job) apiserver.Job {
 	j := apiserver.Job{
 		Id:          job.ID,
 		OwnerKind:   ptrStr(job.OwnerKind),
@@ -507,7 +481,6 @@ func schedulerJobToAPI(job scheduler.Job) apiserver.Job {
 		Cron:        ptrStr(job.Schedule.Cron),
 		Every:       ptrStr(job.Schedule.Every),
 		At:          ptrStr(job.Schedule.At),
-		Message:     job.Message,
 		SessionMode: job.SessionMode,
 		Enabled:     job.Enabled,
 		AgentId:     ptrStr(job.AgentID),
@@ -516,6 +489,17 @@ func schedulerJobToAPI(job scheduler.Job) apiserver.Job {
 		UpdatedAt:   ptrTime(job.UpdatedAt),
 		LastRunAt:   job.LastRunAt,
 		LastError:   ptrStr(job.LastError),
+	}
+	// Subscription instances: surface template key and resolved message.
+	if job.JobKey != "" {
+		j.TemplateKey = ptrStr(job.JobKey)
+		if s.schedulerSvc != nil {
+			if msg, ok := s.schedulerSvc.ResolveTemplateMessage(job.JobKey); ok {
+				j.Message = msg
+			}
+		}
+	} else {
+		j.Message = job.Message
 	}
 	if len(job.Payload) > 0 {
 		j.Payload = &job.Payload
@@ -609,4 +593,16 @@ func generateShortID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// templateDefaultSchedule returns a human-readable schedule string for the
+// template's default schedule. Cron is preferred, then Every, then At.
+func templateDefaultSchedule(s scheduler.Schedule) string {
+	if s.Cron != "" {
+		return s.Cron
+	}
+	if s.Every != "" {
+		return s.Every
+	}
+	return s.At
 }

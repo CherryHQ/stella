@@ -1,4 +1,24 @@
 paths:
+  /api/scheduler/job-templates:
+    get:
+      tags: [jobs]
+      summary: List available job templates with subscription status for the current user
+      operationId: listJobTemplates
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/JobTemplateList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
   /api/agents/{agentId}/scheduler/jobs:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }

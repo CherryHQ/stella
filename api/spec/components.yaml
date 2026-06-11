@@ -1896,6 +1896,9 @@ components:
           type: string
         runtime_name:
           type: string
+        template_key:
+          type: string
+          description: "Read-only. When set, this job is a subscription instance for the named template."
         name:
           type: string
         description:
@@ -1947,8 +1950,11 @@ components:
             $ref: "#/components/schemas/Job"
     JobInput:
       type: object
-      description: "Fields for creating or updating a job. For create: name, message, and exactly one of cron/every/at are required."
+      description: "Fields for creating or updating a job. For create: either template_key (subscription) or name+message with exactly one of cron/every/at are required."
       properties:
+        template_key:
+          type: string
+          description: "Optional. When set, create a subscription instance for this template. name/message are filled from the template; schedule fields may override defaults."
         name:
           type: string
         description:
@@ -2024,6 +2030,35 @@ components:
       properties:
         status:
           type: string
+    JobTemplate:
+      type: object
+      required: [key, name, description, default_schedule, session_mode]
+      properties:
+        key:
+          type: string
+          description: "Stable identifier used as job_key on subscription rows."
+        name:
+          type: string
+        description:
+          type: string
+        default_schedule:
+          type: string
+          description: "Default schedule expression (cron or every duration)."
+        session_mode:
+          type: string
+          description: "Default session behaviour: 'reuse' or 'new'."
+        subscribed_job_id:
+          type: string
+          nullable: true
+          description: "ID of the current user's active subscription instance, or null if not subscribed."
+    JobTemplateList:
+      type: object
+      required: [job_templates]
+      properties:
+        job_templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobTemplate"
     Session:
       type: object
       required: [
