@@ -58,6 +58,11 @@ type Service struct {
 	// dispatch reads the Handler off this map at fire time.
 	runtimeBuiltins map[string]BuiltinJob
 
+	// templates holds job template specs registered via RegisterTemplate.
+	// Subscription instances store the template key in job_key and resolve
+	// their prompt here at fire time.
+	templates map[string]JobTemplate
+
 	// started flips to true inside start(); RegisterBuiltin rejects further
 	// runtime registrations after that point to avoid persisted handler-mode
 	// jobs firing before their handler exists.
@@ -261,9 +266,9 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 	if err := validateSchedule(sched); err != nil {
 		return Job{}, err
 	}
-	// Reject non-system jobs whose name collides with a registered builtin.
-	// Otherwise the user's prompt would be silently dropped at dispatch time
-	// — the handler-mode router keys on Name alone.
+	// Reject non-system jobs whose name collides with a registered builtin or
+	// template. Otherwise the user's prompt would be silently dropped at
+	// dispatch time — the handler-mode router keys on Name alone.
 	if ownerKind != JobOwnerSystem && s.nameIsReservedBuiltin(name) {
 		return Job{}, fmt.Errorf("job name %q is reserved for a builtin", name)
 	}
@@ -294,20 +299,9 @@ func (s *Service) addJobInternal(name, message string, sched Schedule, sessionMo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.scheduleJob(s.ctx, job); err != nil {
-		return Job{}, fmt.Errorf("schedule job: %w", err)
+	if err := s.addJobLocked(job); err != nil {
+		return Job{}, err
 	}
-
-	if err := s.insertJob(s.ctx, job); err != nil {
-		// Roll back: remove from gocron.
-		if gid, ok := s.gids[job.ID]; ok {
-			_ = s.scheduler.RemoveJob(gid)
-			delete(s.gids, job.ID)
-		}
-		return Job{}, fmt.Errorf("persist job: %w", err)
-	}
-
-	s.jobs[job.ID] = job
 
 	s.log.Info("job added", "id", job.ID, "name", name, "exec_scope", execScope, "agent_id", agentID, "user_id", userID)
 	return job, nil
@@ -561,6 +555,8 @@ func (s *Service) executeJobForAllUsers(ctx context.Context, job Job, isOneTime 
 }
 
 // executeSingleRun runs one job execution for the given userID (empty = system context).
+// Uses tryStartJobRun to guard against re-entrant runs: if a run for this job
+// is still active (e.g. previous cron tick overran), this tick is skipped.
 func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, isOneTime bool) {
 	var sessionID string
 	if userID != "" {
@@ -572,8 +568,15 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	runID := uuid.New().String()[:8]
 	startedAt := time.Now().UTC()
 
-	if err := s.createJobRun(ctx, runID, job.ID, sessionID, userID, startedAt); err != nil {
+	// Atomically check for an existing active run. Skip this tick rather than
+	// stacking a second execution on top of one that has not finished yet.
+	if err := s.tryStartJobRun(ctx, runID, job.ID, sessionID, userID, startedAt); err != nil {
+		if errors.Is(err, errJobAlreadyRunning) {
+			s.log.Info("skipping scheduled fire: previous run still active", "job_id", job.ID, "name", job.Name)
+			return
+		}
 		s.log.Warn("failed to create job run record", "job_id", job.ID, "error", err)
+		return
 	}
 
 	outputSink := &RunOutputSink{}
@@ -740,6 +743,21 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	fn := s.onJob
 	listeners := append([]OnJobFunc(nil), s.listeners...)
 	s.mu.Unlock()
+
+	// Subscription instances carry an empty message; resolve from the template
+	// registry at fire time so prompt improvements propagate automatically.
+	if job.OwnerKind == JobOwnerUser && job.JobKey != "" {
+		msg, ok := s.ResolveTemplateMessage(job.JobKey)
+		if !ok {
+			// Template was removed from the binary after the subscription was
+			// created. Record a visible error run instead of panicking or
+			// silently dropping the execution.
+			err := fmt.Errorf("scheduler: template %q not found for subscription job %q", job.JobKey, job.ID)
+			s.log.Error("dropping subscription run: template missing", "job_id", job.ID, "template_key", job.JobKey)
+			return err
+		}
+		job.Message = msg
+	}
 
 	var runErr error
 	switch {

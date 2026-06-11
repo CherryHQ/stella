@@ -234,18 +234,6 @@ func nullableTime(t *time.Time) sql.NullString {
 	return sql.NullString{String: t.UTC().Format(dbTimeLayout), Valid: true}
 }
 
-func (s *Service) createJobRun(ctx context.Context, id, jobID, sessionID string, userID string, startedAt time.Time) error {
-	_, err := s.q.CreateSchedJobRun(ctx, sqlc.CreateSchedJobRunParams{
-		ID:        id,
-		JobID:     jobID,
-		SessionID: sessionID,
-		Status:    RunStatusRunning,
-		StartedAt: startedAt.UTC().Format(dbTimeLayout),
-		UserID:    sql.NullString{String: userID, Valid: userID != ""},
-	})
-	return err
-}
-
 // tryStartJobRun atomically checks that no run is already in progress for the
 // job and creates the initial "running" record in a single transaction.
 // SQLite serializes writes, so Begin + check + insert is effectively atomic.

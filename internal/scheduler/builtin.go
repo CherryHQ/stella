@@ -35,6 +35,11 @@ type BuiltinJob struct {
 // (*Service).Start — handler-mode dispatch is keyed on Name, so persisted
 // jobs loaded by Start can only be routed correctly if the handler is
 // already registered.
+//
+// Mutual exclusion with templates: RegisterBuiltin rejects any name that
+// already appears as a template key or name, and RegisterTemplate likewise
+// rejects the reverse. Whichever registers second for a conflicting
+// key/name errors.
 func (s *Service) RegisterBuiltin(job BuiltinJob) error {
 	if err := validateBuiltin(job); err != nil {
 		return err
@@ -52,6 +57,12 @@ func (s *Service) RegisterBuiltin(job BuiltinJob) error {
 	}
 	if _, dup := s.runtimeBuiltins[job.Name]; dup {
 		return fmt.Errorf("scheduler: builtin %q already registered", job.Name)
+	}
+	// Reject if a template with the same key or name was registered first.
+	for _, t := range s.templates {
+		if t.Key == job.Name || t.Name == job.Name {
+			return fmt.Errorf("scheduler: builtin name %q conflicts with a registered template", job.Name)
+		}
 	}
 	s.runtimeBuiltins[job.Name] = job
 	return nil
@@ -88,11 +99,10 @@ func (s *Service) EnsureBuiltinJobs() {
 }
 
 // nameIsReservedBuiltin reports whether name matches any registered runtime
-// builtin. Used to reject user- or plugin-owned jobs that would otherwise
-// hijack a builtin's handler dispatch.
+// builtin or template. Used to reject user- or plugin-owned jobs that would
+// otherwise hijack a builtin's handler dispatch or collide with a template name.
 func (s *Service) nameIsReservedBuiltin(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.runtimeBuiltins[name]
-	return ok
+	return s.reservedName(name)
 }
