@@ -112,12 +112,48 @@ type SummarizeOptions struct {
 	TargetTokens int
 }
 
+// NeutralizeTags prevents user-derived text from opening or closing structural
+// prompt tags while keeping the text readable for the model.
+func NeutralizeTags(s string, tags ...string) string {
+	if s == "" || len(tags) == 0 {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	last := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] != '<' || !startsStructuralTag(s[i+1:], tags) {
+			continue
+		}
+		b.WriteString(s[last:i])
+		b.WriteString(`<\`)
+		last = i + 1
+	}
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+func startsStructuralTag(s string, tags []string) bool {
+	s = strings.TrimPrefix(s, "/")
+	for _, tag := range tags {
+		if len(s) >= len(tag) && strings.EqualFold(s[:len(tag)], tag) {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildPrompt constructs the appropriate summarization prompt.
 func BuildPrompt(text string, opts SummarizeOptions) string {
-	previous := opts.Previous
+	previous := NeutralizeTags(opts.Previous, "conversation_segment", "previous_context")
 	if previous == "" {
 		previous = "(none)"
 	}
+	text = NeutralizeTags(text, "conversation_segment", "previous_context")
 	target := opts.TargetTokens
 	if target <= 0 {
 		target = EstimateTokens(text) / 3
