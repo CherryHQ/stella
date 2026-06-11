@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	olderResolveBatchSize = 32
-	maxFreshTailItems     = 120
-	tailTokenCapFraction  = 0.4
+	maxFreshTailItems    = 120
+	tailTokenCapFraction = 0.4
 )
 
 // assembler builds context for the model within a token budget.
@@ -35,9 +34,9 @@ func newAssembler(q *sqlc.Queries, log *slog.Logger) *assembler {
 // It protects the freshTail most recent user turns from being excluded, subject to a tail token cap.
 // Returns ai.Messages for direct use by the runner pipeline.
 func (a *assembler) assemble(ctx context.Context, convID string, budget int, freshTail int) ([]ai.Message, error) {
-	items, err := a.q.GetContextItems(ctx, convID)
+	items, messages, summaries, parents, err := a.loadContextWindow(ctx, convID)
 	if err != nil {
-		return nil, fmt.Errorf("get context items: %w", err)
+		return nil, err
 	}
 	if len(items) == 0 {
 		return nil, nil
@@ -47,18 +46,10 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 	splitIdx := splitFreshTailIndex(items, freshTail)
 	tail := items[splitIdx:]
 	older := items[:splitIdx]
-	tailMessages, err := a.loadMessagesByItem(ctx, tail)
-	if err != nil {
-		return nil, err
-	}
-	tailSummaries, tailParents, err := a.loadSummariesByItem(ctx, tail)
-	if err != nil {
-		return nil, err
-	}
 
 	// Resolve fresh tail — these are always included unless the token cap pushes
 	// whole oldest turns back into older budget competition below.
-	tailMsgs, tailTokens, compacted, err := resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
+	tailMsgs, tailTokens, compacted, err := resolveTailFromCaches(tail, messages, summaries, parents)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
@@ -72,7 +63,7 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 		splitIdx = nextSplitIdx
 		tail = items[splitIdx:]
 		older = items[:splitIdx]
-		tailMsgs, tailTokens, compacted, err = resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
+		tailMsgs, tailTokens, compacted, err = resolveTailFromCaches(tail, messages, summaries, parents)
 		if err != nil {
 			return nil, fmt.Errorf("resolve tail: %w", err)
 		}
@@ -103,7 +94,7 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 	remaining := max(budget-tailTokens, 0)
 
 	// Select older items that fit within remaining budget, newest first.
-	olderMsgs, err := a.resolveOlderWithinBudget(ctx, older, remaining)
+	olderMsgs, err := resolveOlderWithinBudget(older, messages, summaries, parents, remaining)
 	if err != nil {
 		return nil, err
 	}
@@ -266,37 +257,24 @@ func advancePastOldestTurn(items []sqlc.CtxItem, splitIdx int) (int, bool) {
 	return splitIdx, false
 }
 
-func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.CtxItem, remaining int) ([]ai.Message, error) {
+func resolveOlderWithinBudget(older []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary, remaining int) ([]ai.Message, error) {
 	var olderMsgs []ai.Message
-	for end := len(older); end > 0; {
-		start := max(end-olderResolveBatchSize, 0)
-		batch := older[start:end]
-		messages, err := a.loadMessagesByItem(ctx, batch)
+	for i := len(older) - 1; i >= 0; i-- {
+		item := older[i]
+		msgs, err := resolveItemsFromCaches(older[i:i+1], messages, summaries, parents)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
 		}
-		summaries, parents, err := a.loadSummariesByItem(ctx, batch)
-		if err != nil {
-			return nil, err
+		tokens := 0
+		for _, m := range msgs {
+			tokens += estimateMessageTokens(m)
 		}
-		for i := len(batch) - 1; i >= 0; i-- {
-			item := batch[i]
-			msgs, err := resolveItemsFromCaches(batch[i:i+1], messages, summaries, parents)
-			if err != nil {
-				return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
-			}
-			tokens := 0
-			for _, m := range msgs {
-				tokens += estimateMessageTokens(m)
-			}
-			if tokens > remaining {
-				olderMsgs = stripTrailingOrphanResults(olderMsgs)
-				return olderMsgs, nil
-			}
-			remaining -= tokens
-			olderMsgs = append(olderMsgs, msgs...)
+		if tokens > remaining {
+			olderMsgs = stripTrailingOrphanResults(olderMsgs)
+			return olderMsgs, nil
 		}
-		end = start
+		remaining -= tokens
+		olderMsgs = append(olderMsgs, msgs...)
 	}
 	return olderMsgs, nil
 }
@@ -374,67 +352,79 @@ func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMe
 	return result, nil
 }
 
-func (a *assembler) loadMessagesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxMessage, error) {
-	idsByConversation := make(map[string][]string)
-	seen := make(map[string]struct{})
-	for _, item := range items {
-		if item.ItemType != itemTypeMessage || !item.MessageID.Valid {
-			continue
-		}
-		key := item.ConversationID + "\x00" + item.MessageID.String
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		idsByConversation[item.ConversationID] = append(idsByConversation[item.ConversationID], item.MessageID.String)
+func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sqlc.CtxItem, map[string]sqlc.CtxMessage, map[string]sqlc.CtxSummary, map[string][]sqlc.CtxSummary, error) {
+	rows, err := a.q.ListContextItemsPage(ctx, sqlc.ListContextItemsPageParams{
+		ConversationID: convID,
+		OffsetCount:    0,
+		LimitCount:     -1,
+	})
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("list context items page: %w", err)
 	}
-	out := make(map[string]sqlc.CtxMessage)
-	for convID, ids := range idsByConversation {
-		rows, err := a.q.ListMessagesByIDs(ctx, sqlc.ListMessagesByIDsParams{ConversationID: convID, MessageIds: ids})
-		if err != nil {
-			return nil, fmt.Errorf("list messages: %w", err)
-		}
-		for _, row := range rows {
-			out[row.ID] = row
-		}
-	}
-	return out, nil
-}
 
-func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxSummary, map[string][]sqlc.CtxSummary, error) {
-	idsByConversation := make(map[string][]string)
-	seen := make(map[string]struct{})
-	for _, item := range items {
-		if item.ItemType != itemTypeSummary || !item.SummaryID.Valid {
-			continue
+	items := make([]sqlc.CtxItem, 0, len(rows))
+	messages := make(map[string]sqlc.CtxMessage)
+	summaries := make(map[string]sqlc.CtxSummary)
+	summaryIDs := make([]string, 0)
+	seenSummaryIDs := make(map[string]struct{})
+	for _, row := range rows {
+		item := sqlc.CtxItem{
+			ConversationID: convID,
+			Ordinal:        row.Ordinal,
+			ItemType:       row.ItemType,
+			MessageID:      row.MessageID,
+			SummaryID:      row.SummaryID,
+			EventType:      row.EventType,
+			Role:           row.Role,
 		}
-		key := item.ConversationID + "\x00" + item.SummaryID.String
-		if _, ok := seen[key]; ok {
-			continue
+		items = append(items, item)
+
+		if item.ItemType == itemTypeMessage && row.MessageID.Valid {
+			messages[row.MessageID.String] = sqlc.CtxMessage{
+				ID:             row.MessageID.String,
+				ConversationID: convID,
+				Seq:            row.MessageSeq.Int64,
+				Role:           row.MessageRole.String,
+				EventType:      row.MessageEventType.String,
+				Content:        row.MessageContent.String,
+				TokenCount:     row.MessageTokenCount.Int64,
+				CreatedAt:      row.MessageCreatedAt.String,
+			}
 		}
-		seen[key] = struct{}{}
-		idsByConversation[item.ConversationID] = append(idsByConversation[item.ConversationID], item.SummaryID.String)
+		if item.ItemType == itemTypeSummary && row.SummaryID.Valid {
+			id := row.SummaryID.String
+			summaries[id] = sqlc.CtxSummary{
+				ID:                      id,
+				ConversationID:          convID,
+				Kind:                    row.SummaryKind.String,
+				Depth:                   row.SummaryDepth.Int64,
+				Content:                 row.SummaryContent.String,
+				TokenCount:              row.SummaryTokenCount.Int64,
+				EarliestAt:              row.SummaryEarliestAt,
+				LatestAt:                row.SummaryLatestAt,
+				DescendantCount:         row.SummaryDescendantCount.Int64,
+				DescendantTokenCount:    row.SummaryDescendantTokenCount.Int64,
+				SourceMessageTokenCount: row.SummarySourceMessageTokenCount.Int64,
+				CreatedAt:               row.SummaryCreatedAt.String,
+			}
+			if _, ok := seenSummaryIDs[id]; !ok {
+				seenSummaryIDs[id] = struct{}{}
+				summaryIDs = append(summaryIDs, id)
+			}
+		}
 	}
-	out := make(map[string]sqlc.CtxSummary)
+
 	parents := make(map[string][]sqlc.CtxSummary)
-	for convID, ids := range idsByConversation {
-		rows, err := a.q.ListSummariesByIDs(ctx, sqlc.ListSummariesByIDsParams{ConversationID: convID, SummaryIds: ids})
+	if len(summaryIDs) > 0 {
+		parentRefs, err := a.q.ListSummaryParentsBySummaryIDs(ctx, summaryIDs)
 		if err != nil {
-			return nil, nil, fmt.Errorf("list summaries: %w", err)
-		}
-		for _, row := range rows {
-			out[row.ID] = row
-		}
-
-		parentRefs, err := a.q.ListSummaryParentsBySummaryIDs(ctx, ids)
-		if err != nil {
-			return nil, nil, fmt.Errorf("list summary parents: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("list summary parents: %w", err)
 		}
 		for _, ref := range parentRefs {
 			parents[ref.SummaryID] = append(parents[ref.SummaryID], sqlc.CtxSummary{ID: ref.ParentSummaryID})
 		}
 	}
-	return out, parents, nil
+	return items, messages, summaries, parents, nil
 }
 
 // sanitizeToolPairs is a defense-in-depth pass that enforces the tool pairing

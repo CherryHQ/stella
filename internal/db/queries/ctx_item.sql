@@ -12,6 +12,7 @@ SELECT
   ci.ordinal,
   ci.item_type,
   ci.event_type,
+  ci.role,
   m.id AS message_id,
   m.seq AS message_seq,
   m.role AS message_role,
