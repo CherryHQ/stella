@@ -183,8 +183,6 @@ func normalizeExecScope(scope string) string {
 	switch scope {
 	case ExecScopeSystem:
 		return ExecScopeSystem
-	case ExecScopeAllUsers:
-		return ExecScopeAllUsers
 	case ExecScopeUser:
 		return ExecScopeUser
 	default:

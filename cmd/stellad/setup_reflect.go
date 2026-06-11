@@ -32,10 +32,9 @@ func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config) error {
 		return fmt.Errorf("build reflect handler: %w", err)
 	}
 	if err := svc.RegisterBuiltin(scheduler.BuiltinJob{
-		Name:      reflect.BuiltinJobName,
-		Schedule:  scheduler.Schedule{Every: every.String()},
-		ExecScope: scheduler.ExecScopeSystem,
-		Handler:   handler,
+		Name:     reflect.BuiltinJobName,
+		Schedule: scheduler.Schedule{Every: every.String()},
+		Handler:  handler,
 	}); err != nil {
 		return fmt.Errorf("register reflect builtin: %w", err)
 	}

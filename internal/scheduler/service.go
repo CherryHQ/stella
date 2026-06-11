@@ -32,10 +32,6 @@ type OnJobFunc func(ctx context.Context, job Job) error
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
-// ListActiveUsersFunc returns the IDs of all currently active users.
-// Used by the scheduler to fan out ExecScopeAllUsers jobs.
-type ListActiveUsersFunc func(ctx context.Context) ([]string, error)
-
 // Service manages scheduled jobs backed by gocron/v2 with database persistence.
 type Service struct {
 	scheduler       gocron.Scheduler
@@ -50,7 +46,6 @@ type Service struct {
 	gids            map[string]uuid.UUID // job ID -> gocron job UUID
 	log             *slog.Logger
 	userJobsEnabled bool
-	listActiveUsers ListActiveUsersFunc
 
 	// Runtime-registered builtin specs, keyed by Name. Populated via
 	// (*Service).RegisterBuiltin and distinct from the package-global
@@ -108,19 +103,11 @@ func NewFromPath(dbPath string) (*Service, error) {
 	return svc, nil
 }
 
-// SetUserJobsEnabled controls whether persisted user-owned and all_users scheduler jobs are loaded.
+// SetUserJobsEnabled controls whether persisted user-owned scheduler jobs are loaded.
 func (s *Service) SetUserJobsEnabled(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.userJobsEnabled = enabled
-}
-
-// SetListActiveUsersFunc registers the function used to enumerate active users
-// when fanning out ExecScopeAllUsers jobs.
-func (s *Service) SetListActiveUsersFunc(fn ListActiveUsersFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.listActiveUsers = fn
 }
 
 // SetOnJob sets the primary callback invoked when a job fires.
@@ -167,7 +154,7 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	if loadPersisted {
 		for _, j := range jobs {
 			s.jobs[j.ID] = j
-			// Skip user-scoped and all_users jobs when user jobs are disabled.
+			// Skip user-scoped jobs when user jobs are disabled.
 			if !s.userJobsEnabled && j.ExecScope != ExecScopeSystem {
 				continue
 			}
@@ -506,7 +493,7 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 	captured := job
 	isOneTime := job.Schedule.At != ""
 	gj, err := s.scheduler.NewJob(jobDef, gocron.NewTask(func() {
-		s.executeJob(ctx, captured, isOneTime)
+		s.executeSingleRun(ctx, captured, captured.UserID, isOneTime)
 	}))
 	if err != nil {
 		return err
@@ -514,44 +501,6 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 
 	s.gids[job.ID] = gj.ID()
 	return nil
-}
-
-// executeJob dispatches on ExecScope and runs the job with run tracking.
-func (s *Service) executeJob(ctx context.Context, job Job, isOneTime bool) {
-	if job.ExecScope == ExecScopeAllUsers {
-		s.executeJobForAllUsers(ctx, job, isOneTime)
-		return
-	}
-	s.executeSingleRun(ctx, job, job.UserID, isOneTime)
-}
-
-// executeJobForAllUsers fans out a job to every active user.
-// Sub-runs execute sequentially so that removeOneTimeJob fires only after all
-// users have finished. Caller is typically a goroutine, so long fan-outs don't
-// block the scheduler.
-func (s *Service) executeJobForAllUsers(ctx context.Context, job Job, isOneTime bool) {
-	s.mu.Lock()
-	fn := s.listActiveUsers
-	s.mu.Unlock()
-
-	if fn == nil {
-		s.log.Warn("all_users job has no listActiveUsers configured, skipping", "job_id", job.ID)
-		return
-	}
-
-	userIDs, err := fn(ctx)
-	if err != nil {
-		s.log.Warn("failed to list active users for all_users job", "job_id", job.ID, "error", err)
-		return
-	}
-
-	for _, uid := range userIDs {
-		s.executeSingleRun(ctx, job, uid, false)
-	}
-
-	if isOneTime {
-		go s.removeOneTimeJob(job.ID)
-	}
 }
 
 // executeSingleRun runs one job execution for the given userID (empty = system context).
@@ -623,8 +572,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 }
 
 // RunJobNow triggers an immediate execution of the given job asynchronously.
-// For ExecScopeAllUsers jobs all user sub-runs are launched; no run ID is returned.
-// For other scopes, returns the run ID of the newly created run record.
+// Returns the run ID of the newly created run record.
 // Returns errJobAlreadyRunning (wrapped) if a run is already active for the job.
 func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	s.mu.Lock()
@@ -634,11 +582,6 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	if !ok {
 		return "", fmt.Errorf("job %q not found", jobID)
-	}
-
-	if job.ExecScope == ExecScopeAllUsers {
-		go s.executeJobForAllUsers(svcCtx, job, false)
-		return "", nil
 	}
 
 	sessionID := job.SessionID()

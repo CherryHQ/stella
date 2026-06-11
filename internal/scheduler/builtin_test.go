@@ -5,35 +5,39 @@ import (
 	"testing"
 )
 
-func TestRecallyRSSBuiltinSpec(t *testing.T) {
-	if RecallyRSSBuiltin.Schedule.Every != "6h" {
-		t.Errorf("Schedule.Every = %q, want %q", RecallyRSSBuiltin.Schedule.Every, "6h")
+func TestRecallyRSSTemplateSpec(t *testing.T) {
+	if RecallyRSSTemplate.DefaultSchedule.Every != "6h" {
+		t.Errorf("DefaultSchedule.Every = %q, want %q", RecallyRSSTemplate.DefaultSchedule.Every, "6h")
 	}
-	if RecallyRSSBuiltin.SessionMode != SessionNew {
-		t.Errorf("SessionMode = %q, want %q", RecallyRSSBuiltin.SessionMode, SessionNew)
+	if RecallyRSSTemplate.SessionMode != SessionNew {
+		t.Errorf("SessionMode = %q, want %q", RecallyRSSTemplate.SessionMode, SessionNew)
 	}
-	if RecallyRSSBuiltin.ExecScope != ExecScopeAllUsers {
-		t.Errorf("ExecScope = %q, want %q", RecallyRSSBuiltin.ExecScope, ExecScopeAllUsers)
+	if RecallyRSSTemplate.Key != "recally-rss" {
+		t.Errorf("Key = %q, want %q", RecallyRSSTemplate.Key, "recally-rss")
 	}
 }
 
-func TestRecallyDigestBuiltinSpec(t *testing.T) {
-	if RecallyDigestBuiltin.Schedule.Every != "24h" {
-		t.Errorf("Schedule.Every = %q, want %q", RecallyDigestBuiltin.Schedule.Every, "24h")
+func TestRecallyDigestTemplateSpec(t *testing.T) {
+	if RecallyDigestTemplate.DefaultSchedule.Every != "24h" {
+		t.Errorf("DefaultSchedule.Every = %q, want %q", RecallyDigestTemplate.DefaultSchedule.Every, "24h")
 	}
-	if RecallyDigestBuiltin.SessionMode != SessionNew {
-		t.Errorf("SessionMode = %q, want %q", RecallyDigestBuiltin.SessionMode, SessionNew)
+	if RecallyDigestTemplate.SessionMode != SessionNew {
+		t.Errorf("SessionMode = %q, want %q", RecallyDigestTemplate.SessionMode, SessionNew)
 	}
-	if RecallyDigestBuiltin.ExecScope != ExecScopeAllUsers {
-		t.Errorf("ExecScope = %q, want %q", RecallyDigestBuiltin.ExecScope, ExecScopeAllUsers)
+	if RecallyDigestTemplate.Key != "recally-digest" {
+		t.Errorf("Key = %q, want %q", RecallyDigestTemplate.Key, "recally-digest")
 	}
 }
 
 func TestEnsureBuiltinJobs(t *testing.T) {
 	db := testDB(t)
 	svc := newTestService(t, db)
-	if err := svc.RegisterBuiltin(RecallyRSSBuiltin); err != nil {
-		t.Fatalf("RegisterBuiltin(RecallyRSS): %v", err)
+	if err := svc.RegisterBuiltin(BuiltinJob{
+		Name:     "test-handler",
+		Schedule: Schedule{Every: "1h"},
+		Handler:  func(_ context.Context, _ Job) error { return nil },
+	}); err != nil {
+		t.Fatalf("RegisterBuiltin: %v", err)
 	}
 	if err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -44,29 +48,95 @@ func TestEnsureBuiltinJobs(t *testing.T) {
 
 	found := false
 	for _, j := range svc.ListJobs() {
-		if j.Name == "recally-rss" {
+		if j.Name == "test-handler" {
 			found = true
-			if j.ExecScope != ExecScopeAllUsers {
-				t.Errorf("recally-rss ExecScope = %q, want %q", j.ExecScope, ExecScopeAllUsers)
-			}
-			if j.UserID != "" {
-				t.Errorf("recally-rss should have no UserID, got %q", j.UserID)
+			if j.OwnerKind != JobOwnerSystem {
+				t.Errorf("test-handler OwnerKind = %q, want %q", j.OwnerKind, JobOwnerSystem)
 			}
 		}
 	}
 	if !found {
-		t.Error("EnsureBuiltinJobs did not create recally-rss job")
+		t.Error("EnsureBuiltinJobs did not create test-handler job")
 	}
 
 	// Idempotent: second call does not duplicate.
 	svc.EnsureBuiltinJobs()
 	count := 0
 	for _, j := range svc.ListJobs() {
-		if j.Name == "recally-rss" {
+		if j.Name == "test-handler" {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("expected 1 recally-rss job after two EnsureBuiltinJobs calls, got %d", count)
+		t.Errorf("expected 1 test-handler job after two EnsureBuiltinJobs calls, got %d", count)
+	}
+}
+
+// TestEnsureBuiltinJobs_RetirementIdempotency inserts fake legacy system rows
+// (recally-rss and recally-digest) and their run history, then calls
+// EnsureBuiltinJobs twice. After the first call the rows must be gone; the
+// second call must be a no-op (no error, still gone).
+func TestEnsureBuiltinJobs_RetirementIdempotency(t *testing.T) {
+	db := testDB(t)
+	svc := newTestService(t, db)
+
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = svc.Stop() })
+
+	// Manually insert legacy system rows to simulate a pre-upgrade DB.
+	legacyJobs := []Job{
+		{
+			ID:          "legacy01",
+			OwnerKind:   JobOwnerSystem,
+			ExecScope:   ExecScopeSystem,
+			Name:        "recally-rss",
+			Message:     "poll rss feeds",
+			Schedule:    Schedule{Every: "6h"},
+			SessionMode: SessionNew,
+			Enabled:     true,
+		},
+		{
+			ID:          "legacy02",
+			OwnerKind:   JobOwnerSystem,
+			ExecScope:   ExecScopeSystem,
+			Name:        "recally-digest",
+			Message:     "generate digest",
+			Schedule:    Schedule{Every: "24h"},
+			SessionMode: SessionNew,
+			Enabled:     true,
+		},
+	}
+	for _, j := range legacyJobs {
+		if err := svc.insertJob(context.Background(), j); err != nil {
+			t.Fatalf("insertJob(%q): %v", j.Name, err)
+		}
+		// Also inject into the in-memory map so EnsureBuiltinJobs can see them.
+		svc.mu.Lock()
+		svc.jobs[j.ID] = j
+		svc.mu.Unlock()
+	}
+
+	// First call: rows should be retired.
+	svc.EnsureBuiltinJobs()
+
+	for _, j := range legacyJobs {
+		for _, live := range svc.ListJobs() {
+			if live.ID == j.ID {
+				t.Errorf("legacy job %q (%s) still present after first EnsureBuiltinJobs", j.Name, j.ID)
+			}
+		}
+	}
+
+	// Second call: must be a no-op (no rows to retire, no error).
+	svc.EnsureBuiltinJobs()
+
+	for _, j := range legacyJobs {
+		for _, live := range svc.ListJobs() {
+			if live.ID == j.ID {
+				t.Errorf("legacy job %q (%s) reappeared after second EnsureBuiltinJobs", j.Name, j.ID)
+			}
+		}
 	}
 }
