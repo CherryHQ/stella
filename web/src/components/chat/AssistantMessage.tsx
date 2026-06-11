@@ -147,7 +147,12 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
 
 function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolean }) {
   const { t } = useI18n();
-  const hasRunning = active || blocks.some((b) => b.type === "tool_call" && !b.result);
+  // Drive running state purely from the parent-supplied `active` flag (which
+  // already encodes `streaming && !hasFinalOutputAfter`). Do NOT fall back to
+  // "any tool_call without a result" — paginated history can land in the middle
+  // of a turn (assistant tool_call without its tool result row), and that
+  // fallback would start a Thinking-for-Xs… timer that never stops.
+  const hasRunning = active;
   const [expanded, setExpanded] = useState(hasRunning);
   const wasRunningRef = useRef(hasRunning);
 
