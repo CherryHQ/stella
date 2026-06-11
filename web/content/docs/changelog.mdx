@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-06-11
+
+### ✨ Features
+
+- Web: export session conversations as JSONL or Markdown. ([#374](https://github.com/CherryHQ/stella/pull/374))
+
+### 🐛 Bug Fixes
+
+- Web: fix duplicate chat transcript entries on scroll, remove the fake worked-for timer, and auto-collapse thinking blocks. ([#373](https://github.com/CherryHQ/stella/pull/373))
+
+**Full Changelog**: [v0.45.0...v0.45.1](https://github.com/CherryHQ/stella/compare/v0.45.0...v0.45.1)
+
+## [0.45.0] - 2026-06-11
+
+### ✨ Features
+
+- Add configurable agent thinking levels. ([#344](https://github.com/CherryHQ/stella/pull/344))
+- Plugins: simplify CLI tool management. ([#347](https://github.com/CherryHQ/stella/pull/347))
+
+### 🐛 Bug Fixes
+
+- LCM: prevent compaction from splitting `tool_call` / `tool_result` pairs. ([#342](https://github.com/CherryHQ/stella/pull/342))
+- Chat: keep intermediate steps visible until the final output arrives.
+- Feishu: clarify notify target IDs.
+
+### ♻️ Refactoring
+
+- Web: move UI colors to theme tokens and keep coss registry components unchanged. ([#349](https://github.com/CherryHQ/stella/pull/349))
+- Web: split the swappable theme layer from the invariant design system.
+- Web: derive agent avatar colors from chart tokens.
+- Changelog: avoid ambiguous array allocation.
+
+### 📝 Documentation
+
+- Web: split UI development rules out of `AGENTS.md`.
+
+**Full Changelog**: [v0.44.3...v0.45.0](https://github.com/CherryHQ/stella/compare/v0.44.3...v0.45.0)
+
 ## [0.44.3] - 2026-06-09
 
 ### 🐛 Bug Fixes

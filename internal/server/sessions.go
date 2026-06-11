@@ -1514,6 +1514,7 @@ func serializeDBMessages(rows []sqlc.CtxMessage) []map[string]any {
 
 func serializeUserRow(row sqlc.CtxMessage) map[string]any {
 	return map[string]any{
+		"id":          row.ID,
 		"role":        "user",
 		"timestamp":   row.CreatedAt,
 		"content":     row.Content,
@@ -1546,6 +1547,9 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 	}
 
 	return map[string]any{
+		// First row's id identifies the merged turn — stable across pagination
+		// regardless of how many earlier pages have been loaded.
+		"id":          rows[start].ID,
 		"role":        "assistant",
 		"blocks":      blocks,
 		"timestamp":   rows[start].CreatedAt,
@@ -1569,6 +1573,7 @@ func decodeToolCallBlock(content string) map[string]any {
 
 func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m := map[string]any{
+		"id":          row.ID,
 		"role":        "tool",
 		"timestamp":   row.CreatedAt,
 		"token_count": row.TokenCount,

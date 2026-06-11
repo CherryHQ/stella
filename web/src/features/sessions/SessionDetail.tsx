@@ -2,16 +2,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertCircle, MessageCircleDashed, PanelRightClose, PanelRightOpen } from "lucide-react";
+import {
+  AlertCircle,
+  Download,
+  MessageCircleDashed,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
-import { agentSkillsOptions } from "@/lib/queries/agents";
+import { agentSkillsOptions, agentsQueryOptions } from "@/lib/queries/agents";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
+import { fetchAllSessionMessages } from "@/lib/paginated";
 import type { Message, Session } from "@/lib/types";
 import { ChatPane } from "@/components/chat/ChatPane";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
+import {
+  downloadTextFile,
+  exportFileName,
+  messagesToJSONL,
+  messagesToMarkdown,
+} from "./exportSession";
 import {
   createSessionTransport,
   mergeToolResults,
@@ -52,6 +72,10 @@ export function SessionDetail({
   const { t } = useI18n();
   const navigate = useNavigate();
   const [userInput, setUserInput] = useState("");
+  const { toasts, showToast } = useToast();
+  const [exporting, setExporting] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const { data: agentsList = [] } = useQuery(agentsQueryOptions);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sessionIDRef = useRef<string | null>(null);
@@ -270,6 +294,45 @@ export function SessionDetail({
     ],
   );
 
+  const exportSessionAs = useCallback(
+    async (format: "jsonl" | "md") => {
+      if (!session || exporting || isStreaming) return;
+      setExporting(true);
+      try {
+        const exportedAt = new Date().toISOString();
+        const all = await fetchAllSessionMessages(session.agent_id, session.id, {
+          before: exportedAt,
+        });
+        if (all.length === 0) {
+          showToast(t("sessions.export.empty"), "error");
+          return;
+        }
+        const agentName = agentsList.find((a) => a.id === session.agent_id)?.name ?? "Agent";
+        const exportMeta = {
+          session,
+          agentName,
+          exportedAt,
+        };
+        const isJsonl = format === "jsonl";
+        const body = isJsonl
+          ? messagesToJSONL(all, exportMeta)
+          : messagesToMarkdown(all, exportMeta);
+        const filename = exportFileName(session, isJsonl ? "jsonl" : "md");
+        const mime = isJsonl ? "application/x-ndjson" : "text/markdown";
+        downloadTextFile(filename, body, mime);
+        showToast(t("sessions.export.success", { count: all.length }), "success");
+      } catch (e) {
+        showToast(
+          t("sessions.export.failed", { error: (e as Error).message ?? String(e) }),
+          "error",
+        );
+      } finally {
+        setExporting(false);
+      }
+    },
+    [session, exporting, isStreaming, agentsList, showToast, t],
+  );
+
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
   const titleText = session ? contextTitle || session.title || t("sessions.untitled") : "";
@@ -292,10 +355,55 @@ export function SessionDetail({
     );
   }, [titleText, subtitleText, setHeaderTitle]);
 
+  const exportDisabled = exporting || isStreaming;
+
   useEffect(() => {
     setHeaderActions(
       session ? (
         <div className="flex items-center gap-1 shrink-0">
+          <DropdownMenu
+            open={exportMenuOpen && !exportDisabled}
+            onOpenChange={(next) => {
+              if (exportDisabled) return;
+              setExportMenuOpen(next);
+            }}
+          >
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-disabled={exportDisabled || undefined}
+                        data-disabled={exportDisabled || undefined}
+                        className="rounded-full text-muted-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                        aria-label={t("sessions.export.button")}
+                      >
+                        <Download className="size-3.5" />
+                      </Button>
+                    }
+                  />
+                }
+              />
+              <TooltipPopup side="bottom">
+                {exporting
+                  ? t("sessions.export.exporting")
+                  : isStreaming
+                    ? t("sessions.export.streamingDisabled")
+                    : t("sessions.export.button")}
+              </TooltipPopup>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => void exportSessionAs("jsonl")}>
+                {t("sessions.export.jsonl")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void exportSessionAs("md")}>
+                {t("sessions.export.markdown")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {onNewSession && (
             <Tooltip>
               <TooltipTrigger
@@ -332,7 +440,18 @@ export function SessionDetail({
         </div>
       ) : null,
     );
-  }, [session, onNewSession, onToggleWorkspace, workspaceOpen, setHeaderActions]);
+  }, [
+    session,
+    onNewSession,
+    onToggleWorkspace,
+    workspaceOpen,
+    setHeaderActions,
+    exporting,
+    exportSessionAs,
+    exportDisabled,
+    exportMenuOpen,
+    t,
+  ]);
 
   if (!session) {
     return (
@@ -347,66 +466,69 @@ export function SessionDetail({
     );
   }
   return (
-    <ChatPane
-      banner={
-        attentionItems.length > 0 ? (
-          <div className="border-b border-border/70 bg-muted/20 px-3 py-2">
-            <div className="flex items-center gap-2 overflow-x-auto">
-              <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <AlertCircle className="size-3.5" />
-                {t("inbox.needsYou")}
-              </span>
-              {attentionItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="inline-flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-left text-xs transition-colors hover:bg-muted"
-                  onClick={() => void navigate({ to: item.target_path })}
-                >
-                  <span className="truncate">{item.title}</span>
-                  <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                    {t(inboxKindLabels[item.kind])}
-                  </span>
-                </button>
-              ))}
+    <>
+      <ChatPane
+        banner={
+          attentionItems.length > 0 ? (
+            <div className="border-b border-border/70 bg-muted/20 px-3 py-2">
+              <div className="flex items-center gap-2 overflow-x-auto">
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <AlertCircle className="size-3.5" />
+                  {t("inbox.needsYou")}
+                </span>
+                {attentionItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="inline-flex h-7 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-left text-xs transition-colors hover:bg-muted"
+                    onClick={() => void navigate({ to: item.target_path })}
+                  >
+                    <span className="truncate">{item.title}</span>
+                    <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                      {t(inboxKindLabels[item.kind])}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : null
-      }
-      transcript={
-        <Transcript
-          ref={transcriptRef}
-          messages={messages}
-          messagesLoading={
-            hasContextSummaries
-              ? tailQuery.isLoading
-              : messagesQuery.isLoading || messagesQuery.isFetchingNextPage
-          }
-          contextItems={contextItemsQuery.data?.items}
-          contextLoading={contextItemsQuery.isLoading}
-          onScroll={handleTranscriptScroll}
-          agentId={agentId}
-          sessionId={sessionId}
-          activeStreaming={isStreaming}
-        />
-      }
-      composer={
-        session.user_id === currentUserID ? (
-          <ChatComposer
-            value={userInput}
-            onChange={setUserInput}
-            onSend={(text) => void sendMessage(text)}
-            onStop={() => chatStop()}
-            isStreaming={isStreaming}
-            placeholder={t("sessions.composer.placeholder")}
-            attachments={attachments}
-            onFileSelect={(files) => void selectFiles(files)}
-            onRemoveAttachment={removeAttachment}
-            skills={composerSkills}
+          ) : null
+        }
+        transcript={
+          <Transcript
+            ref={transcriptRef}
+            messages={messages}
+            messagesLoading={
+              hasContextSummaries
+                ? tailQuery.isLoading
+                : messagesQuery.isLoading || messagesQuery.isFetchingNextPage
+            }
+            contextItems={contextItemsQuery.data?.items}
+            contextLoading={contextItemsQuery.isLoading}
+            onScroll={handleTranscriptScroll}
+            agentId={agentId}
+            sessionId={sessionId}
+            activeStreaming={isStreaming}
           />
-        ) : null
-      }
-    />
+        }
+        composer={
+          session.user_id === currentUserID ? (
+            <ChatComposer
+              value={userInput}
+              onChange={setUserInput}
+              onSend={(text) => void sendMessage(text)}
+              onStop={() => chatStop()}
+              isStreaming={isStreaming}
+              placeholder={t("sessions.composer.placeholder")}
+              attachments={attachments}
+              onFileSelect={(files) => void selectFiles(files)}
+              onRemoveAttachment={removeAttachment}
+              skills={composerSkills}
+            />
+          ) : null
+        }
+      />
+      <ToastContainer messages={toasts} />
+    </>
   );
 }
 

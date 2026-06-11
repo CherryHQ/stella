@@ -11,6 +11,44 @@ icon: History
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-06-11
+
+### ✨ 功能
+
+- Web：支持将会话导出为 JSONL 或 Markdown。([#374](https://github.com/CherryHQ/stella/pull/374))
+
+### 🐛 修复
+
+- Web：修复滚动时聊天记录重复、移除假的 worked-for 计时器，并自动折叠 thinking 块。([#373](https://github.com/CherryHQ/stella/pull/373))
+
+**完整变更日志**：[v0.45.0...v0.45.1](https://github.com/CherryHQ/stella/compare/v0.45.0...v0.45.1)
+
+## [0.45.0] - 2026-06-11
+
+### ✨ 功能
+
+- 新增可配置的 Agent thinking levels。([#344](https://github.com/CherryHQ/stella/pull/344))
+- 插件：简化 CLI 工具管理。([#347](https://github.com/CherryHQ/stella/pull/347))
+
+### 🐛 修复
+
+- LCM：防止压缩时拆散 `tool_call` / `tool_result` 对。([#342](https://github.com/CherryHQ/stella/pull/342))
+- Chat：最终输出到达前保持中间步骤可见。
+- 飞书：明确 Notify 目标 ID 的含义。
+
+### ♻️ 重构
+
+- Web：将 UI 颜色迁移到主题 token，并保持 coss registry 组件不变。([#349](https://github.com/CherryHQ/stella/pull/349))
+- Web：拆分可替换主题层与不变设计系统。
+- Web：从 chart token 派生 Agent 头像颜色。
+- Changelog：避免有歧义的数组分配。
+
+### 📝 文档
+
+- Web：从 `AGENTS.md` 拆出 UI 开发规则。
+
+**完整变更日志**：[v0.44.3...v0.45.0](https://github.com/CherryHQ/stella/compare/v0.44.3...v0.45.0)
+
 ## [0.44.3] - 2026-06-09
 
 ### 🐛 修复
