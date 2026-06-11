@@ -35,6 +35,12 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 
 	jobs := make([]apiserver.Job, 0, len(rows))
 	for _, row := range rows {
+		// System and plugin jobs are platform-level: users cannot edit or
+		// trigger them, so only admins see them.
+		if (row.OwnerKind == scheduler.JobOwnerPlugin || row.OwnerKind == scheduler.JobOwnerSystem) &&
+			(info == nil || !info.IsAdmin) {
+			continue
+		}
 		jobs = append(jobs, dbRowToAPIJob(row))
 	}
 	writeData(w, http.StatusOK, apiserver.JobList{Jobs: jobs})

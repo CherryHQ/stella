@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -110,13 +111,19 @@ export function OverviewPage() {
     );
   }, [goals, tasks]);
 
-  const sortedJobs = useMemo(() => {
-    const list = [...(jobs as SchedulerJob[])];
-    list.sort((a, b) => {
+  // System/plugin jobs are platform-owned and read-only for users; keep them
+  // out of the user's schedule list and show them in their own section.
+  const [sortedJobs, systemJobs] = useMemo(() => {
+    const byEnabledThenName = (a: SchedulerJob, b: SchedulerJob) => {
       if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
       return a.name.localeCompare(b.name);
-    });
-    return list;
+    };
+    const all = jobs as SchedulerJob[];
+    const isSystem = (j: SchedulerJob) => j.owner_kind === "system" || j.owner_kind === "plugin";
+    return [
+      all.filter((j) => !isSystem(j)).sort(byEnabledThenName),
+      all.filter(isSystem).sort(byEnabledThenName),
+    ];
   }, [jobs]);
 
   const soonestNextRun = useMemo(() => {
@@ -207,6 +214,14 @@ export function OverviewPage() {
             <SchedulesTable jobs={sortedJobs} agentId={agentId} />
           )}
         </section>
+
+        {/* System jobs — admin-only (backend filters them out for others) */}
+        {systemJobs.length > 0 && (
+          <section className="mt-8">
+            <SectionHead title={t("hub.secSystemJobs")} count={systemJobs.length} />
+            <SchedulesTable jobs={systemJobs} agentId={agentId} readOnly />
+          </section>
+        )}
 
         {/* Goals */}
         {activeGoals.length > 0 && (
@@ -391,7 +406,15 @@ function NeedsYouCard({
   );
 }
 
-function SchedulesTable({ jobs, agentId }: { jobs: SchedulerJob[]; agentId: string }) {
+function SchedulesTable({
+  jobs,
+  agentId,
+  readOnly = false,
+}: {
+  jobs: SchedulerJob[];
+  agentId: string;
+  readOnly?: boolean;
+}) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -443,7 +466,21 @@ function SchedulesTable({ jobs, agentId }: { jobs: SchedulerJob[]; agentId: stri
                 })
               }
             >
-              <TableCell className="font-medium">{job.name}</TableCell>
+              <TableCell className="font-medium">
+                <span className="inline-flex items-center gap-1.5">
+                  {job.name}
+                  {job.owner_kind === "plugin" && (
+                    <Badge size="sm" variant="info">
+                      plugin:{job.plugin_id}
+                    </Badge>
+                  )}
+                  {job.owner_kind === "system" && (
+                    <Badge size="sm" variant="secondary">
+                      system
+                    </Badge>
+                  )}
+                </span>
+              </TableCell>
               <TableCell className="font-mono text-[11.5px] text-muted-foreground">
                 {humanScheduleText(t, job)}
               </TableCell>
@@ -452,7 +489,11 @@ function SchedulesTable({ jobs, agentId }: { jobs: SchedulerJob[]; agentId: stri
               </TableCell>
               <TableCell className="text-[12.5px]">{next ? formatUntil(t, next) : "—"}</TableCell>
               <TableCell onClick={(e) => e.stopPropagation()}>
-                <Switch checked={job.enabled} onCheckedChange={(v) => void toggleJob(job, v)} />
+                <Switch
+                  checked={job.enabled}
+                  disabled={readOnly}
+                  onCheckedChange={(v) => void toggleJob(job, v)}
+                />
               </TableCell>
             </TableRow>
           );
