@@ -1132,6 +1132,15 @@ const en = {
   "sessions.hideInspector": "Hide inspector",
   "sessions.showInspector": "Show inspector",
   "sessions.createNewHint": "or create a new one with + New",
+  "sessions.export.button": "Export conversation",
+  "sessions.export.jsonl": "Export as JSONL",
+  "sessions.export.markdown": "Export as Markdown",
+  "sessions.export.exporting": "Exporting…",
+  "sessions.export.progress": "Exporting {{count}} messages…",
+  "sessions.export.success": "Exported {{count}} messages",
+  "sessions.export.empty": "No messages to export",
+  "sessions.export.failed": "Export failed: {{error}}",
+  "sessions.export.streamingDisabled": "Wait for the current reply to finish",
 
   // Scheduler page (additions 2)
   "scheduler.interval": "Interval",
@@ -2382,6 +2391,15 @@ const zh: Record<MessageKey, string> = {
   "sessions.hideInspector": "隐藏检查器",
   "sessions.showInspector": "显示检查器",
   "sessions.createNewHint": "或点击 + 新建创建一个",
+  "sessions.export.button": "导出对话",
+  "sessions.export.jsonl": "导出为 JSONL",
+  "sessions.export.markdown": "导出为 Markdown",
+  "sessions.export.exporting": "导出中…",
+  "sessions.export.progress": "正在导出 {{count}} 条消息…",
+  "sessions.export.success": "已导出 {{count}} 条消息",
+  "sessions.export.empty": "没有可导出的消息",
+  "sessions.export.failed": "导出失败：{{error}}",
+  "sessions.export.streamingDisabled": "等当前回复结束后再导出",
 
   // Scheduler page (additions 2)
   "scheduler.interval": "间隔",
