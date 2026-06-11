@@ -2,6 +2,40 @@
 title: Scheduling
 ---
 
+## Job Templates
+
+Some scheduled tasks are platform-provided templates — pre-configured prompts that run on your behalf. Instead of running automatically for everyone, they are opt-in: you subscribe to the template once and it becomes your own scheduled job. You can change the schedule, pause, or delete it like any other job.
+
+Available templates:
+
+- **recally-rss** — polls your Recally feeds and saves new entries, every 6 hours by default.
+- **recally-digest** — generates a reading digest from your saved articles and feeds, every 24 hours by default.
+
+### Subscribe via the Web UI
+
+1. Open any agent and go to the **Tasks** tab.
+2. Click **New Schedule**.
+3. Choose **From template** at the top of the sheet.
+4. Select a template card. Templates you have already subscribed to are shown as disabled.
+5. Optionally change the schedule (interval or cron). The agent selection and session mode are also adjustable.
+6. Click **Create**.
+
+The subscription appears in your scheduled jobs list with a template badge (for example, `Subscription · recally-rss`). The prompt is platform-managed and read-only — if you want a fully custom prompt, create a regular scheduled job instead.
+
+### Subscribe via the API
+
+```
+POST /api/agents/{agentId}/scheduler/jobs
+{
+  "template_key": "recally-rss",
+  "every": "12h"
+}
+```
+
+Omit `every` (and `cron`) to use the template's default schedule. You cannot pass `message` when subscribing via `template_key`; the prompt is platform-managed.
+
+One subscription per user per template is allowed. A duplicate subscription returns `409 Conflict`.
+
 ## What You Can Schedule
 
 Stella can run tasks on a schedule — reminders, periodic checks, automated reports, anything you can describe in natural language. Jobs persist across restarts, so once you set something up, it keeps running until you remove it.
