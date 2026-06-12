@@ -1,11 +1,63 @@
 package lcm
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestBuildReviewContext_BudgetsSummariesBeforeMessages(t *testing.T) {
+	db := newAssemblerTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := context.Background()
+	convID := "review-budget-conv"
+	sess := memory.Session{ID: "review-budget-session", UserID: "user-1", AgentID: "agent-1", Channel: "test"}
+	if _, err := db.ExecContext(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES (?, ?, 'test', 'chat', ?, ?)`, convID, sess.ID, sess.AgentID, sess.UserID); err != nil {
+		t.Fatalf("insert conversation: %v", err)
+	}
+
+	large := strings.Repeat("s", 240_000)
+	for i := 1; i <= 3; i++ {
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, created_at)
+			VALUES (?, ?, ?, 0, ?, 60000, ?)
+		`, fmt.Sprintf("summary-%d", i), convID, kindLeaf, fmt.Sprintf("summary %d %s", i, large), fmt.Sprintf("2026-01-01 00:00:0%d", i)); err != nil {
+			t.Fatalf("insert summary %d: %v", i, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
+		VALUES ('msg-review', ?, 1, 'user', 'text', 'recent review message', 5, '2026-01-02 00:00:00')
+	`, convID); err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+
+	got, err := p.BuildReviewContext(ctx, sess, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("BuildReviewContext: %v", err)
+	}
+	if strings.Contains(got, `id="summary-1"`) || strings.Contains(got, `id="summary-2"`) {
+		t.Fatalf("older summaries should be truncated by budget")
+	}
+	if !strings.Contains(got, `id="summary-3"`) {
+		t.Fatalf("newest summary should be kept")
+	}
+	if !strings.Contains(got, "recent review message") {
+		t.Fatalf("messages should use remaining budget, got length %d", len(got))
+	}
+}
 
 func TestAppendReviewMessages_FiltersToolResults(t *testing.T) {
 	msgs := []sqlc.CtxMessage{

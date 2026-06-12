@@ -62,7 +62,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	info.UserID = userID
 	info.AgentID = agentIDValue
 
-	conv, err := p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}, AgentID: nullAgent(info.AgentID)})
+	_, err = p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}, AgentID: nullAgent(info.AgentID)})
 	if errors.Is(err, sql.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
@@ -93,51 +93,16 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	agentID := nullAgent(info.AgentID)
-
-	// Update existing conversation fields.
-	if info.Title != "" {
-		if err := p.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
-			Title:     sql.NullString{String: info.Title, Valid: true},
-			SessionID: info.ID,
-			UserID:    sql.NullString{String: info.UserID, Valid: true},
-			AgentID:   agentID,
-		}); err != nil {
-			return fmt.Errorf("update title: %w", err)
-		}
-	}
-	if boolToInt(info.Archived) != conv.Archived {
-		if err := p.q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
-			Archived:  boolToInt(info.Archived),
-			SessionID: info.ID,
-			UserID:    sql.NullString{String: info.UserID, Valid: true},
-			AgentID:   agentID,
-		}); err != nil {
-			return fmt.Errorf("update archived: %w", err)
-		}
-	}
-	if (info.Kind != "" && info.Kind != conv.Kind) || (info.ProjectID != "" && (!conv.ProjectID.Valid || info.ProjectID != conv.ProjectID.String)) {
-		kind := info.Kind
-		if kind == "" {
-			kind = conv.Kind
-		}
-		projectID := sql.NullString{String: info.ProjectID, Valid: info.ProjectID != ""}
-		if info.ProjectID == "" && conv.ProjectID.Valid {
-			projectID = conv.ProjectID
-		}
-		if err := p.q.UpdateConversationKindProject(ctx, sqlc.UpdateConversationKindProjectParams{
-			Kind:      kind,
-			ProjectID: projectID,
-			SessionID: info.ID,
-			UserID:    sql.NullString{String: info.UserID, Valid: true},
-			AgentID:   agentID,
-		}); err != nil {
-			return fmt.Errorf("update kind/project: %w", err)
-		}
-	}
-
-	if err := p.q.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{SessionID: info.ID, UserID: sql.NullString{String: info.UserID, Valid: true}, AgentID: agentID}); err != nil {
-		return fmt.Errorf("update last_active: %w", err)
+	if err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
+		Title:     optionalString(info.Title),
+		Archived:  boolToInt(info.Archived),
+		Kind:      optionalString(info.Kind),
+		ProjectID: optionalString(info.ProjectID),
+		SessionID: info.ID,
+		UserID:    sql.NullString{String: info.UserID, Valid: true},
+		AgentID:   nullAgent(info.AgentID),
+	}); err != nil {
+		return fmt.Errorf("update conversation info: %w", err)
 	}
 	return nil
 }
@@ -161,49 +126,23 @@ func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.Sessi
 
 // ListInfo implements memory.SessionManager.
 func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
-	var convs []sqlc.CtxConversation
-	var err error
 	userID, agentIDValue, err := requireSessionScope(ctx, opts.UserID, opts.AgentID)
 	if err != nil {
 		return nil, err
 	}
-	agentID := sql.NullString{String: agentIDValue, Valid: true}
-	if opts.IncludeArchived {
-		convs, err = p.q.ListConversationsAll(ctx, sqlc.ListConversationsAllParams{UserID: sql.NullString{String: userID, Valid: true}, AgentID: agentID})
-	} else {
-		convs, err = p.q.ListConversations(ctx, sqlc.ListConversationsParams{UserID: sql.NullString{String: userID, Valid: true}, AgentID: agentID})
-	}
+	convs, err := p.q.ListConversationsFiltered(ctx, sqlc.ListConversationsFilteredParams{
+		UserID:          sql.NullString{String: userID, Valid: true},
+		AgentID:         nullAgent(agentIDValue),
+		IncludeArchived: boolToInt(opts.IncludeArchived),
+		Kind:            optionalString(opts.Kind),
+		ProjectID:       optionalString(opts.ProjectID),
+		Offset:          nonNegativeOffset(opts.Offset),
+		Limit:           listLimit(opts.Limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
-
-	var result []memory.SessionInfo
-	skipped := 0
-	for _, c := range convs {
-		info := convToSessionInfo(c)
-		// Apply filters.
-		if opts.AgentID != "" && info.AgentID != opts.AgentID {
-			continue
-		}
-		if opts.UserID != "" && info.UserID != opts.UserID {
-			continue
-		}
-		if opts.Kind != "" && info.Kind != opts.Kind {
-			continue
-		}
-		if opts.ProjectID != "" && info.ProjectID != opts.ProjectID {
-			continue
-		}
-		if skipped < opts.Offset {
-			skipped++
-			continue
-		}
-		result = append(result, info)
-		if opts.Limit > 0 && len(result) >= opts.Limit {
-			break
-		}
-	}
-	return result, nil
+	return convsToSessionInfo(convs), nil
 }
 
 // ListInfoForReview lists review candidates across users for one agent.
@@ -211,31 +150,17 @@ func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOption
 	if opts.AgentID == "" {
 		return nil, fmt.Errorf("missing agent context")
 	}
-	convs, err := p.q.ListConversationsForReviewByAgent(ctx, nullAgent(opts.AgentID))
+	convs, err := p.q.ListConversationsForReviewFiltered(ctx, sqlc.ListConversationsForReviewFilteredParams{
+		AgentID:   nullAgent(opts.AgentID),
+		Kind:      optionalString(opts.Kind),
+		ProjectID: optionalString(opts.ProjectID),
+		Offset:    nonNegativeOffset(opts.Offset),
+		Limit:     listLimit(opts.Limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list review conversations: %w", err)
 	}
-
-	result := make([]memory.SessionInfo, 0, len(convs))
-	skipped := 0
-	for _, c := range convs {
-		info := convToSessionInfo(c)
-		if opts.Kind != "" && info.Kind != opts.Kind {
-			continue
-		}
-		if opts.ProjectID != "" && info.ProjectID != opts.ProjectID {
-			continue
-		}
-		if skipped < opts.Offset {
-			skipped++
-			continue
-		}
-		result = append(result, info)
-		if opts.Limit > 0 && len(result) >= opts.Limit {
-			break
-		}
-	}
-	return result, nil
+	return convsToSessionInfo(convs), nil
 }
 
 // LoadHistory implements memory.SessionManager.
@@ -262,6 +187,35 @@ func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Mess
 	}
 
 	return rowsToMessages(msgs), nil
+}
+
+func convsToSessionInfo(convs []sqlc.CtxConversation) []memory.SessionInfo {
+	result := make([]memory.SessionInfo, 0, len(convs))
+	for _, conv := range convs {
+		result = append(result, convToSessionInfo(conv))
+	}
+	return result
+}
+
+func optionalString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func listLimit(limit int) int64 {
+	if limit <= 0 {
+		return -1
+	}
+	return int64(limit)
+}
+
+func nonNegativeOffset(offset int) int64 {
+	if offset <= 0 {
+		return 0
+	}
+	return int64(offset)
 }
 
 func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {

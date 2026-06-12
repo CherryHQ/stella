@@ -40,6 +40,25 @@ WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agen
 UPDATE ctx_conversation SET title = sqlc.arg(title), updated_at = datetime('now')
 WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS sqlc.narg(agent_id);
 
+-- name: UpdateConversationInfoBySessionID :exec
+UPDATE ctx_conversation
+SET
+  title = CASE
+    WHEN sqlc.narg(title) IS NOT NULL AND (title IS NULL OR title != sqlc.narg(title)) THEN sqlc.narg(title)
+    ELSE title
+  END,
+  archived = CASE WHEN archived != sqlc.arg(archived) THEN sqlc.arg(archived) ELSE archived END,
+  kind = CASE WHEN sqlc.narg(kind) IS NOT NULL AND kind != sqlc.narg(kind) THEN sqlc.narg(kind) ELSE kind END,
+  project_id = CASE
+    WHEN sqlc.narg(project_id) IS NOT NULL AND (project_id IS NULL OR project_id != sqlc.narg(project_id)) THEN sqlc.narg(project_id)
+    ELSE project_id
+  END,
+  last_active = datetime('now'),
+  updated_at = datetime('now')
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id IS sqlc.narg(agent_id);
+
 -- name: ListConversations :many
 SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
@@ -52,6 +71,16 @@ SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id) IS NULL OR agent_id = sqlc.narg(agent_id))
 ORDER BY last_active DESC;
+
+-- name: ListConversationsFiltered :many
+SELECT * FROM ctx_conversation
+WHERE user_id = sqlc.arg(user_id)
+  AND agent_id IS sqlc.narg(agent_id)
+  AND (sqlc.arg(include_archived) != 0 OR archived = 0)
+  AND (sqlc.narg(kind) IS NULL OR kind = sqlc.narg(kind))
+  AND (sqlc.narg(project_id) IS NULL OR project_id = sqlc.narg(project_id))
+ORDER BY last_active DESC
+LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
 
 -- name: ListAgentConversationLastActive :many
 SELECT agent_id, MAX(last_active) AS last_active
@@ -66,6 +95,15 @@ SELECT * FROM ctx_conversation
 WHERE agent_id = sqlc.arg(agent_id)
   AND archived = 0
 ORDER BY last_active DESC;
+
+-- name: ListConversationsForReviewFiltered :many
+SELECT * FROM ctx_conversation
+WHERE agent_id = sqlc.arg(agent_id)
+  AND archived = 0
+  AND (sqlc.narg(kind) IS NULL OR kind = sqlc.narg(kind))
+  AND (sqlc.narg(project_id) IS NULL OR project_id = sqlc.narg(project_id))
+ORDER BY last_active DESC
+LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
 
 -- name: ListConversationsByKind :many
 SELECT * FROM ctx_conversation WHERE agent_id = ? AND user_id = ? AND kind = ? AND archived = 0 ORDER BY last_active DESC;

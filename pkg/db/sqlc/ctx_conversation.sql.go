@@ -365,6 +365,72 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 	return items, nil
 }
 
+const listConversationsFiltered = `-- name: ListConversationsFiltered :many
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+WHERE user_id = ?1
+  AND agent_id IS ?2
+  AND (?3 != 0 OR archived = 0)
+  AND (?4 IS NULL OR kind = ?4)
+  AND (?5 IS NULL OR project_id = ?5)
+ORDER BY last_active DESC
+LIMIT ?7 OFFSET ?6
+`
+
+type ListConversationsFilteredParams struct {
+	UserID          sql.NullString `json:"user_id"`
+	AgentID         sql.NullString `json:"agent_id"`
+	IncludeArchived interface{}    `json:"include_archived"`
+	Kind            interface{}    `json:"kind"`
+	ProjectID       interface{}    `json:"project_id"`
+	Offset          int64          `json:"offset"`
+	Limit           int64          `json:"limit"`
+}
+
+func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConversationsFilteredParams) ([]CtxConversation, error) {
+	rows, err := q.db.QueryContext(ctx, listConversationsFiltered,
+		arg.UserID,
+		arg.AgentID,
+		arg.IncludeArchived,
+		arg.Kind,
+		arg.ProjectID,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxConversation{}
+	for rows.Next() {
+		var i CtxConversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.Title,
+			&i.Channel,
+			&i.Kind,
+			&i.ProjectID,
+			&i.Archived,
+			&i.LastActive,
+			&i.BootstrappedAt,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConversationsForReviewByAgent = `-- name: ListConversationsForReviewByAgent :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
 WHERE agent_id = ?1
@@ -374,6 +440,67 @@ ORDER BY last_active DESC
 
 func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID sql.NullString) ([]CtxConversation, error) {
 	rows, err := q.db.QueryContext(ctx, listConversationsForReviewByAgent, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxConversation{}
+	for rows.Next() {
+		var i CtxConversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.Title,
+			&i.Channel,
+			&i.Kind,
+			&i.ProjectID,
+			&i.Archived,
+			&i.LastActive,
+			&i.BootstrappedAt,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConversationsForReviewFiltered = `-- name: ListConversationsForReviewFiltered :many
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+WHERE agent_id = ?1
+  AND archived = 0
+  AND (?2 IS NULL OR kind = ?2)
+  AND (?3 IS NULL OR project_id = ?3)
+ORDER BY last_active DESC
+LIMIT ?5 OFFSET ?4
+`
+
+type ListConversationsForReviewFilteredParams struct {
+	AgentID   sql.NullString `json:"agent_id"`
+	Kind      interface{}    `json:"kind"`
+	ProjectID interface{}    `json:"project_id"`
+	Offset    int64          `json:"offset"`
+	Limit     int64          `json:"limit"`
+}
+
+func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]CtxConversation, error) {
+	rows, err := q.db.QueryContext(ctx, listConversationsForReviewFiltered,
+		arg.AgentID,
+		arg.Kind,
+		arg.ProjectID,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -444,6 +571,49 @@ type UpdateConversationBootstrappedParams struct {
 
 func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, arg UpdateConversationBootstrappedParams) error {
 	_, err := q.db.ExecContext(ctx, updateConversationBootstrapped, arg.ID, arg.UserID, arg.AgentID)
+	return err
+}
+
+const updateConversationInfoBySessionID = `-- name: UpdateConversationInfoBySessionID :exec
+UPDATE ctx_conversation
+SET
+  title = CASE
+    WHEN ?1 IS NOT NULL AND (title IS NULL OR title != ?1) THEN ?1
+    ELSE title
+  END,
+  archived = CASE WHEN archived != ?2 THEN ?2 ELSE archived END,
+  kind = CASE WHEN ?3 IS NOT NULL AND kind != ?3 THEN ?3 ELSE kind END,
+  project_id = CASE
+    WHEN ?4 IS NOT NULL AND (project_id IS NULL OR project_id != ?4) THEN ?4
+    ELSE project_id
+  END,
+  last_active = datetime('now'),
+  updated_at = datetime('now')
+WHERE session_id = ?5
+  AND user_id = ?6
+  AND agent_id IS ?7
+`
+
+type UpdateConversationInfoBySessionIDParams struct {
+	Title     interface{}    `json:"title"`
+	Archived  int64          `json:"archived"`
+	Kind      interface{}    `json:"kind"`
+	ProjectID interface{}    `json:"project_id"`
+	SessionID string         `json:"session_id"`
+	UserID    sql.NullString `json:"user_id"`
+	AgentID   sql.NullString `json:"agent_id"`
+}
+
+func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg UpdateConversationInfoBySessionIDParams) error {
+	_, err := q.db.ExecContext(ctx, updateConversationInfoBySessionID,
+		arg.Title,
+		arg.Archived,
+		arg.Kind,
+		arg.ProjectID,
+		arg.SessionID,
+		arg.UserID,
+		arg.AgentID,
+	)
 	return err
 }
 

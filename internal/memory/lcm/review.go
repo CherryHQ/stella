@@ -31,14 +31,10 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 	var b strings.Builder
 
 	if !since.IsZero() {
+		remainingBudget := maxReviewTokens
 		summaries, err := p.q.GetSummariesByConversation(ctx, conv.ID)
 		if err == nil && len(summaries) > 0 {
-			b.WriteString("<prior_context>\n")
-			for _, s := range summaries {
-				b.WriteString(FormatSummaryXML(s, nil))
-				b.WriteString("\n")
-			}
-			b.WriteString("</prior_context>\n\n")
+			remainingBudget = appendReviewSummaries(&b, summaries, remainingBudget)
 		}
 
 		msgs, err := p.q.GetMessagesSince(ctx, sqlc.GetMessagesSinceParams{
@@ -48,7 +44,7 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 		if err != nil {
 			return "", fmt.Errorf("get messages since: %w", err)
 		}
-		appendReviewMessages(&b, msgs)
+		appendReviewMessagesWithBudget(&b, msgs, remainingBudget)
 	} else {
 		msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
 		if err != nil {
@@ -60,7 +56,44 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 	return b.String(), nil
 }
 
+func appendReviewSummaries(b *strings.Builder, summaries []sqlc.CtxSummary, budget int) int {
+	if budget <= 0 {
+		return 0
+	}
+	xmlByIndex := make([]string, len(summaries))
+	selected := make([]int, 0, len(summaries))
+	remaining := budget
+	for i := len(summaries) - 1; i >= 0; i-- {
+		xml := FormatSummaryXML(summaries[i], nil)
+		cost := memory.EstimateTokens(xml) + 4
+		if remaining-cost < 0 {
+			break
+		}
+		xmlByIndex[i] = xml
+		selected = append(selected, i)
+		remaining -= cost
+	}
+	if len(selected) == 0 {
+		return budget
+	}
+
+	b.WriteString("<prior_context>\n")
+	for i := len(selected) - 1; i >= 0; i-- {
+		b.WriteString(xmlByIndex[selected[i]])
+		b.WriteString("\n")
+	}
+	b.WriteString("</prior_context>\n\n")
+	return remaining
+}
+
 func appendReviewMessages(b *strings.Builder, msgs []sqlc.CtxMessage) {
+	appendReviewMessagesWithBudget(b, msgs, maxReviewTokens)
+}
+
+func appendReviewMessagesWithBudget(b *strings.Builder, msgs []sqlc.CtxMessage, budget int) {
+	if budget <= 0 {
+		return
+	}
 	// Filter out tool results — they're large and useless for the reviewer.
 	filtered := make([]sqlc.CtxMessage, 0, len(msgs))
 	for _, m := range msgs {
@@ -73,7 +106,6 @@ func appendReviewMessages(b *strings.Builder, msgs []sqlc.CtxMessage) {
 	}
 
 	// Take the tail that fits within the token budget.
-	budget := maxReviewTokens
 	start := len(filtered)
 	for i := len(filtered) - 1; i >= 0; i-- {
 		cost := memory.EstimateTokens(filtered[i].Content) + memory.EstimateTokens(filtered[i].Role) + 4
