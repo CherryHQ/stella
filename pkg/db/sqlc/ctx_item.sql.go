@@ -276,6 +276,7 @@ SELECT
   ci.ordinal,
   ci.item_type,
   ci.event_type,
+  ci.role,
   m.id AS message_id,
   m.seq AS message_seq,
   m.role AS message_role,
@@ -312,6 +313,7 @@ type ListContextItemsPageRow struct {
 	Ordinal                        int64          `json:"ordinal"`
 	ItemType                       string         `json:"item_type"`
 	EventType                      string         `json:"event_type"`
+	Role                           string         `json:"role"`
 	MessageID                      sql.NullString `json:"message_id"`
 	MessageSeq                     sql.NullInt64  `json:"message_seq"`
 	MessageRole                    sql.NullString `json:"message_role"`
@@ -345,6 +347,7 @@ func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItems
 			&i.Ordinal,
 			&i.ItemType,
 			&i.EventType,
+			&i.Role,
 			&i.MessageID,
 			&i.MessageSeq,
 			&i.MessageRole,
