@@ -744,9 +744,11 @@
           </div>
           <div class="stage-desc">
             目标态下，所有入口都调用同一个 ingest 原语。适配器只负责收消息并写入事实：resolve
-            group_id → dedup check → bump seq + insert message → insert dispatch
-            outbox，全部在同一个
-            <code>BEGIN IMMEDIATE</code> 事务里完成。adapter 不再直接负责回复。
+            group_id → dedup check → bump seq + insert message → best-effort 解析 mention → insert
+            dispatch outbox，全部在同一个
+            <code>BEGIN IMMEDIATE</code> 事务里完成。Web 同步路径在同一事务内直接以
+            <code>running</code> + lease 创建 outbox，避免后台 worker 抢单；adapter
+            不再直接负责回复。
           </div>
           <div class="stage-body">
             <div class="data-card">
@@ -793,8 +795,10 @@ VALUES ('uuid-new', 'grp_9f3a', <span class="num">42</span>, 'human', 'uid_88',
   'tg_msg_9001', '@weather-bot 北京今天天气怎么样？', ...);
 
 <span class="cm">-- Step 3: same transaction outbox — “这条事实需要被调度”</span>
-INSERT INTO ctx_group_outbox (id, group_message_id, group_id, envelope, status)
-VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', '{"mentions":[{"agent_id":"weather-bot"}]}', 'pending');</pre>
+<span class="cm">-- ingest best-effort 解析 mention；未解析项保留 raw/platform id，dispatch 时补解析</span>
+INSERT INTO ctx_group_outbox (id, group_message_id, group_id, envelope, status, lease_until)
+VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', '{"mentions":[{"agent_id":"weather-bot"}]}', 'pending', NULL);
+<span class="cm">-- Web 同步路径：status='running', lease_until=now+5m，由当前请求协程持有</span></pre>
             </div>
 
             <div class="info-callout">
@@ -817,8 +821,10 @@ VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', '{"mentions":[{"agent_id":"weat
               <div class="design-callout-label">Dispatch gate</div>
               <p>
                 只有首次插入的 human message 才创建 outbox。幂等重投返回 existing seq 后必须停在
-                ingest 层：不 bump seq、不创建 outbox、不重复 arbiter、不重复回复。调度是否完成由
-                outbox / dispatch ledger 记录，不靠接收 adapter 的调用栈。
+                ingest 层：不 bump seq、不创建 outbox、不重复 arbiter、不重复回复。平台入口创建
+                pending outbox 交给 worker；Web 同步入口创建 running+lease outbox 并立即执行，后台
+                worker 只在租约过期后用 NoopGroupPublisher 做 crash recovery。调度是否完成由 outbox
+                / dispatch ledger 记录，不靠接收 adapter 的调用栈。
               </p>
             </div>
 
@@ -888,7 +894,7 @@ VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', '{"mentions":[{"agent_id":"weat
     id               TEXT NOT NULL PRIMARY KEY,
     group_message_id TEXT NOT NULL REFERENCES ctx_group_message(id) ON DELETE CASCADE,
     group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
-    envelope         TEXT NOT NULL DEFAULT '{}',        <span class="cm">-- resolved mentions JSON</span>
+    envelope         TEXT NOT NULL DEFAULT '{}',        <span class="cm">-- best-effort resolved mentions JSON; unresolved resolved at dispatch</span>
     status           TEXT NOT NULL DEFAULT 'pending',  <span class="cm">-- Go-enforced: pending/running/completed/failed</span>
     attempt_count    INTEGER NOT NULL DEFAULT 0,
     lease_until      TEXT,
@@ -918,9 +924,9 @@ CREATE INDEX idx_ctx_group_outbox_running_lease
             <span class="stage-file">dispatcher worker (target)</span>
           </div>
           <div class="stage-desc">
-            独立 dispatcher worker 从 outbox claim 待处理消息，再将平台级 mention（bot 的
-            platform_id）映射为 agent_id。接收消息的 adapter 已经退出路径；后续调度不依赖
-            observerChannelID。
+            独立 dispatcher worker 从 outbox claim 待处理消息，复用 ingest 已解析的 mention，并对
+            envelope 里仍未解析的 mention（bot 的 platform_id）补映射为 agent_id。接收消息的 adapter
+            已经退出路径；后续调度不依赖 observerChannelID。
           </div>
           <div class="stage-body">
             <div class="data-card">
@@ -984,8 +990,9 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
                 <span class="decision-condition">有任意 @mention?</span>
                 <div class="decision-result">
                   <strong style="color: var(--accent-green)">→ L0 规则路径</strong><br />
-                  已解析到 Stella 群成员的 mention 直达对应 agent(s)，跳过 debounce，并受
-                  <code>MaxRepliesPerTrigger</code> 上限。无法解析的 mention 不会被当成无 mention
+                  已解析到 Stella 群成员的 mention 直达对应 agent(s)，跳过 debounce，并绕过
+                  <code>MaxRepliesPerTrigger</code>：一条消息 @ 多个成员时所有被 @ 的成员都会回复。
+                  无法解析的 platform mention 不会被当成无 mention
                   语义请求；默认静默，避免回复本来发给别人的消息。<br />
                   <span
                     style="
@@ -1010,8 +1017,8 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
                   system-scope。所选 agent 用其 fast tier 分类，若未配置
                   <code>model_fast</code> 则自动回退到该 agent
                   的默认模型（不会因为没配快模型就静默）。私有 agent
-                  的凭据不会被用于共享路由决策；agent 的
-                  <code>system_prompt</code> 也不会暴露给路由模型。<br />
+                  的凭据不会被用于共享路由决策；成员摘要（<code>system_prompt</code> 前 180
+                  字符）有意发给路由模型，用于正确路由。<br />
                   分类调用有
                   <strong>8s</strong> 预算（覆盖首 token + 一小段
                   JSON）。失败均降级为静默，并按级别记日志：每条消息的 prompt / 原始响应 / 决策走
@@ -1023,10 +1030,9 @@ mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</spa
               <div class="decision-branch">
                 <span class="decision-condition">无 mention + 未配置语义仲裁（回退）</span>
                 <div class="decision-result">
-                  → <code>AllMembersFallback=true</code>（Web / platform
-                  <code>always</code>）：所有成员响应（受 MaxReplies 上限）。<br />
-                  → <code>AllMembersFallback=false</code>（platform
-                  <code>mention</code>）：不响应（静默跳过）。
+                  → Web：单成员群直接让唯一成员回复；多成员群静默并写 WARN，提示配置语义仲裁。<br />
+                  → Platform <code>always</code>：所有成员响应（受 MaxReplies 上限）。<br />
+                  → Platform <code>mention</code>：不响应（静默跳过）。
                 </div>
               </div>
             </div>
@@ -1135,6 +1141,7 @@ semantic response parse failed<span class="cm">// 模型返回非法 JSON</span>
     attempt_count    INTEGER NOT NULL DEFAULT 0,
     lease_until      TEXT,
     next_attempt_at  TEXT,
+    result_message_id TEXT NOT NULL DEFAULT '',
     last_error       TEXT NOT NULL DEFAULT '',
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
@@ -1196,8 +1203,8 @@ publisher.PublishGroupResponse(ctx, GroupDispatchRequest{
     TriggerSeq:     groupMessage.Seq,
 })
 
-<span class="cm">// publisher 内部：session resolve → Chat() → platform API → AppendToGroup writeback</span>
-<span class="cm">// 成功：status=completed；失败：attempt_count++，按 backoff 设置 next_attempt_at；超过上限 status=failed</span></pre>
+<span class="cm">// publisher 内部：session resolve → Chat() → platform API → 同事务 AppendToGroup + result_message_id</span>
+<span class="cm">// 成功：status=completed；失败：attempt_count++，按线性 backoff 设置 next_attempt_at；超过上限 status=failed</span></pre>
             </div>
 
             <div class="design-callout" style="margin-top: 8px">
@@ -1209,8 +1216,23 @@ publisher.PublishGroupResponse(ctx, GroupDispatchRequest{
                 >，以及
                 <code>status='running' AND lease_until &lt; now</code> 的过期租约回收。执行期初始
                 lease 默认 5 分钟，长工具调用可 heartbeat 延长。失败时递增
-                <code>attempt_count</code> 并指数退避；超过 <code>MaxDispatchAttempts</code> 后标记
-                <code>failed</code>，写 log/metric，平台侧不冒名 fallback。
+                <code>attempt_count</code> 并线性退避（1s × attempts，封顶 60s）；超过
+                <code>MaxDispatchAttempts</code> 后标记 <code>failed</code>，写
+                log/metric，平台侧不冒名 fallback。 同一 agent 在同一 group 内按 seq
+                顺序领取：若存在更小 seq 的 pending 或未过期 running
+                dispatch，后序行不会被查出，避免乱序执行。
+              </p>
+            </div>
+
+            <div class="design-callout" style="margin-top: 8px">
+              <div class="design-callout-label">At-least-once 收敛</div>
+              <p>
+                发布语义是 at-least-once。正常收尾顺序是：Publish 成功 → 同一个 DB 事务内
+                <code>AppendToGroup</code> writeback + 写 <code>result_message_id</code> marker →
+                标记 completed。重试若看到 marker 已存在，会跳过 Chat 和 Publish，直接 completed。
+                因此 writeback 已提交后的崩溃不会重发；唯一残余重复窗口是平台 Publish 已成功、但
+                writeback+marker 事务尚未提交前进程崩溃。Web 的主交付通道是 event log，客户端断线后
+                服务端继续跑完；NoopGroupPublisher 用于重启后的恢复，不向客户端推 SSE。
               </p>
             </div>
           </div>
