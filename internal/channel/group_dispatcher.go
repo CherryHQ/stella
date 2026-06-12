@@ -317,6 +317,9 @@ func (d *GroupDispatcher) prepareDispatchResponders(ctx context.Context, q *sqlc
 	for i, m := range members {
 		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 	}
+	if d.coord != nil {
+		d.coord.resolveMentionAgentsWithMembers(ctx, outbox.GroupID, state.Platform, envelope.Mentions, groupMembers)
+	}
 	return d.decideResponders(ctx, q, outbox, message, state, envelope, groupMembers), nil
 }
 

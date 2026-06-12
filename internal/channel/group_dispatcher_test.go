@@ -9,6 +9,7 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -124,7 +125,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 	if err != nil {
 		t.Fatalf("create outbox: %v", err)
 	}
-	coord := &Coordinator{arbiter: NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 3})}
+	coord := &Coordinator{store: cfgstore.NewDBStore(db), arbiter: NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 3})}
 	d := NewGroupDispatcher(db, coord, NewPublisherRegistry())
 	d.leaseDuration = 0
 	d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
@@ -252,6 +253,48 @@ func TestGroupDispatcherPlatformAlwaysModeUsesMemberFallback(t *testing.T) {
 	}
 	if firstPublisher.calls != 1 {
 		t.Fatalf("first publisher calls = %d, want 1", firstPublisher.calls)
+	}
+}
+
+func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@bot1", PlatformID: "bot1"}})
+	if err != nil {
+		t.Fatalf("encode envelope: %v", err)
+	}
+	fx := newDispatcherFixture(t, "telegram", envelope)
+	reg := NewBotIdentityRegistry()
+	reg.Register("telegram", "bot1", "ch-1")
+	fx.d.coord.botRegistry = reg
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 1 || got[0] != "agent-1" {
+		t.Fatalf("dispatch agents = %v, want [agent-1]", got)
+	}
+}
+
+func TestGroupDispatcherDispatchesAllMentionedMembers(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{AgentID: "agent-1"}, {AgentID: "agent-2"}})
+	if err != nil {
+		t.Fatalf("encode envelope: %v", err)
+	}
+	fx := newDispatcherFixture(t, "telegram", envelope)
+	addSecondMember(t, fx)
+	firstPublisher := &recordingGroupPublisher{}
+	secondPublisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", firstPublisher)
+	fx.d.publishers.Register("ch-2", secondPublisher)
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 2 || got[0] != "agent-1" || got[1] != "agent-2" {
+		t.Fatalf("dispatch agents = %v, want [agent-1 agent-2]", got)
+	}
+	if firstPublisher.calls != 1 || secondPublisher.calls != 1 {
+		t.Fatalf("publisher calls = %d/%d, want 1/1", firstPublisher.calls, secondPublisher.calls)
 	}
 }
 
@@ -509,6 +552,31 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 			}
 		}
 	}
+}
+
+func dispatchAgentsByMessage(t *testing.T, db *sql.DB, messageID string) []string {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(), `SELECT agent_id FROM ctx_group_dispatch WHERE group_message_id = ? ORDER BY agent_id`, messageID)
+	if err != nil {
+		t.Fatalf("query dispatch agents: %v", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Fatalf("close dispatch agent rows: %v", err)
+		}
+	}()
+	var agents []string
+	for rows.Next() {
+		var agentID string
+		if err := rows.Scan(&agentID); err != nil {
+			t.Fatalf("scan dispatch agent: %v", err)
+		}
+		agents = append(agents, agentID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate dispatch agents: %v", err)
+	}
+	return agents
 }
 
 func dispatchStatusByMessage(t *testing.T, db *sql.DB, messageID string) string {
