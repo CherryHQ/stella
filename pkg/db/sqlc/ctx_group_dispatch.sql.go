@@ -237,10 +237,23 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 }
 
 const listPendingGroupDispatch = `-- name: ListPendingGroupDispatch :many
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_dispatch
-WHERE status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
-ORDER BY created_at ASC
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_dispatch gd
+WHERE gd.status = 'pending'
+  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= ?1)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_dispatch earlier
+    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier.group_message_id
+    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
+    WHERE earlier.group_id = gd.group_id
+      AND earlier.agent_id = gd.agent_id
+      AND earlier_msg.seq < current_msg.seq
+      AND (
+        earlier.status = 'pending'
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?1)
+      )
+  )
+ORDER BY gd.created_at ASC
 LIMIT ?2
 `
 
@@ -286,11 +299,24 @@ func (q *Queries) ListPendingGroupDispatch(ctx context.Context, arg ListPendingG
 }
 
 const listPendingGroupDispatchByMessage = `-- name: ListPendingGroupDispatchByMessage :many
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_dispatch
-WHERE group_message_id = ?1
-  AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?2)
-ORDER BY created_at ASC
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at FROM ctx_group_dispatch gd
+WHERE gd.group_message_id = ?1
+  AND gd.status = 'pending'
+  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= ?2)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_dispatch earlier
+    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier.group_message_id
+    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
+    WHERE earlier.group_id = gd.group_id
+      AND earlier.agent_id = gd.agent_id
+      AND earlier_msg.seq < current_msg.seq
+      AND (
+        earlier.status = 'pending'
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?2)
+      )
+  )
+ORDER BY gd.created_at ASC
 `
 
 type ListPendingGroupDispatchByMessageParams struct {

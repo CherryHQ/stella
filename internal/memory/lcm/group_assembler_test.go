@@ -229,6 +229,45 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	}
 }
 
+func TestGroupAssemble_DedupsPersistedInjectedOutsideBudget(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{Platform: "test", PlatformGroupID: "g-dedup", ActorType: eventlog.ActorHuman, ActorID: "user1", Content: "already persisted", PlatformMessageID: "d1"})
+	if err != nil {
+		t.Fatalf("seed seq1: %v", err)
+	}
+	gid := res1.GroupID
+	res2, err := el.AppendGroupMessage(ctx, eventlog.Message{Platform: "test", PlatformGroupID: "g-dedup", ActorType: eventlog.ActorHuman, ActorID: "user2", Content: "trigger", PlatformMessageID: "d2"})
+	if err != nil {
+		t.Fatalf("seed trigger: %v", err)
+	}
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", gid)
+	assembleCtx := groupCtx(res2.Seq)
+	if _, err := p.Assemble(assembleCtx, sess, 100_000, 20); err != nil {
+		t.Fatalf("first assemble: %v", err)
+	}
+	for i := range 20 {
+		if err := p.Append(ctx, sess, ai.UserMessage{Content: fmt.Sprintf("large retry filler %02d %s", i, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")}); err != nil {
+			t.Fatalf("append filler %d: %v", i, err)
+		}
+	}
+	if _, err := p.Assemble(assembleCtx, sess, 20, 20); err != nil {
+		t.Fatalf("retry assemble: %v", err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_message WHERE role = 'user' AND content = ?`, "[seq:1 user1]: already persisted").Scan(&count); err != nil {
+		t.Fatalf("count persisted injected: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("persisted injected count = %d, want 1", count)
+	}
+}
+
 func TestGroupAssemble_TokenBudget(t *testing.T) {
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)

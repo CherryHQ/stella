@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -139,6 +141,138 @@ func textStream(text string) *pkgchannel.ChatStream {
 	ch <- pkgchannel.Event{Text: text}
 	close(ch)
 	return &pkgchannel.ChatStream{Events: ch, SessionID: "session-1"}
+}
+
+func createDispatchForGroupMessage(t *testing.T, q *sqlc.Queries, msg sqlc.CtxGroupMessage, id, agentID, groupID string, status string, leaseUntil sql.NullString) {
+	t.Helper()
+	if err := q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             id,
+		GroupMessageID: msg.ID,
+		GroupID:        groupID,
+		AgentID:        agentID,
+		ReplyChannelID: "ch-1",
+		Status:         status,
+		LeaseUntil:     leaseUntil,
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch %s: %v", id, err)
+	}
+}
+
+func createGroupMessageWithSeq(t *testing.T, q *sqlc.Queries, groupID, id string, seq int64) sqlc.CtxGroupMessage {
+	t.Helper()
+	msg, err := q.CreateGroupMessage(context.Background(), sqlc.CreateGroupMessageParams{
+		ID:        id,
+		GroupID:   groupID,
+		Seq:       seq,
+		ActorType: "human",
+		ActorID:   "user-1",
+		Content:   "hello",
+	})
+	if err != nil {
+		t.Fatalf("create message %s: %v", id, err)
+	}
+	return msg
+}
+
+func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit int64) []string {
+	t.Helper()
+	rows, err := q.ListPendingGroupDispatch(context.Background(), sqlc.ListPendingGroupDispatchParams{
+		Now:        nullTime(now),
+		LimitCount: limit,
+	})
+	if err != nil {
+		t.Fatalf("list pending dispatch: %v", err)
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	return ids
+}
+
+func TestListPendingGroupDispatchBlocksLaterSameAgentSeq(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	now := time.Now().UTC()
+	earlier := fx.message
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
+	createDispatchForGroupMessage(t, fx.q, earlier, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+
+	ids := listPendingDispatchIDs(t, fx.q, now, 25)
+	if !containsString(ids, "dispatch-1") || containsString(ids, "dispatch-2") {
+		t.Fatalf("pending ids = %v, want earlier only", ids)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET status = 'completed' WHERE id = 'dispatch-1'`); err != nil {
+		t.Fatalf("complete earlier: %v", err)
+	}
+	ids = listPendingDispatchIDs(t, fx.q, now, 25)
+	if !containsString(ids, "dispatch-2") {
+		t.Fatalf("pending ids = %v, want later after terminal earlier", ids)
+	}
+}
+
+func TestListPendingGroupDispatchExpiredRunningDoesNotBlockLater(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	now := time.Now().UTC()
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
+	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "running", nullTime(now.Add(-time.Minute)))
+	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+
+	ids := listPendingDispatchIDs(t, fx.q, now, 25)
+	if !containsString(ids, "dispatch-2") {
+		t.Fatalf("pending ids = %v, want expired running not to block later", ids)
+	}
+}
+
+func TestListPendingGroupDispatchBlockedRowsDoNotConsumeLimit(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	now := time.Now().UTC()
+	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	for i := range 30 {
+		msg := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, fmt.Sprintf("msg-blocked-%02d", i), int64(i+2))
+		createDispatchForGroupMessage(t, fx.q, msg, fmt.Sprintf("dispatch-blocked-%02d", i), "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	}
+	otherGroup, err := fx.q.CreateGroupState(context.Background(), sqlc.CreateGroupStateParams{ID: "group-2", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
+	if err != nil {
+		t.Fatalf("create group-2: %v", err)
+	}
+	otherMsg := createGroupMessageWithSeq(t, fx.q, otherGroup.ID, "msg-other", 1)
+	createDispatchForGroupMessage(t, fx.q, otherMsg, "dispatch-other", "agent-1", otherGroup.ID, "pending", sql.NullString{})
+
+	ids := listPendingDispatchIDs(t, fx.q, now, 25)
+	if !containsString(ids, "dispatch-other") {
+		t.Fatalf("pending ids = %v, want other group despite 30 blocked rows", ids)
+	}
+}
+
+func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1}); err != nil {
+		t.Fatalf("create agent-2: %v", err)
+	}
+	state2, err := fx.q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: "group-2", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})
+	if err != nil {
+		t.Fatalf("create group-2: %v", err)
+	}
+	laterSameAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
+	laterOtherAgent := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-3", 3)
+	otherGroup := createGroupMessageWithSeq(t, fx.q, state2.ID, "msg-4", 2)
+	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, laterSameAgent, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, laterOtherAgent, "dispatch-3", "agent-2", fx.message.GroupID, "pending", sql.NullString{})
+	createDispatchForGroupMessage(t, fx.q, otherGroup, "dispatch-4", "agent-1", state2.ID, "pending", sql.NullString{})
+
+	ids := listPendingDispatchIDs(t, fx.q, now, 25)
+	if containsString(ids, "dispatch-2") || !containsString(ids, "dispatch-3") || !containsString(ids, "dispatch-4") {
+		t.Fatalf("pending ids = %v, want same-agent blocked only", ids)
+	}
+}
+
+func containsString(xs []string, want string) bool {
+	return slices.Contains(xs, want)
 }
 
 func TestGroupDispatcherProcessOutboxHappyPath(t *testing.T) {

@@ -359,6 +359,53 @@ func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSincePara
 	return items, nil
 }
 
+const listExistingUserMessageContent = `-- name: ListExistingUserMessageContent :many
+SELECT content FROM ctx_message
+WHERE conversation_id = ?1
+  AND role = 'user'
+  AND content IN (/*SLICE:contents*/?)
+ORDER BY seq ASC
+`
+
+type ListExistingUserMessageContentParams struct {
+	ConversationID string   `json:"conversation_id"`
+	Contents       []string `json:"contents"`
+}
+
+func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListExistingUserMessageContentParams) ([]string, error) {
+	query := listExistingUserMessageContent
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ConversationID)
+	if len(arg.Contents) > 0 {
+		for _, v := range arg.Contents {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:contents*/?", strings.Repeat(",?", len(arg.Contents))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:contents*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			return nil, err
+		}
+		items = append(items, content)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMessagesByIDs = `-- name: ListMessagesByIDs :many
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE conversation_id = ? AND id IN (/*SLICE:message_ids*/?) ORDER BY seq ASC
 `

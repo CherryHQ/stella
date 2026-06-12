@@ -98,3 +98,10 @@ LIMIT sqlc.arg('limit');
 SELECT * FROM ctx_message
 WHERE conversation_id = ? AND created_at > ?
 ORDER BY seq ASC;
+
+-- name: ListExistingUserMessageContent :many
+SELECT content FROM ctx_message
+WHERE conversation_id = sqlc.arg('conversation_id')
+  AND role = 'user'
+  AND content IN (sqlc.slice('contents'))
+ORDER BY seq ASC;

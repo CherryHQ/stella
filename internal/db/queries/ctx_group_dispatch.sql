@@ -12,24 +12,49 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM ctx_group_dispatch
 WHERE group_message_id = ?;
 
 -- name: ListPendingGroupDispatchByMessage :many
-SELECT * FROM ctx_group_dispatch
-WHERE group_message_id = sqlc.arg(group_message_id)
-  AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
-ORDER BY created_at ASC;
+SELECT * FROM ctx_group_dispatch gd
+WHERE gd.group_message_id = sqlc.arg(group_message_id)
+  AND gd.status = 'pending'
+  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= sqlc.arg('now'))
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_dispatch earlier
+    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier.group_message_id
+    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
+    WHERE earlier.group_id = gd.group_id
+      AND earlier.agent_id = gd.agent_id
+      AND earlier_msg.seq < current_msg.seq
+      AND (
+        earlier.status = 'pending'
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?2)
+      )
+  )
+ORDER BY gd.created_at ASC;
 
 -- name: ListPendingGroupDispatch :many
-SELECT * FROM ctx_group_dispatch
-WHERE status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
-ORDER BY created_at ASC
+SELECT * FROM ctx_group_dispatch gd
+WHERE gd.status = 'pending'
+  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= sqlc.arg('now'))
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_dispatch earlier
+    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier.group_message_id
+    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
+    WHERE earlier.group_id = gd.group_id
+      AND earlier.agent_id = gd.agent_id
+      AND earlier_msg.seq < current_msg.seq
+      AND (
+        earlier.status = 'pending'
+        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?1)
+      )
+  )
+ORDER BY gd.created_at ASC
 LIMIT sqlc.arg(limit_count);
-
 -- name: ListExpiredRunningGroupDispatch :many
 SELECT * FROM ctx_group_dispatch
 WHERE status = 'running'
   AND lease_until IS NOT NULL
-  AND lease_until <= sqlc.arg(now)
+  AND lease_until <= sqlc.arg('now')
 ORDER BY lease_until ASC
 LIMIT sqlc.arg(limit_count);
 
@@ -43,7 +68,7 @@ SET status = 'running',
     updated_at = datetime('now')
 WHERE id = sqlc.arg(id)
   AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
+  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg('now'))
 RETURNING *;
 
 -- name: ClaimExpiredGroupDispatch :one
@@ -57,7 +82,7 @@ SET status = 'running',
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND lease_until IS NOT NULL
-  AND lease_until <= sqlc.arg(now)
+  AND lease_until <= sqlc.arg('now')
 RETURNING *;
 
 -- name: ExtendRunningGroupDispatchLease :execrows

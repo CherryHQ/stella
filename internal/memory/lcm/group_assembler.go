@@ -64,7 +64,10 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 	// 3.5. Persist injected messages before the live user turn so future
 	// assemblies preserve event-log chronology. Cursor movement is intentionally
 	// deferred to CommitGroupCursor after the chat succeeds.
-	injected = filterAlreadyPersistedInjected(injected, agentHistory)
+	injected, err = p.filterAlreadyPersistedInjected(ctx, convID, injected)
+	if err != nil {
+		return nil, fmt.Errorf("filter persisted injected messages: %w", err)
+	}
 	if len(injected) > 0 {
 		if err := p.Append(ctx, session, injected...); err != nil {
 			return nil, fmt.Errorf("persist between-turn messages: %w", err)
@@ -106,17 +109,31 @@ func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session
 	return nil
 }
 
-func filterAlreadyPersistedInjected(injected, history []ai.Message) []ai.Message {
-	if len(injected) == 0 || len(history) == 0 {
-		return injected
+func (p *Provider) filterAlreadyPersistedInjected(ctx context.Context, convID string, injected []ai.Message) ([]ai.Message, error) {
+	if len(injected) == 0 {
+		return injected, nil
 	}
-	seen := make(map[string]struct{}, len(history))
-	for _, msg := range history {
+	contents := make([]string, 0, len(injected))
+	for _, msg := range injected {
 		um, ok := msg.(ai.UserMessage)
 		if !ok {
 			continue
 		}
-		seen[flattenUserContent(um)] = struct{}{}
+		contents = append(contents, flattenUserContent(um))
+	}
+	if len(contents) == 0 {
+		return injected, nil
+	}
+	existingRows, err := p.q.ListExistingUserMessageContent(ctx, sqlc.ListExistingUserMessageContentParams{
+		ConversationID: convID,
+		Contents:       contents,
+	})
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(existingRows))
+	for _, content := range existingRows {
+		seen[content] = struct{}{}
 	}
 	out := injected[:0]
 	for _, msg := range injected {
@@ -130,7 +147,7 @@ func filterAlreadyPersistedInjected(injected, history []ai.Message) []ai.Message
 		}
 		out = append(out, msg)
 	}
-	return out
+	return out, nil
 }
 
 func flattenUserContent(msg ai.UserMessage) string {
@@ -176,11 +193,7 @@ func groupRowsToMessages(rows []sqlc.CtxGroupMessage, selfAgentID string) []ai.M
 		if row.ActorType == string(eventlog.ActorAgent) {
 			label = "agent:" + row.ActorID
 		}
-		msgs = append(msgs, ai.UserMessage{
-			Content: []ai.ContentBlock{ai.TextContent{
-				Text: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content),
-			}},
-		})
+		msgs = append(msgs, ai.UserMessage{Content: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content)})
 	}
 	return msgs
 }
