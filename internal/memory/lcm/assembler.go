@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -523,9 +524,10 @@ func FormatSummaryXML(sum sqlc.CtxSummary, parents []sqlc.CtxSummary) string {
 		b.WriteString("  </parents>\n")
 	}
 
+	content := memory.NeutralizeTags(sum.Content, "content", "summary")
 	b.WriteString("  <content>\n")
-	b.WriteString(sum.Content)
-	if !strings.HasSuffix(sum.Content, "\n") {
+	b.WriteString(content)
+	if !strings.HasSuffix(content, "\n") {
 		b.WriteString("\n")
 	}
 	b.WriteString("  </content>\n")
