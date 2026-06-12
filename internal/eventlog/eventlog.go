@@ -179,14 +179,8 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 // triple-based group resolution). Used for agent response writeback where the
 // groupID is already known from the dispatch flow.
 func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMessage) (AppendResult, error) {
-	if groupID == "" {
-		return AppendResult{}, errors.New("eventlog: group_id is required")
-	}
-	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
-		return AppendResult{}, fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
-	}
-	if msg.ActorID == "" {
-		return AppendResult{}, errors.New("eventlog: actor_id is required")
+	if err := validateGroupAppend(groupID, msg); err != nil {
+		return AppendResult{}, err
 	}
 
 	conn, err := s.db.Conn(ctx)
@@ -206,11 +200,29 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 	}()
 
 	q := sqlc.New(conn)
+	result, err := AppendToGroupWithQueries(ctx, q, groupID, msg)
+	if err != nil {
+		return AppendResult{}, err
+	}
+
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
+	}
+	committed = true
+	return result, nil
+}
+
+// AppendToGroupWithQueries appends to a pre-resolved group using the caller's
+// query handle. The caller owns the surrounding transaction; this helper lets
+// dispatch result markers commit atomically with agent response writeback.
+func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID string, msg GroupMessage) (AppendResult, error) {
+	if err := validateGroupAppend(groupID, msg); err != nil {
+		return AppendResult{}, err
+	}
 	seq, err := q.BumpGroupSeq(ctx, groupID)
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
 	}
-
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
 		ID:             uuid.NewString(),
 		GroupID:        groupID,
@@ -224,12 +236,20 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
 	}
-
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
-	}
-	committed = true
 	return AppendResult{GroupID: groupID, Seq: seq, Inserted: true, Message: row}, nil
+}
+
+func validateGroupAppend(groupID string, msg GroupMessage) error {
+	if groupID == "" {
+		return errors.New("eventlog: group_id is required")
+	}
+	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
+		return fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
+	}
+	if msg.ActorID == "" {
+		return errors.New("eventlog: actor_id is required")
+	}
+	return nil
 }
 
 // GroupMessage is a simplified message for direct group append (pre-resolved groupID).

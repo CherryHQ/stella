@@ -9,7 +9,10 @@ import (
 
 // GroupPublisher renders and sends an agent response stream to one concrete
 // group egress. It must not resolve sessions, call agents, or write event-log
-// rows; the dispatcher owns those cross-platform concerns.
+// rows; the dispatcher owns those cross-platform concerns. Returning nil means
+// the platform API confirmed delivery for platform publishers, or the stream was
+// fully consumed for Web publishers (client write errors do not make Web publish
+// fail; the event log is the durable delivery channel).
 type GroupPublisher interface {
 	Publish(ctx context.Context, req GroupPublishRequest) error
 }

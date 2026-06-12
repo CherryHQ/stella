@@ -472,6 +472,9 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if !ok {
 		return nil
 	}
+	if claimed.ResultMessageID != "" {
+		return d.completeDispatch(ctx, claimed)
+	}
 	ownedCtx, cancelOwned := context.WithCancel(ctx)
 	defer cancelOwned()
 	stopHeartbeat := d.startHeartbeat(ownedCtx, "dispatch", claimed.ID, func(ctx context.Context, until time.Time) (int64, error) {
@@ -498,6 +501,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
+	stream, responseC := d.wrapGroupResponseStream(ownedCtx, stream)
 	if err := publisher.Publish(ownedCtx, GroupPublishRequest{
 		GroupID:          claimed.GroupID,
 		AgentID:          claimed.AgentID,
@@ -511,14 +515,13 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	}); err != nil {
 		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", err))
 	}
-	rows, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount})
-	if err != nil {
-		return fmt.Errorf("mark dispatch completed: %w", err)
+	response := <-responseC
+	if response.complete && response.text != "" {
+		if err := d.recordDispatchResult(ctx, claimed, response); err != nil {
+			return d.failDispatch(ctx, claimed, err)
+		}
 	}
-	if rows == 0 {
-		return nil
-	}
-	return nil
+	return d.completeDispatch(ctx, claimed)
 }
 
 func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) (sqlc.CtxGroupDispatch, bool, error) {
@@ -541,6 +544,63 @@ func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDi
 	default:
 		return sqlc.CtxGroupDispatch{}, false, nil
 	}
+}
+
+func (d *GroupDispatcher) completeDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) error {
+	rows, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount})
+	if err != nil {
+		return fmt.Errorf("mark dispatch completed: %w", err)
+	}
+	if rows == 0 {
+		return nil
+	}
+	return nil
+}
+
+func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse) error {
+	if d.db == nil {
+		return errors.New("dispatcher db not configured")
+	}
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("record dispatch result: acquire conn: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("record dispatch result: begin immediate: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
+	q := sqlc.New(conn)
+	result, err := eventlog.AppendToGroupWithQueries(ctx, q, row.GroupID, eventlog.GroupMessage{
+		ActorType:      eventlog.ActorAgent,
+		ActorID:        row.AgentID,
+		Content:        response.text,
+		AgentSessionID: response.sessionID,
+	})
+	if err != nil {
+		return err
+	}
+	updated, err := q.SetGroupDispatchResultMessage(ctx, sqlc.SetGroupDispatchResultMessageParams{
+		ID:              row.ID,
+		AttemptCount:    row.AttemptCount,
+		ResultMessageID: result.Message.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("set dispatch result message: %w", err)
+	}
+	if updated == 0 {
+		return errors.New("set dispatch result message: lost dispatch ownership")
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("record dispatch result: commit: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch, override GroupPublisher) (GroupPublisher, error) {
@@ -700,7 +760,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	if err != nil {
 		return nil, err
 	}
-	return d.wrapGroupResponseStream(ctx, row.GroupID, row.AgentID, stream), nil
+	return stream, nil
 }
 
 func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
@@ -765,8 +825,15 @@ func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
 	}
 }
 
-func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, groupID, agentID string, stream *pkgchannel.ChatStream) *pkgchannel.ChatStream {
+type groupResponse struct {
+	text      string
+	sessionID string
+	complete  bool
+}
+
+func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, stream *pkgchannel.ChatStream) (*pkgchannel.ChatStream, <-chan groupResponse) {
 	out := make(chan pkgchannel.Event, 100)
+	responseC := make(chan groupResponse, 1)
 	go func() {
 		defer close(out)
 		var textBuf strings.Builder
@@ -789,20 +856,10 @@ func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, groupID, 
 		if ctx.Err() != nil {
 			sawErr = true
 		}
-		if !sawErr && textBuf.Len() > 0 && d.coord != nil && d.coord.eventLog != nil {
-			writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			defer cancel()
-			if _, err := d.coord.eventLog.AppendToGroup(writeCtx, groupID, eventlog.GroupMessage{
-				ActorType:      eventlog.ActorAgent,
-				ActorID:        agentID,
-				Content:        textBuf.String(),
-				AgentSessionID: stream.SessionID,
-			}); err != nil {
-				d.log.Warn("failed to write group response", "group_id", groupID, "agent_id", agentID, "error", err)
-			}
-		}
+		responseC <- groupResponse{text: textBuf.String(), sessionID: stream.SessionID, complete: !sawErr}
+		close(responseC)
 	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}
+	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, responseC
 }
 
 func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember, allMembersFallback bool) ArbiterDecision {

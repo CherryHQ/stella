@@ -93,6 +93,14 @@ WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
 
+-- name: SetGroupDispatchResultMessage :execrows
+UPDATE ctx_group_dispatch
+SET result_message_id = sqlc.arg(result_message_id),
+    updated_at = datetime('now')
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
+
 -- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch
 SET status = 'completed',

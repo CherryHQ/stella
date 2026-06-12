@@ -11,7 +11,6 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/eventlog"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -117,6 +116,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 	if err != nil {
 		t.Fatalf("create group message: %v", err)
 	}
+	setGroupNextSeq(t, db, state.ID, message.Seq)
 	outbox, err := q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
 		ID:             "outbox-1",
 		GroupMessageID: message.ID,
@@ -461,6 +461,191 @@ func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	}
 }
 
+func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	boom := errors.New("boom")
+	publisher := &recordingGroupPublisher{err: boom}
+	fx.d.publishers.Register("ch-1", publisher)
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "dispatch-1",
+		GroupMessageID: fx.message.ID,
+		GroupID:        "group-1",
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
+		t.Fatal("expected publisher error")
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch after failure: %v", err)
+	}
+	if dispatch.Status != "pending" || dispatch.ResultMessageID != "" {
+		t.Fatalf("dispatch status/result = %q/%q, want pending empty result", dispatch.Status, dispatch.ResultMessageID)
+	}
+	if got := countAgentGroupMessages(t, fx.db); got != 0 {
+		t.Fatalf("agent messages = %d, want 0", got)
+	}
+
+	publisher.err = nil
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'dispatch-1'`); err != nil {
+		t.Fatalf("make dispatch due: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch before retry: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("retry dispatch: %v", err)
+	}
+	if publisher.calls != 2 {
+		t.Fatalf("publisher calls = %d, want retry to republish", publisher.calls)
+	}
+}
+
+func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	publisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+	chatCalls := 0
+	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		chatCalls++
+		return textStream("ok"), nil
+	}
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "dispatch-1",
+		GroupMessageID: fx.message.ID,
+		GroupID:        "group-1",
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `CREATE TRIGGER fail_agent_writeback BEFORE INSERT ON ctx_group_message WHEN NEW.actor_type = 'agent' BEGIN SELECT RAISE(FAIL, 'fail agent writeback'); END;`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
+		t.Fatal("expected writeback error")
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch after failure: %v", err)
+	}
+	if dispatch.Status != "pending" || dispatch.ResultMessageID != "" {
+		t.Fatalf("dispatch status/result = %q/%q, want pending empty result", dispatch.Status, dispatch.ResultMessageID)
+	}
+	if got := countAgentGroupMessages(t, fx.db); got != 0 {
+		t.Fatalf("agent messages = %d, want failed transaction to append none", got)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `DROP TRIGGER fail_agent_writeback`); err != nil {
+		t.Fatalf("drop trigger: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'dispatch-1'`); err != nil {
+		t.Fatalf("make dispatch due: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch before retry: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("retry dispatch: %v", err)
+	}
+	if chatCalls != 2 {
+		t.Fatalf("chat calls = %d, want retry to rerun chat", chatCalls)
+	}
+	if got := countAgentGroupMessages(t, fx.db); got != 1 {
+		t.Fatalf("agent messages = %d, want one successful retry append", got)
+	}
+}
+
+func TestGroupDispatcherResultMessageSkipsChatPublishAndAppend(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	publisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+	chatCalls := 0
+	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		chatCalls++
+		return textStream("ok"), nil
+	}
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "dispatch-1",
+		GroupMessageID: fx.message.ID,
+		GroupID:        "group-1",
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "running",
+		AttemptCount:   1,
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'dispatch-1'`); err != nil {
+		t.Fatalf("set result marker: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch after execute: %v", err)
+	}
+	if dispatch.Status != "completed" || chatCalls != 0 || publisher.calls != 0 {
+		t.Fatalf("status/chat/publish = %q/%d/%d, want completed/0/0", dispatch.Status, chatCalls, publisher.calls)
+	}
+	if got := countAgentGroupMessages(t, fx.db); got != 0 {
+		t.Fatalf("agent messages = %d, want 0", got)
+	}
+}
+
+func TestGroupDispatcherWebWriteErrorStillRecordsResult(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	publisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "dispatch-1",
+		GroupMessageID: fx.message.ID,
+		GroupID:        "group-1",
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "dispatch-1")
+	if err != nil {
+		t.Fatalf("get dispatch after execute: %v", err)
+	}
+	if dispatch.ResultMessageID == "" || dispatch.Status != "completed" {
+		t.Fatalf("dispatch status/result = %q/%q, want completed result", dispatch.Status, dispatch.ResultMessageID)
+	}
+}
+
 func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.maxAttempts = 1
@@ -723,28 +908,37 @@ func dispatchStatusByMessage(t *testing.T, db *sql.DB, messageID string) string 
 	return status
 }
 
+func countAgentGroupMessages(t *testing.T, db *sql.DB) int {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ctx_group_message WHERE actor_type = 'agent'`).Scan(&count); err != nil {
+		t.Fatalf("count agent messages: %v", err)
+	}
+	return count
+}
+
 func TestWrapGroupResponseStreamSkipsWritebackOnErrEvent(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.coord.eventLog = eventlog.NewStore(fx.db)
-	setGroupNextSeq(t, fx.db, fx.message.GroupID, 1)
 	stream := make(chan pkgchannel.Event, 2)
 	stream <- pkgchannel.Event{Text: "partial"}
 	stream <- pkgchannel.Event{Err: errors.New("boom")}
 	close(stream)
 
-	wrapped := fx.d.wrapGroupResponseStream(context.Background(), fx.message.GroupID, "agent-1", &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
+	wrapped, responseC := fx.d.wrapGroupResponseStream(context.Background(), &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
 	for range wrapped.Events {
+	}
+	response := <-responseC
+	if response.complete {
+		t.Fatalf("response.complete = true, want false")
 	}
 	assertNoAgentGroupMessages(t, fx.db)
 }
 
 func TestWrapGroupResponseStreamSkipsWritebackAfterCancel(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.coord.eventLog = eventlog.NewStore(fx.db)
-	setGroupNextSeq(t, fx.db, fx.message.GroupID, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	stream := make(chan pkgchannel.Event)
-	wrapped := fx.d.wrapGroupResponseStream(ctx, fx.message.GroupID, "agent-1", &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
+	wrapped, responseC := fx.d.wrapGroupResponseStream(ctx, &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
 
 	stream <- pkgchannel.Event{Text: "partial"}
 	cancel()
@@ -752,39 +946,27 @@ func TestWrapGroupResponseStreamSkipsWritebackAfterCancel(t *testing.T) {
 	close(stream)
 	for range wrapped.Events {
 	}
+	response := <-responseC
+	if response.complete {
+		t.Fatalf("response.complete = true, want false")
+	}
 	assertNoAgentGroupMessages(t, fx.db)
 }
 
-func TestWrapGroupResponseStreamWritesBackCompleteStream(t *testing.T) {
+func TestWrapGroupResponseStreamBuffersCompleteStream(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.coord.eventLog = eventlog.NewStore(fx.db)
-	setGroupNextSeq(t, fx.db, fx.message.GroupID, 1)
 	stream := make(chan pkgchannel.Event, 2)
 	stream <- pkgchannel.Event{Text: "complete"}
 	close(stream)
 
-	wrapped := fx.d.wrapGroupResponseStream(context.Background(), fx.message.GroupID, "agent-1", &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
+	wrapped, responseC := fx.d.wrapGroupResponseStream(context.Background(), &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
 	for range wrapped.Events {
 	}
-	rows, err := fx.db.QueryContext(context.Background(), `SELECT content FROM ctx_group_message WHERE actor_type = 'agent'`)
-	if err != nil {
-		t.Fatalf("query agent messages: %v", err)
+	response := <-responseC
+	if !response.complete || response.text != "complete" || response.sessionID != "session-1" {
+		t.Fatalf("response = %+v, want complete buffered response", response)
 	}
-	defer func() { _ = rows.Close() }()
-	var got []string
-	for rows.Next() {
-		var content string
-		if err := rows.Scan(&content); err != nil {
-			t.Fatalf("scan content: %v", err)
-		}
-		got = append(got, content)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows: %v", err)
-	}
-	if !slices.Equal(got, []string{"complete"}) {
-		t.Fatalf("agent messages = %v, want complete", got)
-	}
+	assertNoAgentGroupMessages(t, fx.db)
 }
 
 func setGroupNextSeq(t *testing.T, db *sql.DB, groupID string, seq int64) {
