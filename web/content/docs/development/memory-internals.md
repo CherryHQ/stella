@@ -174,7 +174,7 @@ ai.Message (user/assistant/tool_result)
 
 ### Compaction
 
-Compaction reduces the conversation window by summarizing older messages and summaries.
+Compaction reduces the conversation window by summarizing older messages and summaries. If the provider has no summarizer, compaction is disabled and no empty-summary fallback is used.
 
 1. **Leaf pass** — groups contiguous message items outside the fresh tail. Groups of 10+ messages become `leaf` summaries.
 2. **Condensed pass** — groups summaries at the same depth. Groups of 2+ summaries become a higher-depth `condensed` summary.
@@ -194,13 +194,13 @@ Summarization escalates from normal mode, to aggressive durable-facts mode, to d
 
 ### Context Assembly
 
-1. Separate context items into **fresh tail** (last N message items, default 20) and **older** items.
-2. Resolve fresh tail items to `ai.Message`s.
-3. Replace large processed tool results (>2000 tokens) in the tail with a compact placeholder, preserving `ToolCallID`, `ToolName`, `IsError`, and `Timestamp` so the model knows the content was omitted and can re-invoke the tool if needed. Tool results that are still in-flight (no assistant reply yet) are passed through at full size.
-4. Compute tail token cost against the already-compacted tail, then fill remaining budget with older items, newest first.
-5. Return older events in chronological order followed by the tail.
-
-> **Note:** `defaultFreshTail` counts `CtxItem` rows, not conversation turns. A single agent turn with multiple tool calls can produce 4+ items (user message + assistant text + tool calls + tool results). If your sessions are tool-heavy and the typical item-per-turn ratio is high, you may need to raise `fresh_tail` via plugin config after observing telemetry.
+1. Separate context items into **fresh tail** (last N user turns, default 6) and **older** items. A turn starts at a user message and includes every following item until the next user message.
+2. If the turn-based tail would contain more than 120 message items, fall back to the last 120 message items with tool-pair boundary correction. This keeps degenerate single-user agent loops compactable.
+3. Resolve fresh tail items to `ai.Message`s.
+4. Replace large processed tool results (>2000 tokens) in the tail with a compact placeholder, preserving `ToolCallID`, `ToolName`, `IsError`, and `Timestamp` so the model knows the content was omitted and can re-invoke the tool if needed. Tool results that are still in-flight (no assistant reply yet) are passed through at full size.
+5. During assembly only, cap the fresh tail at 40% of the token budget by demoting whole oldest tail turns back into older budget competition. At least one turn always remains in the tail. The cap is evaluated against the placeholder-compacted tail, so an oversized tool result does not demote its own turn.
+6. Compute tail token cost against the already-compacted tail, then fill remaining budget with older items, newest first.
+7. Return older events in chronological order followed by the tail.
 
 Every assembly emits a structured log entry (`lcm tail telemetry`) with `tail_items`, `tail_messages`, `user_turns`, `items_per_turn`, and `tool_results_before/after` for observability-driven tuning.
 
@@ -248,12 +248,12 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 ## Configuration Defaults
 
-| Constant                    | Value | Description                                                            |
-| --------------------------- | ----- | ---------------------------------------------------------------------- |
-| `DefaultFreshTail`          | 20    | Messages protected from compaction                                     |
-| `DefaultContextThreshold`   | 0.75  | Fraction of budget that triggers compaction                            |
-| `DefaultLeafChunkSize`      | 10    | Minimum messages per leaf summary                                      |
-| `OversizedToolResultTokens` | 2000  | Tail tool results above this threshold are replaced with a placeholder |
+| Constant                     | Value | Description                                                            |
+| ---------------------------- | ----- | ---------------------------------------------------------------------- |
+| `DefaultFreshTail`           | 6     | User turns protected from compaction                                   |
+| `CompactionConfig.MaxTokens` | 80000 | Absolute context token count that triggers compaction                  |
+| `DefaultLeafChunkSize`       | 10    | Minimum messages per leaf summary                                      |
+| `OversizedToolResultTokens`  | 2000  | Tail tool results above this threshold are replaced with a placeholder |
 
 ## Agent Workspaces
 

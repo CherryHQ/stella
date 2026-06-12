@@ -31,7 +31,8 @@ type Runtime struct {
 // CompactionConfig controls automatic compaction thresholds.
 type CompactionConfig struct {
 	MaxTokens int
-	KeepTail  int
+	// KeepTail is the number of recent user turns preserved verbatim.
+	KeepTail int
 }
 
 // WithDefaults returns the config with zero values replaced by defaults.
@@ -40,7 +41,7 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 		c.MaxTokens = 80_000
 	}
 	if c.KeepTail == 0 {
-		c.KeepTail = 20
+		c.KeepTail = 6
 	}
 	return c
 }

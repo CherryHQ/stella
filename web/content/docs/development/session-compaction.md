@@ -22,8 +22,8 @@ without requiring the user to manually start a new session.
 
 The core idea is borrowed from the "handoff" pattern used by coding agents: when
 context gets too large, ask the LLM itself to produce a self-contained summary,
-then replace the old history with that summary plus a small tail of recent
-messages.
+then replace the old history with that summary plus a small tail of recent user
+turns.
 
 ```
 Before compaction:
@@ -32,19 +32,19 @@ Before compaction:
 │ message 1                        │
 │ message 2                        │
 │ ...                              │
-│ message N-20                     │
-│ message N-19                     │  ← kept verbatim
+│ older turn                       │
+│ fresh-tail turn 1                │  ← kept verbatim
 │ ...                              │
-│ message N                        │
+│ fresh-tail turn 6                │
 └──────────────────────────────────┘
 
 After compaction:
 ┌──────────────────────────────────┐
 │ session header                   │
 │ compaction { summary }           │  ← LLM-generated summary
-│ message N-19                     │  ← last 20 messages kept
+│ fresh-tail turn 1                │  ← last 6 user turns kept
 │ ...                              │
-│ message N                        │
+│ fresh-tail turn 6                │
 └──────────────────────────────────┘
 ```
 
@@ -121,8 +121,8 @@ the settings API.
 
 Fields:
 
-- `max_tokens`: auto-compact threshold (default: 80,000; set to `-1` to disable)
-- `keep_tail`: recent messages to preserve verbatim (default: 20)
+- `max_tokens`: auto-compact threshold as an absolute token count (default: 80,000; set to `-1` to disable)
+- `keep_tail`: recent user turns to preserve verbatim (default: 6)
 
 Both fields have defaults applied via `CompactionConfig.WithDefaults()`.
 

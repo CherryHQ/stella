@@ -33,21 +33,19 @@ var (
 // Provider implements memory.Provider and all six capability interfaces
 // using the lossless context management algorithm.
 type Provider struct {
-	db         *sql.DB
-	q          *sqlc.Queries
-	assembler  *assembler
-	compaction *compactionEngine
-	retrieval  *retrievalEngine
-	summarizer memory.Summarizer
-	sessionMu  map[string]*sync.Mutex
-	globalMu   sync.Mutex
-	freshTail  int
-	log        *slog.Logger
+	db           *sql.DB
+	q            *sqlc.Queries
+	assembler    *assembler
+	compaction   *compactionEngine
+	retrieval    *retrievalEngine
+	summarizer   memory.Summarizer
+	sessionLocks [sessionLockStripes]sync.Mutex
+	freshTail    int
+	log          *slog.Logger
 }
 
 // New creates a new LCM provider.
-// summarizerFn provides LLM access for compaction; if nil, a deterministic
-// truncation fallback is used.
+// summarizerFn provides LLM access for compaction; if nil, compaction is disabled.
 // cfg is the plugin-specific configuration from the plugin.config JSON.
 func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (string, error), cfg map[string]any) (*Provider, error) {
 	q := sqlc.New(db)
@@ -62,8 +60,6 @@ func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (stri
 	var summarizer memory.Summarizer
 	if summarizerFn != nil {
 		summarizer = &memory.LLMSummarizer{Generate: summarizerFn}
-	} else {
-		summarizer = &memory.StaticSummarizer{Response: ""}
 	}
 
 	p := &Provider{
@@ -71,7 +67,6 @@ func New(db *sql.DB, summarizerFn func(ctx context.Context, prompt string) (stri
 		q:         q,
 		assembler: newAssembler(q, slog.Default()),
 		retrieval: newRetrievalEngine(q),
-		sessionMu: make(map[string]*sync.Mutex),
 		freshTail: freshTail,
 		log:       slog.Default(),
 	}
@@ -141,6 +136,7 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 					ItemType:       itemTypeMessage,
 					MessageID:      sql.NullString{String: dbMsg.ID, Valid: true},
 					EventType:      row.eventType,
+					Role:           row.role,
 				})
 				if err != nil {
 					return fmt.Errorf("append context item: %w", err)
@@ -199,11 +195,12 @@ func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.Se
 		SummaryCount: len(summaries),
 	}
 
-	msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
-	if err == nil && len(msgs) > 0 {
-		stats.OldestAt = parseTime(msgs[0].CreatedAt)
-		stats.NewestAt = parseTime(msgs[len(msgs)-1].CreatedAt)
+	bounds, err := p.q.GetConversationTimeBounds(ctx, conv.ID)
+	if err != nil {
+		return memory.SessionStats{}, fmt.Errorf("get conversation time bounds: %w", err)
 	}
+	stats.OldestAt = parseTime(sqlTimeString(bounds.EarliestAt))
+	stats.NewestAt = parseTime(sqlTimeString(bounds.LatestAt))
 
 	return stats, nil
 }
@@ -215,6 +212,9 @@ func (p *Provider) Close() error {
 
 // NeedsCompaction implements memory.Compactor.
 func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, threshold float64) bool {
+	if p.summarizer == nil {
+		return false
+	}
 	if session.GroupID != "" {
 		return false
 	}
@@ -285,6 +285,10 @@ func (p *Provider) summaryDepths(ctx context.Context, items []sqlc.CtxItem) (map
 
 // Compact implements memory.Compactor.
 func (p *Provider) Compact(ctx context.Context, session memory.Session, mode memory.CompactionMode) (*memory.CompactionResult, error) {
+	if p.summarizer == nil {
+		p.log.Debug("compaction disabled: no summarizer")
+		return nil, nil
+	}
 	var result *memory.CompactionResult
 	err := p.withSessionLock(session.ID, func() error {
 		convID, cErr := p.getOrCreateConversation(ctx, session)
@@ -309,6 +313,21 @@ func toInt(v any) (int, bool) {
 		return int(n), true
 	default:
 		return 0, false
+	}
+}
+
+func sqlTimeString(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	case time.Time:
+		return t.UTC().Format(time.RFC3339)
+	default:
+		return ""
 	}
 }
 

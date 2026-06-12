@@ -319,6 +319,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID string,
 		Ordinal:        run.startOrd, // reuse start ordinal
 		ItemType:       itemTypeSummary,
 		SummaryID:      sql.NullString{String: sumID, Valid: true},
+		Role:           "",
 	})
 	if err != nil {
 		return fmt.Errorf("insert summary context item: %w", err)
@@ -550,6 +551,7 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID string
 		Ordinal:        run.startOrd,
 		ItemType:       itemTypeSummary,
 		SummaryID:      sql.NullString{String: sumID, Valid: true},
+		Role:           "",
 	})
 	if err != nil {
 		return fmt.Errorf("insert condensed context item: %w", err)

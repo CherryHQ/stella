@@ -49,8 +49,8 @@ type Provider interface {
 
 	// Assemble builds the context window to send to the LLM.
 	// budget: maximum number of tokens the returned messages may consume.
-	// freshTail: minimum number of recent messages to always include verbatim,
-	//   regardless of budget pressure. Implementations MUST honour this.
+	// freshTail: number of recent user turns to prefer verbatim. Implementations
+	//   may apply safety caps so oversized tails do not consume the whole budget.
 	// Returns messages in chronological order (oldest first).
 	// Older content that does not fit in the budget is either summarised
 	// (if the plugin supports Compactor) or omitted.
@@ -105,9 +105,8 @@ type CompactionResult struct {
 // Compactor is implemented by providers that support background compaction.
 // The runtime calls NeedsCompaction before each chat turn and Compact when needed.
 type Compactor interface {
-	// NeedsCompaction returns true if the session's context has grown large enough
-	// to warrant compaction. threshold is a fraction of the session's token budget
-	// (e.g. 0.75 means "compact when context is 75% full").
+	// NeedsCompaction returns true if the session's context token count exceeds
+	// threshold, an absolute token count.
 	NeedsCompaction(ctx context.Context, session Session, threshold float64) bool
 
 	// Compact runs the compaction algorithm on the session.

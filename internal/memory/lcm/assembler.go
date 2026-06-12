@@ -11,7 +11,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-const olderResolveBatchSize = 32
+const (
+	olderResolveBatchSize = 32
+	maxFreshTailItems     = 120
+	tailTokenCapFraction  = 0.4
+)
 
 // assembler builds context for the model within a token budget.
 type assembler struct {
@@ -27,7 +31,7 @@ func newAssembler(q *sqlc.Queries, log *slog.Logger) *assembler {
 }
 
 // assemble builds a context window from context_items, respecting the token budget.
-// It protects the freshTail most recent raw messages from being excluded.
+// It protects the freshTail most recent user turns from being excluded, subject to a tail token cap.
 // Returns ai.Messages for direct use by the runner pipeline.
 func (a *assembler) assemble(ctx context.Context, convID string, budget int, freshTail int) ([]ai.Message, error) {
 	items, err := a.q.GetContextItems(ctx, convID)
@@ -38,24 +42,42 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 		return nil, nil
 	}
 
-	// Separate fresh tail (last N message items) from older items.
-	tail, older := splitFreshTail(items, freshTail)
+	// Separate fresh tail (last N user turns) from older items.
+	splitIdx := splitFreshTailIndex(items, freshTail)
+	tail := items[splitIdx:]
+	older := items[:splitIdx]
 	tailMessages, err := a.loadMessagesByItem(ctx, tail)
 	if err != nil {
 		return nil, err
 	}
-	tailSummaries, err := a.loadSummariesByItem(ctx, tail)
+	tailSummaries, tailParents, err := a.loadSummariesByItem(ctx, tail)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve fresh tail — these are always included.
-	tailMsgs, err := a.resolveItemsFromCaches(ctx, tail, tailMessages, tailSummaries)
+	// Resolve fresh tail — these are always included unless the token cap pushes
+	// whole oldest turns back into older budget competition below.
+	tailMsgs, tailTokens, compacted, err := resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
+	for tailTokenCap := int(float64(budget) * tailTokenCapFraction); tailTokens > tailTokenCap && tailTurnCount(tail) > 1; {
+		nextSplitIdx, ok := advancePastOldestTurn(items, splitIdx)
+		// The pair correction inside advancePastOldestTurn can walk the split
+		// point back; without forward progress this loop would never terminate.
+		if !ok || nextSplitIdx <= splitIdx {
+			break
+		}
+		splitIdx = nextSplitIdx
+		tail = items[splitIdx:]
+		older = items[:splitIdx]
+		tailMsgs, tailTokens, compacted, err = resolveTailFromCaches(tail, tailMessages, tailSummaries, tailParents)
+		if err != nil {
+			return nil, fmt.Errorf("resolve tail: %w", err)
+		}
+	}
 
-	// Telemetry: count turns and tool results before compaction.
+	// Telemetry: count turns and tool results in the final tail.
 	userTurns := 0
 	toolResults := 0
 	for _, m := range tailMsgs {
@@ -67,9 +89,6 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 		}
 	}
 
-	var compacted int
-	tailMsgs, compacted = compactOversizedTailResults(tailMsgs)
-
 	itemsPerTurn := float64(len(tailMsgs)) / float64(max(userTurns, 1))
 	a.log.Info("lcm tail telemetry",
 		slog.Int("tail_items", len(tail)),
@@ -79,11 +98,6 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 		slog.Int("tool_results", toolResults),
 		slog.Int("tool_results_compacted", compacted),
 	)
-
-	tailTokens := 0
-	for _, m := range tailMsgs {
-		tailTokens += estimateMessageTokens(m)
-	}
 
 	remaining := max(budget-tailTokens, 0)
 
@@ -154,21 +168,58 @@ func compactOversizedTailResults(msgs []ai.Message) ([]ai.Message, int) {
 	return result, compacted
 }
 
-// splitFreshTail separates the last freshTail message-type items from the rest.
+// splitFreshTail separates the last freshTail user turns from the rest.
 // The split point is adjusted so it never lands inside a tool_call/tool_result pair.
 func splitFreshTail(items []sqlc.CtxItem, freshTail int) (tail []sqlc.CtxItem, older []sqlc.CtxItem) {
-	// Count message items from the end.
-	msgCount := 0
-	splitIdx := len(items)
+	splitIdx := splitFreshTailIndex(items, freshTail)
+	return items[splitIdx:], items[:splitIdx]
+}
+
+func splitFreshTailIndex(items []sqlc.CtxItem, freshTail int) int {
+	if freshTail <= 0 {
+		return correctToolPairSplit(items, len(items))
+	}
+
+	turnCount := 0
+	splitIdx := 0
+	found := false
 	for i := len(items) - 1; i >= 0; i-- {
-		if items[i].ItemType == itemTypeMessage {
-			msgCount++
-			if msgCount >= freshTail {
+		if items[i].ItemType == itemTypeMessage && items[i].Role == roleUser {
+			turnCount++
+			if turnCount >= freshTail {
 				splitIdx = i
+				found = true
 				break
 			}
 		}
 	}
+	if !found {
+		splitIdx = 0
+	}
+	if countMessageItems(items[splitIdx:]) > maxFreshTailItems {
+		splitIdx = splitLastMessageItemsIndex(items, maxFreshTailItems)
+	}
+	return correctToolPairSplit(items, splitIdx)
+}
+
+func splitLastMessageItemsIndex(items []sqlc.CtxItem, limit int) int {
+	if limit <= 0 {
+		return len(items)
+	}
+	msgCount := 0
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].ItemType != itemTypeMessage {
+			continue
+		}
+		msgCount++
+		if msgCount >= limit {
+			return i
+		}
+	}
+	return 0
+}
+
+func correctToolPairSplit(items []sqlc.CtxItem, splitIdx int) int {
 	// Pull tool_results at the split boundary into the tail so they stay
 	// with their tool_calls (which are at lower ordinals, already in tail).
 	// Conversely, if the last item in "older" is a tool_call whose result
@@ -182,7 +233,36 @@ func splitFreshTail(items []sqlc.CtxItem, freshTail int) (tail []sqlc.CtxItem, o
 		items[splitIdx-1].EventType == eventTypeToolCall {
 		splitIdx--
 	}
-	return items[splitIdx:], items[:splitIdx]
+	return splitIdx
+}
+
+func countMessageItems(items []sqlc.CtxItem) int {
+	count := 0
+	for _, item := range items {
+		if item.ItemType == itemTypeMessage {
+			count++
+		}
+	}
+	return count
+}
+
+func tailTurnCount(items []sqlc.CtxItem) int {
+	count := 0
+	for _, item := range items {
+		if item.ItemType == itemTypeMessage && item.Role == roleUser {
+			count++
+		}
+	}
+	return count
+}
+
+func advancePastOldestTurn(items []sqlc.CtxItem, splitIdx int) (int, bool) {
+	for i := splitIdx + 1; i < len(items); i++ {
+		if items[i].ItemType == itemTypeMessage && items[i].Role == roleUser {
+			return correctToolPairSplit(items, i), true
+		}
+	}
+	return splitIdx, false
 }
 
 func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.CtxItem, remaining int) ([]ai.Message, error) {
@@ -194,13 +274,13 @@ func (a *assembler) resolveOlderWithinBudget(ctx context.Context, older []sqlc.C
 		if err != nil {
 			return nil, err
 		}
-		summaries, err := a.loadSummariesByItem(ctx, batch)
+		summaries, parents, err := a.loadSummariesByItem(ctx, batch)
 		if err != nil {
 			return nil, err
 		}
 		for i := len(batch) - 1; i >= 0; i-- {
 			item := batch[i]
-			msgs, err := a.resolveItemsFromCaches(ctx, batch[i:i+1], messages, summaries)
+			msgs, err := resolveItemsFromCaches(batch[i:i+1], messages, summaries, parents)
 			if err != nil {
 				return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
 			}
@@ -248,8 +328,24 @@ func stripTrailingOrphanResults(msgs []ai.Message) []ai.Message {
 	return msgs
 }
 
+// resolveTailFromCaches resolves tail items and replaces oversized processed
+// tool results with placeholders before costing, so the token cap and the
+// remaining-budget computation both see what the model will actually receive.
+func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary) ([]ai.Message, int, int, error) {
+	msgs, err := resolveItemsFromCaches(items, messages, summaries, parents)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	msgs, compacted := compactOversizedTailResults(msgs)
+	tokens := 0
+	for _, msg := range msgs {
+		tokens += estimateMessageTokens(msg)
+	}
+	return msgs, tokens, compacted, nil
+}
+
 // resolveItemsFromCaches resolves a slice of context items to ai.Messages.
-func (a *assembler) resolveItemsFromCaches(ctx context.Context, items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary) ([]ai.Message, error) {
+func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary) ([]ai.Message, error) {
 	var result []ai.Message
 	for _, item := range items {
 		switch item.ItemType {
@@ -271,11 +367,7 @@ func (a *assembler) resolveItemsFromCaches(ctx context.Context, items []sqlc.Ctx
 			if !ok {
 				return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, sql.ErrNoRows)
 			}
-			parents, err := a.q.GetSummaryParents(ctx, sum.ID)
-			if err != nil {
-				return nil, fmt.Errorf("get summary parents %s: %w", sum.ID, err)
-			}
-			result = append(result, ai.UserMessage{Content: FormatSummaryXML(sum, parents)})
+			result = append(result, ai.UserMessage{Content: FormatSummaryXML(sum, parents[sum.ID])})
 		}
 	}
 	return result, nil
@@ -308,7 +400,7 @@ func (a *assembler) loadMessagesByItem(ctx context.Context, items []sqlc.CtxItem
 	return out, nil
 }
 
-func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxSummary, error) {
+func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxItem) (map[string]sqlc.CtxSummary, map[string][]sqlc.CtxSummary, error) {
 	idsByConversation := make(map[string][]string)
 	seen := make(map[string]struct{})
 	for _, item := range items {
@@ -323,16 +415,25 @@ func (a *assembler) loadSummariesByItem(ctx context.Context, items []sqlc.CtxIte
 		idsByConversation[item.ConversationID] = append(idsByConversation[item.ConversationID], item.SummaryID.String)
 	}
 	out := make(map[string]sqlc.CtxSummary)
+	parents := make(map[string][]sqlc.CtxSummary)
 	for convID, ids := range idsByConversation {
 		rows, err := a.q.ListSummariesByIDs(ctx, sqlc.ListSummariesByIDsParams{ConversationID: convID, SummaryIds: ids})
 		if err != nil {
-			return nil, fmt.Errorf("list summaries: %w", err)
+			return nil, nil, fmt.Errorf("list summaries: %w", err)
 		}
 		for _, row := range rows {
 			out[row.ID] = row
 		}
+
+		parentRefs, err := a.q.ListSummaryParentsBySummaryIDs(ctx, ids)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list summary parents: %w", err)
+		}
+		for _, ref := range parentRefs {
+			parents[ref.SummaryID] = append(parents[ref.SummaryID], sqlc.CtxSummary{ID: ref.ParentSummaryID})
+		}
 	}
-	return out, nil
+	return out, parents, nil
 }
 
 // sanitizeToolPairs is a defense-in-depth pass that enforces the tool pairing

@@ -117,9 +117,9 @@ func TestCompactionConfigWithDefaults(t *testing.T) {
 		wantMaxTokens int
 		wantKeepTail  int
 	}{
-		{"zero values get defaults", CompactionConfig{}, 80_000, 20},
+		{"zero values get defaults", CompactionConfig{}, 80_000, 6},
 		{"custom values preserved", CompactionConfig{MaxTokens: 50_000, KeepTail: 10}, 50_000, 10},
-		{"negative MaxTokens preserved", CompactionConfig{MaxTokens: -1}, -1, 20},
+		{"negative MaxTokens preserved", CompactionConfig{MaxTokens: -1}, -1, 6},
 		{"partial override", CompactionConfig{KeepTail: 5}, 80_000, 5},
 	}
 	for _, tt := range tests {

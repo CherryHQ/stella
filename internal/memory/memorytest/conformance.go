@@ -75,14 +75,14 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 	})
 
 	t.Run("Assemble_freshTail", func(t *testing.T) {
-		// Assemble with very small budget but freshTail=3.
-		// Should always get at least 3 messages.
-		got, err := provider.Assemble(ctx, session, 1, 3)
+		// Assemble with freshTail=3 turns and enough budget to avoid provider-specific
+		// tail token caps. Should get at least 3 messages.
+		got, err := provider.Assemble(ctx, session, 100000, 3)
 		if err != nil {
 			t.Fatalf("Assemble: %v", err)
 		}
 		if len(got) < 3 {
-			t.Errorf("freshTail=3 but got %d messages", len(got))
+			t.Errorf("freshTail=3 turns but got %d messages", len(got))
 		}
 	})
 

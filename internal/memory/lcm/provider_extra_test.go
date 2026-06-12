@@ -62,9 +62,77 @@ func newLCMTestSession(suffix string) memory.Session {
 	}
 }
 
+func TestLCMProvider_StatsUsesConversationTimeBounds(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := context.Background()
+	emptySess := newLCMTestSession("stats-empty")
+	if err := p.Bootstrap(ctx, emptySess); err != nil {
+		t.Fatalf("bootstrap empty: %v", err)
+	}
+	emptyStats, err := p.Stats(ctx, emptySess)
+	if err != nil {
+		t.Fatalf("stats empty: %v", err)
+	}
+	if !emptyStats.OldestAt.IsZero() || !emptyStats.NewestAt.IsZero() {
+		t.Fatalf("empty bounds = %v/%v, want zero times", emptyStats.OldestAt, emptyStats.NewestAt)
+	}
+
+	sess := newLCMTestSession("stats-bounds")
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if err := p.Append(ctx, sess,
+		ai.UserMessage{Content: "first"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "middle"}}},
+		ai.UserMessage{Content: "last"},
+	); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	oldest := "2024-01-01 01:02:03"
+	newest := "2024-01-03 04:05:06"
+	if _, err := db.ExecContext(ctx, `
+		UPDATE ctx_message
+		SET created_at = CASE seq
+			WHEN 1 THEN ?
+			WHEN 2 THEN '2024-01-02 02:03:04'
+			WHEN 3 THEN ?
+			ELSE created_at
+		END
+		WHERE conversation_id = (SELECT id FROM ctx_conversation WHERE session_id = ?)
+	`, oldest, newest, sess.ID); err != nil {
+		t.Fatalf("set message timestamps: %v", err)
+	}
+
+	stats, err := p.Stats(ctx, sess)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	wantOldest, _ := time.Parse("2006-01-02 15:04:05", oldest)
+	wantNewest, _ := time.Parse("2006-01-02 15:04:05", newest)
+	if !stats.OldestAt.Equal(wantOldest) || !stats.NewestAt.Equal(wantNewest) {
+		t.Fatalf("bounds = %v/%v, want %v/%v", stats.OldestAt, stats.NewestAt, wantOldest, wantNewest)
+	}
+}
+
 func TestLCMProvider_RequiresSessionUserAndAgentScope(t *testing.T) {
-	p, cleanup := newLCMTestProvider(t)
-	defer cleanup()
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	lcmProvider, err := lcm.New(db, func(context.Context, string) (string, error) { return "summary", nil }, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = lcmProvider.Close() }()
+	var p memory.Provider = lcmProvider
 
 	ctx := context.Background()
 	base := newLCMTestSession("missing-scope")
@@ -189,6 +257,48 @@ func TestLCMProvider_CompactSummarizerCanReadDB(t *testing.T) {
 	}
 	if content != "summary from db-backed summarizer" {
 		t.Fatalf("summary content = %q", content)
+	}
+}
+
+func TestLCMProvider_NilSummarizerDisablesCompaction(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := context.Background()
+	sess := newLCMTestSession("nil-summarizer")
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 16 {
+		if err := p.Append(ctx, sess, ai.UserMessage{Content: fmt.Sprintf("message %02d with enough content", i)}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	var compactor memory.Compactor = p
+	if compactor.NeedsCompaction(ctx, sess, 0) {
+		t.Fatal("nil summarizer should disable NeedsCompaction")
+	}
+	result, err := compactor.Compact(ctx, sess, memory.CompactionIncremental)
+	if err != nil {
+		t.Fatalf("compact with nil summarizer: %v", err)
+	}
+	if result != nil {
+		t.Fatalf("compact with nil summarizer result = %#v, want nil", result)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_summary`).Scan(&count); err != nil {
+		t.Fatalf("count summaries: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("ctx_summary rows = %d, want 0", count)
 	}
 }
 

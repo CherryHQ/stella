@@ -11,8 +11,8 @@ import (
 )
 
 const appendContextItem = `-- name: AppendContextItem :exec
-INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type, role)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type AppendContextItemParams struct {
@@ -22,6 +22,7 @@ type AppendContextItemParams struct {
 	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
 	EventType      string         `json:"event_type"`
+	Role           string         `json:"role"`
 }
 
 func (q *Queries) AppendContextItem(ctx context.Context, arg AppendContextItemParams) error {
@@ -32,6 +33,7 @@ func (q *Queries) AppendContextItem(ctx context.Context, arg AppendContextItemPa
 		arg.MessageID,
 		arg.SummaryID,
 		arg.EventType,
+		arg.Role,
 	)
 	return err
 }
@@ -73,7 +75,7 @@ func (q *Queries) GetContextItemCount(ctx context.Context, conversationID string
 }
 
 const getContextItems = `-- name: GetContextItems :many
-SELECT conversation_id, ordinal, item_type, message_id, summary_id, event_type, created_at FROM ctx_item
+SELECT conversation_id, ordinal, item_type, message_id, summary_id, event_type, role, created_at FROM ctx_item
 WHERE conversation_id = ?
 ORDER BY ordinal ASC
 `
@@ -94,6 +96,7 @@ func (q *Queries) GetContextItems(ctx context.Context, conversationID string) ([
 			&i.MessageID,
 			&i.SummaryID,
 			&i.EventType,
+			&i.Role,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -110,7 +113,7 @@ func (q *Queries) GetContextItems(ctx context.Context, conversationID string) ([
 }
 
 const getContextMessageItems = `-- name: GetContextMessageItems :many
-SELECT ci.conversation_id, ci.ordinal, ci.item_type, ci.message_id, ci.summary_id, ci.event_type, ci.created_at, m.token_count as msg_token_count
+SELECT ci.conversation_id, ci.ordinal, ci.item_type, ci.message_id, ci.summary_id, ci.event_type, ci.role, ci.created_at, m.token_count as msg_token_count
 FROM ctx_item ci
 JOIN ctx_message m ON ci.message_id = m.id
 WHERE ci.conversation_id = ? AND ci.item_type = 'message'
@@ -124,6 +127,7 @@ type GetContextMessageItemsRow struct {
 	MessageID      sql.NullString `json:"message_id"`
 	SummaryID      sql.NullString `json:"summary_id"`
 	EventType      string         `json:"event_type"`
+	Role           string         `json:"role"`
 	CreatedAt      string         `json:"created_at"`
 	MsgTokenCount  int64          `json:"msg_token_count"`
 }
@@ -144,6 +148,7 @@ func (q *Queries) GetContextMessageItems(ctx context.Context, conversationID str
 			&i.MessageID,
 			&i.SummaryID,
 			&i.EventType,
+			&i.Role,
 			&i.CreatedAt,
 			&i.MsgTokenCount,
 		); err != nil {

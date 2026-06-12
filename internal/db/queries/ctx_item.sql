@@ -1,6 +1,6 @@
 -- name: AppendContextItem :exec
-INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, summary_id, event_type, role)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetContextItems :many
 SELECT * FROM ctx_item

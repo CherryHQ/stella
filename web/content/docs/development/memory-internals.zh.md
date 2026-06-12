@@ -174,7 +174,7 @@ ai.Message (user/assistant/tool_result)
 
 ### 压缩
 
-压缩通过摘要旧消息和摘要来减少对话窗口。
+压缩通过摘要旧消息和摘要来减少对话窗口。如果 provider 没有 summarizer，压缩会被禁用，不再使用空摘要回退。
 
 1. **叶子遍历** —— 将 fresh tail 之外的连续消息项分组。10 条以上的消息组会变成 `leaf` 摘要。
 2. **聚合遍历** —— 将相同深度的摘要分组。2 个以上的摘要组会变成更高深度的 `condensed` 摘要。
@@ -194,13 +194,13 @@ ai.Message (user/assistant/tool_result)
 
 ### 上下文组装
 
-1. 将上下文项分为 **fresh tail**（最后 N 个消息项，默认 20）和较旧项。
-2. 将 fresh tail 解析为 `ai.Message`。
-3. 将 tail 中已处理完的大型 tool result（>2000 tokens）替换为紧凑占位符，同时保留 `ToolCallID`、`ToolName`、`IsError` 和 `Timestamp`，以便模型知道内容已被省略并在需要时重新调用工具。仍在处理中的 tool result（尚无 assistant 回复）保持完整大小。
-4. 在已压缩的 tail 上计算 token 成本，然后用较旧项填充剩余预算，最新优先。
-5. 返回按时间顺序排列的较旧事件，再接 fresh tail。
-
-> **注意：** `defaultFreshTail` 统计的是 `CtxItem` 行数，而不是对话轮次。一次包含多个 tool call 的 agent 轮次可能产生 4 条以上的 item（用户消息 + assistant 文本 + tool call + tool result）。如果你的会话工具调用密集，且典型的 item-per-turn 比值较高，在观察 telemetry 后你可能需要通过插件配置提高 `fresh_tail`。
+1. 将上下文项分为 **fresh tail**（最后 N 个用户轮次，默认 6）和较旧项。一个轮次从用户消息开始，包含直到下一条用户消息之前的所有 item。
+2. 如果按轮次得到的 tail 超过 120 个消息项，则回退为保留最后 120 个消息项，并继续修正 tool pair 边界。这保证单用户触发的长 agent 循环仍可被压缩。
+3. 将 fresh tail 解析为 `ai.Message`。
+4. 将 tail 中已处理完的大型 tool result（>2000 tokens）替换为紧凑占位符，同时保留 `ToolCallID`、`ToolName`、`IsError` 和 `Timestamp`，以便模型知道内容已被省略并在需要时重新调用工具。仍在处理中的 tool result（尚无 assistant 回复）保持完整大小。
+5. 仅在组装阶段，将 fresh tail 限制在 token 预算的 40% 内；若超限，就把最旧的完整 tail 轮次移回较旧项参与预算竞争。至少保留 1 个轮次。该上限基于占位符压缩后的 tail 计算，超大 tool result 不会把自己所在的轮次挤出 tail。
+6. 在已压缩的 tail 上计算 token 成本，然后用较旧项填充剩余预算，最新优先。
+7. 返回按时间顺序排列的较旧事件，再接 fresh tail。
 
 每次组装都会输出一条结构化日志（`lcm tail telemetry`），包含 `tail_items`、`tail_messages`、`user_turns`、`items_per_turn` 和 `tool_results_before/after`，用于数据驱动的参数调优。
 
@@ -248,12 +248,12 @@ Simple 插件使用滑动窗口方式：
 
 ## 配置默认值
 
-| 常量                        | 值   | 说明                                           |
-| --------------------------- | ---- | ---------------------------------------------- |
-| `DefaultFreshTail`          | 20   | 受保护免于压缩的消息                           |
-| `DefaultContextThreshold`   | 0.75 | 触发压缩的预算比例                             |
-| `DefaultLeafChunkSize`      | 10   | 每个叶子摘要的最小消息数                       |
-| `OversizedToolResultTokens` | 2000 | 超过此阈值的 tail tool result 会被替换为占位符 |
+| 常量                         | 值    | 说明                                           |
+| ---------------------------- | ----- | ---------------------------------------------- |
+| `DefaultFreshTail`           | 6     | 受保护免于压缩的用户轮次                       |
+| `CompactionConfig.MaxTokens` | 80000 | 触发压缩的绝对上下文 token 数                  |
+| `DefaultLeafChunkSize`       | 10    | 每个叶子摘要的最小消息数                       |
+| `OversizedToolResultTokens`  | 2000  | 超过此阈值的 tail tool result 会被替换为占位符 |
 
 ## Agent 工作区
 
