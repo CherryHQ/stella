@@ -358,8 +358,7 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 
 // decideResponders selects which agents respond. Explicit mentions always take
 // the deterministic rule path. A no-mention message uses the semantic arbiter
-// when one is configured; otherwise it falls back to existing platform behavior
-// (web/always broadcast, mention-mode silence).
+// when one is configured; otherwise it falls back to platform group-mode policy.
 func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope, groupMembers []GroupMember) []string {
 	if len(envelope.Mentions) > 0 {
 		if d.coord != nil && d.coord.arbiter != nil {
@@ -373,7 +372,17 @@ func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries,
 	if d.coord != nil && d.coord.semanticGroupArbiter != nil {
 		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
 	}
-	allMembersFallback := state.Platform == "web" || effectivePlatformGroupMode(ctx, q, groupMembers, state) == "always"
+	groupMode := effectivePlatformGroupMode(ctx, q, groupMembers, state)
+	if state.Platform == "web" && groupMode == "mention" {
+		if len(groupMembers) == 1 {
+			return []string{groupMembers[0].AgentID}
+		}
+		if len(groupMembers) > 1 {
+			d.log.Warn("web group has multiple members and no semantic arbiter; configure semantic arbiter", "group_id", outbox.GroupID, "member_count", len(groupMembers))
+		}
+		return nil
+	}
+	allMembersFallback := groupMode == "always"
 	if d.coord != nil && d.coord.arbiter != nil {
 		return d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
 			AllMembersFallback: allMembersFallback,

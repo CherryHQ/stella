@@ -300,6 +300,34 @@ func TestGroupDispatcherProcessOutboxHappyPath(t *testing.T) {
 	}
 }
 
+func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 1 || got[0] != "agent-1" {
+		t.Fatalf("dispatch agents = %v, want [agent-1]", got)
+	}
+}
+
+func TestGroupDispatcherWebNoMentionMultiMemberStaysSilent(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	addSecondMember(t, fx)
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
+	if err != nil {
+		t.Fatalf("count dispatch: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("dispatch rows = %d, want 0", count)
+	}
+}
+
 func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
 
