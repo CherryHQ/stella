@@ -518,7 +518,9 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 
 	publisher := &webGroupPublisher{w: w, flusher: flusher}
 	publisher.writeSSE(map[string]string{"type": "start", "messageId": uuid.NewString()})
-	if err := s.groupDispatcher.DispatchSync(ctx, outbox, publisher); err != nil {
+	dispatchCtx, cancelDispatch := context.WithTimeout(s.runtimeCtx, groupOutboxLeaseDuration)
+	defer cancelDispatch()
+	if err := s.groupDispatcher.DispatchSync(dispatchCtx, outbox, publisher); err != nil {
 		publisher.writeSSE(map[string]string{"type": "error", "errorText": err.Error()})
 	}
 	publisher.writeSSE(map[string]string{"type": "finish"})

@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
@@ -226,6 +227,84 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	text := flattenUserMessage(msgs2[2].(ai.UserMessage))
 	if text != "[seq:3 agent:agent-b]: I'm agent B" {
 		t.Fatalf("injected text = %q", text)
+	}
+}
+
+func TestGroupAssemble_DedupsPersistedInjectedOutsideBudget(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{Platform: "test", PlatformGroupID: "g-dedup", ActorType: eventlog.ActorHuman, ActorID: "user1", Content: "already persisted", PlatformMessageID: "d1"})
+	if err != nil {
+		t.Fatalf("seed seq1: %v", err)
+	}
+	gid := res1.GroupID
+	res2, err := el.AppendGroupMessage(ctx, eventlog.Message{Platform: "test", PlatformGroupID: "g-dedup", ActorType: eventlog.ActorHuman, ActorID: "user2", Content: "trigger", PlatformMessageID: "d2"})
+	if err != nil {
+		t.Fatalf("seed trigger: %v", err)
+	}
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	sess := groupSess("agent-a", gid)
+	assembleCtx := groupCtx(res2.Seq)
+	if _, err := p.Assemble(assembleCtx, sess, 100_000, 20); err != nil {
+		t.Fatalf("first assemble: %v", err)
+	}
+	for i := range 20 {
+		if err := p.Append(ctx, sess, ai.UserMessage{Content: fmt.Sprintf("large retry filler %02d %s", i, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")}); err != nil {
+			t.Fatalf("append filler %d: %v", i, err)
+		}
+	}
+	if _, err := p.Assemble(assembleCtx, sess, 20, 20); err != nil {
+		t.Fatalf("retry assemble: %v", err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ctx_message WHERE role = 'user' AND content = ?`, "[seq:1 user1]: already persisted").Scan(&count); err != nil {
+		t.Fatalf("count persisted injected: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("persisted injected count = %d, want 1", count)
+	}
+}
+
+func TestFilterAlreadyPersistedInjectedBatchesLargeCandidateSet(t *testing.T) {
+	db := openTestDB(t)
+	p, err := New(db, nil, map[string]any{})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	q := sqlc.New(db)
+	ctx := context.Background()
+	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: "conv-large", SessionID: "session-large", Channel: "test", Kind: "chat", LastActive: "2026-06-12T00:00:00Z"}); err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	for i, content := range []string{"candidate-0000", "candidate-0500", "candidate-1001"} {
+		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: "msg-" + content, ConversationID: "conv-large", Seq: int64(i + 1), Role: "user", EventType: "text", Content: content}); err != nil {
+			t.Fatalf("create message %s: %v", content, err)
+		}
+	}
+	injected := make([]ai.Message, 0, 1005)
+	for i := range 1005 {
+		injected = append(injected, ai.UserMessage{Content: fmt.Sprintf("candidate-%04d", i)})
+	}
+
+	filtered, err := p.filterAlreadyPersistedInjected(ctx, "conv-large", injected)
+	if err != nil {
+		t.Fatalf("filter injected: %v", err)
+	}
+	if len(filtered) != 1002 {
+		t.Fatalf("filtered len = %d, want 1002", len(filtered))
+	}
+	for _, msg := range filtered {
+		content := msg.(ai.UserMessage).Content.(string)
+		if content == "candidate-0000" || content == "candidate-0500" || content == "candidate-1001" {
+			t.Fatalf("persisted content %q was not filtered", content)
+		}
+	}
+	if got := filtered[0].(ai.UserMessage).Content.(string); got != "candidate-0001" {
+		t.Fatalf("first filtered content = %q, want order preserved", got)
 	}
 }
 

@@ -12,6 +12,7 @@ CREATE TABLE ctx_group_dispatch (
     lease_until      TEXT,
     next_attempt_at  TEXT,
     last_error       TEXT NOT NULL DEFAULT '',
+    result_message_id TEXT NOT NULL DEFAULT '',
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (group_message_id, agent_id)

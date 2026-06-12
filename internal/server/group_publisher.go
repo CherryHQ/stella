@@ -14,8 +14,9 @@ import (
 )
 
 type webGroupPublisher struct {
-	w       http.ResponseWriter
-	flusher http.Flusher
+	w          http.ResponseWriter
+	flusher    http.Flusher
+	clientGone bool
 }
 
 func streamEmptyGroupReply(w http.ResponseWriter, flusher http.Flusher) {
@@ -32,8 +33,14 @@ func streamEmptyGroupReply(w http.ResponseWriter, flusher http.Flusher) {
 }
 
 func (p *webGroupPublisher) writeSSE(v any) {
+	if p.clientGone {
+		return
+	}
 	data, _ := json.Marshal(v)
-	_, _ = fmt.Fprintf(p.w, "data: %s\n\n", data)
+	if _, err := fmt.Fprintf(p.w, "data: %s\n\n", data); err != nil {
+		p.clientGone = true
+		return
+	}
 	p.flusher.Flush()
 }
 
@@ -73,17 +80,17 @@ func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublis
 		closeReasoning()
 	}
 
-	var firstErr error
+	var streamErr error
 	for {
 		select {
 		case evt, ok := <-req.Stream.Events:
 			if !ok {
 				closeOpenParts()
-				return firstErr
+				return streamErr
 			}
 			if evt.Err != nil {
-				if firstErr == nil {
-					firstErr = evt.Err
+				if streamErr == nil {
+					streamErr = evt.Err
 				}
 				closeOpenParts()
 				p.writeSSE(map[string]string{"type": "error", "errorText": evt.Err.Error()})

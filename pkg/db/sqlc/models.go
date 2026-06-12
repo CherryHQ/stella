@@ -364,18 +364,19 @@ type CtxConversation struct {
 }
 
 type CtxGroupDispatch struct {
-	ID             string         `json:"id"`
-	GroupMessageID string         `json:"group_message_id"`
-	GroupID        string         `json:"group_id"`
-	AgentID        string         `json:"agent_id"`
-	ReplyChannelID string         `json:"reply_channel_id"`
-	Status         string         `json:"status"`
-	AttemptCount   int64          `json:"attempt_count"`
-	LeaseUntil     sql.NullString `json:"lease_until"`
-	NextAttemptAt  sql.NullString `json:"next_attempt_at"`
-	LastError      string         `json:"last_error"`
-	CreatedAt      string         `json:"created_at"`
-	UpdatedAt      string         `json:"updated_at"`
+	ID              string         `json:"id"`
+	GroupMessageID  string         `json:"group_message_id"`
+	GroupID         string         `json:"group_id"`
+	AgentID         string         `json:"agent_id"`
+	ReplyChannelID  string         `json:"reply_channel_id"`
+	Status          string         `json:"status"`
+	AttemptCount    int64          `json:"attempt_count"`
+	LeaseUntil      sql.NullString `json:"lease_until"`
+	NextAttemptAt   sql.NullString `json:"next_attempt_at"`
+	LastError       string         `json:"last_error"`
+	ResultMessageID string         `json:"result_message_id"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
 }
 
 type CtxGroupIngestCursor struct {

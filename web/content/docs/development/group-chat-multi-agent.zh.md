@@ -119,7 +119,7 @@ type Mention struct {
 }
 ```
 
-适配器填 `Raw` 和 `PlatformID`(它知道平台 id)。**dispatcher 反查 membership 解析 `AgentID`**。@路由只认 `Mention.AgentID != ""`——任何组件不在各处猜 username/open_id。
+适配器填 `Raw` 和 `PlatformID`(它知道平台 id)。ingest best-effort 解析 `AgentID` 并存入 outbox envelope；dispatcher 在路由前对仍为空的 `AgentID` 再补解析一次。@路由只认 `Mention.AgentID != ""`——任何组件不在各处猜 username/open_id。
 
 ## 记忆:subject 轴(D4)
 
@@ -176,13 +176,22 @@ CREATE TABLE ctx_group_memory (
       → 对选中的 agent 逐个:runtime → publisher(通过 reply_channel_id)
 ```
 
-- 任何 `@mention` 信号都留在 L0 规则路径。如果平台 mention 无法解析到 Stella 群成员,dispatcher 不会把它当成无 mention 语义请求;它会静默,避免回复本来发给别人的消息。
-- 无 mention 消息在配置了语义仲裁时走 L1 语义路由。分类器可以返回静默、单 agent 或受上限保护的多 agent 广播。失败、超时、无效 JSON 或无合格路由模型都折叠为静默。
+- 任何 `@mention` 信号都留在 L0 规则路径。已解析的 mention 绕过 `MaxRepliesPerTrigger`:用户一条消息 @ 多个群成员时,所有被 @ 的成员都会回复。如果平台 mention 无法解析到 Stella 群成员,dispatcher 不会把它当成无 mention 语义请求;它会静默,避免回复本来发给别人的消息。Web 文本 mention 解析不出成员时仍按普通文本进入无 mention 路径。
+- 无 mention 消息在配置了语义仲裁时走 L1 语义路由。分类器可以返回静默、单 agent 或受上限保护的多 agent 广播。失败、超时、无效 JSON 或无合格路由模型都折叠为静默。未配置语义路由时,Web 单成员群直接路由到唯一成员;Web 多成员群静默并写 WARN,提示配置语义仲裁。Platform `always` 仍使用成员 fallback;platform `mention` 保持静默。
 - L1 路由模型按归属选择,不是随便取第一个成员。Web 群优先群 owner 自己的 agent,再退到 system-scope agent。Platform 群只允许 system-scope agent,避免把私有 agent 的凭据用于共享路由决策。
-- L1 只接收有界的公开路由元数据:agent ID/name、`soul` 摘要,以及 `seq < currentSeq` 的有界历史群上下文。它不会收到 agent `system_prompt`,延迟 outbox 重试也不会把未来消息当成历史上下文。
+- L1 只接收有界的公开路由元数据:agent ID/name、成员摘要(`system_prompt` 前 180 字符,有意发送以便正确路由),以及 `seq < currentSeq` 的有界历史群上下文。延迟 outbox 重试不会把未来消息当成历史上下文。
 - decide 与 generate 分离,**decide 只出意图、不出草稿**(省 token)。
 - 每次人类触发硬上限 N 条公开回复,防失控刷屏。
 - agent 自己的发言写进 log(可被动读),但**默认不唤醒其他 agent 的 arbiter**。例外是显式 `@另一个 agent`,由独立 handoff dispatcher 处理——普通 arbiter 只对 `actor_type=human` 反应,两条路径互不冲突。
+
+### Durable dispatch 正确性
+
+- Platform ingest 在 event-log 消息同一事务内创建 pending outbox。Web 同步 ingest 在同一事务内以 `running` + lease 创建 outbox,避免后台 worker 在 SSE 路径执行时抢单。进程崩溃或租约过期后,worker 用 `NoopGroupPublisher` 恢复;Web 的持久交付来源是 event log,不是打开的 SSE socket。
+- Web 断连不会取消生成。服务端使用带上限的服务生命周期 context,继续 drain stream,且只写回完整成功响应。取消或错误导致的 partial stream 不会 append。
+- Dispatch 重试使用线性退避:`1s * attempts`,封顶 60s。超过重试预算后置为 `failed`;不会 fallback 到其它 channel 冒名该 agent。
+- Dispatch 按 `(group_id, agent_id)` 保持顺序:SQL 只在同 agent 没有更小 `seq` 的 pending 或未过期 running 行时 claim。过期 running 行会被回收,不会永久阻塞。
+- 回复发布是 at-least-once。正常收尾为 publish → 一个 DB 事务 append 群回复并写 `result_message_id` → mark completed。重试看到 `result_message_id` 会跳过 chat 和 publish,直接 completed。剩余重复窗口是 publish 成功但 writeback+marker 事务尚未提交。
+- 群上下文 injected 去重用 SQL 在整个 conversation 内做完整 content 精确查重,不依赖 token budget 窗口。
 
 ## 回复出口:只发到群(D8)
 

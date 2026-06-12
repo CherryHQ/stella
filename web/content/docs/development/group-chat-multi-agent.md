@@ -119,7 +119,7 @@ type Mention struct {
 }
 ```
 
-Adapters fill `Raw` and `PlatformID` (they know the platform id). The **dispatcher resolves `AgentID`** by looking up membership. @-routing honors only `Mention.AgentID != ""` — no component guesses usernames or open_ids on its own.
+Adapters fill `Raw` and `PlatformID` (they know the platform id). Ingest resolves `AgentID` best-effort and stores the result in the outbox envelope; the dispatcher re-resolves any still-empty `AgentID` before routing. @-routing honors only `Mention.AgentID != ""` — no component guesses usernames or open_ids on its own.
 
 ## Memory: subject axis (D4)
 
@@ -176,13 +176,22 @@ group message (delivered by any bot)
       → for each selected agent: runtime → publisher (through reply_channel_id)
 ```
 
-- Any `@mention` signal stays on the L0 rule path. If a platform mention cannot be resolved to a Stella group member, the dispatcher does not treat it as a no-mention semantic request; it stays silent rather than replying to a message aimed elsewhere.
-- No-mention messages use L1 semantic routing when the semantic arbiter is configured. The classifier can return silence, one agent, or a capped multi-agent broadcast. Failures, timeouts, invalid JSON, or no eligible routing model collapse to silence.
+- Any `@mention` signal stays on the L0 rule path. Resolved mentions bypass `MaxRepliesPerTrigger`: if a user mentions multiple group agents, every mentioned member replies. If a platform mention cannot be resolved to a Stella group member, the dispatcher does not treat it as a no-mention semantic request; it stays silent rather than replying to a message aimed elsewhere. Web text mentions that do not resolve remain ordinary text and can use the no-mention path.
+- No-mention messages use L1 semantic routing when the semantic arbiter is configured. The classifier can return silence, one agent, or a capped multi-agent broadcast. Failures, timeouts, invalid JSON, or no eligible routing model collapse to silence. Without semantic routing, Web single-member groups route directly to that one member; Web multi-member groups stay silent and log a WARN to configure the semantic arbiter. Platform `always` still uses member fallback; platform `mention` stays silent.
 - The L1 routing model is selected by ownership, not by arbitrary member order. Web groups prefer the group owner's own agent, then system-scope agents. Platform groups allow system-scope agents only, so private agents' credentials are not used for shared routing decisions.
-- L1 sees only bounded public routing metadata: agent ID/name, `soul` summary, and bounded prior group context with `seq < currentSeq`. It never receives agent `system_prompt`, and delayed outbox retries never see future messages as prior context.
+- L1 sees only bounded public routing metadata: agent ID/name, member summary (the first 180 characters of `system_prompt`, intentionally sent for correct routing), and bounded prior group context with `seq < currentSeq`. Delayed outbox retries never see future messages as prior context.
 - decide and generate are separate; **decide emits intent only, not a draft** (saves tokens).
 - A hard cap of N public replies per human trigger prevents runaway flooding.
 - An agent's own message is logged (passively readable) but **does not wake other agents' arbiters by default.** The exception is an explicit `@otherAgent`, which is handled by a separate handoff dispatcher — the normal arbiter only reacts to `actor_type=human`, so the two paths don't conflict.
+
+### Durable dispatch correctness
+
+- Platform ingest creates a pending outbox row in the same transaction as the event-log message. Web synchronous ingest creates the outbox as `running` with a lease in that same transaction, so the background worker cannot steal the request while the SSE path is executing. If the process crashes or the lease expires, the worker recovers it with `NoopGroupPublisher`; Web's durable delivery source is the event log, not the open SSE socket.
+- Web disconnects do not cancel generation. The server uses a service-lifecycle context with a bounded timeout, drains the stream, and writes back only complete successful responses. Partial streams caused by cancellation or errors are not appended.
+- Dispatch retries use linear backoff: `1s * attempts`, capped at 60s. Rows that exceed the retry budget are marked `failed`; there is no fallback that lets another channel impersonate the agent.
+- Dispatch is ordered per `(group_id, agent_id)`: SQL only claims a row when no earlier `seq` for the same agent is pending or running with a live lease. Expired running rows are reclaimed instead of blocking forever.
+- Reply publishing is at-least-once. The normal tail is publish → one DB transaction that appends the group reply and writes `result_message_id` → mark completed. A retry that sees `result_message_id` skips chat and publish, then completes. The remaining duplicate window is publish succeeded but the writeback+marker transaction did not commit.
+- Group context injection deduplicates already-persisted injected messages with an exact SQL content lookup across the conversation, not a token-budget window.
 
 ## Reply egress: group only (D8)
 

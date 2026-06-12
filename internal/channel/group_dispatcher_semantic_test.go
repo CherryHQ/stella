@@ -73,6 +73,26 @@ func TestSemanticDispatchMentionBypassesArbiter(t *testing.T) {
 	}
 }
 
+func TestSemanticDispatchPlatformUnresolvedMentionBypassesArbiter(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{PlatformID: "other-bot"}})
+	if err != nil {
+		t.Fatalf("encode envelope: %v", err)
+	}
+	fx := newDispatcherFixture(t, "telegram", envelope)
+	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
+	fx.d.coord.semanticGroupArbiter = stub
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if stub.called {
+		t.Fatal("semantic arbiter must not be called for unresolved platform mentions")
+	}
+	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 0 {
+		t.Fatalf("dispatch rows = %d, want 0 (unresolved platform mention)", count)
+	}
+}
+
 func TestSemanticDispatchUnresolvedMentionBypassesArbiter(t *testing.T) {
 	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{PlatformID: "other-bot"}})
 	if err != nil {
@@ -90,6 +110,29 @@ func TestSemanticDispatchUnresolvedMentionBypassesArbiter(t *testing.T) {
 	}
 	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 0 {
 		t.Fatalf("dispatch rows = %d, want 0 (unresolved mention)", count)
+	}
+}
+
+func TestSemanticDispatchWebNonMemberMentionTextUsesArbiter(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_message SET content = '@non-member hello' WHERE id = ?`, fx.message.ID); err != nil {
+		t.Fatalf("set message content: %v", err)
+	}
+	stub := &stubSemanticArbiter{decision: SemanticGroupDecision{ShouldReply: true, RespondingAgents: []string{"agent-1"}}}
+	fx.d.coord.semanticGroupArbiter = stub
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if !stub.called {
+		t.Fatal("semantic arbiter must be called when web @text produced no envelope mention")
+	}
+	if stub.gotReq.Message != "@non-member hello" {
+		t.Fatalf("semantic message = %q, want @non-member hello", stub.gotReq.Message)
+	}
+	if count, _ := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID); count != 1 {
+		t.Fatalf("dispatch rows = %d, want 1 (semantic fallback)", count)
 	}
 }
 

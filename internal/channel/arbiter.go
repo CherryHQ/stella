@@ -86,8 +86,10 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 		}
 	}
 
+	mentionResponding := len(responding) > 0
+
 	// Explicit @mention always responds — skip debounce entirely.
-	if len(responding) == 0 {
+	if !mentionResponding {
 		// No fallback agent → check AllMembersFallback or skip (CR-012).
 		if channelAgentID == "" {
 			if !opt.AllMembersFallback {
@@ -116,7 +118,9 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 		}
 	}
 
-	responding = capResponders(responding, a.cfg.MaxRepliesPerTrigger)
+	if !mentionResponding {
+		responding = capResponders(responding, a.cfg.MaxRepliesPerTrigger)
+	}
 
 	// Evict expired debounce entries on all paths (not just fallback).
 	if a.cfg.DebounceWindow > 0 {

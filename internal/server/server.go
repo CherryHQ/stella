@@ -75,12 +75,18 @@ type Server struct {
 	arbiter *channel.Arbiter
 	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
 	groupDispatcher *channel.GroupDispatcher
+	// runtimeCtx is canceled by the process/service lifecycle; request handlers
+	// derive long-running work from it instead of client connections.
+	runtimeCtx context.Context
 }
 
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
 // Web UI can be consumed by channel handlers.
 func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if pluginHost == nil {
 		panic("admin: plugin host is required")
 	}
@@ -107,6 +113,7 @@ func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engi
 		credSvc:     credSvc,
 		recally:     newRecallyHandlers(recally.NewStore(db), recally.NewFileManager(config.StellaHome()), log),
 		startedAt:   time.Now(),
+		runtimeCtx:  ctx,
 	}
 
 	s.registerRoutes()

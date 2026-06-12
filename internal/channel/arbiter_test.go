@@ -39,7 +39,7 @@ func TestArbiterNoMentionFallback(t *testing.T) {
 	}
 }
 
-func TestArbiterMaxReplies(t *testing.T) {
+func TestArbiterMentionedAgentsBypassMaxReplies(t *testing.T) {
 	a := NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 1})
 	ctx := context.Background()
 
@@ -53,8 +53,22 @@ func TestArbiterMaxReplies(t *testing.T) {
 	}
 
 	d := a.Decide(ctx, "g1", mentions, members, "")
-	if len(d.RespondingAgents) != 1 {
-		t.Fatalf("expected max 1 response, got %d: %v", len(d.RespondingAgents), d.RespondingAgents)
+	if len(d.RespondingAgents) != 2 || d.RespondingAgents[0] != "agent-1" || d.RespondingAgents[1] != "agent-2" {
+		t.Fatalf("expected both mentioned agents, got %v", d.RespondingAgents)
+	}
+}
+
+func TestArbiterFallbackMaxReplies(t *testing.T) {
+	a := NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 1})
+	ctx := context.Background()
+	members := []GroupMember{
+		{AgentID: "agent-1"},
+		{AgentID: "agent-2"},
+	}
+
+	d := a.Decide(ctx, "g1", nil, members, "", DecideOptions{AllMembersFallback: true})
+	if len(d.RespondingAgents) != 1 || d.RespondingAgents[0] != "agent-1" {
+		t.Fatalf("expected capped fallback [agent-1], got %v", d.RespondingAgents)
 	}
 }
 
