@@ -11,6 +11,7 @@ import (
 	"time"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -720,4 +721,86 @@ func dispatchStatusByMessage(t *testing.T, db *sql.DB, messageID string) string 
 		t.Fatalf("query dispatch status: %v", err)
 	}
 	return status
+}
+
+func TestWrapGroupResponseStreamSkipsWritebackOnErrEvent(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.coord.eventLog = eventlog.NewStore(fx.db)
+	setGroupNextSeq(t, fx.db, fx.message.GroupID, 1)
+	stream := make(chan pkgchannel.Event, 2)
+	stream <- pkgchannel.Event{Text: "partial"}
+	stream <- pkgchannel.Event{Err: errors.New("boom")}
+	close(stream)
+
+	wrapped := fx.d.wrapGroupResponseStream(context.Background(), fx.message.GroupID, "agent-1", &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
+	for range wrapped.Events {
+	}
+	assertNoAgentGroupMessages(t, fx.db)
+}
+
+func TestWrapGroupResponseStreamSkipsWritebackAfterCancel(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.coord.eventLog = eventlog.NewStore(fx.db)
+	setGroupNextSeq(t, fx.db, fx.message.GroupID, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	stream := make(chan pkgchannel.Event)
+	wrapped := fx.d.wrapGroupResponseStream(ctx, fx.message.GroupID, "agent-1", &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
+
+	stream <- pkgchannel.Event{Text: "partial"}
+	cancel()
+	stream <- pkgchannel.Event{Text: " ignored"}
+	close(stream)
+	for range wrapped.Events {
+	}
+	assertNoAgentGroupMessages(t, fx.db)
+}
+
+func TestWrapGroupResponseStreamWritesBackCompleteStream(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.coord.eventLog = eventlog.NewStore(fx.db)
+	setGroupNextSeq(t, fx.db, fx.message.GroupID, 1)
+	stream := make(chan pkgchannel.Event, 2)
+	stream <- pkgchannel.Event{Text: "complete"}
+	close(stream)
+
+	wrapped := fx.d.wrapGroupResponseStream(context.Background(), fx.message.GroupID, "agent-1", &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
+	for range wrapped.Events {
+	}
+	rows, err := fx.db.QueryContext(context.Background(), `SELECT content FROM ctx_group_message WHERE actor_type = 'agent'`)
+	if err != nil {
+		t.Fatalf("query agent messages: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []string
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			t.Fatalf("scan content: %v", err)
+		}
+		got = append(got, content)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	if !slices.Equal(got, []string{"complete"}) {
+		t.Fatalf("agent messages = %v, want complete", got)
+	}
+}
+
+func setGroupNextSeq(t *testing.T, db *sql.DB, groupID string, seq int64) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `UPDATE ctx_group_state SET next_seq = ? WHERE id = ?`, seq, groupID); err != nil {
+		t.Fatalf("set group next seq: %v", err)
+	}
+}
+
+func assertNoAgentGroupMessages(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM ctx_group_message WHERE actor_type = 'agent'`).Scan(&count); err != nil {
+		t.Fatalf("count agent messages: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("agent group messages = %d, want 0", count)
+	}
 }

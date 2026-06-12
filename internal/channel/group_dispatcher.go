@@ -660,6 +660,10 @@ func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDis
 			select {
 			case out <- evt:
 			case <-ctx.Done():
+				out <- pkgchannel.Event{Err: ctx.Err()}
+				for range stream.Events {
+				}
+				return
 			}
 		}
 	}()
@@ -735,6 +739,10 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 			select {
 			case out <- convertEvent(evt):
 			case <-ctx.Done():
+				out <- pkgchannel.Event{Err: ctx.Err()}
+				for range events {
+				}
+				return
 			}
 		}
 	}()
@@ -762,7 +770,11 @@ func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, groupID, 
 	go func() {
 		defer close(out)
 		var textBuf strings.Builder
+		sawErr := false
 		for evt := range stream.Events {
+			if evt.Err != nil {
+				sawErr = true
+			}
 			if evt.Text != "" {
 				textBuf.WriteString(evt.Text)
 			}
@@ -771,7 +783,13 @@ func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, groupID, 
 			case <-ctx.Done():
 			}
 		}
-		if textBuf.Len() > 0 && d.coord != nil && d.coord.eventLog != nil {
+		// The forwarding select can win the race against ctx.Done, so
+		// cancellation must be re-checked deterministically before treating the
+		// buffered text as a complete reply.
+		if ctx.Err() != nil {
+			sawErr = true
+		}
+		if !sawErr && textBuf.Len() > 0 && d.coord != nil && d.coord.eventLog != nil {
 			writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 			defer cancel()
 			if _, err := d.coord.eventLog.AppendToGroup(writeCtx, groupID, eventlog.GroupMessage{
