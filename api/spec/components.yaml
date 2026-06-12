@@ -493,6 +493,40 @@ components:
           type: string
         baseurl:
           type: string
+    ClawhubSkill:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        summary:
+          type: string
+        version:
+          type: string
+        downloads:
+          type: integer
+        installs:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+        author_handle:
+          type: string
+        author_image:
+          type: string
+    ClawhubSkillList:
+      type: object
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClawhubSkill"
+        next_page_token:
+          type: string
+          nullable: true
     EmailFolderList:
       type: object
       required: [folders]

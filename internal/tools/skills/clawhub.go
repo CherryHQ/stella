@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 
@@ -28,6 +29,45 @@ type clawhubSearchResult struct {
 	Summary     string  `json:"summary,omitempty"`
 	Version     *string `json:"version,omitempty"`
 	UpdatedAt   int64   `json:"updatedAt,omitempty"`
+	OwnerHandle string  `json:"ownerHandle,omitempty"`
+	Owner       *struct {
+		Handle      string `json:"handle"`
+		DisplayName string `json:"displayName"`
+		Image       string `json:"image"`
+	} `json:"owner,omitempty"`
+}
+
+// clawhubListItem is one row from GET /api/v1/skills (browse/popular endpoint).
+type clawhubListItem struct {
+	Slug        string `json:"slug"`
+	DisplayName string `json:"displayName"`
+	Summary     string `json:"summary,omitempty"`
+	Tags        struct {
+		Latest string `json:"latest"`
+	} `json:"tags"`
+	Stats struct {
+		Downloads       int `json:"downloads"`
+		InstallsCurrent int `json:"installsCurrent"`
+		InstallsAllTime int `json:"installsAllTime"`
+		Stars           int `json:"stars"`
+	} `json:"stats"`
+	UpdatedAt     int64 `json:"updatedAt,omitempty"`
+	LatestVersion struct {
+		Version string `json:"version"`
+	} `json:"latestVersion"`
+}
+
+// CatalogSkill is one marketplace row from the ClawHub registry.
+type CatalogSkill struct {
+	Slug         string
+	Name         string
+	Summary      string
+	Version      string    // empty when unknown
+	Downloads    *int      // nil in search mode (upstream search has no stats)
+	Installs     *int      // nil in search mode
+	UpdatedAt    time.Time // zero when unknown
+	AuthorHandle string    // empty in browse mode (upstream list has no owner)
+	AuthorImage  string
 }
 
 type clawhubSkillDetail struct {
@@ -94,6 +134,115 @@ func clawhubWithFallback(fn func(base string) (is429 bool, err error)) error {
 		return fmt.Errorf("%s", clawhubRateLimitMsg)
 	}
 	return fmt.Errorf("clawhub: all endpoints unavailable")
+}
+
+// clawhubListSkills fetches popular skills from GET /api/v1/skills sorted by downloads.
+// cursor is passed through as-is; an empty string omits the query parameter.
+// Returns the items, the opaque next cursor (empty on last page), and any error.
+func clawhubListSkills(ctx context.Context, limit int, cursor string) ([]clawhubListItem, string, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	client := newClawhubClient()
+	var result struct {
+		Items      []clawhubListItem `json:"items"`
+		NextCursor string            `json:"nextCursor"`
+	}
+	err := clawhubWithFallback(func(base string) (bool, error) {
+		req := client.R().
+			SetContext(ctx).
+			SetQueryParam("sort", "downloads").
+			SetQueryParam("limit", fmt.Sprintf("%d", limit)).
+			SetResult(&result)
+		if cursor != "" {
+			req = req.SetQueryParam("cursor", cursor)
+		}
+		resp, err := req.Get(base + "/api/v1/skills")
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode() == 429 {
+			return true, nil
+		}
+		if resp.IsError() {
+			return false, fmt.Errorf("clawhub list returned HTTP %d", resp.StatusCode())
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return result.Items, result.NextCursor, nil
+}
+
+// BrowseCatalog returns popular skills when q is empty (paginated via the
+// opaque pageToken) and search results when q is set (no pagination).
+func BrowseCatalog(ctx context.Context, q string, limit int, pageToken string) (items []CatalogSkill, nextPageToken string, err error) {
+	if q != "" {
+		// Search mode: use clawhubSearch, no pagination.
+		results, searchErr := clawhubSearch(ctx, q, limit)
+		if searchErr != nil {
+			return nil, "", searchErr
+		}
+		items = make([]CatalogSkill, 0, len(results))
+		for _, r := range results {
+			var version string
+			if r.Version != nil {
+				version = *r.Version
+			}
+			var updatedAt time.Time
+			if r.UpdatedAt > 0 {
+				updatedAt = time.UnixMilli(r.UpdatedAt).UTC()
+			}
+			authorHandle := r.OwnerHandle
+			var authorImage string
+			if r.Owner != nil {
+				if authorHandle == "" {
+					authorHandle = r.Owner.Handle
+				}
+				authorImage = r.Owner.Image
+			}
+			items = append(items, CatalogSkill{
+				Slug:         r.Slug,
+				Name:         r.DisplayName,
+				Summary:      r.Summary,
+				Version:      version,
+				UpdatedAt:    updatedAt,
+				AuthorHandle: authorHandle,
+				AuthorImage:  authorImage,
+			})
+		}
+		return items, "", nil
+	}
+
+	// Browse mode: use clawhubListSkills with cursor passthrough.
+	listItems, nextCursor, listErr := clawhubListSkills(ctx, limit, pageToken)
+	if listErr != nil {
+		return nil, "", listErr
+	}
+	items = make([]CatalogSkill, 0, len(listItems))
+	for _, li := range listItems {
+		version := li.Tags.Latest
+		if version == "" {
+			version = li.LatestVersion.Version
+		}
+		var updatedAt time.Time
+		if li.UpdatedAt > 0 {
+			updatedAt = time.UnixMilli(li.UpdatedAt).UTC()
+		}
+		downloads := li.Stats.Downloads
+		installs := li.Stats.InstallsCurrent
+		items = append(items, CatalogSkill{
+			Slug:      li.Slug,
+			Name:      li.DisplayName,
+			Summary:   li.Summary,
+			Version:   version,
+			Downloads: &downloads,
+			Installs:  &installs,
+			UpdatedAt: updatedAt,
+		})
+	}
+	return items, nextCursor, nil
 }
 
 func clawhubSearch(ctx context.Context, query string, limit int) ([]clawhubSearchResult, error) {

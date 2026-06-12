@@ -47,6 +47,7 @@ tags:
   - name: shares
   - name: agents
   - name: skills
+  - name: clawhub
   - name: users
   - name: auth-users
   - name: profile
@@ -105,6 +106,9 @@ paths:
   # ── Skills ─────────────────────────────────────────────────────────────────
   /api/skills/search:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1search"
+  # ── ClawHub ────────────────────────────────────────────────────────────────
+  /api/clawhub/skills:
+    $ref: "./domain/clawhub/paths.yaml#/paths/~1api~1clawhub~1skills"
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1articles"
