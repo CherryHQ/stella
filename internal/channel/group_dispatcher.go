@@ -199,6 +199,12 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 		return fmt.Errorf("list expired dispatch: %w", err)
 	}
 	for _, row := range dispatchRows {
+		if row.ResultMessageID != "" {
+			if _, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
+				return fmt.Errorf("complete expired dispatch with result marker: %w", err)
+			}
+			continue
+		}
 		if row.AttemptCount >= d.maxAttempts {
 			if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired"}); err != nil {
 				return fmt.Errorf("fail expired dispatch: %w", err)
@@ -457,20 +463,39 @@ func (d *GroupDispatcher) recentGroupContext(ctx context.Context, q *sqlc.Querie
 }
 
 func (d *GroupDispatcher) executeDispatchesByMessage(ctx context.Context, groupMessageID string, publisherOverride GroupPublisher) error {
-	rows, err := d.q.ListPendingGroupDispatchByMessage(ctx, sqlc.ListPendingGroupDispatchByMessageParams{
-		GroupMessageID: groupMessageID,
-		Now:            nullTime(time.Now().UTC()),
-	})
-	if err != nil {
-		return fmt.Errorf("list dispatch rows: %w", err)
-	}
-	var errs []error
-	for _, row := range rows {
-		if err := d.ExecuteDispatch(ctx, row, publisherOverride); err != nil {
-			errs = append(errs, err)
+	for {
+		rows, err := d.q.ListPendingGroupDispatchByMessage(ctx, sqlc.ListPendingGroupDispatchByMessageParams{
+			GroupMessageID: groupMessageID,
+			Now:            nullTime(time.Now().UTC()),
+		})
+		if err != nil {
+			return fmt.Errorf("list dispatch rows: %w", err)
+		}
+		var errs []error
+		for _, row := range rows {
+			if err := d.ExecuteDispatch(ctx, row, publisherOverride); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if err := errors.Join(errs...); err != nil {
+			return err
+		}
+		if publisherOverride == nil {
+			return nil
+		}
+		remaining, err := d.q.CountNonTerminalGroupDispatchByMessage(ctx, groupMessageID)
+		if err != nil {
+			return fmt.Errorf("count remaining dispatch rows: %w", err)
+		}
+		if remaining == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	return errors.Join(errs...)
 }
 
 func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, publisherOverride GroupPublisher) error {

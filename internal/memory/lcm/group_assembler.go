@@ -124,16 +124,19 @@ func (p *Provider) filterAlreadyPersistedInjected(ctx context.Context, convID st
 	if len(contents) == 0 {
 		return injected, nil
 	}
-	existingRows, err := p.q.ListExistingUserMessageContent(ctx, sqlc.ListExistingUserMessageContentParams{
-		ConversationID: convID,
-		Contents:       contents,
-	})
-	if err != nil {
-		return nil, err
-	}
-	seen := make(map[string]struct{}, len(existingRows))
-	for _, content := range existingRows {
-		seen[content] = struct{}{}
+	seen := make(map[string]struct{})
+	for start := 0; start < len(contents); start += 500 {
+		end := min(start+500, len(contents))
+		existingRows, err := p.q.ListExistingUserMessageContent(ctx, sqlc.ListExistingUserMessageContentParams{
+			ConversationID: convID,
+			Contents:       contents[start:end],
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, content := range existingRows {
+			seen[content] = struct{}{}
+		}
 	}
 	out := injected[:0]
 	for _, msg := range injected {

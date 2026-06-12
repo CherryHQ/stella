@@ -11,6 +11,11 @@ SELECT * FROM ctx_group_dispatch WHERE id = ?;
 SELECT CAST(COUNT(*) AS INTEGER) FROM ctx_group_dispatch
 WHERE group_message_id = ?;
 
+-- name: CountNonTerminalGroupDispatchByMessage :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM ctx_group_dispatch
+WHERE group_message_id = ?
+  AND status IN ('pending', 'running');
+
 -- name: ListPendingGroupDispatchByMessage :many
 SELECT * FROM ctx_group_dispatch gd
 WHERE gd.group_message_id = sqlc.arg(group_message_id)
@@ -27,6 +32,18 @@ WHERE gd.group_message_id = sqlc.arg(group_message_id)
       AND (
         earlier.status = 'pending'
         OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?2)
+      )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_outbox earlier_outbox
+    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier_outbox.group_message_id
+    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
+    WHERE earlier_outbox.group_id = gd.group_id
+      AND earlier_msg.seq < current_msg.seq
+      AND (
+        earlier_outbox.status = 'pending'
+        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= ?2)
       )
   )
 ORDER BY gd.created_at ASC;
@@ -46,6 +63,18 @@ WHERE gd.status = 'pending'
       AND (
         earlier.status = 'pending'
         OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= ?1)
+      )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM ctx_group_outbox earlier_outbox
+    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier_outbox.group_message_id
+    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
+    WHERE earlier_outbox.group_id = gd.group_id
+      AND earlier_msg.seq < current_msg.seq
+      AND (
+        earlier_outbox.status = 'pending'
+        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= ?1)
       )
   )
 ORDER BY gd.created_at ASC

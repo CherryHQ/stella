@@ -194,6 +194,9 @@ func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit 
 
 func TestListPendingGroupDispatchBlocksLaterSameAgentSeq(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+		t.Fatalf("complete outbox: %v", err)
+	}
 	now := time.Now().UTC()
 	earlier := fx.message
 	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
@@ -215,6 +218,9 @@ func TestListPendingGroupDispatchBlocksLaterSameAgentSeq(t *testing.T) {
 
 func TestListPendingGroupDispatchExpiredRunningDoesNotBlockLater(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+		t.Fatalf("complete outbox: %v", err)
+	}
 	now := time.Now().UTC()
 	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
 	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "running", nullTime(now.Add(-time.Minute)))
@@ -226,8 +232,30 @@ func TestListPendingGroupDispatchExpiredRunningDoesNotBlockLater(t *testing.T) {
 	}
 }
 
+func TestListPendingGroupDispatchBlocksLaterWhenEarlierOutboxNotTerminal(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	now := time.Now().UTC()
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
+	createDispatchForGroupMessage(t, fx.q, later, "dispatch-2", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+
+	ids := listPendingDispatchIDs(t, fx.q, now, 25)
+	if containsString(ids, "dispatch-2") {
+		t.Fatalf("pending ids = %v, want later blocked by earlier outbox", ids)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+		t.Fatalf("complete earlier outbox: %v", err)
+	}
+	ids = listPendingDispatchIDs(t, fx.q, now, 25)
+	if !containsString(ids, "dispatch-2") {
+		t.Fatalf("pending ids = %v, want later after terminal earlier outbox", ids)
+	}
+}
+
 func TestListPendingGroupDispatchBlockedRowsDoNotConsumeLimit(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+		t.Fatalf("complete outbox: %v", err)
+	}
 	now := time.Now().UTC()
 	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
 	for i := range 30 {
@@ -250,6 +278,9 @@ func TestListPendingGroupDispatchBlockedRowsDoNotConsumeLimit(t *testing.T) {
 func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	ctx := context.Background()
+	if _, err := fx.db.ExecContext(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+		t.Fatalf("complete outbox: %v", err)
+	}
 	now := time.Now().UTC()
 	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
@@ -274,6 +305,38 @@ func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
 
 func containsString(xs []string, want string) bool {
 	return slices.Contains(xs, want)
+}
+
+func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	past := time.Now().UTC().Add(-time.Minute)
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "dispatch-marker",
+		GroupMessageID: fx.message.ID,
+		GroupID:        fx.message.GroupID,
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "running",
+		AttemptCount:   fx.d.maxAttempts,
+		LeaseUntil:     nullTime(past),
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	if _, err := fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'dispatch-marker'`); err != nil {
+		t.Fatalf("set marker: %v", err)
+	}
+
+	if err := fx.d.reapExpired(context.Background()); err != nil {
+		t.Fatalf("reap expired: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "dispatch-marker")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if dispatch.Status != "completed" {
+		t.Fatalf("dispatch status = %q, want completed", dispatch.Status)
+	}
 }
 
 func TestGroupDispatcherProcessOutboxHappyPath(t *testing.T) {
@@ -712,6 +775,32 @@ func TestGroupDispatcherDispatchSyncUsesPublisherOverride(t *testing.T) {
 	publisher := &recordingGroupPublisher{}
 
 	if err := fx.d.DispatchSync(context.Background(), fx.outbox, publisher); err != nil {
+		t.Fatalf("dispatch sync: %v", err)
+	}
+	if publisher.calls != 1 {
+		t.Fatalf("publisher calls = %d, want 1", publisher.calls)
+	}
+}
+
+func TestGroupDispatcherDispatchSyncWaitsForBlockedDispatch(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	ctx := context.Background()
+	if _, err := fx.db.ExecContext(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'outbox-1'`); err != nil {
+		t.Fatalf("complete earlier outbox: %v", err)
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "dispatch-1", "agent-1", fx.message.GroupID, "pending", sql.NullString{})
+	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "msg-2", 2)
+	setGroupNextSeq(t, fx.db, fx.message.GroupID, later.Seq)
+	laterOutbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "outbox-2", GroupMessageID: later.ID, GroupID: fx.message.GroupID, Envelope: `{}`, Status: "pending", LastError: ""})
+	if err != nil {
+		t.Fatalf("create later outbox: %v", err)
+	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = fx.db.ExecContext(context.Background(), `UPDATE ctx_group_dispatch SET status = 'completed' WHERE id = 'dispatch-1'`)
+	}()
+	publisher := &recordingGroupPublisher{}
+	if err := fx.d.DispatchSync(ctx, laterOutbox, publisher); err != nil {
 		t.Fatalf("dispatch sync: %v", err)
 	}
 	if publisher.calls != 1 {
