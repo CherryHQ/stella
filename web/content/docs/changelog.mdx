@@ -11,6 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-06-12
+
+### ✨ Features
+
+- Scheduler: add job templates with per-user subscriptions and CLI management. ([#382](https://github.com/CherryHQ/stella/pull/382), [#383](https://github.com/CherryHQ/stella/pull/383))
+- Recally: add FTS5/BM25 article search and guide feed adders toward the `recally-rss` subscription. ([#392](https://github.com/CherryHQ/stella/pull/392), [#384](https://github.com/CherryHQ/stella/pull/384))
+- LCM: add FTS5/BM25 memory retrieval. ([#387](https://github.com/CherryHQ/stella/pull/387))
+- FTS: add trigram tokenization for CJK recall with short-query LIKE fallback. ([#393](https://github.com/CherryHQ/stella/pull/393))
+- Topics: add topic management.
+
+### 🐛 Bug Fixes
+
+- Scheduler: de-flake single-run and disabled-job timing tests. ([#391](https://github.com/CherryHQ/stella/pull/391))
+- LCM: cost the fresh tail after tool-result placeholder compaction and disable compaction when no summarizer is configured. ([#395](https://github.com/CherryHQ/stella/pull/395))
+- Memory: neutralize structural tags in summary XML and summarizer prompts. ([#406](https://github.com/CherryHQ/stella/pull/406))
+- Web: render navigational UI as links.
+
+### ⚡ Performance
+
+- LCM: push session list filters and info writes into SQL, load the assembly context window in one query, and parallelize compaction LLM summarization. ([#405](https://github.com/CherryHQ/stella/pull/405), [#407](https://github.com/CherryHQ/stella/pull/407), [#408](https://github.com/CherryHQ/stella/pull/408))
+- Memory: batch summary-parent lookups and slim stats queries. ([#395](https://github.com/CherryHQ/stella/pull/395))
+
+### ♻️ Refactoring
+
+- Web: merge agent page redesign phases and scope project threads in the sidebar. ([#366](https://github.com/CherryHQ/stella/pull/366))
+- Scheduler: remove dead heartbeat code. ([#385](https://github.com/CherryHQ/stella/pull/385))
+
+### 📝 Documentation
+
+- Memory: sync internals docs with turn-based fresh tail behavior. ([#395](https://github.com/CherryHQ/stella/pull/395))
+
+**Full Changelog**: [v0.45.1...v0.46.0](https://github.com/CherryHQ/stella/compare/v0.45.1...v0.46.0)
+
 ## [0.45.1] - 2026-06-11
 
 ### ✨ Features

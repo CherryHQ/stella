@@ -11,6 +11,39 @@ icon: History
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-06-12
+
+### ✨ 功能
+
+- Scheduler：新增 job template 与按用户订阅，并支持 CLI 管理。([#382](https://github.com/CherryHQ/stella/pull/382), [#383](https://github.com/CherryHQ/stella/pull/383))
+- Recally：新增 FTS5/BM25 文章搜索，并引导 feed 添加者使用 `recally-rss` 订阅。([#392](https://github.com/CherryHQ/stella/pull/392), [#384](https://github.com/CherryHQ/stella/pull/384))
+- LCM：新增 FTS5/BM25 记忆检索。([#387](https://github.com/CherryHQ/stella/pull/387))
+- FTS：新增面向 CJK 召回的 trigram tokenizer，并为短查询提供 LIKE fallback。([#393](https://github.com/CherryHQ/stella/pull/393))
+- Topics：新增 topic 管理。
+
+### 🐛 修复
+
+- Scheduler：修复单次运行和 disabled job 计时测试不稳定的问题。([#391](https://github.com/CherryHQ/stella/pull/391))
+- LCM：在 tool-result placeholder 压缩后正确计算 fresh tail 成本，并在未配置 summarizer 时禁用压缩。([#395](https://github.com/CherryHQ/stella/pull/395))
+- Memory：中和 summary XML 与 summarizer prompt 中的结构化标签。([#406](https://github.com/CherryHQ/stella/pull/406))
+- Web：将导航 UI 渲染为链接。
+
+### ⚡ 性能
+
+- LCM：将 session list 过滤和 info 写入下推到 SQL，单查询加载 assembly context window，并并行执行 compaction LLM 摘要。([#405](https://github.com/CherryHQ/stella/pull/405), [#407](https://github.com/CherryHQ/stella/pull/407), [#408](https://github.com/CherryHQ/stella/pull/408))
+- Memory：批量查询 summary parent 并精简 stats 查询。([#395](https://github.com/CherryHQ/stella/pull/395))
+
+### ♻️ 重构
+
+- Web：合并 agent page redesign 阶段，并在侧边栏按项目限定 threads。([#366](https://github.com/CherryHQ/stella/pull/366))
+- Scheduler：移除无用 heartbeat 代码。([#385](https://github.com/CherryHQ/stella/pull/385))
+
+### 📝 文档
+
+- Memory：同步 internals 文档中的 turn-based fresh tail 行为。([#395](https://github.com/CherryHQ/stella/pull/395))
+
+**完整变更日志**：[v0.45.1...v0.46.0](https://github.com/CherryHQ/stella/compare/v0.45.1...v0.46.0)
+
 ## [0.45.1] - 2026-06-11
 
 ### ✨ 功能
