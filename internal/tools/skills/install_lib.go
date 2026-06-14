@@ -57,9 +57,12 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		DisableModelInvocation: fm.DisableModelInvocation,
 		Metadata:               json.RawMessage(metaJSON),
 	}
+	// A user-scope skill lives within an agent's context (system → agent → user),
+	// so it carries both the owning user and the agent it was installed under.
 	switch scope {
 	case "user":
 		sk.UserID = userID
+		sk.AgentID = agentID
 	case "agent":
 		sk.AgentID = agentID
 	}
