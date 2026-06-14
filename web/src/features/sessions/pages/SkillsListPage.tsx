@@ -124,6 +124,9 @@ export function SkillsListPage() {
   const callable = skills.filter((s) => !s.disable_model_invocation).length;
   const readonly = skills.filter((s) => !WRITABLE.has(s.scope as Scope)).length;
   const installedNames = new Set(skills.map((s) => s.name));
+  const installedSources = new Set(
+    skills.map((s) => s.source).filter((src): src is string => !!src),
+  );
 
   function setTab(tab: string) {
     void navigate({
@@ -247,7 +250,11 @@ export function SkillsListPage() {
             </div>
           </TabsContent>
           <TabsContent value="discover" className="mt-6">
-            <SkillsDiscover agentId={agentId} installedNames={installedNames} />
+            <SkillsDiscover
+              agentId={agentId}
+              installedNames={installedNames}
+              installedSources={installedSources}
+            />
           </TabsContent>
         </Tabs>
       </div>

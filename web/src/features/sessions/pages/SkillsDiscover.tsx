@@ -70,12 +70,29 @@ function AuthorChip({ handle, image }: { handle: string; image?: string }) {
   );
 }
 
+// isSkillInstalled matches a marketplace row against installed skills. Source is the
+// reliable key (the slug can differ from the SKILL.md frontmatter name); name/slug are
+// a fallback for skills installed before the source was recorded.
+function isSkillInstalled(
+  skill: Pick<ClawhubSkill, "name" | "slug">,
+  installedNames: Set<string>,
+  installedSources: Set<string>,
+): boolean {
+  return (
+    installedSources.has(`clawhub:${skill.slug}`) ||
+    installedNames.has(skill.name) ||
+    installedNames.has(skill.slug)
+  );
+}
+
 export function SkillsDiscover({
   agentId,
   installedNames,
+  installedSources,
 }: {
   agentId: string;
   installedNames: Set<string>;
+  installedSources: Set<string>;
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -175,7 +192,7 @@ export function SkillsDiscover({
       ) : (
         <div className="space-y-1">
           {rows.map((skill) => {
-            const installed = installedNames.has(skill.name) || installedNames.has(skill.slug);
+            const installed = isSkillInstalled(skill, installedNames, installedSources);
             const count = skill.installs ?? skill.downloads;
             return (
               <button
@@ -243,6 +260,7 @@ export function SkillsDiscover({
               slug={search.dslug}
               row={selected}
               installedNames={installedNames}
+              installedSources={installedSources}
               installingSlug={installingSlug}
               onInstall={(slug) => void install({ slug, name: selected?.name ?? slug })}
             />
@@ -258,12 +276,14 @@ function DiscoverDetail({
   slug,
   row,
   installedNames,
+  installedSources,
   installingSlug,
   onInstall,
 }: {
   slug: string;
   row?: ClawhubSkill;
   installedNames: Set<string>;
+  installedSources: Set<string>;
   installingSlug: string | null;
   onInstall: (slug: string) => void;
 }) {
@@ -273,7 +293,7 @@ function DiscoverDetail({
   const version = data?.version ?? row?.version;
   const summary = data?.summary ?? row?.summary;
   const count = row?.installs ?? row?.downloads;
-  const installed = installedNames.has(name) || installedNames.has(slug);
+  const installed = isSkillInstalled({ name, slug }, installedNames, installedSources);
   const readme = stripFrontmatter(data?.readme ?? "").trim();
   const files = data?.files ?? [];
 
