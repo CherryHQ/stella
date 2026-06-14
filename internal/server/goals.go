@@ -35,7 +35,7 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, userID, go
 	return g, true
 }
 
-// ListGoals returns all goals.
+// ListGoals returns goals owned by the current user, optionally filtered by agent.
 func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiserver.ListGoalsParams) {
 	if !s.tasksReady() {
 		writeError(w, http.StatusServiceUnavailable, "task_service_unavailable")
@@ -50,9 +50,20 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	var rows []sqlc.AgentGoal
+	agentID := ""
+	if params.AgentId != nil {
+		agentID = *params.AgentId
+	}
 	if info.Scoped != nil {
-		rows, err = s.tasksSvc.Facade.ListGoalsByAgent(r.Context(), info.UserID, info.Scoped.AgentID, int64(limit+1), int64(offset))
+		if agentID != "" && agentID != info.Scoped.AgentID {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		agentID = info.Scoped.AgentID
+	}
+	var rows []sqlc.AgentGoal
+	if agentID != "" {
+		rows, err = s.tasksSvc.Facade.ListGoalsByAgent(r.Context(), info.UserID, agentID, int64(limit+1), int64(offset))
 	} else {
 		rows, err = s.tasksSvc.Facade.ListGoals(r.Context(), info.UserID, int64(limit+1), int64(offset))
 	}

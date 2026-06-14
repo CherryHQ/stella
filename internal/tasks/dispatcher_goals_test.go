@@ -17,6 +17,38 @@ func TestDispatcher_RollupGoals_CompletesWhenAllChildrenDoneNoPolicy(t *testing.
 	}
 }
 
+func TestDispatcher_RollupGoals_FailedGoalRecoversWhenChildCompletes(t *testing.T) {
+	h, d := newDispatcherHarness(t, nil)
+	gid := h.createGoal(t, GoalStatusFailed, ReviewPolicyNone)
+	child := h.createChildTask(t, gid, StatusFailed)
+
+	goalStatus := func() string {
+		g, _ := h.q.GetAgentGoal(context.Background(), gid)
+		return g.Status
+	}
+
+	// A still-failed required child keeps the goal failed.
+	d.Tick(context.Background())
+	d.WaitIdle()
+	if got := goalStatus(); got != GoalStatusFailed {
+		t.Fatalf("with failed child: goal=%q want failed", got)
+	}
+
+	// Operational failure was reconciled elsewhere: the child is now complete.
+	if _, err := h.db.ExecContext(context.Background(),
+		`UPDATE agent_task SET status = 'done' WHERE id = ?`, child); err != nil {
+		t.Fatalf("complete child: %v", err)
+	}
+
+	// The next rollup should recover the parent all the way to done instead of
+	// leaving it permanently stuck in failed.
+	d.Tick(context.Background())
+	d.WaitIdle()
+	if got := goalStatus(); got != GoalStatusDone {
+		t.Fatalf("after child completion: goal=%q want done", got)
+	}
+}
+
 // A goal blocked by a required child recovers once that child's blocker is
 // resolved (child returns to ready). Rollup unblocks the goal on the next
 // tick and the goal completes after the child finishes.

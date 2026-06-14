@@ -6,6 +6,12 @@ paths:
       operationId: listGoals
       parameters:
         - {
+            name: agent_id,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+        - {
             name: page_size,
             in: query,
             schema: { type: integer, minimum: 1, maximum: 500, default: 20 },

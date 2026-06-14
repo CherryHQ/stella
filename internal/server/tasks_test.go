@@ -8,6 +8,7 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/tasks"
 )
 
@@ -367,6 +368,45 @@ func TestGoals_CreateGetRoundTrip(t *testing.T) {
 	rr = doRequest(t, env, http.MethodGet, "/api/goals/"+goal.Id, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGoals_ListFiltersByAgentID(t *testing.T) {
+	env := setupAdmin(t)
+	withTasks(t, env)
+
+	firstAgentID := taskTestAgentID(t, env)
+	secondAgentID := createTestAgent(t, env, config.Agent{Name: "goals-second-agent"})
+
+	createGoal := func(title, agentID string) apitypes.Goal {
+		t.Helper()
+		body := apitypes.CreateGoalRequest{Title: title, AgentId: agentID}
+		rr := doRequest(t, env, http.MethodPost, "/api/goals", body)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("create %s: status=%d body=%s", title, rr.Code, rr.Body.String())
+		}
+		var goal apitypes.Goal
+		if err := json.Unmarshal(rr.Body.Bytes(), &goal); err != nil {
+			t.Fatalf("decode goal: %v", err)
+		}
+		return goal
+	}
+	first := createGoal("first-agent-goal", firstAgentID)
+	second := createGoal("second-agent-goal", secondAgentID)
+
+	rr := doRequest(t, env, http.MethodGet, "/api/goals?agent_id="+secondAgentID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var list apitypes.GoalList
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list.Goals) != 1 || list.Goals[0].Id != second.Id {
+		t.Fatalf("filtered goals=%+v want only %s", list.Goals, second.Id)
+	}
+	if list.Goals[0].Id == first.Id {
+		t.Fatalf("agent filter leaked first agent goal %s", first.Id)
 	}
 }
 

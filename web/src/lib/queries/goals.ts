@@ -13,10 +13,7 @@ import {
 export function goalsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["goals", agentId],
-    queryFn: async () => {
-      const items = await fetchAllGoals();
-      return items.filter((g) => !agentId || g.agent_id === agentId);
-    },
+    queryFn: async () => fetchAllGoals(agentId),
     enabled: !!agentId,
   });
 }
