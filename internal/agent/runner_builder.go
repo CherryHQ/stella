@@ -141,6 +141,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			GroupID:      params.GroupID,
 			StellaHome:   config.StellaHome(),
 			AgentRoot:    cfg.Snap.Workspace,
+			ProjectRoot:  projectRoot,
 			UserRoot:     userRoot,
 			Sections:     sections,
 		})
