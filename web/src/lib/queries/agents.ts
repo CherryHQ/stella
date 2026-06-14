@@ -2,10 +2,25 @@ import { queryOptions } from "@tanstack/react-query";
 import {
   listAgents,
   listAgentSkills,
+  listClawhubSkills,
   listProfileMemories,
   listSchedulerJobs,
 } from "@/lib/api-client/sdk.gen";
 import type { Agent, Skill, UserMemory } from "@/lib/types";
+
+export function clawhubSkillsOptions(query: string) {
+  const q = query.trim();
+  return queryOptions({
+    queryKey: ["clawhub-skills", q],
+    queryFn: async () => {
+      const { data } = await listClawhubSkills({
+        query: { ...(q ? { q } : {}), page_size: 50 },
+        throwOnError: true,
+      });
+      return data?.skills ?? [];
+    },
+  });
+}
 
 export const agentsQueryOptions = queryOptions({
   queryKey: ["agents"],

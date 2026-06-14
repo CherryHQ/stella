@@ -172,37 +172,39 @@ export function SkillsListPage() {
               </Button>
             </div>
           </div>
-          <div className="mt-4 flex items-center justify-between gap-4 max-md:block">
-            <div className="flex min-w-0 items-center gap-2 max-md:overflow-x-auto">
-              <div className="relative w-72 shrink-0 max-md:w-64">
-                <Search
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  size={16}
-                />
-                <Input
-                  nativeInput
-                  value={query}
-                  onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
-                  placeholder={t("sessions.skillsList.searchPlaceholder")}
-                  className="pl-9"
-                />
+          {activeTab === "installed" && (
+            <div className="mt-4 flex items-center justify-between gap-4 max-md:block">
+              <div className="flex min-w-0 items-center gap-2 max-md:overflow-x-auto">
+                <div className="relative w-72 shrink-0 max-md:w-64">
+                  <Search
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    size={16}
+                  />
+                  <Input
+                    nativeInput
+                    value={query}
+                    onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+                    placeholder={t("sessions.skillsList.searchPlaceholder")}
+                    className="pl-9"
+                  />
+                </div>
+                {(["all", ...SCOPES] as const).map((scope) => (
+                  <Button
+                    key={scope}
+                    size="sm"
+                    variant={scopeFilter === scope ? "secondary" : "ghost"}
+                    onClick={() => setScopeFilter(scope)}
+                  >
+                    {t(`sessions.skillsList.${scope}`)}{" "}
+                    {scope === "all" ? skills.length : counts[scope]}
+                  </Button>
+                ))}
               </div>
-              {(["all", ...SCOPES] as const).map((scope) => (
-                <Button
-                  key={scope}
-                  size="sm"
-                  variant={scopeFilter === scope ? "secondary" : "ghost"}
-                  onClick={() => setScopeFilter(scope)}
-                >
-                  {t(`sessions.skillsList.${scope}`)}{" "}
-                  {scope === "all" ? skills.length : counts[scope]}
-                </Button>
-              ))}
+              <p className="hidden text-xs text-muted-foreground md:block">
+                {t("sessions.skillsList.stats", { total: skills.length, callable, readonly })}
+              </p>
             </div>
-            <p className="hidden text-xs text-muted-foreground md:block">
-              {t("sessions.skillsList.stats", { total: skills.length, callable, readonly })}
-            </p>
-          </div>
+          )}
           <TabsContent value="installed" className="mt-6">
             <div className="flex items-start rounded-xl border">
               <div className="min-w-0 flex-1 space-y-6 p-3">
