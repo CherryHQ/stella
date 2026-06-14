@@ -68,10 +68,7 @@ type promptData struct {
 	// Group session rendering. IsGroup switches the template from the per-user
 	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
 	// driven by session kind, not by whether group memory text is non-empty.
-	IsGroup              bool
-	HasCurrentSpeaker    bool // a current-speaker section should render this turn
-	CurrentSpeakerName   string
-	CurrentSpeakerLinked bool // resolved to a Stella user; private profile is not auto-injected in groups
+	IsGroup bool
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -93,11 +90,10 @@ type DBPromptParams struct {
 	SnapshotVersion   int64     // frozen memory version for this session; 0 means current
 	SnapshotUpdatedAt time.Time // wall-clock time of the last snapshot advance; used to filter knowledge
 
-	// CurrentSpeaker renders a group-only "## Current Speaker" section when
-	// HasCurrentSpeaker is true. It is a personalization target only: its UserID
-	// must never be passed as the prompt UserID (which stays empty/group-scoped for
-	// group sessions). Group prompts expose only speaker presence/linked status;
-	// private profile text is not auto-injected into a public room.
+	// CurrentSpeaker is retained for compatibility with callers/tests that still
+	// populate it, but it is intentionally not rendered into the system prompt.
+	// Runtime injects speaker metadata as per-turn message context so reused group
+	// runners keep a stable system prefix for prompt caching.
 	CurrentSpeaker    memory.CurrentSpeaker
 	HasCurrentSpeaker bool
 }
@@ -185,23 +181,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 	}
 
-	// Current speaker (D9): a per-turn personalization axis for group turns.
-	// Public group prompts expose only who is speaking and whether they are
-	// linked. Private profile text/entries, soul, and constraints are intentionally
-	// NOT auto-injected; a public room is not the place to disclose one member's
-	// private memory to the whole group.
-	// Render the section only when the caller resolved a real speaker. Unlinked
-	// platform senders can still render (name/platform set); fail-closed dispatch
-	// leaves HasCurrentSpeaker false so no phantom "Unknown speaker" appears.
-	if p.HasCurrentSpeaker && p.CurrentSpeaker != (memory.CurrentSpeaker{}) {
-		data.HasCurrentSpeaker = true
-		data.CurrentSpeakerName = p.CurrentSpeaker.DisplayName
-		if data.CurrentSpeakerName == "" {
-			data.CurrentSpeakerName = "Unknown"
-		}
-		data.CurrentSpeakerLinked = p.CurrentSpeaker.UserID != ""
-	}
-
+	// Current speaker (D9): intentionally not rendered into the system prompt.
+	// Runtime injects it as per-turn message context instead, preserving the group
+	// system prompt prefix across speakers for provider prompt caches.
 	// Knowledge: active fact/context entries injected as ## Knowledge section.
 	// When a session snapshot is active, filter out entries that became active
 	// after the snapshot was last advanced so that background knowledge changes
