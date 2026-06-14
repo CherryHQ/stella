@@ -479,6 +479,7 @@ func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 		{ID: "list-4", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
 		{ID: "list-5", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
 		{ID: "list-6", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
+		{ID: "list-7", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", LastActive: base.Add(7 * time.Minute)},
 	}
 	for _, info := range fixtures {
 		if err := p.SaveInfo(ctx, info); err != nil {
@@ -500,6 +501,14 @@ func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 	}
 	if got, want := sessionIDs(infos), []string{"list-6", "list-5", "list-4"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("include archived IDs = %v, want %v", got, want)
+	}
+
+	infos, err = p.ListInfo(ctx, memory.ListOptions{Kind: "chat", ProjectIDIsNull: true})
+	if err != nil {
+		t.Fatalf("ListInfo project null: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"list-7"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("project null IDs = %v, want %v", got, want)
 	}
 }
 
@@ -573,6 +582,7 @@ func TestLCMProvider_ListInfoForReviewFiltersInSQL(t *testing.T) {
 		{ID: "review-4", AgentID: "test", UserID: "2", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(4 * time.Minute)},
 		{ID: "review-5", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(5 * time.Minute), Archived: true},
 		{ID: "review-6", AgentID: "test", UserID: "2", Channel: "web", Kind: "chat", ProjectID: "p1", LastActive: base.Add(6 * time.Minute)},
+		{ID: "review-7", AgentID: "test", UserID: "1", Channel: "web", Kind: "chat", LastActive: base.Add(7 * time.Minute)},
 	}
 	for _, info := range fixtures {
 		if err := p.SaveInfo(context.Background(), info); err != nil {
@@ -586,6 +596,14 @@ func TestLCMProvider_ListInfoForReviewFiltersInSQL(t *testing.T) {
 	}
 	if got, want := sessionIDs(infos), []string{"review-4", "review-1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("review filtered IDs = %v, want %v", got, want)
+	}
+
+	infos, err = p.ListInfoForReview(context.Background(), memory.ListOptions{AgentID: "test", Kind: "chat", ProjectIDIsNull: true})
+	if err != nil {
+		t.Fatalf("ListInfoForReview project null: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"review-7"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("review project null IDs = %v, want %v", got, want)
 	}
 }
 
