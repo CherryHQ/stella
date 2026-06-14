@@ -168,9 +168,7 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 	})
 	if err == nil {
 		for _, info := range mains {
-			if !info.Archived {
-				return info, nil
-			}
+			return info, nil
 		}
 	}
 
