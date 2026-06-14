@@ -171,6 +171,8 @@ components:
           type: array
           items:
             type: string
+        source:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -516,6 +518,24 @@ components:
           type: string
         author_image:
           type: string
+    ClawhubSkillDetail:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        summary:
+          type: string
+        version:
+          type: string
+        readme:
+          type: string
+        files:
+          type: array
+          items:
+            type: string
     ClawhubSkillList:
       type: object
       required: [skills]

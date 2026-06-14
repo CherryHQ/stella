@@ -1,89 +1,95 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Blocks,
+  Check,
+  Copy,
+  FileText,
+  GitBranch,
+  Lock,
+  Plus,
+  Search,
+  Upload,
+  X,
+} from "lucide-react";
+import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useAppShell } from "@/layouts/AppShell";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
-import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
-import { useAppShell } from "@/layouts/AppShell";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
-import {
-  Dialog,
-  DialogPopup,
-  DialogTitle,
-  DialogHeader,
-  DialogDescription,
-  DialogPanel,
-} from "@/components/ui/dialog";
-import {
-  installAgentSkill,
-  searchSkills as sdkSearchSkills,
-  uploadAgentSkill,
-} from "@/lib/api-client/sdk.gen";
+import { formatTime } from "@/lib/time";
+import { cn } from "@/lib/utils";
+import type { Skill, SkillSearchResult } from "@/lib/types";
 import {
   createAgentSkill,
   deleteAgentSkill,
   getAgentSkill,
   getAgentSkillFile,
+  installAgentSkill,
+  searchSkills,
   updateAgentSkill,
-} from "@/lib/api-client";
-import { ChevronRight, Plus, Code2, Cpu, Terminal, User, Bot, Upload, Search } from "lucide-react";
-import type { Skill, SkillSearchResult } from "@/lib/types";
+  uploadAgentSkill,
+} from "@/lib/api-client/sdk.gen";
+import { apiErrorMessage } from "@/lib/api-error";
+import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
+import { SkillsDiscover } from "@/features/sessions/pages/SkillsDiscover";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Kbd } from "@/components/ui/kbd";
+import { Sheet, SheetPanel, SheetPopup } from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
-interface SkillSectionProps {
-  title: string;
-  description?: string;
-  count?: number;
-  defaultOpen?: boolean;
-  action?: React.ReactNode;
-  children: React.ReactNode;
+type Scope = "project" | "user" | "agent" | "system";
+type Tab = "installed" | "discover";
+const SCOPES: Scope[] = ["project", "user", "agent", "system"];
+const WRITABLE = new Set<Scope>(["user", "agent"]);
+
+function route(projectId?: string) {
+  return projectId ? "/agents/$agentId/projects/$projectId/skills" : "/agents/$agentId/skills";
 }
 
-function SkillSection({
-  title,
-  description,
-  count,
-  defaultOpen = false,
-  action,
-  children,
-}: SkillSectionProps) {
+function statusLabelKey(status?: string) {
+  if (status === "draft") return "sessions.skillsList.statusDraft" as const;
+  if (status === "deprecated") return "sessions.skillsList.statusDeprecated" as const;
+  return "sessions.skillsList.statusActive" as const;
+}
+
+function SkillGlyph({ className }: { className?: string }) {
   return (
-    <Collapsible defaultOpen={defaultOpen}>
-      <div className="border-b border-border">
-        <div className="flex items-center justify-between gap-3 py-3">
-          <CollapsibleTrigger className="flex flex-1 items-center gap-2 py-1 text-left cursor-pointer group">
-            <ChevronRight className="size-3.5 text-muted-foreground transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
-            <div className="min-w-0 flex items-center gap-2">
-              <span className="text-sm font-semibold">
-                {title}
-                {count != null && count > 0 && (
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    ({count})
-                  </span>
-                )}
-              </span>
-              {description && (
-                <span className="text-xs text-muted-foreground hidden group-data-[panel-open]:hidden sm:inline">
-                  — {description}
-                </span>
-              )}
-            </div>
-          </CollapsibleTrigger>
-          {action && <div className="shrink-0">{action}</div>}
-        </div>
-      </div>
-      <CollapsiblePanel>
-        <div className="py-4">{children}</div>
-      </CollapsiblePanel>
-    </Collapsible>
+    <div
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-lg border bg-card text-muted-foreground",
+        className,
+      )}
+    >
+      <Blocks className="size-5" />
+    </div>
   );
 }
 
@@ -92,1089 +98,755 @@ export function SkillsListPage() {
     agentId: string;
     projectId?: string;
   };
+  const search = useSearch({ strict: false }) as {
+    tab?: Tab;
+    expand?: string;
+    scope?: Scope;
+    new?: boolean;
+  };
   const navigate = useNavigate();
   const { t } = useI18n();
+  const isMobile = useIsMobile();
   const { setHeaderActions } = useAppShell();
-  const { data: skills = [], isLoading, refetch } = useQuery(agentSkillsOptions(agentId));
+  const { data: skills = [], isLoading } = useQuery(agentSkillsOptions(agentId));
+  const [query, setQuery] = useState("");
+  const [scopeFilter, setScopeFilter] = useState<Scope | "all">("all");
+  const [installOpen, setInstallOpen] = useState(Boolean(search.new));
+  const [createOpen, setCreateOpen] = useState(false);
+  const activeTab = search.tab === "discover" ? "discover" : "installed";
+  const params = projectId ? { agentId, projectId } : { agentId };
+  const selected =
+    search.expand && search.scope
+      ? skills.find((s) => s.name === search.expand && s.scope === search.scope)
+      : undefined;
 
-  const search = useSearch({ strict: false }) as {
-    new?: boolean;
-    expand?: string;
-    scope?: string;
-  };
+  function setTab(tab: string) {
+    void navigate({
+      to: route(projectId),
+      params,
+      search: tab === "discover" ? { tab: "discover" } : {},
+      replace: true,
+    });
+  }
+  function selectSkill(skill?: Skill) {
+    void navigate({
+      to: route(projectId),
+      params,
+      search: skill
+        ? {
+            tab: activeTab === "discover" ? "discover" : undefined,
+            expand: skill.name,
+            scope: skill.scope,
+          }
+        : activeTab === "discover"
+          ? { tab: "discover" }
+          : {},
+      replace: true,
+    });
+  }
 
-  const skillsRoute = projectId
-    ? "/agents/$agentId/projects/$projectId/skills"
-    : "/agents/$agentId/skills";
-  const routeParams = projectId ? { agentId, projectId } : { agentId };
+  useEffect(() => {
+    setHeaderActions(
+      <div className="flex items-center gap-2">
+        <ToggleGroup
+          variant="outline"
+          value={[activeTab]}
+          onValueChange={(value: string[]) => value[0] && setTab(value[0])}
+        >
+          <ToggleGroupItem value="installed">
+            {t("sessions.skillsList.installedTab")} {skills.length}
+          </ToggleGroupItem>
+          <ToggleGroupItem value="discover">{t("sessions.skillsList.discoverTab")}</ToggleGroupItem>
+        </ToggleGroup>
+        <Button variant="ghost" size="sm" onClick={() => setInstallOpen(true)}>
+          <Upload size={16} />
+          <span className="max-md:hidden">{t("sessions.skillsList.uploadZip")}</span>
+        </Button>
+        <Button size="sm" onClick={() => setInstallOpen(true)}>
+          {t("sessions.skill.installSkill")}
+          <Kbd>⌘K</Kbd>
+        </Button>
+      </div>,
+    );
+    return () => setHeaderActions(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, skills.length, t]);
 
-  const [isNewDialogOpen, setIsNewDialogOpen] = useState(search.new === true);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setInstallOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
-  // Expanded skill key is `scope:name`
-  const [expandedSkillId, setExpandedSkillId] = useState<string | null>(
-    search.expand ? `${search.scope || "user"}:${search.expand}` : null,
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return skills.filter(
+      (s) =>
+        (scopeFilter === "all" || s.scope === scopeFilter) &&
+        (!q || s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q)),
+    );
+  }, [skills, query, scopeFilter]);
+  const counts = Object.fromEntries(
+    SCOPES.map((scope) => [scope, skills.filter((s) => s.scope === scope).length]),
+  ) as Record<Scope, number>;
+  const installedNames = new Set(skills.map((s) => s.name));
+  const installedSources = new Set(
+    skills.map((s) => s.source).filter((src): src is string => !!src),
+  );
+  const sections = SCOPES.map((scope) => ({
+    scope,
+    items: filtered.filter((s) => s.scope === scope),
+  })).filter(
+    ({ scope, items }) =>
+      (scopeFilter === "all" || scopeFilter === scope) &&
+      (items.length > 0 || (scope === "user" && !query.trim())),
   );
 
-  // Sync state from query parameters if they change
-  useEffect(() => {
-    if (search.new) {
-      setIsNewDialogOpen(true);
-    }
-  }, [search.new]);
-
-  useEffect(() => {
-    if (search.expand) {
-      setExpandedSkillId(`${search.scope || "user"}:${search.expand}`);
-    }
-  }, [search.expand, search.scope]);
-
-  useEffect(() => {
-    setHeaderActions(null);
-    return () => {
-      setHeaderActions(null);
-    };
-  }, [setHeaderActions]);
-
-  const systemSkills = skills.filter((s) => s.scope === "system");
-  const agentSkills = skills.filter((s) => s.scope === "agent");
-  const userSkills = skills.filter((s) => s.scope === "user");
-
-  const handleToggleExpand = (key: string) => {
-    setExpandedSkillId((current) => {
-      const next = current === key ? null : key;
-      if (next === null) {
-        void navigate({
-          to: skillsRoute,
-          params: routeParams,
-          search: {},
-          replace: true,
-        });
-      } else {
-        const [scope, skillId] = next.split(":");
-        void navigate({
-          to: skillsRoute,
-          params: routeParams,
-          search: { expand: skillId, scope },
-          replace: true,
-        });
-      }
-      return next;
-    });
-  };
-
-  const handleCloseDialog = () => {
-    setIsNewDialogOpen(false);
-    void navigate({
-      to: skillsRoute,
-      params: routeParams,
-      search: {},
-      replace: true,
-    });
-  };
-
-  const handleOpenDialog = () => {
-    setIsNewDialogOpen(true);
-    void navigate({
-      to: skillsRoute,
-      params: routeParams,
-      search: { new: true },
-      replace: true,
-    });
-  };
-
-  const handleRefresh = () => {
-    void refetch();
-  };
-
   return (
-    <div className="flex-1 overflow-y-auto">
-      {isLoading ? (
-        <div className="flex h-[200px] items-center justify-center">
-          <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
-        </div>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {activeTab === "discover" ? (
+        <SkillsDiscover
+          agentId={agentId}
+          installedNames={installedNames}
+          installedSources={installedSources}
+        />
       ) : (
-        <div className="mx-auto max-w-3xl p-6 sm:p-8 lg:p-10 space-y-2">
-          {/* User Skills Section */}
-          <SkillSection
-            title={t("sessions.skillsList.user")}
-            count={userSkills.length}
-            defaultOpen
-            action={
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleOpenDialog}
-                className="h-8 rounded-lg text-xs gap-1.5 px-2.5"
-              >
-                <Plus className="size-3.5" />
-                {t("sessions.skill.newSkill")}
-              </Button>
-            }
+        <div className="flex h-full min-h-0">
+          <div
+            className={cn(
+              "flex min-h-0 shrink-0 flex-col border-r max-md:w-full max-md:border-r-0",
+              "w-full md:w-[360px]",
+              selected && isMobile ? "max-md:hidden" : "",
+            )}
           >
-            {userSkills.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border/80 p-6 text-center">
-                <p className="text-xs text-muted-foreground mb-3 font-mono">
+            <div className="flex flex-col gap-3 border-b p-3">
+              <InputGroup>
+                <InputGroupAddon>
+                  <Search />
+                </InputGroupAddon>
+                <InputGroupInput
+                  nativeInput
+                  value={query}
+                  onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+                  placeholder={t("sessions.skillsList.searchPlaceholder")}
+                />
+              </InputGroup>
+              <div className="flex flex-wrap gap-1">
+                {(["all", ...SCOPES] as const).map((scope) => (
+                  <Button
+                    key={scope}
+                    size="sm"
+                    variant={scopeFilter === scope ? "secondary" : "ghost"}
+                    onClick={() => setScopeFilter(scope)}
+                  >
+                    {t(`sessions.skillsList.${scope}`)}{" "}
+                    <span className="text-muted-foreground">
+                      {scope === "all" ? skills.length : counts[scope]}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {isLoading ? (
+                <div className="flex h-48 items-center justify-center">
+                  <Spinner />
+                </div>
+              ) : sections.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-muted-foreground">
                   {t("sessions.skillsList.noSkills")}
                 </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleOpenDialog}
-                  className="text-xs gap-1.5 rounded-lg"
-                >
-                  <Plus className="size-3.5" />
-                  {t("sessions.skill.newSkill")}
-                </Button>
-              </div>
+              ) : (
+                sections.map(({ scope, items }) => (
+                  <div key={scope} className="mb-3 last:mb-0">
+                    <div className="flex items-center gap-2 px-2 py-1.5">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {t(`sessions.skillsList.${scope}`)} · {items.length}
+                      </span>
+                      {!WRITABLE.has(scope) && (
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground/70">
+                          <Lock className="size-4" />
+                          {t("sessions.skillsList.readonly")}
+                        </span>
+                      )}
+                      {scope === "user" && (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="ml-auto"
+                          onClick={() => setCreateOpen(true)}
+                        >
+                          <Plus size={16} />
+                          {t("sessions.skill.newSkill")}
+                        </Button>
+                      )}
+                    </div>
+                    <div className="space-y-0.5">
+                      {items.map((skill) => (
+                        <SkillRow
+                          key={skill.id}
+                          skill={skill}
+                          selected={selected?.id === skill.id}
+                          onSelect={() => selectSkill(skill)}
+                        />
+                      ))}
+                      {items.length === 0 && (
+                        <p className="px-3 py-2 text-xs text-muted-foreground">
+                          {t("sessions.skillsList.noSkills")}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          {/* Desktop detail pane */}
+          <div className="hidden min-h-0 min-w-0 flex-1 md:flex">
+            {selected ? (
+              <SkillInspector agentId={agentId} skill={selected} onClose={() => selectSkill()} />
             ) : (
-              <div className="divide-y divide-border/40 border-t border-b border-border/40">
-                {userSkills.map((s) => {
-                  const key = `user:${s.name}`;
-                  return (
-                    <SkillDetailRow
-                      key={s.id}
-                      agentId={agentId}
-                      skill={s}
-                      isExpanded={expandedSkillId === key}
-                      onToggle={() => handleToggleExpand(key)}
-                      onSaved={handleRefresh}
-                      onDeleted={handleRefresh}
-                    />
-                  );
-                })}
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <SkillGlyph className="size-12 rounded-xl" />
+                <p className="text-sm">{t("sessions.skillsList.selectHint")}</p>
               </div>
             )}
-          </SkillSection>
-
-          {/* Agent Skills Section */}
-          <SkillSection
-            title={t("sessions.skillsList.agent")}
-            count={agentSkills.length}
-            defaultOpen
-          >
-            {agentSkills.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic pl-6 py-2">
-                No agent-specific skills installed.
-              </p>
-            ) : (
-              <div className="divide-y divide-border/40 border-t border-b border-border/40">
-                {agentSkills.map((s) => {
-                  const key = `agent:${s.name}`;
-                  return (
-                    <SkillDetailRow
-                      key={s.id}
-                      agentId={agentId}
-                      skill={s}
-                      isExpanded={expandedSkillId === key}
-                      onToggle={() => handleToggleExpand(key)}
-                      onSaved={handleRefresh}
-                      onDeleted={handleRefresh}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </SkillSection>
-
-          {/* System Skills Section */}
-          <SkillSection
-            title={t("sessions.skillsList.system")}
-            count={systemSkills.length}
-            defaultOpen={false}
-          >
-            {systemSkills.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic pl-6 py-2">No system skills.</p>
-            ) : (
-              <div className="divide-y divide-border/40 border-t border-b border-border/40">
-                {systemSkills.map((s) => {
-                  const key = `system:${s.name}`;
-                  return (
-                    <SkillDetailRow
-                      key={s.id}
-                      agentId={agentId}
-                      skill={s}
-                      isExpanded={expandedSkillId === key}
-                      onToggle={() => handleToggleExpand(key)}
-                      onSaved={handleRefresh}
-                      onDeleted={handleRefresh}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </SkillSection>
+          </div>
         </div>
       )}
-
-      {/* Dialog for installing / creating skill */}
-      <NewSkillDialog
-        agentId={agentId}
-        isOpen={isNewDialogOpen}
-        onClose={handleCloseDialog}
-        onInstalled={handleRefresh}
-      />
+      {/* Mobile detail sheet */}
+      {selected && isMobile && (
+        <Sheet open onOpenChange={(open) => !open && selectSkill()}>
+          <SheetPopup side="right">
+            <SheetPanel className="p-0">
+              <SkillInspector agentId={agentId} skill={selected} onClose={() => selectSkill()} />
+            </SheetPanel>
+          </SheetPopup>
+        </Sheet>
+      )}
+      <InstallDialog agentId={agentId} open={installOpen} onOpenChange={setInstallOpen} />
+      <CreateDialog agentId={agentId} open={createOpen} onOpenChange={setCreateOpen} />
+      <ToastContainer messages={useToast().toasts} />
     </div>
   );
 }
 
-function SkillDetailRow({
-  agentId,
+function SkillRow({
   skill,
-  isExpanded,
-  onToggle,
-  onSaved,
-  onDeleted,
+  selected,
+  onSelect,
 }: {
-  agentId: string;
   skill: Skill;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onSaved: () => void;
-  onDeleted: () => void;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   const { t } = useI18n();
-  const queryClient = useQueryClient();
-  const [isEditing, setIsEditing] = useState(false);
-  const [activeFile, setActiveFile] = useState("SKILL.md");
-  const [fileLoading, setFileLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  const [form, setForm] = useState({
-    description: "",
-    status: "active" as "active" | "draft" | "deprecated",
-    disable_model_invocation: false,
-    content: "",
-  });
-
-  const [savedForm, setSavedForm] = useState({
-    description: "",
-    status: "active" as "active" | "draft" | "deprecated",
-    disable_model_invocation: false,
-    content: "",
-  });
-
-  const { data: detail, isLoading: detailLoading } = useQuery({
-    queryKey: ["agent-skill-detail", agentId, skill.scope, skill.name],
-    queryFn: async () => {
-      const { data: sk } = await getAgentSkill({
-        path: { id: agentId, skillId: skill.name },
-        query: { scope: skill.scope as any },
-        throwOnError: true,
-      });
-
-      const skillFiles = sk.files?.length ? sk.files : ["SKILL.md"];
-      const initialFile = skillFiles.includes("SKILL.md") ? "SKILL.md" : skillFiles[0];
-
-      const res = await getAgentSkillFile({
-        path: { id: agentId, skillId: skill.name },
-        query: { path: initialFile, scope: skill.scope as any },
-        throwOnError: true,
-      }).catch(() => null);
-
-      const content = (res?.data as { content?: string })?.content ?? "";
-
-      const initialForm = {
-        description: sk.description ?? "",
-        status: (sk.status as any) ?? "active",
-        disable_model_invocation: sk.disable_model_invocation ?? false,
-        content,
-      };
-
-      setForm(initialForm);
-      setSavedForm(initialForm);
-      setActiveFile(initialFile);
-
-      return {
-        skill: sk,
-        files: skillFiles,
-        content,
-      };
-    },
-    enabled: isExpanded,
-  });
-
-  const isReadOnly = skill.scope === "system";
-
-  const handleFileChange = async (path: string) => {
-    setActiveFile(path);
-    setFileLoading(true);
-    try {
-      const res = await getAgentSkillFile({
-        path: { id: agentId, skillId: skill.name },
-        query: { path, scope: skill.scope as any },
-        throwOnError: true,
-      });
-      const content = (res.data as { content?: string })?.content ?? "";
-      setForm((f) => ({ ...f, content }));
-      setSavedForm((f) => ({ ...f, content }));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setFileLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await updateAgentSkill({
-        path: { id: agentId, skillId: skill.name },
-        query: { scope: skill.scope as any },
-        body: {
-          description: form.description,
-          status: form.status,
-          disable_model_invocation: form.disable_model_invocation,
-          files: { [activeFile]: form.content },
-        },
-        throwOnError: true,
-      });
-      setSavedForm(form);
-      setIsEditing(false);
-      onSaved();
-      void queryClient.invalidateQueries({
-        queryKey: ["agent-skill-detail", agentId, skill.scope, skill.name],
-      });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete the skill "${skill.name}"?`)) return;
-    setDeleting(true);
-    try {
-      await deleteAgentSkill({
-        path: { id: agentId, skillId: skill.name },
-        query: { scope: skill.scope as any },
-        throwOnError: true,
-      });
-      onDeleted();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setForm(savedForm);
-    setIsEditing(false);
-  };
-
-  const isDirty = JSON.stringify(form) !== JSON.stringify(savedForm);
-
   return (
-    <Collapsible open={isExpanded}>
-      <div
-        onClick={onToggle}
-        className={cn(
-          "group flex items-center justify-between gap-4 py-3 px-3 transition-colors duration-150 cursor-pointer rounded-lg",
-          isExpanded ? "bg-muted/30" : "hover:bg-muted/40",
-        )}
-      >
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div
-            className={cn(
-              "mt-0.5 shrink-0 rounded-md p-1.5 transition-colors",
-              isExpanded
-                ? "bg-background text-primary"
-                : "bg-muted text-muted-foreground group-hover:bg-background group-hover:text-primary",
-            )}
-          >
-            {skill.scope === "user" ? (
-              <Code2 className="size-4" />
-            ) : skill.scope === "agent" ? (
-              <Cpu className="size-4" />
-            ) : (
-              <Terminal className="size-4" />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span
-                className={cn(
-                  "text-[13px] font-medium leading-tight transition-colors font-mono",
-                  isExpanded ? "text-primary" : "text-foreground group-hover:text-primary",
-                )}
-              >
-                {skill.name}
-              </span>
-
-              {skill.status && skill.status !== "active" && (
-                <Badge
-                  variant={
-                    skill.status === "deprecated"
-                      ? "destructive"
-                      : skill.status === "draft"
-                        ? "warning"
-                        : "outline"
-                  }
-                  size="sm"
-                  className="text-xs uppercase px-1 py-0 h-4"
-                >
-                  {skill.status}
-                </Badge>
-              )}
-
-              {skill.disable_model_invocation && (
-                <Badge
-                  variant="outline"
-                  size="sm"
-                  className="text-xs text-muted-foreground border-muted-foreground/30 px-1 py-0 h-4"
-                >
-                  {t("sessions.skill.modelInvocationLabel")} {t("common.disable")}
-                </Badge>
-              )}
-            </div>
-            {skill.description && !isExpanded && (
-              <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{skill.description}</p>
-            )}
-          </div>
-        </div>
-        <ChevronRight
-          className={cn(
-            "size-4 text-muted-foreground transition-colors duration-150 shrink-0",
-            isExpanded
-              ? "rotate-90"
-              : "opacity-0 group-hover:opacity-100 translate-x-[-4px] group-hover:translate-x-0",
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-start gap-3 rounded-lg px-2.5 py-2.5 text-left transition-colors",
+        selected ? "bg-accent" : "hover:bg-muted",
+      )}
+    >
+      <SkillGlyph />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate font-mono text-sm font-medium">{skill.name}</span>
+          {skill.status !== "active" && (
+            <Badge variant="secondary" size="sm">
+              {t(statusLabelKey(skill.status))}
+            </Badge>
           )}
-        />
+          {skill.disable_model_invocation && (
+            <Badge variant="outline" size="sm">
+              {t("sessions.skillsList.manual")}
+            </Badge>
+          )}
+        </div>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{skill.description}</p>
       </div>
-
-      <CollapsiblePanel>
-        <div className="px-3 pb-4 pt-1 ml-11 border-l border-border/60 space-y-4">
-          {detailLoading ? (
-            <div className="flex py-6 items-center gap-2 text-xs text-muted-foreground font-mono">
-              <Spinner className="size-3.5" />
-              Loading skill details...
-            </div>
-          ) : (
-            <>
-              {!isEditing && (
-                <div className="space-y-4">
-                  {form.description && (
-                    <p className="text-xs text-muted-foreground font-mono leading-relaxed bg-muted/20 p-2.5 rounded-lg border border-border/40">
-                      {form.description}
-                    </p>
-                  )}
-
-                  {detail && detail.files.length > 1 && (
-                    <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-                      {detail.files.map((file) => (
-                        <button
-                          key={file}
-                          onClick={() => void handleFileChange(file)}
-                          className={cn(
-                            "px-2.5 py-1 text-xs font-mono rounded-md border transition-colors",
-                            activeFile === file
-                              ? "bg-muted text-foreground border-border"
-                              : "text-muted-foreground hover:text-foreground border-transparent",
-                          )}
-                        >
-                          {file}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="rounded-xl border border-border/60 bg-muted/5 overflow-hidden">
-                    <div className="bg-muted/40 border-b border-border/50 px-3 py-1.5 flex justify-between items-center">
-                      <span className="text-xs font-mono text-muted-foreground">{activeFile}</span>
-                    </div>
-                    <div className="p-3">
-                      {fileLoading ? (
-                        <div className="flex py-4 items-center justify-center text-xs text-muted-foreground gap-2">
-                          <Spinner className="size-3.5" />
-                          Loading file...
-                        </div>
-                      ) : (
-                        <SkillFilePreview
-                          path={activeFile}
-                          content={form.content}
-                          emptyText={t("sessions.skill.noContent")}
-                          className="bg-transparent p-0 text-xs"
-                        />
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-                      <span>{t("sessions.skill.modelInvocationLabel")}</span>
-                      <span
-                        className={cn(
-                          "font-semibold",
-                          form.disable_model_invocation
-                            ? "text-destructive"
-                            : "text-success-foreground",
-                        )}
-                      >
-                        {form.disable_model_invocation ? t("common.disable") : t("common.enable")}
-                      </span>
-                    </div>
-
-                    {!isReadOnly && (
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsEditing(true)}
-                          className="h-8 rounded-lg text-xs"
-                        >
-                          {t("common.edit")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void handleDelete()}
-                          disabled={deleting}
-                          className="h-8 rounded-lg text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                        >
-                          {deleting ? t("sessions.skill.deleting") : t("common.delete")}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {isEditing && !isReadOnly && (
-                <div className="space-y-4 rounded-xl border border-border bg-muted/10 p-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-mono text-muted-foreground mb-1.5">
-                        {t("sessions.skill.fieldStatus")}
-                      </label>
-                      <div className="inline-flex rounded-lg border border-border bg-background p-0.5">
-                        {(["active", "draft", "deprecated"] as const).map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() => setForm((f) => ({ ...f, status: s }))}
-                            className={cn(
-                              "px-2.5 py-1 text-xs font-medium rounded-md capitalize transition-colors",
-                              form.status === s
-                                ? "bg-muted text-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                          >
-                            {s}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-mono text-muted-foreground mb-1">
-                        {t("sessions.skill.fieldDescription")}
-                      </label>
-                      <Input
-                        nativeInput
-                        value={form.description}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            description: (e.target as HTMLInputElement).value,
-                          }))
-                        }
-                        placeholder={t("sessions.skill.descPlaceholder")}
-                        className="text-xs"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-mono text-muted-foreground mb-1">
-                        {t("sessions.skill.fieldContent")} ({activeFile})
-                      </label>
-                      <Textarea
-                        value={form.content}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            content: (e.target as HTMLTextAreaElement).value,
-                          }))
-                        }
-                        rows={12}
-                        placeholder={"# My Skill\n\nInstructions for the agent…"}
-                        className="text-xs font-mono bg-background"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between py-2.5 border-t border-b border-border/40">
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-medium block">
-                        {t("sessions.skill.modelInvocation")}
-                      </span>
-                      <span className="text-xs text-muted-foreground block">
-                        Allow LLM to automatically run this skill during conversations.
-                      </span>
-                    </div>
-                    <Switch
-                      checked={!form.disable_model_invocation}
-                      onCheckedChange={(checked) =>
-                        setForm((f) => ({ ...f, disable_model_invocation: !checked }))
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2 justify-end pt-1">
-                    <Button
-                      onClick={() => void handleSave()}
-                      disabled={saving || !isDirty}
-                      size="sm"
-                      className="h-8 text-xs rounded-lg"
-                    >
-                      {saving ? t("sessions.skill.saving") : t("common.save")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleCancel}
-                      disabled={saving}
-                      className="h-8 text-xs rounded-lg"
-                    >
-                      {t("common.cancel")}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </CollapsiblePanel>
-    </Collapsible>
+      <span className="shrink-0 text-xs text-muted-foreground">{formatTime(skill.updated_at)}</span>
+    </button>
   );
 }
 
-function NewSkillDialog({
+function SkillInspector({
   agentId,
-  isOpen,
+  skill,
   onClose,
-  onInstalled,
 }: {
   agentId: string;
-  isOpen: boolean;
-  onClose: () => void;
-  onInstalled: () => void;
+  skill: Skill;
+  onClose?: () => void;
+}) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [tab, setTab] = useState("overview");
+  const [description, setDescription] = useState(skill.description ?? "");
+  const [status, setStatus] = useState(skill.status ?? "active");
+  const [modelEnabled, setModelEnabled] = useState(!skill.disable_model_invocation);
+  const [viewer, setViewer] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const readOnly = !WRITABLE.has(skill.scope as Scope);
+  const detail = useQuery({
+    queryKey: ["agent-skill", agentId, skill.scope, skill.name],
+    queryFn: async () =>
+      (
+        await getAgentSkill({
+          path: { id: agentId, skillId: skill.name },
+          query: { scope: skill.scope as Scope },
+          throwOnError: true,
+        })
+      ).data as Skill,
+  });
+  const files = detail.data?.files ?? skill.files ?? [];
+  async function save() {
+    try {
+      await updateAgentSkill({
+        path: { id: agentId, skillId: skill.name },
+        query: { scope: skill.scope as Scope },
+        body: { description, status, disable_model_invocation: !modelEnabled },
+        throwOnError: true,
+      });
+      showToast(t("sessions.skillsList.saved"), "success");
+      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+    } catch (error) {
+      showToast(apiErrorMessage(error, t("common.error")), "error");
+    }
+  }
+  async function remove() {
+    try {
+      await deleteAgentSkill({
+        path: { id: agentId, skillId: skill.name },
+        query: { scope: skill.scope as Scope },
+        throwOnError: true,
+      });
+      showToast(t("common.delete"), "success");
+      await queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      onClose?.();
+    } catch (error) {
+      showToast(apiErrorMessage(error, t("common.error")), "error");
+    } finally {
+      setConfirmOpen(false);
+    }
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="border-b p-5">
+        <div className="flex items-start gap-3">
+          <SkillGlyph className="size-11 rounded-lg" />
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate font-mono text-base font-semibold">{skill.name}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" size="sm">
+                {t(`sessions.skillsList.${skill.scope}`)}
+              </Badge>
+              {skill.status !== "active" ? (
+                <Badge variant="outline" size="sm">
+                  {t(statusLabelKey(skill.status))}
+                </Badge>
+              ) : (
+                <Badge variant="success" size="sm">
+                  <Check />
+                  {t("sessions.skillsList.statusActive")}
+                </Badge>
+              )}
+              <Badge variant="outline" size="sm">
+                {skill.disable_model_invocation
+                  ? t("sessions.skillsList.manual")
+                  : t("sessions.skillsList.auto")}
+              </Badge>
+            </div>
+          </div>
+          {onClose && (
+            <Button size="icon-sm" variant="ghost" onClick={onClose}>
+              <X size={16} />
+            </Button>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <FileText className="size-4" />
+            {t("sessions.skillsList.fileCount")} {files.length}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Lock className="size-4" />
+            {formatTime(skill.updated_at)}
+          </span>
+          {skill.source && (
+            <span className="inline-flex items-center gap-1 font-mono">
+              <GitBranch className="size-4" />
+              {skill.source}
+            </span>
+          )}
+        </div>
+      </div>
+      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b px-4 pt-3">
+          <TabsList>
+            <TabsTrigger value="overview">{t("sessions.skillsList.overview")}</TabsTrigger>
+            <TabsTrigger value="files">{t("sessions.skillsList.files")}</TabsTrigger>
+            {!readOnly && (
+              <TabsTrigger value="settings">{t("sessions.skillsList.settings")}</TabsTrigger>
+            )}
+          </TabsList>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <TabsContent value="overview" className="space-y-4">
+            <p className="text-sm text-muted-foreground">{skill.description}</p>
+            <div className="flex flex-wrap gap-2">
+              {files.map((file) => (
+                <Button key={file} size="sm" variant="outline" onClick={() => setViewer(file)}>
+                  <FileText size={16} />
+                  {file}
+                </Button>
+              ))}
+            </div>
+          </TabsContent>
+          <TabsContent value="files">
+            <div className="divide-y divide-border rounded-lg border">
+              {files.map((file) => (
+                <button
+                  key={file}
+                  type="button"
+                  onClick={() => setViewer(file)}
+                  className="block w-full p-3 text-left font-mono text-sm hover:bg-muted"
+                >
+                  {file}
+                </button>
+              ))}
+            </div>
+          </TabsContent>
+          {!readOnly && (
+            <TabsContent value="settings" className="space-y-6">
+              <div className="space-y-2">
+                <Label>{t("sessions.skillsList.status")}</Label>
+                <ToggleGroup
+                  variant="outline"
+                  value={[status]}
+                  onValueChange={(value: string[]) => value[0] && setStatus(value[0])}
+                >
+                  {["active", "draft", "deprecated"].map((s) => (
+                    <ToggleGroupItem key={s} value={s}>
+                      {t(statusLabelKey(s))}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+              <div className="space-y-2">
+                <Label>{t("sessions.skillsList.description")}</Label>
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription((e.target as HTMLTextAreaElement).value)}
+                  className="min-h-20"
+                />
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label>{t("sessions.skillsList.modelInvocation")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("sessions.skillsList.modelInvocationHint")}
+                  </p>
+                </div>
+                <Switch checked={modelEnabled} onCheckedChange={setModelEnabled} />
+              </div>
+              <Button className="w-full" onClick={() => void save()}>
+                {t("common.save")}
+              </Button>
+              <div className="space-y-2 border-t pt-4">
+                <Label className="text-destructive">{t("sessions.skillsList.dangerZone")}</Label>
+                <Button
+                  variant="outline"
+                  className="w-full text-destructive hover:bg-destructive/10"
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  {t("sessions.skillsList.deleteSkill")}
+                </Button>
+              </div>
+            </TabsContent>
+          )}
+        </div>
+      </Tabs>
+      {readOnly && (
+        <div className="flex items-center gap-2 border-t p-4 text-sm text-muted-foreground">
+          <Lock size={16} /> {t("sessions.skillsList.readonlyNote")}
+        </div>
+      )}
+      {viewer && (
+        <SkillFileViewer
+          agentId={agentId}
+          skill={skill}
+          path={viewer}
+          open
+          onOpenChange={(open) => !open && setViewer(null)}
+        />
+      )}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("sessions.skillsList.deleteConfirm")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sessions.skillsList.deleteConfirmDesc", { name: skill.name })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="ghost" />}>
+              {t("common.cancel")}
+            </AlertDialogClose>
+            <Button variant="destructive" onClick={() => void remove()}>
+              {t("common.delete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function SkillFileViewer({
+  agentId,
+  skill,
+  path,
+  open,
+  onOpenChange,
+}: {
+  agentId: string;
+  skill: Skill;
+  path: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const readOnly = !WRITABLE.has(skill.scope as Scope);
+  const file = useQuery({
+    queryKey: ["agent-skill-file", agentId, skill.scope, skill.name, path],
+    queryFn: async () =>
+      (
+        await getAgentSkillFile({
+          path: { id: agentId, skillId: skill.name },
+          query: { scope: skill.scope as Scope, path },
+          throwOnError: true,
+        })
+      ).data,
+  });
+  const content = editing ? draft : (file.data?.content ?? "");
+  useEffect(() => {
+    if (file.data?.content != null) setDraft(file.data.content);
+  }, [file.data?.content]);
+  async function save() {
+    await updateAgentSkill({
+      path: { id: agentId, skillId: skill.name },
+      query: { scope: skill.scope as Scope },
+      body: { files: { [path]: draft } },
+      throwOnError: true,
+    });
+    setEditing(false);
+    void queryClient.invalidateQueries({
+      queryKey: ["agent-skill-file", agentId, skill.scope, skill.name, path],
+    });
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="max-w-5xl max-sm:h-dvh max-sm:max-w-none">
+        <DialogHeader>
+          <DialogTitle className="font-mono">{path}</DialogTitle>
+          <DialogDescription>{skill.name}</DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-3">
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void navigator.clipboard.writeText(content)}
+            >
+              <Copy size={16} />
+              {t("common.copy")}
+            </Button>
+            {!readOnly && (
+              <Button size="sm" variant="outline" onClick={() => setEditing((v) => !v)}>
+                {t("common.edit")}
+              </Button>
+            )}
+          </div>
+          {file.isLoading ? (
+            <Spinner />
+          ) : editing ? (
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+              className="min-h-96 font-mono"
+            />
+          ) : (
+            <SkillFilePreview
+              path={path}
+              content={content}
+              emptyText={t("sessions.skillsList.emptyFile")}
+            />
+          )}
+          {editing && <Button onClick={() => void save()}>{t("common.save")}</Button>}
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function InstallDialog({
+  agentId,
+  open,
+  onOpenChange,
+}: {
+  agentId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
-  const canInstallAgentSkill = me?.is_admin ?? false;
-
-  const [activeTab, setActiveTab] = useState<"catalog" | "upload" | "custom">("catalog");
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [tab, setTab] = useState("clawhub");
+  const [q, setQ] = useState("");
   const [scope, setScope] = useState<"user" | "agent">("user");
-
-  // Catalog state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SkillSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [installing, setInstalling] = useState(false);
-  const [installTarget, setInstallTarget] = useState("");
-  const [installError, setInstallError] = useState("");
-
-  // Upload state
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-
-  // Custom state
-  const [customForm, setCustomForm] = useState({
-    name: "",
-    description: "",
-    status: "active" as "active" | "draft" | "deprecated",
-    disable_model_invocation: false,
-    content: "# My Skill\n\nInstructions for the agent…\n",
+  const [file, setFile] = useState<File | null>(null);
+  const results = useQuery({
+    queryKey: ["skill-search", q],
+    enabled: q.length > 1,
+    queryFn: async () =>
+      (await searchSkills({ query: { q }, throwOnError: true })).data?.skills ?? [],
   });
-  const [customCreating, setCustomCreating] = useState(false);
-  const [customError, setCustomError] = useState("");
-
-  const handleSearchChange = (q: string) => {
-    setSearchQuery(q);
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(async () => {
-      if (!q.trim()) {
-        setSearchResults([]);
-        return;
-      }
-      setSearching(true);
-      try {
-        const { data } = await sdkSearchSkills({ query: { q, limit: 20 }, throwOnError: true });
-        setSearchResults((data?.skills as SkillSearchResult[]) ?? []);
-        setInstallError("");
-      } catch (e) {
-        setInstallError((e as Error).message);
-        setSearchResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-  };
-
-  const handleInstall = async (source: string) => {
-    setInstalling(true);
-    setInstallTarget(source);
-    setInstallError("");
-    try {
-      await installAgentSkill({
-        path: { id: agentId },
-        body: { source, scope },
-        throwOnError: true,
-      });
-      onInstalled();
-      onClose();
-    } catch (e) {
-      setInstallError((e as Error).message);
-    } finally {
-      setInstalling(false);
-      setInstallTarget("");
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!uploadFile) return;
-    setUploading(true);
-    setUploadError("");
-    try {
-      await uploadAgentSkill({
-        path: { id: agentId },
-        body: { file: uploadFile, scope },
-        throwOnError: true,
-      });
-      onInstalled();
-      onClose();
-    } catch (e) {
-      setUploadError((e as Error).message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleCreateCustom = async () => {
-    if (!customForm.name.trim()) {
-      setCustomError("Name is required");
-      return;
-    }
-    setCustomCreating(true);
-    setCustomError("");
-    try {
-      await createAgentSkill({
-        path: { id: agentId },
-        body: {
-          name: customForm.name.trim(),
-          scope: "user",
-          description: customForm.description,
-          status: customForm.status,
-          disable_model_invocation: customForm.disable_model_invocation,
-          files: { "SKILL.md": customForm.content },
-        },
-        throwOnError: true,
-      });
-      onInstalled();
-      onClose();
-    } catch (e) {
-      setCustomError((e as Error).message);
-    } finally {
-      setCustomCreating(false);
-    }
-  };
-
+  async function install(source: string) {
+    await installAgentSkill({ path: { id: agentId }, body: { source, scope }, throwOnError: true });
+    showToast(t("sessions.discover.installSuccess"), "success");
+    void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+  }
+  async function upload() {
+    if (!file) return;
+    await uploadAgentSkill({ path: { id: agentId }, body: { file, scope }, throwOnError: true });
+    showToast(t("sessions.discover.installSuccess"), "success");
+    void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+  }
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogPopup className="max-w-2xl w-full" showCloseButton>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup>
         <DialogHeader>
-          <DialogTitle className="text-lg font-semibold flex items-center gap-2">
-            {t("sessions.skill.installSkill")}
-          </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground font-mono">
-            {t("sessions.skill.catalogDesc")}
-          </DialogDescription>
+          <DialogTitle>{t("sessions.skill.installSkill")}</DialogTitle>
         </DialogHeader>
-
         <DialogPanel className="space-y-4">
-          {activeTab !== "custom" && (
-            <div className="flex justify-end mb-1">
-              <div className="inline-flex rounded-lg border border-border bg-background p-0.5 shadow-xs/5">
-                <button
-                  type="button"
-                  onClick={() => setScope("user")}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors",
-                    scope === "user"
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <User className="size-3.5" />
-                  {t("sessions.skill.myProfile")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setScope("agent")}
-                  disabled={!canInstallAgentSkill}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors disabled:opacity-50",
-                    scope === "agent"
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Bot className="size-3.5" />
-                  {t("sessions.skill.thisAgent")}
-                </button>
-              </div>
-            </div>
-          )}
-
-          <Tabs value={activeTab} onValueChange={(t: any) => setActiveTab(t)} className="gap-0">
-            <TabsList className="grid w-full grid-cols-3 mb-4">
-              <TabsTrigger value="catalog" className="text-xs">
-                <Search className="size-3.5 mr-1" />
-                {t("sessions.skill.catalog")}
-              </TabsTrigger>
-              <TabsTrigger value="upload" className="text-xs">
-                <Upload className="size-3.5 mr-1" />
-                {t("sessions.skill.uploadZipTab")}
-              </TabsTrigger>
-              <TabsTrigger value="custom" className="text-xs">
-                <Plus className="size-3.5 mr-1" />
-                Custom Skill
-              </TabsTrigger>
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList>
+              <TabsTrigger value="clawhub">ClawHub</TabsTrigger>
+              <TabsTrigger value="zip">{t("sessions.skillsList.uploadZip")}</TabsTrigger>
             </TabsList>
-
-            <TabsContent value="catalog" className="space-y-4 outline-none">
-              <div className="space-y-2">
-                <Input
-                  nativeInput
-                  value={searchQuery}
-                  onChange={(e) => handleSearchChange((e.target as HTMLInputElement).value)}
-                  type="search"
-                  placeholder={t("sessions.skill.searchSkills")}
-                  className="text-sm"
-                  autoFocus
-                />
-              </div>
-
-              {searching && (
-                <div className="flex justify-center py-12">
-                  <Spinner className="size-5" />
-                </div>
-              )}
-
-              {!searching && searchResults.length > 0 && (
-                <div className="divide-y divide-border/40 rounded-xl border border-border bg-background/50 max-h-[300px] overflow-y-auto">
-                  {searchResults.map((s) => {
-                    const source = `${s.source}@${s.skillId}`;
-                    return (
-                      <div key={s.id} className="p-3.5 hover:bg-muted/10 transition-colors">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="truncate font-mono text-xs font-semibold text-foreground">
-                                {s.name || s.skillId}
-                              </p>
-                              <span className="shrink-0 text-xs bg-muted/60 px-1 py-0.5 rounded text-muted-foreground font-mono">
-                                {s.installs} installs
-                              </span>
-                            </div>
-                            <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-                              {source}
-                            </p>
-                            {s.description && (
-                              <p className="mt-2 text-xs leading-relaxed text-muted-foreground line-clamp-2">
-                                {s.description}
-                              </p>
-                            )}
-                          </div>
-                          <Button
-                            onClick={() => void handleInstall(source)}
-                            disabled={installing}
-                            loading={installing && installTarget === source}
-                            size="sm"
-                            className="h-8 text-xs rounded-lg shrink-0"
-                          >
-                            Install
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {!searching && searchResults.length === 0 && searchQuery && (
-                <div className="rounded-xl border border-dashed border-border/80 px-4 py-10 text-center text-xs text-muted-foreground">
-                  {t("sessions.skill.noSkillsFound")}
-                </div>
-              )}
-
-              {!searching && !searchQuery && (
-                <div className="rounded-xl border border-dashed border-border/80 px-4 py-12 text-center space-y-2">
-                  <Search className="mx-auto size-5 text-muted-foreground" />
-                  <p className="text-xs font-semibold">{t("sessions.skill.searchCatalog")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("sessions.skill.resultsAppear")}
-                  </p>
-                </div>
-              )}
-
-              {installError && <p className="text-xs text-destructive font-mono">{installError}</p>}
-            </TabsContent>
-
-            <TabsContent value="upload" className="space-y-4 outline-none">
-              <label className="block cursor-pointer rounded-xl border-2 border-dashed border-border/80 px-4 py-10 text-center transition-colors hover:border-primary/50 bg-muted/5 hover:bg-muted/10">
-                <input
-                  onChange={(e) => {
-                    setUploadFile(e.target.files?.[0] ?? null);
-                    setUploadError("");
-                  }}
-                  type="file"
-                  accept=".zip,application/zip"
-                  className="hidden"
-                />
-                <Upload className="mx-auto mb-2 size-6 text-muted-foreground" />
-                <div className="text-xs font-semibold">
-                  {uploadFile ? uploadFile.name : t("sessions.skill.chooseZip")}
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{t("sessions.skill.zipReq")}</p>
-                <Button variant="outline" size="sm" className="mt-3 h-7 text-xs rounded-lg">
-                  {t("sessions.skill.browseFiles")}
+            <div className="flex gap-2 pt-3">
+              <Button
+                size="sm"
+                variant={scope === "user" ? "secondary" : "outline"}
+                onClick={() => setScope("user")}
+              >
+                {t("sessions.skillsList.profileScope")}
+              </Button>
+              {me?.is_admin && (
+                <Button
+                  size="sm"
+                  variant={scope === "agent" ? "secondary" : "outline"}
+                  onClick={() => setScope("agent")}
+                >
+                  {t("sessions.skillsList.agentScope")}
                 </Button>
-              </label>
-
-              <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono text-muted-foreground">
-                <div className="rounded-lg border border-border/60 bg-muted/10 px-2 py-1.5">
-                  .zip file
+              )}
+            </div>
+            <TabsContent value="clawhub" className="space-y-3 pt-3">
+              <Input
+                nativeInput
+                value={q}
+                onChange={(e) => setQ((e.target as HTMLInputElement).value)}
+                placeholder={t("sessions.discover.searchPlaceholder")}
+              />
+              {(results.data as SkillSearchResult[] | undefined)?.map((r) => (
+                <div
+                  key={r.id ?? r.name}
+                  className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                >
+                  <span className="font-mono text-sm">{r.name}</span>
+                  <Button size="sm" onClick={() => void install(r.source ?? r.name ?? "")}>
+                    {t("common.install")}
+                  </Button>
                 </div>
-                <div className="rounded-lg border border-border/60 bg-muted/10 px-2 py-1.5">
-                  One folder
-                </div>
-                <div className="rounded-lg border border-border/60 bg-muted/10 px-2 py-1.5">
-                  SKILL.md
-                </div>
-              </div>
-
-              {uploadError && <p className="text-xs text-destructive font-mono">{uploadError}</p>}
-
-              <Button
-                onClick={() => void handleUpload()}
-                disabled={uploading || !uploadFile}
-                loading={uploading}
-                className="w-full h-9 text-xs rounded-lg"
-              >
-                {t("sessions.skill.uploadSkillBtn")}
-              </Button>
+              ))}
             </TabsContent>
-
-            <TabsContent value="custom" className="space-y-4 outline-none">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-mono text-muted-foreground mb-1">
-                    {t("sessions.skill.fieldName")}
-                  </label>
-                  <Input
-                    nativeInput
-                    value={customForm.name}
-                    onChange={(e) =>
-                      setCustomForm((f) => ({ ...f, name: (e.target as HTMLInputElement).value }))
-                    }
-                    placeholder={t("sessions.skill.namePlaceholder")}
-                    className="text-xs font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono text-muted-foreground mb-1.5">
-                    {t("sessions.skill.fieldStatus")}
-                  </label>
-                  <div className="inline-flex rounded-lg border border-border bg-background p-0.5">
-                    {(["active", "draft", "deprecated"] as const).map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setCustomForm((f) => ({ ...f, status: s }))}
-                        className={cn(
-                          "px-2.5 py-1 text-xs font-medium rounded-md capitalize transition-colors",
-                          customForm.status === s
-                            ? "bg-muted text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-mono text-muted-foreground mb-1">
-                    {t("sessions.skill.fieldDescription")}
-                  </label>
-                  <Input
-                    nativeInput
-                    value={customForm.description}
-                    onChange={(e) =>
-                      setCustomForm((f) => ({
-                        ...f,
-                        description: (e.target as HTMLInputElement).value,
-                      }))
-                    }
-                    placeholder={t("sessions.skill.descPlaceholder")}
-                    className="text-xs"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-mono text-muted-foreground mb-1">
-                    {t("sessions.skill.fieldContent")} (SKILL.md)
-                  </label>
-                  <Textarea
-                    value={customForm.content}
-                    onChange={(e) =>
-                      setCustomForm((f) => ({
-                        ...f,
-                        content: (e.target as HTMLTextAreaElement).value,
-                      }))
-                    }
-                    rows={8}
-                    className="text-xs font-mono bg-background"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between py-2 border-t border-b border-border/40">
-                <div className="space-y-0.5">
-                  <span className="text-xs font-medium block">
-                    {t("sessions.skill.modelInvocation")}
-                  </span>
-                  <span className="text-xs text-muted-foreground block">
-                    Allow LLM to automatically run this skill during conversations.
-                  </span>
-                </div>
-                <Switch
-                  checked={!customForm.disable_model_invocation}
-                  onCheckedChange={(checked) =>
-                    setCustomForm((f) => ({ ...f, disable_model_invocation: !checked }))
-                  }
-                />
-              </div>
-
-              {customError && <p className="text-xs text-destructive font-mono">{customError}</p>}
-
-              <Button
-                onClick={() => void handleCreateCustom()}
-                disabled={customCreating || !customForm.name}
-                loading={customCreating}
-                className="w-full h-9 text-xs rounded-lg"
-              >
-                Create Skill
-              </Button>
+            <TabsContent value="zip" className="space-y-3 pt-3">
+              <Input
+                nativeInput
+                type="file"
+                accept=".zip"
+                onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+              />
+              <Button onClick={() => void upload()}>{t("sessions.skillsList.uploadZip")}</Button>
             </TabsContent>
           </Tabs>
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function CreateDialog({
+  agentId,
+  open,
+  onOpenChange,
+}: {
+  agentId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  async function create() {
+    await createAgentSkill({
+      path: { id: agentId },
+      body: {
+        name,
+        description,
+        scope: "user",
+        files: { "SKILL.md": `# ${name}\n\n${description}\n` },
+      },
+      throwOnError: true,
+    });
+    void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+    onOpenChange(false);
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>{t("sessions.skill.newSkill")}</DialogTitle>
+        </DialogHeader>
+        <DialogPanel className="space-y-3">
+          <Input
+            nativeInput
+            value={name}
+            onChange={(e) => setName((e.target as HTMLInputElement).value)}
+            placeholder={t("sessions.skillsList.name")}
+          />
+          <Input
+            nativeInput
+            value={description}
+            onChange={(e) => setDescription((e.target as HTMLInputElement).value)}
+            placeholder={t("sessions.skillsList.description")}
+          />
+          <Button onClick={() => void create()}>{t("common.create")}</Button>
         </DialogPanel>
       </DialogPopup>
     </Dialog>

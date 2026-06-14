@@ -109,6 +109,8 @@ paths:
   # ── ClawHub ────────────────────────────────────────────────────────────────
   /api/clawhub/skills:
     $ref: "./domain/clawhub/paths.yaml#/paths/~1api~1clawhub~1skills"
+  /api/clawhub/skills/{slug}:
+    $ref: "./domain/clawhub/paths.yaml#/paths/~1api~1clawhub~1skills~1{slug}"
   # ── Recally ────────────────────────────────────────────────────────────────
   /api/recally/articles:
     $ref: "./domain/recally/paths.yaml#/paths/~1api~1recally~1articles"

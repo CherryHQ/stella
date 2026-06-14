@@ -82,3 +82,30 @@ func (s *Server) ListClawhubSkills(w http.ResponseWriter, r *http.Request, param
 		"next_page_token": nextPageToken,
 	})
 }
+
+// GetClawhubSkill handles GET /api/clawhub/skills/{slug}, returning a single skill's
+// metadata together with its README and file list (downloaded from ClawHub on demand).
+func (s *Server) GetClawhubSkill(w http.ResponseWriter, r *http.Request, slug string) {
+	if slug == "" {
+		writeError(w, http.StatusNotFound, "skill not found")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	detail, err := clawhubskills.FetchCatalogDetail(ctx, slug)
+	if err != nil {
+		s.writeBadGatewayError(w, err)
+		return
+	}
+
+	writeData(w, http.StatusOK, map[string]any{
+		"slug":    detail.Slug,
+		"name":    detail.Name,
+		"summary": detail.Summary,
+		"version": detail.Version,
+		"readme":  detail.Readme,
+		"files":   detail.Files,
+	})
+}

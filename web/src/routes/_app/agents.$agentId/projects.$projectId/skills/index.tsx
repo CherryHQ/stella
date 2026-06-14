@@ -4,6 +4,8 @@ interface SkillsSearch {
   new?: boolean;
   expand?: string;
   scope?: string;
+  tab?: string;
+  dslug?: string;
 }
 
 export const Route = createFileRoute("/_app/agents/$agentId/projects/$projectId/skills/")({
@@ -11,5 +13,7 @@ export const Route = createFileRoute("/_app/agents/$agentId/projects/$projectId/
     new: search.new === true || search.new === "true",
     expand: typeof search.expand === "string" ? search.expand : undefined,
     scope: typeof search.scope === "string" ? search.scope : undefined,
+    tab: search.tab === "discover" ? "discover" : undefined,
+    dslug: typeof search.dslug === "string" ? search.dslug : undefined,
   }),
 });

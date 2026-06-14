@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
@@ -163,9 +164,22 @@ func resolvedSkillToView(rs skillstool.ResolvedSkill) skillView {
 		Status:                 rs.Status,
 		DisableModelInvocation: rs.DisableModelInvocation,
 		Files:                  files,
+		Source:                 skillSource(rs.Metadata),
 		CreatedAt:              rs.CreatedAt.UTC(),
 		UpdatedAt:              rs.UpdatedAt.UTC(),
 	}
+}
+
+// skillSource extracts the install source recorded in a skill's metadata, if any.
+func skillSource(metadata json.RawMessage) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	var m struct {
+		Source string `json:"source"`
+	}
+	_ = json.Unmarshal(metadata, &m)
+	return m.Source
 }
 
 // requireAgentSkillWrite checks auth for write operations on DB-backed scopes.
@@ -545,6 +559,10 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")
+			return
+		}
 		s.writeInternalError(w, err)
 		return
 	}

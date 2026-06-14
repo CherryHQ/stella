@@ -31,3 +31,28 @@ paths:
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+
+  /api/clawhub/skills/{slug}:
+    get:
+      tags: [clawhub]
+      summary: Fetch a single ClawHub marketplace skill with its README (any authenticated user)
+      operationId: getClawhubSkill
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ClawhubSkillDetail",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": {
+          $ref: "../../components.yaml#/components/responses/NotFound",
+        }

@@ -47,7 +47,12 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		createdAt = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	metaJSON := fmt.Sprintf(`{"created-at":%q}`, createdAt)
+	// Record the install source so the UI can match an installed skill back to its
+	// marketplace entry (whose slug may differ from the SKILL.md frontmatter name).
+	metaBytes, err := json.Marshal(map[string]string{"created-at": createdAt, "source": source})
+	if err != nil {
+		return "", fmt.Errorf("encode skill metadata for %q: %w", name, err)
+	}
 
 	sk := pkgplugins.Skill{
 		Scope:                  scope,
@@ -55,11 +60,14 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		Description:            fm.Description,
 		Status:                 NormalizeSkillStatus(fm.Status),
 		DisableModelInvocation: fm.DisableModelInvocation,
-		Metadata:               json.RawMessage(metaJSON),
+		Metadata:               json.RawMessage(metaBytes),
 	}
+	// A user-scope skill lives within an agent's context (system → agent → user),
+	// so it carries both the owning user and the agent it was installed under.
 	switch scope {
 	case "user":
 		sk.UserID = userID
+		sk.AgentID = agentID
 	case "agent":
 		sk.AgentID = agentID
 	}

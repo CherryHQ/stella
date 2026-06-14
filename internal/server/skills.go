@@ -24,6 +24,7 @@ type skillView struct {
 	Status                 string    `json:"status"`
 	DisableModelInvocation bool      `json:"disable_model_invocation"`
 	Files                  []string  `json:"files"`
+	Source                 string    `json:"source,omitempty"`
 	CreatedAt              time.Time `json:"created_at"`
 	UpdatedAt              time.Time `json:"updated_at"`
 }

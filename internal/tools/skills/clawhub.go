@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -68,6 +69,17 @@ type CatalogSkill struct {
 	UpdatedAt    time.Time // zero when unknown
 	AuthorHandle string    // empty in browse mode (upstream list has no owner)
 	AuthorImage  string
+}
+
+// CatalogSkillDetail is a single marketplace skill enriched with its README and file list,
+// fetched by downloading the skill archive from ClawHub.
+type CatalogSkillDetail struct {
+	Slug    string
+	Name    string
+	Summary string
+	Version string
+	Readme  string   // SKILL.md content, empty when absent
+	Files   []string // relative file paths, sorted
 }
 
 type clawhubSkillDetail struct {
@@ -243,6 +255,47 @@ func BrowseCatalog(ctx context.Context, q string, limit int, pageToken string) (
 		})
 	}
 	return items, nextCursor, nil
+}
+
+// FetchCatalogDetail resolves a skill's metadata and downloads its archive to surface
+// the README (SKILL.md) and file list for a marketplace detail view.
+func FetchCatalogDetail(ctx context.Context, slug string) (CatalogSkillDetail, error) {
+	detail, err := clawhubFetchDetail(ctx, slug)
+	if err != nil {
+		return CatalogSkillDetail{}, err
+	}
+	if detail.Skill == nil {
+		return CatalogSkillDetail{}, fmt.Errorf("skill %q not found on clawhub", slug)
+	}
+	var version string
+	if detail.LatestVersion != nil {
+		version = detail.LatestVersion.Version
+	}
+
+	name, files, cleanup, err := clawhubFetchSkillFiles(ctx, slug, version)
+	if err != nil {
+		return CatalogSkillDetail{}, err
+	}
+	defer cleanup()
+
+	fileList := make([]string, 0, len(files))
+	for f := range files {
+		fileList = append(fileList, f)
+	}
+	sort.Strings(fileList)
+
+	displayName := detail.Skill.DisplayName
+	if displayName == "" {
+		displayName = name
+	}
+	return CatalogSkillDetail{
+		Slug:    slug,
+		Name:    displayName,
+		Summary: detail.Skill.Summary,
+		Version: version,
+		Readme:  files["SKILL.md"],
+		Files:   fileList,
+	}, nil
 }
 
 func clawhubSearch(ctx context.Context, query string, limit int) ([]clawhubSearchResult, error) {
