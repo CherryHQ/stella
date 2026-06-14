@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/resources"
 )
@@ -68,16 +69,17 @@ func applyTemplate(a *config.Agent, templateID string) error {
 	return nil
 }
 
-func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apiserver.ListAgentsParams) {
 	info := requireAuth(w, r)
 	if info == nil {
 		return
 	}
 	ctx := r.Context()
 
+	includeAll := info.IsAdmin && params.IncludeAll != nil && *params.IncludeAll
 	var agents []config.Agent
 	var err error
-	if info.IsAdmin {
+	if includeAll {
 		agents, err = s.store.ListAgents(ctx)
 	} else {
 		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)

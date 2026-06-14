@@ -81,7 +81,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
         if (data?.id) setCurrentUserId(data.id);
       })
       .catch(() => {});
-    void listAgents({ throwOnError: true })
+    void listAgents({ query: { include_all: true }, throwOnError: true })
       .then(({ data }) => setAgents((data?.agents ?? []) as Agent[]))
       .catch(() => {});
   }, [loadUser]);
