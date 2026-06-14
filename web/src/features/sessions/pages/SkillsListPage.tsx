@@ -46,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
@@ -178,19 +179,17 @@ export function SkillsListPage() {
           {activeTab === "installed" && (
             <div className="mt-4 flex items-center justify-between gap-4 max-md:block">
               <div className="flex min-w-0 items-center gap-2 max-md:overflow-x-auto">
-                <div className="relative w-72 shrink-0 max-md:w-64">
-                  <Search
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    size={16}
-                  />
-                  <Input
+                <InputGroup className="w-72 shrink-0 max-md:w-64">
+                  <InputGroupAddon>
+                    <Search />
+                  </InputGroupAddon>
+                  <InputGroupInput
                     nativeInput
                     value={query}
                     onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
                     placeholder={t("sessions.skillsList.searchPlaceholder")}
-                    className="pl-9"
                   />
-                </div>
+                </InputGroup>
                 {(["all", ...SCOPES] as const).map((scope) => (
                   <Button
                     key={scope}
@@ -297,7 +296,7 @@ function SkillGroup({
     <Collapsible defaultOpen={defaultOpen}>
       <div className="flex items-center justify-between">
         <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground">
-          <ChevronRight className="size-3.5 transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
+          <ChevronRight className="size-4 transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
           {t(`sessions.skillsList.${scope}`)} · {skills.length}
           {!WRITABLE.has(scope) ? ` · ${t("sessions.skillsList.readonly")}` : ""}
         </CollapsibleTrigger>
@@ -317,7 +316,7 @@ function SkillGroup({
               onClick={() => onSelect(skill)}
               className={cn(
                 "w-full rounded-lg px-3 py-2.5 text-left md:flex md:min-h-13 md:items-center md:gap-3 md:py-0",
-                selected?.id === skill.id ? "bg-primary/10" : "hover:bg-muted",
+                selected?.id === skill.id ? "bg-accent" : "hover:bg-muted",
               )}
             >
               <div className="flex items-center gap-2 md:min-w-0 md:flex-1 md:gap-3">
@@ -343,7 +342,7 @@ function SkillGroup({
                 {skill.description}
               </p>
               <span className="hidden shrink-0 items-center gap-2 text-xs text-muted-foreground md:flex">
-                {!WRITABLE.has(skill.scope as Scope) && <Lock className="size-3.5" />}
+                {!WRITABLE.has(skill.scope as Scope) && <Lock className="size-4" />}
                 {formatTime(skill.updated_at)}
               </span>
             </button>
@@ -434,7 +433,7 @@ function SkillInspector({
           <p className="text-sm text-muted-foreground">{skill.description}</p>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <span>{t("sessions.skillsList.scope")}</span>
-            <Badge>{t(`sessions.skillsList.${skill.scope}`)}</Badge>
+            <Badge variant="secondary">{t(`sessions.skillsList.${skill.scope}`)}</Badge>
             <span>{t("sessions.skillsList.status")}</span>
             <span>{t(statusLabelKey(skill.status))}</span>
             <span>{t("sessions.skillsList.modelInvocation")}</span>
@@ -566,7 +565,7 @@ function SkillInspector({
     <div className="sticky top-0 p-5">
       <div className="mb-4 flex items-center gap-2">
         <span className="font-mono text-sm font-medium">{skill.name}</span>
-        <Badge>{t(`sessions.skillsList.${skill.scope}`)}</Badge>
+        <Badge variant="secondary">{t(`sessions.skillsList.${skill.scope}`)}</Badge>
         {skill.status !== "active" && (
           <Badge variant="secondary">{t(statusLabelKey(skill.status))}</Badge>
         )}

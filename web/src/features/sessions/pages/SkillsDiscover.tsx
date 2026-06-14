@@ -22,7 +22,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
@@ -53,7 +53,7 @@ function SkillGlyph({ className }: { className?: string }) {
         className,
       )}
     >
-      <Blocks className="size-4.5" />
+      <Blocks className="size-5" />
     </div>
   );
 }
@@ -63,7 +63,7 @@ function AuthorChip({ handle, image }: { handle: string; image?: string }) {
     <span className="inline-flex items-center gap-1.5">
       <Avatar className="size-4">
         {image && <AvatarImage src={image} alt="" />}
-        <AvatarFallback className="text-[8px] uppercase">{handle.slice(0, 1)}</AvatarFallback>
+        <AvatarFallback className="uppercase">{handle.slice(0, 1)}</AvatarFallback>
       </Avatar>
       {handle}
     </span>
@@ -140,20 +140,18 @@ export function SkillsDiscover({
 
   return (
     <div className="space-y-4">
-      <div className="relative max-w-sm">
-        <Search
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          size={16}
-        />
-        <Input
+      <InputGroup className="max-w-sm">
+        <InputGroupAddon>
+          <Search />
+        </InputGroupAddon>
+        <InputGroupInput
           nativeInput
           type="search"
           value={query}
           onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
           placeholder={t("sessions.discover.searchPlaceholder")}
-          className="pl-9"
         />
-      </div>
+      </InputGroup>
       {isLoading ? (
         <div className="space-y-1">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -217,7 +215,7 @@ export function SkillsDiscover({
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     {count != null && (
                       <span className="inline-flex items-center gap-1">
-                        <Download className="size-3.5" />
+                        <Download className="size-4" />
                         {t("sessions.discover.installs", { n: formatInstalls(count) })}
                       </span>
                     )}
@@ -229,7 +227,7 @@ export function SkillsDiscover({
                 <div className="flex shrink-0 items-center gap-2 self-center">
                   {installed ? (
                     <Badge variant="success" size="sm">
-                      <Check size={16} />
+                      <Check />
                       {t("sessions.discover.installed")}
                     </Badge>
                   ) : (
@@ -312,7 +310,7 @@ function DiscoverDetail({
               )}
               {count != null && (
                 <span className="inline-flex items-center gap-1">
-                  <Download className="size-3.5" />
+                  <Download className="size-4" />
                   {t("sessions.discover.installs", { n: formatInstalls(count) })}
                 </span>
               )}
@@ -321,7 +319,7 @@ function DiscoverDetail({
               )}
               {row?.updated_at && (
                 <span className="inline-flex items-center gap-1">
-                  <Clock className="size-3.5" />
+                  <Clock className="size-4" />
                   {t("sessions.discover.updated", { t: formatTime(row.updated_at) })}
                 </span>
               )}
@@ -334,7 +332,7 @@ function DiscoverDetail({
         {files.length > 0 && (
           <Collapsible>
             <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <ChevronRight className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
+              <ChevronRight className="size-4 transition-transform group-data-[panel-open]:rotate-90" />
               {t("sessions.discover.files")} · {files.length}
             </CollapsibleTrigger>
             <CollapsiblePanel>
@@ -344,7 +342,7 @@ function DiscoverDetail({
                     key={file}
                     className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
                   >
-                    <FileText className="size-3" />
+                    <FileText className="size-4" />
                     {file}
                   </span>
                 ))}
@@ -354,7 +352,7 @@ function DiscoverDetail({
         )}
         <Separator />
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-xs font-medium text-muted-foreground">
             {t("sessions.discover.readme")}
           </p>
           {isLoading ? (
