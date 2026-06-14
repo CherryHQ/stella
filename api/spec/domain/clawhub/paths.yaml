@@ -1,0 +1,33 @@
+paths:
+  /api/clawhub/skills:
+    get:
+      tags: [clawhub]
+      summary: List or search ClawHub marketplace skills (any authenticated user)
+      operationId: listClawhubSkills
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, default: 20 }
+        - name: page_token
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ClawhubSkillList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
