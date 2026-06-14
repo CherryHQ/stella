@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -18,6 +19,59 @@ type fakeStreamProvider struct{}
 func (fakeStreamProvider) API() string { return "anthropic" }
 func (fakeStreamProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("not implemented")
+}
+
+func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
+	stellaHome := t.TempDir()
+	t.Setenv("STELLA_HOME", stellaHome)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	snap := &config.Snapshot{
+		AgentID:      "test-agent",
+		Provider:     "anthropic",
+		Model:        "test-model",
+		APIKey:       "test-key",
+		SystemPrompt: "You are Stella.",
+	}
+	snap.Workspace = t.TempDir()
+
+	userRoot := filepath.Join(stellaHome, "workspaces", snap.AgentID, "users", "user-1")
+	projectRoot := filepath.Join(userRoot, "projects", "app")
+	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "AGENTS.md"), []byte("project instructions from runner builder"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap: snap,
+		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		ProjectResolver: func(ctx context.Context, projectID, userID string) (string, error) {
+			if projectID != "project-1" || userID != "user-1" {
+				t.Fatalf("ProjectResolver called with projectID=%q userID=%q", projectID, userID)
+			}
+			return projectRoot, nil
+		},
+	})
+
+	r, err := build(context.Background(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID, ProjectID: "project-1"})
+	if err != nil {
+		t.Fatalf("build runner: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Fatalf("Close runner: %v", err)
+		}
+	})
+
+	if got := r.SystemPrompt(); !strings.Contains(got, "project instructions from runner builder") {
+		t.Fatalf("expected system prompt to include project AGENTS.md content, got:\n%s", got)
+	}
 }
 
 func TestNewRunnerFunc(t *testing.T) {
