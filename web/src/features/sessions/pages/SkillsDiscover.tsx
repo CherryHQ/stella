@@ -6,6 +6,7 @@ import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { installAgentSkill } from "@/lib/api-client/sdk.gen";
 import type { ClawhubSkill } from "@/lib/api-client/types.gen";
 import { clawhubSkillDetailOptions, clawhubSkillsOptions } from "@/lib/queries/agents";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -114,7 +115,7 @@ export function SkillsDiscover({
       showToast(t("sessions.discover.installSuccess"), "success");
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
     } catch (error) {
-      showToast(error instanceof Error ? error.message : t("common.error"), "error");
+      showToast(apiErrorMessage(error, t("common.error")), "error");
     } finally {
       setInstallingSlug(null);
     }
@@ -174,7 +175,7 @@ export function SkillsDiscover({
       ) : (
         <div className="space-y-1">
           {rows.map((skill) => {
-            const installed = installedNames.has(skill.name);
+            const installed = installedNames.has(skill.name) || installedNames.has(skill.slug);
             const count = skill.installs ?? skill.downloads;
             return (
               <button
@@ -272,7 +273,7 @@ function DiscoverDetail({
   const version = data?.version ?? row?.version;
   const summary = data?.summary ?? row?.summary;
   const count = row?.installs ?? row?.downloads;
-  const installed = installedNames.has(name);
+  const installed = installedNames.has(name) || installedNames.has(slug);
   const readme = stripFrontmatter(data?.readme ?? "").trim();
   const files = data?.files ?? [];
 
