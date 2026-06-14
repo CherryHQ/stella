@@ -11,8 +11,13 @@ RETURNING *;
 -- name: GetAgentGoal :one
 SELECT * FROM agent_goal WHERE id = ?;
 
+-- Dispatcher rollup scan. Skip quiescent goals (done/cancelled) so the bounded
+-- window is spent only on goals rollup can still act on (running/blocked/failed
+-- and pre-run states). failed is intentionally included - it is recoverable.
 -- name: ListAgentGoals :many
-SELECT * FROM agent_goal ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
+SELECT * FROM agent_goal
+WHERE status NOT IN ('done', 'cancelled')
+ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;
 
 -- name: ListAgentGoalsByUser :many
 SELECT * FROM agent_goal WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?;

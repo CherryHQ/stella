@@ -79,7 +79,7 @@ func (s *TransitionService) CompleteGoal(ctx context.Context, goalID, output str
 		if err != nil {
 			return err
 		}
-		if goal.Status == GoalStatusDone || goal.Status == GoalStatusCancelled {
+		if isQuiescentGoalStatus(goal.Status) {
 			return ErrInvalidTransition
 		}
 		now := s.now()
@@ -273,7 +273,7 @@ func (s *TransitionService) CompleteGoalTx(ctx context.Context, q *sqlc.Queries,
 	if err != nil {
 		return err
 	}
-	if isTerminalGoalStatus(goal.Status) {
+	if isQuiescentGoalStatus(goal.Status) {
 		return ErrInvalidTransition
 	}
 	n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
@@ -318,8 +318,18 @@ func getGoalForUpdate(ctx context.Context, q *sqlc.Queries, goalID string) (sqlc
 	return g, nil
 }
 
-// isTerminalGoalStatus reports whether a goal status forbids further
-// transitions.
+// isQuiescentGoalStatus reports whether rollup and completion leave a goal
+// untouched. Only done and cancelled are final for these purposes; failed is
+// recoverable — a reopened or completed required child rolls a failed goal
+// back to running or done (see RollupGoal and UnblockGoal).
+func isQuiescentGoalStatus(s string) bool {
+	return s == GoalStatusDone || s == GoalStatusCancelled
+}
+
+// isTerminalGoalStatus reports whether a goal has reached an outcome that the
+// fail/cancel/new-task-context guards refuse to act on. Unlike
+// isQuiescentGoalStatus this includes failed: those guards still treat a failed
+// goal as finished even though rollup can recover it.
 func isTerminalGoalStatus(s string) bool {
 	switch s {
 	case GoalStatusDone, GoalStatusFailed, GoalStatusCancelled:

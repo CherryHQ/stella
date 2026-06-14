@@ -19,7 +19,7 @@ func (d *Dispatcher) rollupGoals(ctx context.Context, _ time.Time) {
 		return
 	}
 	for _, g := range goals {
-		if g.Status == GoalStatusDone || g.Status == GoalStatusCancelled {
+		if isQuiescentGoalStatus(g.Status) {
 			continue
 		}
 		d.rollupOneGoal(ctx, g)

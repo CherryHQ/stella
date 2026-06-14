@@ -45,6 +45,8 @@ stateDiagram-v2
     running --> failed: required child 失败
     running --> blocked: required child 被阻塞
     blocked --> running: child 解除阻塞 (UnblockGoal)
+    failed --> running: required child 被重开 (UnblockGoal)
+    failed --> done: required child 完成 (CompleteGoal)
     draft --> cancelled: CancelGoal
     running --> cancelled: CancelGoal
     blocked --> cancelled: CancelGoal
@@ -65,24 +67,25 @@ RollupGoal(goal, childCounts, hasOpenSynth) GoalNextState
 
 对支持的 `review_policy=none` goals：
 
-| 子任务状态                               | 结论                                                                          |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| 任一必需子任务 failed                    | Goal → `failed`，reason 为 `required_child_failed`。                          |
-| 任一必需子任务 blocked                   | Goal → `blocked`，reason 为 `required_child_blocked`。                        |
-| 任一必需子任务 pending/running/reviewing | Goal → `running`（对已 running 的 goal 是 no-op；可让 `blocked` goal 恢复）。 |
-| 所有必需子任务 done                      | Goal → `done`。                                                               |
+| 子任务状态                               | 结论                                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 任一必需子任务 failed                    | Goal → `failed`，reason 为 `required_child_failed`。                                                  |
+| 任一必需子任务 cancelled                 | Goal → `failed`，reason 为 `required_child_cancelled`（cancelled 子任务无法重开，要求永久无法满足）。 |
+| 任一必需子任务 blocked                   | Goal → `blocked`，reason 为 `required_child_blocked`。                                                |
+| 任一必需子任务 pending/running/reviewing | Goal → `running`（对已 running 的 goal 是 no-op；可让 `blocked` 或 `failed` goal 恢复）。             |
+| 所有必需子任务 done                      | Goal → `done`。                                                                                       |
 
-`blocked` goal 会持续 rollup，因此解决子任务的 blocker（或 waive 其失败依赖）会在下一个 tick 通过 `UnblockGoal` 让 goal 回到 `running`——不需要单独的 goal-unblock 操作。当 rollup 算出的目标状态与当前状态相同时，dispatcher 会跳过这个 no-op transition。
+`blocked` 或 `failed` goal 会持续 rollup，因此可以恢复：清除子任务的 blocker，或重开/完成一个失败的必需子任务，会在后续 tick 通过 `UnblockGoal` 让 goal 回到 `running`（当所有必需子任务都已 done 时，则通过 `CompleteGoal` 直接到 `done`）——不需要单独的 goal-unblock 操作。当 rollup 算出的目标状态与当前状态相同时，dispatcher 会跳过这个 no-op transition，因此停留在 failed 的 goal 不会产生抖动。被 cancelled 的必需子任务不会让 goal 恢复：它会重新判定为 `failed`，因为 cancelled 任务无法重开。failed goal 不接受新增 child task——恢复是基于 reopen 的，所以请先重开一个已失败的子任务（让 goal 回到 `running`）再附加新工作。
 
 对 `review_policy=auto`、`agent` 或 `human`，本版本 API 会拒绝 goal 创建/激活。最终 synthesis 和 goal review 需要未来的 synthesizer runtime。
 
 ## Dispatcher 行为
 
-当前支持的 dispatcher goal 行为只有 rollup：
+当前支持的 dispatcher goal 行为只有 rollup。单个 tick 内：
 
-1. 先运行 task 侧 dispatcher 步骤：stale-run interruption、dependency failure propagation、worker task dispatch。
-2. `rollupGoals` 评估非终止 goals。
-3. Rollup 根据 child task 状态应用 goal complete/fail/block transitions。
+1. 先运行 stale-run interruption 与 dependency failure propagation。
+2. `rollupGoals` 评估活跃或可恢复的 goals（除 `done`/`cancelled` 外的全部），并在 child task 状态要求时应用 goal complete/fail/block/unblock transitions。
+3. 最后运行 worker task dispatch，因此第 2 步中恢复到 `running` 的 goal，其新就绪的子任务会在同一个 tick 内被派发。
 
 Planner、synthesizer 和 agent-reviewer dispatch scan paths 已删除，不再保留为 noop failure paths。Unsupported goal modes 通过 API validation 拦截。
 
