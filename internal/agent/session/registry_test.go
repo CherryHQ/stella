@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -331,5 +332,55 @@ func TestResolveMain_ReturnsExisting(t *testing.T) {
 	}
 	if info.ID != "main-1" {
 		t.Errorf("ID = %q, want main-1", info.ID)
+	}
+}
+
+func TestResolveMain_IgnoresProjectMainWhenAgentMainExists(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	projectMain := NewInfo("project-main-1", "agent1", "u1", "web", KindMain, "project-1", now.Add(time.Minute))
+	agentMain := NewInfo("agent-main-1", "agent1", "u1", "agent1:user:u1:private", KindMain, "", now)
+	s.sessions["project-main-1"] = projectMain
+	s.sessions["agent-main-1"] = agentMain
+
+	info, err := r.ResolveMain(context.Background(), MainRequest{
+		UserID:  "u1",
+		AgentID: "agent1",
+	})
+	if err != nil {
+		t.Fatalf("ResolveMain: %v", err)
+	}
+	if info.ID != "agent-main-1" {
+		t.Errorf("ID = %q, want agent-main-1", info.ID)
+	}
+	if info.ProjectID != "" {
+		t.Errorf("ProjectID = %q, want empty", info.ProjectID)
+	}
+}
+
+func TestResolveMain_CreatesAgentMainWhenOnlyProjectMainExists(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	projectMain := NewInfo("project-main-1", "agent1", "u1", "web", KindMain, "project-1", now)
+	s.sessions["project-main-1"] = projectMain
+
+	info, err := r.ResolveMain(context.Background(), MainRequest{
+		UserID:  "u1",
+		AgentID: "agent1",
+	})
+	if err != nil {
+		t.Fatalf("ResolveMain: %v", err)
+	}
+	if info.ID == "project-main-1" {
+		t.Fatal("ResolveMain reused project main as agent main")
+	}
+	if info.Kind != string(KindMain) {
+		t.Errorf("Kind = %q, want %q", info.Kind, KindMain)
+	}
+	if info.ProjectID != "" {
+		t.Errorf("ProjectID = %q, want empty", info.ProjectID)
+	}
+	if !strings.Contains(info.Channel, ":user:u1:") {
+		t.Errorf("Channel = %q, want private user channel", info.Channel)
 	}
 }
