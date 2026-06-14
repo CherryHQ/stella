@@ -144,7 +144,7 @@ export interface AgentsSettingsLoaderData {
 
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
-    listAgents({ throwOnError: true })
+    listAgents({ query: { include_all: true }, throwOnError: true })
       .then(({ data }) => data?.agents ?? [])
       .catch(() => []),
     listModels({ throwOnError: true })
@@ -339,7 +339,7 @@ export function AgentsPage() {
   const loadAgents = useCallback(
     async (currentState?: AgentsPageState) => {
       try {
-        const { data } = await listAgents({ throwOnError: true });
+        const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
         const agents = (data?.agents ?? []).map((a) => ({
           ...a,
           sandbox: normalizeSandbox(a.sandbox),

@@ -2,8 +2,15 @@ paths:
   /api/agents:
     get:
       tags: [agents]
-      summary: List agents (any authenticated user; non-admin sees accessible only)
+      summary: List agents visible to the current user
       operationId: listAgents
+      parameters:
+        - {
+            name: include_all,
+            in: query,
+            required: false,
+            schema: { type: boolean, default: false },
+          }
       responses:
         "200":
           description: ok

@@ -41,6 +41,53 @@ func createTestAgent(t *testing.T, env *testEnv, a config.Agent) string {
 	return created.ID
 }
 
+func TestListAgents_AdminUsesAccessibleListUnlessIncludeAll(t *testing.T) {
+	env := setupAdmin(t)
+
+	stellaID := findStellaID(t, env)
+	restrictedID := createTestAgent(t, env, config.Agent{
+		Name:    "Admin Hidden Restricted",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   config.AgentScopeRestricted,
+		Enabled: true,
+	})
+
+	decodeAgents := func(path string) []config.Agent {
+		t.Helper()
+		rr := doRequest(t, env, http.MethodGet, path, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET %s: status=%d body=%s", path, rr.Code, rr.Body.String())
+		}
+		items := parseListItems(t, rr, "agents")
+		var agents []config.Agent
+		if err := json.Unmarshal(items, &agents); err != nil {
+			t.Fatalf("decode agents: %v", err)
+		}
+		return agents
+	}
+	contains := func(agents []config.Agent, id string) bool {
+		for _, a := range agents {
+			if a.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	regular := decodeAgents("/api/agents")
+	if !contains(regular, stellaID) {
+		t.Fatalf("regular agent list omitted system agent %s: %+v", stellaID, regular)
+	}
+	if contains(regular, restrictedID) {
+		t.Fatalf("regular agent list leaked unassigned restricted agent %s", restrictedID)
+	}
+
+	management := decodeAgents("/api/agents?include_all=true")
+	if !contains(management, restrictedID) {
+		t.Fatalf("management agent list omitted restricted agent %s: %+v", restrictedID, management)
+	}
+}
+
 func TestCreateAgentFromTemplate(t *testing.T) {
 	env := setupAdmin(t)
 
