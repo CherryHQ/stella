@@ -55,10 +55,15 @@ func (m *recordingMemory) CommitGroupCursor(_ context.Context, _ memory.Session,
 }
 
 type chatFakeRunner struct {
-	events []Event
+	events   []Event
+	system   string
+	messages *[]MessageContent
 }
 
-func (r chatFakeRunner) Chat(context.Context, []ai.Message, MessageContent) <-chan Event {
+func (r chatFakeRunner) Chat(_ context.Context, _ []ai.Message, msg MessageContent) <-chan Event {
+	if r.messages != nil {
+		*r.messages = append(*r.messages, msg)
+	}
 	ch := make(chan Event, len(r.events))
 	for _, evt := range r.events {
 		ch <- evt
@@ -70,7 +75,7 @@ func (r chatFakeRunner) Chat(context.Context, []ai.Message, MessageContent) <-ch
 func (r chatFakeRunner) Alive() bool             { return true }
 func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
-func (r chatFakeRunner) SystemPrompt() string    { return "" }
+func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
 
 func TestRuntimeChatCommitsGroupCursorAfterSuccessfulGroupTurn(t *testing.T) {

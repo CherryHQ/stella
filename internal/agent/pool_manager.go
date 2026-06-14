@@ -366,38 +366,8 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 	}
 }
 
-// buildGroupSystemPrompt renders a per-turn group system prompt with the current
-// speaker. It is never cached on the runner, so one speaker's addressing context
-// can't leak into another speaker's turn. The prompt UserID stays empty and
-// group memory flows from GroupID; private speaker profile text is deliberately
-// not auto-injected into public group prompts.
-func (pm *PoolManager) buildGroupSystemPrompt(ctx context.Context, snap *config.Snapshot, info session.Info, speaker memory.CurrentSpeaker) string {
-	userRoot, _, groupID := pm.promptScope(snap.AgentID, info)
-	sections := pm.promptSections(ctx, snap, info, userRoot)
-
-	return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt:      snap.SystemPrompt,
-		AgentSoul:         snap.Soul,
-		Memory:            pm.mem,
-		UserID:            "",
-		AgentID:           info.AgentID,
-		GroupID:           groupID,
-		StellaHome:        config.StellaHome(),
-		AgentRoot:         snap.Workspace,
-		UserRoot:          userRoot,
-		Sections:          sections,
-		CurrentSpeaker:    speaker,
-		HasCurrentSpeaker: true,
-	})
-}
-
 func (pm *PoolManager) runtimeBeforeRunFunc(snap *config.Snapshot) agentruntime.BeforeRunFunc {
 	return func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
-		if info.GroupID != "" {
-			if speaker, ok := memory.CurrentSpeakerFromContext(ctx); ok {
-				system = pm.buildGroupSystemPrompt(ctx, snap, info, speaker)
-			}
-		}
 		if pm.beforeRunBuilder == nil {
 			return system, nil
 		}

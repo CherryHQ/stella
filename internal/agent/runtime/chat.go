@@ -180,6 +180,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// failed durable dispatch retry would leave the same trigger in history and
 	// duplicate it on the next attempt.
 	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
+	modelMsg := userMsg
+	if memSess.GroupID != "" && co.hasSpeaker {
+		modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker)
+	}
 	var storePrefix []ai.Message
 	if memSess.GroupID != "" {
 		storePrefix = []ai.Message{userMsg}
@@ -187,7 +191,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
 	}
 
-	stream := r.Chat(ctx, history, userMsg)
+	stream := r.Chat(ctx, history, modelMsg)
 	chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
 	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
 		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {

@@ -1,0 +1,41 @@
+package runtime
+
+import (
+	"fmt"
+
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
+)
+
+const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts. Do not call `memory.profile_get` or disclose profile details in a group unless this speaker explicitly asks you to read or use their profile in this conversation."
+
+func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker) MessageContent {
+	if speaker == (memory.CurrentSpeaker{}) {
+		return msg
+	}
+
+	prefix := currentSpeakerContextText(speaker)
+	switch m := msg.(type) {
+	case string:
+		return prefix + "\n\n" + m
+	case []ai.ContentBlock:
+		out := make([]ai.ContentBlock, 0, len(m)+1)
+		out = append(out, ai.TextContent{Text: prefix})
+		out = append(out, m...)
+		return out
+	default:
+		return prefix + "\n\n" + fmt.Sprintf("%v", m)
+	}
+}
+
+func currentSpeakerContextText(speaker memory.CurrentSpeaker) string {
+	name := speaker.DisplayName
+	if name == "" {
+		name = "Unknown"
+	}
+	linked := "no"
+	if speaker.UserID != "" {
+		linked = "yes (profile available only by explicit request)"
+	}
+	return fmt.Sprintf("<current_speaker>\n%s\n\nName: %s\nLinked Stella user: %s\n</current_speaker>", currentSpeakerInstruction, name, linked)
+}
