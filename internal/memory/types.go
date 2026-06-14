@@ -140,6 +140,7 @@ type ListOptions struct {
 	UserID          string // filter by user (empty = all)
 	Kind            string // filter by kind (empty = all)
 	ProjectID       string // filter by project (empty = all)
+	ProjectIDIsNull bool   // when true, require project_id IS NULL
 	IncludeArchived bool
 	Limit           int // 0 = no limit
 	Offset          int // skip first N matching results

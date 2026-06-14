@@ -371,9 +371,10 @@ WHERE user_id = ?1
   AND agent_id IS ?2
   AND (?3 != 0 OR archived = 0)
   AND (?4 IS NULL OR kind = ?4)
-  AND (?5 IS NULL OR project_id = ?5)
+  AND (?5 = 0 OR project_id IS NULL)
+  AND (?6 IS NULL OR project_id = ?6)
 ORDER BY last_active DESC
-LIMIT ?7 OFFSET ?6
+LIMIT ?8 OFFSET ?7
 `
 
 type ListConversationsFilteredParams struct {
@@ -381,6 +382,7 @@ type ListConversationsFilteredParams struct {
 	AgentID         sql.NullString `json:"agent_id"`
 	IncludeArchived interface{}    `json:"include_archived"`
 	Kind            interface{}    `json:"kind"`
+	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
 	ProjectID       interface{}    `json:"project_id"`
 	Offset          int64          `json:"offset"`
 	Limit           int64          `json:"limit"`
@@ -392,6 +394,7 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 		arg.AgentID,
 		arg.IncludeArchived,
 		arg.Kind,
+		arg.ProjectIDIsNull,
 		arg.ProjectID,
 		arg.Offset,
 		arg.Limit,
@@ -480,23 +483,26 @@ SELECT id, session_id, title, channel, kind, project_id, archived, last_active, 
 WHERE agent_id = ?1
   AND archived = 0
   AND (?2 IS NULL OR kind = ?2)
-  AND (?3 IS NULL OR project_id = ?3)
+  AND (?3 = 0 OR project_id IS NULL)
+  AND (?4 IS NULL OR project_id = ?4)
 ORDER BY last_active DESC
-LIMIT ?5 OFFSET ?4
+LIMIT ?6 OFFSET ?5
 `
 
 type ListConversationsForReviewFilteredParams struct {
-	AgentID   sql.NullString `json:"agent_id"`
-	Kind      interface{}    `json:"kind"`
-	ProjectID interface{}    `json:"project_id"`
-	Offset    int64          `json:"offset"`
-	Limit     int64          `json:"limit"`
+	AgentID         sql.NullString `json:"agent_id"`
+	Kind            interface{}    `json:"kind"`
+	ProjectIDIsNull interface{}    `json:"project_id_is_null"`
+	ProjectID       interface{}    `json:"project_id"`
+	Offset          int64          `json:"offset"`
+	Limit           int64          `json:"limit"`
 }
 
 func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]CtxConversation, error) {
 	rows, err := q.db.QueryContext(ctx, listConversationsForReviewFiltered,
 		arg.AgentID,
 		arg.Kind,
+		arg.ProjectIDIsNull,
 		arg.ProjectID,
 		arg.Offset,
 		arg.Limit,

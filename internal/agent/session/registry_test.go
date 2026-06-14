@@ -47,6 +47,12 @@ func (f *fakeStore) list(_ context.Context, userID, agentID string, opts memory.
 		if opts.Kind != "" && info.Kind != opts.Kind {
 			continue
 		}
+		if opts.ProjectIDIsNull && info.ProjectID != "" {
+			continue
+		}
+		if opts.ProjectID != "" && info.ProjectID != opts.ProjectID {
+			continue
+		}
 		if !opts.IncludeArchived && info.Archived {
 			continue
 		}

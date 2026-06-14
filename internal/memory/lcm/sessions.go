@@ -135,6 +135,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		AgentID:         nullAgent(agentIDValue),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
 		Kind:            optionalString(opts.Kind),
+		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
 		ProjectID:       optionalString(opts.ProjectID),
 		Offset:          nonNegativeOffset(opts.Offset),
 		Limit:           listLimit(opts.Limit),
@@ -151,11 +152,12 @@ func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOption
 		return nil, fmt.Errorf("missing agent context")
 	}
 	convs, err := p.q.ListConversationsForReviewFiltered(ctx, sqlc.ListConversationsForReviewFilteredParams{
-		AgentID:   nullAgent(opts.AgentID),
-		Kind:      optionalString(opts.Kind),
-		ProjectID: optionalString(opts.ProjectID),
-		Offset:    nonNegativeOffset(opts.Offset),
-		Limit:     listLimit(opts.Limit),
+		AgentID:         nullAgent(opts.AgentID),
+		Kind:            optionalString(opts.Kind),
+		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
+		ProjectID:       optionalString(opts.ProjectID),
+		Offset:          nonNegativeOffset(opts.Offset),
+		Limit:           listLimit(opts.Limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list review conversations: %w", err)

@@ -161,13 +161,14 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 
 	// Look for an existing main-kind session.
 	mains, err := r.store.list(ctx, req.UserID, agentID, memory.ListOptions{
-		Kind:    string(KindMain),
-		UserID:  req.UserID,
-		AgentID: agentID,
+		Kind:            string(KindMain),
+		UserID:          req.UserID,
+		AgentID:         agentID,
+		ProjectIDIsNull: true,
 	})
 	if err == nil {
 		for _, info := range mains {
-			if !info.Archived && info.ProjectID == "" {
+			if !info.Archived {
 				return info, nil
 			}
 		}
