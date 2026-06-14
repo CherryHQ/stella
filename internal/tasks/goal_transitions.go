@@ -79,7 +79,7 @@ func (s *TransitionService) CompleteGoal(ctx context.Context, goalID, output str
 		if err != nil {
 			return err
 		}
-		if isTerminalGoalStatus(goal.Status) {
+		if isQuiescentGoalStatus(goal.Status) {
 			return ErrInvalidTransition
 		}
 		now := s.now()
@@ -235,22 +235,23 @@ func (s *TransitionService) BlockGoal(ctx context.Context, goalID, reason string
 	})
 }
 
-// UnblockGoal recovers a goal from blocked back to running once no required
-// child is blocked or failed. Mirror of BlockGoal; driven by rollup when a
-// child blocker is resolved or the failed dependency is waived. The goal then
-// resumes normal rollup (completing or re-blocking) on subsequent ticks.
+// UnblockGoal recovers a goal from blocked or failed back to running once no
+// required child is blocked or failed. Mirror of BlockGoal; driven by rollup
+// when a child blocker is resolved, a failed child is reopened/completed, or a
+// failed dependency is waived. The goal then resumes normal rollup (completing
+// or re-blocking) on subsequent ticks.
 func (s *TransitionService) UnblockGoal(ctx context.Context, goalID, reason string, actor Actor) error {
 	return s.withTx(ctx, func(q *sqlc.Queries) error {
 		goal, err := getGoalForUpdate(ctx, q, goalID)
 		if err != nil {
 			return err
 		}
-		if goal.Status != GoalStatusBlocked {
+		if goal.Status != GoalStatusBlocked && goal.Status != GoalStatusFailed {
 			return ErrInvalidTransition
 		}
 		now := s.now()
 		n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
-			Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: GoalStatusBlocked,
+			Status: GoalStatusRunning, UpdatedAt: now, ID: goalID, Status_2: goal.Status,
 		})
 		if err != nil {
 			return err
@@ -258,7 +259,7 @@ func (s *TransitionService) UnblockGoal(ctx context.Context, goalID, reason stri
 		if n == 0 {
 			return ErrInvalidTransition
 		}
-		return s.appendGoalEvent(ctx, q, goalID, "goal_unblock", GoalStatusBlocked, GoalStatusRunning, actor,
+		return s.appendGoalEvent(ctx, q, goalID, "goal_unblock", goal.Status, GoalStatusRunning, actor,
 			map[string]any{"reason": reason})
 	})
 }
@@ -272,7 +273,7 @@ func (s *TransitionService) CompleteGoalTx(ctx context.Context, q *sqlc.Queries,
 	if err != nil {
 		return err
 	}
-	if isTerminalGoalStatus(goal.Status) {
+	if isQuiescentGoalStatus(goal.Status) {
 		return ErrInvalidTransition
 	}
 	n, err := q.TransitionAgentGoalStatus(ctx, sqlc.TransitionAgentGoalStatusParams{
@@ -317,8 +318,18 @@ func getGoalForUpdate(ctx context.Context, q *sqlc.Queries, goalID string) (sqlc
 	return g, nil
 }
 
-// isTerminalGoalStatus reports whether a goal status forbids further
-// transitions.
+// isQuiescentGoalStatus reports whether rollup and completion leave a goal
+// untouched. Only done and cancelled are final for these purposes; failed is
+// recoverable — a reopened or completed required child rolls a failed goal
+// back to running or done (see RollupGoal and UnblockGoal).
+func isQuiescentGoalStatus(s string) bool {
+	return s == GoalStatusDone || s == GoalStatusCancelled
+}
+
+// isTerminalGoalStatus reports whether a goal has reached an outcome that the
+// fail/cancel/new-task-context guards refuse to act on. Unlike
+// isQuiescentGoalStatus this includes failed: those guards still treat a failed
+// goal as finished even though rollup can recover it.
 func isTerminalGoalStatus(s string) bool {
 	switch s {
 	case GoalStatusDone, GoalStatusFailed, GoalStatusCancelled:

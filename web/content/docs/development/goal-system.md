@@ -45,6 +45,8 @@ stateDiagram-v2
     running --> failed: required child failed
     running --> blocked: required child blocked
     blocked --> running: child unblocks (UnblockGoal)
+    failed --> running: required child reopened (UnblockGoal)
+    failed --> done: required child completed (CompleteGoal)
     draft --> cancelled: CancelGoal
     running --> cancelled: CancelGoal
     blocked --> cancelled: CancelGoal
@@ -65,24 +67,25 @@ RollupGoal(goal, childCounts, hasOpenSynth) GoalNextState
 
 For supported `review_policy=none` goals:
 
-| Child state                                  | Verdict                                                                          |
-| -------------------------------------------- | -------------------------------------------------------------------------------- |
-| Any required child failed                    | Goal → `failed` with reason `required_child_failed`.                             |
-| Any required child blocked                   | Goal → `blocked` with reason `required_child_blocked`.                           |
-| Any required child pending/running/reviewing | Goal → `running` (no-op for an already-running goal; recovers a `blocked` goal). |
-| All required children done                   | Goal → `done`.                                                                   |
+| Child state                                  | Verdict                                                                                                                                 |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Any required child failed                    | Goal → `failed` with reason `required_child_failed`.                                                                                    |
+| Any required child cancelled                 | Goal → `failed` with reason `required_child_cancelled` (a cancelled child cannot be reopened, so the requirement is permanently unmet). |
+| Any required child blocked                   | Goal → `blocked` with reason `required_child_blocked`.                                                                                  |
+| Any required child pending/running/reviewing | Goal → `running` (no-op for an already-running goal; recovers a `blocked` or `failed` goal).                                            |
+| All required children done                   | Goal → `done`.                                                                                                                          |
 
-A `blocked` goal keeps rolling up, so resolving a child blocker (or waiving its failed dependency) returns the goal to `running` on the next tick via `UnblockGoal` — there is no separate goal-unblock action. The dispatcher skips no-op transitions where the rolled-up target equals the current status.
+A `blocked` or `failed` goal keeps rolling up, so it can recover: clearing a child blocker, or reopening/completing a failed required child, returns the goal to `running` via `UnblockGoal` (or straight to `done` via `CompleteGoal` when every required child is already done) on a later tick — there is no separate goal-unblock action. The dispatcher skips no-op transitions where the rolled-up target equals the current status, so a goal that stays failed produces no churn. A `cancelled` required child does not recover the goal: it re-asserts `failed`, since cancelled tasks cannot be reopened. A failed goal accepts no new child tasks — recovery is reopen-based, so reopen an existing failed child (which returns the goal to `running`) before attaching more work.
 
 For `review_policy=auto`, `agent`, or `human`, the API rejects goal creation/activation in this release. Final synthesis and goal review require a future synthesizer runtime.
 
 ## Dispatcher behavior
 
-The supported dispatcher goal behavior is rollup only:
+The supported dispatcher goal behavior is rollup only. Within one tick:
 
-1. Task-side dispatcher steps run first: stale-run interruption, dependency failure propagation, worker task dispatch.
-2. `rollupGoals` evaluates non-terminal goals.
-3. Rollup applies goal complete/fail/block transitions when child task state requires it.
+1. Stale-run interruption and dependency-failure propagation run first.
+2. `rollupGoals` evaluates active or recoverable goals (everything except `done`/`cancelled`) and applies goal complete/fail/block/unblock transitions when child task state requires it.
+3. Worker task dispatch runs last, so a goal recovered to `running` in step 2 has its newly-ready children dispatched in the same tick.
 
 Planner, synthesizer, and agent-reviewer dispatch scan paths are removed rather than left as noop failure paths. Unsupported goal modes are stopped at API validation.
 

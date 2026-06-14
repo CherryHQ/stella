@@ -170,6 +170,11 @@ func (f *ServiceFacade) resolveTaskContext(ctx context.Context, in CreateTaskInp
 		if goal.UserID != in.UserID {
 			return "", "", ErrGoalNotFound
 		}
+		// A failed goal is recoverable by rollup, but only by reopening or
+		// completing its existing children — not by attaching new work. Keep it
+		// terminal for task creation so a goal cannot sit failed while accepting
+		// fresh tasks; reopen a failed child (which recovers the goal to running)
+		// before adding more. See isTerminalGoalStatus vs isQuiescentGoalStatus.
 		if isTerminalGoalStatus(goal.Status) {
 			return "", "", fmt.Errorf("%w: goal is %s and accepts no new tasks", ErrInvalidTaskContext, goal.Status)
 		}

@@ -62,3 +62,41 @@ func TestRollupGoal(t *testing.T) {
 		})
 	}
 }
+
+// A cancelled required child can never be reopened, so it must not let a goal
+// vacuously complete: the goal fails instead of falling through to "all done".
+func TestRollupGoal_CancelledRequiredChild(t *testing.T) {
+	f := func(v int) sql.NullFloat64 { return sql.NullFloat64{Float64: float64(v), Valid: true} }
+	row := func(done, failed, cancelled, blocked, pending int) sqlc.GoalChildCountsRow {
+		return sqlc.GoalChildCountsRow{
+			RequiredDone: f(done), RequiredFailed: f(failed), RequiredCancelled: f(cancelled),
+			RequiredBlocked: f(blocked), RequiredPending: f(pending),
+		}
+	}
+	tests := []struct {
+		name       string
+		goalStatus string
+		counts     sqlc.GoalChildCountsRow
+		wantNext   string
+		wantReason string
+	}{
+		{"running-done-plus-cancelled", GoalStatusRunning, row(1, 0, 1, 0, 0), GoalStatusFailed, "required_child_cancelled"},
+		{"running-only-cancelled", GoalStatusRunning, row(0, 0, 1, 0, 0), GoalStatusFailed, "required_child_cancelled"},
+		{"failed-done-plus-cancelled-stays-failed", GoalStatusFailed, row(1, 0, 1, 0, 0), GoalStatusFailed, "required_child_cancelled"},
+		{"failed-beats-cancelled", GoalStatusRunning, row(0, 1, 1, 0, 0), GoalStatusFailed, "required_child_failed"},
+		{"cancelled-beats-blocked", GoalStatusRunning, row(0, 0, 1, 1, 0), GoalStatusFailed, "required_child_cancelled"},
+		{"cancelled-beats-pending", GoalStatusRunning, row(0, 0, 1, 0, 1), GoalStatusFailed, "required_child_cancelled"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			goal := sqlc.AgentGoal{Status: tc.goalStatus, ReviewPolicy: ReviewPolicyNone}
+			got := RollupGoal(goal, tc.counts, false)
+			if got.NextStatus != tc.wantNext {
+				t.Errorf("NextStatus=%q want %q", got.NextStatus, tc.wantNext)
+			}
+			if got.Reason != tc.wantReason {
+				t.Errorf("Reason=%q want %q", got.Reason, tc.wantReason)
+			}
+		})
+	}
+}

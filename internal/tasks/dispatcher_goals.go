@@ -8,7 +8,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// rollupGoals iterates non-terminal goals and applies RollupGoal's verdict.
+// rollupGoals iterates active or recoverable goals and applies RollupGoal's verdict.
 // Driven from the dispatcher tick.
 func (d *Dispatcher) rollupGoals(ctx context.Context, _ time.Time) {
 	goals, err := d.cfg.Queries.ListAgentGoals(ctx, sqlc.ListAgentGoalsParams{
@@ -19,7 +19,7 @@ func (d *Dispatcher) rollupGoals(ctx context.Context, _ time.Time) {
 		return
 	}
 	for _, g := range goals {
-		if isTerminalGoalStatus(g.Status) {
+		if isQuiescentGoalStatus(g.Status) {
 			continue
 		}
 		d.rollupOneGoal(ctx, g)
@@ -44,7 +44,8 @@ func (d *Dispatcher) rollupOneGoal(ctx context.Context, g sqlc.AgentGoal) {
 	case GoalStatusBlocked:
 		_ = d.cfg.Service.BlockGoal(ctx, g.ID, next.Reason, SystemActor())
 	case GoalStatusRunning:
-		// Recovery: a blocked goal whose children unblocked returns to running.
+		// Recovery: a blocked or failed goal whose children no longer justify the
+		// blocked/failed state returns to running.
 		_ = d.cfg.Service.UnblockGoal(ctx, g.ID, next.Reason, SystemActor())
 	}
 	// D8: SpawnSynthesizer stays dormant in this slice. RollupGoal still

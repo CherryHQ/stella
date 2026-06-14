@@ -140,7 +140,9 @@ func (q *Queries) GoalChildCounts(ctx context.Context, goalID sql.NullString) (G
 }
 
 const listAgentGoals = `-- name: ListAgentGoals :many
-SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+SELECT id, user_id, agent_id, project_id, title, description, status, priority, review_policy, active_review_id, context, output, created_at, updated_at, completed_at, cancelled_at FROM agent_goal
+WHERE status NOT IN ('done', 'cancelled')
+ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
 `
 
 type ListAgentGoalsParams struct {
@@ -148,6 +150,9 @@ type ListAgentGoalsParams struct {
 	Offset int64 `json:"offset"`
 }
 
+// Dispatcher rollup scan. Skip quiescent goals (done/cancelled) so the bounded
+// window is spent only on goals rollup can still act on (running/blocked/failed
+// and pre-run states). failed is intentionally included - it is recoverable.
 func (q *Queries) ListAgentGoals(ctx context.Context, arg ListAgentGoalsParams) ([]AgentGoal, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentGoals, arg.Limit, arg.Offset)
 	if err != nil {
