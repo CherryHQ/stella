@@ -65,6 +65,14 @@ func RollupGoal(goal sqlc.AgentGoal, counts sqlc.GoalChildCountsRow, hasOpenSynt
 	if failed > 0 {
 		return GoalNextState{NextStatus: GoalStatusFailed, Reason: "required_child_failed"}
 	}
+	if cancelled > 0 {
+		// A cancelled required child can never be reopened (D10), so the
+		// requirement is permanently unmet. Fail the goal rather than letting it
+		// fall through to "all required done" and vacuously complete when the
+		// only non-done required children were abandoned. Explicit CompleteGoal
+		// stays available to override.
+		return GoalNextState{NextStatus: GoalStatusFailed, Reason: "required_child_cancelled"}
+	}
 	if blocked > 0 {
 		return GoalNextState{NextStatus: GoalStatusBlocked, Reason: "required_child_blocked"}
 	}
