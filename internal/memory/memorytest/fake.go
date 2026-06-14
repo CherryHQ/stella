@@ -421,6 +421,15 @@ func (f *Fake) ListInfo(_ context.Context, opts memory.ListOptions) ([]memory.Se
 		if opts.UserID != "" && si.info.UserID != opts.UserID {
 			continue
 		}
+		if opts.Kind != "" && si.info.Kind != opts.Kind {
+			continue
+		}
+		if opts.ProjectIDIsNull && si.info.ProjectID != "" {
+			continue
+		}
+		if opts.ProjectID != "" && si.info.ProjectID != opts.ProjectID {
+			continue
+		}
 		if !opts.IncludeArchived && si.info.Archived {
 			continue
 		}

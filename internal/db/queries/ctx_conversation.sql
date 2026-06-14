@@ -78,6 +78,7 @@ WHERE user_id = sqlc.arg(user_id)
   AND agent_id IS sqlc.narg(agent_id)
   AND (sqlc.arg(include_archived) != 0 OR archived = 0)
   AND (sqlc.narg(kind) IS NULL OR kind = sqlc.narg(kind))
+  AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id) IS NULL OR project_id = sqlc.narg(project_id))
 ORDER BY last_active DESC
 LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
@@ -101,6 +102,7 @@ SELECT * FROM ctx_conversation
 WHERE agent_id = sqlc.arg(agent_id)
   AND archived = 0
   AND (sqlc.narg(kind) IS NULL OR kind = sqlc.narg(kind))
+  AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id) IS NULL OR project_id = sqlc.narg(project_id))
 ORDER BY last_active DESC
 LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
