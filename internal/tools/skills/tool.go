@@ -427,11 +427,9 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 }
 
 // resolveWritableSkill finds the skill a write action (remove/patch/deprecate)
-// targets. When an explicit scope is given it resolves that exact scope —
-// same-name skills across scopes are expected — otherwise it falls back to the
-// model's effective resolution. It only permits the scopes the model may write:
-// the user's own "user" and "user_agent" skills. System and system_agent skills
-// are admin-managed and rejected here.
+// targets. Missing scope follows the tool schema and defaults to user. Same-name
+// skills across scopes are expected, so write actions always resolve one exact
+// writable bucket instead of using runtime precedence.
 func (t *Tool) resolveWritableSkill(ctx context.Context, name string, args map[string]any) (*pkgplugins.Skill, error) {
 	if t.store == nil {
 		return nil, fmt.Errorf("skills store unavailable")
@@ -440,32 +438,23 @@ func (t *Tool) resolveWritableSkill(ctx context.Context, name string, args map[s
 	if err != nil {
 		return nil, err
 	}
-	vc := t.viewContext(ctx)
-
-	var s *pkgplugins.Skill
-	if rawScope != "" {
-		wantScope, err := normalizeSkillScope(rawScope)
-		if err != nil {
-			return nil, err
-		}
-		rs, err := t.svc.ResolveScoped(ctx, name, wantScope, vc, projectRootFromContext(ctx, t.projectRoot))
-		if err != nil {
-			return nil, fmt.Errorf("resolve skill %q: %w", name, err)
-		}
-		if rs == nil {
-			return nil, fmt.Errorf("skill %q not found in scope=%s", name, rawScope)
-		}
-		sk := rs.Skill
-		s = &sk
-	} else {
-		s, err = t.store.Resolve(ctx, name, vc)
-		if err != nil {
-			return nil, fmt.Errorf("resolve skill %q: %w", name, err)
-		}
-		if s == nil {
-			return nil, fmt.Errorf("skill %q not found", name)
-		}
+	wantScope, err := normalizeSkillScope(rawScope)
+	if err != nil {
+		return nil, err
 	}
+	vc := t.viewContext(ctx)
+	rs, err := t.svc.ResolveScoped(ctx, name, wantScope, vc, projectRootFromContext(ctx, t.projectRoot))
+	if err != nil {
+		return nil, fmt.Errorf("resolve skill %q: %w", name, err)
+	}
+	if rs == nil {
+		if rawScope == "" {
+			return nil, fmt.Errorf("skill %q not found in default scope=user", name)
+		}
+		return nil, fmt.Errorf("skill %q not found in scope=%s", name, rawScope)
+	}
+	sk := rs.Skill
+	s := &sk
 
 	if s.Scope == "project" {
 		return nil, fmt.Errorf("skill %q is a project skill — %s", name, errProjectScopeMsg)

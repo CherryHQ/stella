@@ -708,6 +708,56 @@ func TestPatchRespectsScope(t *testing.T) {
 	}
 }
 
+// TestPatchDefaultScopeIsUser guards CR-007: omitted scope follows the tool
+// contract instead of runtime precedence, and can update hidden knowledge rows.
+func TestPatchDefaultScopeIsUser(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, Name: "dup", Description: "u", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
+		t.Fatalf("create user skill: %v", err)
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "dup", Description: "a", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# a"}); err != nil {
+		t.Fatalf("create user_agent skill: %v", err)
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, Name: "fact", Description: "f", Status: "draft", DisableModelInvocation: true,
+	}, map[string]string{pkgplugins.SkillMainFile: "# f"}); err != nil {
+		t.Fatalf("create disabled user skill: %v", err)
+	}
+
+	tool := NewTool(store, "", "", "", "")
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "status": "deprecated"}); err != nil {
+		t.Fatalf("patch default scope: %v", err)
+	}
+	if _, err := tool.patch(ctx, map[string]any{"name": "fact", "status": "active"}); err != nil {
+		t.Fatalf("patch hidden default-scope skill: %v", err)
+	}
+
+	userRows, err := store.ListByScope(ctx, "user", userID, "")
+	if err != nil {
+		t.Fatalf("list user scope: %v", err)
+	}
+	statuses := map[string]string{}
+	for _, row := range userRows {
+		statuses[row.Name] = row.Status
+	}
+	if statuses["dup"] != "deprecated" || statuses["fact"] != "active" {
+		t.Fatalf("user rows = %#v, want dup deprecated and fact active", userRows)
+	}
+	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
+	if err != nil {
+		t.Fatalf("list user_agent scope: %v", err)
+	}
+	if len(agentRows) != 1 || agentRows[0].Status != "active" {
+		t.Fatalf("user_agent dup = %#v, want still active", agentRows)
+	}
+}
+
 func TestInstallFromLocalDirViaStore(t *testing.T) {
 	srcDir := t.TempDir()
 	skillDir := filepath.Join(srcDir, "store-skill")
