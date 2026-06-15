@@ -9,6 +9,7 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import type { Message } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { Button } from "@/components/ui/button";
 import {
   createSessionTransport,
   mergeToolResults,
@@ -195,21 +196,25 @@ export function RecallyChat({ articleId, onClose }: Props) {
           <span className="text-xs font-semibold text-foreground">{t("recally.chat.title")}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <button
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={handleResetSession}
             disabled={isStreaming}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer disabled:opacity-50"
+            className="text-muted-foreground hover:text-foreground"
             title={t("recally.chat.reset")}
           >
             <RotateCcw className="size-3.5" />
-          </button>
+          </Button>
           {onClose && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={onClose}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+              className="text-muted-foreground hover:text-foreground"
             >
               <span className="text-xs font-semibold font-mono">×</span>
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -295,19 +300,15 @@ export function RecallyChat({ articleId, onClose }: Props) {
             rows={1}
             disabled={isStreaming}
           />
-          <button
+          <Button
             type="button"
+            size="icon-xs"
             onClick={sendMessage}
             disabled={!userInput.trim() || isStreaming}
-            className={cn(
-              "p-1.5 rounded-lg shrink-0 flex items-center justify-center transition-colors cursor-pointer",
-              !userInput.trim() || isStreaming
-                ? "text-muted-foreground/30 cursor-not-allowed"
-                : "bg-primary text-primary-foreground hover:bg-primary-hover",
-            )}
+            className="shrink-0"
           >
             <ArrowUp className="size-3.5 stroke-[2.5]" />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

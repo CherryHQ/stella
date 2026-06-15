@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { AppShell } from "@/layouts/AppShell";
 import { useRecallyFilters } from "./hooks/useRecallyFilters";
 import { useRecallyMutations } from "./hooks/useRecallyMutations";
@@ -72,17 +73,19 @@ export function RecallyPage() {
 
   const mobileOverlayActive = !!(selectedId || showDigestDetail);
   const headerActions = mobileOverlayActive ? (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-xs"
       onClick={() => {
         if (chatOpen) setChatOpen(false);
         else if (selectedId) setSelectedId(null);
         else filters.setSelectedDigestDate(null);
       }}
-      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer md:hidden"
+      className="text-muted-foreground hover:text-foreground md:hidden"
     >
       <X className="size-4" />
-    </button>
+    </Button>
   ) : undefined;
 
   const sourceNav = (

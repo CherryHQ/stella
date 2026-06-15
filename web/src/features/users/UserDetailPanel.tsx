@@ -555,17 +555,18 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
                 </div>
               )}
               {!showAddMemory && (
-                <button
+                <Button
                   type="button"
+                  variant="link"
+                  size="xs"
                   onClick={() => {
                     setShowAddMemory(true);
                     setNewMemoryAgent("");
                     setNewMemoryContent("");
                   }}
-                  className="text-xs text-primary hover:text-primary cursor-pointer"
                 >
                   + {t("users.addMemory")}
-                </button>
+                </Button>
               )}
             </div>
           </div>
