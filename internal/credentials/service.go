@@ -269,32 +269,6 @@ func (s *Service) ProviderClientID(ctx context.Context, providerID string) (stri
 	return clientID, err
 }
 
-// ProviderScopes returns the scopes registered for the given tool OAuth provider.
-func (s *Service) ProviderScopes(providerID string) []string {
-	if s.registry == nil {
-		return nil
-	}
-	cfg, ok := s.registry.Get(providerID)
-	if !ok {
-		return nil
-	}
-	return cfg.Scopes
-}
-
-// SaveLoginToken saves an OAuth token obtained during web login as a tool
-// credential, enabling single-sign-on reuse between login and tool OAuth flows
-// when they share the same application (client_id).
-func (s *Service) SaveLoginToken(ctx context.Context, providerID, userID string, accessToken, refreshToken string, expiresIn, refreshExpiresIn int) error {
-	var accessExpiresAt, refreshExpiresAt time.Time
-	if expiresIn > 0 {
-		accessExpiresAt = time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
-	}
-	if refreshExpiresIn > 0 {
-		refreshExpiresAt = time.Now().UTC().Add(time.Duration(refreshExpiresIn) * time.Second)
-	}
-	return s.saveBundle(ctx, providerID, userID, accessToken, refreshToken, accessExpiresAt, refreshExpiresAt)
-}
-
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
 // the provider's registered vault key.
 func (s *Service) saveToken(ctx context.Context, providerID string, userID string, tok *oauth2.Token) error {

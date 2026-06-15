@@ -41,20 +41,6 @@ func (p *OAuthProvider) Name() string { return p.cfg.ProviderName }
 // ClientID returns the OAuth client_id used for this login provider.
 func (p *OAuthProvider) ClientID() string { return p.cfg.ClientID }
 
-// MergeScopes appends extra scopes that are not already present.
-func (p *OAuthProvider) MergeScopes(extra []string) {
-	seen := make(map[string]struct{}, len(p.cfg.Scopes))
-	for _, s := range p.cfg.Scopes {
-		seen[s] = struct{}{}
-	}
-	for _, s := range extra {
-		if _, ok := seen[s]; !ok {
-			p.cfg.Scopes = append(p.cfg.Scopes, s)
-			seen[s] = struct{}{}
-		}
-	}
-}
-
 func (p *OAuthProvider) LoginURL(_ context.Context, state auth.AuthState) (string, error) {
 	challenge, method, err := pkceChallenge(state.CodeVerifier)
 	if err != nil {

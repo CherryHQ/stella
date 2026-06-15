@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/credentials"
+	"github.com/CherryHQ/stella/internal/pluginhost"
 )
 
 // flowStatusJSON is the wire representation of an in-flight OAuth flow.
@@ -38,7 +39,54 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providers := s.credSvc.GetProviderStatuses(r.Context(), info.UserID)
+	requiredBy := s.oauthProviderRequiredBy()
+	for i := range providers {
+		providers[i].RequiredBy = requiredBy[providers[i].Provider]
+	}
 	writeData(w, http.StatusOK, map[string]any{"providers": providers})
+}
+
+// oauthProviderRequiredBy maps each tool OAuth provider to the display names of
+// enabled tools that depend on it, derived from the plugin manifest's
+// session-env specs. The credentials page uses this to tell users which tool a
+// connection unlocks, since login no longer carries tool scopes — a user must
+// connect each tool provider explicitly.
+func (s *Server) oauthProviderRequiredBy() map[string][]string {
+	return oauthProviderRequiredBy(s.pluginHost)
+}
+
+func oauthProviderRequiredBy(host *pluginhost.Host) map[string][]string {
+	if host == nil {
+		return nil
+	}
+	displayByID := make(map[string]string)
+	for _, p := range host.ListRegisteredPlugins() {
+		name := p.DisplayName
+		if name == "" {
+			name = p.Name
+		}
+		displayByID[p.ID] = name
+	}
+	out := make(map[string][]string)
+	seen := make(map[string]map[string]struct{})
+	for _, spec := range host.AllSessionEnvSpecs() {
+		if spec.OAuthProviderID == "" {
+			continue
+		}
+		name := displayByID[spec.PluginID]
+		if name == "" {
+			continue
+		}
+		if seen[spec.OAuthProviderID] == nil {
+			seen[spec.OAuthProviderID] = make(map[string]struct{})
+		}
+		if _, dup := seen[spec.OAuthProviderID][name]; dup {
+			continue
+		}
+		seen[spec.OAuthProviderID][name] = struct{}{}
+		out[spec.OAuthProviderID] = append(out[spec.OAuthProviderID], name)
+	}
+	return out
 }
 
 // StartOAuthFlow handles POST /api/users/me/oauth/{provider}/start.

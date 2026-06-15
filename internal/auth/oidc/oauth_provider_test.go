@@ -259,34 +259,3 @@ func TestOAuthProviderRejectsDisallowedFeishuTenant(t *testing.T) {
 		t.Fatal("expected disallowed tenant error")
 	}
 }
-
-func TestMergeScopesDeduplicates(t *testing.T) {
-	cfg := &OAuthConfig{
-		ProviderName:      "feishu",
-		Kind:              "feishu",
-		ClientID:          "client-id",
-		ClientSecret:      "client-secret",
-		RedirectURL:       "https://stella.example/auth/callback/feishu",
-		AuthURL:           "https://accounts.feishu.cn/open-apis/authen/v1/authorize",
-		TokenURL:          "https://open.feishu.cn/open-apis/authen/v2/oauth/token",
-		TokenRequestStyle: "json",
-		UserInfoURL:       "https://open.feishu.cn/open-apis/authen/v1/user_info",
-		Scopes:            []string{"contact:user.email:readonly"},
-		AllowedTenantKeys: []string{"tenant-1"},
-	}
-	p, err := NewOAuthProvider(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	p.MergeScopes([]string{"contact:user.email:readonly", "im:message", "docs:doc"})
-	want := []string{"contact:user.email:readonly", "im:message", "docs:doc"}
-	if len(p.cfg.Scopes) != len(want) {
-		t.Fatalf("scopes = %v, want %v", p.cfg.Scopes, want)
-	}
-	for i, s := range want {
-		if p.cfg.Scopes[i] != s {
-			t.Fatalf("scope[%d] = %q, want %q", i, p.cfg.Scopes[i], s)
-		}
-	}
-}

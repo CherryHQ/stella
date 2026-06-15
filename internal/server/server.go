@@ -215,40 +215,6 @@ func (s *Server) CredentialsService() *credentials.Service {
 	return s.credSvc
 }
 
-// MergeOAuthToolScopes extends login scopes for auth providers that share a
-// client_id with a tool OAuth provider, so a single login grants both
-// authentication and tool access.
-func (s *Server) MergeOAuthToolScopes(ctx context.Context) {
-	if s.credSvc == nil {
-		return
-	}
-	type scopeMerger interface {
-		ClientID() string
-		MergeScopes(extra []string)
-	}
-	for _, p := range s.authProviders {
-		sm, ok := p.(scopeMerger)
-		if !ok {
-			continue
-		}
-		providerID := p.Name()
-		toolScopes := s.credSvc.ProviderScopes(providerID)
-		if len(toolScopes) == 0 {
-			continue
-		}
-		toolClientID, err := s.credSvc.ProviderClientID(ctx, providerID)
-		if err != nil {
-			continue
-		}
-		if sm.ClientID() != toolClientID {
-			continue
-		}
-		sm.MergeScopes(toolScopes)
-		slog.Info("oauth: merged tool scopes into login provider",
-			"provider", providerID, "tool_scopes", len(toolScopes))
-	}
-}
-
 // Recally method delegations — Server implements apiserver.ServerInterface by
 // forwarding all recally operations to the embedded recallyHandlers.
 

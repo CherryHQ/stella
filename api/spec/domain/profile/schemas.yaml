@@ -71,6 +71,12 @@ components:
         connected: { type: boolean }
         username: { type: string }
         unavailable: { type: string }
+        required_by:
+          type: array
+          items: { type: string }
+          description: >-
+            Display names of enabled tools that need this provider connected.
+            Drives the "connect to enable X" prompt on the credentials page.
 
     OAuthProviderConfig:
       type: object

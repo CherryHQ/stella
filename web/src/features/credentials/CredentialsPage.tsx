@@ -641,6 +641,17 @@ export function CredentialsPage() {
     <DetailPanel>
       <DetailPanelHeader title={sp.provider} subtitle={statusBadge(sp)} />
 
+      {sp.available && !spConnected && (sp.required_by?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
+          <p className="font-medium text-foreground">
+            Connect to enable {sp.required_by?.join(", ")}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            These tools need this credential. Without it they run unauthenticated and may fail.
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {sp.available && !spConnected && (
           <Button
@@ -769,13 +780,16 @@ export function CredentialsPage() {
                 const clientId = configValues[p.provider]?.clientId ?? "";
                 const clientIdPreview =
                   clientId.length > 12 ? `${clientId.slice(0, 6)}…${clientId.slice(-4)}` : clientId;
+                const requiredBy = p.required_by ?? [];
                 const subtitle = !p.configured
                   ? "App not configured"
                   : connected
                     ? clientIdPreview
                       ? `Connected · ${clientIdPreview}`
                       : "Connected"
-                    : `${clientIdPreview || "Configured"} · not connected`;
+                    : requiredBy.length > 0
+                      ? `Connect to enable ${requiredBy.join(", ")}`
+                      : `${clientIdPreview || "Configured"} · not connected`;
 
                 const menu: RowAction[] = [];
                 if (isAdmin)
