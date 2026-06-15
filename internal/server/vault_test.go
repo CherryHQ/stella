@@ -284,6 +284,61 @@ func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
 	}
 }
 
+// fakeRunnerInvalidator records InvalidateUser calls so tests can assert that
+// vault mutations propagate to the runner cache.
+type fakeRunnerInvalidator struct {
+	calls []string
+}
+
+func (f *fakeRunnerInvalidator) InvalidateUser(userID string) error {
+	f.calls = append(f.calls, userID)
+	return nil
+}
+
+// TestVaultMutationsInvalidateUserRunners verifies that PUT and DELETE on a
+// vault entry both close the user's live runners, so the next session reads
+// the new secret instead of the snapshot baked into the previous sandbox env.
+// Regression guard for stale secrets in scheduled jobs after key rotation.
+func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	inv := &fakeRunnerInvalidator{}
+	env.srv.CredentialsService().SetInvalidator(inv)
+
+	// PUT triggers invalidate.
+	rr := doRequest(t, env, "PUT", "/api/users/me/vault/MY_TOKEN", map[string]string{"value": "v1"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("set status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if len(inv.calls) != 1 {
+		t.Fatalf("after PUT: expected 1 invalidate call, got %d", len(inv.calls))
+	}
+	if inv.calls[0] != env.adminUser.ID {
+		t.Errorf("after PUT: invalidated user = %q, want %q", inv.calls[0], env.adminUser.ID)
+	}
+
+	// PUT overwriting also triggers invalidate (covers rotate-in-place).
+	rr = doRequest(t, env, "PUT", "/api/users/me/vault/MY_TOKEN", map[string]string{"value": "v2"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if len(inv.calls) != 2 {
+		t.Fatalf("after overwrite PUT: expected 2 invalidate calls, got %d", len(inv.calls))
+	}
+
+	// DELETE also triggers invalidate.
+	rr = doRequest(t, env, "DELETE", "/api/users/me/vault/MY_TOKEN", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if len(inv.calls) != 3 {
+		t.Fatalf("after DELETE: expected 3 invalidate calls, got %d", len(inv.calls))
+	}
+	if inv.calls[2] != env.adminUser.ID {
+		t.Errorf("after DELETE: invalidated user = %q, want %q", inv.calls[2], env.adminUser.ID)
+	}
+}
+
 func TestVaultUpdateExisting(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
