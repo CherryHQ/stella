@@ -105,22 +105,8 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 		env = make(map[string]string)
 	}
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
-	// remap rewrites a host STELLA_HOME path to its sandbox-adjusted form, leaving
-	// paths outside STELLA_HOME (e.g. /workspace) untouched. bwrap remaps
-	// STELLA_HOME to /home/stella/.stella; on macOS the two are equal and this is
-	// a no-op.
 	hostSH := f.cfg.StellaHome
-	hostPrefix := hostSH + string(filepath.Separator)
-	remap := func(p string) string {
-		switch {
-		case p == hostSH:
-			return sandboxSH
-		case strings.HasPrefix(p, hostPrefix):
-			return sandboxSH + p[len(hostSH):]
-		default:
-			return p
-		}
-	}
+	remap := func(p string) string { return remapStellaHomePath(p, hostSH, sandboxSH) }
 	userShims := ""
 	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
 		userShims = sandboxpkg.MiseUserShimsDir(remap(dir))
@@ -155,6 +141,22 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	policy.Env = env
 	policy.InheritEnv = false
 	return policy
+}
+
+// remapStellaHomePath rewrites a host path under hostSH to its sandbox-adjusted
+// location under sandboxSH, leaving paths outside hostSH (e.g. /workspace)
+// untouched. When hostSH == sandboxSH (macOS, no remap) it is a no-op. Shared by
+// the env rewrite in adjustPolicy and the bwrap mount path in session_linux.go so
+// the two can't drift.
+func remapStellaHomePath(p, hostSH, sandboxSH string) string {
+	switch {
+	case p == hostSH:
+		return sandboxSH
+	case strings.HasPrefix(p, hostSH+string(filepath.Separator)):
+		return sandboxSH + p[len(hostSH):]
+	default:
+		return p
+	}
 }
 
 // ─────────────────────────── localSession ─────────────────────────────

@@ -19,12 +19,25 @@ import (
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	key := miseUserKey(cfg)
+	miseDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, key)
+	// A non-empty key that yields no dir means the user/group ID failed the
+	// safe-path-component check. Don't fail the session (we fall back to the
+	// shared read-only system tree and a session-local temp dir), but surface the
+	// silent downgrade so a malformed ID is diagnosable instead of mysterious.
+	if key != "" && miseDir == "" {
+		slog.Warn("per-user mise tree disabled: unsafe key, using shared read-only system tree",
+			"component", "runner_sandbox",
+			"user_id", cfg.UserID,
+			"group_id", cfg.GroupID,
+			"key", key,
+		)
+	}
 	return pkgsandbox.FilesystemPolicy{
 		WorkspaceRoot:       paths.UserRoot,
 		WorkingDir:          paths.WorkDir,
 		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
 		TempDirHost:         userTempDir(key),
-		MiseUserDirHost:     pkgsandbox.MiseUserToolsDir(paths.StellaHome, key),
+		MiseUserDirHost:     miseDir,
 	}
 }
 

@@ -118,6 +118,62 @@ func TestEnsureUserMiseHome_DoesNotSeedThroughPlantedSymlink(t *testing.T) {
 	}
 }
 
+func TestEnsureUserMiseHome_RelinksPerUserShimsToRelative(t *testing.T) {
+	stellaHome := t.TempDir()
+	mustMkdirAll(t, filepath.Join(stellaHome, "bin"))
+	mustWriteFile(t, filepath.Join(stellaHome, "bin", "mise"), "binary")
+
+	userDir := MiseUserToolsDir(stellaHome, "u1")
+	mustMkdirAll(t, filepath.Join(userDir, "shims"))
+	// A shim mise wrote inside a different backend's sandbox: an absolute,
+	// backend-specific target that wouldn't resolve under another backend.
+	shim := filepath.Join(userDir, "shims", "node")
+	if err := os.Symlink("/home/stella/.stella/bin/mise", shim); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureUserMiseHome(stellaHome, userDir); err != nil {
+		t.Fatalf("EnsureUserMiseHome: %v", err)
+	}
+
+	target, err := os.Readlink(shim)
+	if err != nil {
+		t.Fatalf("shim should remain a symlink: %v", err)
+	}
+	if filepath.IsAbs(target) {
+		t.Fatalf("per-user shim must be relinked to a relative target, got %q", target)
+	}
+	// The relative target resolves to the local mise binary.
+	if _, err := os.Stat(shim); err != nil {
+		t.Fatalf("relinked shim does not resolve to bin/mise: %v", err)
+	}
+}
+
+func TestEnsureUserMiseHome_PrunesDanglingSeedLinks(t *testing.T) {
+	stellaHome := t.TempDir()
+	userDir := MiseUserToolsDir(stellaHome, "u1")
+	mustMkdirAll(t, filepath.Join(userDir, "installs", "node"))
+	// A seed link whose system target was pruned/upgraded away.
+	dangling := filepath.Join(userDir, "installs", "node", "18.0.0")
+	if err := os.Symlink("/no/such/system/install/node/18.0.0", dangling); err != nil {
+		t.Fatal(err)
+	}
+	// A real user install alongside it must survive.
+	realDir := filepath.Join(userDir, "installs", "node", "22.0.0")
+	mustMkdirAll(t, realDir)
+
+	if err := EnsureUserMiseHome(stellaHome, userDir); err != nil {
+		t.Fatalf("EnsureUserMiseHome: %v", err)
+	}
+
+	if _, err := os.Lstat(dangling); !os.IsNotExist(err) {
+		t.Fatalf("dangling seed link should be pruned, lstat err=%v", err)
+	}
+	if _, err := os.Stat(realDir); err != nil {
+		t.Fatalf("real user install must survive prune: %v", err)
+	}
+}
+
 func mustMkdirAll(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

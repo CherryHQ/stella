@@ -239,13 +239,7 @@ func appendWritableBind(args []string, hostPath, sandboxPath string) []string {
 // sandbox-view location (STELLA_HOME is remapped to /home/stella/.stella).
 // Paths outside STELLA_HOME are returned unchanged.
 func remapToSandboxStellaHome(hostPath, stellaHomeHost string) string {
-	if hostPath == stellaHomeHost {
-		return sandboxStellaHome
-	}
-	if prefix := stellaHomeHost + string(filepath.Separator); strings.HasPrefix(hostPath, prefix) {
-		return sandboxStellaHome + hostPath[len(stellaHomeHost):]
-	}
-	return hostPath
+	return remapStellaHomePath(hostPath, stellaHomeHost, sandboxStellaHome)
 }
 
 func appendDirParents(args []string, path string) []string {
