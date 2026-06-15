@@ -4,7 +4,20 @@ import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Terminal, Lightbulb, FileText } from "lucide-react";
+import {
+  Lightbulb,
+  ChevronDown,
+  Copy,
+  Check,
+  Terminal,
+  FileText,
+  FilePlus2,
+  FilePen,
+  Users,
+  Sparkles,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { getAgentColor } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { SessionTrace } from "./SessionTrace";
@@ -60,7 +73,7 @@ export function AssistantMessage({
           )}
         </div>
       )}
-      <div className="min-w-0 space-y-4 pl-7">
+      <div className="min-w-0 space-y-3 ml-2.5 border-l border-border pl-4">
         {grouped.map((item, gi) => {
           if (item.type === "text") {
             return <BlockRenderer key={gi} block={item.block} />;
@@ -233,86 +246,113 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
   );
 }
 
+const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: string }> = {
+  bash: { icon: Terminal, verb: "Ran", surface: "Shell" },
+  read: { icon: FileText, verb: "Read", surface: "File" },
+  write: { icon: FilePlus2, verb: "Wrote", surface: "File" },
+  edit: { icon: FilePen, verb: "Edited", surface: "File" },
+  delegate: { icon: Users, verb: "Delegated to", surface: "Agent" },
+  skills: { icon: Sparkles, verb: "Used skill", surface: "Skill" },
+};
+
 function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const n = block.name ?? "tool";
   const args = block.arguments ?? {};
 
+  const meta = TOOL_META[n] ?? { icon: Wrench, verb: n, surface: n };
+  const Icon = meta.icon;
+  const isFileTool = n === "read" || n === "write" || n === "edit";
+  const isBash = n === "bash";
+
   let cmdPreview = "";
-  if (n === "bash") {
+  if (isBash) {
     cmdPreview = toolArgText(args.command ?? args.input ?? args);
-  } else if (n === "read" || n === "write" || n === "edit") {
+  } else if (isFileTool) {
     cmdPreview = toolArgText(args.path ?? args.file_path ?? args.input);
     const pts = cmdPreview.split("/");
     cmdPreview = pts.length > 2 ? "…/" + pts.slice(-2).join("/") : cmdPreview;
+  } else if (n === "delegate") {
+    cmdPreview = toolArgText(args.agent ?? args.target ?? args.to ?? args.name ?? args);
+  } else if (n === "skills") {
+    cmdPreview = toolArgText(args.skill ?? args.name ?? args.command ?? args);
   } else {
     cmdPreview = JSON.stringify(args);
   }
 
-  const isFileTool = n === "read" || n === "write" || n === "edit";
+  const inputText = toolArgText(args.command ?? args.input ?? args.path ?? args.file_path ?? args);
+
+  // The runner appends a trailing "[exit:N | Xms]" line; lift it into the
+  // status footer instead of leaving it in the output body.
+  let outputText = block.result?.content ?? "";
+  let duration = "";
+  let exitOk = !block.result?.is_error;
+  const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
+  if (exitMatch) {
+    outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
+    duration = exitMatch[2];
+    exitOk = exitMatch[1] === "0" && !block.result?.is_error;
+  }
+
+  const onCopy = () => {
+    void navigator.clipboard?.writeText(inputText);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
-    <div className="space-y-2 py-1">
+    <div className="py-1">
       <button
         onClick={() => setOpen(!open)}
-        className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted hover:border-border/80 transition-colors cursor-pointer font-mono text-xs text-muted-foreground hover:text-foreground shadow-none w-fit max-w-full min-w-0",
-          open && "border-primary/20 bg-muted/40",
-        )}
+        className="flex items-center gap-1.5 py-0.5 font-mono text-xs text-muted-foreground/70 hover:text-foreground transition-colors cursor-pointer min-w-0 max-w-full"
       >
-        <span className="flex items-center justify-center text-muted-foreground/60 shrink-0">
-          {isFileTool ? <FileText className="size-3.5" /> : <Terminal className="size-3.5" />}
+        <Icon className="size-3.5 shrink-0 text-muted-foreground/60" />
+        <span className="truncate">
+          {meta.verb} {cmdPreview}
         </span>
-        <span
+        <ChevronDown
           className={cn(
-            "px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider font-sans shrink-0",
-            n === "bash" ? "bg-chart-4/10 text-chart-4" : "bg-muted text-muted-foreground",
+            "size-3.5 shrink-0 text-muted-foreground/40 transition-transform duration-150",
+            open && "rotate-180",
           )}
-        >
-          {n}
-        </span>
-        <span className="truncate text-foreground/90 font-medium">{cmdPreview}</span>
-        <span className="text-xs text-muted-foreground/65 shrink-0 ml-0.5">{open ? "▾" : "▸"}</span>
+        />
       </button>
 
       {open && (
-        <div className="space-y-1.5 border border-border rounded-lg p-2.5 bg-card/20 font-mono text-xs max-w-full overflow-hidden">
-          <div className="bg-card/40 rounded overflow-hidden p-2 border border-border">
-            <div className="text-xs text-muted-foreground/50 border-b border-border pb-1 mb-1.5 flex items-center gap-1.5">
-              <Terminal className="size-2.5" />
-              <span>{n} input</span>
-            </div>
-            <pre className="whitespace-pre-wrap max-h-56 overflow-y-auto leading-relaxed text-muted-foreground/90 break-all font-mono">
-              {toolArgText(args.command ?? args.input ?? args)}
-            </pre>
+        <div className="mt-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-xs max-w-full overflow-hidden">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-muted-foreground/70">{meta.surface}</span>
+            <button
+              onClick={onCopy}
+              title="Copy"
+              className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors cursor-pointer"
+            >
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            </button>
           </div>
-
+          <pre className="whitespace-pre-wrap break-all leading-relaxed text-foreground/90">
+            {isBash ? `$ ${inputText}` : inputText}
+          </pre>
+          {block.result && outputText && (
+            <pre
+              className={cn(
+                "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
+                block.result.is_error ? "text-destructive/80" : "text-muted-foreground/80",
+              )}
+            >
+              {outputText}
+            </pre>
+          )}
           {block.result && (
             <div
               className={cn(
-                "rounded overflow-hidden p-2 border",
-                block.result.is_error
-                  ? "border-destructive/20 bg-destructive/5"
-                  : "border-chart-3/20 bg-chart-3/5",
+                "mt-2 text-right text-muted-foreground/55",
+                block.result.is_error && "text-destructive/70",
               )}
             >
-              <div
-                className={cn(
-                  "text-xs border-b border-border pb-1 mb-1.5 flex items-center gap-1.5",
-                  block.result.is_error ? "text-destructive" : "text-chart-3",
-                )}
-              >
-                <span>{block.result.is_error ? "✕" : "✓"}</span>
-                <span>{block.result.is_error ? "Error output" : "Result output"}</span>
-              </div>
-              <pre
-                className={cn(
-                  "whitespace-pre-wrap max-h-56 overflow-y-auto leading-relaxed break-all font-mono",
-                  block.result.is_error ? "text-destructive/80" : "text-muted-foreground/80",
-                )}
-              >
-                {block.result.content || "(empty)"}
-              </pre>
+              {exitOk ? "✓ Success" : "✕ Failed"}
+              {duration && ` · ${duration}`}
             </div>
           )}
         </div>

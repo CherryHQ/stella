@@ -74,17 +74,8 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
         </div>
       )}
       <div className="mx-auto w-full min-w-0 max-w-3xl space-y-8">
-        {processed.map((msg, idx) => (
-          <div
-            key={msg.id}
-            className={cn(
-              "min-w-0",
-              msg.sameRoleAsPrev ? "-mt-2" : "",
-              idx > 0 && msg.role === "user" && !msg.sameRoleAsPrev
-                ? "border-t border-border/40 pt-8 mt-8"
-                : "",
-            )}
-          >
+        {processed.map((msg) => (
+          <div key={msg.id} className={cn("min-w-0", msg.sameRoleAsPrev ? "-mt-2" : "")}>
             {msg.role === "user" ? (
               <UserMessage
                 msg={{ content: msg.content, timestamp: msg.timestamp }}
