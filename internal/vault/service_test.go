@@ -2,6 +2,7 @@ package vault_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -28,26 +29,36 @@ func (d *vaultTestDB) GetVaultUser(ctx context.Context, id string) (sqlc.VaultUs
 	return sqlc.VaultUser{AgePublicKey: u.AgePublicKey, AgePrivateKey: u.AgePrivateKey}, nil
 }
 
-func (d *vaultTestDB) GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error) {
-	return d.q.GetVaultEntry(ctx, arg)
+func (d *vaultTestDB) GetVaultEntryByScope(ctx context.Context, arg sqlc.GetVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
+	return d.q.GetVaultEntryByScope(ctx, arg)
 }
 
-func (d *vaultTestDB) ListVaultEntriesByUser(ctx context.Context, userID string) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesByUser(ctx, userID)
+func (d *vaultTestDB) ListVaultEntriesByScope(ctx context.Context, arg sqlc.ListVaultEntriesByScopeParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesByScope(ctx, arg)
 }
 
-func (d *vaultTestDB) UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error {
-	return d.q.UpsertVaultEntry(ctx, arg)
+func (d *vaultTestDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *vaultTestDB) DeleteVaultEntry(ctx context.Context, arg sqlc.DeleteVaultEntryParams) error {
-	return d.q.DeleteVaultEntry(ctx, arg)
+func (d *vaultTestDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) error {
+	return d.q.UpsertVaultEntryByScope(ctx, arg)
+}
+
+func (d *vaultTestDB) DeleteVaultEntryByScope(ctx context.Context, arg sqlc.DeleteVaultEntryByScopeParams) error {
+	return d.q.DeleteVaultEntryByScope(ctx, arg)
 }
 
 // testService sets up a vault Service backed by a real SQLite database. It
 // creates a user with age keys provisioned and returns the service, oidcStore,
 // and the created user ID.
 func testService(t *testing.T) (*vault.Service, *appdb.OIDCStore, string) {
+	t.Helper()
+	svc, oidc, userID, _ := testServiceWithQueries(t)
+	return svc, oidc, userID
+}
+
+func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, string, *sqlc.Queries) {
 	t.Helper()
 
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "vault_test.db"))
@@ -88,7 +99,7 @@ func testService(t *testing.T) (*vault.Service, *appdb.OIDCStore, string) {
 		t.Fatalf("UpdateUserAgeKeys: %v", err)
 	}
 
-	return svc, oidc, user.ID
+	return svc, oidc, user.ID, q
 }
 
 func TestSetAndList(t *testing.T) {
@@ -118,6 +129,43 @@ func TestSetAndList(t *testing.T) {
 	}
 }
 
+func TestSetScopedRejectsSystemScope(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := testService(t)
+	ctx := context.Background()
+
+	if err := svc.SetScoped(ctx, vault.ScopeSystem, "", "", "GLOBAL_TOKEN", "value"); err == nil {
+		t.Fatal("SetScoped should reject system scope")
+	}
+	if err := svc.SetSystemScoped(ctx, vault.ScopeSystem, "", "GLOBAL_TOKEN", "value"); err != nil {
+		t.Fatalf("SetSystemScoped: %v", err)
+	}
+	entries, err := svc.ListSystemScoped(ctx, vault.ScopeSystem, "")
+	if err != nil {
+		t.Fatalf("ListSystemScoped: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name != "GLOBAL_TOKEN" {
+		t.Fatalf("entries = %+v, want GLOBAL_TOKEN", entries)
+	}
+}
+
+func TestScopedWriteRejectsManagedToken(t *testing.T) {
+	t.Parallel()
+	svc, _, userID := testService(t)
+	ctx := context.Background()
+
+	// Public scoped writes must never set the managed STELLA_TOKEN: a user_agent
+	// entry would shadow it and force a token rotation on every sandbox start.
+	if err := svc.SetScoped(ctx, vault.ScopeUserAgent, userID, "agent-1", vault.StellaTokenName, "value"); err == nil {
+		t.Fatal("SetScoped should reject STELLA_TOKEN")
+	}
+
+	// The internal reserved path still owns the token.
+	if err := svc.SetReserved(ctx, userID, vault.StellaTokenName, "managed"); err != nil {
+		t.Fatalf("SetReserved(STELLA_TOKEN): %v", err)
+	}
+}
+
 func TestSetValidation(t *testing.T) {
 	t.Parallel()
 	svc, _, userID := testService(t)
@@ -129,6 +177,7 @@ func TestSetValidation(t *testing.T) {
 		"123START",
 		"HAS SPACE",
 		"STELLA_SECRET",
+		"STELLA_TOKEN",
 		"PATH",
 		"HOME",
 		"LC_ALL",
@@ -176,6 +225,68 @@ func TestLoadEnv(t *testing.T) {
 			t.Errorf("LoadEnv[%q] = %q, want %q", name, got, want)
 		}
 	}
+}
+
+func TestLoadEnvForAgentMergesScopedPrecedence(t *testing.T) {
+	t.Parallel()
+	svc, _, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "agent-b", Name: "Agent B", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	sets := []struct {
+		scope   string
+		agentID string
+		value   string
+	}{
+		{scope: vault.ScopeSystem, value: "system"},
+		{scope: vault.ScopeSystemAgent, agentID: "agent-a", value: "system-agent"},
+		{scope: vault.ScopeUser, value: "user"},
+		{scope: vault.ScopeUserAgent, agentID: "agent-a", value: "user-agent"},
+	}
+	for _, set := range sets {
+		var err error
+		if set.scope == vault.ScopeSystem || set.scope == vault.ScopeSystemAgent {
+			err = svc.SetSystemScoped(ctx, set.scope, set.agentID, "TOKEN", set.value)
+		} else {
+			err = svc.SetScoped(ctx, set.scope, userIDForScope(set.scope, userID), set.agentID, "TOKEN", set.value)
+		}
+		if err != nil {
+			t.Fatalf("set %s: %v", set.scope, err)
+		}
+	}
+
+	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-a")
+	if err != nil {
+		t.Fatalf("LoadEnvForAgent(agent-a): %v", err)
+	}
+	if got := env["TOKEN"]; got != "user-agent" {
+		t.Fatalf("TOKEN for agent-a = %q, want user-agent", got)
+	}
+
+	env, err = svc.LoadEnvForAgent(ctx, userID, "agent-b")
+	if err != nil {
+		t.Fatalf("LoadEnvForAgent(agent-b): %v", err)
+	}
+	if got := env["TOKEN"]; got != "user" {
+		t.Fatalf("TOKEN for agent-b = %q, want user", got)
+	}
+}
+
+func userIDForScope(scope string, userID string) string {
+	if scope == vault.ScopeUser || scope == vault.ScopeUserAgent {
+		return userID
+	}
+	return ""
 }
 
 func TestNewServiceInvalidKey(t *testing.T) {
@@ -245,6 +356,36 @@ func TestLoadEnvDoesNotAutoCreateStellaToken(t *testing.T) {
 	}
 }
 
+func TestLoadEnvForAgentKeepsSystemSecretsWhenUserEntryFails(t *testing.T) {
+	t.Parallel()
+	svc, _, userID, q := testServiceWithQueries(t)
+	ctx := context.Background()
+
+	if err := svc.SetSystemScoped(ctx, vault.ScopeSystem, "", "GLOBAL_TOKEN", "system-value"); err != nil {
+		t.Fatalf("SetSystemScoped: %v", err)
+	}
+	if err := q.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
+		ID: "broken-user-entry", Scope: vault.ScopeUser, UserID: sqlcNullString(userID), Name: "BROKEN_TOKEN", Ciphertext: "not-age",
+	}); err != nil {
+		t.Fatalf("insert broken user entry: %v", err)
+	}
+
+	env, err := svc.LoadEnvForAgent(ctx, userID, "agent-a")
+	if err != nil {
+		t.Fatalf("LoadEnvForAgent: %v", err)
+	}
+	if got := env["GLOBAL_TOKEN"]; got != "system-value" {
+		t.Fatalf("GLOBAL_TOKEN = %q, want system-value", got)
+	}
+	if _, ok := env["BROKEN_TOKEN"]; ok {
+		t.Fatal("BROKEN_TOKEN should be skipped")
+	}
+}
+
+func sqlcNullString(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
+}
+
 func TestLoadEnvNoAgeKeys(t *testing.T) {
 	t.Parallel()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "loadenv_nokeys_test.db"))
@@ -277,8 +418,12 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	if _, err := svc.LoadEnv(ctx, user.ID); err == nil {
-		t.Fatal("LoadEnv should fail for user without age keys")
+	env, err := svc.LoadEnv(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("LoadEnv: %v", err)
+	}
+	if len(env) != 0 {
+		t.Fatalf("LoadEnv got %d entries, want 0", len(env))
 	}
 }
 

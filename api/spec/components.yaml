@@ -1087,9 +1087,16 @@ components:
           type: string
     VaultEntry:
       type: object
-      required: [name, created_at, updated_at]
+      required: [name, scope, created_at, updated_at]
       properties:
         name:
+          type: string
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        user_id:
+          type: string
+        agent_id:
           type: string
         created_at:
           type: string
@@ -1102,6 +1109,12 @@ components:
       required: [value]
       properties:
         value:
+          type: string
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+          default: user
+        agent_id:
           type: string
     VaultEntryValue:
       type: object

@@ -20,20 +20,24 @@ type oidcVaultDB struct {
 	q *sqlc.Queries
 }
 
-func (d *oidcVaultDB) GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error) {
-	return d.q.GetVaultEntry(ctx, arg)
+func (d *oidcVaultDB) GetVaultEntryByScope(ctx context.Context, arg sqlc.GetVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
+	return d.q.GetVaultEntryByScope(ctx, arg)
 }
 
-func (d *oidcVaultDB) ListVaultEntriesByUser(ctx context.Context, userID string) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesByUser(ctx, userID)
+func (d *oidcVaultDB) ListVaultEntriesByScope(ctx context.Context, arg sqlc.ListVaultEntriesByScopeParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesByScope(ctx, arg)
 }
 
-func (d *oidcVaultDB) UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error {
-	return d.q.UpsertVaultEntry(ctx, arg)
+func (d *oidcVaultDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeParams) ([]sqlc.VaultEntry, error) {
+	return d.q.ListVaultEntriesForRuntime(ctx, arg)
 }
 
-func (d *oidcVaultDB) DeleteVaultEntry(ctx context.Context, arg sqlc.DeleteVaultEntryParams) error {
-	return d.q.DeleteVaultEntry(ctx, arg)
+func (d *oidcVaultDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) error {
+	return d.q.UpsertVaultEntryByScope(ctx, arg)
+}
+
+func (d *oidcVaultDB) DeleteVaultEntryByScope(ctx context.Context, arg sqlc.DeleteVaultEntryByScopeParams) error {
+	return d.q.DeleteVaultEntryByScope(ctx, arg)
 }
 
 func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
@@ -217,6 +221,67 @@ func TestVaultEmailConfigValidation(t *testing.T) {
 			t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 		}
 	})
+}
+
+func TestScopedVaultPermissionsAndRuntimeResolution(t *testing.T) {
+	env, svc := setupVaultEnv(t)
+	ctx := context.Background()
+	q := sqlc.New(env.db)
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "agent-a", Name: "Agent A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "system", Enabled: 1,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "restricted-a", Name: "Restricted A", Model: "test/model", Workspace: "workspace", Sandbox: "{}", EnabledBuiltinSkills: "[]", Scope: "restricted", Enabled: 1,
+	}); err != nil {
+		t.Fatalf("CreateAgent restricted: %v", err)
+	}
+
+	regular, regularToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "regular-vault", "user")
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(svc.MasterRecipient())
+	if err != nil {
+		t.Fatalf("GenerateUserKeys regular: %v", err)
+	}
+	if err := env.oidcStore.UpdateUserAgeKeys(ctx, regular.ID, pubKey, encPrivKey); err != nil {
+		t.Fatalf("UpdateUserAgeKeys regular: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, regularToken, "PUT", "/api/vault/SYSTEM_TOKEN", map[string]string{"scope": "system", "value": "nope"})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("regular system set status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+	rr = doRequestWithSession(t, env.srv, regularToken, "PUT", "/api/vault/PRIVATE_TOKEN", map[string]string{"scope": "user_agent", "agent_id": "restricted-a", "value": "nope"})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("regular restricted agent set status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+
+	for _, req := range []map[string]string{
+		{"scope": "system", "value": "system"},
+		{"scope": "system_agent", "agent_id": "agent-a", "value": "system-agent"},
+	} {
+		rr = doRequest(t, env, "PUT", "/api/vault/TOKEN", req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("admin set %s status = %d, want %d (body: %s)", req["scope"], rr.Code, http.StatusOK, rr.Body.String())
+		}
+	}
+	for _, req := range []map[string]string{
+		{"scope": "user", "value": "user"},
+		{"scope": "user_agent", "agent_id": "agent-a", "value": "user-agent"},
+	} {
+		rr = doRequestWithSession(t, env.srv, regularToken, "PUT", "/api/vault/TOKEN", req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("regular set %s status = %d, want %d (body: %s)", req["scope"], rr.Code, http.StatusOK, rr.Body.String())
+		}
+	}
+
+	envMap, err := svc.LoadEnvForAgent(ctx, regular.ID, "agent-a")
+	if err != nil {
+		t.Fatalf("LoadEnvForAgent: %v", err)
+	}
+	if got := envMap["TOKEN"]; got != "user-agent" {
+		t.Fatalf("TOKEN = %q, want user-agent", got)
+	}
 }
 
 func TestVaultUpdateExisting(t *testing.T) {

@@ -7,24 +7,25 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const deleteAllVaultEntriesByUser = `-- name: DeleteAllVaultEntriesByUser :exec
 DELETE FROM vault_entry WHERE user_id = ?
 `
 
-func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID string) error {
+func (q *Queries) DeleteAllVaultEntriesByUser(ctx context.Context, userID sql.NullString) error {
 	_, err := q.db.ExecContext(ctx, deleteAllVaultEntriesByUser, userID)
 	return err
 }
 
 const deleteVaultEntry = `-- name: DeleteVaultEntry :exec
-DELETE FROM vault_entry WHERE user_id = ? AND name = ?
+DELETE FROM vault_entry WHERE scope = 'user' AND user_id = ? AND name = ?
 `
 
 type DeleteVaultEntryParams struct {
-	UserID string `json:"user_id"`
-	Name   string `json:"name"`
+	UserID sql.NullString `json:"user_id"`
+	Name   string         `json:"name"`
 }
 
 func (q *Queries) DeleteVaultEntry(ctx context.Context, arg DeleteVaultEntryParams) error {
@@ -32,15 +33,40 @@ func (q *Queries) DeleteVaultEntry(ctx context.Context, arg DeleteVaultEntryPara
 	return err
 }
 
+const deleteVaultEntryByScope = `-- name: DeleteVaultEntryByScope :exec
+DELETE FROM vault_entry
+WHERE scope = ?1
+  AND ifnull(user_id, '') = ifnull(?2, '')
+  AND ifnull(agent_id, '') = ifnull(?3, '')
+  AND name = ?4
+`
+
+type DeleteVaultEntryByScopeParams struct {
+	Scope   string      `json:"scope"`
+	UserID  interface{} `json:"user_id"`
+	AgentID interface{} `json:"agent_id"`
+	Name    string      `json:"name"`
+}
+
+func (q *Queries) DeleteVaultEntryByScope(ctx context.Context, arg DeleteVaultEntryByScopeParams) error {
+	_, err := q.db.ExecContext(ctx, deleteVaultEntryByScope,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+	)
+	return err
+}
+
 const getVaultEntry = `-- name: GetVaultEntry :one
-SELECT id, user_id, name, ciphertext, created_at, updated_at
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE user_id = ? AND name = ?
+WHERE scope = 'user' AND user_id = ? AND name = ?
 `
 
 type GetVaultEntryParams struct {
-	UserID string `json:"user_id"`
-	Name   string `json:"name"`
+	UserID sql.NullString `json:"user_id"`
+	Name   string         `json:"name"`
 }
 
 func (q *Queries) GetVaultEntry(ctx context.Context, arg GetVaultEntryParams) (VaultEntry, error) {
@@ -48,7 +74,9 @@ func (q *Queries) GetVaultEntry(ctx context.Context, arg GetVaultEntryParams) (V
 	var i VaultEntry
 	err := row.Scan(
 		&i.ID,
+		&i.Scope,
 		&i.UserID,
+		&i.AgentID,
 		&i.Name,
 		&i.Ciphertext,
 		&i.CreatedAt,
@@ -57,14 +85,98 @@ func (q *Queries) GetVaultEntry(ctx context.Context, arg GetVaultEntryParams) (V
 	return i, err
 }
 
-const listVaultEntriesByUser = `-- name: ListVaultEntriesByUser :many
-SELECT id, user_id, name, ciphertext, created_at, updated_at
+const getVaultEntryByScope = `-- name: GetVaultEntryByScope :one
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
 FROM vault_entry
-WHERE user_id = ?
+WHERE scope = ?1
+  AND ifnull(user_id, '') = ifnull(?2, '')
+  AND ifnull(agent_id, '') = ifnull(?3, '')
+  AND name = ?4
+`
+
+type GetVaultEntryByScopeParams struct {
+	Scope   string      `json:"scope"`
+	UserID  interface{} `json:"user_id"`
+	AgentID interface{} `json:"agent_id"`
+	Name    string      `json:"name"`
+}
+
+func (q *Queries) GetVaultEntryByScope(ctx context.Context, arg GetVaultEntryByScopeParams) (VaultEntry, error) {
+	row := q.db.QueryRowContext(ctx, getVaultEntryByScope,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+	)
+	var i VaultEntry
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Ciphertext,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listVaultEntriesByScope = `-- name: ListVaultEntriesByScope :many
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
+FROM vault_entry
+WHERE scope = ?1
+  AND ifnull(user_id, '') = ifnull(?2, '')
+  AND ifnull(agent_id, '') = ifnull(?3, '')
 ORDER BY name
 `
 
-func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID string) ([]VaultEntry, error) {
+type ListVaultEntriesByScopeParams struct {
+	Scope   string      `json:"scope"`
+	UserID  interface{} `json:"user_id"`
+	AgentID interface{} `json:"agent_id"`
+}
+
+func (q *Queries) ListVaultEntriesByScope(ctx context.Context, arg ListVaultEntriesByScopeParams) ([]VaultEntry, error) {
+	rows, err := q.db.QueryContext(ctx, listVaultEntriesByScope, arg.Scope, arg.UserID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VaultEntry{}
+	for rows.Next() {
+		var i VaultEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Ciphertext,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVaultEntriesByUser = `-- name: ListVaultEntriesByUser :many
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
+FROM vault_entry
+WHERE scope = 'user' AND user_id = ?
+ORDER BY name
+`
+
+func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID sql.NullString) ([]VaultEntry, error) {
 	rows, err := q.db.QueryContext(ctx, listVaultEntriesByUser, userID)
 	if err != nil {
 		return nil, err
@@ -75,7 +187,63 @@ func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID string) ([]
 		var i VaultEntry
 		if err := rows.Scan(
 			&i.ID,
+			&i.Scope,
 			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Ciphertext,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVaultEntriesForRuntime = `-- name: ListVaultEntriesForRuntime :many
+SELECT id, scope, user_id, agent_id, name, ciphertext, created_at, updated_at
+FROM vault_entry
+WHERE (scope = 'system' AND user_id IS NULL AND agent_id IS NULL)
+   OR (scope = 'system_agent' AND user_id IS NULL AND agent_id = ?1)
+   OR (scope = 'user' AND user_id = ?2 AND agent_id IS NULL)
+   OR (scope = 'user_agent' AND user_id = ?2 AND agent_id = ?1)
+ORDER BY CASE scope
+    WHEN 'system' THEN 1
+    WHEN 'system_agent' THEN 2
+    WHEN 'user' THEN 3
+    WHEN 'user_agent' THEN 4
+    ELSE 0
+END, name
+`
+
+type ListVaultEntriesForRuntimeParams struct {
+	AgentID sql.NullString `json:"agent_id"`
+	UserID  sql.NullString `json:"user_id"`
+}
+
+// Keep this precedence in sync with internal/vault envPrecedence.
+func (q *Queries) ListVaultEntriesForRuntime(ctx context.Context, arg ListVaultEntriesForRuntimeParams) ([]VaultEntry, error) {
+	rows, err := q.db.QueryContext(ctx, listVaultEntriesForRuntime, arg.AgentID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VaultEntry{}
+	for rows.Next() {
+		var i VaultEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
 			&i.Name,
 			&i.Ciphertext,
 			&i.CreatedAt,
@@ -95,24 +263,53 @@ func (q *Queries) ListVaultEntriesByUser(ctx context.Context, userID string) ([]
 }
 
 const upsertVaultEntry = `-- name: UpsertVaultEntry :exec
-INSERT INTO vault_entry (id, user_id, name, ciphertext)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(user_id, name) DO UPDATE SET
+INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
+VALUES (?, 'user', ?, NULL, ?, ?)
+ON CONFLICT DO UPDATE SET
     ciphertext = excluded.ciphertext,
     updated_at = datetime('now')
 `
 
 type UpsertVaultEntryParams struct {
-	ID         string `json:"id"`
-	UserID     string `json:"user_id"`
-	Name       string `json:"name"`
-	Ciphertext string `json:"ciphertext"`
+	ID         string         `json:"id"`
+	UserID     sql.NullString `json:"user_id"`
+	Name       string         `json:"name"`
+	Ciphertext string         `json:"ciphertext"`
 }
 
 func (q *Queries) UpsertVaultEntry(ctx context.Context, arg UpsertVaultEntryParams) error {
 	_, err := q.db.ExecContext(ctx, upsertVaultEntry,
 		arg.ID,
 		arg.UserID,
+		arg.Name,
+		arg.Ciphertext,
+	)
+	return err
+}
+
+const upsertVaultEntryByScope = `-- name: UpsertVaultEntryByScope :exec
+INSERT INTO vault_entry (id, scope, user_id, agent_id, name, ciphertext)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT DO UPDATE SET
+    ciphertext = excluded.ciphertext,
+    updated_at = datetime('now')
+`
+
+type UpsertVaultEntryByScopeParams struct {
+	ID         string         `json:"id"`
+	Scope      string         `json:"scope"`
+	UserID     sql.NullString `json:"user_id"`
+	AgentID    sql.NullString `json:"agent_id"`
+	Name       string         `json:"name"`
+	Ciphertext string         `json:"ciphertext"`
+}
+
+func (q *Queries) UpsertVaultEntryByScope(ctx context.Context, arg UpsertVaultEntryByScopeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertVaultEntryByScope,
+		arg.ID,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
 		arg.Name,
 		arg.Ciphertext,
 	)

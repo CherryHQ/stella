@@ -41,10 +41,13 @@ func ValidateName(name string) error {
 		return fmt.Errorf("vault: name %q is invalid: must match ^[A-Z][A-Z0-9_]{0,127}$", name)
 	}
 
-	// Check reserved prefixes (STELLA_, LC_, XDG_), with STELLA_TOKEN as the
-	// only supported Stella-managed credential exposed to sandbox sessions.
+	// Check reserved prefixes (STELLA_, LC_, XDG_). STELLA_TOKEN is Stella-managed
+	// and is written only via the internal SetReserved path (which skips name
+	// validation); user-facing writes must never set it, so it is rejected here
+	// like any other STELLA_ name. Allowing it through would let a user_agent
+	// entry shadow the managed token and force a rotation on every sandbox start.
 	for _, prefix := range reservedPrefixes {
-		if strings.HasPrefix(name, prefix) && name != StellaTokenName {
+		if strings.HasPrefix(name, prefix) {
 			return fmt.Errorf("vault: name %q is reserved: must not start with %q", name, prefix)
 		}
 	}

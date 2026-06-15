@@ -242,6 +242,10 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1vault"
   /api/users/me/vault/{name}:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1vault~1{name}"
+  /api/vault:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1vault"
+  /api/vault/{name}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1vault~1{name}"
   /api/users/me/oauth/providers:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1oauth~1providers"
   /api/users/me/oauth/{provider}/start:

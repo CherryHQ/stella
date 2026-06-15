@@ -2,7 +2,9 @@ package vault
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"log/slog"
 
 	"filippo.io/age"
 
@@ -11,17 +13,25 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+const (
+	ScopeUser        = "user"
+	ScopeUserAgent   = "user_agent"
+	ScopeSystem      = "system"
+	ScopeSystemAgent = "system_agent"
+)
+
 // DB is the minimal database interface the vault Service requires.
 type DB interface {
 	GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser, error)
-	GetVaultEntry(ctx context.Context, arg sqlc.GetVaultEntryParams) (sqlc.VaultEntry, error)
-	ListVaultEntriesByUser(ctx context.Context, userID string) ([]sqlc.VaultEntry, error)
-	UpsertVaultEntry(ctx context.Context, arg sqlc.UpsertVaultEntryParams) error
-	DeleteVaultEntry(ctx context.Context, arg sqlc.DeleteVaultEntryParams) error
+	GetVaultEntryByScope(ctx context.Context, arg sqlc.GetVaultEntryByScopeParams) (sqlc.VaultEntry, error)
+	ListVaultEntriesByScope(ctx context.Context, arg sqlc.ListVaultEntriesByScopeParams) ([]sqlc.VaultEntry, error)
+	ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeParams) ([]sqlc.VaultEntry, error)
+	UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) error
+	DeleteVaultEntryByScope(ctx context.Context, arg sqlc.DeleteVaultEntryByScopeParams) error
 }
 
 // Service provides vault operations: storing, retrieving, and decrypting
-// per-user secrets using age encryption.
+// secrets using user-level or system-level age encryption.
 type Service struct {
 	db              DB
 	masterIdentity  *age.X25519Identity
@@ -50,6 +60,9 @@ func (s *Service) MasterRecipient() *age.X25519Recipient {
 
 // EntryMeta holds non-sensitive metadata for a vault entry.
 type EntryMeta struct {
+	Scope     string
+	UserID    string
+	AgentID   string
 	Name      string
 	CreatedAt string
 	UpdatedAt string
@@ -67,39 +80,53 @@ func (s *Service) DecryptSystem(ciphertext string) (string, error) {
 }
 
 // Set validates name, encrypts plaintext with the user's public key, and
-// upserts the vault entry. The user must already have age keys provisioned.
+// upserts the user-level vault entry. The user must already have age keys provisioned.
 func (s *Service) Set(ctx context.Context, userID string, name string, plaintext string) error {
-	return s.set(ctx, userID, name, plaintext, true)
+	return s.set(ctx, ScopeUser, userID, "", name, plaintext, true)
+}
+
+// SetScoped stores a user-owned secret in the requested vault scope.
+func (s *Service) SetScoped(ctx context.Context, scope string, userID string, agentID string, name string, plaintext string) error {
+	if isSystemScope(scope) {
+		return fmt.Errorf("vault: system scope requires privileged caller")
+	}
+	return s.set(ctx, scope, userID, agentID, name, plaintext, true)
+}
+
+// SetSystemScoped stores an admin-managed secret. Call only after an explicit
+// admin authorization check at the API boundary.
+func (s *Service) SetSystemScoped(ctx context.Context, scope string, agentID string, name string, plaintext string) error {
+	if !isSystemScope(scope) {
+		return fmt.Errorf("vault: scope %q is not system-managed", scope)
+	}
+	return s.set(ctx, scope, "", agentID, name, plaintext, true)
 }
 
 // SetReserved stores an internal reserved env var. Callers must not pass user input.
 func (s *Service) SetReserved(ctx context.Context, userID string, name string, plaintext string) error {
-	return s.set(ctx, userID, name, plaintext, false)
+	return s.set(ctx, ScopeUser, userID, "", name, plaintext, false)
 }
 
-func (s *Service) set(ctx context.Context, userID string, name string, plaintext string, validate bool) error {
+func (s *Service) set(ctx context.Context, scope string, userID string, agentID string, name string, plaintext string, validate bool) error {
 	if validate {
 		if err := ValidateName(name); err != nil {
 			return err
 		}
 	}
+	if err := validateScope(scope, userID, agentID); err != nil {
+		return err
+	}
 
-	user, err := s.db.GetVaultUser(ctx, userID)
+	ciphertext, err := s.encryptForScope(ctx, scope, userID, plaintext)
 	if err != nil {
-		return fmt.Errorf("vault: set %q: get user: %w", name, err)
-	}
-	if user.AgePublicKey == "" {
-		return fmt.Errorf("vault: set %q: user %s has no age public key provisioned", name, userID)
+		return fmt.Errorf("vault: set %q: %w", name, err)
 	}
 
-	ciphertext, err := Encrypt(user.AgePublicKey, plaintext)
-	if err != nil {
-		return fmt.Errorf("vault: set %q: encrypt: %w", name, err)
-	}
-
-	if err := s.db.UpsertVaultEntry(ctx, sqlc.UpsertVaultEntryParams{
+	if err := s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
 		ID:         uuid.NewString(),
-		UserID:     userID,
+		Scope:      scope,
+		UserID:     nullString(userID),
+		AgentID:    nullString(agentID),
 		Name:       name,
 		Ciphertext: ciphertext,
 	}); err != nil {
@@ -108,99 +135,254 @@ func (s *Service) set(ctx context.Context, userID string, name string, plaintext
 	return nil
 }
 
-// Delete removes a vault entry by name for the given user.
+func (s *Service) encryptForScope(ctx context.Context, scope string, userID string, plaintext string) (string, error) {
+	if scope == ScopeSystem || scope == ScopeSystemAgent {
+		ciphertext, err := s.EncryptSystem(plaintext)
+		if err != nil {
+			return "", fmt.Errorf("encrypt system: %w", err)
+		}
+		return ciphertext, nil
+	}
+
+	user, err := s.db.GetVaultUser(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("get user: %w", err)
+	}
+	if user.AgePublicKey == "" {
+		return "", fmt.Errorf("user %s has no age public key provisioned", userID)
+	}
+
+	ciphertext, err := Encrypt(user.AgePublicKey, plaintext)
+	if err != nil {
+		return "", fmt.Errorf("encrypt: %w", err)
+	}
+	return ciphertext, nil
+}
+
+// Delete removes a user-level vault entry by name for the given user.
 func (s *Service) Delete(ctx context.Context, userID string, name string) error {
-	if err := s.db.DeleteVaultEntry(ctx, sqlc.DeleteVaultEntryParams{
-		UserID: userID,
-		Name:   name,
+	return s.DeleteScoped(ctx, ScopeUser, userID, "", name)
+}
+
+// DeleteScoped removes a user-owned vault entry by name and scope.
+func (s *Service) DeleteScoped(ctx context.Context, scope string, userID string, agentID string, name string) error {
+	if isSystemScope(scope) {
+		return fmt.Errorf("vault: system scope requires privileged caller")
+	}
+	return s.deleteScoped(ctx, scope, userID, agentID, name)
+}
+
+// DeleteSystemScoped removes an admin-managed vault entry by name and scope.
+func (s *Service) DeleteSystemScoped(ctx context.Context, scope string, agentID string, name string) error {
+	if !isSystemScope(scope) {
+		return fmt.Errorf("vault: scope %q is not system-managed", scope)
+	}
+	return s.deleteScoped(ctx, scope, "", agentID, name)
+}
+
+func (s *Service) deleteScoped(ctx context.Context, scope string, userID string, agentID string, name string) error {
+	if err := validateScope(scope, userID, agentID); err != nil {
+		return err
+	}
+	if err := s.db.DeleteVaultEntryByScope(ctx, sqlc.DeleteVaultEntryByScopeParams{
+		Scope:   scope,
+		UserID:  nullString(userID),
+		AgentID: nullString(agentID),
+		Name:    name,
 	}); err != nil {
 		return fmt.Errorf("vault: delete %q: %w", name, err)
 	}
 	return nil
 }
 
-// Get decrypts and returns the plaintext value of a single vault entry by name.
+// Get decrypts and returns the plaintext value of a single user-level vault entry by name.
 func (s *Service) Get(ctx context.Context, userID string, name string) (string, error) {
-	user, err := s.db.GetVaultUser(ctx, userID)
-	if err != nil {
-		return "", fmt.Errorf("vault: get %q: get user: %w", name, err)
-	}
-	if user.AgePrivateKey == "" {
-		return "", fmt.Errorf("vault: get %q: user %s has no age private key provisioned", name, userID)
-	}
+	return s.GetScoped(ctx, ScopeUser, userID, "", name)
+}
 
-	entry, err := s.db.GetVaultEntry(ctx, sqlc.GetVaultEntryParams{
-		UserID: userID,
-		Name:   name,
+// GetScoped decrypts and returns one scoped vault entry by name.
+func (s *Service) GetScoped(ctx context.Context, scope string, userID string, agentID string, name string) (string, error) {
+	if err := validateScope(scope, userID, agentID); err != nil {
+		return "", err
+	}
+	entry, err := s.db.GetVaultEntryByScope(ctx, sqlc.GetVaultEntryByScopeParams{
+		Scope:   scope,
+		UserID:  nullString(userID),
+		AgentID: nullString(agentID),
+		Name:    name,
 	})
 	if err != nil {
 		return "", fmt.Errorf("vault: get %q: %w", name, err)
 	}
-
-	plaintext, err := Decrypt(s.masterIdentity, user.AgePrivateKey, entry.Ciphertext)
-	if err != nil {
-		return "", fmt.Errorf("vault: get %q: decrypt: %w", name, err)
-	}
-	return plaintext, nil
+	return s.decryptEntry(ctx, entry)
 }
 
-// List returns metadata for all vault entries owned by userID. Ciphertext is
-// never included in the result.
-// GetMeta returns non-sensitive metadata for a single vault entry by name.
+// GetMeta returns non-sensitive metadata for a single user-level vault entry by name.
 func (s *Service) GetMeta(ctx context.Context, userID string, name string) (EntryMeta, error) {
-	entry, err := s.db.GetVaultEntry(ctx, sqlc.GetVaultEntryParams{
-		UserID: userID,
-		Name:   name,
+	return s.GetScopedMeta(ctx, ScopeUser, userID, "", name)
+}
+
+// GetScopedMeta returns non-sensitive metadata for a single scoped vault entry by name.
+func (s *Service) GetScopedMeta(ctx context.Context, scope string, userID string, agentID string, name string) (EntryMeta, error) {
+	entry, err := s.db.GetVaultEntryByScope(ctx, sqlc.GetVaultEntryByScopeParams{
+		Scope:   scope,
+		UserID:  nullString(userID),
+		AgentID: nullString(agentID),
+		Name:    name,
 	})
 	if err != nil {
 		return EntryMeta{}, fmt.Errorf("vault: get meta %q: %w", name, err)
 	}
-	return EntryMeta{
-		Name:      entry.Name,
-		CreatedAt: entry.CreatedAt,
-		UpdatedAt: entry.UpdatedAt,
-	}, nil
+	return metaFromEntry(entry), nil
 }
 
 func (s *Service) List(ctx context.Context, userID string) ([]EntryMeta, error) {
-	entries, err := s.db.ListVaultEntriesByUser(ctx, userID)
+	return s.ListScoped(ctx, ScopeUser, userID, "")
+}
+
+// ListScoped returns metadata for all user-owned vault entries in one effective scope.
+func (s *Service) ListScoped(ctx context.Context, scope string, userID string, agentID string) ([]EntryMeta, error) {
+	if isSystemScope(scope) {
+		return nil, fmt.Errorf("vault: system scope requires privileged caller")
+	}
+	return s.listScoped(ctx, scope, userID, agentID)
+}
+
+// ListSystemScoped returns metadata for admin-managed vault entries in one effective scope.
+func (s *Service) ListSystemScoped(ctx context.Context, scope string, agentID string) ([]EntryMeta, error) {
+	if !isSystemScope(scope) {
+		return nil, fmt.Errorf("vault: scope %q is not system-managed", scope)
+	}
+	return s.listScoped(ctx, scope, "", agentID)
+}
+
+func (s *Service) listScoped(ctx context.Context, scope string, userID string, agentID string) ([]EntryMeta, error) {
+	if err := validateScope(scope, userID, agentID); err != nil {
+		return nil, err
+	}
+	entries, err := s.db.ListVaultEntriesByScope(ctx, sqlc.ListVaultEntriesByScopeParams{
+		Scope:   scope,
+		UserID:  nullString(userID),
+		AgentID: nullString(agentID),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("vault: list: %w", err)
 	}
-	meta := make([]EntryMeta, len(entries))
-	for i, e := range entries {
-		meta[i] = EntryMeta{
-			Name:      e.Name,
-			CreatedAt: e.CreatedAt,
-			UpdatedAt: e.UpdatedAt,
-		}
-	}
-	return meta, nil
+	return metasFromEntries(entries), nil
 }
 
-// LoadEnv decrypts all vault entries for userID and returns them as a
-// name→plaintext map. Intended for injecting secrets into sandbox environments.
+// LoadEnv decrypts all user-level vault entries for userID and returns them as a
+// name→plaintext map. Intended for backward-compatible callers.
 func (s *Service) LoadEnv(ctx context.Context, userID string) (map[string]string, error) {
-	user, err := s.db.GetVaultUser(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("vault: load env: get user: %w", err)
-	}
-	if user.AgePrivateKey == "" {
-		return nil, fmt.Errorf("vault: load env: user %s has no age private key provisioned", userID)
-	}
+	return s.LoadEnvForAgent(ctx, userID, "")
+}
 
-	entries, err := s.db.ListVaultEntriesByUser(ctx, userID)
+// LoadEnvForAgent resolves runtime env in the SQL precedence order; later scopes override earlier scopes.
+func (s *Service) LoadEnvForAgent(ctx context.Context, userID string, agentID string) (map[string]string, error) {
+	entries, err := s.db.ListVaultEntriesForRuntime(ctx, sqlc.ListVaultEntriesForRuntimeParams{
+		UserID:  nullString(userID),
+		AgentID: nullString(agentID),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("vault: load env: list entries: %w", err)
 	}
 
 	env := make(map[string]string, len(entries))
 	for _, e := range entries {
-		plaintext, err := Decrypt(s.masterIdentity, user.AgePrivateKey, e.Ciphertext)
+		plaintext, err := s.decryptEntry(ctx, e)
 		if err != nil {
-			return nil, fmt.Errorf("vault: load env: decrypt %q: %w", e.Name, err)
+			slog.Warn("vault env entry skipped",
+				"component", "vault",
+				"scope", e.Scope,
+				"name", e.Name,
+				"error", err,
+			)
+			continue
 		}
 		env[e.Name] = plaintext
 	}
 	return env, nil
+}
+
+func (s *Service) decryptEntry(ctx context.Context, entry sqlc.VaultEntry) (string, error) {
+	if entry.Scope == ScopeSystem || entry.Scope == ScopeSystemAgent {
+		return s.DecryptSystem(entry.Ciphertext)
+	}
+	if !entry.UserID.Valid || entry.UserID.String == "" {
+		return "", fmt.Errorf("user-scoped entry %q has no user", entry.Name)
+	}
+	user, err := s.db.GetVaultUser(ctx, entry.UserID.String)
+	if err != nil {
+		return "", fmt.Errorf("get user: %w", err)
+	}
+	if user.AgePrivateKey == "" {
+		return "", fmt.Errorf("user %s has no age private key provisioned", entry.UserID.String)
+	}
+	plaintext, err := Decrypt(s.masterIdentity, user.AgePrivateKey, entry.Ciphertext)
+	if err != nil {
+		return "", fmt.Errorf("decrypt: %w", err)
+	}
+	return plaintext, nil
+}
+
+func metaFromEntry(e sqlc.VaultEntry) EntryMeta {
+	return EntryMeta{
+		Scope:     e.Scope,
+		UserID:    stringFromNull(e.UserID),
+		AgentID:   stringFromNull(e.AgentID),
+		Name:      e.Name,
+		CreatedAt: e.CreatedAt,
+		UpdatedAt: e.UpdatedAt,
+	}
+}
+
+func metasFromEntries(entries []sqlc.VaultEntry) []EntryMeta {
+	meta := make([]EntryMeta, len(entries))
+	for i, e := range entries {
+		meta[i] = metaFromEntry(e)
+	}
+	return meta
+}
+
+func isSystemScope(scope string) bool {
+	return scope == ScopeSystem || scope == ScopeSystemAgent
+}
+
+func IsAgentScope(scope string) bool {
+	return scope == ScopeUserAgent || scope == ScopeSystemAgent
+}
+
+func validateScope(scope string, userID string, agentID string) error {
+	switch scope {
+	case ScopeUser:
+		if userID == "" || agentID != "" {
+			return fmt.Errorf("vault: user scope requires user_id only")
+		}
+	case ScopeUserAgent:
+		if userID == "" || agentID == "" {
+			return fmt.Errorf("vault: user_agent scope requires user_id and agent_id")
+		}
+	case ScopeSystem:
+		if userID != "" || agentID != "" {
+			return fmt.Errorf("vault: system scope cannot include user_id or agent_id")
+		}
+	case ScopeSystemAgent:
+		if userID != "" || agentID == "" {
+			return fmt.Errorf("vault: system_agent scope requires agent_id only")
+		}
+	default:
+		return fmt.Errorf("vault: invalid scope %q", scope)
+	}
+	return nil
+}
+
+func nullString(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
+}
+
+func stringFromNull(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
 }

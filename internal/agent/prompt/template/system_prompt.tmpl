@@ -15,7 +15,7 @@ The `stella` CLI is self-documenting. Run `stella <command> --help` via bash to 
 
 Available command groups (use via `bash` tool):
 
-- `stella vault` — Store and retrieve encrypted secrets (API keys, tokens) available to the agent at runtime
+- `stella vault` — Store and retrieve encrypted secrets (API keys, tokens) available to the agent at runtime; Web UI secrets may be scoped to user, user+agent, system, or system+agent
 - `stella oauth` — Connect external services (GitHub, Google, etc.) via OAuth. For `connect`: give the user the authorization URL and code, ask them to authorize and to tell you when they're done, then run `stella oauth status <provider>` yourself to confirm. Never tell the user to run a command.
 - `stella scheduler` — Create cron, interval, or one-shot jobs that trigger the agent on a schedule
 - `stella task` — Manage durable background tasks with lifecycle tracking and human-in-the-loop actions

@@ -2,23 +2,32 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   deleteOAuthProviderConfig,
-  deleteVaultEntry as deleteVaultEntryRequest,
+  deleteScopedVaultEntry as deleteVaultEntryRequest,
   disconnectOAuth as disconnectOAuthRequest,
   getOAuthConnected,
   getOAuthProviderConfig,
+  listAgents,
   listOAuthProviders,
-  listVaultEntries,
+  listScopedVaultEntries,
   pollOAuthFlow,
   setOAuthProviderConfig,
-  setVaultEntry,
+  setScopedVaultEntry,
   startOAuthFlow,
 } from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
-import type { OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
+import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
@@ -35,12 +44,60 @@ import {
   DetailPanelHeader,
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
-import { KeyRound, Plug, Plus } from "lucide-react";
+import { KeyRound, Lock, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
 
 const SIMPLE_ICON_PATHS: Record<string, string> = {
   github: siGithub.path,
   x: siX.path,
+};
+
+type VaultScope = VaultEntry["scope"];
+type ScopeOwner = "me" | "global";
+type ScopeRange = "all" | "specific";
+
+// Reserved keys are written and rotated by stella itself (e.g. the auto session
+// token). Surface them as read-only so users don't delete a managed secret.
+const RESERVED_VAULT_KEYS = new Set(["STELLA_TOKEN"]);
+
+function isAgentVaultScope(scope: VaultScope) {
+  return scope === "user_agent" || scope === "system_agent";
+}
+
+function toVaultScope(owner: ScopeOwner, range: ScopeRange): VaultScope {
+  if (range === "specific") return owner === "global" ? "system_agent" : "user_agent";
+  return owner === "global" ? "system" : "user";
+}
+
+// One hue per scope, drawn from the chart palette tokens. Reused by the list
+// group rails, the row icon tint, and the precedence ladder so a scope reads as
+// the same color everywhere.
+const SCOPE_COLOR: Record<VaultScope, { dot: string; text: string; soft: string }> = {
+  user: { dot: "bg-chart-2", text: "text-chart-2", soft: "bg-chart-2/12" },
+  user_agent: { dot: "bg-chart-1", text: "text-chart-1", soft: "bg-chart-1/12" },
+  system: { dot: "bg-chart-4", text: "text-chart-4", soft: "bg-chart-4/12" },
+  system_agent: { dot: "bg-chart-5", text: "text-chart-5", soft: "bg-chart-5/12" },
+};
+
+// Render order for the grouped vault list.
+const SCOPE_ORDER: VaultScope[] = ["user", "user_agent", "system", "system_agent"];
+
+// Resolution precedence, highest first: a higher scope's value overrides a lower
+// one at runtime. Drives the precedence ladder so the override chain is visible.
+const SCOPE_PRIORITY: VaultScope[] = ["user_agent", "user", "system_agent", "system"];
+
+const SCOPE_LABEL_KEY: Record<VaultScope, MessageKey> = {
+  user: "credentials.scope.user.label",
+  user_agent: "credentials.scope.userAgent.label",
+  system: "credentials.scope.system.label",
+  system_agent: "credentials.scope.systemAgent.label",
+};
+
+const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
+  user: "credentials.scope.user.desc",
+  user_agent: "credentials.scope.userAgent.desc",
+  system: "credentials.scope.system.desc",
+  system_agent: "credentials.scope.systemAgent.desc",
 };
 
 function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
@@ -62,9 +119,23 @@ export function CredentialsPage() {
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  // Add-form scope state, independent of the list (which shows every visible scope).
+  const [formOwner, setFormOwner] = useState<ScopeOwner>("me");
+  const [formRange, setFormRange] = useState<ScopeRange>("all");
+  const [formAgentID, setFormAgentID] = useState("");
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
-  const [showAddSecret, setShowAddSecret] = useState(false);
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+
+  const openAddSheet = useCallback(() => {
+    setNewSecretName("");
+    setNewSecretValue("");
+    setFormOwner("me");
+    setFormRange("all");
+    setFormAgentID("");
+    setAddSheetOpen(true);
+  }, []);
 
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [oauthStatus, setOauthStatus] = useState<
@@ -83,15 +154,68 @@ export function CredentialsPage() {
   const { toasts, showToast } = useToast();
   const pollAbortRef = useRef<Record<string, boolean>>({});
 
-  const loadVaultEntries = useCallback(async () => {
-    setVaultLoading(true);
+  // Fetch every scope the caller can see and merge into one flat list. Agent
+  // scopes are keyed per-agent, so they need one query per agent; the page loads
+  // once, so the fan-out stays bounded. Empty/failed scopes contribute nothing.
+  const loadVaultEntries = useCallback(
+    async (agentList: Agent[]) => {
+      setVaultLoading(true);
+      try {
+        const fetchScope = async (scope: VaultScope, agentID?: string) => {
+          try {
+            const { data } = await listScopedVaultEntries({
+              query: { scope, agent_id: agentID },
+              throwOnError: true,
+            });
+            return (data?.entries as VaultEntry[]) ?? [];
+          } catch {
+            return [];
+          }
+        };
+        const jobs: Promise<VaultEntry[]>[] = [fetchScope("user")];
+        if (isAdmin) jobs.push(fetchScope("system"));
+        for (const agent of agentList) {
+          jobs.push(fetchScope("user_agent", agent.id));
+          if (isAdmin) jobs.push(fetchScope("system_agent", agent.id));
+        }
+        const results = await Promise.all(jobs);
+        setVaultEntries(results.flat());
+      } finally {
+        setVaultLoading(false);
+      }
+    },
+    [isAdmin],
+  );
+
+  // Refetch a single scope (plus agent, for agent-keyed scopes) and splice it
+  // back into the flat list. A mutation only changes one slice, so this avoids
+  // the full 2N+2 fan-out of loadVaultEntries on every add/delete.
+  const reloadScope = useCallback(async (scope: VaultScope, agentID?: string) => {
+    let fetched: VaultEntry[] = [];
     try {
-      const { data } = await listVaultEntries({ throwOnError: true });
-      setVaultEntries((data?.entries as VaultEntry[]) ?? []);
+      const { data } = await listScopedVaultEntries({
+        query: { scope, agent_id: agentID },
+        throwOnError: true,
+      });
+      fetched = (data?.entries as VaultEntry[]) ?? [];
     } catch {
-      setVaultEntries([]);
-    } finally {
-      setVaultLoading(false);
+      fetched = [];
+    }
+    setVaultEntries((prev) => [
+      ...prev.filter((e) => !(e.scope === scope && (agentID ? e.agent_id === agentID : true))),
+      ...fetched,
+    ]);
+  }, []);
+
+  const loadAgents = useCallback(async () => {
+    try {
+      const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+      const list = (data?.agents as Agent[]) ?? [];
+      setAgents(list);
+      return list;
+    } catch {
+      setAgents([]);
+      return [];
     }
   }, []);
 
@@ -165,7 +289,8 @@ export function CredentialsPage() {
 
   useEffect(() => {
     const init = async () => {
-      await loadVaultEntries();
+      const agentList = await loadAgents();
+      await loadVaultEntries(agentList);
       const providers = await loadOAuthProviders();
       await Promise.all([
         ...providers.map((p) => checkOAuthConnected(p.provider)),
@@ -178,48 +303,75 @@ export function CredentialsPage() {
         pollAbortRef.current[key] = true;
       }
     };
-  }, [loadVaultEntries, loadOAuthProviders, checkOAuthConnected, loadProviderConfig, isAdmin]);
+  }, [
+    loadVaultEntries,
+    loadAgents,
+    loadOAuthProviders,
+    checkOAuthConnected,
+    loadProviderConfig,
+    isAdmin,
+  ]);
 
   const addVaultEntry = useCallback(async () => {
     if (!newSecretName) {
-      showToast("Secret name is required", "error");
+      showToast(t("credentials.secretNameRequired"), "error");
       return;
     }
     if (!newSecretValue) {
-      showToast("Secret value is required", "error");
+      showToast(t("credentials.secretValueRequired"), "error");
       return;
     }
+    const agentScoped = formRange === "specific";
+    if (agentScoped && !formAgentID) {
+      showToast(t("credentials.scope.agentMissing"), "error");
+      return;
+    }
+    const scope = toVaultScope(formOwner, formRange);
     setVaultSaving(true);
     try {
-      await setVaultEntry({
+      await setScopedVaultEntry({
         path: { name: newSecretName },
-        body: { value: newSecretValue },
+        body: {
+          value: newSecretValue,
+          scope,
+          agent_id: agentScoped ? formAgentID : undefined,
+        },
         throwOnError: true,
       });
-      showToast("Secret saved");
+      showToast(t("credentials.secretSaved"));
       setNewSecretName("");
       setNewSecretValue("");
-      setShowAddSecret(false);
-      await loadVaultEntries();
+      setAddSheetOpen(false);
+      await reloadScope(scope, agentScoped ? formAgentID : undefined);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to save secret", "error");
+      showToast(e instanceof Error ? e.message : t("credentials.secretSaveFailed"), "error");
     } finally {
       setVaultSaving(false);
     }
-  }, [newSecretName, newSecretValue, showToast, loadVaultEntries]);
+  }, [newSecretName, newSecretValue, formOwner, formRange, formAgentID, showToast, reloadScope, t]);
 
   const deleteVaultEntry = useCallback(
-    async (name: string) => {
-      if (!window.confirm(`Delete secret "${name}"?`)) return;
+    async (entry: VaultEntry) => {
+      if (!window.confirm(t("credentials.deleteSecretConfirm", { name: entry.name }))) return;
       try {
-        await deleteVaultEntryRequest({ path: { name }, throwOnError: true });
-        showToast("Secret deleted");
-        await loadVaultEntries();
+        await deleteVaultEntryRequest({
+          path: { name: entry.name },
+          query: {
+            scope: entry.scope,
+            agent_id: isAgentVaultScope(entry.scope) ? (entry.agent_id ?? undefined) : undefined,
+          },
+          throwOnError: true,
+        });
+        showToast(t("credentials.secretDeleted"));
+        await reloadScope(
+          entry.scope,
+          isAgentVaultScope(entry.scope) ? (entry.agent_id ?? undefined) : undefined,
+        );
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Failed to delete secret", "error");
+        showToast(e instanceof Error ? e.message : t("credentials.secretDeleteFailed"), "error");
       }
     },
-    [showToast, loadVaultEntries],
+    [showToast, reloadScope, t],
   );
 
   const pollUntilDone = useCallback(
@@ -330,6 +482,127 @@ export function CredentialsPage() {
   );
 
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
+  const agentName = (id?: string | null) =>
+    (id && agents.find((a) => a.id === id)?.name) || id || "";
+  const vaultGroups = SCOPE_ORDER.map((scope) => ({
+    scope,
+    entries: filteredVaultEntries.filter((e) => e.scope === scope),
+  })).filter((g) => g.entries.length > 0);
+  const formScope = toVaultScope(formOwner, formRange);
+
+  const selectScope = (scope: VaultScope) => {
+    setFormOwner(scope === "system" || scope === "system_agent" ? "global" : "me");
+    setFormRange(scope === "user_agent" || scope === "system_agent" ? "specific" : "all");
+  };
+
+  const vaultAddPanel = (
+    <DetailPanel>
+      <DetailPanelHeader title={t("credentials.addTitle")} />
+
+      {/* The precedence ladder IS the scope picker: each row is selectable and
+          its position shows where the secret lands in the runtime override order.
+          One control replaces a separate picker plus a static legend. */}
+      <div className="space-y-3">
+        <p className="text-xs font-medium text-muted-foreground">
+          {t("credentials.scope.priorityTitle")}
+        </p>
+        <ul className="space-y-1">
+          {SCOPE_PRIORITY.filter(
+            (scope) => isAdmin || (scope !== "system" && scope !== "system_agent"),
+          ).map((scope) => {
+            const active = scope === formScope;
+            return (
+              <li key={scope}>
+                <button
+                  type="button"
+                  onClick={() => selectScope(scope)}
+                  className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                    active ? SCOPE_COLOR[scope].soft : "hover:bg-muted/60"
+                  }`}
+                >
+                  <span className={`size-2.5 shrink-0 rounded-full ${SCOPE_COLOR[scope].dot}`} />
+                  <span
+                    className={
+                      active ? `font-semibold ${SCOPE_COLOR[scope].text}` : "text-foreground"
+                    }
+                  >
+                    {t(SCOPE_LABEL_KEY[scope])}
+                  </span>
+                  {active && (
+                    <span className="ml-auto text-xs font-medium text-muted-foreground">
+                      {t("credentials.scope.current")}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+
+        <p className="px-1 text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[formScope])}</p>
+
+        {formRange === "specific" && (
+          <Select
+            value={formAgentID || null}
+            onValueChange={(value) => setFormAgentID((value as string | null) ?? "")}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={t("credentials.scope.selectAgent")}>
+                {(value) =>
+                  value ? agents.find((agent) => agent.id === value)?.name || value : null
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {agents.map((agent) => (
+                <SelectItem key={agent.id} value={agent.id}>
+                  {agent.name || agent.id}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        )}
+      </div>
+
+      <div className="space-y-3 border-t border-border pt-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            {t("credentials.secretName")}
+          </label>
+          <Input
+            type="text"
+            value={newSecretName}
+            onChange={(e) => setNewSecretName(e.target.value)}
+            placeholder="e.g. MY_API_KEY"
+            autoComplete="off"
+            nativeInput
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            {t("credentials.value")}
+          </label>
+          <Input
+            type="password"
+            value={newSecretValue}
+            onChange={(e) => setNewSecretValue(e.target.value)}
+            placeholder="secret value"
+            autoComplete="new-password"
+            nativeInput
+          />
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <Button size="sm" variant="ghost" onClick={() => setAddSheetOpen(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button size="sm" loading={vaultSaving} onClick={addVaultEntry}>
+            {t("credentials.addSecret")}
+          </Button>
+        </div>
+      </div>
+    </DetailPanel>
+  );
+
   const sheetProviderData = sheetProvider
     ? oauthProviders.find((p) => p.provider === sheetProvider)
     : undefined;
@@ -561,98 +834,90 @@ export function CredentialsPage() {
           title={t("credentials.tab.vault")}
           count={filteredVaultEntries.length}
           action={
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => setShowAddSecret((v) => !v)}
-              className="cursor-pointer"
-            >
+            <Button variant="ghost" size="xs" onClick={openAddSheet} className="cursor-pointer">
               <Plus className="size-3.5" />
               {t("credentials.addSecret")}
             </Button>
           }
         >
-          {vaultLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {vaultLoading && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
 
-          {filteredVaultEntries.length > 0 && (
-            <SettingsList>
-              {filteredVaultEntries.map((entry) => (
-                <SettingsRow
-                  key={entry.name}
-                  icon={<KeyRound className="size-4" />}
-                  title={<span className="font-mono">{entry.name}</span>}
-                  subtitle={`Updated ${formatTime(entry.updated_at)} · created ${formatTime(
-                    entry.created_at,
-                  )}`}
-                  menu={[
-                    {
-                      label: t("common.delete"),
-                      destructive: true,
-                      onClick: () => void deleteVaultEntry(entry.name),
-                    },
-                  ]}
-                />
-              ))}
-            </SettingsList>
-          )}
-
-          {filteredVaultEntries.length === 0 && !vaultLoading && (
-            <p className="text-sm text-muted-foreground py-4 text-center">No secrets stored yet.</p>
-          )}
-
-          {showAddSecret && (
-            <div className="rounded-xl border border-border bg-card p-4 mt-3 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {t("credentials.secretName")}
-                  </label>
-                  <Input
-                    type="text"
-                    value={newSecretName}
-                    onChange={(e) => setNewSecretName(e.target.value)}
-                    placeholder="e.g. MY_API_KEY"
-                    autoComplete="off"
-                    nativeInput
-                  />
+          <div className="space-y-5">
+            {vaultGroups.map((group) => {
+              const color = SCOPE_COLOR[group.scope];
+              return (
+                <div key={group.scope} className="space-y-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <span className={`size-2 shrink-0 rounded-full ${color.dot}`} />
+                    <span className="text-xs font-semibold text-foreground">
+                      {t(SCOPE_LABEL_KEY[group.scope])}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{group.entries.length}</span>
+                  </div>
+                  <SettingsList>
+                    {group.entries.map((entry) => {
+                      const reserved = RESERVED_VAULT_KEYS.has(entry.name);
+                      return (
+                        <SettingsRow
+                          key={`${entry.scope}:${entry.agent_id ?? ""}:${entry.name}`}
+                          icon={
+                            <span className={color.text}>
+                              {reserved ? (
+                                <Lock className="size-4" />
+                              ) : (
+                                <KeyRound className="size-4" />
+                              )}
+                            </span>
+                          }
+                          title={<span className="font-mono">{entry.name}</span>}
+                          chip={
+                            entry.agent_id ? (
+                              <Badge variant="outline" size="sm">
+                                {agentName(entry.agent_id)}
+                              </Badge>
+                            ) : reserved ? (
+                              <Badge variant="secondary" size="sm">
+                                {t("credentials.scope.reserved")}
+                              </Badge>
+                            ) : undefined
+                          }
+                          subtitle={`updated ${formatTime(entry.updated_at)} · created ${formatTime(
+                            entry.created_at,
+                          )}`}
+                          menu={
+                            reserved
+                              ? []
+                              : [
+                                  {
+                                    label: t("common.delete"),
+                                    destructive: true,
+                                    onClick: () => void deleteVaultEntry(entry),
+                                  },
+                                ]
+                          }
+                        />
+                      );
+                    })}
+                  </SettingsList>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Value</label>
-                  <Input
-                    type="password"
-                    value={newSecretValue}
-                    onChange={(e) => setNewSecretValue(e.target.value)}
-                    placeholder="secret value"
-                    autoComplete="new-password"
-                    nativeInput
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowAddSecret(false)}
-                  className="cursor-pointer"
-                >
-                  {t("common.cancel")}
-                </Button>
-                <Button
-                  size="sm"
-                  loading={vaultSaving}
-                  onClick={addVaultEntry}
-                  className="cursor-pointer"
-                >
-                  {t("credentials.addSecret")}
-                </Button>
-              </div>
-            </div>
+              );
+            })}
+          </div>
+
+          {vaultGroups.length === 0 && !vaultLoading && (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              {t("credentials.noSecrets")}
+            </p>
           )}
         </SettingsSection>
       </SettingsGridPage>
 
       <SettingsDetailSheet open={!!sheetProvider} onClose={() => setSheetProvider(null)}>
         {providerSheet}
+      </SettingsDetailSheet>
+
+      <SettingsDetailSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)}>
+        {vaultAddPanel}
       </SettingsDetailSheet>
 
       <ToastContainer messages={toasts} />

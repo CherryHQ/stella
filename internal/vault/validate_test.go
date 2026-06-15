@@ -17,7 +17,6 @@ func TestValidateName(t *testing.T) {
 		"API_KEY_2",
 		"Z9",
 		"MY_VAR_123",
-		vault.StellaTokenName,
 	}
 	for _, name := range valid {
 		t.Run("valid/"+name, func(t *testing.T) {
@@ -54,6 +53,7 @@ func TestValidateName(t *testing.T) {
 		input string
 	}{
 		{"STELLA_HOME", "STELLA_HOME"},
+		{"STELLA_TOKEN", vault.StellaTokenName},
 		{"PATH", "PATH"},
 		{"HOME", "HOME"},
 		{"LC_ALL", "LC_ALL"},
