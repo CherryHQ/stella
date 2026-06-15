@@ -19,12 +19,25 @@ import (
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
-	miseDir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
-	// A set principal that yields no dir means the user/group ID failed the
-	// safe-path-component check. Don't fail the session (we fall back to the
-	// shared read-only system tree and a session-local temp dir), but surface the
-	// silent downgrade so a malformed ID is diagnosable instead of mysterious.
-	if id != "" && miseDir == "" {
+	return pkgsandbox.FilesystemPolicy{
+		WorkspaceRoot:       paths.UserRoot,
+		WorkingDir:          paths.WorkDir,
+		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
+		TempDirHost:         userTempDir(principalDir, id),
+	}
+}
+
+// miseUserDirHost returns the host path of this session's writable per-user mise
+// home, or "" when there is no per-user tree: no principal, or an ID that fails
+// the safe-path-component check (the session then falls back to the shared
+// read-only system tree). A downgrade from an unsafe ID is logged so a malformed
+// ID is diagnosable instead of mysterious. The caller seeds the tree and adds it
+// to the policy's writable mounts; keeping that mise-specific wiring here leaves
+// the FilesystemPolicy mise-agnostic.
+func miseUserDirHost(paths Paths, cfg Config) string {
+	principalDir, id := misePrincipal(cfg)
+	dir := pkgsandbox.MiseUserToolsDir(paths.StellaHome, principalDir, id)
+	if id != "" && dir == "" {
 		slog.Warn("per-user mise tree disabled: unsafe id, using shared read-only system tree",
 			"component", "runner_sandbox",
 			"user_id", cfg.UserID,
@@ -32,13 +45,7 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 			"principal_dir", principalDir,
 		)
 	}
-	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot:       paths.UserRoot,
-		WorkingDir:          paths.WorkDir,
-		ExtraReadOnlyMounts: skillMountsForSandbox(paths),
-		TempDirHost:         userTempDir(principalDir, id),
-		MiseUserDirHost:     miseDir,
-	}
+	return dir
 }
 
 // misePrincipal returns the home subtree and raw ID for this session's per-user

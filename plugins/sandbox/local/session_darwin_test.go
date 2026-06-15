@@ -43,7 +43,7 @@ func TestWrapCommand_darwin_usesSeatbelt(t *testing.T) {
 
 func TestBuildSeatbeltProfile_structure(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
-	profile := buildSeatbeltProfile(policy)
+	profile := buildSeatbeltProfile(policy, "")
 
 	for _, want := range []string{
 		"(allow default)",
@@ -68,7 +68,7 @@ func TestBuildSeatbeltProfile_allowsMiseRuntimeWriteDirs(t *testing.T) {
 		"MISE_CACHE_DIR": filepath.Join(stellaHome, ".mise-tools", "cache"),
 		"MISE_STATE_DIR": "/tmp/mise-state",
 	}
-	profile := buildSeatbeltProfile(policy)
+	profile := buildSeatbeltProfile(policy, "")
 
 	for _, want := range []string{
 		`(allow file-write* (subpath "` + filepath.Join(stellaHome, ".mise-tools", "cache") + `"))`,
@@ -86,7 +86,7 @@ func TestBuildSeatbeltProfile_ignoresUnsafeMiseRuntimeWriteDirs(t *testing.T) {
 		"MISE_CACHE_DIR": "/",
 		"MISE_STATE_DIR": "relative/state",
 	}
-	profile := buildSeatbeltProfile(policy)
+	profile := buildSeatbeltProfile(policy, "")
 
 	for _, forbidden := range []string{
 		`(allow file-write* (subpath "/"))`,
@@ -98,9 +98,44 @@ func TestBuildSeatbeltProfile_ignoresUnsafeMiseRuntimeWriteDirs(t *testing.T) {
 	}
 }
 
+// TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree verifies the cache/state
+// fallback holes are keyed on the per-user mise tree recovered from the env, not
+// on len(ExtraWritableMounts): an unrelated writable mount must not suppress them
+// (the #442 scenario), and a real per-user mise tree must.
+func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
+	stellaHome := t.TempDir()
+	cacheDir := filepath.Join(stellaHome, ".mise-tools", "cache")
+
+	t.Run("unrelated writable mount still emits cache holes", func(t *testing.T) {
+		policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
+		policy.Env = map[string]string{"MISE_CACHE_DIR": cacheDir}
+		policy.Filesystem.ExtraWritableMounts = []string{"/tmp/unrelated"}
+		profile := buildSeatbeltProfile(policy, stellaHome)
+
+		if !strings.Contains(profile, `(allow file-write* (subpath "`+cacheDir+`"))`) {
+			t.Errorf("an unrelated writable mount must not suppress mise cache holes:\n%s", profile)
+		}
+	})
+
+	t.Run("per-user mise tree skips cache fallback", func(t *testing.T) {
+		userDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
+		policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
+		policy.Env = map[string]string{
+			"MISE_DATA_DIR":  userDir,
+			"MISE_CACHE_DIR": "/tmp/mise-cache",
+		}
+		policy.Filesystem.ExtraWritableMounts = []string{userDir}
+		profile := buildSeatbeltProfile(policy, stellaHome)
+
+		if strings.Contains(profile, `(allow file-write* (subpath "/tmp/mise-cache"))`) {
+			t.Errorf("a writable per-user mise tree should skip the cache fallback holes:\n%s", profile)
+		}
+	})
+}
+
 func TestBuildSeatbeltProfile_networkAllowAll(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkAllowAll)
-	profile := buildSeatbeltProfile(policy)
+	profile := buildSeatbeltProfile(policy, "")
 
 	if strings.Contains(profile, "(deny network*)") {
 		t.Error("profile must not deny network when mode is allow_all")

@@ -129,14 +129,17 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure user temp dir: %w", err)
 		}
 	}
-	// Docker carries its own in-image mise tree; the per-user host tree only
-	// applies to host-execution backends (local, none).
-	if resolveBackendName(ctx, cfg) == config.SandboxBackendDocker {
-		fs.MiseUserDirHost = ""
-	}
-	if fs.MiseUserDirHost != "" {
-		if err := pkgsandbox.EnsureUserMiseHome(paths.StellaHome, fs.MiseUserDirHost); err != nil {
-			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure per-user mise home: %w", err)
+	// Per-user mise tree: host-execution backends (local, none) get a writable
+	// per-user mise home, seeded with relative symlinks to the read-only system
+	// installs and mounted writable so the agent can install its own tools.
+	// Docker carries its own in-image mise tree, so it is skipped here (bringing
+	// docker to parity is tracked in #436).
+	if resolveBackendName(ctx, cfg) != config.SandboxBackendDocker {
+		if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
+			if err := pkgsandbox.EnsureUserMiseHome(paths.StellaHome, miseDir); err != nil {
+				return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure per-user mise home: %w", err)
+			}
+			fs.ExtraWritableMounts = append(fs.ExtraWritableMounts, miseDir)
 		}
 	}
 

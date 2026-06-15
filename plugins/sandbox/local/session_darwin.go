@@ -104,7 +104,10 @@ func checkSandboxRequirements() error {
 // the policy requests NetworkDisabled.
 //
 // SBPL evaluates rules in order and the last match wins.
-func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
+//
+// stellaHomeHost is the host STELLA_HOME, used to recognize whether the policy
+// carries a writable per-user mise tree (see the cache/state fallback below).
+func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) string {
 	workspace := policy.WorkspaceRootOrDefault()
 	networkMode := policy.NetworkModeOrDefault()
 
@@ -127,13 +130,18 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy) string {
 	// Dev nodes: required for stdout/stderr, pseudo-terminals, /dev/null, etc.
 	sb.WriteString("(allow file-write* (subpath \"/dev\"))\n")
 
-	// Mise: with a per-user tree, carve out the whole writable mise home so the
-	// agent can install tools (installs/cache/state all live under it). Without
-	// one, the system installs stay read-only and only the narrow cache/state
-	// metadata holes mise needs are opened.
-	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
+	// Extra writable mounts (e.g. the per-user mise home): carve out each subtree
+	// so the agent can write through it — for mise that's installs/cache/state,
+	// all under the tree.
+	for _, dir := range policy.Filesystem.ExtraWritableMounts {
 		fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(dir))
-	} else {
+	}
+	// With no writable per-user mise tree, the shared system installs stay
+	// read-only; mise still needs its cache/state metadata holes open. Key off the
+	// per-user mise data dir recovered from the env — not len(ExtraWritableMounts)
+	// — so an unrelated writable mount cannot suppress these holes. This mirrors
+	// how the none/linux backends recover the per-user mise home from the env.
+	if sandboxpkg.PerUserMiseDataDir(policy.Env, stellaHomeHost) == "" {
 		appendSeatbeltWritableEnvDirs(&sb, policy.Env)
 	}
 
@@ -161,7 +169,7 @@ func appendSeatbeltWritableEnvDirs(sb *strings.Builder, env map[string]string) {
 // wrapCommand wraps name+args with sandbox-exec for macOS Seatbelt isolation.
 // tmpMounts is accepted for signature compatibility with the Linux backend but
 // is not used here — macOS bash and file tools share the same host filesystem.
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, _ string, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
 	if !seatbeltFunctional() {
 		return "", nil, "", fmt.Errorf(
 			"local sandbox: sandbox-exec (macOS Seatbelt) is required but not available",
@@ -173,7 +181,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, _ st
 		return "", nil, "", fmt.Errorf("local exec: look up %q: %w", name, lookErr)
 	}
 
-	profile := buildSeatbeltProfile(policy)
+	profile := buildSeatbeltProfile(policy, stellaHomeHost)
 	seatbeltArgs := []string{"-p", profile, resolved}
 	seatbeltArgs = append(seatbeltArgs, args...)
 	return seatbeltExecPath, seatbeltArgs, sandboxCwd, nil

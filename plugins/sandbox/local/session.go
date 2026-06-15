@@ -107,8 +107,10 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
 	hostSH := f.cfg.StellaHome
 	remap := func(p string) string { return remapStellaHomePath(p, hostSH, sandboxSH) }
+	// Recover the per-user mise home from the runtime env (MISE_DATA_DIR, still a
+	// host path here) and remap it to the sandbox tree to put its shims on PATH.
 	userShims := ""
-	if dir := policy.Filesystem.MiseUserDirHost; dir != "" {
+	if dir := sandboxpkg.PerUserMiseDataDir(env, hostSH); dir != "" {
 		userShims = sandboxpkg.MiseUserShimsDir(remap(dir))
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)

@@ -496,6 +496,29 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 	}
 }
 
+// TestAdjustPolicy_perUserMiseShimsOnPath verifies that when the runtime env
+// points MISE_DATA_DIR at a per-user tree, adjustPolicy prepends that tree's
+// shims (remapped into the sandbox) onto PATH. The per-user shims are derived
+// from the env, not a mise-specific policy field — exercising PerUserMiseDataDir.
+func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
+	hostSH := "/home/user/.stella"
+	sandboxSH := adjustStellaHome(hostSH)
+	if hostSH == sandboxSH {
+		t.Skip("no path remapping on this platform")
+	}
+
+	policy := sandboxpkg.Policy{
+		Env: map[string]string{"MISE_DATA_DIR": hostSH + "/users/u1/.mise-tools"},
+	}
+	f := &Factory{cfg: Config{StellaHome: hostSH}}
+	adjusted := f.adjustPolicy(policy)
+
+	wantShims := sandboxSH + "/users/u1/.mise-tools/shims"
+	if !strings.Contains(adjusted.Env["PATH"], wantShims) {
+		t.Fatalf("PATH must include per-user shims %q, got %q", wantShims, adjusted.Env["PATH"])
+	}
+}
+
 // TestBuildEnv_denyListFiltersVaultKey verifies that STELLA_VAULT_KEY is never
 // copied from the host environment into the sandbox env, even when InheritEnv
 // is true, while other env vars (e.g. PATH) remain present.
